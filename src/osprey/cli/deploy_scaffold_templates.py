@@ -908,7 +908,7 @@ def _web_terminals(profile: dict[str, Any]) -> dict[str, Any] | None:
 
     Resolved through :func:`effective_web_terminals` rather than by reading
     ``modules.web_terminals`` directly, because a ``config:`` block is a flat
-    bag of dotted keys and the bundled persona presets inherit their parent's
+    bag of dotted keys and the bundled tier presets inherit their parent's
     whole subtree (``enabled: true`` and all) while switching the module off
     with a separate, deeper ``modules.web_terminals.enabled: false``. Reading
     the subtree key alone answers "enabled" for a profile the build treats as
@@ -962,22 +962,17 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     # of the panel family in THIS profile's block — the same base the landing
     # page above was resolved against, so the two never drift apart.
     base = _as_port(web.get("web_base_port"), default_port("web", base=port_base))
-    users = web.get("users")
-    for position, entry in enumerate(users if isinstance(users, list) else []):
-        if isinstance(entry, str):
-            name, index = entry, position
-        elif isinstance(entry, dict):
-            name = str(entry.get("name", ""))
-            index = _as_port(entry.get("index"), position)
-        else:
-            continue
-        if not name:
-            continue
+    # Every card the deployment runs, shared app cards included, placed the way
+    # the render places them. Lenient: a probe list is advisory, and an entry
+    # the render would refuse is lint's to report, not this reader's to raise on.
+    from osprey.deployment.web_terminals.roster import roster_entries
+
+    for entry in roster_entries(web, strict=False):
         probes.append(
             Probe(
                 kind="http",
-                label=f"terminal ({name})",
-                port=base + index,
+                label=f"terminal ({entry['name']})",
+                port=base + entry["index"],
                 path=TERMINAL_LIVENESS_PATH,
             )
         )

@@ -11,13 +11,12 @@ stamp was written for.
 The reference is not the preset's raw layer, which no repo ever holds, but
 :func:`~osprey.cli.build_profile_emit.materialized_profile` — the document
 ``osprey init`` would write from the installed preset for this repo today. The
-profile is compared with it key by key, and each persona delta with the persona
-preset the host preset's catalog names for it, both merged over the same
-resolved profile through :func:`~osprey.cli.build_profile_merge.merge_persona_delta`
-so a persona's ``exclude:`` is judged by the merge semantics the build uses.
-What a repo writes for itself rather than copies from the preset is not
-compared: the display name, the materialized data tree, the schema floor, the
-provenance stamp, and each persona's render name.
+profile is compared with it key by key. Each tier and app file is compared the
+same way with :func:`~osprey.cli.build_profile_emit.emit_layer_delta_yaml` —
+the file ``osprey init`` would write from the bundled tier or app its own
+``provenance:`` block names. What a repo writes for itself rather than copies
+from the preset is not compared: the display name, the materialized data tree,
+the schema floor and the provenance stamp.
 
 A difference is deliberate when a ``# <TAG>: <why>`` comment says so — within
 three lines above the profile line it describes, or, for a line the profile
@@ -45,19 +44,24 @@ from osprey.profiles.providers import (
     packaged_catalog_path,
 )
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIR_KINDS,
+    PROFILE_FILENAME,
+    TIERS_DIRNAME,
+)
 
-from .build_profile_document import _read_profile_document
-from .build_profile_emit import materialized_profile, persona_catalog
+from .build_profile_document import _parse_profile_document, _read_profile_document
+from .build_profile_emit import emit_layer_delta_yaml, materialized_profile
 from .build_profile_merge import (
     _resolve_extends,
     compute_preset_hash,
-    merge_persona_delta,
     resolve_profile_document,
 )
-from .build_profile_presets import _load_preset_raw, _normalize_preset_name, _preset_exists
+from .build_profile_presets import _load_preset_raw, _normalize_preset_name
 from .build_profile_resolve import _dotted_leaves
-from .build_profile_schema import ProfileProvenance
-from .profile_root import ROOT_PROFILE_FILENAME, resolve_profile_root
+from .build_profile_schema import DEFAULT_DEVIATION_MARKER, ProfileProvenance
+from .profile_root import layer_files, resolve_profile_root
 
 #: How far above a profile line a marker comment reaches.
 MARKER_REACH = 3
@@ -112,7 +116,7 @@ def _catalog_note(root_dir: Path) -> str | None:
         return None
     return (
         f"{PROVIDERS_FILENAME} is not the provider catalog OSPREY {__version__} ships — "
-        f"`osprey profile expand --providers` refreshes the entries it ships and keeps yours"
+        f"`osprey init --revalidate` refreshes the entries it ships and keeps yours"
     )
 
 
@@ -204,62 +208,139 @@ class DriftReport:
         return [finding for finding in self.unmarked if finding.kind in NOTE_KINDS]
 
 
-def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> DriftReport:
-    """Compare the profile at *profile_file* with the preset its provenance names.
+def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None) -> DriftReport:
+    """Compare the profile at *profile_file* with what it was materialized from.
 
-    Reads the tracked documents — ``profile.yml`` and the persona deltas its
-    catalog points at — never a host-variant overlay: drift is a property of
-    what the repo tracks, and an overlay is one host's layer over it.
+    Reads the tracked documents — ``profile.yml`` and every tier and app file
+    beside it — never a host-variant overlay: drift is a property of what the
+    repo tracks, and an overlay is one host's layer over it. ``profile.yml``
+    pairs with the preset its provenance names; each ``tiers/<n>.yml`` and
+    ``apps/<n>.yml`` pairs with the bundled tier or app ITS provenance names
+    (see :func:`_layer_pairs`).
 
     Args:
-        profile_file: A repo's ``profile.yml``, or one persona delta under its
-            ``personas/``. A delta is compared alone; the root compares itself
-            and every persona whose catalog entry the preset also has.
-        provenance: The root profile's parsed ``provenance:`` block.
+        profile_file: A repo's ``profile.yml``, or one tier or app file under
+            its ``tiers/`` or ``apps/``. A layer file is compared alone; the
+            root compares itself and every layer it carries.
+        provenance: The parsed ``provenance:`` block the loader resolved for
+            *profile_file*. For a layer file it may be the layer's own block
+            (a tier is merged over the root), so the root's stamp is re-read
+            from ``profile.yml`` itself. ``None`` when the root has none.
 
     Returns:
-        The report. Empty findings and a note when the preset is not bundled.
+        The report. A root whose preset is not bundled is noted and not
+        compared; its layers still are.
 
     Raises:
         BuildProfileError: When a document the lint has to read is not a YAML
-            mapping, the preset will not emit, or the repo's ``providers.yml``
-            does not parse.
+            mapping, the preset will not emit, two layer files share a stem,
+            or the repo's ``providers.yml`` does not parse.
     """
     root_dir, is_delta = resolve_profile_root(profile_file)
-    root_path = root_dir / ROOT_PROFILE_FILENAME
-    preset = _normalize_preset_name(provenance.preset)
-
-    installed_hash = compute_preset_hash(preset)
-    if installed_hash is None:
-        return DriftReport(
-            preset,
-            f"provenance names preset {preset!r}, which OSPREY {__version__} does not bundle "
-            f"— the profile cannot be compared with it",
-            [],
-            [],
-        )
-    notes: list[str] = []
-    if installed_hash != provenance.preset_hash:
-        emitted = _emitted_version(root_path)
-        by = f" by OSPREY {emitted}" if emitted else ""
-        notes.append(
-            f"{ROOT_PROFILE_FILENAME} was materialized from preset {preset} at "
-            f"{_short_hash(provenance.preset_hash)}{by}; the preset bundled with OSPREY "
-            f"{__version__} is {_short_hash(installed_hash)} — it has moved on since"
-        )
-    catalog_note = _catalog_note(root_dir)
-    if catalog_note is not None:
-        notes.append(catalog_note)
-    note = _NOTE_SEPARATOR.join(notes) or None
+    root_path = root_dir / PROFILE_FILENAME
 
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile must be a YAML mapping: {root_path}")
+    if is_delta:
+        provenance = _root_provenance(root_raw)
     profile = resolve_profile_document(copy.deepcopy(root_raw), root_path, warn=False).raw
+    tag = provenance.deviation_marker if provenance is not None else DEFAULT_DEVIATION_MARKER
 
+    notes: list[str] = []
+    findings: list[DriftFinding] = []
+    stale: list[str] = []
+    preset = _normalize_preset_name(provenance.preset) if provenance is not None else ""
+    if provenance is not None:
+        installed_hash = compute_preset_hash(preset)
+        if installed_hash is None:
+            notes.append(
+                f"provenance names preset {preset!r}, which OSPREY {__version__} does not "
+                f"bundle — the profile cannot be compared with it"
+            )
+        else:
+            if installed_hash != provenance.preset_hash:
+                emitted = _emitted_version(root_path)
+                by = f" by OSPREY {emitted}" if emitted else ""
+                notes.append(
+                    f"{PROFILE_FILENAME} was materialized from preset {preset} at "
+                    f"{_short_hash(provenance.preset_hash)}{by}; the preset bundled with "
+                    f"OSPREY {__version__} is {_short_hash(installed_hash)} — it has moved on "
+                    f"since"
+                )
+            catalog_note = _catalog_note(root_dir)
+            if catalog_note is not None:
+                notes.append(catalog_note)
+            if not is_delta:
+                findings_root, stale_root = _compare_root(profile, preset, root_path, root_dir, tag)
+                findings.extend(findings_root)
+                stale.extend(stale_root)
+
+    profile_name = str(profile.get("name", ""))
+    for pair in _layer_pairs(
+        root_dir, str(profile.get("project_name") or ""), profile_file if is_delta else None
+    ):
+        relative = pair.path.relative_to(root_dir).as_posix()
+        word = LAYER_DIR_KINDS[pair.dirname]
+        installed = compute_preset_hash(pair.source)
+        if installed is None:
+            notes.append(
+                f"{relative}: provenance names {word} {pair.stem!r}, which OSPREY "
+                f"{__version__} does not bundle — the file cannot be compared with it"
+            )
+            continue
+        if installed != pair.preset_hash:
+            notes.append(
+                f"{relative} was materialized from {word} {pair.stem} at "
+                f"{_short_hash(pair.preset_hash)}; the {word} bundled with OSPREY "
+                f"{__version__} is {_short_hash(installed)} — it has moved on since"
+            )
+        expected = _parse_profile_document(
+            emit_layer_delta_yaml(pair.source, profile_name, relative), relative
+        )
+        if not isinstance(expected, dict):  # pragma: no cover - the emitter writes a mapping
+            continue
+        comparison = _Comparison(
+            relative,
+            _Lines(pair.path),
+            f"{word} {pair.stem}",
+            [_Lines(_load_preset_raw(pair.source)[1])],
+        )
+        comparison.compare(pair.document, expected)
+        claimed, unclaimed = _apply_markers(
+            comparison.findings, pair.path, root_dir, pair.marker or tag
+        )
+        findings.extend(claimed)
+        stale.extend(unclaimed)
+
+    return DriftReport(preset, _NOTE_SEPARATOR.join(notes) or None, findings, stale)
+
+
+def _root_provenance(root_raw: Mapping[str, Any]) -> ProfileProvenance | None:
+    """The root profile's own ``provenance:`` stamp, or ``None`` without a usable one."""
+    block = root_raw.get("provenance")
+    if not isinstance(block, Mapping) or not block.get("preset") or not block.get("preset_hash"):
+        return None
+    marker = block.get("deviation_marker")
+    return ProfileProvenance(
+        preset=str(block["preset"]),
+        preset_hash=str(block["preset_hash"]),
+        providers_hash=str(block.get("providers_hash") or ""),
+        deviation_marker=(
+            marker.strip()
+            if isinstance(marker, str) and marker.strip()
+            else DEFAULT_DEVIATION_MARKER
+        ),
+    )
+
+
+def _compare_root(
+    profile: Mapping[str, Any], preset: str, root_path: Path, root_dir: Path, tag: str
+) -> tuple[list[DriftFinding], list[str]]:
+    """``profile.yml`` against the document ``osprey init`` would write from *preset*."""
     preset_raw, preset_path = _load_preset_raw(preset)
     chain: list[Path] = []
-    preset_resolved = _resolve_extends(preset_raw, preset_path, chain)
+    _resolve_extends(preset_raw, preset_path, chain)
     # The two names are copied from the profile itself, so neither ever reads as
     # a difference and the findings are a function of the tracked documents alone.
     expected = materialized_profile(
@@ -267,85 +348,73 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance) -> Dr
         project_name=str(profile.get("project_name") or ""),
         profile_name=str(profile.get("name", "")),
     )
-    tag = provenance.deviation_marker
-
-    findings: list[DriftFinding] = []
-    stale: list[str] = []
-    if not is_delta:
-        comparison = _Comparison(
-            ROOT_PROFILE_FILENAME, _Lines(root_path), preset, [_Lines(path) for path in chain]
-        )
-        comparison.compare(profile, expected)
-        claimed, unclaimed = _apply_markers(comparison.findings, root_path, root_dir, tag)
-        findings.extend(claimed)
-        stale.extend(unclaimed)
-
-    for delta_path, persona_preset in _persona_pairs(
-        profile, preset_resolved, preset, root_dir, profile_file if is_delta else None
-    ):
-        delta_raw = _read_profile_document(delta_path)
-        if not isinstance(delta_raw, dict):
-            continue
-        layer, layer_path = _load_preset_raw(persona_preset)
-        layer.pop("extends", None)
-        relative = delta_path.relative_to(root_dir).as_posix()
-        comparison = _Comparison(relative, _Lines(delta_path), persona_preset, [_Lines(layer_path)])
-        # The delta enters the merge as the build feeds it — unresolved, so its
-        # `exclude:` is consumed against the root rather than its own layer.
-        comparison.compare(
-            merge_persona_delta(copy.deepcopy(profile), delta_raw),
-            merge_persona_delta(copy.deepcopy(profile), layer),
-        )
-        claimed, unclaimed = _apply_markers(comparison.findings, delta_path, root_dir, tag)
-        findings.extend(claimed)
-        stale.extend(unclaimed)
-
-    return DriftReport(preset, note, findings, stale)
+    comparison = _Comparison(
+        PROFILE_FILENAME, _Lines(root_path), preset, [_Lines(path) for path in chain]
+    )
+    comparison.compare(profile, expected)
+    return _apply_markers(comparison.findings, root_path, root_dir, tag)
 
 
-def _persona_pairs(
-    profile: Mapping[str, Any],
-    preset_resolved: Mapping[str, Any],
-    preset: str,
-    root_dir: Path,
-    only: Path | None,
-) -> list[tuple[Path, str]]:
-    """Each persona delta with the bundled persona preset it was emitted from.
+@dataclass(frozen=True)
+class _LayerPair:
+    """One materialized tier or app file and the bundled source it names."""
 
-    A persona is comparable when the profile's catalog points its
-    ``build_profile`` at a delta file that exists and the preset's own catalog
-    names, for the same persona, a bundled preset extending *preset* directly —
-    the condition ``osprey init`` enforces before emitting a delta. Personas the
-    facility added, or whose entry still names a preset, have no counterpart and
-    are left to the web-stack lint.
+    path: Path
+    dirname: str
+    stem: str
+    preset_hash: str
+    marker: str | None
+    document: dict[str, Any]
+
+    @property
+    def source(self) -> str:
+        """The kind-qualified bundled name: ``tiers/<stem>`` or ``apps/<stem>``."""
+        return f"{self.dirname}/{self.stem}"
+
+
+def _layer_pairs(root_dir: Path, project_name: str, only: Path | None) -> list[_LayerPair]:
+    """Each tier and app file with the bundled source its provenance block names.
+
+    Enumerated over the ``renders`` projection
+    (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
+    — the same set of files the build renders — so a layer is compared exactly
+    when it is built. The pairing is by provenance, not by file name, the way
+    ``profile.yml`` pairs with its preset: a copy of ``apps/logbook.yml`` saved
+    as ``apps/night-shift.yml`` still pairs with the bundled ``logbook``. A file
+    with no provenance block was not materialized by ``osprey init`` and has
+    nothing to drift from; a file that is not a mapping is the build's to name.
 
     Args:
-        profile: The resolved root profile.
-        preset_resolved: The preset, ``extends`` resolved, catalog unrepointed.
-        preset: The normalized host preset name.
-        root_dir: The profile root the catalog's paths anchor at.
-        only: Restrict to the persona whose delta is this file, if any.
+        root_dir: The profile root holding ``tiers/`` and ``apps/``.
+        project_name: The deployment's ``project_name``, which names renders.
+        only: Restrict to this one layer file, if given.
     """
-    from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
+    from osprey.deployment.web_terminals.render_naming import RENDER_KIND_APP, render_projection
 
-    actual = persona_catalog(_mapping(profile.get("config")))
-    reference = persona_catalog(_mapping(preset_resolved.get("config")))
-    pairs: list[tuple[Path, str]] = []
-    for name in sorted(actual):
-        ref = actual[name].get("build_profile")
-        if not isinstance(ref, str) or persona_build_profile_shape_problem(ref) is not None:
+    paths = {path.stem: path for _kind, path in layer_files(root_dir)}
+    target = only.resolve() if only is not None else None
+    pairs: list[_LayerPair] = []
+    for name, entry in render_projection(root_dir, project_name or "project").items():
+        path = paths.get(name)
+        if path is None or (target is not None and path.resolve() != target):
             continue
-        delta_path = (root_dir / ref).resolve()
-        if not delta_path.is_file() or (only is not None and delta_path != only.resolve()):
+        document = _read_profile_document(path)
+        if not isinstance(document, dict):
             continue
-        persona_preset = reference.get(name, {}).get("build_profile")
-        if not isinstance(persona_preset, str) or _preset_exists(persona_preset) is None:
+        block = document.get("provenance")
+        if not isinstance(block, Mapping) or not block.get("preset"):
             continue
-        persona_preset = _normalize_preset_name(persona_preset)
-        parent = _load_preset_raw(persona_preset)[0].get("extends")
-        if not isinstance(parent, str) or _normalize_preset_name(parent) != preset:
-            continue
-        pairs.append((delta_path, persona_preset))
+        marker = block.get("deviation_marker")
+        pairs.append(
+            _LayerPair(
+                path=path,
+                dirname=APPS_DIRNAME if entry.get("kind") == RENDER_KIND_APP else TIERS_DIRNAME,
+                stem=_normalize_preset_name(str(block["preset"])),
+                preset_hash=str(block.get("preset_hash") or ""),
+                marker=marker.strip() if isinstance(marker, str) and marker.strip() else None,
+                document=document,
+            )
+        )
     return pairs
 
 
@@ -446,7 +515,7 @@ class _Comparison:
         )
 
     def _missing_member(self, path: tuple[str, ...], member: str) -> None:
-        # A persona subtracts a member with `exclude:`; that line, when it
+        # A document subtracts a member with `exclude:`; that line, when it
         # exists, is where the operator would write the marker.
         line = self.lines.line(("exclude", *path, member))
         self.findings.append(
@@ -574,8 +643,8 @@ def lacking_config_keys(profile_raw: Mapping[str, Any], preset: str) -> list[str
     """Every ``config:`` leaf *preset* carries that *profile_raw* does not spell.
 
     The missing half of the comparison :class:`_Comparison` reports, asked the
-    way ``osprey profile expand`` needs it: not which branches differ but which
-    leaves are absent, flattened, because expand writes one dotted key per leaf
+    way ``osprey init --revalidate`` fills a profile: not which branches differ but
+    which leaves are absent, flattened, because the fill writes one dotted key per leaf
     with the preset's own comment above it. A branch the profile lacks whole —
     an entire ``approval`` section — comes back as its leaves rather than as
     its root, so what lands in the profile is what the preset documents rather

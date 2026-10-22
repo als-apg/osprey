@@ -59,10 +59,10 @@ may touch.
 not hold stops the build with a ``profile-invalid`` line that lists the valid
 names.
 
-A persona's list applies when its simulator is served in process: each
-process holds its own composite. On a persona whose baseline target is a
+A tier's list applies when its simulator is served in process: each
+process holds its own composite. On a tier whose baseline target is a
 served ``va`` or ``standin`` the deployment's container serves the deployment's
-list, so a persona delta that sets the key there stops the build with
+list, so a tier that sets the key there stops the build with
 ``profile-invalid``.
 
 .. code-block:: yaml
@@ -299,7 +299,7 @@ category picks one automatically:
 - A deployment that serves web terminals has the choice made for it. The
   terminals run on the host's network, where a compose service name does not
   resolve, so ``osprey build`` writes ``url_key: host_url`` into each render,
-  persona renders included. That is the same address the agent dials. Setting
+  tier and app renders included. That is the same address the agent dials. Setting
   the key to anything else in such a profile is refused at build time.
 - Otherwise the framework detects whether the health check is itself running
   inside a container — the runtime's own marker file, ``/.dockerenv`` under
@@ -741,9 +741,8 @@ The control-target picker
 The title bar's control-target chip names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The shipped ``ariel-standalone`` and
-``channel-finder-standalone`` presets and the ``control-assistant-logbook`` and
-``control-assistant-knowledge`` personas do.
+server and no JUPYTER panel. The bundled ``logbook``, ``knowledge`` and
+``channel-finder`` apps do.
 
 The setting changes what the page shows, not what the agent may do. With it
 off, the ``control-target`` item is left out of every arrangement this terminal
@@ -786,7 +785,7 @@ watcher that can go blind without saying so.
 ``dangerously_allow_bash`` — waiving the Bash/launch-token refusal
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``osprey up`` refuses to deploy a persona that is entitled to a Bluesky launch
+``osprey up`` refuses to deploy a tier that is entitled to a Bluesky launch
 token while its ``.claude/settings.json`` does not deny ``Bash``: a shell could
 read the token out of its own environment and arm a queue with no approval.
 One root-level key waives that refusal, for a development box with a single
@@ -798,10 +797,54 @@ trusted operator and no live machine behind it:
 
 It takes the boolean ``true`` and nothing else — any other value is a config
 error. Absent, the refusal stands exactly as before. When set, every
-``osprey up`` prints a warning naming the personas it waved through, and the
+``osprey up`` prints a warning naming the tiers it waved through, and the
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
 set it. A build profile sets it from its ``config:`` block.
+
+.. _config-web-terminals:
+
+``modules.web_terminals`` — the landing page and the render catalog
+-------------------------------------------------------------------
+
+The roster itself — ``users``, ``default_tier``, ``shared`` and
+``authorization.roles`` — is described in :doc:`/how-to/web-terminal/multi-user/index`.
+Two more keys shape what the deployment serves.
+
+``landing.groups`` lays out the landing page as sections, in the order listed.
+Each entry has a ``type`` and an optional ``label``:
+
+- ``users`` — one card per person on the roster. ``names: hidden`` replaces the
+  name cards with one sign-in button; it needs ``auth.method`` ``password`` or
+  ``oidc``, and only a ``users`` entry takes it.
+- ``apps`` — one card per app in ``shared``, titled by the app's ``name:``,
+  opened by anyone on the roster (:ref:`multi-user-shared-card`).
+- ``links`` — your own cards, each a ``label`` and a ``url``.
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       landing:
+         groups:
+           - type: users
+             label: Users
+           - type: apps
+             label: Apps
+           - type: links
+             label: Facility
+             links:
+               - {label: Elog, url: https://elog.example.org}
+
+Left out, the page shows ``[{type: users}, {type: apps}]``. A section with no
+cards shows no heading.
+
+``modules.web_terminals.renders`` is the render catalog: one entry per file in
+``tiers/`` and ``apps/``, keyed by that file's name, with its ``kind``,
+``project`` and ``project_path``. ``osprey build`` writes it into
+``build/config.yml``; a profile that spells it is refused. Set a render's
+``extra_mounts``, ``seed_base`` or ``image`` at the top of its tier or app file
+instead.
 
 .. _config-artifact-server:
 
@@ -919,21 +962,6 @@ Both keys are read once per MCP server process, so a change lands after
 and those artifacts hold values: treat them with the access you give the
 control system's own data. The fields are listed in
 :ref:`audit-trail-tool-call`.
-
-.. _config-ariel-demo-narrative:
-
-``ariel.demo_narrative`` — a demo logbook from the facility's scenarios
------------------------------------------------------------------------
-
-``ariel.demo_narrative`` is ``all`` or a list of scenario names. The logbook
-entries of those scenarios are read from the built simulator view, with the
-pictures they attach. ``osprey up`` seeds them (``nominal`` first, then the
-rest by name) into an empty logbook in place of the active scenarios' entries,
-and ``osprey ariel quickstart`` does the same and then runs the enhancement
-modules. A logbook that already holds entries is never touched. A name the
-simulator view does not list is refused, and so is a directory. The
-``ariel-standalone`` preset sets it to ``all``. Unset, a deploy seeds the
-active scenarios' entries.
 
 .. _config-ariel-entry-url:
 

@@ -15,7 +15,7 @@
 
 import { confirmSkipped, rememberConfirmSkip } from './confirm-skip.js';
 
-/** Per persona via confirm-skip.js's scopedStorageKey resolution. */
+/** Per render via confirm-skip.js's scopedStorageKey resolution. */
 const SKIP_KEY_BASE = 'osprey-settings-apply-skip-confirm';
 
 /** @param {HTMLElement} panel */

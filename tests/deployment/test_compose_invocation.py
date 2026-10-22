@@ -71,6 +71,7 @@ from osprey.services.auth_sidecar.passwords import verify_password
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from tests._renders import tier_render
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -95,9 +96,10 @@ _WEB_STACK_CONFIG = _RENDERED_CONFIG + (
     "    enabled: true\n"
     "    users:\n"
     "      - alice\n"
-    "    default_persona: assistant\n"
-    "    personas:\n"
+    "    default_tier: assistant\n"
+    "    renders:\n"
     "      assistant:\n"
+    "        kind: tier\n"
     "        project: demo-assistant\n"
     "    auth:\n"
     "      method: password\n"
@@ -738,7 +740,7 @@ def test_logs_emits_the_podman_shape(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def _podman_web_host(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """A podman-compose host with the web path's non-compose collaborators muted.
 
-    Everything that reaches past compose — persona and sidecar image builds, the
+    Everything that reaches past compose — render and sidecar image builds, the
     post-``up`` hooks, the host-reachability probe — is stubbed; the compose
     invocations themselves, the artifact render they address and the merge that
     render feeds are all real, because they are what is being asserted.
@@ -752,9 +754,9 @@ def _podman_web_host(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
     for name in (
         "ensure_env_production",
-        "build_persona_images",
+        "build_render_images",
         "build_auth_sidecar_image",
-        "verify_persona_renders",
+        "verify_renders",
         "_reconcile_web_stack_recreates",
         "enable_linger",
         "wait_until_ready",
@@ -1046,8 +1048,8 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice"],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "als-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "als-assistant")},
             }
         },
     }
@@ -1095,8 +1097,8 @@ def _web_config(users: list[str]) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": users,
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-project-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-project-assistant")},
                 "auth": {"method": "password", "allow_insecure_http": True},
             }
         },

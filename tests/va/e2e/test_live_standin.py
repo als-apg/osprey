@@ -581,7 +581,7 @@ def raw_config(
         },
         "services": services,
         # Both instance keys, in both configs. The predicate deliberately reads
-        # no ``deployed_services`` conjunct (a persona render carries only the
+        # no ``deployed_services`` conjunct (a render carries only the
         # keys its reach contract projects), so leaving this list alone in the
         # negative control keeps ``services.live_standin`` the single variable.
         "deployed_services": ["virtual_accelerator", "live_standin"],

@@ -188,10 +188,10 @@ down the tab is disabled with an offline indicator rather than showing a broken
 frame, and it turns live once the dispatcher answers ``/health``.
 
 The panel points at ``http://localhost:<dispatcher_port>``, which works out of
-the box for the host-run flow in *Bring It Up* and for every persona built
+the box for the host-run flow in *Bring It Up* and for every tier built
 beside the deployment: per-user containers share the host's network, so the
 dispatcher answers on their loopback too, and the build copies this entry from
-the deployment's render into each persona (:doc:`/how-to/build-profiles`).
+the deployment's render into each tier (:doc:`/how-to/build-profiles`).
 
 Auto-derived URL
 ----------------
@@ -213,7 +213,7 @@ baking ``/dashboard`` into ``url`` would double-prefix sub-routes. Keep them
 split. Any of these keys a profile already pins the build leaves untouched, and
 an explicit ``web.panels.events.url`` always wins — pin it on the **hosting**
 profile when the web terminals cannot reach the dispatcher on ``localhost``;
-every persona follows it, and a persona that pins a different one is refused.
+every tier follows it, and a tier that pins a different one is refused.
 
 .. _event-dispatch-from-a-session:
 
@@ -287,8 +287,8 @@ elsewhere receives neither the bearer nor your name.
 A shell reaches the same route
 ------------------------------
 
-The panel token sits in the agent process's environment, so a persona whose
-profile lifts the ``Bash`` deny — a build failure unless that profile also
+The panel token sits in the agent process's environment, so a tier whose
+file lifts the ``Bash`` deny — a build failure unless that file also
 declares its own ``PreToolUse`` gate covering the shell — can post to the proxy
 route from a shell command and fire a job with no approval prompt. What that
 skips is the prompt, not the rest: such a job still carries your name from the

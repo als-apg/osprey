@@ -273,10 +273,7 @@ class TestTheBuildDerivesTheDatabasePath:
 
         assert "limits_checking" not in (rendered.get("control_system") or {})
 
-    @pytest.mark.parametrize(
-        "preset",
-        ["ariel-standalone", "channel-finder-standalone", "control-assistant", "hello-world"],
-    )
+    @pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
     def test_no_preset_states_the_path(self, preset: str) -> None:
         from osprey.cli.build_profile import resolve_build_profile
 

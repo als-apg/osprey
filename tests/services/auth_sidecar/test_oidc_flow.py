@@ -37,7 +37,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.deployment.web_terminals.personas import access_wire_value
+from osprey.deployment.web_terminals.roster import access_wire_value
 from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (

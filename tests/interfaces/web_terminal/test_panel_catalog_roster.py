@@ -98,6 +98,25 @@ def test_no_stale_rail_glyph_rules() -> None:
     assert not stale, f"rail glyph rules naming no built-in panel: {sorted(stale)}"
 
 
+def test_every_rail_glyph_is_a_basic_plane_codepoint() -> None:
+    """A rail glyph outside the BMP renders as an empty box.
+
+    The astral-plane pictographs (U+1F300 and up) that are not emoji are
+    carried by almost no system font — on macOS only the LastResort
+    fallback has them — so the rail entry shows a blank placeholder while
+    its label still reads.
+    """
+    rules = re.findall(
+        r'\.panel-rail-icon(?:\[data-icon="([\w-]+)"\])?::before\s*\{\s*content:\s*"\\([0-9a-fA-F]+)"',
+        _CSS.read_text(),
+    )
+    assert rules, "no rail glyph rules found — the pattern no longer matches terminal.css"
+    astral = {
+        panel or "fallback": f"U+{code.upper()}" for panel, code in rules if int(code, 16) > 0xFFFF
+    }
+    assert not astral, f"rail glyphs outside the Basic Multilingual Plane: {astral}"
+
+
 def test_the_vitest_label_fixture_matches_the_registry() -> None:
     pairs = dict(re.findall(r"'([\w-]+)': '([A-Z-]+)'", _FIXTURE.read_text()))
     assert pairs == BUILTIN_PANEL_LABELS

@@ -7,18 +7,18 @@ roster, not its own tool calls. Three claims, each of which a settings-only
 check would miss:
 
 1. **The store enables it, and the tools land on exactly one agent.**
-   ``ariel_standalone`` ships a ``services.graphdb`` block and no channel-finder
-   agent, so the session surface must be rendered there — settings,
-   ``.mcp.json`` and the hook prefixes — and the one frontmatter naming the
-   tools must be ``facility-knowledge-graph.md``. A wiring that dropped the
-   subagent would render an ARIEL project whose orchestrator has no route to
-   its own store.
+   ``control_assistant`` ships a ``services.graphdb`` block, so the session
+   surface must be rendered there — settings, ``.mcp.json`` and the hook
+   prefixes — and, under a non-graph channel-finder paradigm, the one
+   frontmatter naming the tools must be ``facility-knowledge-graph.md``. A
+   wiring that dropped the subagent would render a project whose orchestrator
+   has no route to its own store.
 
 2. **A template with no store renders no trace of the server**, asserted by
    walking every file under ``.claude/`` rather than by reading one of them.
    ``hello_world`` is asserted the same way in
    ``tests/cli/test_profile_to_claude_contract.py``, which already builds it;
-   ``channel_finder_standalone`` is asserted here.
+   a ``control_assistant`` render with its store removed is asserted here.
 
 3. **A real ``osprey build`` agrees with ``create_project``.** The contract
    tests and ``tests/cli/test_channel_finder_graph_tools.py`` drive the render
@@ -37,6 +37,7 @@ server name, and ``tests/cli/test_channel_finder_graph_tools.py`` owns them.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -134,39 +135,40 @@ def _assert_graph_session_surface(project: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# ariel_standalone: a graph store with no channel-finder subagent
+# a graph store under a non-graph channel-finder paradigm
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
-def built_ariel_standalone_project(tmp_path_factory) -> Path:
+def built_store_project(tmp_path_factory) -> Path:
     return _create_project(
         TemplateManager(),
-        project_name="ariel-graph-surface",
-        output_dir=tmp_path_factory.mktemp("ariel_standalone_build"),
-        data_bundle="ariel_standalone",
+        project_name="store-graph-surface",
+        output_dir=tmp_path_factory.mktemp("store_build"),
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
     )
 
 
-def test_ariel_standalone_ships_the_store(built_ariel_standalone_project):
+def test_the_project_ships_the_store(built_store_project):
     """Fixture precondition: without the block every assertion below is vacuous."""
-    config = yaml.safe_load((built_ariel_standalone_project / "config.yml").read_text())
+    config = yaml.safe_load((built_store_project / "config.yml").read_text())
     assert isinstance((config.get("services") or {}).get("graphdb"), dict)
 
 
-def test_ariel_standalone_renders_the_graph_session_surface(built_ariel_standalone_project):
+def test_the_store_renders_the_graph_session_surface(built_store_project):
     """The store is configured, so the session can launch and call the server."""
-    _assert_graph_session_surface(built_ariel_standalone_project)
+    _assert_graph_session_surface(built_store_project)
 
 
-def test_ariel_standalone_puts_the_graph_tools_on_the_subagent_only(built_ariel_standalone_project):
+def test_the_graph_tools_land_on_the_subagent_only(built_store_project):
     """Exactly one agent frontmatter names the graph tools: facility-knowledge-graph.
 
     Asserted as an exact file set rather than as a loop over ``.claude/agents/``,
     so the day another file starts naming a graph tool this fails instead of
     passing by omission.
     """
-    project = built_ariel_standalone_project
+    project = built_store_project
 
     assert _graph_tool_hits(project / ".claude") == [
         "agents/facility-knowledge-graph.md",
@@ -180,12 +182,12 @@ def test_ariel_standalone_puts_the_graph_tools_on_the_subagent_only(built_ariel_
     )
     tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
     assert sorted(t for t in tools if t.startswith("mcp__graph__")) == _graph_permission_entries()
-    assert not (project / ".claude" / "agents" / "channel-finder.md").exists(), (
-        "this template's whole point here is that it has no channel-finder agent"
+    assert (project / ".claude" / "agents" / "channel-finder.md").exists(), (
+        "fixture precondition: the channel-finder agent is rendered and carries no graph tool"
     )
 
 
-def test_the_rendered_agent_ships_the_snapshot_placeholder(built_ariel_standalone_project):
+def test_the_rendered_agent_ships_the_snapshot_placeholder(built_store_project):
     """The build ships the marker pair the seed-time bake rewrites.
 
     ``prompt_snapshot.apply_snapshot`` refuses a file without both markers, so
@@ -195,9 +197,9 @@ def test_the_rendered_agent_ships_the_snapshot_placeholder(built_ariel_standalon
     """
     from osprey.services.facility_knowledge.seeder import prompt_snapshot
 
-    text = (
-        built_ariel_standalone_project / ".claude" / "agents" / "facility-knowledge-graph.md"
-    ).read_text(encoding="utf-8")
+    text = (built_store_project / ".claude" / "agents" / "facility-knowledge-graph.md").read_text(
+        encoding="utf-8"
+    )
 
     assert prompt_snapshot.SNAPSHOT_BEGIN in text
     assert prompt_snapshot.SNAPSHOT_END in text
@@ -208,7 +210,7 @@ def test_the_rendered_agent_ships_the_snapshot_placeholder(built_ariel_standalon
 
 
 def test_the_rendered_agent_does_not_claim_where_direction_came_from(
-    built_ariel_standalone_project,
+    built_store_project,
 ):
     """The prompt may not name the artifact a binding's direction came from.
 
@@ -223,9 +225,9 @@ def test_the_rendered_agent_does_not_claim_where_direction_came_from(
     per-deployment answer belongs in the snapshot, which is stamped from what
     the store actually holds.
     """
-    text = (
-        built_ariel_standalone_project / ".claude" / "agents" / "facility-knowledge-graph.md"
-    ).read_text(encoding="utf-8")
+    text = (built_store_project / ".claude" / "agents" / "facility-knowledge-graph.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "limits file" not in text.lower(), (
         "the rendered agent names the limits file as the direction source; "
@@ -234,7 +236,7 @@ def test_the_rendered_agent_does_not_claim_where_direction_came_from(
     )
 
 
-def test_the_rendered_agent_carries_no_hardcoded_vocabulary(built_ariel_standalone_project):
+def test_the_rendered_agent_carries_no_hardcoded_vocabulary(built_store_project):
     """The prompt may not name a facility's device kinds out of the framework.
 
     Ruling of 2026-08-27, on issue #739: facility terminology has one source of
@@ -245,9 +247,9 @@ def test_the_rendered_agent_carries_no_hardcoded_vocabulary(built_ariel_standalo
     returns zero rows rather than an error, which is the failure mode this very
     prompt spends a section warning about.
     """
-    text = (
-        built_ariel_standalone_project / ".claude" / "agents" / "facility-knowledge-graph.md"
-    ).read_text(encoding="utf-8")
+    text = (built_store_project / ".claude" / "agents" / "facility-knowledge-graph.md").read_text(
+        encoding="utf-8"
+    )
 
     assert hardcoded_vocabulary_hits(text) == [], (
         "the rendered facility-knowledge-graph agent hard-codes facility "
@@ -257,29 +259,38 @@ def test_the_rendered_agent_carries_no_hardcoded_vocabulary(built_ariel_standalo
 
 
 # ---------------------------------------------------------------------------
-# channel_finder_standalone: a subagent with no graph store
+# a channel-finder subagent with no graph store
 # ---------------------------------------------------------------------------
 
 
-def test_channel_finder_standalone_renders_no_graph_surface_at_all(tmp_path):
-    """The mirror image of ariel_standalone: the agent is there, the store is
+def test_a_project_without_a_store_renders_no_graph_surface_at_all(tmp_path):
+    """The mirror image of the store project: the agent is there, the store is
     not, and nothing under ``.claude/`` names a graph tool.
 
-    ``tests/cli/test_channel_finder_graph_tools.py`` already pins this bundle's
+    ``tests/cli/test_channel_finder_graph_tools.py`` already pins this render's
     frontmatter and its settings permissions; what it does not do is walk the
     rest of the tree, where a rule or a hook config naming an unlaunchable tool
     would be just as broken and just as quiet.
     """
+    from osprey.utils.config_writer import config_delete_field
+
+    manager = TemplateManager()
     project = _create_project(
-        TemplateManager(),
-        project_name="cf-standalone-graph-surface",
+        manager,
+        project_name="nostore-graph-surface",
         output_dir=tmp_path,
-        data_bundle="channel_finder_standalone",
-        context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
+        data_bundle="control_assistant",
+        context={
+            "channel_finder_mode": "hierarchical",
+            "default_provider": "anthropic",
+            "deploy_services": False,
+        },
     )
+    config_delete_field(project / "config.yml", "services.graphdb")
+    manager.regenerate_claude_code(project)
 
     config = yaml.safe_load((project / "config.yml").read_text())
-    assert (config.get("services") or {}).get("graphdb") is None, "the bundle ships no store"
+    assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
 
     assert (project / ".claude" / "agents" / "channel-finder.md").exists(), (
         "fixture precondition: the agent that WOULD carry the tools must be rendered"
@@ -296,10 +307,11 @@ def test_channel_finder_standalone_renders_no_graph_surface_at_all(tmp_path):
 def _write_profile(repo: Path, config: dict | None = None) -> Path:
     """A minimal deployment repo that builds the control_assistant template.
 
-    Deliberately not the ``control-assistant`` preset: that one hosts the
-    multi-user web tier and so renders three persona projects beside the host,
-    which is a different (and separately tested) claim. This profile isolates
-    the one thing under test — the build verb's own render-then-validate pass.
+    Extends the ``control-assistant`` preset rather than materializing it, so
+    the profile spells only what is under test — the build verb's own
+    render-then-validate pass. The preset's roster and ``dispatch.tier`` name
+    the bundled tiers and apps, which a repo carries as files, so they are
+    copied in verbatim the way ``osprey init`` lays them down.
     """
     repo.mkdir(parents=True)
     (repo / "profile.yml").write_text(
@@ -336,6 +348,10 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
 
     copy_bundle_data(repo / "data")
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    from osprey.cli.build_profile_presets import _presets_dir
+
+    for layer_dir in ("tiers", "apps"):
+        shutil.copytree(_presets_dir() / layer_dir, repo / layer_dir)
     return repo
 
 
@@ -392,7 +408,16 @@ def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
         "the lever must switch off the SERVER while leaving the store configured"
     )
 
-    assert _graph_tool_hits(project) == []
+    # An app states its own server set, so the host's switch does not reach
+    # the app renders; the host and every tier render over it lose the server.
+    from osprey.cli.build_profile_presets import list_apps
+
+    app_renders = tuple(
+        prefix
+        for app in list_apps()
+        for prefix in (f"{repo.name}-{app}/", f".image/{repo.name}-{app}/")
+    )
+    assert [hit for hit in _graph_tool_hits(project) if not hit.startswith(app_renders)] == []
     assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
     assert not (project / ".claude" / "agents" / "facility-knowledge-graph.md").exists(), (
         "the subagent rides the server (server_dependency): switching the server "

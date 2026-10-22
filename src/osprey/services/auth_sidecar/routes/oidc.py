@@ -243,7 +243,7 @@ class RoleBinding:
             deployment binds no roles.
         claim_map: ``{claim value: role}``. Every role in it is a role the
             render declared; the sidecar does not re-check that, because it
-            never sees the persona table.
+            never sees the render table.
     """
 
     claim: str = ""

@@ -431,7 +431,7 @@ describe('initScaffoldGallery tab routing', () => {
   /**
    * One artifact per category the service reports, the tab each belongs on,
    * and its output path. The project instructions route by output path, so a
-   * deployment's own persona (`claude-md-ariel`) lands where `claude-md` does.
+   * deployment's own instructions variant (`claude-md-logbook`) lands where `claude-md` does.
    */
   const ROUTED = [
     ['agents/a', 'agents', 'behavior', '.claude/agents/a.md'],
@@ -439,7 +439,7 @@ describe('initScaffoldGallery tab routing', () => {
     ['rules/r', 'rules', 'behavior', '.claude/rules/r.md'],
     ['output-styles/o', 'output-styles', 'behavior', '.claude/output-styles/o.md'],
     ['claude-md', 'config', 'behavior', 'CLAUDE.md'],
-    ['claude-md-ariel', 'config', 'behavior', 'CLAUDE.md'],
+    ['claude-md-logbook', 'config', 'behavior', 'CLAUDE.md'],
     ['hooks/h', 'hooks', 'safety', '.claude/hooks/h.py'],
     ['mcp-json', 'config', 'config', '.mcp.json'],
     ['settings-json', 'config', 'config', '.claude/settings.json'],

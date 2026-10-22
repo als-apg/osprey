@@ -100,6 +100,13 @@ from osprey.deployment.web_terminals.provision import (
     preflight_web_terminals,
 )
 from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
+from osprey.deployment.web_terminals.render_images import (
+    build_render_images,
+    dispatch_worker_tier_image,
+    render_build_session,
+    verify_renders,
+)
+from osprey.deployment.web_terminals.roster import dispatch_tier_name, resolve_cards
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey_connectors.config import config_anchored_at, load_project_config
 from osprey_connectors.dotenv import (
@@ -1965,7 +1972,7 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     """The site's ``--build-arg`` flags for one image build, context staged.
 
     One producer for the three images ``osprey up`` builds from OSPREY's own
-    recipes — the project image, each persona image and the web-terminal auth
+    recipes — the project image, each render image and the web-terminal auth
     sidecar — so a deployment behind a
     TLS-intercepting proxy, on an internal package index, or on an air-gapped
     host configures those facts once in ``config.yml`` and every managed build
@@ -2361,7 +2368,16 @@ def _service_image_target(config: dict, env: dict, service: str) -> str:
     than restated here. It is the same function the template's innermost
     ``default(...)`` renders from, so a prediction made here and the reference
     compose ends up carrying cannot drift onto different axes.
+
+    A dispatch worker running at a tier (``services.dispatch_worker.tier``)
+    runs that tier's render and nothing else:
+    :func:`~osprey.deployment.web_terminals.render_images.dispatch_worker_tier_image`
+    names it and refuses ``OSPREY_WORKER_IMAGE`` or a contradicting pin.
     """
+    if service == "dispatch_worker":
+        tier_image = dispatch_worker_tier_image(config, env)
+        if tier_image is not None:
+            return tier_image
     override = env.get("OSPREY_WORKER_IMAGE")
     if override:
         return str(override)
@@ -2375,6 +2391,51 @@ def _service_image_target(config: dict, env: dict, service: str) -> str:
 def _worker_image_target(config: dict, env: dict) -> str:
     """The image the dispatch worker will actually run (:func:`_service_image_target`)."""
     return _service_image_target(config, env, "dispatch_worker")
+
+
+def _build_referenced_renders(
+    config: dict,
+    repo_root: Path | str,
+    dev_mode: bool,
+    env: dict,
+    *,
+    web_terminals_enabled: bool,
+) -> None:
+    """Build the dispatch tier's render, with every other referenced render, before the worker.
+
+    A worker running at a tier runs ``<p>-<tier>:local`` in local mode, and
+    nothing in ``compose up`` builds that tag: so ``osprey up`` builds the whole
+    reference set (the roster's tiers and apps, plus the dispatch tier) in one
+    step beside the project image, after checking each has a render. The web
+    stack's own pass later finds those tags built
+    (:func:`~osprey.deployment.web_terminals.render_images.render_build_session`).
+    Registry mode builds nothing; compose pulls the tier image like any other.
+
+    No-op when no tier is set, so such a start runs exactly as before.
+
+    :param config: Raw deploy config.
+    :param repo_root: The deployment repo.
+    :param dev_mode: Whether ``--dev`` was passed.
+    :param env: Environment for the builds (read for ``OSPREY_WORKER_IMAGE``,
+        which a tier refuses).
+    :param web_terminals_enabled: Whether this deployment runs the web
+        terminals, whose roster joins the reference set. Without them the
+        dispatch tier is built alone.
+    :raises ValueError: A contradicting worker image, or a referenced render
+        that is missing or does not resolve.
+    """
+    if dispatch_tier_name(config) is None:
+        return
+    # Refused before anything is built: the tier decides the worker's image.
+    dispatch_worker_tier_image(config, env)
+    resolved_users: list[dict] = []
+    if web_terminals_enabled:
+        web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+        resolved_users = resolve_cards(web_terminals, config.get("registry") or {}, strict=True)
+    verify_renders(
+        config, resolved_users, repo_root=Path(repo_root), serves_roster=web_terminals_enabled
+    )
+    build_render_images(config, resolved_users, dev_mode, env, serves_roster=web_terminals_enabled)
 
 
 def _project_image_build_target(config: dict, env: dict) -> str | None:
@@ -2457,15 +2518,15 @@ def _project_image_build_cmd(
     """Construct the ``<runtime> build`` argv that produces the project image.
 
     Carries the same ``com.osprey.project`` label
-    :func:`osprey.deployment.web_terminals.persona_images._persona_image_build_cmd`
-    stamps on its persona images, so a later ``nuke`` can verify a tag belongs
+    :func:`osprey.deployment.web_terminals.render_images._render_image_build_cmd`
+    stamps on its render images, so a later ``nuke`` can verify a tag belongs
     to this deployment before removing it. Under ``dev_mode`` an
-    ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so
+    ``OSPREY_DEV=1`` build-arg is added (mirroring the render dev path), so
     the Dockerfile's dev branch can key off it.
 
     The site's own build args — proxy bypass, package index, TLS-intercepting
     CA, offline vendoring — come from :func:`site_image_build_args`, the one
-    producer this build shares with the persona and sidecar builds, and
+    producer this build shares with the render and sidecar builds, and
     contribute nothing when the deployment declares none.
 
     :param config: Raw deploy config (project name, ``claude_code.cli_version``).
@@ -5839,7 +5900,7 @@ def single_image_build_reporter(image_tag: str) -> BuildProgressReporter:
     """The live view for one image's own ``<runtime> build``, labeled by its tag.
 
     :func:`compose_build_step_reporter`'s counterpart for the sites that build a
-    single image directly — the dispatch worker's project image, a persona
+    single image directly — the dispatch worker's project image, a render
     image, the auth sidecar. Two things differ from the compose case, and both
     are silent when a call site gets them wrong:
 
@@ -5963,14 +6024,14 @@ def _collect_unmet_preconditions(
     findings: list[tuple[str, str]] = []
     if web_terminals_enabled:
         # Both halves off ONE lint pass: they are two readings of the same
-        # findings, and asking for them separately walked every persona's
+        # findings, and asking for them separately walked every render's
         # rendered config.yml twice on a pass that promises to report in
         # seconds.
         problems, advisories = web_terminal_preflight_report(config, repo_root=repo_root)
         findings.extend(problems)
         # Said, not refused over -- the privilege exposures that are real but
         # must not stop the start of a running stack (a privileged
-        # `default_persona`, an `auth.method: none` deployment). Printed rather
+        # `default_tier`, an `auth.method: none` deployment). Printed rather
         # than collected because the collection RAISES: an advisory in that list
         # would refuse the deploy it is trying to inform. Output, not a write,
         # so the pass keeps the purity its position depends on.
@@ -6360,7 +6421,7 @@ def _start_stack(
         web_terminals_enabled=web_terminals_enabled,
     )
 
-    # Fail-fast web-terminal preflight (persona render + credential gate)
+    # Fail-fast web-terminal preflight (render + credential gate)
     # BEFORE the minutes-long image build below: a deploy that is doomed to
     # abort on a missing provider secret must say so in seconds, not after
     # the whole project image has been built. deploy_up_web_terminals re-runs
@@ -6446,11 +6507,23 @@ def _start_stack(
     if not _resolve_prebuilt_images(config):
         stage_service_site_ca(config, compose_files, repo_root)
 
+    # One render-build session for the rest of the start: the tier renders
+    # built just below are not built again by the web stack's own pass.
+    build_session = render_build_session()
+    build_session.__enter__()
+
     # Whatever stops the start -- a failed build, a refused `up`, an interrupt
     # -- the contexts give the bundle back: they hold it only while a build
     # can read it. The attached `up` clears before it replaces this process,
     # since nothing after `os.execvpe` runs.
     try:
+        # The tier render a tiered dispatch worker runs, with the rest of the
+        # reference set, built like the project image above and for the same
+        # reason: no compose build block produces it, and it must exist before
+        # the worker's `up`. No-op without a dispatch tier.
+        _build_referenced_renders(
+            config, repo_root, dev_mode, env, web_terminals_enabled=web_terminals_enabled
+        )
         if web_terminals_enabled:
             # The provider goes down with the fragment it shaped: that fragment is
             # already provider-specific (one merged file, or the repeated chain),
@@ -6575,7 +6648,7 @@ def _start_stack(
             # answer a missing tag by building a locally-tagged impostor from the
             # template's `build:` block instead of failing on the image that never
             # arrived. The switch reaches compose's implicit builds only: explicit
-            # persona and auth-sidecar builds stay governed by `image_source`.
+            # render and auth-sidecar builds stay governed by `image_source`.
             cmd.append("--no-build")
         if detached:
             cmd.append("-d")
@@ -6613,6 +6686,7 @@ def _start_stack(
             os.execvpe(cmd[0], cmd, run_env)
     finally:
         clear_staged_service_site_ca(compose_files, repo_root)
+        build_session.__exit__(None, None, None)
 
 
 def as_built_config_path(repo_root: Path | str) -> Path:
@@ -6907,10 +6981,10 @@ def up_as_built(
     at build time.
 
     Nothing else on this path reads ``profile.yml`` or writes into ``build/``.
-    Persona projects in particular are rendered by ``osprey build``, one per
-    delta in ``personas/``, and a start only checks they are there
-    (:func:`verify_persona_renders`) and refuses when they are not: a start that
-    rendered them would put a fresh persona beside a deployment built from an
+    Render projects in particular are rendered by ``osprey build``, one per
+    delta in ``tiers/``, and a start only checks they are there
+    (:func:`verify_renders`) and refuses when they are not: a start that
+    rendered them would put a fresh render beside a deployment built from an
     older profile. The services stack is untouched by any of it.
 
     Everything after the inputs are resolved is :func:`_start_stack`. What is
@@ -6960,7 +7034,7 @@ def _sidecar_dev_flavor(compose_files: list[str], repo_root: Path) -> tuple[list
 
     Only services that install the framework at image-build time matter (their
     ``build.args`` carry ``OSPREY_VERSION``). Pure-image services and images
-    built at start time (dispatch worker, personas) take their dev-ness from the
+    built at start time (dispatch worker, renders) take their dev-ness from the
     start verb and are none of this function's business.
 
     Args:

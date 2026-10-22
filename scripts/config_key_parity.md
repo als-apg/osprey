@@ -1,56 +1,75 @@
 # Config key parity classification
 
 Input to the resurrection-guard manifest. Every dotted key the config-honesty
-ledger touched is classified as **all-presets** (must appear in all four shipped
-presets' resolved `config:`) or **per-preset** (deliberately present in some and
-absent from others, with the reason). Value equality is a third, separate
-classification, carried by the manifest's `same-value` mark and described below.
+ledger touched is classified as **all-presets** (must appear in both shipped
+root presets' resolved `config:`) or **per-preset** (deliberately present in
+some and absent from others, with the reason). Value equality is a third,
+separate classification, carried by the manifest's `same-value` mark and
+described below. Parity is a claim about the two root presets only; the bundled
+apps are union sources, never parity subjects.
 
-## The two sources
+## The sources
 
-A rendered `build/config.yml` has two authors, and the guard's union is their
-sum. Nothing may be in both — that is the whole point of the split.
+A rendered `build/config.yml` has two authors, and an app render is composed
+from both. The guard's union is the sum of the sources below. The framework
+template and a root preset may never both write a key — that is the whole point
+of the split.
 
 | source | id | what it writes |
 |---|---|---|
 | `src/osprey/templates/project/config.yml.j2` | `framework` | only what the BUILD derives: the project layout, the artifact port, `api.providers` from `providers.yml`, and the keys a profile FIELD (`provider:`, `model:`, `channel_finder_mode:`, `default_panel:`, `panel_presets:`, `web_panels:`) decides — the list in `osprey.cli.derived_keys.DERIVED_KEYS` |
-| `src/osprey/profiles/presets/*.yml` | the preset's stem | everything else, as dotted `config:` keys with a comment on the line that sets each one |
+| `src/osprey/profiles/presets/*.yml` (`render_contexts.presets`) | the preset's stem | everything else, as dotted `config:` keys with a comment on the line that sets each one |
+| `src/osprey/profiles/presets/apps/*.yml` (`render_contexts.apps`) | the app's stem | each app's `config:` composed over `render_contexts.host` through the resolver's app branch: the host's facts, the app's keys over them, every write switch pinned off |
 
-The four presets, which are what `osprey init --preset <name>` copies out as the
-operator's own `profile.yml`:
+The two root presets, which are what `osprey init --preset <name>` copies out as
+the operator's own `profile.yml`:
 
 | id | path |
 |----|------|
 | `hello-world` | `src/osprey/profiles/presets/hello-world.yml` |
-| `ariel-standalone` | `src/osprey/profiles/presets/ariel-standalone.yml` |
-| `channel-finder-standalone` | `src/osprey/profiles/presets/channel-finder-standalone.yml` |
 | `control-assistant` | `src/osprey/profiles/presets/control-assistant.yml` |
 
-The persona presets (`control-assistant-*.yml`) are deltas that `extends:` the
-root and are deliberately out of scope: every key they carry is either inherited
-from `control-assistant` — already counted — or a persona-scoped override of
-one, so including them would make parity a claim about deltas rather than about
-the four documents an operator starts from.
+The bundled apps, each composed over `control-assistant` (the host):
+
+| id | path |
+|----|------|
+| `channel-finder` | `src/osprey/profiles/presets/apps/channel-finder.yml` |
+| `knowledge` | `src/osprey/profiles/presets/apps/knowledge.yml` |
+| `logbook` | `src/osprey/profiles/presets/apps/logbook.yml` |
+
+An app is a complete agent definition, not a delta, so a key only an app states
+has its writer in the apps context: the `python` and
+`osprey_facility_knowledge` server switches, `web.control_target_picker`,
+`web.ui_mode`, the `graph` server switch and the per-type write pins. The
+governed-set claims are measured from the `logbook` and `channel-finder` app
+renders.
+
+The bundled tiers (`tiers/*.yml`) are deltas over their root and deliberately
+out of scope: every key they carry is either inherited from the root — already
+counted — or a tier-scoped override of one, so including them would make parity
+a claim about deltas rather than about the two documents an operator starts
+from.
 
 Every claim below was produced by rendering the framework template with
 `ChainableUndefined` over the guard's matrix, resolving each preset through
-`resolve_build_profile` + `_expand_dotted` with `layout_port_fill` applied, and
-— for MCP/approval claims — feeding the resulting `claude_code` section to
+`resolve_build_profile` + `_expand_dotted` with `layout_port_fill` applied,
+composing each app the same way from a scratch deployment that extends the host,
+and — for MCP/approval claims — feeding the resulting `claude_code` section to
 `osprey.registry.mcp.resolve_servers`.
 
 ## Scope caveat — read before deriving guard rules
 
 This document covers the keys the **config-honesty ledger touched**. It is *not*
-an exhaustive enumeration of every key in the four presets, and the
+an exhaustive enumeration of every key in the two presets, and the
 "all-presets" table is *not* automatically the complete set of keys that happen
-to appear in all four.
+to appear in both.
 
 Three rules follow for anything consuming this list:
 
-1. **Do not auto-derive "present in all four ⇒ values must match."** Presence
+1. **Do not auto-derive "present in both ⇒ values must match."** Presence
    and value-equality are separate properties here. `deployed_services` is
-   present in all four and its values deliberately differ; `container_runtime`
-   is present in all four and its value must match. The tables below state which
+   present in both and its values deliberately differ; `container_runtime`
+   is present in both and its value must match. The tables below state which
    applies — infer neither from the other. The machine-checked form of "its
    value must match" is `same-value: true` in the manifest, and failure mode 6
    of `check_config_keys.py` compares the presets' stated values for every key
@@ -67,9 +86,9 @@ Three rules follow for anything consuming this list:
 
 ## All-presets (parity-required)
 
-Present in all four presets' resolved `config:`. A guard fires if one goes
+Present in both presets' resolved `config:`. A guard fires if one goes
 missing. A row reading "`X` everywhere" carries `same-value: true` beside
-`all-templates: true` in the manifest, and the guard compares the four presets'
+`all-templates: true` in the manifest, and the guard compares the two presets'
 stated values for it. A row reading "diverges" carries `all-templates` only. The
 value column is prose for the reader, because the presets are the one place a
 value is written, and
@@ -82,12 +101,12 @@ holds this table and the marks to one set of keys.
 | `system.timezone` | `UTC` everywhere | pinned for reproducibility |
 | `approval.enabled` | `true` everywhere | |
 | `approval.default_policy` | `always` everywhere | fail-closed for hook-wired tools not listed |
-| `claude_code.telemetry.enabled` | diverges | `false` in `channel-finder-standalone`, `true` in the other three; that preset deploys no telemetry store, so telemetry has nowhere local to land. Presence is required because it is a posture-floor key |
-| `hooks.debug` | diverges | `false` in `hello-world`, `true` in the other three. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
+| `claude_code.telemetry.enabled` | diverges | `true` in both shipped presets, which each deploy a telemetry store; a deployment that runs none states `false`, since telemetry would have nowhere local to land. Presence is required because it is a posture-floor key |
+| `hooks.debug` | diverges | `false` in `hello-world`, `true` in `control-assistant`. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
 | `artifact_server.host` | `127.0.0.1` everywhere | |
 | `artifact_server.auto_launch` | `true` everywhere | |
 | `execution.execution_method` | `subprocess` everywhere | |
-| `deployed_services` | diverges | `[]` (`channel-finder-standalone`), `[telemetry_store, telemetry_gateway]` (`hello-world`), `[postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]` (`ariel-standalone`, `control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
+| `deployed_services` | diverges | `[telemetry_store, telemetry_gateway]` (`hello-world`), `[postgresql, telemetry_store, telemetry_gateway, qmd, graphdb]` (`control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
 
 Their parent blocks — `approval`, `artifact_server`, `claude_code`,
 `claude_code.servers`, `claude_code.telemetry`, `execution`, `hooks`, `system` —
@@ -100,16 +119,18 @@ that mark is presence-only. They are not separate claims. No block carries
 A `same-value` mark without `all-templates` leaves presence free and pins only
 agreement among the presets that state the key.
 
-- `approval.tools.<tool>` (all ten rows): a tool's policy follows what the tool
+- `approval.tools.<tool>` (eight rows): a tool's policy follows what the tool
   does, not which deployment serves it. Presence is capability-scoped, since a
   preset lists only tools its servers gate
   (`tests/profiles/test_approval_tools_parity.py`), and an unlisted tool falls to
-  `approval.default_policy`.
+  `approval.default_policy`. `entry_create` and `entry_publish` carry no mark:
+  `control-assistant` is the one root preset that states them (the `logbook`
+  app states them too, and apps are not parity subjects), so the mark would
+  compare nothing.
 - `claude_code.telemetry.log_{user_prompts,assistant_responses,tool_details,raw_api_bodies}`:
-  the capture posture of the bundled store. The three presets that ship it each
-  state every content gate on (each opens its gate block with "Content gates,
+  the capture posture of the bundled store. Both presets ship it and each
+  states every content gate on (each opens its gate block with "Content gates,
   all on"), so the posture is one claim about one store.
-  `channel-finder-standalone` ships no store and states none of them.
 
 ### Considered and left unmarked
 
@@ -132,19 +153,19 @@ Present only where the deployment has the capability.
 
 | dotted key | present in | rationale |
 |---|---|---|
-| `control_system.*` | `hello-world`, `control-assistant` | the two standalones disable the `controls` server; no hardware surface |
+| `control_system.*` | `hello-world`, `control-assistant` | both shipped presets reach a control system; a deployment that disables the `controls` server has no hardware surface and states none |
 | `archiver.*` | `hello-world`, `control-assistant` | rides with `control_system` |
-| `ariel.*` | `ariel-standalone`, `control-assistant` | logbook deployments only |
-| `logbook.*` | `ariel-standalone`, `control-assistant` | rides with `ariel` |
-| `channel_finder.*` | `control-assistant` | the channel-finder standalone configures its pipeline entirely through the `channel_finder_mode:` FIELD, so it needs no `config:` block; only control-assistant adds the benchmark corpus and the panel's web server |
+| `ariel.*` | `control-assistant` | logbook deployments only |
+| `logbook.*` | `control-assistant` | rides with `ariel` |
+| `channel_finder.*` | `control-assistant` | `hello-world` serves no channel finder; control-assistant adds the benchmark corpus and the panel's web server |
 | `facility_knowledge.*` | `control-assistant` | the only preset shipping an OKF corpus |
-| `services.*` | `hello-world`, `ariel-standalone`, `control-assistant` | the channel finder is file-backed and deploys no standing service |
-| `services.postgresql`, `services.qmd`, `services.graphdb` | `ariel-standalone`, `control-assistant` | only ARIEL needs the logbook stores |
-| `cli.*` | `control-assistant` | console theming; the minimal presets omit it |
-| `modules.web_terminals.*`, `deploy.fqdn` | `control-assistant` | the multi-user roster. The other three are single-terminal starting points |
+| `services.*` | `hello-world`, `control-assistant` | a deployment whose services are all file-backed deploys no standing service |
+| `services.postgresql`, `services.qmd`, `services.graphdb` | `control-assistant` | only ARIEL needs the logbook stores |
+| `cli.*` | `control-assistant` | console theming; `hello-world` omits it |
+| `modules.web_terminals.*`, `deploy.fqdn` | `control-assistant` | the multi-user roster. `hello-world` is a single-terminal starting point |
 | `bluesky.*`, `claude_code.servers.bluesky.enabled` | `control-assistant` | the plan queue |
-| `claude_code.permissions.deny` | `control-assistant` | the tier floor every persona inherits |
-| `web.*` | `ariel-standalone`, `channel-finder-standalone`, `control-assistant` | `hello-world` selects no panel and states no web key, so it renders no `web:` block at all |
+| `claude_code.permissions.deny` | `control-assistant` | the floor every tier and app inherits |
+| `web.*` | `control-assistant` | `hello-world` selects no panel and states no web key, so it renders no `web:` block at all |
 | `simulation.default_scenarios` | `control-assistant` | the only preset whose facility tree ships scenarios to start in |
 
 ### Deliberately divergent defaults
@@ -152,18 +173,20 @@ Present only where the deployment has the capability.
 | dotted key | values | rationale |
 |---|---|---|
 | `control_system.writes_enabled` | `true` in `control-assistant`; `false` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
-| `web.theme` | live `light` in `control-assistant`; commented in `hello-world`; absent from the two standalones | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
+| `web.theme` | live `light` in `control-assistant`; commented in `hello-world` | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
 | `channel_finder.benchmark.dataset_path` | `control-assistant` only | see below |
-| `deployment.bind_address` (commented) | `hello-world`, `ariel-standalone`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
+| `deployment.bind_address` (commented) | `hello-world`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
 
 `control_system.connector.<type>.writes_enabled` is a per-connector-type
 override of the global `control_system.writes_enabled` row above, and is
-deliberately **not** parity-required. It is written commented in the presets
-that carry the matching connector block, so it is never in the resolved
-`config:` and never enters the union a parity guard would compare. Its semantics
-are tri-state: absent inherits the global key, literally `true` arms writes for
-that connector type, and any other value leaves them unarmed. Arming writes is a
-per-facility decision, so no preset may ship it live.
+deliberately **not** parity-required. It is written commented in the root
+presets that carry the matching connector block, so it is never in a root
+preset's resolved `config:`. The `epics` and `virtual_accelerator` switches
+reach the union through the apps context alone: every app render pins them
+`false`. Its semantics are tri-state: absent inherits the global key, literally
+`true` arms writes for that connector type, and any other value leaves them
+unarmed. Arming writes is a per-facility decision, so no preset may ship it
+live.
 
 `control_system.connector.<type>.limits_checking` is the same story for the
 limits posture, and is likewise **not** parity-required. It overrides the
@@ -182,7 +205,7 @@ per-type entry carries `rendered: false`.
 ### Keys nothing ships (`rendered: false`)
 
 The manifest keys marked `rendered: false` have real readers, real spellings and
-no writer among the framework template or the four presets. They are marked `rendered: false` so
+no writer among the framework template, the two root presets or the apps. They are marked `rendered: false` so
 the phantom-key check does not read them as manifest rot.
 
 The flag is checked in **both** directions. A key carrying it that IS in the
@@ -231,14 +254,14 @@ preset.
 
 ### `channel_finder.benchmark` — resolved
 
-`channel-finder-standalone` ships no `benchmark:` block, and adding one would
-name a phantom path: only the control-assistant bundle ships the query corpus,
+No preset but control-assistant ships a `benchmark:` block, and adding one
+elsewhere would name a phantom path: only the control-assistant bundle ships the query corpus,
 and the build copies the mode's benchmark query file to
 `data/benchmarks/queries.json` (`cli/templates/scaffolding.py`); a bundle that
-ships none, as the channel-finder bundle does, has no `queries.json`.
+ships none has no `queries.json`.
 
 So benchmark **is** deliberately control-assistant-only. The command still works
-in the channel-finder deployment via `--queries-path`, which bypasses the config
+in a deployment without the corpus via `--queries-path`, which bypasses the config
 read (`cli/channel_finder_cmd.py`). The bare `KeyError` on the config subscript
 was replaced with an error naming both remedies
 (`services/channel_finder/benchmarks/runner.py`), and the preset documents the
@@ -271,9 +294,9 @@ altitudes, and a guard touching either surface should know which one it is on:
 | `lint_profile_config(config)` | a build profile's `config:` block (dotted keys, nested internally) | profile validation, before anything is built |
 
 The profile-altitude pass skips the two checks that need a rendered project —
-persona `project_path` existence and the `build_profile` delta shape, both
-inside `_check_persona_project_paths` — because `osprey init` only rewrites
-catalog entries into `personas/<name>.yml` deltas at materialization.
+render `project_path` existence and the `build_profile` delta shape — because
+`osprey init` only rewrites catalog entries into `tiers/<name>.yml` deltas at
+materialization.
 Every shipped preset is pinned clean at that altitude by
 `tests/deployment/web_terminals/test_lint.py`.
 

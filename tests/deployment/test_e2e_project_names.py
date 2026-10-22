@@ -116,7 +116,7 @@ def test_the_reader_takes_project_names_and_leaves_everything_else(tmp_path: Pat
         'HETERO_PROJECT_NAME = "osprey-e2e-shapes-hetero"\n'
         'BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"\n'
         'WORKER_PROJECT_DIR = "/app/osprey-e2e-shapes"\n'
-        'PERSONA_PROJECT = "shapes-operator"\n'
+        'RENDER_PROJECT = "shapes-operator"\n'
         'SETTING_SOURCES_PROJECT = ["--setting-sources", "project"]\n',
         encoding="utf-8",
     )

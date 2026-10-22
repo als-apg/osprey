@@ -19,6 +19,7 @@ from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.services.auth_sidecar.app import ENV_WEB_APP_NAME
+from tests._renders import tier_render
 
 
 def _config(**extra: object) -> dict:
@@ -31,8 +32,8 @@ def _config(**extra: object) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice"],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
                 "auth": {"method": "password", "allow_insecure_http": True},
             }
         },

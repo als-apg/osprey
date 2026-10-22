@@ -575,9 +575,13 @@ def test_upload_falls_back_local_with_attachments(client, mock_ariel_service):
     mock_ariel_service.repository.store_attachment.assert_not_called()
 
 
-def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_service):
-    """Published entry: text goes to OLOG, files stay in ARIEL (API can't take files)."""
-    from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
+def test_upload_publish_hands_the_files_to_the_service(client, mock_ariel_service):
+    """The route passes each validated file to the service with the entry."""
+    from osprey.services.ariel_search.models import (
+        EntryAttachment,
+        FacilityEntryCreateResult,
+        SyncStatus,
+    )
 
     mock_ariel_service.create_entry = AsyncMock(
         return_value=FacilityEntryCreateResult(
@@ -585,20 +589,8 @@ def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_se
             source_system="Example eLog",
             sync_status=SyncStatus.PENDING_SYNC,
             message="Entry 99999 created in Example eLog",
+            attachment_count=1,
         )
-    )
-    mock_ariel_service.repository.store_attachment = AsyncMock()
-    mock_ariel_service.repository.upsert_entry = AsyncMock()
-    mock_ariel_service.repository.get_entry = AsyncMock(
-        return_value={
-            "entry_id": "99999",
-            "source_system": "Example eLog",
-            "timestamp": datetime.now(),
-            "author": "op",
-            "raw_text": "Test\n\nBody",
-            "attachments": [],
-            "metadata": {},
-        }
     )
 
     response = client.post(
@@ -612,9 +604,38 @@ def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_se
     assert data["entry_id"] == "99999"
     assert data["sync_status"] == "pending_sync"
     assert data["attachment_count"] == 1
-    # Files were stored in ARIEL and the operator is told they were not published.
-    mock_ariel_service.repository.insert_native_attachment.assert_called_once()
-    assert "ariel" in data["message"].lower()
+    assert mock_ariel_service.create_entry.await_args.kwargs["attachments"] == [
+        EntryAttachment("shot.png", "image/png", b"\x89PNG\r\n\x1a\nfakeimage")
+    ]
+    # The logbook took no files, so the operator is told they stayed in ARIEL.
+    assert "saved to ARIEL only" in data["message"]
+
+
+def test_upload_publish_reports_files_published_to_the_logbook(client, mock_ariel_service):
+    """When the logbook took the files, the response names it instead of ARIEL."""
+    from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
+
+    mock_ariel_service.create_entry = AsyncMock(
+        return_value=FacilityEntryCreateResult(
+            entry_id="99999",
+            source_system="Example eLog",
+            sync_status=SyncStatus.SYNCED,
+            message="Entry 99999 created in Example eLog",
+            attachment_count=1,
+            attachments_published=True,
+        )
+    )
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=_upload_files(),
+    )
+
+    assert response.status_code == 200
+    message = response.json()["message"]
+    assert "1 attachment(s) published to Example eLog" in message
+    assert "ARIEL only" not in message
 
 
 def _mock_adapter(*, supports_write, requires_write_auth, source_system):

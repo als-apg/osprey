@@ -4,12 +4,12 @@ Two halves, and they check different things.
 
 The **unit** half exercises :func:`~osprey.cli.build_posture_check.missing_posture_errors`
 directly over hand-written rendered configs. It is where the conditional rules
-live: which keys a controls-less standalone is asked for, which a profile that
+live: which keys a controls-less deployment is asked for, which a profile that
 never selected the approval hook is asked for, and what counts as "stated".
 
 The **CLI** half runs the real ``osprey init`` + ``osprey build``, because the
 floor is only worth anything if it is wired into the gate a build actually
-passes through. Each of the four presets is built once and cached for the
+passes through. Each preset is built once and cached for the
 session; the refusals then take one built hello-world repo, delete a single
 required line from its ``profile.yml``, and rebuild — so the assertion is on the
 message the CLI prints, not on a function called in isolation.
@@ -56,8 +56,6 @@ from osprey.facility.errors import FacilityBuildError
 PRESETS: tuple[str, ...] = (
     "hello-world",
     "control-assistant",
-    "ariel-standalone",
-    "channel-finder-standalone",
 )
 
 #: Deployment directory name for every built cell. Becomes ``project_name``.
@@ -168,7 +166,7 @@ class TestControlsGate:
         assert _named_keys(errors) == ["control_system.type", "archiver.type"]
 
     def test_controls_switched_off_requires_neither(self) -> None:
-        """The two standalone presets' shape: no controls server, no type to state."""
+        """A deployment with no controls server has no type to state."""
         rendered = _rendered(
             control_system={},
             archiver={},
@@ -515,7 +513,7 @@ def _selected_hooks(repo: Path) -> list[str]:
     """The ``hooks:`` list a built repo's profile selects.
 
     Read from the emitted profile rather than the preset, because the profile
-    is what the build resolves; a persona's selection is merged into it before
+    is what the build resolves; a render's selection is merged into it before
     the gate sees it.
 
     Args:
@@ -526,23 +524,6 @@ def _selected_hooks(repo: Path) -> list[str]:
     """
     profile = yaml.safe_load((repo / PROFILE_FILENAME).read_text()) or {}
     return list(profile.get("hooks") or [])
-
-
-@pytest.mark.slow
-def test_standalone_without_controls_is_not_asked_for_a_control_system_type(
-    built_preset: Any,
-) -> None:
-    """The ARIEL standalone builds green while stating no ``control_system.type``.
-
-    It switches the controls server off, so the pair the server would make
-    required is not a posture it has. This is the half of the rule that a floor
-    written as an unconditional list would get wrong: the build would refuse a
-    preset that ships as intended.
-    """
-    repo = built_preset("ariel-standalone")
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text())
-    assert "type" not in (rendered.get("control_system") or {})
-    assert missing_posture_errors(rendered, _selected_hooks(repo)) == []
 
 
 @pytest.mark.slow

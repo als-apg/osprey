@@ -25,6 +25,7 @@ from osprey.cli.build_profile_deploy import (
     parse_deploy_block,
 )
 from osprey.deployment.web_terminals.lint import profile_config_errors
+from tests._renders import tier_render
 
 REGISTRY_URL = "registry.example.org/accelerator/demo"
 
@@ -46,11 +47,13 @@ WEB_TERMINALS: dict[str, Any] = {
     "users": ["operator"],
 }
 
-#: The same stack with a persona catalog.
+#: The same stack with a render catalog.
 WEB_TERMINALS_CATALOG: dict[str, Any] = {
     **WEB_TERMINALS,
-    "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},
+    "default_tier": "readwrite",
+    "renders": {
+        "readwrite": tier_render("readwrite", "demo-readwrite", build_profile="hello-world")
+    },
 }
 
 

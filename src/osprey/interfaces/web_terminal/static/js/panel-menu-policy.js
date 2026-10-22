@@ -53,7 +53,7 @@
 
 import { openContextMenu } from './panel-context-menu.js';
 import { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } from './panel-catalog.js';
-import { setPanelVisibility } from './panel-commands.js';
+import { setPanelVisibility, setRailOrder } from './panel-commands.js';
 import { openPanelBeside, hasDockedTile } from './panel-placement.js';
 import { openTerminalPanel, closeTerminalPanel, resetDockLayout } from './dock-workspace.js';
 import { restartTerminal, startTerminal } from './terminal.js';
@@ -151,6 +151,13 @@ export function railOptions() {
     onDragStart: (/** @type {string} */ id, /** @type {DataTransfer | null} */ dt) =>
       id === TERMINAL_RAIL_ID || isFailed(id) ? false : railDragStart(id, dt),
     onDragEnd: () => railDragEnd(),
+    // The same drag, dropped on the rail instead of the workspace, reorders
+    // it. SESSION stays the rail's head: it is never moved, and nothing is
+    // placed above it.
+    onReorder: (/** @type {string} */ id, /** @type {string | null} */ before) => {
+      void setRailOrder(id, before);
+    },
+    reorderable: (/** @type {string} */ id) => id !== TERMINAL_RAIL_ID,
   };
 }
 

@@ -368,14 +368,14 @@ PLACEHOLDER = (
 )
 
 
-def _render(tmp_path: Path, *personas: str, images: tuple[str, ...] = ()) -> Path:
+def _render(tmp_path: Path, *tiers: str, images: tuple[str, ...] = ()) -> Path:
     """A render with the placeholder agent file at every place the bake looks.
 
-    The render's own agents, one attached persona render per *personas*, and
+    The render's own agents, one attached render per *renders*, and
     one staged image build context per *images*.
     """
     agent_dirs = [tmp_path / ".claude" / "agents"]
-    agent_dirs += [tmp_path / persona / ".claude" / "agents" for persona in personas]
+    agent_dirs += [tmp_path / tier / ".claude" / "agents" for tier in tiers]
     agent_dirs += [
         tmp_path / IMAGE_DIR_NAME / image / BUILD_DIR_NAME / ".claude" / "agents"
         for image in images
@@ -429,7 +429,7 @@ class TestApplySnapshot:
         assert "513 Resource" in text
         assert "512 Resource" not in text
 
-    def test_attached_persona_renders_are_patched_too(self, tmp_path: Path):
+    def test_attached_renders_are_patched_too(self, tmp_path: Path):
         render = _render(tmp_path, "demo-readonly", "demo-readwrite")
         patched = mod.apply_snapshot(render, {mod.AGENT_FILENAME: _block()})
         assert len(patched) == 3
@@ -621,7 +621,7 @@ class TestDescribePatched:
     """The reported count is prompts × renders, not a flat file total."""
 
     def test_counts_distinct_prompts_and_renders(self):
-        renders = [Path("build"), Path("build/persona-a"), Path("build/.image/x/build")]
+        renders = [Path("build"), Path("build/render-a"), Path("build/.image/x/build")]
         patched = [
             base / ".claude" / "agents" / name for base in renders for name in mod.TARGET_FILENAMES
         ]

@@ -370,7 +370,7 @@ def graph_project(
     second attempt sees exactly the corpus the first did.
 
     The project tree is removed on teardown on every path. ``osprey build``
-    renders four container build contexts and three persona projects beside the
+    renders four container build contexts and three render projects beside the
     corpus, which is a lot of bytes to leave behind on a CI runner.
 
     ``GRAPHDB_PASSWORD`` is pinned in this process's own environment as well as

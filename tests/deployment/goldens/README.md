@@ -41,8 +41,8 @@ deployment that adds an entry of its own edits that file, and nothing here
 depends on it staying identical to the packaged one.
 
 To regenerate it, run the migration verb over it rather than re-emitting from
-the preset: `osprey profile expand --from control-assistant --repo <this dir>`.
-Expand only *adds* the keys a profile leaves to its preset, so the trims that
+the preset: `osprey init <this dir> --revalidate --preset control-assistant`.
+For the profile it only adds the keys a profile leaves to its preset, so the trims that
 make this fixture what it is — the shorter artifact lists, the two-user roster,
 `deployed_services: [telemetry_store, telemetry_gateway]` — survive it, where a fresh emission would
 replace them. Then delete two things from its output by hand. The

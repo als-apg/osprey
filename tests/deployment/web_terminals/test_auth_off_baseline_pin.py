@@ -40,7 +40,7 @@ exceptions:
      (the ``?token=`` exchange trades the magic link for one), so the setting
      that governs how long it lives is not an authentication feature this
      posture opted out of; it is the posture's own cookie. It rides in the
-     environment because the persona's ``config.yml`` is baked into the image
+     environment because the render's ``config.yml`` is baked into the image
      at build time, and an operator who edits ``auth.session_lifetime`` and
      re-renders would otherwise see nothing change. The value emitted here is
      the default an absent ``auth:`` block already resolved to, so nothing
@@ -85,8 +85,8 @@ exceptions:
      the ``./var/guarded_run`` bind on every per-user container. A guarded run keeps its per-target lock
      there, shared with every other container that runs the agent; nothing
      about it depends on a login.
-  9. **the persona badge** — every user card names the persona it runs, here
-     the default persona every roster states. It names the image's project
+  9. **the render badge** — every user card names the render it runs, here
+     the default tier every roster states. It names the image's project
      tier, carries no account, role or claim, and renders the same under
      every method.
   10. **the terminal-starting page** — ``error_page 502`` in every proxying
@@ -451,7 +451,7 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # The cookie-lifecycle feature — the deliberate THIRD exception to SC6,
         # stated in its PROPOSAL. The terminal's own session-cookie lifetime now
         # travels to every per-user container, under `token` as under every
-        # other method, because every method mints that cookie and the persona's
+        # other method, because every method mints that cookie and the render's
         # `config.yml` is baked into the image at build time — so a deploy-time
         # edit of `auth.session_lifetime` is visible to a running container only
         # as environment. Count 2 = alice + bob. The value is the default an
@@ -651,8 +651,8 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
             '            <span class="landing-card-token-hint">entered via a login link'
             " — <code>osprey users login-url bob</code></span>"
         ): 1,
-        # The persona badge — exception 9: one per user card, naming the
-        # default persona EXAMPLE_CONFIG's roster runs.
+        # The render badge — exception 9: one per user card, naming the
+        # default tier EXAMPLE_CONFIG's roster runs.
         '            <span class="landing-card-sublabel">assistant</span>': 2,
     }
 )
@@ -955,7 +955,7 @@ def test_landing_page_adds_exactly_the_token_login_badge() -> None:
 
     What the pin becomes is the same guarantee one step weaker and stated
     exactly: today's `token` landing page is the frozen one PLUS the badge's
-    style rules and the two spans per user card, and the persona badge
+    style rules and the two spans per user card, and the render badge
     (exception 9), and nothing at all besides.
     Anything else that appears on this page — a role, a login form, a claim —
     still fails here, which is what SC6 was ever protecting.

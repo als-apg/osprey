@@ -10,7 +10,7 @@ A control-assistant render that selects the middle-layer pipeline answers
 ``run_sql`` from the DuckDB index the build writes.
 
 The unit lane ignores this module by name and the Tier 0 static job runs it by
-name: nine real builds are worth one reading per run, not one per matrix cell.
+name: real builds are worth one reading per run, not one per matrix cell.
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ PRESETS_DIR = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
 PRESETS = sorted(path.stem for path in PRESETS_DIR.glob("*.yml"))
 
 
-def test_nine_presets_ship() -> None:
-    assert len(PRESETS) == 9, PRESETS
+def test_two_deployment_presets_ship() -> None:
+    assert PRESETS == ["control-assistant", "hello-world"], PRESETS
 
 
 @pytest.mark.parametrize("preset", PRESETS)

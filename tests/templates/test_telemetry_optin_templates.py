@@ -15,10 +15,6 @@ come from its profile's ``config:`` block, which the preset writes down. So this
 is a regression guard against any preset drifting back to the old opt-in posture
 (service declared but telemetry commented/off — a store deployed empty, or a
 telemetry block emitting to a service that was never deployed).
-
-``channel-finder-standalone`` is not in the matrix: it deploys no services at
-all (``deployed_services: []``) and ships telemetry off, so there is no store
-for a live block to point at.
 """
 
 from __future__ import annotations
@@ -31,7 +27,7 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 
 #: The bundled presets that deploy a stack, and so must deploy the store too.
-_DEPLOYING_PRESETS = ("hello-world", "ariel-standalone", "control-assistant")
+_DEPLOYING_PRESETS = ("hello-world", "control-assistant")
 
 _CONTENT_GATES = (
     "log_user_prompts",

@@ -8,6 +8,8 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 from __future__ import annotations
 
 import contextlib
+import json
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -530,8 +532,8 @@ class TestRepositoryMetadata:
 class TestRepositoryAttachmentPreservation:
     """Re-ingestion must not erase ARIEL-native (web-uploaded) attachments.
 
-    ARIEL-native attachments (URL ``/api/attachments/{id}``) live in ARIEL only —
-    the adapter write contract carries no attachments. A background re-ingestion poll
+    ARIEL-native attachments (URL ``/api/attachments/{id}``) of an adapter that takes
+    no files live in ARIEL only. A background re-ingestion poll
     re-fetches an already-published entry and upserts the upstream copy, which has
     *no* attachments. Without preservation, that upsert would overwrite the entry's
     attachment references to ``[]`` and orphan the stored blobs.
@@ -750,6 +752,148 @@ class TestRepositoryUpsertReturning:
         retrieved = await repository.get_entry(entry_id)
         assert retrieved is not None
         assert retrieved["attachments"] == [self.NATIVE]
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
+class TestRepositoryPublishedStandIns:
+    """ARIEL's copies of files it published give way to the facility's record.
+
+    A native item marked ``published`` stands in for a file the facility logbook
+    also holds. The first upsert bringing a non-empty facility list replaces it
+    and deletes its stored row; an empty facility list keeps it.
+    """
+
+    FACILITY = {"url": "https://elog.example/files/1", "type": "image/png", "filename": "orbit.png"}
+
+    async def _seed(
+        self, repository, seed_entry_factory, entry_id: str
+    ) -> tuple[dict, dict, str, str]:
+        """Store an entry holding one published stand-in and one plain native item."""
+        stand_in_id = f"att-{uuid.uuid4().hex[:12]}"
+        native_id = f"att-{uuid.uuid4().hex[:12]}"
+        stand_in = {
+            "url": f"/api/attachments/{stand_in_id}",
+            "type": "image/png",
+            "filename": "orbit.png",
+            "published": True,
+        }
+        native = {"url": f"/api/attachments/{native_id}", "type": "image/png", "filename": "w.png"}
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, attachments=[stand_in, native])
+        )
+        for attachment_id in (stand_in_id, native_id):
+            await repository.insert_native_attachment(
+                entry_id,
+                attachment_id,
+                filename="orbit.png",
+                mime_type="image/png",
+                data=b"\x89PNG",
+            )
+        return stand_in, native, stand_in_id, native_id
+
+    async def _row_ids(self, repository, entry_id: str) -> set[str]:
+        async with repository.pool.connection() as conn:
+            result = await conn.execute(
+                "SELECT attachment_id FROM attachment_files WHERE entry_id = %(e)s",
+                {"e": entry_id},
+            )
+            return {row[0] for row in await result.fetchall()}
+
+    async def test_ingest_upsert_replaces_stand_ins_and_deletes_their_rows(
+        self, repository, seed_entry_factory
+    ):
+        """The facility list replaces the stand-in; an unpublished native item stays."""
+        entry_id = f"{INTEG_PREFIX}standin-001"
+        _, native, _, native_id = await self._seed(repository, seed_entry_factory, entry_id)
+
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(
+                seed_entry_factory(entry_id=entry_id, attachments=[self.FACILITY]), conn=conn
+            )
+
+        assert row["attachments"] == [self.FACILITY, native]
+        assert await self._row_ids(repository, entry_id) == {native_id}
+
+    async def test_ingest_upsert_prunes_the_stand_in_caption(self, repository, seed_entry_factory):
+        """A caption kept for a deleted stand-in goes with it."""
+        entry_id = f"{INTEG_PREFIX}standin-002"
+        _, _, stand_in_id, native_id = await self._seed(repository, seed_entry_factory, entry_id)
+        captions = {stand_in_id: {"m": "a"}, native_id: {"m": "b"}}
+        async with repository.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET attachment_captions = %(c)s::jsonb"
+                " WHERE entry_id = %(e)s",
+                {"c": json.dumps(captions), "e": entry_id},
+            )
+
+        async with repository.pool.connection() as conn, conn.transaction():
+            row = await repository.upsert_entry_returning(
+                seed_entry_factory(entry_id=entry_id, attachments=[self.FACILITY]), conn=conn
+            )
+
+        assert row["attachment_captions"] == {native_id: {"m": "b"}}
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert retrieved["attachment_captions"] == {native_id: {"m": "b"}}
+
+    async def test_plain_upsert_with_a_facility_list_deletes_stand_in_rows(
+        self, repository, seed_entry_factory
+    ):
+        """The read-back upsert removes the stand-in's stored row and caption as well."""
+        entry_id = f"{INTEG_PREFIX}standin-003"
+        stand_in, _, stand_in_id, native_id = await self._seed(
+            repository, seed_entry_factory, entry_id
+        )
+        captions = {stand_in_id: {"m": "a"}, native_id: {"m": "b"}}
+        async with repository.pool.connection() as conn:
+            await conn.execute(
+                "UPDATE enhanced_entries SET attachment_captions = %(c)s::jsonb"
+                " WHERE entry_id = %(e)s",
+                {"c": json.dumps(captions), "e": entry_id},
+            )
+
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id=entry_id, attachments=[self.FACILITY])
+        )
+
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert stand_in not in retrieved["attachments"]
+        assert retrieved["attachment_captions"] == {native_id: {"m": "b"}}
+        assert stand_in_id not in await self._row_ids(repository, entry_id)
+
+    @pytest.mark.parametrize("returning", [True, False], ids=["ingest", "plain"])
+    async def test_empty_facility_list_keeps_the_stand_ins(
+        self, returning, repository, seed_entry_factory
+    ):
+        """A facility record listing no files leaves ARIEL's copies in place."""
+        entry_id = f"{INTEG_PREFIX}standin-004-{returning}"
+        stand_in, native, stand_in_id, native_id = await self._seed(
+            repository, seed_entry_factory, entry_id
+        )
+
+        empty = seed_entry_factory(entry_id=entry_id, attachments=[])
+        if returning:
+            async with repository.pool.connection() as conn, conn.transaction():
+                await repository.upsert_entry_returning(empty, conn=conn)
+        else:
+            await repository.upsert_entry(empty)
+
+        retrieved = await repository.get_entry(entry_id)
+        assert retrieved is not None
+        assert retrieved["attachments"] == [stand_in, native]
+        assert await self._row_ids(repository, entry_id) == {stand_in_id, native_id}
+
+    async def test_a_stand_in_the_incoming_list_still_carries_is_kept(
+        self, repository, seed_entry_factory
+    ):
+        """Linking stand-ins onto an entry is not mistaken for a facility read-back."""
+        entry_id = f"{INTEG_PREFIX}standin-005"
+        stand_in, _, stand_in_id, _ = await self._seed(repository, seed_entry_factory, entry_id)
+
+        await repository.upsert_entry(seed_entry_factory(entry_id=entry_id, attachments=[stand_in]))
+
+        assert stand_in_id in await self._row_ids(repository, entry_id)
 
 
 @pytest.mark.usefixtures("_seed_integ_prefix")

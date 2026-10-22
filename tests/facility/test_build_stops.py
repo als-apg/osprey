@@ -5,7 +5,7 @@ Each case is a minimal tree that breaks exactly that rule. It replaces the
 ``data/facility`` tree of a control-assistant repo, beside any profile edit the
 case makes, and runs through ``osprey build --skip-deps`` and through
 ``osprey facility validate``; both must print the case's line byte for byte on
-stderr and exit 1. A persona render is checked by the build alone, so a case
+stderr and exit 1. A render is checked by the build alone, so a case
 that breaks one runs through ``osprey build --skip-deps`` only.
 """
 
@@ -30,6 +30,7 @@ from osprey.cli.main import cli
 from osprey.facility.build import build_facility
 from osprey.facility.errors import KINDS
 from osprey.facility.views import VIEWS, ViewInputs
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests._builds import init_project, run_build
 from tests.facility._synthetic_trees import (
     BPM,
@@ -689,9 +690,9 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`simulation.models` names a model the facility file lacks",
     ),
     (
-        "profile_invalid__persona_served_models",
+        "profile_invalid__render_served_models",
         "profile-invalid",
-        "a persona on a VA target sets `simulation.models`",
+        "a render on a VA target sets `simulation.models`",
     ),
     ("profile_invalid__tier", "profile-invalid", "a profile `tier` field"),
     (
@@ -2457,12 +2458,12 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility file holds in `simulation.models`"
         ),
     ),
-    "profile_invalid__persona_served_models": (
+    "profile_invalid__render_served_models": (
         _plain(),
         (
-            "facility: profile-invalid: path personas/reader.yml — a persona on the `va` target "
+            f"facility: profile-invalid: path {TIERS_DIRNAME}/reader.yml — a render on the `va` target "
             "sets `simulation.models`, and that target serves the deployment's list; fix: remove "
-            "`simulation.models` from personas/reader.yml"
+            f"`simulation.models` from {TIERS_DIRNAME}/reader.yml"
         ),
     ),
     "profile_invalid__tier": (
@@ -2645,7 +2646,7 @@ def _drop_approval_hook(repo: Path) -> None:
 def _disable_approval(repo: Path) -> None:
     """Turn approval off, and writes with it: armed writes need the approval hook installed.
 
-    The personas that arm the simulator's writes on their own are disarmed too.
+    The renders that arm the simulator's writes on their own are disarmed too.
     """
     profile = repo / "profile.yml"
     data = yaml.safe_load(profile.read_text(encoding="utf-8"))
@@ -2653,9 +2654,9 @@ def _disable_approval(repo: Path) -> None:
     data["config"]["control_system.writes_enabled"] = False
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     armed = "control_system.connector.virtual_accelerator.writes_enabled: true"
-    for persona in sorted((repo / "personas").glob("*.yml")):
-        text = persona.read_text(encoding="utf-8")
-        persona.write_text(text.replace(armed, armed.replace("true", "false")), encoding="utf-8")
+    for render in sorted((repo / TIERS_DIRNAME).glob("*.yml")):
+        text = render.read_text(encoding="utf-8")
+        render.write_text(text.replace(armed, armed.replace("true", "false")), encoding="utf-8")
 
 
 def _select_in_context_unprobed(repo: Path) -> None:
@@ -2677,10 +2678,10 @@ def _ship_simulation_limits(repo: Path) -> None:
     target.write_text('{"_version": "4.0"}\n', encoding="utf-8")
 
 
-def _persona_serves_models(repo: Path) -> None:
-    persona = repo / "personas" / "reader.yml"
-    persona.parent.mkdir(parents=True, exist_ok=True)
-    persona.write_text("name: reader\nconfig:\n  simulation.models: [texture]\n", encoding="utf-8")
+def _render_serves_models(repo: Path) -> None:
+    render = repo / TIERS_DIRNAME / "reader.yml"
+    render.parent.mkdir(parents=True, exist_ok=True)
+    render.write_text("name: reader\nconfig:\n  simulation.models: [texture]\n", encoding="utf-8")
 
 
 #: The profile edit a case makes beside a clean tree.
@@ -2694,7 +2695,7 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__middle_layer_schema_key": _select_middle_layer,
     "view_unsupported__middle_layer_shared_field_key": _select_middle_layer,
     "profile_invalid__unknown_served_model": _serve_unknown_model,
-    "profile_invalid__persona_served_models": _persona_serves_models,
+    "profile_invalid__render_served_models": _render_serves_models,
     "profile_invalid__tier": _spell_tier,
     "profile_invalid__simulation_tick_s": _set_tick_zero,
     "profile_invalid__default_scenarios_not_a_list": _start_in("rf-thermal"),
@@ -2713,8 +2714,8 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
-#: persona renders are checked by the build.
-BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__persona_served_models"})
+#: renders are checked by the build.
+BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__render_served_models"})
 
 #: Cases a view raises while the render writes it: the views written before it have
 #: already noted, once each, what they omit.
@@ -2725,7 +2726,7 @@ VIEW_STAGE: frozenset[str] = frozenset(
 #: The view inputs of a render whose config sets nothing.
 _NO_CONFIG = ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
 
-#: The lines a build may print before a stop in a persona render: the main render has
+#: The lines a build may print before a stop in a render: the main render has
 #: written its views and noted, once each, the views it omits that no mode selects.
 MAIN_RENDER_NOTES = frozenset(
     f"  view {view.name} not written: {view.written_when(_NO_CONFIG)[1]}"

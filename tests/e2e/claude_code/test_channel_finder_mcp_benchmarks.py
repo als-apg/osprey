@@ -306,7 +306,7 @@ def graph_bench_project(
 ) -> Iterator[Path]:
     """A built graph-mode project wired to the seeded store; yields the repo root.
 
-    Module-scoped: the build renders container contexts and three persona
+    Module-scoped: the build renders container contexts and three render
     projects, and the seed loads the whole corpus, so a ``@flaky`` rerun should
     re-ask the ten questions rather than rebuild and re-seed. Nothing in this
     lane writes to the store, so every attempt sees the same corpus. The run

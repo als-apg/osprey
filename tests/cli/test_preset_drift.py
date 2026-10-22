@@ -34,9 +34,10 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.set_cmd import set as set_cmd
 from osprey.cli.validate_cmd import validate
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 PROFILE = "profile.yml"
-READONLY = Path("personas") / "readonly.yml"
+READONLY = Path(TIERS_DIRNAME) / "readonly.yml"
 
 
 @pytest.fixture(scope="module")
@@ -103,14 +104,22 @@ def test_header_stamp_and_lint_share_one_hash(repo: Path) -> None:
 
     assert header_hash == compute_preset_hash("control-assistant")
     assert f"preset_hash: {header_hash}" in profile.read_text(encoding="utf-8")
-    assert _header_hash(repo / READONLY) == compute_preset_hash("control-assistant-readonly")
+    tier_hash = _header_hash(repo / READONLY)
+    assert tier_hash == compute_preset_hash(f"{TIERS_DIRNAME}/readonly")
+    assert f"preset_hash: {tier_hash}" in (repo / READONLY).read_text(encoding="utf-8")
+
+
+#: The header line naming the hash: ``profile.yml`` stamps its preset's, a
+#: tier or app file the hash of the bundled file it was made from.
+_HEADER_HASH_PREFIXES = ("#   preset content hash: ", "#   content hash: ")
 
 
 def _header_hash(path: Path) -> str:
     """The hash the emitted header comment names."""
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("#   preset content hash: "):
-            return line.removeprefix("#   preset content hash: ").strip()
+        for prefix in _HEADER_HASH_PREFIXES:
+            if line.startswith(prefix):
+                return line.removeprefix(prefix).strip()
     raise AssertionError(f"{path} has no emitted header")
 
 
@@ -341,68 +350,71 @@ def test_unbundled_preset_cannot_be_compared(repo: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Personas
+# Renders
 # ---------------------------------------------------------------------------
 
 
-def test_persona_delta_is_compared_with_its_own_preset(repo: Path) -> None:
+def test_layer_delta_is_compared_with_its_own_preset(repo: Path) -> None:
     delta = repo / READONLY
-    _edit(delta, "  web.ui_mode: simple\n", "")
+    _edit(delta, "  control_system.writes_enabled: false\n", "")
 
     report = _report(repo / PROFILE)
 
-    assert [f.subject for f in report.unmarked] == ["config.web.ui_mode"]
+    assert [f.subject for f in report.unmarked] == ["config.control_system.writes_enabled"]
     rendered = report.unmarked[0].render()
-    assert "personas/readonly.yml" in rendered
-    preset_line = _line_of(_presets_dir() / "control-assistant-readonly.yml", "web.ui_mode: simple")
-    assert f"control-assistant-readonly.yml:{preset_line}" in rendered
+    assert f"{TIERS_DIRNAME}/readonly.yml" in rendered
+    preset_line = _line_of(
+        _presets_dir() / TIERS_DIRNAME / "readonly.yml", "control_system.writes_enabled: false"
+    )
+    assert f"readonly.yml:{preset_line}" in rendered
 
 
-def test_validating_a_delta_reports_that_persona_only(repo: Path) -> None:
+def test_validating_a_delta_reports_that_render_only(repo: Path) -> None:
     _edit(repo / PROFILE, "  - system-health", "  # - system-health")
-    _edit(repo / READONLY, "  web.ui_mode: simple\n", "")
+    _edit(repo / READONLY, "  control_system.writes_enabled: false\n", "")
 
     report = _report(repo / READONLY)
 
-    assert [f.subject for f in report.unmarked] == ["config.web.ui_mode"]
+    assert [f.subject for f in report.unmarked] == ["config.control_system.writes_enabled"]
 
 
-def test_persona_exclude_of_something_the_preset_keeps(repo: Path) -> None:
-    delta = repo / READONLY
-    with delta.open("a", encoding="utf-8") as fh:
-        fh.write("\nexclude:\n  skills:\n    - diagnose\n")
-
-    report = _report(repo / PROFILE)
-
-    assert [f.subject for f in report.refusals] == ["skills: diagnose"]
-    assert report.unmarked[0].kind == "exclude"
-    assert f"personas/readonly.yml:{_line_of(delta, '- diagnose')}" in report.unmarked[0].render()
-
-    _edit(
-        delta,
-        "    - diagnose",
-        "    # DEVIATION: facility — read-only logins do not diagnose\n    - diagnose",
-    )
-
-    assert _report(repo / PROFILE).unmarked == []
-
-
-def test_persona_the_preset_does_not_know_is_reported_once(repo: Path) -> None:
+def test_profile_exclude_of_something_the_preset_keeps(repo: Path) -> None:
+    """A tier only adds, so a subtraction is spelled in ``profile.yml`` — and is drift."""
     profile = repo / PROFILE
-    _edit(
-        profile,
-        "      readonly:\n",
-        "      operator:\n        build_profile: personas/operator.yml\n      readonly:\n",
-    )
-    (repo / "personas" / "operator.yml").write_text(
-        "name: Operator\ndeploy_services: false\n", encoding="utf-8"
-    )
+    with profile.open("a", encoding="utf-8") as fh:
+        fh.write("\nexclude:\n  skills:\n    - diagnose\n")
 
     report = _report(profile)
 
-    assert [f.subject for f in report.unmarked] == [
-        "config.modules.web_terminals.personas.operator"
-    ]
+    assert [f.subject for f in report.refusals] == ["skills: diagnose"]
+    assert report.unmarked[0].kind == "exclude"
+    assert f"{PROFILE}:{_line_of(profile, '    - diagnose')}" in report.unmarked[0].render()
+
+    _edit(
+        profile,
+        "\n    - diagnose",
+        "\n    # DEVIATION: facility — this deployment does not diagnose\n    - diagnose",
+    )
+
+    assert _report(profile).unmarked == []
+
+
+def test_a_tier_from_a_source_osprey_does_not_bundle_is_noted_once(repo: Path) -> None:
+    """A tier whose provenance names no bundled tier has nothing to compare with.
+
+    It is noted once, by file and name, and contributes no finding.
+    """
+    (repo / TIERS_DIRNAME / "operator.yml").write_text(
+        "name: Operator\nprovenance:\n  preset: operator\n  preset_hash: sha256:00\n",
+        encoding="utf-8",
+    )
+
+    report = _report(repo / PROFILE)
+
+    assert report.findings == []
+    assert report.note is not None
+    assert report.note.count(f"{TIERS_DIRNAME}/operator.yml") == 1
+    assert "'operator'" in report.note
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +519,7 @@ def test_build_names_drift_under_verbose_only(repo: Path) -> None:
 def test_two_checkouts_of_one_profile_report_the_same_thing(
     materialized: Path, tmp_path: Path
 ) -> None:
-    """A persona's render name is pinned in the profile and read from there by
+    """A render's render name is pinned in the profile and read from there by
     everything that builds or mounts it, so the lint's answer is a property of
     the tracked document rather than of the directory holding it."""
     first = tmp_path / "assistant"

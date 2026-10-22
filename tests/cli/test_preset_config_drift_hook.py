@@ -23,7 +23,7 @@ import yaml
 PRESETS_DIR = Path(__file__).parents[2] / "src" / "osprey" / "profiles" / "presets"
 
 
-@pytest.mark.parametrize("preset", ["hello-world", "control-assistant", "ariel-standalone"])
+@pytest.mark.parametrize("preset", ["hello-world", "control-assistant"])
 def test_preset_declares_config_drift_hook(preset):
     data = yaml.safe_load((PRESETS_DIR / f"{preset}.yml").read_text())
     assert "config-drift" in data.get("hooks", []), (

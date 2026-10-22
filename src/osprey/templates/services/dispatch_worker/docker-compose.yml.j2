@@ -144,7 +144,7 @@ services:
       # The third budget: how many agentic turns one dispatched run may take
       # when the trigger names no ceiling of its own.
       DISPATCH_MAX_TURNS: "{{ services.dispatch_worker.max_turns | default(25) }}"
-      OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
+      OSPREY_PROJECT_DIR: {{ osprey_worker_project_dir }}
       # WHO this worker's audit records are written as, and WHERE. The audit
       # mount follows the MIDDLEWARE, not the interface app: this container
       # launches the framework MCP servers through a CLI subprocess, so every
@@ -161,11 +161,29 @@ services:
       #
       # OSPREY_AUDIT_DIR is also the contract this file offers the image's
       # entrypoint: its root phase is to join the group of each directory the
-      # render names here before dropping privileges. This worker mounts no
+      # render names here before dropping privileges.
+{%- if dispatch_worker_corpus_mounts and (dispatch_worker_corpus_mounts.bundle or dispatch_worker_corpus_mounts.mirror) %}
+      # This worker's tier is entitled to the facility bundle or the ARIEL
+      # mirror, so it names those directories too (below).
+{%- else %} This worker mounts no
       # facility bundle, so it names no second directory and that step simply
       # finds nothing else to do — no special case needed for it.
+{%- endif %}
       OSPREY_AUDIT_IDENTITY: dispatch-worker-{{ i }}
-      OSPREY_AUDIT_DIR: {{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
+      OSPREY_AUDIT_DIR: {{ osprey_worker_audit_dir }}/dispatch-worker-{{ i }}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.bundle %}
+      # WHERE this worker's tier reads the facility bundle, bound below — the
+      # same directory, at the same render-relative path, as a web terminal on
+      # this tier. Named for the entrypoint, whose root phase joins its group.
+      OSPREY_FACILITY_BUNDLE_DIR: {{ dispatch_worker_corpus_mounts.bundle.target }}
+{%- endif %}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.mirror %}
+      # WHERE this worker's tier writes the ARIEL mirror, bound below — the
+      # deployment's one mirror, which the qmd sidecar indexes. Named for the
+      # entrypoint, whose root phase joins its group so the dropped user can
+      # write it.
+      OSPREY_ARIEL_MIRROR_DIR: {{ dispatch_worker_corpus_mounts.mirror.target }}
+{%- endif %}
 
       # WHO this worker is to the control system. Per worker, from the same
       # loop index as the audit identity above, so a write traced to
@@ -209,8 +227,12 @@ services:
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
       # subprocess resolve config from the mounted project (via env inheritance),
-      # independent of CWD. It points at the STAGED config.yml bind-mounted below
+      # independent of CWD.
+{%- if osprey_worker_stages_config %} It points at the STAGED config.yml bind-mounted below
       # (the deploy-time config), not the copy baked into the image.
+{%- else %} It points at the config.yml baked into the tier's render:
+      # a worker at a tier runs that render as built, and nothing overlays it.
+{%- endif %}
       #
       # Under the project directory, in build/ — the same four-zone shape the
       # repo has, because this worker runs the PROJECT image and its .mcp.json is
@@ -219,7 +241,7 @@ services:
       # a path the agent's own MCP servers never read. The standalone service
       # images are the opposite case and stay flat: nothing inside them renders
       # anything against a project root.
-      CONFIG_FILE: /app/{{ osprey_labels.project_name }}/build/config.yml
+      CONFIG_FILE: {{ osprey_worker_project_dir }}/build/config.yml
       TZ: {{ system.timezone }}
 {%- if not on_host %}
 {%- if 'bluesky' in (deployed_services | default([])) %}
@@ -295,9 +317,11 @@ services:
     # which is the deployment REPO ROOT — hence the build/services/ prefix on
     # the render output below.
     volumes:
+{%- if osprey_worker_stages_config %}
       # The staged runtime config overlays the config.yml baked into the image,
       # so the worker reads the deploy-time config.
-      - ./build/services/dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/build/config.yml:ro
+      - ./build/services/dispatch_worker/config.yml:{{ osprey_worker_project_dir }}/build/config.yml:ro
+{%- endif %}
       # The image creates the agent-data directory (and its subdirs) and chowns
       # `var/` — the state zone that directory lives in — to osprey. The render
       # itself stays root-owned: the container starts as root and its entrypoint
@@ -328,7 +352,7 @@ services:
       # on the build path): left to the container runtime, a rootful daemon
       # creates the source root-owned and the dropped `osprey` process inside
       # can write nothing to it.
-      - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
+      - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_worker_audit_dir }}/dispatch-worker-{{ i }}
 
       # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
       # the audit bind above, for the opposite reason. Audit isolation is the
@@ -361,6 +385,21 @@ services:
       # Provisioned setgid and group-writable on the host before compose runs
       # (compose_generator.ensure_guarded_run_dirs).
       - {{ osprey_guarded_run_mount.source }}:{{ osprey_guarded_run_mount.target }}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.bundle %}
+
+      # The DEPLOYMENT's facility bundle, read-write like a web terminal's: the
+      # tier's render configures it, so the worker reads the live bundle rather
+      # than the copy its image baked at build.
+      - {{ dispatch_worker_corpus_mounts.bundle.source }}:{{ dispatch_worker_corpus_mounts.bundle.target }}
+{%- endif %}
+{%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.mirror %}
+
+      # The DEPLOYMENT's ARIEL qmd mirror, read-write: an entry this worker's
+      # qmd_export module enhances lands in the corpus the sidecar indexes
+      # instead of a directory in the container layer the next recreate
+      # discards.
+      - {{ dispatch_worker_corpus_mounts.mirror.source }}:{{ dispatch_worker_corpus_mounts.mirror.target }}
+{%- endif %}
 
       # The control-identity script the entrypoint runs, with its catalog
       # closure beside it, staged into this build context by compose_generator

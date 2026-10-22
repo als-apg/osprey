@@ -21,7 +21,8 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals import seeding
-from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
+from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
+from tests._renders import tier_render
 
 _PROJECT = "demo-project"
 
@@ -29,20 +30,20 @@ _PROJECT = "demo-project"
 def _config(users, *, registry=None, web_terminals_extra=None):
     """Minimal-but-complete facility config exercising every field seed_user_containers reads.
 
-    Every roster runs the default persona ``assistant`` (project ``<_PROJECT>-assistant``)
+    Every roster runs the default tier ``assistant`` (project ``<_PROJECT>-assistant``)
     unless told otherwise. ``registry`` and ``web_terminals_extra`` (merged into
-    ``modules.web_terminals``, e.g. ``personas``/``default_persona``/``image_source``) let
-    persona-resolution tests build on top of this without duplicating the whole config
-    shape; extra ``personas`` join the default one.
+    ``modules.web_terminals``, e.g. ``renders``/``default_tier``/``image_source``) let
+    render-resolution tests build on top of this without duplicating the whole config
+    shape; extra ``renders`` join the default one.
     """
     web_terminals: dict = {
         "enabled": True,
         "users": users,
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": f"{_PROJECT}-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", f"{_PROJECT}-assistant")},
     }
     extra = dict(web_terminals_extra or {})
-    web_terminals["personas"].update(extra.pop("personas", {}))
+    web_terminals["renders"].update(extra.pop("renders", {}))
     web_terminals.update(extra)
     config = {
         "project_name": _PROJECT,
@@ -284,7 +285,7 @@ def test_missing_extra_md_seeds_base_only(tmp_path, monkeypatch, fake_runtime):
 
 
 # =============================================================================
-# CLAUDE.md — per-persona base-prepend opt-out (seed_base)
+# CLAUDE.md — per-render base-prepend opt-out (seed_base)
 # =============================================================================
 
 
@@ -294,13 +295,13 @@ def _write_extra_md(tmp_path, user, content):
     (overlay / "extra.md").write_text(content, encoding="utf-8")
 
 
-def _optout_config(users, personas, **kw):
-    """A config whose personas may set `seed_base`, reusing the base `_config` shape."""
-    return _config(users, web_terminals_extra={"personas": personas}, **kw)
+def _optout_config(users, renders, **kw):
+    """A config whose renders may set `seed_base`, reusing the base `_config` shape."""
+    return _config(users, web_terminals_extra={"renders": renders}, **kw)
 
 
 def test_seed_base_true_default_is_byte_identical(tmp_path, monkeypatch, fake_runtime):
-    """A persona that keeps seed_base (default true) seeds the exact historical
+    """A render that keeps seed_base (default true) seeds the exact historical
     `base_content + extra_content` concatenation — byte for byte."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
@@ -309,8 +310,8 @@ def test_seed_base_true_default_is_byte_identical(tmp_path, monkeypatch, fake_ru
     ready.add(f"{_PROJECT}-web-alice")
 
     config = _optout_config(
-        [{"name": "alice", "index": 0, "persona": "gui"}],
-        {"gui": {"project": "gui-app"}},  # no seed_base key → default true
+        [{"name": "alice", "index": 0, "tier": "gui"}],
+        {"gui": tier_render("gui", "gui-app")},  # no seed_base key → default true
     )
     seeding.seed_user_containers(config)
 
@@ -328,8 +329,8 @@ def test_seed_base_false_seeds_extra_alone(tmp_path, monkeypatch, fake_runtime):
     ready.add(f"{_PROJECT}-web-alice")
 
     config = _optout_config(
-        [{"name": "alice", "index": 0, "persona": "standalone"}],
-        {"standalone": {"project": "standalone-app", "seed_base": False}},
+        [{"name": "alice", "index": 0, "tier": "standalone"}],
+        {"standalone": tier_render("standalone", "standalone-app", seed_base=False)},
     )
     seeding.seed_user_containers(config)
 
@@ -348,8 +349,8 @@ def test_seed_base_false_tolerates_missing_base_md(tmp_path, monkeypatch, fake_r
     ready.add(f"{_PROJECT}-web-alice")
 
     config = _optout_config(
-        [{"name": "alice", "index": 0, "persona": "standalone"}],
-        {"standalone": {"project": "standalone-app", "seed_base": False}},
+        [{"name": "alice", "index": 0, "tier": "standalone"}],
+        {"standalone": tier_render("standalone", "standalone-app", seed_base=False)},
     )
     seeding.seed_user_containers(config)  # must not raise despite missing base.md
 
@@ -371,12 +372,12 @@ def test_mixed_roster_base_user_and_optout_user(tmp_path, monkeypatch, fake_runt
 
     config = _optout_config(
         [
-            {"name": "alice", "index": 0, "persona": "gui"},
-            {"name": "bob", "index": 1, "persona": "standalone"},
+            {"name": "alice", "index": 0, "tier": "gui"},
+            {"name": "bob", "index": 1, "tier": "standalone"},
         ],
         {
-            "gui": {"project": "gui-app"},  # default seed_base true
-            "standalone": {"project": "standalone-app", "seed_base": False},
+            "gui": tier_render("gui", "gui-app"),  # default seed_base true
+            "standalone": tier_render("standalone", "standalone-app", seed_base=False),
         },
     )
     seeding.seed_user_containers(config)
@@ -397,12 +398,12 @@ def test_mixed_roster_missing_base_md_still_raises(tmp_path, monkeypatch, fake_r
 
     config = _optout_config(
         [
-            {"name": "alice", "index": 0, "persona": "gui"},  # keeps base
-            {"name": "bob", "index": 1, "persona": "standalone"},  # opts out
+            {"name": "alice", "index": 0, "tier": "gui"},  # keeps base
+            {"name": "bob", "index": 1, "tier": "standalone"},  # opts out
         ],
         {
-            "gui": {"project": "gui-app"},
-            "standalone": {"project": "standalone-app", "seed_base": False},
+            "gui": tier_render("gui", "gui-app"),
+            "standalone": tier_render("standalone", "standalone-app", seed_base=False),
         },
     )
     with pytest.raises(RuntimeError, match="base.md"):
@@ -465,8 +466,8 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
     assert inputs[idx] is not None and len(inputs[idx]) > 0  # non-empty tar stream
 
 
-def test_default_persona_targets_its_project_dir(tmp_path, monkeypatch, fake_runtime):
-    """A roster on the default persona seeds skills into that persona's project."""
+def test_default_tier_targets_its_project_dir(tmp_path, monkeypatch, fake_runtime):
+    """A roster on the default tier seeds skills into that render's project."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
@@ -481,26 +482,26 @@ def test_default_persona_targets_its_project_dir(tmp_path, monkeypatch, fake_run
 
 
 def test_no_catalog_config_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
-    """A roster with no persona catalog names no project to seed into, so seeding
+    """A roster with no render catalog names no project to seed into, so seeding
     refuses before any container is inspected."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
     ready.add(f"{_PROJECT}-web-alice")
     config = _config(["alice"])
-    del config["modules"]["web_terminals"]["personas"]
-    del config["modules"]["web_terminals"]["default_persona"]
+    del config["modules"]["web_terminals"]["renders"]
+    del config["modules"]["web_terminals"]["default_tier"]
 
-    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+    with pytest.raises(ValueError, match=re.escape(RENDER_CATALOG_REQUIRED)):
         seeding.seed_user_containers(config)
 
     assert calls == []
 
 
-def test_non_default_persona_drives_skills_target_from_its_own_project(
+def test_non_default_tier_drives_skills_target_from_its_own_project(
     tmp_path, monkeypatch, fake_runtime
 ):
-    """A non-default persona's `container_project_dir` (its own `/app/<project>`) drives
+    """A non-default tier's `container_project_dir` (its own `/app/<project>`) drives
     the per-user skills target."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
@@ -509,10 +510,10 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
     ready.add(container)
 
     config = _config(
-        [{"name": "alice", "index": 0, "persona": "beamline-ops"}],
+        [{"name": "alice", "index": 0, "tier": "beamline-ops"}],
         registry={"url": "registry.example.org"},
         web_terminals_extra={
-            "personas": {"beamline-ops": {"project": "beamline-ops-app"}},
+            "renders": {"beamline-ops": tier_render("beamline-ops", "beamline-ops-app")},
         },
     )
 
@@ -523,9 +524,9 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
     assert skills_calls[0][11] == "/app/beamline-ops-app/build/.claude/skills"
 
 
-def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch, fake_runtime):
-    """The default persona's skills target follows its own catalog project uniformly,
-    like every other persona — `/app/<persona.project>/.claude/skills`."""
+def test_default_tier_skills_target_follows_its_project(tmp_path, monkeypatch, fake_runtime):
+    """The default tier's skills target follows its own catalog project uniformly,
+    like every other render — `/app/<render.project>/.claude/skills`."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
@@ -536,8 +537,8 @@ def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch
         [{"name": "alice", "index": 0}],
         registry={"url": "registry.example.org"},
         web_terminals_extra={
-            "default_persona": "ops",
-            "personas": {"ops": {"project": "ops-app"}},
+            "default_tier": "ops",
+            "renders": {"ops": tier_render("ops", "ops-app")},
         },
     )
 
@@ -548,15 +549,15 @@ def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch
     assert skills_calls[0][11] == "/app/ops-app/build/.claude/skills"
 
 
-def test_unresolvable_persona_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
-    """An unresolvable persona reference is a misconfiguration, not a per-user issue — it must
+def test_unresolvable_render_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
+    """An unresolvable render reference is a misconfiguration, not a per-user issue — it must
     raise before any container is even inspected, same as the missing-base.md case."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
     ready.add(f"{_PROJECT}-web-alice")
 
-    config = _config([{"name": "alice", "index": 0, "persona": "missing"}])
+    config = _config([{"name": "alice", "index": 0, "tier": "missing"}])
 
     with pytest.raises(ValueError, match="missing"):
         seeding.seed_user_containers(config)
@@ -793,7 +794,7 @@ def _owner_query_calls(calls):
 def test_seed_chowns_to_container_runtime_user(tmp_path, monkeypatch, fake_runtime):
     """The chown owner is queried per container, not hardcoded to any username.
 
-    The persona images create their own runtime user (uid:gid), so the seed
+    The render images create their own runtime user (uid:gid), so the seed
     scripts must receive the queried ``uid:gid`` as an argument — a fixed
     username like ``dispatch`` breaks on any image that names its user
     differently. The CLAUDE.md seed chowns to it; the skills reconcile, whose

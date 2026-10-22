@@ -139,7 +139,7 @@ class Delta:
     cannot arrive unnoticed in the meantime.
 
     Attributes:
-        document: Render the leaf belongs to — ``"root"`` or a persona name.
+        document: Render the leaf belongs to — ``"root"`` or a render name.
         path: Dotted path of the leaf inside that document.
         fixture: Value the frozen document carries.
         live: Value the live render carries.
@@ -219,9 +219,7 @@ BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {}
 #: template, which this feature removes; what must survive is *why* the mode was
 #: refused. A cell absent from this mapping is only asserted to be refused at the
 #: same stage.
-REFUSAL_TOKENS: dict[str, tuple[str, ...]] = {
-    "channel-finder-standalone/graph": ("channel_finder_mode", "services.graphdb"),
-}
+REFUSAL_TOKENS: dict[str, tuple[str, ...]] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,7 +283,7 @@ class Rendered(NamedTuple):
     """What one live build produced.
 
     Attributes:
-        documents: Masked documents, keyed by render name (``root`` + personas).
+        documents: Masked documents, keyed by render name (``root`` + renders).
         build_configs_checked: Build-relative paths of every ``config.yml`` in
             the build tree, each proved equal to one of *documents*.
     """
@@ -405,7 +403,7 @@ def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:
         cell: A cell the freeze recorded as frozen.
 
     Returns:
-        ``{"root": …}`` plus one entry per persona.
+        ``{"root": …}`` plus one entry per render.
     """
     directory = FIXTURE_ROOT / cell.directory
     return {
@@ -717,13 +715,13 @@ def test_live_render_equals_frozen_baseline(cell: Cell, rendered_cells: CellRend
 def test_live_render_is_as_complete_as_the_baseline(
     cell: Cell, rendered_cells: CellRenderer
 ) -> None:
-    """The live build emits the same personas and the same number of config documents."""
+    """The live build emits the same renders and the same number of config documents."""
     rendered = rendered_cells.render(cell)
     expected = META["completeness"][cell.directory]
 
-    personas = sorted(name for name in rendered.documents if name != "root")
-    assert personas == expected["personas"], (
-        f"{cell.directory}: personas changed. frozen={expected['personas']} live={personas}"
+    tiers = sorted(name for name in rendered.documents if name != "root")
+    assert tiers == expected["renders"], (
+        f"{cell.directory}: renders changed. frozen={expected['renders']} live={tiers}"
     )
     documents = sorted(f"{name}.yml" for name in rendered.documents)
     assert documents == expected["documents"], (

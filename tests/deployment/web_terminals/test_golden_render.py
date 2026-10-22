@@ -1,7 +1,7 @@
 """Golden-fixture byte-equality baseline for `render_web_terminals()` (PLAN Task 1.1).
 
-This is the FIRST guard committed before any persona-render change lands (P4
-personas/portability). Its job is narrow and mechanical: pin today's rendered
+This is the FIRST guard committed before any render-render change lands (P4
+tiers/portability). Its job is narrow and mechanical: pin today's rendered
 output for a representative facility config so any *unintended*
 drift in Task 2's render threading (`render.py`, `docker-compose.web.yml.j2`,
 `seeding.py`) shows up as a byte-diff here, immediately, rather than as a
@@ -9,7 +9,7 @@ runtime surprise in a downstream lifecycle/e2e test.
 
 **Update discipline** — read this before touching the golden files:
   - A failure here means the rendered compose/nginx/landing output changed.
-    That is NOT automatically a bug: personas threading (Task 2.1) is
+    That is NOT automatically a bug: renders threading (Task 2.1) is
     *expected* to eventually touch `docker-compose.web.yml.j2` (at minimum,
     the new `OSPREY_TERMINAL_WEB_PORT` declaration line — see PROPOSAL.md's
     Scope section, "the one known case").
@@ -21,7 +21,8 @@ runtime surprise in a downstream lifecycle/e2e test.
     reviewer sees is exactly: template change + the resulting golden delta,
     side by side.
   - To regenerate: run this module as a script
-    (``python tests/deployment/web_terminals/test_golden_render.py``), which
+    (``python -m tests.deployment.web_terminals.test_golden_render`` from the
+    repo root), which
     rewrites the four files this module pins from today's renderer and
     re-inserts the per-checkout sentinel. Do not hand-edit the golden files,
     and do not regenerate `golden/pre_audit_roles/`: that baseline is frozen
@@ -42,7 +43,7 @@ non-default-TLS-port origin tests, so a second compose golden would only be
 another file to regenerate.
 
 ``EXAMPLE_CONFIG`` is the reference shape a facility profile's web-terminals
-section is patterned on: two bare-string users on one default persona whose
+section is patterned on: two bare-string users on one default tier whose
 project is the image's, and the `users` + `links` landing groups.
 
 It also carries **no port keys at all** — no ``nginx_port``, no
@@ -60,6 +61,7 @@ from pathlib import Path
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._renders import app_render, tier_render
 
 _GOLDEN_DIR = Path(__file__).parent / "golden"
 
@@ -98,8 +100,8 @@ EXAMPLE_CONFIG: dict = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
-            "default_persona": "assistant",
-            "personas": {"assistant": {"project": "dls_controls-assistant"}},
+            "default_tier": "assistant",
+            "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
             "landing": {
                 "groups": [
                     {"type": "users"},
@@ -119,6 +121,22 @@ EXAMPLE_CONFIG: dict = {
         }
     },
 }
+
+
+def _with_shared_logbook(config: dict) -> dict:
+    """*config* plus one shared app, ``logbook``, and the landing's Apps group."""
+    config = copy.deepcopy(config)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["shared"] = ["logbook"]
+    web_terminals["renders"]["logbook"] = app_render("logbook", "dls_controls-logbook")
+    web_terminals["landing"]["groups"].insert(1, {"type": "apps"})
+    return config
+
+
+#: What the goldens are rendered from: :data:`EXAMPLE_CONFIG` (the shape the
+#: other render tests share) plus one shared app, so the goldens pin a tier and
+#: an app render side by side.
+GOLDEN_CONFIG: dict = _with_shared_logbook(EXAMPLE_CONFIG)
 
 
 def _read_golden(name: str) -> str:
@@ -142,28 +160,29 @@ def test_golden_fixtures_exist() -> None:
 
 def test_render_matches_golden_compose_byte_for_byte() -> None:
     """`docker-compose.web.yml` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
+    artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
     assert artifacts["docker-compose.web.yml"] == _read_golden("docker-compose.web.yml")
 
 
 def test_render_matches_golden_nginx_conf_byte_for_byte() -> None:
     """`nginx/nginx.conf` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
+    artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
     assert artifacts["nginx/nginx.conf"] == _read_golden("nginx.conf")
 
 
 def test_render_matches_golden_landing_html_byte_for_byte() -> None:
     """`nginx/landing.html` output is byte-identical to the committed baseline."""
-    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
+    artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
     assert artifacts["nginx/landing.html"] == _read_golden("landing.html")
 
 
 def test_golden_compose_is_valid_yaml_with_expected_services() -> None:
     """The committed baseline itself must stay sane YAML with the two example
-    users' services — guards against a corrupt/truncated golden file passing
-    the byte-equality checks above by accident (e.g. both sides empty)."""
+    users' services and the shared app's — guards against a corrupt/truncated
+    golden file passing the byte-equality checks above by accident (e.g. both
+    sides empty)."""
     compose = yaml.safe_load(_read_golden("docker-compose.web.yml"))
-    assert set(compose["services"].keys()) == {"nginx", "web-alice", "web-bob"}
+    assert set(compose["services"].keys()) == {"nginx", "web-alice", "web-bob", "web-logbook"}
 
 
 #: The variant's TLS listener. 8443 is the conventional unprivileged HTTPS
@@ -182,14 +201,14 @@ _TLS_CUSTOM_PORT_GOLDEN = "tls_custom_port/nginx.conf"
 
 
 def _tls_custom_port_config() -> dict:
-    """EXAMPLE_CONFIG with TLS terminated on a NON-default port.
+    """GOLDEN_CONFIG with TLS terminated on a NON-default port.
 
     Everything else is the baseline facility, so a diff between this variant's
     golden and the default one is exactly what `tls.port` moves and nothing
     else. The cert/key paths are the in-container mount points the TLS seam
     tests use; they are rendered as literal strings and no file is read.
     """
-    config = copy.deepcopy(EXAMPLE_CONFIG)
+    config = copy.deepcopy(GOLDEN_CONFIG)
     config["modules"]["web_terminals"]["tls"] = {
         "enabled": True,
         "port": _TLS_CUSTOM_PORT,
@@ -229,39 +248,41 @@ def test_golden_tls_custom_port_binds_and_redirects_to_the_custom_port() -> None
     assert f"return 301 https://dls-deploy.dls.example.org:{_TLS_CUSTOM_PORT}$request_uri;" in conf
 
 
-def _persona_config() -> dict:
-    """EXAMPLE_CONFIG reshaped into the demo's two-persona roster: alice=operator,
-    bob=physicist. Each user carries an explicit ``persona`` reference resolved
-    against a matching ``personas`` catalog, so resolve_personas() returns a
-    non-``None`` persona for both — the case that produces sublabel badges."""
+def _render_config() -> dict:
+    """EXAMPLE_CONFIG reshaped into the demo's two-render roster: alice=operator,
+    bob=physicist. Each user carries an explicit ``render`` reference resolved
+    against a matching ``renders`` catalog, so resolve_cards() returns a
+    non-``None`` render for both — the case that produces sublabel badges."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    web_terminals["default_persona"] = "operator"
-    web_terminals["personas"] = {
-        "operator": {
-            "project": "dls-operator",
-            "project_path": "../dls-operator",
-            "build_profile": "profiles/operator.yml",
-        },
-        "physicist": {
-            "project": "dls-physicist",
-            "project_path": "../dls-physicist",
-            "build_profile": "profiles/physicist.yml",
-        },
+    web_terminals["default_tier"] = "operator"
+    web_terminals["renders"] = {
+        "operator": tier_render(
+            "operator",
+            "dls-operator",
+            project_path="../dls-operator",
+            build_profile="profiles/operator.yml",
+        ),
+        "physicist": tier_render(
+            "physicist",
+            "dls-physicist",
+            project_path="../dls-physicist",
+            build_profile="profiles/physicist.yml",
+        ),
     }
     web_terminals["users"] = [
-        {"name": "alice", "index": 0, "persona": "operator"},
-        {"name": "bob", "index": 1, "persona": "physicist"},
+        {"name": "alice", "index": 0, "tier": "operator"},
+        {"name": "bob", "index": 1, "tier": "physicist"},
     ]
     return config
 
 
-def test_persona_users_render_persona_sublabel_badge() -> None:
-    """A roster whose users resolve to personas renders each user card with its
-    persona name as a sublabel badge (the demo's alice=operator / bob=physicist
+def test_render_users_render_sublabel_badge() -> None:
+    """A roster whose users resolve to renders draws each user card with its
+    render name as a sublabel badge (the demo's alice=operator / bob=physicist
     shape). The badge span is distinct from the `.landing-card-sublabel` CSS rule,
     so counting `class="landing-card-sublabel"` counts only rendered badges."""
-    artifacts = render_web_terminals(_persona_config(), facility_name=FACILITY_NAME)
+    artifacts = render_web_terminals(_render_config(), facility_name=FACILITY_NAME)
     landing = artifacts["nginx/landing.html"]
 
     assert landing.count('class="landing-card-sublabel"') == 2
@@ -283,7 +304,7 @@ def _regenerate() -> None:
     running it.
     """
     repo_id = _rendered_repo_id()
-    artifacts = render_web_terminals(EXAMPLE_CONFIG, facility_name=FACILITY_NAME)
+    artifacts = render_web_terminals(GOLDEN_CONFIG, facility_name=FACILITY_NAME)
     written = {
         "docker-compose.web.yml": artifacts["docker-compose.web.yml"],
         "nginx.conf": artifacts["nginx/nginx.conf"],

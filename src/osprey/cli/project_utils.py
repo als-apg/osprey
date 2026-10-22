@@ -117,7 +117,7 @@ def _is_project_directory(candidate: Path) -> bool:
     with a render in ``build/``, or a rendered/container project directory whose
     own root is the render. A render is the case the upward walk cannot serve:
     it has no ``profile.yml``, and one that happens to sit under a repo (every
-    persona render does, in ``build/``) would be silently redirected to that
+    render does, in ``build/``) would be silently redirected to that
     repo — reporting on the wrong project rather than on the one named.
     """
     from osprey_connectors.workspace import rendered_config_path

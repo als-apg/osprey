@@ -195,6 +195,21 @@ class FacilityAdapter(ABC):
         """
         return True
 
+    @property
+    def supports_attachments(self) -> bool:
+        """Whether ``create_entry`` publishes the entry's files to the facility logbook.
+
+        Default ``False``: the adapter is never handed files, and an entry's files
+        stay in ARIEL only. An adapter that declares ``True`` receives each file
+        as a readable local path in ``request.attachment_paths``, valid only while
+        ``create_entry`` runs, and must publish every one of them before it
+        returns. When it cannot, it raises :class:`IngestionError` (or
+        :class:`AttachmentPublishError` once the entry already exists); the
+        submit then fails as a whole. Once the facility's record is read back
+        with its attachment list, that list replaces ARIEL's copies of the files.
+        """
+        return False
+
     @abstractmethod
     def fetch_entries(
         self,

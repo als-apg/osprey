@@ -1064,7 +1064,7 @@ def configured_ariel_mirror_path(config):
     One reader for the key, shared by the sidecar's corpus list, the host
     directory the deploy provisions and the per-user mount the web-terminal
     overlay emits — so the directory the exporter fills, the one the sidecar
-    indexes and the one a persona container writes into are provably the same
+    indexes and the one a render container writes into are provably the same
     configured string.
 
     ``mirror_path`` may be written directly on the module block or inside its
@@ -1224,7 +1224,7 @@ def _resolve_archive_render_context(config):
     """
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
     from osprey.deployment import telemetry_config as tc
-    from osprey.deployment.web_terminals.personas import roster_user_names
+    from osprey.deployment.web_terminals.roster import roster_user_names
     from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
 
     config = config or {}
@@ -1727,6 +1727,121 @@ def _dump_override(document):
     )
 
 
+def _dispatch_worker_tier_entry(config):
+    """The dispatch tier's resolved render entry, or ``None`` when no tier is set.
+
+    Imported lazily: ``render_images`` imports this module at its top.
+
+    :param config: Raw deploy config.
+    :type config: dict
+    :return: The entry :func:`~osprey.deployment.web_terminals.render_images.resolve_dispatch_tier`
+        resolves (``image``, ``project``, ``container_project_dir``, ...), or ``None``.
+    :rtype: dict | None
+    :raises ValueError: A tier with no render in this build.
+    """
+    from osprey.deployment.web_terminals.render_images import resolve_dispatch_tier
+
+    return resolve_dispatch_tier(config, strict=True)
+
+
+def _dispatch_worker_corpus_mounts(config, source_dir, layer_root=None):
+    """The facility bundle and ARIEL mirror a tiered dispatch worker binds, or ``None``.
+
+    A worker at a tier runs that tier's render, so it is granted what a web
+    terminal on the same tier is granted, out of the same grant sets
+    (:func:`~osprey.deployment.web_terminals.roster.renders_needing_facility_bundle`,
+    :func:`~osprey.deployment.web_terminals.roster.renders_needing_ariel_mirror`)
+    and in the same shape: the one deployment directory bound at the path the
+    render reads it from, anchored on the render's in-container project
+    (:func:`~osprey.deployment.web_terminals.render._container_bundle_dir`,
+    :func:`~osprey.deployment.web_terminals.render._container_mirror_dir`).
+    Without the binds the worker reads a bundle baked into its image at build
+    and writes its logbook mirror into its container layer, where the qmd
+    sidecar never indexes it and the next recreate discards it. Untiered, the
+    worker runs the deployment's own project and binds neither, as before.
+
+    Entitlement is read off the renders' rendered ``config.yml`` files, from
+    ``layer_root`` while a build is in flight (see
+    :func:`_bluesky_panel_secret_env_vars`).
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :param layer_root: Where a build in flight has rendered its renders;
+        ``None`` reads the published build zone
+    :type layer_root: str or None
+    :return: ``{"bundle": mount | None, "mirror": mount | None}``, each mount a
+        ``{"source", "target"}`` pair; ``None`` for any other service and for
+        an untiered worker
+    :rtype: dict | None
+    """
+    if os.path.basename(os.path.normpath(source_dir)) != "dispatch_worker":
+        return None
+    entry = _dispatch_worker_tier_entry(config)
+    if entry is None:
+        return None
+    from osprey.deployment.web_terminals.render import (
+        _container_bundle_dir,
+        _container_mirror_dir,
+    )
+    from osprey.deployment.web_terminals.roster import (
+        renders_needing_ariel_mirror,
+        renders_needing_facility_bundle,
+    )
+
+    repo_root = resolve_repo_root(config)
+    tier = entry["render"]
+    project_dir = entry["container_project_dir"]
+    mounts = {"bundle": None, "mirror": None}
+
+    knowledge = config.get("facility_knowledge")
+    bundle_path = knowledge.get("bundle_path") if isinstance(knowledge, dict) else None
+    bundle_target = _container_bundle_dir(config, project_dir)
+    if (
+        bundle_target is not None
+        and isinstance(bundle_path, str)
+        and tier in renders_needing_facility_bundle(config, repo_root, layer_root)
+    ):
+        mounts["bundle"] = {
+            "source": repo_relative_mount_source(bundle_path.strip(), repo_root),
+            "target": bundle_target,
+        }
+
+    mirror_path = configured_ariel_mirror_path(config)
+    mirror_target = _container_mirror_dir(config, project_dir)
+    if (
+        mirror_target is not None
+        and mirror_path is not None
+        and tier in renders_needing_ariel_mirror(config, repo_root, layer_root)
+    ):
+        mounts["mirror"] = {
+            "source": repo_relative_mount_source(mirror_path, repo_root),
+            "target": mirror_target,
+        }
+    return mounts
+
+
+def _stages_runtime_config(config, source_dir):
+    """Whether the build stages a flattened ``config.yml`` into *source_dir*'s output.
+
+    Every service context gets one, except the dispatch worker at a tier: it
+    runs the tier's render with that render's baked ``build/config.yml``, and
+    its compose mounts nothing over it.
+
+    :param config: Deploy config.
+    :type config: dict
+    :param source_dir: The service's source directory.
+    :type source_dir: str
+    :rtype: bool
+    """
+    from osprey.deployment.web_terminals.roster import dispatch_tier_name
+
+    if os.path.basename(os.path.normpath(source_dir)) != "dispatch_worker":
+        return True
+    return dispatch_tier_name(config) is None
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -1741,7 +1856,8 @@ def _inject_project_metadata(config):
     (:func:`resolve_image_defaults`), and defaults the dispatch worker's image
     to its entry — ``<project>:local`` until the registry or tag axis moves it,
     the tag ``osprey up`` builds from the project ``Dockerfile`` — unless the
-    profile pinned an explicit ``services.dispatch_worker.image``. The
+    profile pinned an explicit ``services.dispatch_worker.image``, or the
+    worker runs at a tier, whose render image it then runs. The
     event-dispatcher's own image is left to its template (it builds its tag via
     a compose ``build:`` block; the worker deliberately has none). It also injects
     the lane registry's second-lane keys (``bluesky_second_lane_keys``), so every
@@ -1855,11 +1971,30 @@ def _inject_project_metadata(config):
     # data is misfiled rather than lost, and naming HOME here would duplicate a
     # value the image sets — the duplication this derivation exists to remove.
     container_project_dir = PurePosixPath(_CONTAINER_APP_ROOT) / project_name
+
+    # The dispatch worker's in-container project, the one root every path the
+    # worker writes or reads hangs from: ``OSPREY_PROJECT_DIR``, ``CONFIG_FILE``,
+    # the agent-data volume, the audit root, the simulator-log and guarded-run
+    # targets. A worker at a tier runs the tier's render as built — its image
+    # bakes that render's project at ``/app/<p>-<tier>`` with its own
+    # ``build/config.yml`` — so the root is the tier entry's, named by the same
+    # resolution that names the tier image, and nothing overlays the baked
+    # config (``osprey_worker_stages_config``). Untiered, it is this
+    # deployment's own project and the staged config overlays the image's.
+    worker_tier = _dispatch_worker_tier_entry(config)
+    worker_project_dir = (
+        PurePosixPath(worker_tier["container_project_dir"])
+        if worker_tier is not None
+        else container_project_dir
+    )
+    config_with_labels["osprey_worker_project_dir"] = worker_project_dir.as_posix()
+    config_with_labels["osprey_worker_stages_config"] = worker_tier is None
+
+    # Read by the worker template alone, so it is joined onto the worker's
+    # project directly.
     agent_data_base = PurePosixPath(agent_data_base_dir(config))
     config_with_labels["osprey_container_agent_data_dir"] = (
-        agent_data_base
-        if agent_data_base.is_absolute()
-        else container_project_dir / agent_data_base
+        agent_data_base if agent_data_base.is_absolute() else worker_project_dir / agent_data_base
     ).as_posix()
 
     # The audit zone, in the two spellings a compose template needs: the
@@ -1877,6 +2012,11 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_container_audit_dir"] = (
         container_project_dir / AUDIT_DIR_RELPATH
     ).as_posix()
+    # The worker's own container-side root: under its project, which a tier
+    # moves. The host-side source is the same for every service.
+    config_with_labels["osprey_worker_audit_dir"] = (
+        worker_project_dir / AUDIT_DIR_RELPATH
+    ).as_posix()
     config_with_labels["osprey_audit_mount_source"] = repo_relative_mount_source(AUDIT_DIR_RELPATH)
 
     # The simulator's model-log directory as an agent container binds it: the
@@ -1886,7 +2026,7 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_simulator_log_mount"] = (
         {
             "source": repo_relative_mount_source(SIMULATOR_LOG_DIR_RELPATH),
-            "target": (container_project_dir / SIMULATOR_LOG_DIR_RELPATH).as_posix(),
+            "target": (worker_project_dir / SIMULATOR_LOG_DIR_RELPATH).as_posix(),
         }
         if simulated_target_configured(config)
         else None
@@ -1898,7 +2038,7 @@ def _inject_project_metadata(config):
     # loads. Every worker runs the agent, so every worker binds it.
     config_with_labels["osprey_guarded_run_mount"] = {
         "source": repo_relative_mount_source(guarded_run_relpath()),
-        "target": (container_project_dir / guarded_run_relpath()).as_posix(),
+        "target": (worker_project_dir / guarded_run_relpath()).as_posix(),
     }
 
     # The control-identity step, in the values a template needs: the fixed
@@ -2079,11 +2219,22 @@ def _inject_project_metadata(config):
     # ``setdefault`` honors a profile that pinned its own image. Copy the
     # nested dicts we touch so the shared input config is never mutated (the
     # top-level copy() above is shallow).
+    #
+    # A worker running at a tier (``services.dispatch_worker.tier``) runs that
+    # tier's render instead, named by the same function that names every render
+    # image (:func:`~osprey.deployment.web_terminals.render_images.dispatch_worker_tier_image`,
+    # which refuses a pin naming another image).
     services = config_with_labels.get("services")
     if isinstance(services, dict) and isinstance(services.get("dispatch_worker"), dict):
+        from osprey.deployment.web_terminals.render_images import dispatch_worker_tier_image
+
+        tier_image = dispatch_worker_tier_image(config_with_labels, {})
         services = dict(services)
         worker_cfg = dict(services["dispatch_worker"])
-        worker_cfg.setdefault("image", image_defaults["worker"])
+        if tier_image is not None:
+            worker_cfg["image"] = tier_image
+        else:
+            worker_cfg.setdefault("image", image_defaults["worker"])
         services["dispatch_worker"] = worker_cfg
         config_with_labels["services"] = services
 
@@ -2563,7 +2714,7 @@ def audit_identity_dir(repo_root, identity):
         matches; a roster name that does not is a name lint and the render both
         reject on their own account.
     """
-    from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+    from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
     from osprey_connectors.workspace import AUDIT_DIR_RELPATH
 
     if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
@@ -2909,7 +3060,7 @@ def control_target_identity_dir(config, repo_root, identity):
         and the render both reject on their own account, with messages that can
         explain it.
     """
-    from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+    from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 
     if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
         raise ValueError(
@@ -3648,7 +3799,7 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
 _ROSTER_SECRET_SERVICE = "bluesky_web"
 
 
-def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
+def _bluesky_panel_secret_env_vars(config, source_dir, layer_root=None):
     """The per-user secret variables the bluesky_web sidecar's compose lists.
 
     Empty for every other service render, and for a deployment with no
@@ -3659,27 +3810,27 @@ def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
     so a ``bluesky-web:`` fragment there would never merge into this service
     and would instead fail that stack as an image-less service.
 
-    Entitlement is read off the personas' rendered ``config.yml`` files.
+    Entitlement is read off the renders' rendered ``config.yml`` files.
     ``osprey build`` — the one verb that renders this file; the start verbs are
     as-built — has those renders in its staging tree, not yet at
-    ``<repo>/build``, and names that tree as ``persona_root`` so the walk reads
-    the personas this build made rather than the previous build's.
+    ``<repo>/build``, and names that tree as ``layer_root`` so the walk reads
+    the renders this build made rather than the previous build's.
 
     :param config: Full project configuration dictionary
     :type config: dict
     :param source_dir: Service source directory being rendered
     :type source_dir: str
-    :param persona_root: Where a build in flight has rendered its personas;
+    :param layer_root: Where a build in flight has rendered its renders;
         ``None`` reads the published build zone
-    :type persona_root: str or None
+    :type layer_root: str or None
     :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
     :rtype: list[str]
     """
     if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
         return []
-    from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
+    from osprey.deployment.web_terminals.roster import bluesky_panel_secret_env_vars
 
-    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), persona_root)
+    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), layer_root)
 
 
 def _connection_ca_bundles(config, source_dir):
@@ -3699,7 +3850,7 @@ def _connection_ca_bundles(config, source_dir):
     :return: Host paths of the CA files on this host, in mount order
     :rtype: list[str]
     """
-    from osprey.deployment.web_terminals.personas import (
+    from osprey.deployment.web_terminals.roster import (
         as_dict,
         ca_bundle_mounts,
         config_archiver_ca_bundles,
@@ -3715,7 +3866,7 @@ def _connection_ca_bundles(config, source_dir):
     return []
 
 
-def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
+def _bluesky_panel_roster_owners(config, source_dir, layer_root=None):
     """Whose secret each variable of the sidecar's roster grant is.
 
     The companion of :func:`_bluesky_panel_secret_env_vars`, resolved off the
@@ -3726,17 +3877,17 @@ def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
     :type config: dict
     :param source_dir: Service source directory being rendered
     :type source_dir: str
-    :param persona_root: Where a build in flight has rendered its personas;
+    :param layer_root: Where a build in flight has rendered its renders;
         ``None`` reads the published build zone
-    :type persona_root: str or None
+    :type layer_root: str or None
     :return: ``"<SUFFIX>=<username>,..."``, roster order; empty off this service
     :rtype: str
     """
     if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
         return ""
-    from osprey.deployment.web_terminals.personas import bluesky_panel_roster_owners
+    from osprey.deployment.web_terminals.roster import bluesky_panel_roster_owners
 
-    return bluesky_panel_roster_owners(config, resolve_repo_root(config), persona_root)
+    return bluesky_panel_roster_owners(config, resolve_repo_root(config), layer_root)
 
 
 #: Basename of the one service directory the Bluesky plan-device file is staged
@@ -3999,7 +4150,7 @@ def _stage_control_identity_module(config, source_dir, out_dir):  # noqa: ARG001
     return True
 
 
-def setup_build_dir(template_path, config, container_cfg, dev_mode=False, persona_root=None):
+def setup_build_dir(template_path, config, container_cfg, dev_mode=False, layer_root=None):
     """Create complete build environment for service deployment.
 
     This function orchestrates the complete build directory setup process for
@@ -4027,9 +4178,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
     :type container_cfg: dict
     :param dev_mode: Development mode - copy local framework to containers
     :type dev_mode: bool
-    :param persona_root: Where a build in flight has rendered its persona
+    :param layer_root: Where a build in flight has rendered its render
         projects, for the roster grant (:func:`_bluesky_panel_secret_env_vars`)
-    :type persona_root: str or None
+    :type layer_root: str or None
     :return: Path to the rendered Docker Compose file
     :rtype: str
 
@@ -4109,7 +4260,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
                     logger.warning(f"Could not remove {out_dir}, using incremental update approach")
                     # Use incremental update instead of full rebuild
                     return _incremental_setup_build_dir(
-                        template_path, config, container_cfg, out_dir, dev_mode, persona_root
+                        template_path, config, container_cfg, out_dir, dev_mode, layer_root
                     )
             else:
                 raise
@@ -4160,17 +4311,20 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
         # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
         "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
-            config, source_dir, persona_root
+            config, source_dir, layer_root
         ),
         # Whose secret each of those variables is; "" elsewhere.
-        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(
-            config, source_dir, persona_root
-        ),
+        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(config, source_dir, layer_root),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.
         "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
         "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
+        # A tiered dispatch worker's facility-bundle and ARIEL-mirror binds
+        # (see the helper); None elsewhere.
+        "dispatch_worker_corpus_mounts": _dispatch_worker_corpus_mounts(
+            config, source_dir, layer_root
+        ),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
@@ -4234,69 +4388,76 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         # This prevents mount failures when containers try to mount non-existent directories
         _ensure_agent_data_structure(config)
 
-        # Create flattened configuration file for container
-        # This merges all imports and creates a complete config without import directives
-        # SECURITY: Use unexpanded config to prevent API keys from being written to disk
-        # The container will expand ${VAR} placeholders at runtime from environment variables
-        try:
-            with quiet_logger(["registry", "CONFIG"]):
-                global_config = ConfigBuilder()
-                # Preserves ${VAR} placeholders - secrets not written to disk
-                flattened_config = global_config.get_unexpanded_config()
+        # The flattened configuration the container's compose overlays onto the
+        # image's (skipped where nothing mounts one, see the helper).
+        if _stages_runtime_config(config, source_dir):
+            # Create flattened configuration file for container
+            # This merges all imports and creates a complete config without import directives
+            # SECURITY: Use unexpanded config to prevent API keys from being written to disk
+            # The container will expand ${VAR} placeholders at runtime from environment variables
+            try:
+                with quiet_logger(["registry", "CONFIG"]):
+                    global_config = ConfigBuilder()
+                    # Preserves ${VAR} placeholders - secrets not written to disk
+                    flattened_config = global_config.get_unexpanded_config()
 
-            # Adjust paths for container environment
-            # In containers, src/ is copied to repo_src/, so config paths must be updated
+                # Adjust paths for container environment
+                # In containers, src/ is copied to repo_src/, so config paths must be updated
 
-            def adjust_src_paths_recursive(obj):
-                """Recursively adjust all src/ paths in config for container environment.
+                def adjust_src_paths_recursive(obj):
+                    """Recursively adjust all src/ paths in config for container environment.
 
-                When deploying to containers, the deployment system copies src/ -> repo_src/.
-                Any config values that are paths starting with 'src/' must be updated to
-                'repo_src/' to work correctly in the container environment.
+                    When deploying to containers, the deployment system copies src/ -> repo_src/.
+                    Any config values that are paths starting with 'src/' must be updated to
+                    'repo_src/' to work correctly in the container environment.
 
-                Args:
-                    obj: Config dictionary or list to process
-                """
-                if isinstance(obj, dict):
-                    for key, value in obj.items():
-                        if isinstance(value, str):
-                            if value.startswith("src/"):
-                                obj[key] = f"repo_src/{value[4:]}"
-                                logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
-                            elif value.startswith("./src/"):
-                                obj[key] = f"./repo_src/{value[6:]}"
-                                logger.debug(f"Container path adjustment: {value} -> {obj[key]}")
-                        elif isinstance(value, (dict, list)):
-                            adjust_src_paths_recursive(value)
-                elif isinstance(obj, list):
-                    for item in obj:
-                        if isinstance(item, (dict, list)):
-                            adjust_src_paths_recursive(item)
+                    Args:
+                        obj: Config dictionary or list to process
+                    """
+                    if isinstance(obj, dict):
+                        for key, value in obj.items():
+                            if isinstance(value, str):
+                                if value.startswith("src/"):
+                                    obj[key] = f"repo_src/{value[4:]}"
+                                    logger.debug(
+                                        f"Container path adjustment: {value} -> {obj[key]}"
+                                    )
+                                elif value.startswith("./src/"):
+                                    obj[key] = f"./repo_src/{value[6:]}"
+                                    logger.debug(
+                                        f"Container path adjustment: {value} -> {obj[key]}"
+                                    )
+                            elif isinstance(value, (dict, list)):
+                                adjust_src_paths_recursive(value)
+                    elif isinstance(obj, list):
+                        for item in obj:
+                            if isinstance(item, (dict, list)):
+                                adjust_src_paths_recursive(item)
 
-            # Recursively adjust all src/ paths in the config
-            adjust_src_paths_recursive(flattened_config)
+                # Recursively adjust all src/ paths in the config
+                adjust_src_paths_recursive(flattened_config)
 
-            config_yml_dst = os.path.join(out_dir, "config.yml")
-            with open(config_yml_dst, "w") as f:
-                yaml_loader.safe_dump(
-                    flattened_config, f, default_flow_style=False, sort_keys=False
-                )
-            logger.debug(f"Created flattened config.yml at {config_yml_dst}")
-        except Exception as e:
-            logger.warning(f"Failed to create flattened config: {e}")
-            # Fall back to copying the original config verbatim, so this
-            # degraded path never blocks the build.
-            config_yml_src = "config.yml"
-            if os.path.exists(config_yml_src):
                 config_yml_dst = os.path.join(out_dir, "config.yml")
-                shutil.copy2(config_yml_src, config_yml_dst)
-                logger.debug(f"Copied original config.yml to {config_yml_dst}")
+                with open(config_yml_dst, "w") as f:
+                    yaml_loader.safe_dump(
+                        flattened_config, f, default_flow_style=False, sort_keys=False
+                    )
+                logger.debug(f"Created flattened config.yml at {config_yml_dst}")
+            except Exception as e:
+                logger.warning(f"Failed to create flattened config: {e}")
+                # Fall back to copying the original config verbatim, so this
+                # degraded path never blocks the build.
+                config_yml_src = "config.yml"
+                if os.path.exists(config_yml_src):
+                    config_yml_dst = os.path.join(out_dir, "config.yml")
+                    shutil.copy2(config_yml_src, config_yml_dst)
+                    logger.debug(f"Copied original config.yml to {config_yml_dst}")
 
     return compose_filepath
 
 
 def _incremental_setup_build_dir(
-    template_path, config, service_config, out_dir, dev_mode=False, persona_root=None
+    template_path, config, service_config, out_dir, dev_mode=False, layer_root=None
 ):
     """Setup build directory using incremental updates when full cleanup fails.
 
@@ -4310,8 +4471,8 @@ def _incremental_setup_build_dir(
         service_config (dict): Service-specific configuration
         out_dir (str): Output directory path that couldn't be cleaned
         dev_mode (bool): Development mode, as in :func:`setup_build_dir`
-        persona_root (str | None): Where a build in flight has rendered its
-            persona projects, as in :func:`setup_build_dir`
+        layer_root (str | None): Where a build in flight has rendered its
+            render projects, as in :func:`setup_build_dir`
 
     Returns:
         str: Path to the rendered docker-compose.yml file
@@ -4364,17 +4525,20 @@ def _incremental_setup_build_dir(
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
         # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
         "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
-            config, source_dir, persona_root
+            config, source_dir, layer_root
         ),
         # Whose secret each of those variables is; "" elsewhere.
-        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(
-            config, source_dir, persona_root
-        ),
+        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(config, source_dir, layer_root),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
         # Mandatory where a fragment mounts it (the stager refuses otherwise);
         # False, with any stale copy removed, everywhere else.
         "control_identity_staged": _stage_control_identity_module(config, source_dir, out_dir),
         "connection_ca_bundles": _connection_ca_bundles(config, source_dir),
+        # A tiered dispatch worker's facility-bundle and ARIEL-mirror binds
+        # (see the helper); None elsewhere.
+        "dispatch_worker_corpus_mounts": _dispatch_worker_corpus_mounts(
+            config, source_dir, layer_root
+        ),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
@@ -4614,7 +4778,7 @@ def prepare_compose_files(
     expose_network=False,
     output_root=None,
     deployed_config_dir=None,
-    persona_root=None,
+    layer_root=None,
 ):
     """Prepare compose files from configuration.
 
@@ -4662,21 +4826,21 @@ def prepare_compose_files(
         ``None`` — the deploy-time case — derives it from where the config
         being loaded actually sits, which is then also where it will be read.
     :type deployed_config_dir: str or None
-    :param persona_root: The directory holding the persona renders a per-persona
+    :param layer_root: The directory holding the renders a per-render
         grant is decided from — today the bluesky_web sidecar's roster grant,
-        which lists the secret of every user whose persona's rendered
+        which lists the secret of every user whose render's rendered
         ``config.yml`` shows the BLUESKY tab.
 
         ``osprey build`` passes its staging tree, for the same reason it passes
-        the two parameters above: the personas it has just rendered sit there,
-        and become ``<repo>/build/<repo>-<persona>`` only when the swap lands.
+        the two parameters above: the renders it has just rendered sit there,
+        and become ``<repo>/build/<repo>-<render>`` only when the swap lands.
         Read where the catalog's ``project_path`` points — the published build
-        zone — the grant would name what the PREVIOUS build's personas declared,
+        zone — the grant would name what the PREVIOUS build's renders declared,
         or nothing on a clean build, and the start verbs re-render nothing that
         could correct it.
 
         ``None`` reads the published build zone.
-    :type persona_root: str or None
+    :type layer_root: str or None
     :return: Tuple of (config dict, list of compose file paths). Each path
         appears once, in first-rendered order, however many deployed services
         share its template (:func:`_dedupe_compose_files`).
@@ -4802,7 +4966,7 @@ def prepare_compose_files(
                 )
 
             out = setup_build_dir(
-                template_path, config, service_config, dev_mode, persona_root=persona_root
+                template_path, config, service_config, dev_mode, layer_root=layer_root
             )
             compose_files.append(out)
         else:

@@ -157,7 +157,7 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/web_terminals/test_loopback_chokepoint.py",
     "tests/e2e/web_terminals/test_session_restart_e2e.py",
     "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
-    "tests/e2e/web_terminals/test_persona_permissions_scripted.py",
+    "tests/e2e/web_terminals/test_render_permissions_scripted.py",
 )
 SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -5036,6 +5036,52 @@ def test_capture_runs_before_teardown__mutation_moves_it_after_cleanup() -> None
         test_capture_runs_before_teardown(mutated)
 
 
+WRITEBACK_E2E_MODULE = REPO_ROOT / "tests" / "e2e" / "test_deploy_writeback_e2e.py"
+WRITEBACK_CLEANUP_STEP = "Clean up any stranded write-back-e2e resources"
+WRITEBACK_PROJECT_PREFIX = "osprey-e2e-wb-"
+
+
+def _writeback_project_cases() -> set[str]:
+    """The suffix of every ``PROJECT_*`` compose project the write-back e2e creates.
+
+    Read with ``ast``, never by import: the module needs Docker fixtures.
+    """
+    tree = ast.parse(WRITEBACK_E2E_MODULE.read_text(encoding="utf-8"))
+    return {
+        node.value.value.removeprefix(WRITEBACK_PROJECT_PREFIX)
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id.startswith("PROJECT_") for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+        and node.value.value.startswith(WRITEBACK_PROJECT_PREFIX)
+    }
+
+
+def test_writeback_cleanup_sweeps_every_project_the_test_creates(
+    workflow: dict[str, Any],
+) -> None:
+    """The cleanup loop's cases are exactly the projects the e2e module names, so
+    renaming a project cannot leave its containers and volumes behind."""
+    run = _find_named_step(workflow, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)["run"]
+    loop = re.search(r"for case in ([^;\n]+); do", run)
+    assert loop is not None, f"no `for case in …; do` loop in step {WRITEBACK_CLEANUP_STEP!r}"
+    assert f'project="{WRITEBACK_PROJECT_PREFIX}${{case}}"' in run
+    cases = _writeback_project_cases()
+    assert cases, f"no PROJECT_* constants found in {WRITEBACK_E2E_MODULE}"
+    assert set(loop.group(1).split()) == cases
+
+
+def test_writeback_cleanup_sweeps_every_project_the_test_creates__mutation_stale_case() -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
+    step["run"] = re.sub(
+        r"for case in [^;\n]+; do", "for case in rebuild divergent orphan; do", step["run"]
+    )
+    with pytest.raises(AssertionError):
+        test_writeback_cleanup_sweeps_every_project_the_test_creates(mutated)
+
+
 def test_capture_steps_run_on_failure(workflow: dict[str, Any]) -> None:
     """``if: failure()`` and not the default: a step with no condition is skipped
     the moment anything upstream fails, which is the only time it matters."""
@@ -8787,7 +8833,7 @@ def test_all_checks_passed_needs_full_chain_auth__mutation_drops_needs_entry() -
 
 
 def test_check_pr_lane_covers_full_chain_auth(workflow: dict[str, Any]) -> None:
-    """Only lane in the repo that exercises login -> nginx -> sidecar -> persona
+    """Only lane in the repo that exercises login -> nginx -> sidecar -> render
     container end to end. Its result must be read where the merge is decided."""
     assert _gate_checks_lane(workflow, FULL_CHAIN_JOB), (
         f"the gate script has no check_pr_lane line reading needs.{FULL_CHAIN_JOB}.result"

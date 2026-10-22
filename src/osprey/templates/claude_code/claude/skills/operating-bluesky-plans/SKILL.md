@@ -489,7 +489,7 @@ the moment someone is asking for one. Name the one you are using.
 **`queue_stop()`** requests a stop. It is ungated in every layer — no
 `writes_enabled` check, no launch token, at this tool and at the bridge —
 because halting is the safe direction and must never have a failure mode; it
-stays reachable on a machine no persona here may write to. It is still
+stays reachable on a machine no tier here may write to. It is still
 approval-gated so a human sees every stop.
 
 Know its limit before you offer it. **It stops the queue *after* the currently

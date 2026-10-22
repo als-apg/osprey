@@ -55,13 +55,13 @@ POSTURE_FLOOR: dict[str, Any] = {
     "hooks.debug": False,
 }
 
-#: A roster that stands up the persona stack. Registry mode names every
-#: web-terminal image under ``registry.url``, with or without a catalog.
+#: A roster that stands up the render stack. Registry mode names every
+#: web-terminal image under ``registry.url``. Each tier it names is a
+#: ``tiers/<name>.yml`` file :func:`_write_profile` lays down beside it.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
-    "default_persona": "readwrite",
-    "personas": {"readwrite": {"build_profile": "hello-world"}},
+    "users": [{"name": "operator", "index": 0, "tier": "readwrite"}],
+    "default_tier": "readwrite",
 }
 
 
@@ -78,6 +78,19 @@ def _deploy(**extra: Any) -> Any:
     return parse_deploy_block({"deploy": {**DEPLOY_BLOCK, **extra}})
 
 
+@pytest.fixture
+def tier_root(tmp_path: Path) -> Path:
+    """A profile root holding the one tier :data:`WEB_TERMINALS` names.
+
+    A profile states its tiers as files, so a lint judging the roster at
+    profile altitude reads the catalog from the root it is handed.
+    """
+    tier_file = tmp_path / "tiers" / "readwrite.yml"
+    tier_file.parent.mkdir(parents=True)
+    tier_file.write_text("name: Demo Facility (readwrite)\n", encoding="utf-8")
+    return tmp_path
+
+
 def _reported(errors: list[str]) -> str:
     return " | ".join(errors)
 
@@ -88,12 +101,12 @@ def _reported(errors: list[str]) -> str:
 
 
 @pytest.mark.usefixtures("runner")
-def test_a_deploy_block_answers_a_question_the_raw_config_cannot() -> None:
+def test_a_deploy_block_answers_a_question_the_raw_config_cannot(tier_root: Path) -> None:
     """The whole bug in one assertion: the same profile, judged two ways."""
     config = _config()
 
-    raw = profile_config_errors(config)
-    merged = deploy_aware_config_errors(_deploy(), config)
+    raw = profile_config_errors(config, profile_root=tier_root)
+    merged = deploy_aware_config_errors(_deploy(), config, profile_root=tier_root)
 
     assert any("registry.url is not set" in message for message in raw), _reported(raw)
     assert merged == [], _reported(merged)
@@ -109,17 +122,17 @@ def test_a_profile_with_no_deploy_block_lints_exactly_as_before() -> None:
     assert any("registry.url is not set" in message for message in profile_config_errors(config))
 
 
-def test_a_config_block_image_source_is_still_linted() -> None:
+def test_a_config_block_image_source_is_still_linted(tier_root: Path) -> None:
     """No coverage is traded away: a facility that spells the fact in the
     ``config:`` block (the only spelling available without a deploy block) is
     checked exactly as it always was."""
     stated_registry = _config(**{IMAGE_SOURCE_CONFIG_KEY: "registry"})
     stated_local = _config(**{IMAGE_SOURCE_CONFIG_KEY: "local"})
 
-    errors = deploy_aware_config_errors(None, stated_registry)
+    errors = deploy_aware_config_errors(None, stated_registry, profile_root=tier_root)
 
     assert any("registry.url is not set" in message for message in errors), _reported(errors)
-    assert deploy_aware_config_errors(None, stated_local) == []
+    assert deploy_aware_config_errors(None, stated_local, profile_root=tier_root) == []
 
 
 def test_a_profile_that_runs_no_web_stack_is_unaffected() -> None:
@@ -131,7 +144,9 @@ def test_a_profile_that_runs_no_web_stack_is_unaffected() -> None:
     assert deploy_aware_config_errors(_deploy(), config) == profile_config_errors(config)
 
 
-def test_the_deploy_registry_satisfies_the_lint_and_an_explicit_config_url_wins() -> None:
+def test_the_deploy_registry_satisfies_the_lint_and_an_explicit_config_url_wins(
+    tier_root: Path,
+) -> None:
     """The deploy block names the registry once: in registry mode its
     ``registry.url`` reaches the rendered ``registry.url`` the lint reads. A
     ``config:`` value points the web tier elsewhere, and the build then
@@ -139,8 +154,8 @@ def test_the_deploy_registry_satisfies_the_lint_and_an_explicit_config_url_wins(
     pulls_images = _deploy(image_source="registry", registry={"url": "registry.example.org/demo"})
     pointed_elsewhere = _config(**{"registry.url": "r.example"})
 
-    filled = deploy_aware_config_errors(pulls_images, _config())
-    explicit = deploy_aware_config_errors(pulls_images, pointed_elsewhere)
+    filled = deploy_aware_config_errors(pulls_images, _config(), profile_root=tier_root)
+    explicit = deploy_aware_config_errors(pulls_images, pointed_elsewhere, profile_root=tier_root)
 
     assert filled == [], _reported(filled)
     assert explicit == [], _reported(explicit)
@@ -237,6 +252,9 @@ def _write_profile(
     posture keys are the ones a build refuses to guess, and ``memory-guard`` is
     what gates ``Write`` — a profile that could write with no gate is refused.
     A caller stating one of them keeps its own value.
+
+    Every tier the roster names gets its ``tiers/<name>.yml``, the file a
+    render is resolved from.
     """
     raw: dict[str, Any] = {
         "name": "Demo Facility",
@@ -254,6 +272,14 @@ def _write_profile(
     (directory / "data").mkdir(exist_ok=True)
     path = directory / "profile.yml"
     path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    roster = config.get("modules.web_terminals") or {}
+    tiers = {roster.get("default_tier")} | {
+        user.get("tier") for user in roster.get("users", []) if isinstance(user, dict)
+    }
+    for tier in sorted(t for t in tiers if t):
+        tier_file = directory / "tiers" / f"{tier}.yml"
+        tier_file.parent.mkdir(exist_ok=True)
+        tier_file.write_text(yaml.safe_dump({"name": f"Demo Facility ({tier})"}), encoding="utf-8")
     return path
 
 

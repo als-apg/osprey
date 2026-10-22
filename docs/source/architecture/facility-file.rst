@@ -74,7 +74,7 @@ stages and a stage runs only when every earlier one is clean:
        Warns and never stops.
 
 The second half writes. A build renders more than one tree (the deployment's
-own, one per persona, one per container image) and each render receives the
+own, one per tier and app, one per container image) and each render receives the
 same facility file and the views its configuration and served models call
 for. A view a render does not carry is named once on stderr, with the
 configuration key or the model fact that left it out; a channel-finder index
@@ -82,7 +82,7 @@ the profile did not select is neither written nor named.
 
 ``osprey facility validate`` runs the first half and the main profile's render
 into a temporary directory, adds the response check of a Middle Layer import,
-and writes nothing into the repo. Persona and image renders are checked by
+and writes nothing into the repo. Tier, app and image renders are checked by
 ``osprey build`` alone.
 
 The views

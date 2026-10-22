@@ -38,8 +38,8 @@
 # ============================================================
 
 # ── Project layout ──────────────────────────────────────────
-# `project_name` comes from profile.yml's top-level `project_name:` (a persona
-# render's is `<project_name>-<persona>`); it names the compose project,
+# `project_name` comes from profile.yml's top-level `project_name:` (a tier or
+# app render's is `<project_name>-<name>`); it names the compose project,
 # volumes and images. The rest is taken from the repository this render was
 # made in. `project_root` is the REPO root, not this file's directory: every
 # relative path below is anchored on it, and build/ is wiped by each build.
@@ -77,7 +77,7 @@ execution:
 # Commented out, and deliberately valueless: these are facts about the HOST
 # network a deployment is built on, so no preset can guess one. Uncomment what
 # your site needs and rebuild — `osprey up` turns each of them into a build arg
-# for the project image, each web-terminal persona image and the login sidecar,
+# for the project image, each tier and app render image and the login sidecar,
 # and leaving them all unset builds exactly what OSPREY built before they
 # existed.
 #

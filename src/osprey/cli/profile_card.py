@@ -5,7 +5,7 @@ before anything is built or started: who can sign in and with what rights,
 what the agent runs on, what machine it talks to, and what else runs beside
 it. Everything on the card is read off the resolved
 :class:`~osprey.cli.build_profile_model.BuildProfile` (plus the emitted
-persona deltas), so the card is a pure function of the profile — a build with
+layers), so the card is a pure function of the profile — a build with
 no web tier simply has no ``web terminal`` group, and a profile that declares
 no extra services has no ``services`` group. Nothing here probes the host or
 the container runtime.
@@ -88,36 +88,36 @@ def _dotted_lookup(config: Mapping[str, Any], wanted: tuple[str, ...]) -> Any:
     return found
 
 
-def _persona_control_section(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]], persona: str
+def _render_control_section(
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], render: str
 ) -> dict[str, Any]:
-    """The ``control_system:`` section ``persona``'s render resolves to.
+    """The ``control_system:`` section ``render``'s render resolves to.
 
-    The persona delta's own ``config:`` folded over the host profile's, deeper
+    The layer's own ``config:`` folded over the host profile's, deeper
     key winning, exactly as the build applies the two flat dotted bags in turn
     — the bundled tiers pin posture on both sides of the boundary, and a
-    facility persona that says nothing inherits the host's.
+    facility render that says nothing inherits the host's.
     """
     from .build_profile_emit import _merge_subtree, effective_config_subtree
 
     wanted = ("control_system",)
     section = effective_config_subtree(profile.config, wanted)
-    config = persona_deltas.get(persona, {}).get("config")
+    config = layer_deltas.get(render, {}).get("config")
     if isinstance(config, Mapping):
         _merge_subtree(section, effective_config_subtree(config, wanted))
     return section
 
 
 def _write_rights(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]], persona: str
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], render: str
 ) -> list[str]:
-    """``persona``'s write posture, one item per target its render reaches.
+    """``render``'s write posture, one item per target its render reaches.
 
     Posture is per connector type — ``control_system.connector.<type>.
     writes_enabled``, and only for a type whose own block says nothing the
     deployment-wide ``control_system.writes_enabled`` — so one deployment can
     be armed on its simulator and read-only on the machine beside it. There is
-    no deployment-wide answer to print, and no single answer per persona
+    no deployment-wide answer to print, and no single answer per render
     either: the card says it per target, and per login.
 
     Which targets are named is
@@ -132,7 +132,7 @@ def _write_rights(
     """
     from osprey_connectors.types import session_posture
 
-    posture = session_posture(_persona_control_section(profile, persona_deltas, persona))
+    posture = session_posture(_render_control_section(profile, layer_deltas, render))
     if len(posture) == 1:
         return ["rights approval-gated"] if any(posture.values()) else []
     return [
@@ -142,12 +142,12 @@ def _write_rights(
 
 
 def _panel_labels(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> list[str]:
     """Display labels for every panel any login of this deployment gets.
 
-    The union across the host profile and the persona deltas, in declaration
-    order — panel sets are per-persona (the write tier adds its own), and the
+    The union across the host profile and the layers, in declaration
+    order — panel sets are per-render (the write tier adds its own), and the
     card summarizes the deployment. Labels come from the same sources the web
     terminal reads: :data:`~osprey.profiles.web_panels.BUILTIN_PANEL_LABELS`
     for built-ins, ``web.panels.<id>.label`` for URL-backed custom panels, and
@@ -156,7 +156,7 @@ def _panel_labels(
     from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
     ids: list[str] = list(dict.fromkeys(profile.web_panels))
-    for delta in persona_deltas.values():
+    for delta in layer_deltas.values():
         extra = delta.get("web_panels")
         if not isinstance(extra, list):
             continue
@@ -166,19 +166,19 @@ def _panel_labels(
 
     return [
         BUILTIN_PANEL_LABELS.get(panel_id)
-        or _custom_panel_label(profile, persona_deltas, panel_id)
+        or _custom_panel_label(profile, layer_deltas, panel_id)
         or panel_id.upper()
         for panel_id in ids
     ]
 
 
 def _custom_panel_label(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]], panel_id: str
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]], panel_id: str
 ) -> str | None:
     """The ``web.panels.<id>.label`` any layer of this deployment declares."""
     wanted = ("web", "panels", panel_id, "label")
     value = _dotted_lookup(profile.config, wanted)
-    for delta in persona_deltas.values():
+    for delta in layer_deltas.values():
         config = delta.get("config")
         if isinstance(config, Mapping):
             value = _dotted_lookup(config, wanted) or value
@@ -249,15 +249,15 @@ def _family_ports(base_ports: Mapping[str, int]) -> Cell:
 
 
 def _web_terminal_group(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> CardGroup | None:
     """Who gets in, with what rights, how, and where — plus what they see."""
-    from osprey.deployment.web_terminals.personas import (
-        effective_persona,
+    from osprey.deployment.web_terminals.ports import base_ports_from_config, resolve_nginx_port
+    from osprey.deployment.web_terminals.roster import (
+        effective_tier,
         entry_is_shared,
         resolve_authorization_roles,
     )
-    from osprey.deployment.web_terminals.ports import base_ports_from_config, resolve_nginx_port
     from osprey.port_layout import resolve_port_base
 
     from .build_profile_emit import effective_config_subtree, effective_web_terminals
@@ -286,7 +286,7 @@ def _web_terminal_group(
     # The card is a REPORT of a profile, not a gate on one: an `authorization`
     # stanza that does not parse, or an entry whose binding does not resolve,
     # is lint's finding to raise (the same lint belt runs at profile altitude).
-    # Both degrade here to the persona the entry would have shown before roles
+    # Both degrade here to the render the entry would have shown before roles
     # existed, so a bad binding costs one wrong cell rather than the whole card.
     try:
         roles = resolve_authorization_roles(web_tier)
@@ -296,7 +296,7 @@ def _web_terminal_group(
     rows: list[list[Cell]] = []
     auth = web_tier.get("auth")
     auth_method = auth.get("method") if isinstance(auth, Mapping) else None
-    default_persona = web_tier.get("default_persona")
+    default_tier = web_tier.get("default_tier")
     users = web_tier.get("users")
     for position, user in enumerate(users if isinstance(users, list) else []):
         if not isinstance(user, Mapping):
@@ -304,11 +304,11 @@ def _web_terminal_group(
         name = str(user.get("name") or "")
         if not name:
             continue
-        persona = effective_persona(user, roles, default_persona, strict=False) or ""
+        render = effective_tier(user, roles, default_tier, strict=False) or ""
         rights: list[str] = []
-        if persona:
-            rights.append(persona)
-            rights.extend(_write_rights(profile, persona_deltas, persona))
+        if render:
+            rights.append(render)
+            rights.extend(_write_rights(profile, layer_deltas, render))
         auth_cell: Cell
         if not auth_method:
             auth_cell = []
@@ -341,7 +341,7 @@ def _web_terminal_group(
         port_cell: Cell = [(f":{web_port}", Styles.ACCENT)] if web_port else []
         rows.append([[(name, Styles.BOLD)], _dotted_list(rights), auth_cell, port_cell])
 
-    panels = _panel_labels(profile, persona_deltas)
+    panels = _panel_labels(profile, layer_deltas)
     if panels:
         rows.append([[("panels", Styles.DIM)], _dotted_list(panels)])
 
@@ -374,24 +374,104 @@ def _web_terminal_group(
     return CardGroup("web terminal", suffix, rows)
 
 
-def _enabled_mcp_servers(profile: BuildProfile) -> list[str]:
+def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The rendered ``config.yml`` facts the registry's two gates read, for one render.
+
+    ``delta`` is a tier or app file laid over the host, as the build lays it:
+    its flat dotted ``config:`` bag folded over the host's, deeper key winning,
+    and its ``web_panels`` added to the host's selection. Only the subtrees the
+    gates read are assembled — ``services`` (the graph store), ``deployment``
+    (the port base that store's defaults resolve against) and ``web.panels``.
+
+    The panel blocks are projected the way the build projects them
+    (:func:`~osprey.cli.build_profile_panels.panel_selection_overrides`): a
+    selected panel always has a block (the template's or an injector's), and
+    every block carries ``enabled`` saying whether this render selects it — so
+    a block the config spells for a tab no layer selects reads as off here,
+    exactly as it does in the render.
+    """
+    from .build_profile_emit import _merge_subtree, effective_config_subtree
+    from .build_profile_panels import panel_selection_overrides
+
+    layers: list[Mapping[str, Any]] = [profile.config]
+    selected: list[str] = list(profile.web_panels)
+    if delta:
+        config = delta.get("config")
+        if isinstance(config, Mapping):
+            layers.append(config)
+        extra = delta.get("web_panels")
+        if isinstance(extra, list):
+            selected.extend(panel for panel in extra if isinstance(panel, str))
+
+    rendered: dict[str, Any] = {}
+    for subtree in (("services",), ("deployment",), ("web",)):
+        section: dict[str, Any] = {}
+        for layer in layers:
+            _merge_subtree(section, effective_config_subtree(layer, subtree))
+        rendered[subtree[0]] = section
+
+    web = rendered["web"]
+    panels = web.get("panels")
+    blocks: dict[str, Any] = dict(panels) if isinstance(panels, Mapping) else {}
+    for panel_id in selected:
+        blocks.setdefault(panel_id, {})
+    web["panels"] = blocks
+    for panel_id, shown in panel_selection_overrides(selected, rendered).items():
+        block = blocks.get(panel_id)
+        blocks[panel_id] = {**(dict(block) if isinstance(block, Mapping) else {}), "enabled": shown}
+    return rendered
+
+
+def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dict[str, Any]:
+    """The context :func:`~osprey.registry.mcp.resolve_servers` gates on, for one render.
+
+    The two config-derived gates are the render's own predicates, imported
+    rather than restated, so the card and the render cannot disagree about
+    whether a render ships the ``graph`` or the ``event_dispatcher`` server.
+    """
+    from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
+
+    from .templates.claude_code import _graphdb_configured
+
+    ctx: dict[str, Any] = {
+        "graphdb_configured": _graphdb_configured(dict(rendered)),
+        "event_dispatcher_wired": config_needs_dispatcher_token(rendered),
+    }
+    if profile.channel_finder_mode and "channel-finder" in profile.agents:
+        ctx["channel_finder_pipeline"] = profile.channel_finder_mode
+    return ctx
+
+
+def _enabled_mcp_servers(
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
+) -> list[str]:
     """The MCP servers the agent gets, resolved as the render resolves them.
 
-    :func:`~osprey.registry.mcp.resolve_servers` over the profile's effective
-    ``claude_code`` subtree — the registry's own defaults plus the profile's
-    ``claude_code.servers.<name>.enabled`` overrides — with the channel-finder
-    condition keyed the way the render keys it, plus the profile's own
-    ``mcp_servers:`` declarations.
+    :func:`~osprey.registry.mcp.resolve_servers` over the effective
+    ``claude_code`` subtree — the registry's own defaults plus the
+    ``claude_code.servers.<name>.enabled`` overrides — with the registry
+    context the render builds (:func:`_registry_context`), plus the profile's
+    own ``mcp_servers:`` declarations.
+
+    Resolved once for the host and once per tier or app render, and listed as
+    the union in first-seen order: the deployment summary the panels row
+    gives, so a server only the write-armed tiers ship (the event dispatcher,
+    gated on the EVENTS panel those tiers add) is on the card.
     """
     from osprey.registry.mcp import resolve_servers
 
-    from .build_profile_emit import effective_config_subtree
+    from .build_profile_emit import _merge_subtree, effective_config_subtree
 
-    claude_code = effective_config_subtree(profile.config, ("claude_code",))
-    ctx: dict[str, Any] = {}
-    if profile.channel_finder_mode and "channel-finder" in profile.agents:
-        ctx["channel_finder_pipeline"] = profile.channel_finder_mode
-    names = [server["name"] for server in resolve_servers(claude_code, ctx) if server["enabled"]]
+    names: list[str] = []
+    for delta in (None, *layer_deltas.values()):
+        claude_code = effective_config_subtree(profile.config, ("claude_code",))
+        config = delta.get("config") if delta else None
+        if isinstance(config, Mapping):
+            _merge_subtree(claude_code, effective_config_subtree(config, ("claude_code",)))
+        ctx = _registry_context(profile, _render_config(profile, delta))
+        for server in resolve_servers(claude_code, ctx):
+            if server["enabled"] and server["name"] not in names:
+                names.append(server["name"])
     for name in profile.mcp_servers:
         if name not in names:
             names.append(name)
@@ -417,13 +497,15 @@ def _model_label(profile: BuildProfile) -> str | None:
     return f"(provider default) {default}" if default else None
 
 
-def _agent_group(profile: BuildProfile) -> CardGroup | None:
+def _agent_group(
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
+) -> CardGroup | None:
     """What thinks: the model, its tool surface, and its bundled toolkit."""
     rows: list[list[Cell]] = []
     model_bits = [bit for bit in (profile.provider, _model_label(profile)) if bit]
     if model_bits:
         rows.append([[("model", Styles.DIM)], _dotted_list(model_bits)])
-    servers = _enabled_mcp_servers(profile)
+    servers = _enabled_mcp_servers(profile, layer_deltas)
     if servers:
         rows.append([[("mcp", Styles.DIM)], _dotted_list(servers)])
     toolkit = [
@@ -510,12 +592,12 @@ def _services_group(profile: BuildProfile) -> CardGroup | None:
 
 
 def _card_groups(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> list[CardGroup]:
     """The card's groups, in the fixed order the reader learns once."""
     candidates = (
-        _web_terminal_group(profile, persona_deltas),
-        _agent_group(profile),
+        _web_terminal_group(profile, layer_deltas),
+        _agent_group(profile, layer_deltas),
         _machine_group(profile),
         _services_group(profile),
     )
@@ -563,7 +645,7 @@ def _group_lines(group: CardGroup) -> list[list[Segment]]:
 
 
 def _card_segment_lines(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> list[list[Segment]]:
     """The whole card as segment lines; an empty line separates the groups.
 
@@ -571,21 +653,21 @@ def _card_segment_lines(
     card always stands one blank line off whatever printed above it.
     """
     lines: list[list[Segment]] = []
-    for group in _card_groups(profile, persona_deltas):
+    for group in _card_groups(profile, layer_deltas):
         lines.append([])
         lines.extend(_group_lines(group))
     return lines
 
 
 def format_profile_card(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> list[str]:
     """The card as plain lines — what a pipe reads, and what the tests pin."""
-    return [_plain_text(line) for line in _card_segment_lines(profile, persona_deltas)]
+    return [_plain_text(line) for line in _card_segment_lines(profile, layer_deltas)]
 
 
 def card_rows(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> list[dict[str, str]]:
     """The card as flat rows — the twin a machine reads, in card order.
 
@@ -606,7 +688,7 @@ def card_rows(
         prints, with every value a string.
     """
     rows: list[dict[str, str]] = []
-    for group in _card_groups(profile, persona_deltas):
+    for group in _card_groups(profile, layer_deltas):
         for row in group.rows:
             values = [text for text in (_plain_text(cell) for cell in row[1:]) if text]
             rows.append(
@@ -620,7 +702,7 @@ def card_rows(
 
 
 def print_profile_card(
-    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
+    profile: BuildProfile, layer_deltas: Mapping[str, Mapping[str, Any]]
 ) -> None:
     """Print the card through the reporter; advisory, never raises.
 
@@ -631,7 +713,7 @@ def print_profile_card(
     from .phase_reporter import current_reporter
 
     try:
-        lines = _card_segment_lines(profile, persona_deltas)
+        lines = _card_segment_lines(profile, layer_deltas)
     except Exception as exc:  # see docstring: the card is advisory
         logger.debug("Profile card skipped: %s", exc)
         return

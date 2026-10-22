@@ -1,0 +1,110 @@
+# knowledge.yml
+# Facility knowledge app: how the machine is built, answered from the deployment's knowledge layer.
+#
+# An app is not an access level of the deployment's agent. It is a second,
+# complete agent definition, opened from a shared card on the landing page by
+# everyone on the roster. Its lists below are the whole selection: nothing is
+# inherited from the deployment's lists and nothing is subtracted from them.
+#
+# This app answers from three read-only sources and names the one that
+# answered: the facility knowledge graph, the graph-backed channel finder, and
+# the facility knowledge bundle. It reads the deployment's graph store and data
+# tree (the build tells its render where they are, the Reach Contract,
+# `osprey.deployment.reach`), so the operators and this app answer from one
+# graph. It cannot read a channel, move hardware, run Python, or search the
+# logbook.
+#
+# Every app render is read-only on the machine whatever its config says: the
+# build pins every write key off and adds the writes-check hook itself. The
+# write pins below say the same thing on purpose, so the file reads as what it
+# renders.
+#
+# The other two bundled apps are `logbook` and `channel-finder`.
+
+name: Facility Knowledge
+
+# The knowledge brief: answering "how is the machine built" from three
+# read-only sources and citing which one answered.
+claude_md_template: CLAUDE.knowledge.md.j2
+
+# Open on the KNOWLEDGE tab. The CHANNELS tab is the other one this app keeps.
+default_panel: okf
+
+# Channel addresses come from the graph, the same store the knowledge-graph
+# subagent queries, so a channel and the device it belongs to have one source.
+channel_finder_mode: graph
+
+hooks:
+  - approval          # Enforce config.yml approval policy (fail-closed default for any write tool)
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Gate Write to memory files, NotebookEdit to agent-data artifacts and notebooks
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when the build is out of date
+  - focus-validate    # Strip stale artifact IDs from focus_state.txt on each prompt
+  - panels-context    # Tell the agent which web terminal panels exist
+  - workspace-delta   # Report web workspace changes since the agent's last turn
+  - control-context   # Tell the agent the active control target and each target's write state
+  - turn-state        # Tell the web terminal when a turn starts and ends
+
+rules:
+  # The safety rule governs no tool this app carries today. It stays because
+  # the app runs inside a deployment that does move hardware.
+  - safety            # Core safety rules: never write without approval
+  - error-handling    # Standard error handling and retry guidance
+  - artifacts         # Rules for saving diagnostic artifacts
+  - facility          # Facility-level conventions (naming, units, logbook)
+  - timezone          # Always localise timestamps to facility timezone
+
+# No skills: every bundled skill either writes to the logbook, drives the
+# machine or needs the Python sandbox, and this app reaches none of them.
+skills: []
+
+agents:
+  - channel-finder            # Finds channel addresses in the graph
+  - facility-knowledge        # Look up facility documentation, procedures, and device specs
+  - facility-knowledge-graph  # Structural machine queries against the facility knowledge graph
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - okf               # KNOWLEDGE tab, for browsing the facility knowledge bundle
+  - channel-finder    # Interactive channel-finder web UI
+
+# No tool servers of its own; the deployment's facility servers are not this
+# app's to inherit.
+mcp_servers: {}
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block. These win over
+# the deployment's config; the deployment's own tool-server switches never
+# reach this render, so every server this app does without is named here.
+config:
+  # No control-system surface and no logbook: each line is a decision about a
+  # server the deployment runs.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  # The logbook is the `logbook` app's.
+  claude_code.servers.ariel.enabled: false
+  # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
+  # (the bundle), `channel-finder` and `graph` (the store both read). The event
+  # dispatcher renders only with the EVENTS panel, which no app carries.
+  #
+  # Reading the bundle, never writing to it: drafting a concept is the
+  # deployment's editors' work, not a shared card's.
+  claude_code.permissions.deny:
+    - mcp__osprey_facility_knowledge__draft_concept
+  # The write boundary, pinned on all three keys: the flat key every connector
+  # type inherits, and both hardware-shaped types by name.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Full split-pane layout: the KNOWLEDGE and CHANNELS panels need the panel area.
+  web.ui_mode: expert
+  # No control-target picker in the title bar: nothing here reaches the machine.
+  web.control_target_picker: false
+  # No shipped example plot: it invites a live plot this app cannot produce.
+  artifact_server.example_artifact: false

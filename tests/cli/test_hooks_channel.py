@@ -127,7 +127,7 @@ def _build(
     profile: Path,
     *,
     declarations: dict | None = None,
-    persona_delta: dict | None = None,
+    layer_delta: dict | None = None,
     excluded: set[str] | None = None,
     rebuild: bool = False,
 ) -> Path:
@@ -140,13 +140,13 @@ def _build(
     here — conventions alone never touch that file, so a test that stopped after
     step 11 would be reading the pre-conventions render.
 
-    ``persona_delta`` goes through the real ``_deep_merge``, so a test about
-    persona overrides is a test about the merge semantics a persona actually
+    ``layer_delta`` goes through the real ``_deep_merge``, so a test about
+    render overrides is a test about the merge semantics a render actually
     gets — not about a dict the test assembled itself.
     """
     project = _render_project(tmp_path, name, force=rebuild)
-    if persona_delta is not None:
-        declarations = _deep_merge(declarations or {}, persona_delta)
+    if layer_delta is not None:
+        declarations = _deep_merge(declarations or {}, layer_delta)
     if declarations:
         _apply_config_overrides(project, declarations)
     applied = _apply_conventions(profile, project, excluded=excluded or set())
@@ -299,7 +299,7 @@ def test_shipping_hook_config_is_refused_before_it_can_freeze_write_safety(
 #
 # Shipping a hook copies it; DECLARING it is what makes Claude Code run it.
 # The declaration is a config key, so it resolves through the same pipeline as
-# `claude_code.servers` and `claude_code.permissions`: persona deltas can
+# `claude_code.servers` and `claude_code.permissions`: layers can
 # override it, and the resolved profile is the only source. Every assertion
 # below reads the settings.json a real build lands — i.e. after step 16b's
 # re-render, not the pre-conventions one.
@@ -468,15 +468,15 @@ def test_declared_wiring_survives_a_force_rebuild_and_a_regen(tmp_path: Path):
     assert any("facility_guard.py" in c for c in _hook_commands(_settings(project)))
 
 
-# ── Declared wiring: how a persona unwires it ────────────────────────
+# ── Declared wiring: how a render unwires it ────────────────────────
 #
-# A persona's `config:` merges through `_deep_merge`, where lists are UNIONED
+# A render's `config:` merges through `_deep_merge`, where lists are UNIONED
 # with the profile's rather than replacing them. That makes `null` — not `[]` —
 # the spelling that unwires an event, and these tests are what keeps the README
 # from drifting back to the one that silently does nothing.
 
-#: What the root profile declares in the three persona tests below: one hook on
-#: an event the persona will drop, one on an event it must leave alone.
+#: What the root profile declares in the three render tests below: one hook on
+#: an event the render will drop, one on an event it must leave alone.
 _TWO_EVENT_DECLARATION = {
     "claude_code.hooks.PreToolUse": [{"hook": "facility_guard.py"}],
     "claude_code.hooks.SessionStart": ["facility_banner.py"],
@@ -490,8 +490,8 @@ def _two_hook_profile(tmp_path: Path) -> Path:
     return profile
 
 
-def test_a_persona_excluding_a_hook_unwires_it_with_null_in_the_same_delta(tmp_path: Path):
-    """The one combination a persona author has to get right, start to finish.
+def test_a_render_excluding_a_hook_unwires_it_with_null_in_the_same_delta(tmp_path: Path):
+    """The one combination a render author has to get right, start to finish.
 
     Excluding a shipped hook without unwiring it is refused (the wiring would
     point at a file the resolved profile no longer ships), so the exclusion and
@@ -501,10 +501,10 @@ def test_a_persona_excluding_a_hook_unwires_it_with_null_in_the_same_delta(tmp_p
 
     project = _build(
         tmp_path,
-        "persona-unwire",
+        "render-unwire",
         profile,
         declarations=_TWO_EVENT_DECLARATION,
-        persona_delta={"claude_code.hooks.PreToolUse": None},
+        layer_delta={"claude_code.hooks.PreToolUse": None},
         excluded={"hooks/facility_guard.py"},
     )
 
@@ -512,16 +512,16 @@ def test_a_persona_excluding_a_hook_unwires_it_with_null_in_the_same_delta(tmp_p
     commands = _hook_commands(settings)
     assert not any("facility_guard.py" in c for c in commands)
     assert not (project / ".claude" / "hooks" / "facility_guard.py").exists()
-    # The event the persona said nothing about is untouched…
+    # The event the render said nothing about is untouched…
     assert any("facility_banner.py" in c for c in commands)
     # …and so is the framework's gate.
     assert "osprey_writes_check.py" in json.dumps(settings["hooks"]["PreToolUse"])
 
 
-def test_an_empty_list_does_not_unwire_because_persona_lists_merge_additively(tmp_path: Path):
+def test_an_empty_list_does_not_unwire_because_render_lists_merge_additively(tmp_path: Path):
     """`[]` is a no-op, and that is a property of ``_deep_merge``, not of hooks.
 
-    Pinned because the README used to promise the opposite. A persona author
+    Pinned because the README used to promise the opposite. A render author
     who writes ``[]`` gets a hook that is still wired — silently — so if list
     merging ever changes to replacement, this failure is the notice to rewrite
     the paragraph rather than discover it in a control room.
@@ -530,10 +530,10 @@ def test_an_empty_list_does_not_unwire_because_persona_lists_merge_additively(tm
 
     project = _build(
         tmp_path,
-        "persona-empty-list",
+        "render-empty-list",
         profile,
         declarations=_TWO_EVENT_DECLARATION,
-        persona_delta={"claude_code.hooks.PreToolUse": []},
+        layer_delta={"claude_code.hooks.PreToolUse": []},
     )
 
     assert any("facility_guard.py" in c for c in _hook_commands(_settings(project)))
@@ -546,10 +546,10 @@ def test_the_empty_list_mistake_is_refused_with_the_spelling_that_works(tmp_path
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
             tmp_path,
-            "persona-empty-list-excluded",
+            "render-empty-list-excluded",
             profile,
             declarations=_TWO_EVENT_DECLARATION,
-            persona_delta={"claude_code.hooks.PreToolUse": []},
+            layer_delta={"claude_code.hooks.PreToolUse": []},
             excluded={"hooks/facility_guard.py"},
         )
 
@@ -558,7 +558,7 @@ def test_the_empty_list_mistake_is_refused_with_the_spelling_that_works(tmp_path
     assert "`null`, not `[]`" in message
 
 
-def test_a_persona_can_unwire_every_event_at_once(tmp_path: Path):
+def test_a_render_can_unwire_every_event_at_once(tmp_path: Path):
     """`claude_code.hooks: {}` clears the whole block, framework wiring intact.
 
     The `{}` form works only because ``_deep_merge`` (build_profile_merge.py)
@@ -570,10 +570,10 @@ def test_a_persona_can_unwire_every_event_at_once(tmp_path: Path):
 
     project = _build(
         tmp_path,
-        "persona-unwire-all",
+        "render-unwire-all",
         profile,
         declarations=_TWO_EVENT_DECLARATION,
-        persona_delta={"claude_code.hooks": {}},
+        layer_delta={"claude_code.hooks": {}},
     )
 
     settings = _settings(project)
@@ -604,10 +604,10 @@ def test_wiring_a_hook_the_profile_does_not_ship_is_refused(tmp_path: Path):
     assert "does not ship" in str(excinfo.value)
 
 
-def test_wiring_a_persona_excluded_hook_is_refused(tmp_path: Path):
+def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
     """The exclusion is what makes this the interesting case.
 
-    A persona that drops the hook leaves the declaration behind pointing at a
+    A render that drops the hook leaves the declaration behind pointing at a
     file the resolved profile no longer ships. Refused rather than dropped
     quietly: silently unwiring a facility's own guard is the failure mode the
     operator would never notice.
@@ -712,13 +712,13 @@ def test_an_unknown_hook_event_is_refused_with_the_real_vocabulary(tmp_path: Pat
         assert event in message
 
 
-# ── Persona exclusion restores the framework hook ────────────────────
+# ── Render exclusion restores the framework hook ────────────────────
 
 
 def test_excluding_a_shadowed_hook_restores_the_framework_render(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    """A persona that wants the stock hook back excludes the profile's file."""
+    """A render that wants the stock hook back excludes the profile's file."""
     project = _render_project(tmp_path, "hook-exclude")
     profile = tmp_path / "profile"
     _write(profile / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")

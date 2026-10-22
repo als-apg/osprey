@@ -220,7 +220,7 @@ modules:
       allow_insecure_http: true
       method: password
       session_lifetime: 43200
-    default_persona: readonly
+    default_tier: readonly
     enabled: false
     image_source: local
     landing:
@@ -229,44 +229,27 @@ modules:
       groups:
       - label: Users
         type: users
+      - label: Apps
+        type: apps
       notices:
       - data/landing/working-safely.md
-    personas:
-      admin:
-        build_profile: personas/admin.yml
-      knowledge:
-        build_profile: personas/knowledge.yml
-        landing_group: Standalone deployments
-      logbook:
-        build_profile: personas/logbook.yml
-        landing_group: Standalone deployments
-      readonly:
-        build_profile: personas/readonly.yml
-      readwrite:
-        build_profile: personas/readwrite.yml
+    shared:
+    - logbook
+    - knowledge
+    - channel-finder
     users:
     - display_name: Control Room (Alice)
       index: 0
       name: alice
-      persona: readwrite
+      tier: readwrite
     - display_name: Read-Only View (Bob)
       index: 1
       name: bob
-      persona: readonly
-    - access: any
-      display_name: Logbook Research
-      index: 2
-      name: logbook
-      persona: logbook
-    - access: any
-      display_name: Facility Knowledge
-      index: 4
-      name: knowledge
-      persona: knowledge
+      tier: readonly
     - display_name: Deployment Admin (Carol)
-      index: 3
+      index: 2
       name: carol
-      persona: admin
+      tier: admin
 project_name: osprey-freeze-admin
 scaffold:
   user_owned:

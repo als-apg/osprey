@@ -3,7 +3,7 @@
 `deploy_up` returns through `deploy_up_web_terminals` for every
 `modules.web_terminals` deployment, which makes this the path an operator of
 the control-assistant preset actually watches. Every inherited-stdio child on
-it — the persona and auth-sidecar image builds, both compose stacks' `rm`,
+it — the render and auth-sidecar image builds, both compose stacks' `rm`,
 `build`, `pull`, `up` and the post-`up` recreate/restart — now runs through
 `run_captured`, and each reports itself as one phase sub-step instead of
 thousands of BuildKit lines.
@@ -28,7 +28,7 @@ import pytest
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import container_lifecycle
 from osprey.deployment.subprocess_capture import SPOOL_DIR, CapturedProcess
-from osprey.deployment.web_terminals import persona_images, postup_hooks, provision
+from osprey.deployment.web_terminals import postup_hooks, provision, render_images
 
 # A BuildKit progress line: `#5 [stage-0 2/7] RUN ...`. The whole point of the
 # capture seam is that this shape never reaches the operator's terminal.
@@ -153,56 +153,60 @@ def _spool_files(repo_root):
 
 
 # --------------------------------------------------------------------------
-# persona_images.build_persona_images — the headline scenario's slow step
+# render_images.build_render_images — the headline scenario's slow step
 # --------------------------------------------------------------------------
 
 
-def _persona_config() -> dict:
+def _render_config() -> dict:
     return {
         "project_name": "demo",
         "modules": {
             "web_terminals": {
                 "image_source": "local",
-                "default_persona": "ops",
-                "personas": {"ops": {}, "physics": {}},
+                "default_tier": "ops",
+                "renders": {"ops": {"kind": "tier"}, "physics": {"kind": "tier"}},
             }
         },
     }
 
 
-def _stub_persona_builds(monkeypatch, tmp_path, units, build_cmd=None):
-    """Neuter everything around the persona build except the run itself."""
+def _stub_render_builds(monkeypatch, tmp_path, units, build_cmd=None):
+    """Neuter everything around the render build except the run itself."""
     monkeypatch.chdir(tmp_path)  # resolve_repo_root -> tmp_path
-    monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker"])
-    monkeypatch.setattr(persona_images, "_referenced_personas", lambda config, users: units)
+    monkeypatch.setattr(render_images, "get_runtime_command", lambda config: ["docker"])
     monkeypatch.setattr(
-        persona_images,
-        "_persona_image_build_cmd",
+        render_images,
+        "_referenced_renders",
+        lambda config, users, *, serves_roster=True: units,
+    )
+    monkeypatch.setattr(
+        render_images,
+        "_render_image_build_cmd",
         lambda *args: list(build_cmd) if build_cmd else ["docker", "build", "."],
     )
 
 
-def _unit(project: str, persona: str, tmp_path) -> dict:
+def _unit(project: str, render: str, tmp_path) -> dict:
     return {
         "project": project,
-        "persona": persona,
-        "project_path": str(tmp_path / persona),
+        "render": render,
+        "project_path": str(tmp_path / render),
         "image": f"{project}:local",
     }
 
 
 @pytest.mark.usefixtures("reporter")
-def test_persona_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_path):
-    """Each persona image is its own captured run, named for the image it
+def test_render_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_path):
+    """Each render image is its own captured run, named for the image it
     builds, so a failed build names a spool holding only that build's output."""
     units = [_unit("demo-ops", "ops", tmp_path), _unit("demo-physics", "physics", tmp_path)]
-    _stub_persona_builds(monkeypatch, tmp_path, units)
+    _stub_render_builds(monkeypatch, tmp_path, units)
     recorder = RunRecorder()
-    monkeypatch.setattr(persona_images, "run_captured", recorder)
+    monkeypatch.setattr(render_images, "run_captured", recorder)
 
-    persona_images.build_persona_images(_persona_config(), [], False, {"HOME": "/x"})
+    render_images.build_render_images(_render_config(), [], False, {"HOME": "/x"})
 
-    assert recorder.spool_names == ["build-persona-demo-ops", "build-persona-demo-physics"]
+    assert recorder.spool_names == ["build-render-demo-ops", "build-render-demo-physics"]
     for call in recorder.calls:
         assert call["cmd"] == ["docker", "build", "."]
         assert call["env"] == {"HOME": "/x"}
@@ -210,16 +214,16 @@ def test_persona_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_pa
         assert call["check"] is True
 
 
-def test_persona_build_reports_one_step_per_image(monkeypatch, tmp_path, reporter):
-    """One sub-step per persona image, naming that image: the only progress an
+def test_render_build_reports_one_step_per_image(monkeypatch, tmp_path, reporter):
+    """One sub-step per render image, naming that image: the only progress an
     operator sees while a run of multi-minute builds goes by."""
     units = [_unit("demo-ops", "ops", tmp_path), _unit("demo-physics", "physics", tmp_path)]
-    _stub_persona_builds(monkeypatch, tmp_path, units)
-    monkeypatch.setattr(persona_images, "run_captured", RunRecorder())
+    _stub_render_builds(monkeypatch, tmp_path, units)
+    monkeypatch.setattr(render_images, "run_captured", RunRecorder())
 
-    persona_images.build_persona_images(_persona_config(), [], False, {})
+    render_images.build_render_images(_render_config(), [], False, {})
 
-    assert reporter.steps == ["persona image demo-ops:local", "persona image demo-physics:local"]
+    assert reporter.steps == ["render image demo-ops:local", "render image demo-physics:local"]
 
 
 @pytest.mark.usefixtures("terminal_reporter")
@@ -229,66 +233,62 @@ def test_default_view_hides_buildkit_lines_but_the_spool_keeps_them(monkeypatch,
     terminal shows the step line and nothing of the build; the spool file
     exists and holds every line."""
     units = [_unit("demo-ops", "ops", tmp_path)]
-    _stub_persona_builds(monkeypatch, tmp_path, units, build_cmd=_echo_cmd(BUILDKIT_OUTPUT))
+    _stub_render_builds(monkeypatch, tmp_path, units, build_cmd=_echo_cmd(BUILDKIT_OUTPUT))
 
-    persona_images.build_persona_images(_persona_config(), [], False, None)
+    render_images.build_render_images(_render_config(), [], False, None)
 
     out = capfd.readouterr().out
     assert not BUILDKIT_LINE.search(out), f"raw build output reached the terminal:\n{out}"
     for line in BUILDKIT_OUTPUT:
         assert line not in out
-    assert "· persona image demo-ops:local" in out
+    assert "· render image demo-ops:local" in out
 
     spools = _spool_files(tmp_path)
     assert len(spools) == 1, f"expected one spool file, got {[p.name for p in spools]}"
-    assert spools[0].name.startswith("build-persona-demo-ops-")
+    assert spools[0].name.startswith("build-render-demo-ops-")
     spooled = spools[0].read_text()
     for line in BUILDKIT_OUTPUT:
         assert line in spooled
 
 
 @pytest.mark.usefixtures("reporter")
-def test_persona_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path):
+def test_render_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path):
     """A single-image build's BuildKit headers name no service (`#10 [ 2/13]`),
     so the watcher carries the image tag as its label. Without it the whole
     build parses into nothing — silently, with no error — so the assertion is
     behavioural: a nameless header must come back attributed to the tag."""
-    _stub_persona_builds(monkeypatch, tmp_path, [_unit("demo-ops", "ops", tmp_path)])
+    _stub_render_builds(monkeypatch, tmp_path, [_unit("demo-ops", "ops", tmp_path)])
     recorder = RunRecorder()
-    monkeypatch.setattr(persona_images, "run_captured", recorder)
+    monkeypatch.setattr(render_images, "run_captured", recorder)
 
-    persona_images.build_persona_images(_persona_config(), [], False, {})
+    render_images.build_render_images(_render_config(), [], False, {})
 
-    watcher = recorder.by_spool("build-persona-demo-ops")["on_line"]
-    assert watcher is not None, "the persona build runs unwatched"
+    watcher = recorder.by_spool("build-render-demo-ops")["on_line"]
+    assert watcher is not None, "the render build runs unwatched"
     watcher("#10 [ 2/13] RUN pip install --no-cache-dir osprey-framework")
     (row,) = watcher.model.snapshot()
     assert row.service == "demo-ops:local"
     assert row.step == "2/13"
 
 
-def test_persona_image_build_cmd_pins_plain_progress_on_docker(tmp_path):
+def test_render_image_build_cmd_pins_plain_progress_on_docker(tmp_path):
     """The live view is parsed from BuildKit's plain stream, so plain is pinned
     rather than left to `auto` degrading under the capture pipe."""
-    cmd = persona_images._persona_image_build_cmd(
-        "docker", str(tmp_path), "demo", "ops", {}, "demo"
-    )
+    cmd = render_images._render_image_build_cmd("docker", str(tmp_path), "demo", "ops", {}, "demo")
     assert cmd[cmd.index("--progress") + 1] == "plain"
     assert cmd[-1] == str(tmp_path)  # the flag lands ahead of the context
 
 
-def test_persona_image_build_cmd_omits_plain_progress_on_podman(tmp_path):
+def test_render_image_build_cmd_omits_plain_progress_on_podman(tmp_path):
     """`podman build` has no `--progress` — the same caveat `with_plain_progress`
     carries for compose. An unknown flag there would fail the deploy outright."""
-    cmd = persona_images._persona_image_build_cmd(
-        "podman", str(tmp_path), "demo", "ops", {}, "demo"
-    )
+    cmd = render_images._render_image_build_cmd("podman", str(tmp_path), "demo", "ops", {}, "demo")
     assert "--progress" not in cmd
     assert cmd[-1] == str(tmp_path)
 
 
-def test_persona_image_build_cmd_carries_the_site_build_args(monkeypatch, tmp_path):
-    """A persona image is built on the same host as the project image, so it
+def test_render_image_build_cmd_carries_the_site_build_args(monkeypatch, tmp_path):
+    """A render image is built on the same host as the project image, so it
     gets the same site CA, package index and offline mode — from the FACILITY
     config, which is the only place those are declared."""
     for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
@@ -302,7 +302,7 @@ def test_persona_image_build_cmd_carries_the_site_build_args(monkeypatch, tmp_pa
         "images": {"site_ca": str(ca), "pip_index_url": "https://mirror.example.org/simple"},
     }
 
-    cmd = persona_images._persona_image_build_cmd(
+    cmd = render_images._render_image_build_cmd(
         "docker", str(tmp_path), "demo", "ops", config, "demo"
     )
 
@@ -312,7 +312,7 @@ def test_persona_image_build_cmd_carries_the_site_build_args(monkeypatch, tmp_pa
     assert args["OSPREY_SITE_CA"] == container_lifecycle.SITE_CA_CONTEXT_FILENAME
     assert args["PIP_INDEX_URL"] == "https://mirror.example.org/simple"
     assert args["OSPREY_OFFLINE"] == "1"
-    # Staged into THIS persona's own context, which is what COPY can reach.
+    # Staged into THIS render's own context, which is what COPY can reach.
     assert (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).is_file()
 
 
@@ -376,7 +376,7 @@ def _sidecar_build(monkeypatch, tmp_path, runtime: str) -> tuple[RunRecorder, di
 
 @pytest.mark.usefixtures("reporter")
 def test_auth_sidecar_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path):
-    """Same single-image trap as the persona build: the sidecar's BuildKit
+    """Same single-image trap as the render build: the sidecar's BuildKit
     headers name no service, so an unlabeled watcher would parse the whole
     build into nothing without ever erroring."""
     recorder, config = _sidecar_build(monkeypatch, tmp_path, "docker")
@@ -576,9 +576,9 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "runtime_env", lambda config, env, **kw: dict(env))
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest=".": [])
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
-    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
-    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "resolve_cards", lambda *a, **kw: [])
+    monkeypatch.setattr(provision, "verify_renders", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "build_render_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)

@@ -1,7 +1,7 @@
 """What a build says at INFO, and what it now only says at DEBUG.
 
 ``osprey build`` renders the project six times — the deployment, one project per
-persona, and a container copy of each. Every render used to re-emit its full
+render, and a container copy of each. Every render used to re-emit its full
 report at INFO, so an operator read the same injector block, the same provider
 report and the same config-writer field dumps six times over for one build.
 
@@ -161,7 +161,7 @@ DEMOTED_NEEDLES = {
     "service template(s)": "the service-template copy count",
     "Provider:": "the provider-credential report",
     "config_update_fields": "the config writer's field dump",
-    "Rendering persona": "the per-persona render announcement",
+    "Rendering tier": "the per-render announcement",
     "satisfies": "the OSPREY-version check confirming it passed",
 }
 

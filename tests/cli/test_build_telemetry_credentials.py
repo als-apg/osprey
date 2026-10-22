@@ -122,16 +122,16 @@ def test_an_identity_that_cannot_be_a_login_fails_the_build(tmp_path: Path) -> N
         build_cmd._ensure_telemetry_credentials(tmp_path, rendered)
 
 
-def test_the_mint_sits_between_the_persona_renders_and_the_compose_files() -> None:
-    """After the personas, which settle the roster; before the compose files,
+def test_the_mint_sits_between_the_renders_and_the_compose_files() -> None:
+    """After the renders, which settle the roster; before the compose files,
     which name the files as ``env_file``. And never under ``--runtime-root``."""
     source = inspect.getsource(build_cmd)
-    personas = source.index("persona_renders = _render_persona_projects(")
+    tiers = source.index("renders = _render_projects(")
     mint = source.index("_ensure_telemetry_credentials(zones.repo_root, rendered)")
     compose = source.index("config = _render_compose_files(zones, runtime_root")
 
-    assert personas < mint < compose
-    assert "if not runtime_root:" in source[personas:mint]
+    assert tiers < mint < compose
+    assert "if not runtime_root:" in source[tiers:mint]
 
 
 # --- no credential file reaches an image context -----------------------------

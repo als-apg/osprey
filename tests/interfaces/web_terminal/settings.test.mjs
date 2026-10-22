@@ -125,7 +125,7 @@ describe('panel setup: a known mode per case', () => {
 /**
  * The apply-button gate: dialog by default, waived by "don't ask again",
  * re-shown (pre-ticked) by Shift. The waiver is recorded only when the
- * operator confirms, under the persona-scoped key (bare here: single-user).
+ * operator confirms, under the user-scoped key (bare here: single-user).
  */
 describe('Apply Settings: the confirm and its waiver', () => {
   const SKIP_KEY = 'osprey-settings-apply-skip-confirm';

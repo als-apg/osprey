@@ -60,13 +60,16 @@ repos:
       # every merge touching those pages fails on prose that is perfectly fine.
       - id: check-merge-conflict
         exclude: \.rst$
-      # Check YAML syntax
+      # Check YAML syntax. The previous-release profile fixture carries `@…@`
+      # sentinels its test expands before reading it, so it is YAML only once
+      # expanded; the test that loads it is what checks it.
       - id: check-yaml
+        exclude: ^tests/fixtures/previous_release_repo/profile\.yml$
       # Check TOML syntax
       - id: check-toml
       # Prevent large files from being committed. The floor is set by the
       # generated demo-machine graph corpus (~2.7 MB, shipped in the
-      # control_assistant and ariel_standalone presets alike);
+      # control_assistant preset);
       # raise the number rather than excluding a path, so the guard stays armed.
       - id: check-added-large-files
         args: ['--maxkb=3000']

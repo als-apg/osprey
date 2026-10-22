@@ -48,23 +48,23 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     return project
 
 
-_BUNDLED_PERSONAS = {
+_BUNDLED_RENDERS = {
     "CLAUDE.md.j2",
-    "CLAUDE.ariel.md.j2",
+    "CLAUDE.logbook.md.j2",
     "CLAUDE.knowledge.md.j2",
     "CLAUDE.channel-finder.md.j2",
 }
 
 
-def _persona_project(manager: TemplateManager, tmp_path: Path, name: str, recorded: str) -> Path:
-    """A project whose manifest records ``recorded`` as its ``CLAUDE.md`` persona.
+def _render_project(manager: TemplateManager, tmp_path: Path, name: str, recorded: str) -> Path:
+    """A project whose manifest records ``recorded`` as its ``CLAUDE.md`` render.
 
     Mirrors what a build does with a profile's ``claude_md_template:``: the key
     goes into the render context and into the manifest context. The render uses
-    the recorded persona when it is bundled and the default otherwise, so a
-    project recorded with an unknown persona can still be built.
+    the recorded render when it is bundled and the default otherwise, so a
+    project recorded with an unknown render can still be built.
     """
-    render = recorded if recorded in _BUNDLED_PERSONAS else "CLAUDE.md.j2"
+    render = recorded if recorded in _BUNDLED_RENDERS else "CLAUDE.md.j2"
     project = manager.create_project(
         project_name=name,
         output_dir=tmp_path,
@@ -401,27 +401,40 @@ class TestManifestPresetStamp:
         assert ctx["preset"] is None
         assert ctx["selected_hooks"] == stamped["artifacts"]["hooks"]
 
-    def test_a_persona_preset_resolves_its_inherited_artifacts(self):
+    def test_a_child_preset_resolves_its_inherited_artifacts(self, tmp_path, monkeypatch):
         """A preset's artifact fallback follows ``extends:``.
 
-        The persona presets declare a delta over ``control-assistant``, so
-        reading one preset file alone answers with a fraction of what it
-        selects — ``control-assistant-readonly`` declares no skills and no
-        agents at all. A reader that took that literally would regenerate a
-        readonly deployment with none of the artifacts it inherits.
+        A preset that extends ``control-assistant`` declares only its delta,
+        so reading its file alone answers with a fraction of what it selects —
+        this child declares one skill and no agents at all. A reader that took
+        that literally would regenerate the child with none of the artifacts
+        it inherits.
         """
+        from osprey.cli import build_profile_presets
         from osprey.cli.templates import manifest as manifest_mod
+
+        bundled = build_profile_presets._presets_dir()
+        presets = tmp_path / "presets"
+        presets.mkdir()
+        shutil.copyfile(bundled / "control-assistant.yml", presets / "control-assistant.yml")
+        (presets / "child.yml").write_text(
+            yaml.safe_dump(
+                {"name": "Child", "extends": "control-assistant", "skills": ["setup-mode"]}
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
 
         base = manifest_mod.load_template_manifest("control-assistant")
         assert base is not None
 
-        for persona in ("control-assistant-readonly", "control-assistant-readwrite"):
-            resolved = manifest_mod.load_template_manifest(persona)
-            assert resolved is not None, persona
-            for category in ("hooks", "rules", "skills", "agents"):
-                assert set(base["artifacts"][category]) <= set(resolved["artifacts"][category]), (
-                    f"{persona} lost inherited {category}"
-                )
+        resolved = manifest_mod.load_template_manifest("child")
+        assert resolved is not None
+        for category in ("hooks", "rules", "skills", "agents"):
+            assert set(base["artifacts"][category]) <= set(resolved["artifacts"][category]), (
+                f"child lost inherited {category}"
+            )
+        assert "setup-mode" in resolved["artifacts"]["skills"]
 
     def test_the_init_render_and_the_regen_name_the_same_preset(self, tmp_path):
         """The first render must not say "hand-written" about a preset project.
@@ -436,11 +449,20 @@ class TestManifestPresetStamp:
         between, and the wrong text permanently for anything that renders
         without regenerating.
         """
-        from osprey.cli.templates import manifest as manifest_mod
+        from osprey.cli.build_cmd import _collect_profile_artifacts, _profile_preset
+        from osprey.cli.build_profile import resolve_build_profile
+        from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
-        preset = "control-assistant-admin"
+        # The admin tier render of the exemplar deployment: the one render that
+        # selects the setup-mode skill, stamped with the preset it records.
+        repo = build_exemplar_repo(tmp_path / "repo")
+        profile, _dir = resolve_build_profile(repo / "tiers" / "admin.yml", None)
+        preset = _profile_preset(profile)
+        assert preset
         manager = TemplateManager()
-        selection = manifest_mod.load_template_manifest(preset)["artifacts"]
+        selection = manager._effective_artifacts(
+            "control_assistant", _collect_profile_artifacts(profile) or None
+        )
         assert "setup-mode" in selection["skills"]
 
         project = manager.create_project(
@@ -455,7 +477,7 @@ class TestManifestPresetStamp:
 
         skill = project / ".claude" / "skills" / "setup-mode" / "SKILL.md"
         rendered = skill.read_text(encoding="utf-8")
-        assert preset in rendered
+        assert f"Preset: **{preset}**" in rendered
         assert "hand-written" not in rendered
 
         manager.regenerate_claude_code(project)
@@ -1606,12 +1628,12 @@ class TestUserOwned:
             assert len(agent_files) > 0
 
 
-class TestInstructionsPersona:
-    """CLAUDE.md is the persona the manifest records, for render and ownership alike."""
+class TestInstructionsRender:
+    """CLAUDE.md is the render the manifest records, for render and ownership alike."""
 
     _OPERATOR = "# Operator's instructions\n"
 
-    def test_the_recorded_persona_reads_back_from_the_manifest(self, tmp_path):
+    def test_the_recorded_render_reads_back_from_the_manifest(self, tmp_path):
         for manifest in (
             None,
             {},
@@ -1620,39 +1642,39 @@ class TestInstructionsPersona:
             {"creation": {"claude_md_template": ""}},
         ):
             assert recorded_claude_md_template(manifest) == "CLAUDE.md.j2"
-        recorded = {"creation": {"claude_md_template": "CLAUDE.ariel.md.j2"}}
-        assert recorded_claude_md_template(recorded) == "CLAUDE.ariel.md.j2"
+        recorded = {"creation": {"claude_md_template": "CLAUDE.logbook.md.j2"}}
+        assert recorded_claude_md_template(recorded) == "CLAUDE.logbook.md.j2"
 
         manager = TemplateManager()
-        project_dir = _persona_project(manager, tmp_path, "persona-ctx", "CLAUDE.ariel.md.j2")
+        project_dir = _render_project(manager, tmp_path, "render-ctx", "CLAUDE.logbook.md.j2")
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
-        assert ctx["claude_md_template"] == "CLAUDE.ariel.md.j2"
+        assert ctx["claude_md_template"] == "CLAUDE.logbook.md.j2"
 
-    def test_regen_renders_the_recorded_persona(self, tmp_path):
+    def test_regen_renders_the_recorded_render(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _persona_project(manager, tmp_path, "persona-render", "CLAUDE.ariel.md.j2")
+        project_dir = _render_project(manager, tmp_path, "render-render", "CLAUDE.logbook.md.j2")
         manager.regenerate_claude_code(project_dir)
         text = (project_dir / "CLAUDE.md").read_text()
         assert "Logbook Research Assistant" in text
         assert "Control System Assistant" not in text
 
-    def test_regen_keeps_a_claimed_alternate_persona(self, tmp_path):
+    def test_regen_keeps_a_claimed_alternate_render(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _persona_project(manager, tmp_path, "persona-owned", "CLAUDE.ariel.md.j2")
+        project_dir = _render_project(manager, tmp_path, "render-owned", "CLAUDE.logbook.md.j2")
         claude_md = project_dir / "CLAUDE.md"
         claude_md.write_text(self._OPERATOR)
-        _own(project_dir, "claude-md-ariel")
+        _own(project_dir, "claude-md-logbook")
 
         manager.regenerate_claude_code(project_dir)
 
         assert claude_md.read_text() == self._OPERATOR
 
-    def test_another_personas_name_does_not_own_claude_md(self, tmp_path):
+    def test_another_renders_name_does_not_own_claude_md(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _persona_project(manager, tmp_path, "persona-other", "CLAUDE.ariel.md.j2")
+        project_dir = _render_project(manager, tmp_path, "render-other", "CLAUDE.logbook.md.j2")
         claude_md = project_dir / "CLAUDE.md"
         claude_md.write_text(self._OPERATOR)
         _own(project_dir, "claude-md")
@@ -1661,9 +1683,9 @@ class TestInstructionsPersona:
 
         assert "Logbook Research Assistant" in claude_md.read_text()
 
-    def test_an_unknown_recorded_persona_fails_the_regen_by_name(self, tmp_path):
+    def test_an_unknown_recorded_render_fails_the_regen_by_name(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _persona_project(manager, tmp_path, "persona-unknown", "CLAUDE.nope.md.j2")
+        project_dir = _render_project(manager, tmp_path, "render-unknown", "CLAUDE.nope.md.j2")
         claude_md = project_dir / "CLAUDE.md"
         before = claude_md.read_text()
 
@@ -1672,12 +1694,12 @@ class TestInstructionsPersona:
 
         assert claude_md.read_text() == before
 
-    def test_dry_run_keeps_a_claimed_alternate_persona(self, tmp_path):
+    def test_dry_run_keeps_a_claimed_alternate_render(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _persona_project(manager, tmp_path, "persona-dry", "CLAUDE.ariel.md.j2")
+        project_dir = _render_project(manager, tmp_path, "render-dry", "CLAUDE.logbook.md.j2")
         claude_md = project_dir / "CLAUDE.md"
         claude_md.write_text(self._OPERATOR)
-        _own(project_dir, "claude-md-ariel")
+        _own(project_dir, "claude-md-logbook")
         manager.regenerate_claude_code(project_dir)
 
         result = manager.regenerate_claude_code(project_dir, dry_run=True)

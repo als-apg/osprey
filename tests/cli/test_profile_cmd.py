@@ -169,10 +169,11 @@ def test_validate_does_not_build_a_project(runner: CliRunner, tmp_path: Path) ->
     assert sorted(p.name for p in target.iterdir()) == ["data", "profile.yml"]
 
 
-#: A profile whose web stack does not lint: it stands up the persona catalog,
-#: which is what makes the registry-mode coherence check apply, and states no
-#: ``registry.url`` for it to find. The one shape that reaches the web-lint
-#: branch both spellings of the verb run last.
+#: A profile whose web stack does not lint: with a ``tiers/readwrite.yml``
+#: beside it, it stands up the render catalog, which is what makes the
+#: registry-mode coherence check apply, and states no ``registry.url`` for it
+#: to find. The one shape that reaches the web-lint branch both spellings of
+#: the verb run last.
 LINT_FAILING_PROFILE = """\
 name: Lint Fail
 extends: hello-world
@@ -180,14 +181,11 @@ data: data
 config:
   modules.web_terminals:
     enabled: true
-    default_persona: readwrite
+    default_tier: readwrite
     users:
       - name: operator
         index: 0
-        persona: readwrite
-    personas:
-      readwrite:
-        build_profile: hello-world
+        tier: readwrite
 """
 
 
@@ -229,6 +227,10 @@ class TestTopLevelSpellingIsTheSameVerb:
         from osprey.cli.validate_cmd import validate
 
         target = _write_profile(tmp_path / "p", LINT_FAILING_PROFILE)
+        (target.parent / "tiers").mkdir()
+        (target.parent / "tiers" / "readwrite.yml").write_text(
+            "name: readwrite\n", encoding="utf-8"
+        )
 
         group = runner.invoke(profile, ["validate", str(target)])
         top = runner.invoke(validate, [str(target)])

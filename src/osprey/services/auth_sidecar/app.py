@@ -85,6 +85,7 @@ from .roster_env import (
     READERS_VAR,
     ROLE_HISTORY_VAR_PREFIX,
     ROSTER_HISTORY_VAR_PREFIX,
+    ROSTER_LABEL_VAR_PREFIX,
     env_var_suffix,
     env_var_suffix_collisions,
 )
@@ -540,6 +541,10 @@ class AuthSettings:
             set for one whose rule could not be read, which admits nobody. Use
             :meth:`access` rather than the mapping, so a name off the roster
             answers as an unshared card instead of raising.
+        roster_labels: ``{card name: title}`` for every roster card whose
+            ``OSPREY_AUTH_ROSTER_LABEL_<SUFFIX>`` is non-blank — the shared app
+            cards, titled by the app's ``name:``. Use :meth:`label`, which
+            answers the card's own name for every other card.
         history_origin: The readers' origin the history page is served on,
             ``scheme://host[:port]``, or ``""`` when this deployment serves no
             history page. A login may return to an absolute URL under its
@@ -572,6 +577,7 @@ class AuthSettings:
     oidc_claims_in_id_token: bool = False
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    roster_labels: Mapping[str, str] = field(default_factory=dict)
     history_origin: str = ""
     history_all_users: frozenset[str] = frozenset()
     history_all_roles: frozenset[str] = frozenset()
@@ -622,6 +628,7 @@ class AuthSettings:
         password_hashes: dict[str, str] = {}
         oidc_subjects: dict[str, str] = {}
         roster_access: dict[str, frozenset[str]] = {}
+        roster_labels: dict[str, str] = {}
         for user in users:
             suffix = env_var_suffix(user)
             stored = (source.get(f"{PW_HASH_VAR_PREFIX}{suffix}") or "").strip()
@@ -632,6 +639,9 @@ class AuthSettings:
                 oidc_subjects[user] = subject
             access_var = f"{ENV_ROSTER_ACCESS_PREFIX}{suffix}"
             roster_access[user] = _access_principals(source.get(access_var), access_var)
+            label = (source.get(f"{ROSTER_LABEL_VAR_PREFIX}{suffix}") or "").strip()
+            if label:
+                roster_labels[user] = label
         history_all_users = frozenset(
             user
             for user in users
@@ -682,6 +692,7 @@ class AuthSettings:
             oidc_claims_in_id_token=_flag(source.get(ENV_OIDC_CLAIMS_IN_ID_TOKEN)),
             oidc_subjects=oidc_subjects,
             roster_access=roster_access,
+            roster_labels=roster_labels,
             history_origin=(source.get(HISTORY_ORIGIN_VAR) or "").strip().rstrip("/"),
             history_all_users=history_all_users,
             history_all_roles=history_all_roles,
@@ -827,6 +838,20 @@ class AuthSettings:
             The admitted principals, as the render spelled them.
         """
         return self.roster_access.get(user, OWNER_ONLY)
+
+    def label(self, card: str) -> str:
+        """The title a chooser shows for ``card``.
+
+        The app's ``name:`` for a shared app card; the roster name for every
+        other card, and for a name off the roster.
+
+        Args:
+            card: Roster card name.
+
+        Returns:
+            The card's title.
+        """
+        return self.roster_labels.get(card, card)
 
     def shared(self, user: str) -> bool:
         """Whether ``user``'s terminal is open to anybody but its own user.

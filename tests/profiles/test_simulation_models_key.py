@@ -1,7 +1,7 @@
 """The ``simulation.models`` key: which models a render serves.
 
 ``resolve_served`` reads the key from a rendered config and the model names
-from the facility file; a persona delta that sets the key on a deployment whose
+from the facility file; a layer that sets the key on a deployment whose
 baseline target is a VA instance stops at resolution.
 """
 
@@ -20,11 +20,12 @@ from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.served import resolve_served
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 _DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
 #: The four shipped presets every all-templates key must appear in.
-_PRESETS = ("hello-world", "ariel-standalone", "channel-finder-standalone", "control-assistant")
+_PRESETS = ("hello-world", "control-assistant")
 
 
 @pytest.fixture(scope="module")
@@ -83,7 +84,7 @@ def test_every_preset_spells_the_key_as_null(preset: str) -> None:
 IN_PROCESS = "in_process"
 
 
-def _repo(tmp_path: Path, connector: str, personas: dict[str, str]) -> Path:
+def _repo(tmp_path: Path, connector: str, renders: dict[str, str]) -> Path:
     (tmp_path / "data").mkdir()
     control_system = (
         "  control_system.type: virtual_accelerator\n"
@@ -94,9 +95,9 @@ def _repo(tmp_path: Path, connector: str, personas: dict[str, str]) -> Path:
     (tmp_path / "profile.yml").write_text(
         f"name: demo\ndata: data\nconfig:\n{control_system}  simulation.models: null\n"
     )
-    (tmp_path / "personas").mkdir()
-    for name, body in personas.items():
-        (tmp_path / "personas" / f"{name}.yml").write_text(f"name: {name}\n{body}")
+    (tmp_path / TIERS_DIRNAME).mkdir()
+    for name, body in renders.items():
+        (tmp_path / TIERS_DIRNAME / f"{name}.yml").write_text(f"name: {name}\n{body}")
     return tmp_path
 
 
@@ -105,7 +106,7 @@ def _served_for(delta: Path, facility: dict[str, Any]) -> list[str]:
     return resolve_served(config, facility)
 
 
-def test_two_in_process_personas_differing_only_in_the_key_resolve_different_lists(
+def test_two_in_process_renders_differing_only_in_the_key_resolve_different_lists(
     tmp_path: Path, demo: dict[str, Any]
 ) -> None:
     repo = _repo(
@@ -116,8 +117,8 @@ def test_two_in_process_personas_differing_only_in_the_key_resolve_different_lis
             "plain": "config:\n  simulation.models: [texture]\n",
         },
     )
-    physics = _served_for(repo / "personas" / "physics.yml", demo)
-    plain = _served_for(repo / "personas" / "plain.yml", demo)
+    physics = _served_for(repo / TIERS_DIRNAME / "physics.yml", demo)
+    plain = _served_for(repo / TIERS_DIRNAME / "plain.yml", demo)
     assert physics == ["SR", TEXTURE]
     assert plain == [TEXTURE]
 
@@ -127,19 +128,19 @@ def test_two_in_process_personas_differing_only_in_the_key_resolve_different_lis
     "body",
     ["config:\n  simulation.models: [texture]\n", "config:\n  simulation:\n    models: null\n"],
 )
-def test_a_persona_setting_the_key_on_a_va_baseline_stops(
+def test_a_render_setting_the_key_on_a_va_baseline_stops(
     tmp_path: Path, connector: str, body: str
 ) -> None:
     repo = _repo(tmp_path, connector, {"reader": body})
     with pytest.raises(FacilityBuildError) as excinfo:
-        load_profile_document(repo / "personas" / "reader.yml")
+        load_profile_document(repo / TIERS_DIRNAME / "reader.yml")
     error = excinfo.value
     assert error.kind == "profile-invalid"
-    assert error.record_id == "personas/reader.yml"
+    assert error.record_id == f"{TIERS_DIRNAME}/reader.yml"
     assert "`simulation.models`" in error.detail
 
 
-def test_a_persona_that_moves_itself_onto_a_va_baseline_stops(tmp_path: Path) -> None:
+def test_a_render_that_moves_itself_onto_a_va_baseline_stops(tmp_path: Path) -> None:
     repo = _repo(
         tmp_path,
         IN_PROCESS,
@@ -152,16 +153,16 @@ def test_a_persona_that_moves_itself_onto_a_va_baseline_stops(tmp_path: Path) ->
         },
     )
     with pytest.raises(FacilityBuildError) as excinfo:
-        resolve_build_document(repo / "personas" / "reader.yml", None)
+        resolve_build_document(repo / TIERS_DIRNAME / "reader.yml", None)
     assert excinfo.value.kind == "profile-invalid"
 
 
-def test_a_persona_leaving_the_key_alone_on_a_va_baseline_resolves(tmp_path: Path) -> None:
+def test_a_render_leaving_the_key_alone_on_a_va_baseline_resolves(tmp_path: Path) -> None:
     import yaml
 
     from osprey.cli.build_profile_merge import resolve_profile_document
 
     repo = _repo(tmp_path, "virtual_accelerator", {"reader": "config:\n  web.theme: dark\n"})
-    delta = repo / "personas" / "reader.yml"
+    delta = repo / TIERS_DIRNAME / "reader.yml"
     document = resolve_profile_document(yaml.safe_load(delta.read_text()), delta)
-    assert document.is_persona_delta
+    assert document.is_layer

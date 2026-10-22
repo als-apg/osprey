@@ -1,4 +1,4 @@
-"""The profile hash covers every file the build reads, and personas resolve their root.
+"""The profile hash covers every file the build reads, and renders resolve their root.
 
 ``compute_profile_hash`` is what the deploy-side staleness advisory compares
 against, so anything a build consumes has to be inside it. Beyond the ``data:``
@@ -8,15 +8,15 @@ of the mapping table, including the ``project/`` verbatim mirror) and the
 trigger file its ``dispatch:`` block names — a rule the agent reads or a trigger
 a dispatcher fires on is as much build input as a channel database.
 
-Personas are the second half. A ``personas/<name>.yml`` file holds only a delta,
+Renders are the second half. A ``tiers/<name>.yml`` file holds only a delta,
 so its hash is meaningless without the root it merges over: the hash resolves the
 same implicit merge the build does, anchored at the profile root, which is what
 makes an edit to the root — its YAML, its data tree, or its convention
-directories — mark every persona's project stale too.
+directories — mark every render's project stale too.
 
-That relationship runs both ways: the deltas in ``personas/`` are folded into
+That relationship runs both ways: the deltas in tiers/ are folded into
 the ROOT profile's hash as well, so editing one is drift for the deployment
-that hosts those personas. It has to be, because a persona's rendered project
+that hosts those renders. It has to be, because a render's rendered project
 is re-rendered only when it is absent — a build wiping ``build/`` is what
 re-arms it, and nothing would call for that build if the delta were outside the
 fingerprint.
@@ -28,10 +28,13 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli import build_profile_presets
+from osprey.cli import build_profile_merge, build_profile_presets
 from osprey.cli.build_profile import compute_preset_hash, compute_profile_hash
-from osprey.cli.build_profile_merge import profile_triggers_material
+from osprey.cli.build_profile_document import RETIRED_TIER_KEY
+from osprey.cli.build_profile_merge import layer_fold_label, profile_triggers_material
 from osprey.cli.profile_conventions import CONVENTION_SOURCES
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 
 def _write(path: Path, text: str) -> Path:
@@ -50,9 +53,9 @@ def profile(tmp_path):
 
 
 @pytest.fixture
-def persona(profile):
-    """A persona delta under the profile root."""
-    return _write(profile / "personas" / "reader.yml", "name: Reader\nmodel: claude-haiku-4-5\n")
+def render(profile):
+    """A layer under the profile root."""
+    return _write(profile / TIERS_DIRNAME / "reader.yml", "name: Reader\nmodel: claude-haiku-4-5\n")
 
 
 # ── Convention material ──────────────────────────────────────────────────────
@@ -233,31 +236,31 @@ def test_bundled_presets_do_not_fold_their_shared_directory(tmp_path, monkeypatc
     assert compute_preset_hash("base") == before
 
 
-# ── Persona deltas ───────────────────────────────────────────────────────────
+# ── Layers ───────────────────────────────────────────────────────────
 
 
-def test_editing_a_delta_marks_the_ROOT_profile_stale(profile, persona):
-    """The gap this closes: a persona edit that no verb ever noticed.
+def test_editing_a_delta_marks_the_ROOT_profile_stale(profile, render):
+    """The gap this closes: a render edit that no verb ever noticed.
 
-    ``personas/`` is source zone, and a persona's rendered project is build
+    tiers/ is source zone, and a render's rendered project is build
     output — but ``up`` re-renders one only when its directory is *absent*, and
     what re-arms that is a build wiping ``build/``. If the delta were outside
     the fingerprint, editing it would leave the deploy-side check calling the
     build clean, so nothing would refuse, nothing would rebuild, and the
-    superseded render would keep going into that persona's image.
+    superseded render would keep going into that render's image.
     """
     before = compute_profile_hash(profile / "profile.yml")
 
-    persona.write_text("name: Reader\nmodel: claude-opus-5-5\n", encoding="utf-8")
+    render.write_text("name: Reader\nmodel: claude-opus-5-5\n", encoding="utf-8")
 
     assert compute_profile_hash(profile / "profile.yml") != before
 
 
 @pytest.mark.parametrize("change", ["added", "removed"])
-@pytest.mark.usefixtures("persona")
+@pytest.mark.usefixtures("render")
 def test_the_set_of_deltas_is_part_of_the_root_hash(profile, change):
-    """A persona the catalog can reference is build input the moment it exists."""
-    other = profile / "personas" / "writer.yml"
+    """A render the catalog can reference is build input the moment it exists."""
+    other = profile / TIERS_DIRNAME / "writer.yml"
     if change == "removed":
         other.write_text("name: Writer\n", encoding="utf-8")
     before = compute_profile_hash(profile / "profile.yml")
@@ -270,10 +273,10 @@ def test_the_set_of_deltas_is_part_of_the_root_hash(profile, change):
     assert compute_profile_hash(profile / "profile.yml") != before
 
 
-def test_a_profile_with_no_deltas_hashes_as_it_did_before_personas_were_folded(profile):
+def test_a_profile_with_no_deltas_hashes_as_it_did_before_renders_were_folded(profile):
     """Backward compatibility, stated as the property that guarantees it.
 
-    A repo with no ``personas/`` must keep the hash its build stamped, or every
+    A repo with no tiers/ must keep the hash its build stamped, or every
     such deployment would read as drifted the moment it upgraded. The fold
     contributes exactly nothing unless a delta is there to fold — an absent
     directory, an empty one, and one holding only material that cannot be built
@@ -281,98 +284,100 @@ def test_a_profile_with_no_deltas_hashes_as_it_did_before_personas_were_folded(p
     pre-fold hash.
     """
     before = compute_profile_hash(profile / "profile.yml")
-    assert not (profile / "personas").exists()
+    assert not (profile / TIERS_DIRNAME).exists()
 
-    (profile / "personas").mkdir()
+    (profile / TIERS_DIRNAME).mkdir()
     assert compute_profile_hash(profile / "profile.yml") == before
 
-    _write(profile / "personas" / ".DS_Store", "editor noise\n")
+    _write(profile / TIERS_DIRNAME / ".DS_Store", "editor noise\n")
     assert compute_profile_hash(profile / "profile.yml") == before
 
-    _write(profile / "personas" / "nested" / "notes.md", "not a delta\n")
+    _write(profile / TIERS_DIRNAME / "nested" / "notes.md", "not a delta\n")
     assert compute_profile_hash(profile / "profile.yml") == before
 
 
-def test_a_sibling_delta_moves_a_personas_own_hash(profile, persona):
+def test_a_sibling_delta_moves_a_renders_own_hash(profile, render):
     """The accepted over-report, pinned so it is a decision rather than a drift.
 
-    A delta anchors at the profile root, so the root's whole persona set is its
+    A delta anchors at the profile root, so the root's whole render set is its
     material too. Editing one delta therefore marks its siblings stale — an
     idempotent rebuild, deliberately preferred over subtracting siblings and
-    risking a persona that no longer matches its source.
+    risking a render that no longer matches its source.
     """
-    sibling = _write(profile / "personas" / "writer.yml", "name: Writer\nmodel: claude-haiku-4-5\n")
-    before = compute_profile_hash(persona)
+    sibling = _write(
+        profile / TIERS_DIRNAME / "writer.yml", "name: Writer\nmodel: claude-haiku-4-5\n"
+    )
+    before = compute_profile_hash(render)
 
     sibling.write_text("name: Writer\nmodel: claude-opus-5-5\n", encoding="utf-8")
 
-    assert compute_profile_hash(persona) != before
+    assert compute_profile_hash(render) != before
 
 
-def test_persona_hash_differs_from_its_root(profile, persona):
-    """A persona builds a different project than its root, so it hashes differently."""
-    assert compute_profile_hash(persona) != compute_profile_hash(profile / "profile.yml")
+def test_render_hash_differs_from_its_root(profile, render):
+    """A render builds a different project than its root, so it hashes differently."""
+    assert compute_profile_hash(render) != compute_profile_hash(profile / "profile.yml")
 
 
 @pytest.mark.usefixtures("profile")
-def test_editing_the_delta_changes_the_persona_hash(persona):
-    """The persona's own layer is part of what it resolves to."""
-    before = compute_profile_hash(persona)
+def test_editing_the_delta_changes_the_render_hash(render):
+    """The render's own layer is part of what it resolves to."""
+    before = compute_profile_hash(render)
 
-    persona.write_text("name: Reader\nmodel: claude-opus-5-5\n", encoding="utf-8")
+    render.write_text("name: Reader\nmodel: claude-opus-5-5\n", encoding="utf-8")
 
-    assert compute_profile_hash(persona) != before
+    assert compute_profile_hash(render) != before
 
 
-def test_editing_the_root_profile_changes_the_persona_hash(profile, persona):
-    """The root is half of what a persona resolves to — an edit there reaches it."""
-    before = compute_profile_hash(persona)
+def test_editing_the_root_profile_changes_the_render_hash(profile, render):
+    """The root is half of what a render resolves to — an edit there reaches it."""
+    before = compute_profile_hash(render)
 
     _write(
         profile / "profile.yml",
         "name: Facility\napp_template: hello_world\ndata: data\nchannel_finder_mode: in_context\n",
     )
 
-    assert compute_profile_hash(persona) != before
+    assert compute_profile_hash(render) != before
 
 
-def test_editing_the_root_data_tree_changes_the_persona_hash(profile, persona):
-    """A persona reads the root's data tree, not one of its own."""
-    before = compute_profile_hash(persona)
+def test_editing_the_root_data_tree_changes_the_render_hash(profile, render):
+    """A render reads the root's data tree, not one of its own."""
+    before = compute_profile_hash(render)
 
     _write(profile / "data" / "channels.json", '{"channels": ["BEAM:CURRENT"]}\n')
 
-    assert compute_profile_hash(persona) != before
+    assert compute_profile_hash(render) != before
 
 
-def test_editing_a_root_convention_dir_changes_the_persona_hash(profile, persona):
-    """Convention artifacts reach persona projects through the same root."""
+def test_editing_a_root_convention_dir_changes_the_render_hash(profile, render):
+    """Convention artifacts reach render projects through the same root."""
     _write(profile / "rules" / "safety.md", "original\n")
-    before = compute_profile_hash(persona)
+    before = compute_profile_hash(render)
 
     _write(profile / "rules" / "safety.md", "edited\n")
 
-    assert compute_profile_hash(persona) != before
+    assert compute_profile_hash(render) != before
 
 
-def test_persona_material_anchors_at_the_root_not_at_personas(profile, persona):
+def test_render_material_anchors_at_the_root_not_at_renders(profile, render):
     """A tree beside the delta is not build input — the anchor is the root."""
-    before = compute_profile_hash(persona)
+    before = compute_profile_hash(render)
 
-    _write(profile / "personas" / "rules" / "stray.md", "not a convention directory\n")
+    _write(profile / TIERS_DIRNAME / "rules" / "stray.md", "not a convention directory\n")
 
-    assert compute_profile_hash(persona) == before
+    assert compute_profile_hash(render) == before
 
 
-def test_two_personas_under_one_root_hash_differently(profile, persona):
+def test_two_renders_under_one_root_hash_differently(profile, render):
     """The delta is part of the digest, so siblings do not collide."""
-    other = _write(profile / "personas" / "writer.yml", "name: Writer\nmodel: claude-opus-5-5\n")
+    other = _write(profile / TIERS_DIRNAME / "writer.yml", "name: Writer\nmodel: claude-opus-5-5\n")
 
-    assert compute_profile_hash(other) != compute_profile_hash(persona)
+    assert compute_profile_hash(other) != compute_profile_hash(render)
 
 
-@pytest.mark.usefixtures("persona")
-def test_persona_inherits_the_roots_declarations(profile):
+@pytest.mark.usefixtures("render")
+def test_render_inherits_the_roots_declarations(profile):
     """The merge really happens: a root key the delta omits still shapes the hash.
 
     Pinned by contrast with a delta that spells the same key itself — if the
@@ -382,32 +387,64 @@ def test_persona_inherits_the_roots_declarations(profile):
         profile / "profile.yml",
         "name: Facility\napp_template: hello_world\ndata: data\nmodel: claude-opus-5-5\n",
     )
-    inheriting = _write(profile / "personas" / "inherits.yml", "name: Reader\n")
+    inheriting = _write(profile / TIERS_DIRNAME / "inherits.yml", "name: Reader\n")
     overriding = _write(
-        profile / "personas" / "overrides.yml", "name: Reader\nmodel: claude-haiku-4-5\n"
+        profile / TIERS_DIRNAME / "overrides.yml", "name: Reader\nmodel: claude-haiku-4-5\n"
     )
 
     assert compute_profile_hash(inheriting) != compute_profile_hash(overriding)
 
 
-@pytest.mark.usefixtures("persona")
-def test_persona_delta_exclude_is_applied(profile):
-    """``exclude:`` subtracts from the merged result, so it moves the hash."""
+@pytest.mark.usefixtures("render")
+def test_layer_delta_exclude_is_applied(profile):
+    """``exclude:`` subtracts from the merged result, so it moves the hash.
+
+    Only a file in the retired layer directory may spell ``exclude:``; a tier
+    adds by name. The test closes with the deprecation window.
+    """
     _write(
         profile / "profile.yml",
         "name: Facility\napp_template: hello_world\ndata: data\nskills:\n  - orbit\n  - scan\n",
     )
-    plain = _write(profile / "personas" / "plain.yml", "name: Reader\n")
+    plain = _write(profile / RETIRED_LAYER_DIRNAME / "plain.yml", "name: Reader\n")
     excluding = _write(
-        profile / "personas" / "excluding.yml",
+        profile / RETIRED_LAYER_DIRNAME / "excluding.yml",
         "name: Reader\nexclude:\n  skills:\n    - scan\n",
     )
 
     assert compute_profile_hash(excluding) != compute_profile_hash(plain)
 
 
-def test_persona_without_a_root_has_no_hash(tmp_path):
+def test_render_without_a_root_has_no_hash(tmp_path):
     """An orphan delta cannot be built, so there is nothing to compare against."""
-    orphan = _write(tmp_path / "stray" / "personas" / "reader.yml", "name: Reader\n")
+    orphan = _write(tmp_path / "stray" / TIERS_DIRNAME / "reader.yml", "name: Reader\n")
 
     assert compute_profile_hash(orphan) is None
+
+
+# ── The retired layer directory's fold label ─────────────────────────────────
+
+
+def test_a_retired_layer_file_folds_under_the_retired_tier_word(profile):
+    """A file in the retired layer directory keeps the label it folded under."""
+    retired = _write(profile / RETIRED_LAYER_DIRNAME / "operator.yml", "name: operator\n")
+
+    assert layer_fold_label(retired) == RETIRED_TIER_KEY
+
+
+def test_a_repo_not_yet_moved_into_tiers_keeps_its_fold_label(profile):
+    """A repo not yet moved into tiers/ folds its files under the retired label as before."""
+    _write(profile / RETIRED_LAYER_DIRNAME / "operator.yml", "name: operator\n")
+    labels: list[str] = []
+    real = build_profile_merge._fold_source_tree
+
+    def spy(digest, label, source, **kwargs):
+        labels.append(label)
+        return real(digest, label, source, **kwargs)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(build_profile_merge, "_fold_source_tree", spy)
+        compute_profile_hash(profile / "profile.yml")
+
+    assert RETIRED_TIER_KEY in labels
+    assert "tier" not in labels

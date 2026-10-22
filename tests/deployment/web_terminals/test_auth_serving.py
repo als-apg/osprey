@@ -124,6 +124,7 @@ from osprey_connectors.dotenv import (
     parse_dotenv_file,
 )
 from tests._container_support import docker_cli_unavailable_reason_once
+from tests._renders import tier_render
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -519,8 +520,8 @@ def _config(nginx_port: int, *, oidc_issuer: str | None = None) -> dict[str, Any
                 "enabled": True,
                 "nginx_port": nginx_port,
                 "users": users,
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
                 "auth": auth,
             }
         },

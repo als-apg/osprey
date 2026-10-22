@@ -33,31 +33,32 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.env_production import personas_needing_telemetry_vars
-from osprey.deployment.web_terminals.personas import (
-    as_dict,
-    launch_token_writes_key,
-    normalize_users,
-    personas_needing_archiver_ca_bundles,
-    personas_needing_archiver_credentials,
-    personas_needing_ariel_mirror,
-    personas_needing_ariel_password,
-    personas_needing_dispatcher_token,
-    personas_needing_facility_bundle,
-    personas_needing_graphdb_password,
-    personas_needing_launch_token_by_lane,
-    personas_needing_phoebus_handles,
-    personas_not_denying_bash,
-    referenced_persona_project_dirs,
-    rendered_persona_configs,
-    settings_json_deny_entries,
-    settings_json_is_rendered,
-)
+from osprey.deployment.web_terminals.env_production import renders_needing_telemetry_vars
 from osprey.deployment.web_terminals.render import (
     PROXY_ENV_NAMES,
     _auth_tls_context,
     clear_nginx_templates_dir,
     render_web_terminals,
+)
+from osprey.deployment.web_terminals.roster import (
+    app_titles_in,
+    as_dict,
+    launch_token_writes_key,
+    referenced_render_project_dirs,
+    rendered_configs,
+    renders_needing_archiver_ca_bundles,
+    renders_needing_archiver_credentials,
+    renders_needing_ariel_mirror,
+    renders_needing_ariel_password,
+    renders_needing_dispatcher_token,
+    renders_needing_facility_bundle,
+    renders_needing_graphdb_password,
+    renders_needing_launch_token_by_lane,
+    renders_needing_phoebus_handles,
+    renders_not_denying_bash,
+    roster_entries,
+    settings_json_deny_entries,
+    settings_json_is_rendered,
 )
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
 from osprey_connectors.types import WRITES_ENABLED_KEY
@@ -113,7 +114,7 @@ def dangerously_allow_bash(config: Any) -> bool:
 
 
 class BashLaunchTokenConflictError(DeploymentError):
-    """A persona would hold ``BLUESKY_LAUNCH_TOKEN`` while its agent may run a shell.
+    """A render would hold ``BLUESKY_LAUNCH_TOKEN`` while its agent may run a shell.
 
     ``BLUESKY_LAUNCH_TOKEN`` exists so a single chat approval is enough to arm a
     Bluesky queue start, which is physical accelerator hardware motion. That
@@ -151,54 +152,54 @@ class BashLaunchTokenConflictError(DeploymentError):
       would fail if a future change broke it.
 
     Args:
-        personas: The offending persona names, across every lane — every persona
+        tiers: The offending render names, across every lane — every render
             that is both entitled to some lane's launch token and shipping a
             settings artifact that does not deny ``Bash``. All of them are named in the message; an
             operator fixing one at a time would otherwise redeploy once per
             offender to discover the next.
         by_lane: The same offenders split by the lane that entitles them, so the
-            message names WHICH token each persona would hold. Optional: a
+            message names WHICH token each render would hold. Optional: a
             caller holding only the flat set (the collect-all preflight, which
             asks :func:`bash_launch_token_offenders`) still gets the refusal and
             the remedy, without the per-lane breakdown.
         writes_keys: Per lane, the config key that decides that lane's write
-            posture (:func:`~osprey.deployment.web_terminals.personas.launch_token_writes_key`).
+            posture (:func:`~osprey.deployment.web_terminals.roster.launch_token_writes_key`).
             Named per lane rather than deployment-wide because that is the key
             an operator actually edits to withdraw one lane's entitlement.
     """
 
     def __init__(
         self,
-        personas: Iterable[str],
+        tiers: Iterable[str],
         *,
         by_lane: Mapping[str, Iterable[str]] | None = None,
         writes_keys: Mapping[str, str] | None = None,
     ) -> None:
-        self.personas = sorted(personas)
-        self.personas_by_lane = {
+        self.tiers = sorted(tiers)
+        self.renders_by_lane = {
             lane: sorted(names) for lane, names in sorted((by_lane or {}).items())
         }
-        named = ", ".join(repr(name) for name in self.personas)
+        named = ", ".join(repr(name) for name in self.tiers)
         breakdown = "".join(
             f"\n  - lane {lane!r} ({lane_env_prefix(lane)}_LAUNCH_TOKEN): "
             f"{', '.join(repr(name) for name in names)} — armed by "
             f"{(writes_keys or {}).get(lane, WRITES_ENABLED_KEY)} and "
             f"claude_code.servers.bluesky.enabled"
-            for lane, names in self.personas_by_lane.items()
+            for lane, names in self.renders_by_lane.items()
         )
         # A caller holding only the flat set has no lane to point at, so the
         # remedy describes the key instead of referring back to a line that
         # would not be there.
         writes_remedy = (
             "the control_system.connector.<type>.writes_enabled named above, set to false"
-            if self.personas_by_lane
+            if self.renders_by_lane
             else "control_system.connector.<type>.writes_enabled: false for the "
             "target the lane drives"
         )
         super().__init__(
             f"Refusing to deploy: {named} would be granted a Bluesky launch token "
             f"while also permitted to run a shell.{breakdown}\n"
-            f"Each named persona is entitled to that lane's token — its rendered "
+            f"Each named render is entitled to that lane's token — its rendered "
             f"config.yml arms writes for the control target the lane drives AND leaves "
             f"the bluesky MCP server enabled — and its shipped "
             f'.claude/settings.json does not list "Bash" in permissions.deny (a '
@@ -207,19 +208,19 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"moves accelerator hardware; the chat approval gates only the queue_start "
             f"tool, so an agent with a shell can read the token out of its own "
             f"environment and arm a queue with no approval at all. Fix either half "
-            f'of the conflict: restore "Bash" to permissions.deny for that persona '
+            f'of the conflict: restore "Bash" to permissions.deny for that render '
             f"and REBUILD its image (or republish and re-pull it in registry mode) "
             f"— a re-render alone is not enough, because the settings.json read here "
             f"is the one baked into the image, and the per-user services declare only "
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
-            f"moving that persona off the bluesky server "
+            f"moving that render off the bluesky server "
             f"(claude_code.servers.bluesky.enabled: false) or off that lane's writes "
             f"({writes_remedy})."
         )
 
 
 def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> dict[str, set[str]]:
-    """Refuse the deploy if any launch-token persona's shipped settings permit ``Bash``.
+    """Refuse the deploy if any launch-token render's shipped settings permit ``Bash``.
 
     The whole guard in one callable, because it runs at **three** points and the
     three must never be able to disagree about what a conflict is:
@@ -235,8 +236,8 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
       path anyway, but only *after* the roster edit had been written, leaving
       ``config.yml`` updated, the artifacts stale, and the container and volume
       removal never run. It is handed the **post-removal** roster, and that is
-      load-bearing rather than incidental: decommissioning the offending persona's
-      own last user drops that persona from the referenced set and so must still
+      load-bearing rather than incidental: decommissioning the offending render's
+      own last user drops that render from the referenced set and so must still
       succeed — it is the one remediation that needs no image rebuild. A future
       change that probes the pre-removal roster silently takes that away.
     * :func:`write_web_terminal_artifacts` — belt and braces, and the only cover
@@ -246,7 +247,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
 
     :data:`DANGEROUSLY_ALLOW_BASH_KEY` waives the refusal -- and ONLY the
     refusal: the entitlement map below is returned unchanged, so the waived
-    persona is granted exactly the token it would have been. It is honoured
+    render is granted exactly the token it would have been. It is honoured
     here and in :func:`bash_launch_token_offenders` off one reader
     (:func:`dangerously_allow_bash`), so the three call sites and the
     collect-all preflight cannot disagree about whether it applies.
@@ -263,14 +264,14 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
             against it.
 
     Returns:
-        ``{lane: personas}`` — the personas entitled to each lane's launch token,
+        ``{lane: renders}`` — the renders entitled to each lane's launch token,
         returned rather than recomputed so the caller that goes on to render
         hands the *same* sets down, and what the guard cleared cannot drift from
         what the render grants. A lane nobody may arm is absent, per
-        :func:`~osprey.deployment.web_terminals.personas.personas_needing_launch_token_by_lane`.
+        :func:`~osprey.deployment.web_terminals.roster.renders_needing_launch_token_by_lane`.
 
     Raises:
-        BashLaunchTokenConflictError: One or more personas entitled on SOME lane
+        BashLaunchTokenConflictError: One or more renders entitled on SOME lane
             ship a ``.claude/settings.json`` that does not deny ``Bash``.
             Any lane's token is enough: a shell reads whichever one the container
             holds, and every lane arms real hardware motion on its own target.
@@ -278,29 +279,24 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
     # Read FIRST, so a mis-set key is a config error even on a roster with no
     # conflict to waive.
     waived = dangerously_allow_bash(config)
-    entitled_by_lane = personas_needing_launch_token_by_lane(config, project_root)
-    permitting = personas_not_denying_bash(config, project_root)
+    entitled_by_lane = renders_needing_launch_token_by_lane(config, project_root)
+    permitting = renders_not_denying_bash(config, project_root)
     offenders_by_lane = {
         lane: conflicted
-        for lane, personas in entitled_by_lane.items()
-        if (conflicted := personas & permitting)
+        for lane, tiers in entitled_by_lane.items()
+        if (conflicted := tiers & permitting)
     }
     if offenders_by_lane and not waived:
         # Read once more, only on the refusal path: the remedy names the key
-        # that decides THAT lane's posture in THAT persona's config, and a lane
-        # whose offenders disagree about it (two personas, two live connector
+        # that decides THAT lane's posture in THAT render's config, and a lane
+        # whose offenders disagree about it (two renders, two live connector
         # types) names both rather than picking one.
-        persona_configs = rendered_persona_configs(config, project_root)
+        render_configs = rendered_configs(config, project_root)
         writes_keys = {
             lane: " or ".join(
-                sorted(
-                    {
-                        launch_token_writes_key(persona_configs.get(persona), lane)
-                        for persona in personas
-                    }
-                )
+                sorted({launch_token_writes_key(render_configs.get(tier), lane) for tier in tiers})
             )
-            for lane, personas in offenders_by_lane.items()
+            for lane, tiers in offenders_by_lane.items()
         }
         raise BashLaunchTokenConflictError(
             set().union(*offenders_by_lane.values()),
@@ -311,7 +307,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
 
 
 def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[str]:
-    """The personas in conflict, computed without refusing anything.
+    """The renders in conflict, computed without refusing anything.
 
     The same intersection :func:`check_bash_launch_token_conflict` refuses on,
     split out so the collect-all preflight can ASK the question without raising
@@ -330,7 +326,7 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
             resolve against it.
 
     Returns:
-        Every persona both entitled to SOME lane's launch token and shipping
+        Every render both entitled to SOME lane's launch token and shipping
         settings that do not deny ``Bash`` — the union across lanes, because one
         token in the container's environment is one shell away from arming its
         lane. Empty when there is no conflict.
@@ -340,8 +336,8 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
     return _offenders_ignoring_the_waiver(config, project_root)
 
 
-def dangerously_allowed_bash_personas(config: Any, project_root: Path | str) -> set[str]:
-    """The personas :data:`DANGEROUSLY_ALLOW_BASH_KEY` waved through.
+def dangerously_allowed_bash_renders(config: Any, project_root: Path | str) -> set[str]:
+    """The renders :data:`DANGEROUSLY_ALLOW_BASH_KEY` waved through.
 
     What the deploy's banner names: exactly the set
     :func:`bash_launch_token_offenders` would have returned with the key off,
@@ -362,8 +358,8 @@ def dangerously_allowed_bash_personas(config: Any, project_root: Path | str) -> 
 
 def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set[str]:
     """The conflict set with :data:`DANGEROUSLY_ALLOW_BASH_KEY` left out of it."""
-    entitled = set().union(*personas_needing_launch_token_by_lane(config, project_root).values())
-    return entitled & personas_not_denying_bash(config, project_root)
+    entitled = set().union(*renders_needing_launch_token_by_lane(config, project_root).values())
+    return entitled & renders_not_denying_bash(config, project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -372,14 +368,14 @@ def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set
 # A twin of the Bash/launch-token guard above, and deliberately shaped like it:
 # same fail-closed read of the same image-baked artifact, same non-raising twin
 # for the collect-all preflight, same call sites.
-# The question it asks is different — not "may this persona arm hardware from a
-# shell?" but "may this persona reach the deployment's own terminals?" — but a
+# The question it asks is different — not "may this render arm hardware from a
+# shell?" but "may this render reach the deployment's own terminals?" — but a
 # second shape for a second gate is how two guards drift into disagreeing about
 # what a rendered settings.json says.
 # ---------------------------------------------------------------------------
 
 
-#: The :func:`open_mode_missing_by_persona` value meaning "there is no rendered
+#: The :func:`open_mode_missing_by_render` value meaning "there is no rendered
 #: ``.claude/settings.json`` for this offender on this host at all" — as opposed
 #: to a rendered artifact that lifts particular entries, which is reported as
 #: the tuple of entries it lifts.
@@ -395,7 +391,7 @@ UNRENDERED_SETTINGS: tuple[str, ...] = ()
 
 
 class OpenModeEgressError(DeploymentError):
-    """An OPEN deployment ships a persona that may still reach the host network.
+    """An OPEN deployment ships a render that may still reach the host network.
 
     Under ``auth.method: none`` nginx vouches for every request it proxies: it
     injects each user's operator secret on every location, so
@@ -409,7 +405,7 @@ class OpenModeEgressError(DeploymentError):
     web ports from executed code, but it covers exactly that one path. A shell,
     ``WebFetch``/``WebSearch`` or a Playwright browser reaches those ports
     straight past it, in-process guard or not. So open mode is refused unless
-    every persona's shipped settings deny all of
+    every render's shipped settings deny all of
     :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — the deploy
     stops before a single web-terminal artifact is written, while the operator
     still has the context to choose between the two real remedies.
@@ -435,7 +431,7 @@ class OpenModeEgressError(DeploymentError):
       on the web-terminal launch path today.
 
     Args:
-        missing_by_persona: :func:`open_mode_missing_by_persona`'s answer — the
+        missing_by_render: :func:`open_mode_missing_by_render`'s answer — the
             subset of :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS`
             each offender fails to deny, keyed by offender, with
             :data:`UNRENDERED_SETTINGS` for an offender with no rendered
@@ -443,16 +439,16 @@ class OpenModeEgressError(DeploymentError):
             list it cannot edit). Every offender is named, so an operator
             fixing one at a time does not redeploy once per offender to
             discover the next, and each is named with the entry it actually
-            lifted rather than the whole set. :attr:`personas` is its key set,
+            lifted rather than the whole set. :attr:`renders` is its key set,
             exposed because that is the shape callers compare against.
     """
 
-    def __init__(self, missing_by_persona: Mapping[str, Iterable[str]]) -> None:
-        self.missing_by_persona = {
-            persona: list(tools) for persona, tools in sorted(missing_by_persona.items())
+    def __init__(self, missing_by_render: Mapping[str, Iterable[str]]) -> None:
+        self.missing_by_render = {
+            tier: list(tools) for tier, tools in sorted(missing_by_render.items())
         }
-        self.personas = sorted(self.missing_by_persona)
-        named = ", ".join(repr(name) for name in self.personas)
+        self.tiers = sorted(self.missing_by_render)
+        named = ", ".join(repr(name) for name in self.tiers)
         # The union of what the offenders are actually missing, so the tools
         # named in the headline are the tools named in the remedy.
         reaching = [
@@ -460,23 +456,23 @@ class OpenModeEgressError(DeploymentError):
             for tool in OPEN_MODE_EGRESS_TOOLS
             # An offender with no rendered artifact denies nothing, so it puts
             # the WHOLE set back in reach rather than none of it.
-            if any(not tools or tool in tools for tools in self.missing_by_persona.values())
+            if any(not tools or tool in tools for tools in self.missing_by_render.values())
         ]
         tools_named = ", ".join(repr(tool) for tool in reaching)
         breakdown = "".join(
             (
-                f"\n  - {persona!r} does not deny: {', '.join(repr(tool) for tool in tools)}"
+                f"\n  - {tier!r} does not deny: {', '.join(repr(tool) for tool in tools)}"
                 if tools
                 else (
-                    f"\n  - {persona!r} has no rendered .claude/settings.json on this "
+                    f"\n  - {tier!r} has no rendered .claude/settings.json on this "
                     f"host — run `osprey build` to render it, then rebuild its image"
                 )
             )
-            for persona, tools in self.missing_by_persona.items()
+            for tier, tools in self.missing_by_render.items()
         )
         super().__init__(
             f"Refusing to deploy: auth.method 'none' (open) lets nginx vouch for every "
-            f"terminal, and persona(s) {named} may still reach the host network via "
+            f"terminal, and render(s) {named} may still reach the host network via "
             f"{tools_named}.{breakdown}\n"
             f"Open mode injects each user's operator secret on every "
             f"location, so anything that reaches nginx is served that user's terminal "
@@ -485,12 +481,12 @@ class OpenModeEgressError(DeploymentError):
             f"browser. The python executor refuses the deployment's own web ports from "
             f"executed code, but that guard covers only executed code: a shell, a web "
             f"fetch or a Playwright browser reaches those ports straight past it. Every "
-            f"persona's shipped .claude/settings.json must therefore list all of "
+            f"render's shipped .claude/settings.json must therefore list all of "
             f"{', '.join(repr(tool) for tool in OPEN_MODE_EGRESS_TOOLS)} in "
             f"permissions.deny (a missing or unparseable settings.json counts the same "
             f"— it is not evidence of a deny). Set "
             f"modules.web_terminals.auth.method to 'token' to keep the magic-link wall, "
-            f"or deny {tools_named} in those personas, RENDER them on this host "
+            f"or deny {tools_named} in those renders, RENDER them on this host "
             f"(`osprey build`) and rebuild their images — in registry mode, republish "
             f"the images from a render that carries the denies and re-pull them, and "
             f"keep this host's render in step. A re-render alone is not enough, "
@@ -503,7 +499,7 @@ class OpenModeEgressError(DeploymentError):
 
 
 def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
-    """Refuse an OPEN deploy whose personas can still reach the host network.
+    """Refuse an OPEN deploy whose renders can still reach the host network.
 
     The twin of :func:`check_bash_launch_token_conflict`, wired into the same
     three call points for the same reasons, so the two gates cannot come to
@@ -517,7 +513,7 @@ def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
     * :func:`~osprey.deployment.web_terminals.lifecycle.decommission_user` —
       ahead of its roster edit, handed the **post-removal** roster. That is
       load-bearing rather than incidental here too: decommissioning the
-      offending persona's own last user drops it from the referenced set, so
+      offending render's own last user drops it from the referenced set, so
       that removal must still succeed. It is the one remediation that needs no
       image rebuild.
     * :func:`resolve_render_inputs` — the render seam, and so the cover for
@@ -550,7 +546,7 @@ def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
     branch nobody updated.
 
     Like
-    :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`, this
+    :func:`~osprey.deployment.web_terminals.roster.settings_json_denies`, this
     reads the **rendered** project directory, which equals the image's
     ``.claude/settings.json`` only as of that image's last build — a render
     newer than its image can report a deny the running image does not yet
@@ -564,20 +560,20 @@ def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
 
     Raises:
         OpenModeEgressError: The deployment is open and at least one referenced
-            persona ships settings that do not deny every tool in
+            render ships settings that do not deny every tool in
             :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS`.
     """
-    if missing := open_mode_missing_by_persona(config, project_root):
+    if missing := open_mode_missing_by_render(config, project_root):
         raise OpenModeEgressError(missing)
 
 
 def open_mode_offenders(config: Any, project_root: Path | str) -> set[str]:
-    """The personas an OPEN deploy would be refused for, computed without raising.
+    """The renders an OPEN deploy would be refused for, computed without raising.
 
     The same predicate :func:`check_open_mode_requirements` refuses on, split
     out so a caller can ASK the question without raising on the answer — a
     second reader of one predicate, never a second definition of what an
-    offender is. The names alone; :func:`open_mode_missing_by_persona` is the
+    offender is. The names alone; :func:`open_mode_missing_by_render` is the
     same answer with the per-offender detail attached, and this is that answer's
     key set.
 
@@ -591,15 +587,15 @@ def open_mode_offenders(config: Any, project_root: Path | str) -> set[str]:
             resolve against it.
 
     Returns:
-        Every persona whose shipped settings do not deny the whole of
+        Every render whose shipped settings do not deny the whole of
         :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — including
         one with no rendered settings artifact at all. Empty when the deployment is not open, and empty when
         it is open and clean.
     """
-    return set(open_mode_missing_by_persona(config, project_root))
+    return set(open_mode_missing_by_render(config, project_root))
 
 
-def open_mode_missing_by_persona(
+def open_mode_missing_by_render(
     config: Any, project_root: Path | str
 ) -> dict[str, tuple[str, ...]]:
     """Per offender, the egress entries its shipped settings fail to deny.
@@ -608,7 +604,7 @@ def open_mode_missing_by_persona(
     they cannot disagree — including about whether the deployment is open at
     all, which is settled here rather than at each caller. It is also what a
     caller building an :class:`OpenModeEgressError` of its own passes as
-    ``missing_by_persona`` so its message names the same entries the raising
+    ``missing_by_render`` so its message names the same entries the raising
     gate would have named. Asking :func:`open_mode_offenders` instead and
     phrasing the refusal against the whole set is supported, but sends the
     operator through every entry of the set to find the one that is lifted.
@@ -631,15 +627,15 @@ def open_mode_missing_by_persona(
     if not deployment_is_open(config):
         return {}
     missing: dict[str, tuple[str, ...]] = {}
-    # One roster walk, and one read of each persona's settings.json diffed
+    # One roster walk, and one read of each render's settings.json diffed
     # against the whole tuple — not one walk per entry. The offender still has
-    # to be named with the entries IT is missing (a persona that lifted only
+    # to be named with the entries IT is missing (a render that lifted only
     # `WebFetch` is a different problem, and a different remedy, from one
     # shipping no settings.json at all), and the diff answers that from the same
     # single read.
-    for persona, project_dir in referenced_persona_project_dirs(config, project_root).items():
+    for tier, project_dir in referenced_render_project_dirs(config, project_root).items():
         if (gap := _open_mode_gap(project_dir)) is not None:
-            missing[persona] = gap
+            missing[tier] = gap
     return missing
 
 
@@ -647,7 +643,7 @@ def _open_mode_gap(project_dir: Path | None) -> tuple[str, ...] | None:
     """What one rendered project fails to deny, or ``None`` when it denies it all.
 
     Fails closed on every artifact it cannot read, exactly as
-    :func:`~osprey.deployment.web_terminals.personas.settings_json_denies` does,
+    :func:`~osprey.deployment.web_terminals.roster.settings_json_denies` does,
     and splits that failure in two so the refusal can be acted on: an artifact
     that is simply not there on this host reports
     :data:`UNRENDERED_SETTINGS` — render it — while one that is there and
@@ -656,7 +652,7 @@ def _open_mode_gap(project_dir: Path | None) -> tuple[str, ...] | None:
     Args:
         project_dir: The rendered project directory whose
             ``.claude/settings.json`` this offender ships, or ``None`` for a
-            persona whose catalog entry names no ``project_path`` — which ships
+            render whose catalog entry names no ``project_path`` — which ships
             no artifact at all and is reported the same way an unrendered one
             is.
 
@@ -678,9 +674,9 @@ def deployment_is_open(config: Any) -> bool:
     """Whether this deployment runs OPEN — nginx vouching for every terminal.
 
     The gate's own posture question, and exported because one other decision
-    hangs off the same answer: open mode requires a local persona render on this
+    hangs off the same answer: open mode requires a local render on this
     host (it is the artifact this gate reads), so
-    :func:`~osprey.deployment.web_terminals.provision.persona_render_problem`
+    :func:`~osprey.deployment.web_terminals.provision.render_problem`
     demands one in BOTH image-source modes when this returns ``True``. Routed
     here rather than re-derived there, so the mode that requires the render and
     the gate that reads it can never disagree about which deployments are open.
@@ -808,7 +804,7 @@ def _terminal_secrets(config: Any, root: Path) -> dict[str, str] | None:
     env_path = root / ENV_LOCAL_FILENAME
     stored = parse_dotenv_file(env_path) if env_path.is_file() else {}
     secrets = {}
-    for entry in normalize_users(web_terminals.get("users")):
+    for entry in roster_entries(web_terminals):
         name = entry["name"]
         value = stored.get(terminal_secret_var(name), "").strip()
         if value:
@@ -840,7 +836,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
 
     Resolved HERE and passed down, because ``render_web_terminals()`` reads no
     filesystem of its own (see its docstring): the ``.env.auth`` digest; which
-    personas declare the EVENTS panel and so need the dispatcher's bearer,
+    renders declare the EVENTS panel and so need the dispatcher's bearer,
     which configure ARIEL and so need its Postgres password, which both allow
     writes and run the bluesky server and so may arm a queue start, which
     configure a graph store and so need its Neo4j password — each in their own
@@ -850,7 +846,9 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     were provisioned with; the roster's operator secrets; and which proxy
     settings hold a value where compose will read them (this process's
     environment, then the chain); and the facility's display name, from the
-    build's facility identity.
+    build's facility identity; and each shared app's title, the top-level
+    ``name:`` of its ``apps/<name>.yml``, which titles the app's landing card,
+    browser tab and sign-in chooser entry.
 
     The one seam between "what is on disk" and "what the render is told", so a
     test that wants the render the deploy actually produces asks this rather
@@ -858,7 +856,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     deploy emits can be invisible to a test that never passed its entitlement.
 
     Fails closed BEFORE any render, so a refused deploy leaves no half-written
-    artifacts behind: a persona holding ``BLUESKY_LAUNCH_TOKEN`` whose shipped
+    artifacts behind: a render holding ``BLUESKY_LAUNCH_TOKEN`` whose shipped
     settings still permit ``Bash`` can arm a queue start from a shell, with none
     of the chat approval the token exists to make sufficient. ``osprey up`` and
     ``decommission_user`` each already refused this earlier, where refusing is
@@ -885,11 +883,12 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     )
     from osprey.deployment.telemetry_credentials import sender_digests
     from osprey.utils.facility import facility_name
+    from osprey_connectors.workspace import APPS_DIRNAME
 
     root = Path(repo_root)
-    launch_token_personas_by_lane = check_bash_launch_token_conflict(config, root)
+    launch_token_renders_by_lane = check_bash_launch_token_conflict(config, root)
     # The second fail-closed gate, in the same position and for the same reason:
-    # an open deployment whose personas can still reach its own terminals must
+    # an open deployment whose renders can still reach its own terminals must
     # leave no half-written artifacts behind either.
     check_open_mode_requirements(config, root)
     return {
@@ -897,17 +896,17 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # The sha256 of each terminal's telemetry login file, by audit
         # identity; empty without a gateway.
         "telemetry_cred_digests": sender_digests(root, config),
-        "dispatcher_personas": personas_needing_dispatcher_token(config, root),
-        "ariel_personas": personas_needing_ariel_password(config, root),
-        # Every lane's slice: the render grants each persona one launch token
-        # per lane whose target that persona is armed for, and the guard above
+        "dispatcher_renders": renders_needing_dispatcher_token(config, root),
+        "ariel_renders": renders_needing_ariel_password(config, root),
+        # Every lane's slice: the render grants each render one launch token
+        # per lane whose target that render is armed for, and the guard above
         # cleared every lane, so no grant reaches the render unchecked.
-        "launch_token_personas": launch_token_personas_by_lane,
-        "graphdb_personas": personas_needing_graphdb_password(config, root),
-        "archiver_credential_personas": personas_needing_archiver_credentials(config, root),
-        "archiver_ca_bundle_personas": personas_needing_archiver_ca_bundles(config, root),
-        "telemetry_vars_personas": personas_needing_telemetry_vars(config, root),
-        "facility_bundle_personas": personas_needing_facility_bundle(config, root),
+        "launch_token_renders": launch_token_renders_by_lane,
+        "graphdb_renders": renders_needing_graphdb_password(config, root),
+        "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
+        "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),
+        "telemetry_vars_renders": renders_needing_telemetry_vars(config, root),
+        "facility_bundle_renders": renders_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see
         # deploy_up_web_terminals), and this asks what group it ended up with so
@@ -919,10 +918,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # directory the deploy provisioned before this render. The per-user
         # audit subdirectories read back no gid here — their group is joined
         # inside the container by the entrypoint, off the mounted directory.
-        "ariel_mirror_personas": personas_needing_ariel_mirror(config, root),
+        "ariel_mirror_renders": renders_needing_ariel_mirror(config, root),
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
-        # A pure read of each persona's rendered config, like the grants above.
-        "phoebus_handle_personas": personas_needing_phoebus_handles(config, root),
+        # A pure read of each render's rendered config, like the grants above.
+        "phoebus_handle_renders": renders_needing_phoebus_handles(config, root),
         # The roster's operator secrets, read back off the deploy .env (see
         # _terminal_secrets for the None case and why it is not an open door).
         # Without this the render emits no per-user snippet at all, while
@@ -933,6 +932,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "facility_name": facility_name(
             web_artifacts_dir(root), as_dict(config).get("project_name")
         ),
+        "app_titles": app_titles_in(root / APPS_DIRNAME),
     }
 
 
@@ -989,7 +989,7 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
         The list of files written, in the render mapping's iteration order.
 
     Raises:
-        BashLaunchTokenConflictError: A persona is entitled to
+        BashLaunchTokenConflictError: A render is entitled to
             ``BLUESKY_LAUNCH_TOKEN`` and its shipped ``.claude/settings.json``
             does not deny ``Bash``. Raised before the render, so a refused
             deploy writes nothing. Every writer routes through here, so every
@@ -999,7 +999,7 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             :func:`check_bash_launch_token_conflict`); this is the backstop that
             makes the property hold for all of them.
         OpenModeEgressError: The deployment is open (``auth.method: none``) and
-            some referenced persona's shipped ``.claude/settings.json`` does not
+            some referenced render's shipped ``.claude/settings.json`` does not
             deny every tool in
             :data:`~osprey.agent_runner.tool_names.OPEN_MODE_EGRESS_TOOLS` — including the
             case where there is no rendered artifact to read at all, which open

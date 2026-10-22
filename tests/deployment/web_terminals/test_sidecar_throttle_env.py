@@ -25,6 +25,7 @@ from osprey.services.auth_sidecar.throttle import (
     DEFAULT_MAX_DELAY,
     DEFAULT_MULTIPLIER,
 )
+from tests._renders import tier_render
 
 _THROTTLE_PREFIX = "OSPREY_AUTH_THROTTLE_"
 
@@ -89,8 +90,8 @@ def _web_terminals(throttle: Any = None, *, authored: bool = True) -> dict:
     return {
         "enabled": True,
         "users": ["alice", "bob"],
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": "demo-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", "demo-assistant")},
         "auth": auth,
     }
 

@@ -14,6 +14,7 @@ import yaml
 
 from osprey.deployment.web_terminals.render import history_carriers, render_web_terminals
 from osprey.services.auth_sidecar.app import AuthSettings
+from tests._renders import tier_render
 
 
 def _config(**web: Any) -> dict[str, Any]:
@@ -43,12 +44,12 @@ def _config(**web: Any) -> dict[str, Any]:
                 ],
                 "authorization": {
                     "roles": {
-                        "operator": {"history": "all", "persona": "assistant"},
-                        "viewer": {"history": "own", "persona": "assistant"},
+                        "operator": {"history": "all", "tier": "assistant"},
+                        "viewer": {"history": "own", "tier": "assistant"},
                     }
                 },
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "dls_controls-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
                 **web,
             }
         },

@@ -23,6 +23,7 @@ from osprey.deployment.telemetry_config import (
 )
 from osprey.deployment.telemetry_credentials import SENDER_FILE_PREFIX
 from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._renders import tier_render
 
 _CONFIG: dict = {
     "project_name": "demo_controls",
@@ -32,8 +33,8 @@ _CONFIG: dict = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
-            "default_persona": "assistant",
-            "personas": {"assistant": {"project": "demo_controls-assistant"}},
+            "default_tier": "assistant",
+            "renders": {"assistant": tier_render("assistant", "demo_controls-assistant")},
         }
     },
     "deployed_services": ["telemetry_store", "telemetry_gateway"],

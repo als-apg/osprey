@@ -137,7 +137,7 @@ OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
 #: own under the fixed name above; a shared sidecar that per-user terminals
 #: proxy into — the bluesky-web panel — is handed every entitled user's
 #: variable under its own name — with :data:`ROSTER_ACCEPT_ENV` beside them —
-#: and accepts any of them, so a persona presenting its own secret is let in
+#: and accepts any of them, so a render presenting its own secret is let in
 #: without the deployment-wide one ever leaving the deploy ``.env``. The one
 #: definition of the prefix: the mint
 #: (:data:`osprey.deployment.web_terminals.auth_credentials.TERMINAL_SECRET_VAR_PREFIX`)

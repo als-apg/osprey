@@ -60,7 +60,7 @@ stamped on a volume decides nothing.
 
 Images are the one class this scoping cannot cover, and the plan says why.
 The project image (``<project>:local``, or whatever the image axes renamed it
-to) and the persona tags are host-global and derived from the project name
+to) and the render tags are host-global and derived from the project name
 alone: two same-named checkouts do not have one image each, they share one
 image. There is no identity label to check because there is no per-checkout
 image to put it on. Each candidate tag is instead individually
@@ -663,7 +663,7 @@ class ResetPlan:
             f"including your provider keys ({env_note})."
         )
         kept.append(
-            "    profile.yml, data/, personas/, triggers.yml, scripts/ — the tracked source "
+            "    profile.yml, data/, tiers/, triggers.yml, scripts/ — the tracked source "
             "zone, and .git/ with it."
         )
         for filename, holds, refresh in WEB_CREDENTIAL_FILES:
@@ -975,9 +975,9 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
     over ``images.registry`` / ``images.tag``); restating the ``:local`` literal
     here would leave an axis-set deployment's image behind on every reset.
 
-    The rest are the web-terminal persona images and the auth sidecar, resolved
+    The rest are the web-terminal render images and the auth sidecar, resolved
     from the rendered config exactly as ``nuke`` resolves them — leniently, so a
-    stale persona reference degrades to "not a candidate" rather than blocking
+    stale render reference degrades to "not a candidate" rather than blocking
     the reset. A deployment with no build, or no web terminals, contributes only
     the project tag.
     """
@@ -992,31 +992,31 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
         return tags
 
     try:
-        from osprey.deployment.web_terminals.personas import (
+        from osprey.deployment.web_terminals.roster import (
             as_dict,
             effective_image_source,
-            resolve_personas,
+            resolve_cards,
         )
 
         web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
         if not web_terminals:
             return tags
-        personas = resolve_personas(
+        tiers = resolve_cards(
             web_terminals,
             as_dict(config.get("registry")),
             strict=False,
         )
         built_here = set(image_defaults.values())
-        for entry in personas:
+        for entry in tiers:
             image = entry.get("image")
             if not isinstance(image, str) or image in tags:
                 continue
-            # ``:local`` is the persona/auth naming convention, which the image
+            # ``:local`` is the render/auth naming convention, which the image
             # axes do not move. Membership in the axis-derived defaults is the
             # other half: a roster naming one of THIS project's built images
             # carries the registry prefix and tag the axes resolved, so the
             # suffix test alone would walk past it. Exact membership, never a
-            # bare tag match — a registry-mode persona image is PULLED, and
+            # bare tag match — a registry-mode render image is PULLED, and
             # matching ``:<tag>`` alone would put an upstream image on the
             # removal list the moment the axis tag and ``image_tag`` agreed.
             if image.endswith(":local") or image in built_here:
@@ -1037,7 +1037,7 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
     except Exception as exc:  # a bad roster must not block a reset
         logger.warning(
             "Could not resolve this deployment's web-terminal image tags from %s (%s). "
-            "Reset will remove the project image only; any persona image is left in "
+            "Reset will remove the project image only; any render image is left in "
             "place and can be removed by hand.",
             as_built_config_path(repo_root),
             exc,

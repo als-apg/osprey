@@ -11,7 +11,7 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 carries one handle. A repo has three zones the helpers resolve internally:
 
 * ``<repo>/`` — SOURCE: ``profile.yml``, the operator-owned ``data/`` tree
-  (including ``data/simulation/``), ``personas/``, and the ``.env`` secret store.
+  (including ``data/simulation/``), ``tiers/``, ``apps/``, and the ``.env`` secret store.
 * ``<repo>/build/`` — the RENDER (see :func:`render_dir`): ``config.yml``,
   ``.mcp.json``, ``CLAUDE.md``, ``.claude/``, and the render's own ``data/``
   copy. This is the Claude Code agent's working directory.
@@ -328,7 +328,7 @@ def init_project(
     """Create a deployment repo at ``tmp_path/name`` and build it; return the repo root.
 
     Two commands, because the surface has two: ``osprey init <dir> --preset P``
-    writes the repo's source zone (``profile.yml``, ``data/``, ``personas/``,
+    writes the repo's source zone (``profile.yml``, ``data/``, ``tiers/``, ``apps/``,
     ``.env.example``), and ``osprey build --repo <dir>`` renders ``build/`` from
     it. The directory name IS the deployment name.
 

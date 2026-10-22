@@ -22,7 +22,7 @@ from osprey.cli.build_profile_emit import (
     _collapse_config_prefixes,
     emit_standalone_profile_yaml,
 )
-from osprey.cli.build_profile_presets import _presets_dir
+from osprey.cli.build_profile_presets import _presets_dir, list_apps
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey_connectors.errors import BuildProfileError
 
@@ -207,7 +207,7 @@ def test_emit_rejects_a_scalar_parent_introduced_by_an_override() -> None:
     """
     with pytest.raises(BuildProfileError, match="modules.web_terminals.enabled"):
         _emit(
-            "control-assistant-readonly",
+            "control-assistant",
             (
                 "config.modules.web_terminals=false",
                 "config.modules.web_terminals.enabled=true",
@@ -222,9 +222,8 @@ def test_an_override_scalar_replaces_the_subtree_it_names() -> None:
     whole subtree at render time, so the emitted profile says that outright
     instead of carrying the inherited leaves it is about to overwrite.
     """
-    config = yaml.safe_load(
-        _emit("control-assistant-readonly", ("config.modules.web_terminals=false",))
-    )["config"]
+    text = _emit("control-assistant", ("config.modules.web_terminals=false",))
+    config = yaml.safe_load(text)["config"]
 
     assert config["modules.web_terminals"] is False
     assert not [key for key in config if key.startswith("modules.web_terminals.")]
@@ -235,12 +234,16 @@ def test_an_override_scalar_replaces_the_subtree_it_names() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_readonly_preset_emits_one_web_terminals_key_holding_enabled_false() -> None:
-    """The pair that motivates the feature: the tutorial base contributes the
-    whole ``modules.web_terminals`` subtree with ``enabled: true`` and the
-    persona layer a dotted ``enabled: false``. Emitted uncollapsed, a facility
-    reordering those two lines would re-enable the persona's web tier."""
-    config = yaml.safe_load(_emit("control-assistant-readonly"))["config"]
+#: An override turning the deployment's own web tier off with one dotted leaf.
+_WEB_TERMINALS_OFF = ("config.modules.web_terminals.enabled=false",)
+
+
+def test_web_tier_off_override_emits_one_web_terminals_key_holding_enabled_false() -> None:
+    """The pair that motivates the feature: the preset contributes the whole
+    ``modules.web_terminals`` subtree with ``enabled: true`` and the override a
+    dotted ``enabled: false``. Emitted uncollapsed, a facility reordering those
+    two lines would re-enable the web tier."""
+    config = yaml.safe_load(_emit("control-assistant", _WEB_TERMINALS_OFF))["config"]
 
     web_terminal_keys = [
         key for key in config if key.split(".")[:2] == ["modules", "web_terminals"]
@@ -250,16 +253,17 @@ def test_readonly_preset_emits_one_web_terminals_key_holding_enabled_false() -> 
     subtree = config["modules.web_terminals"]
     assert subtree["enabled"] is False
     # The rest of the inherited subtree survives the fold — it is what the
-    # hosting project's roster is built from.
-    assert subtree["default_persona"] == "readonly"
-    assert set(subtree["personas"]) == {"readonly", "readwrite", "logbook", "knowledge", "admin"}
+    # roster is built from.
+    assert subtree["default_tier"] == "readonly"
+    assert {user["name"] for user in subtree["users"]} == {"alice", "bob", "carol"}
+    assert set(subtree["shared"]) == set(list_apps())
 
 
 def test_the_collapsed_key_keeps_the_section_header_it_was_holding() -> None:
     """ruamel packs the comment block introducing the NEXT section onto the key
     before it, so deleting the folded key would take the following section's
     header with it."""
-    text = _emit("control-assistant-readonly")
+    text = _emit("control-assistant", _WEB_TERMINALS_OFF)
 
     assert "# ── Answering webhooks (optional)" in text
     assert text.index("# ── Answering webhooks (optional)") < text.index("\ndispatch:")

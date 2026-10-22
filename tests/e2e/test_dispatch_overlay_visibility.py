@@ -62,6 +62,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -85,20 +86,25 @@ DEPLOY_UP_TIMEOUT_SEC = 1800
 HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 
-# The unified worker runs the PROJECT image, which bakes the whole deployment
-# repo in at ``/app/<project>`` — so the render is at ``/app/<project>/build``
-# and the durable state zone at ``/app/<project>/var``, exactly the shape the
-# repo has on the host. The compose template renders the worker container_name as
-# ``<project>-dispatch-worker-1`` (services/dispatch_worker/docker-compose.yml.j2),
-# so derive both it and the in-container paths from the one project name rather
+# The worker runs the image of the deployment's dispatch tier: the preset's
+# ``dispatch.tier`` is ``readonly``, rendered as its own project
+# ``<project>-readonly``, whose image bakes that tier's container repo in at
+# ``/app/<project>-readonly`` — the repo's overlay skills and data/ included. So
+# the render is at ``/app/<project>-readonly/build`` and the durable state zone
+# at ``/app/<project>-readonly/var``. The compose template names the worker
+# container ``<project>-dispatch-worker-1``
+# (services/dispatch_worker/docker-compose.yml.j2) after the deployment, not the
+# tier, so derive it and the in-container paths from the one project name rather
 # than hardcode a host-global name that breaks once the template is namespaced.
 #
 # The name itself is this module's alone. A compose project is addressed BY
 # NAME: two modules sharing one name adopt each other's containers, and a
 # teardown from either side removes the other module's running stack.
 PROJECT_NAME = "osprey-e2e-overlay"
+DISPATCH_TIER = "readonly"
+WORKER_TIER_PROJECT, _ = render_project(PROJECT_NAME, DISPATCH_TIER)
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
-WORKER_PROJECT_DIR = f"/app/{PROJECT_NAME}"
+WORKER_PROJECT_DIR = f"/app/{WORKER_TIER_PROJECT}"
 WORKER_RENDER_DIR = f"{WORKER_PROJECT_DIR}/build"
 # Where the workspace volume mounts: ``agent_data.base_dir`` under the project
 # root, which the compose generator renders the mount source from.
@@ -297,8 +303,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("dispatch_overlay_build")
     repo = base / PROJECT_NAME
 
-    # This test asserts dispatch overlay/trigger behavior, not persona
-    # routing -- drop the preset's web-terminal stack (two persona images +
+    # This test asserts dispatch overlay/trigger behavior, not render
+    # routing -- drop the preset's web-terminal stack (two render images +
     # nginx, all built locally on `up`) so the deploy only builds the
     # dispatcher/worker images it actually exercises. Web-terminals coverage
     # lives in control-assistant-demo-e2e / multi-user-deploy-lifecycle-e2e /
@@ -363,6 +369,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         f"build/data/{DATA_FILE} does not carry {DATA_SENTINEL!r}; "
         "the build did not copy the source data/ file verbatim"
     )
+    # The worker's image is built from the dispatch tier's render, so the
+    # overlay skill and the data fixture must sit there too.
+    tier_render = repo / "build" / WORKER_TIER_PROJECT
+    for relpath in (f"data/{DATA_FILE}", ".claude/skills/facility-marker/SKILL.md"):
+        assert (tier_render / relpath).is_file(), (
+            f"osprey build did not render {relpath} into the dispatch tier's "
+            f"render build/{WORKER_TIER_PROJECT}/; the worker image would lack it"
+        )
 
     # The repo root's .env is the deployment's whole secret store — the file the
     # worker's env_file (compose template) delivers to the container so
@@ -396,6 +410,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     subprocess.run(["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True)
     subprocess.run(
         ["docker", "rmi", "-f", f"{project}-dispatch:local"], capture_output=True, text=True
+    )
+    subprocess.run(
+        ["docker", "rmi", "-f", f"{WORKER_TIER_PROJECT}:local"], capture_output=True, text=True
     )
 
     # Drop any stale project volumes so the fresh deploy repopulates the worker

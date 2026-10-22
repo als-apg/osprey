@@ -41,6 +41,27 @@ export async function setPanelVisibility(panelId, visible, index) {
 }
 
 /**
+ * Move a rail member directly above `beforeId`, or to the foot of the rail when
+ * null. Like a membership change, the rail itself only moves on the server's
+ * `rail_order` echo, so every client moves together.
+ * @param {string} panelId
+ * @param {string | null} beforeId
+ * @returns {Promise<boolean>} whether the server accepted the move
+ */
+export async function setRailOrder(panelId, beforeId) {
+  try {
+    const resp = await fetch(withPrefix('/api/rail-order'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ panel: panelId, before: beforeId }),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Report a user-initiated tab switch so the server mirrors the active panel
  * (and does not echo a focus event back). Fire-and-forget.
  * @param {string} panelId

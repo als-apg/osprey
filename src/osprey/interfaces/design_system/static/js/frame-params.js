@@ -39,8 +39,8 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 /**
  * Base Expert/Simple key — the one mode-boot.js resolves from. Never used
  * bare: it goes through `scopedStorageKey()` so that on a multi-user mount the
- * pick lands in this persona's own slot instead of the shared origin-wide one
- * every persona would otherwise overwrite in turn.
+ * pick lands in this render's own slot instead of the shared origin-wide one
+ * every render would otherwise overwrite in turn.
  */
 const MODE_STORAGE_KEY = 'osprey-ui-mode';
 

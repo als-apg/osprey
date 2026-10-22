@@ -176,7 +176,7 @@ def test_a_run_repairs_nothing_the_build_would(repo: Path) -> None:
             "\n    users:\n"
             "      - name: dave\n"
             "        index: 5\n"
-            "        persona: readonly\n"
+            "        tier: readonly\n"
             '        display_name: "Dave"\n',
         ),
         encoding="utf-8",

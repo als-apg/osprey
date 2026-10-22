@@ -23,6 +23,7 @@ from osprey.deployment.web_terminals.naming import (
     web_service_user,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._renders import tier_render
 
 WEB_TEMPLATE = (
     Path(__file__).parents[3]
@@ -142,8 +143,8 @@ def _rendered_config(project_name: str, facility_token: str) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice", "bob"],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
                 "auth": {"method": "password", "allow_insecure_http": True},
             }
         },

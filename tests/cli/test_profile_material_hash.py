@@ -116,11 +116,11 @@ def test_empty_directory_does_not_move_the_hash(data_profile):
 
 
 def test_shared_parent_data_tree_marks_sibling_profiles_stale(tmp_path):
-    """Persona profiles share one ``../data`` tree; an edit must reach all of them.
+    """Render profiles share one ``../data`` tree; an edit must reach all of them.
 
     Sibling profiles live in their own directories beside a single data tree they
     all declare as ``../data``. Anchoring on the profile directory alone would
-    resolve nothing there, so each persona project would keep deploying against a
+    resolve nothing there, so each render project would keep deploying against a
     tree that has since changed.
     """
     _write(tmp_path / "data" / "channel_databases" / "als.json", '{"channels": []}\n')

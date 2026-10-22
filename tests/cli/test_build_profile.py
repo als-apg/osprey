@@ -29,7 +29,13 @@ from osprey.cli.build_profile import (
     _parse_profile,
     load_profile,
 )
-from osprey.cli.build_profile_presets import PRESET_ONLY_KEYS
+from osprey.cli.build_profile_presets import (
+    PRESET_ONLY_KEYS,
+    _load_preset_raw,
+    list_apps,
+    list_presets,
+    list_tiers,
+)
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
 
@@ -902,20 +908,29 @@ def test_either_claude_code_spelling_alone_is_fine() -> None:
     assert nested.config["claude_code"]["permissions"]["deny"] == [SETUP_PATCH]
 
 
-@pytest.mark.parametrize(
-    "preset",
-    [
-        "control-assistant",
-        "control-assistant-readonly",
-        "control-assistant-readwrite",
-        "control-assistant-logbook",
-        "control-assistant-knowledge",
-        "control-assistant-admin",
-        "hello-world",
-    ],
-)
+def test_the_shipped_preset_listings_are_not_empty() -> None:
+    """Guards the two parametrizations below against running over nothing."""
+    assert {"control-assistant", "hello-world"} <= set(list_presets())
+    assert {"readonly", "readwrite", "admin"} <= set(list_tiers())
+    assert {"logbook", "knowledge"} <= set(list_apps())
+
+
+@pytest.mark.parametrize("preset", list_presets())
 def test_the_shipped_presets_pass_both_refusals(preset: str) -> None:
     """The refusals must not cost anything the project already ships. Resolved
     through the real path, so an `extends` parent's spelling counts too."""
     profile, _ = bp.resolve_build_profile(None, preset=preset)
     assert profile.name
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+)
+def test_the_shipped_tiers_and_apps_pass_both_refusals(layer: str) -> None:
+    """Every bundled tier and app spells its ``config:`` block in a way the
+    two refusals accept: a layer's config keys are laid over the host's, so a
+    mixed spelling there would collide exactly as it would in a profile."""
+    raw, _path = _load_preset_raw(layer)
+    profile = _parse_profile({"name": raw["name"], "config": raw.get("config") or {}})
+    assert profile.name == raw["name"]

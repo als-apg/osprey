@@ -847,7 +847,7 @@ def bar_availability_context(
 def control_target_picker_available(config_path: str | Path | None) -> bool:
     """Whether this deployment's title bar offers the control-target picker.
 
-    Read from ``web.control_target_picker``, default ``True``. A persona whose
+    Read from ``web.control_target_picker``, default ``True``. A render whose
     terminal reaches no machine sets it ``false``, and the chip, its popover and
     the ``control-target`` bar item are then absent.
 
@@ -881,7 +881,7 @@ def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
     the one fact the item depends on: where the panel is declared the queue
     can be reached, and where it is not there is nothing to reach. The panel
     declaration is also the bridge entitlement itself (see
-    :data:`~osprey.deployment.web_terminals.personas.BLUESKY_PANEL_ID`), so
+    :data:`~osprey.deployment.web_terminals.roster.BLUESKY_PANEL_ID`), so
     this asks no second key for the same fact.
 
     Args:
@@ -893,7 +893,7 @@ def bluesky_panel_declared(custom_panels: list[dict] | None) -> bool:
     """
     # Lazy, like every other reach into the deployment package from here: the
     # terminal app must not import deployment code to boot.
-    from osprey.deployment.web_terminals.personas import BLUESKY_PANEL_ID
+    from osprey.deployment.web_terminals.roster import BLUESKY_PANEL_ID
 
     return any(panel.get("id") == BLUESKY_PANEL_ID for panel in custom_panels or ())
 

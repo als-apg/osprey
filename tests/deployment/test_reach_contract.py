@@ -11,11 +11,11 @@ handed. Two kinds of test here read that declaration and nothing else:
   or a contract that says why nothing in a container dials it. A service added
   without one fails here, which is the point: the registry is only a single
   source of truth while it is complete.
-* **The seams, on a real built stack.** For every persona render the
+* **The seams, on a real built stack.** For every render the
   control-assistant preset builds: each consumer the render switches on
   resolves an endpoint; each credential its gate grants is a line in that
-  persona's compose ``environment:``; each shared path its gate entitles is a
-  mount in that persona's compose ``volumes:``. One walk over the registry,
+  render's compose ``environment:``; each shared path its gate entitles is a
+  mount in that render's compose ``volumes:``. One walk over the registry,
   so a grant added to the registry without a compose line — or the reverse —
   is visible here rather than inside a container at first use.
 """
@@ -43,10 +43,11 @@ from osprey.deployment.reach import (
     reach_errors,
 )
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
-from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey_connectors.standin import archive_belongs_to_standin
-from tests.cli.test_persona_presets import _build_persona_stack
+from tests._renders import tier_render
+from tests.cli.test_tier_app_presets import _build_render_stack
 
 pytestmark = pytest.mark.slow
 
@@ -151,7 +152,7 @@ def test_every_contract_says_how_it_is_reached():
         assert contract.note, f"{name}: a contract needs a one-line note"
         if contract.no_client_reach:
             # No consumer, because nothing in a container dials it. A
-            # projection is still allowed: a fact a persona READS about its
+            # projection is still allowed: a fact a render READS about its
             # host is not an endpoint (see the recorder's block below).
             assert not contract.consumers, name
         elif contract.derived_by:
@@ -236,9 +237,9 @@ def test_the_live_standin_port_is_projected_ungated():
 
     ``osprey_connectors.standin.live_standin_active`` decides from this one key
     whether the endpoint the deployment is on is this deployment's own stand-in
-    container, and a persona render carries no ``services:`` block of its own.
+    container, and a render carries no ``services:`` block of its own.
     A gate here would describe the same machine two different ways depending on
-    whether it was seen through a persona.
+    whether it was seen through a render.
     """
     projected = _standin_contract().projected
     assert [key.key for key in projected] == ["services.live_standin.port"]
@@ -250,7 +251,7 @@ def test_the_standin_port_reaches_a_render_with_no_standin_connector():
     """The ungated projection, exercised through the build's own function.
 
     An attached project built from a template that configures no stand-in
-    (hello_world, ariel_standalone) has no client for it and is still told
+    (hello_world) has no client for it and is still told
     where it is: its roster describes the same machine as everyone else's.
     """
     attached = {"services": {}}
@@ -326,10 +327,10 @@ def test_a_deployment_with_no_standin_switches_the_consumer_off():
     assert reach_errors(config) == []
 
 
-def test_a_config_only_persona_render_has_the_port_and_no_consumer():
+def test_a_config_only_render_has_the_port_and_no_consumer():
     """The render the ungated projection creates: the port and nothing else.
 
-    A persona is told ``services.live_standin.port`` so it describes the
+    A render is told ``services.live_standin.port`` so it describes the
     machine the way its host does, and carries no ``control_system.connector``
     block of its own — so it switches no stand-in consumer on and is refused
     nothing. Both conjuncts have to hold for a client to exist; the port alone
@@ -381,10 +382,10 @@ def test_the_recorder_projects_its_block_though_nothing_dials_it():
     assert contract.projected[0].panel is None
 
 
-def test_a_persona_of_a_recording_host_is_told_the_archive_is_the_standins():
+def test_a_render_of_a_recording_host_is_told_the_archive_is_the_standins():
     """Single-user and multi-user must answer this the same way.
 
-    The persona queries the host's store, so the gate on ``live`` has to hold
+    The render queries the host's store, so the gate on ``live`` has to hold
     in its session too -- and it can only hold if the render carries the fact.
     """
     host = _recording_standin_host()
@@ -396,20 +397,20 @@ def test_a_persona_of_a_recording_host_is_told_the_archive_is_the_standins():
 
     # The render those overrides make: no deployed_services, both facts, and
     # the predicate answering exactly as it does on the host that told it.
-    persona = {
+    tier = {
         "services": {
             "live_standin": {"port": _STANDIN_PORT},
             "archiver_recorder": {"path": "./services/archiver_recorder"},
         }
     }
-    assert archive_belongs_to_standin(persona)
+    assert archive_belongs_to_standin(tier)
     assert archive_belongs_to_standin(host)
     # Told a fact, not handed a surface: the render is refused nothing for it.
-    assert reach_errors(persona) == []
+    assert reach_errors(tier) == []
 
 
 def test_a_host_that_does_not_record_projects_no_recorder():
-    """A deployment with a stand-in and no recorder tells its personas so, and
+    """A deployment with a stand-in and no recorder tells its renders so, and
     their ``live`` target stays open for the same reason its own does."""
     host = _standin_config()
     overrides = project_attached_overrides(host, {"services": {}})
@@ -475,12 +476,12 @@ def test_the_va_consumer_is_off_when_the_simulator_runs_in_process():
     assert consumer.is_on(served)
 
 
-def test_the_va_port_is_projected_onto_a_standin_baseline_persona():
-    """SC-9: a persona render from the stand-in baseline is told the VA port
+def test_the_va_port_is_projected_onto_a_standin_baseline_render():
+    """SC-9: a render from the stand-in baseline is told the VA port
     its host publishes, so a session switched to ``va`` dials the host's
     simulator rather than the connector's compiled-in default."""
     host = _standin_config()
-    persona = {
+    tier = {
         "control_system": {
             "type": "live_standin",
             "connector": {"virtual_accelerator": {"gateways": {"read_only": {}}}},
@@ -488,13 +489,13 @@ def test_the_va_port_is_projected_onto_a_standin_baseline_persona():
         "services": {},
     }
 
-    overrides = project_attached_overrides(host, persona)
+    overrides = project_attached_overrides(host, tier)
 
     assert overrides["services.virtual_accelerator.port"] == _VA_PORT
     assert overrides["services.virtual_accelerator.port"] == dotted_get(
         host, "services.virtual_accelerator.port"
     )
-    assert reach_errors({**persona, "services": {"virtual_accelerator": {"port": _VA_PORT}}}) == []
+    assert reach_errors({**tier, "services": {"virtual_accelerator": {"port": _VA_PORT}}}) == []
 
 
 def test_a_target_that_does_not_resolve_carries_no_consumer():
@@ -528,7 +529,7 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
 
 @pytest.fixture(scope="module")
 def built_stack(tmp_path_factory) -> Path:
-    return _build_persona_stack(tmp_path_factory.mktemp("reach-contract") / "my-facility")
+    return _build_render_stack(tmp_path_factory.mktemp("reach-contract") / "my-facility")
 
 
 @pytest.fixture(scope="module")
@@ -538,7 +539,7 @@ def host_config(built_stack: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def entries(host_config: dict) -> list[dict]:
-    return resolve_personas(
+    return resolve_cards(
         host_config["modules"]["web_terminals"],
         host_config.get("registry") or {},
         strict=True,
@@ -551,7 +552,7 @@ def web_compose(built_stack: Path, host_config: dict) -> dict:
     return yaml.safe_load(artifacts["docker-compose.web.yml"])
 
 
-def _persona_config(repo: Path, entry: dict) -> dict:
+def _render_config(repo: Path, entry: dict) -> dict:
     return yaml.safe_load(
         (repo / "build" / entry["project"] / "config.yml").read_text(encoding="utf-8")
     )
@@ -574,48 +575,48 @@ def _mount_targets(service: dict) -> list[str]:
 
 
 def test_the_built_stack_refuses_nothing(built_stack, host_config, entries):
-    """Every render the preset builds — the host's and each persona's — has an
+    """Every render the preset builds — the host's and each render's — has an
     endpoint for every consumer it switches on."""
     assert reach_errors(host_config) == []
     for entry in entries:
-        assert reach_errors(_persona_config(built_stack, entry)) == [], entry["persona"]
+        assert reach_errors(_render_config(built_stack, entry)) == [], entry["render"]
 
 
-def test_every_live_consumer_in_every_persona_resolves(built_stack, entries):
+def test_every_live_consumer_in_every_render_resolves(built_stack, entries):
     checked = 0
     for entry in entries:
-        config = _persona_config(built_stack, entry)
+        config = _render_config(built_stack, entry)
         for contract, consumer in live_consumers(config):
             checked += 1
             assert consumer.resolves(config), (
-                f"persona {entry['persona']!r}: {consumer.name} is on "
+                f"render {entry['render']!r}: {consumer.name} is on "
                 f"({consumer.switch_key}) but resolves nothing for services.{contract.service}"
             )
-    assert checked, "no persona switched any consumer on — the fixture lost its preconditions"
+    assert checked, "no render switched any consumer on — the fixture lost its preconditions"
 
 
-def test_every_entitled_shared_path_in_every_persona_resolves(built_stack, entries):
+def test_every_entitled_shared_path_in_every_render_resolves(built_stack, entries):
     """The preset ships its bundle and the build anchors every render on the
-    repo, so what each persona is entitled to is on the host it was built on."""
+    repo, so what each render is entitled to is on the host it was built on."""
     checked = 0
     for entry in entries:
-        config = _persona_config(built_stack, entry)
+        config = _render_config(built_stack, entry)
         for shared in SHARED_PATHS:
             if not shared.gate(config):
                 continue
             checked += 1
             assert shared.unresolved(config, built_stack) is None, (
-                f"persona {entry['persona']!r} is entitled to {shared.describe} "
+                f"render {entry['render']!r} is entitled to {shared.describe} "
                 f"({shared.config_key}) but {shared.unresolved(config, built_stack)}"
             )
     assert checked
 
 
 def test_every_projected_fact_matches_the_hosts(built_stack, host_config, entries):
-    """What a persona was told is what the host render says — value for value."""
+    """What a render was told is what the host render says — value for value."""
     checked = 0
     for entry in entries:
-        config = _persona_config(built_stack, entry)
+        config = _render_config(built_stack, entry)
         for contract in REACH_CONTRACTS.values():
             for projected in contract.projected:
                 told = dotted_get(config, projected.key)
@@ -623,27 +624,27 @@ def test_every_projected_fact_matches_the_hosts(built_stack, host_config, entrie
                     continue
                 checked += 1
                 assert told == dotted_get(host_config, projected.key), (
-                    f"persona {entry['persona']!r}: {projected.key} is {told!r}, "
+                    f"render {entry['render']!r}: {projected.key} is {told!r}, "
                     f"host says {dotted_get(host_config, projected.key)!r}"
                 )
     assert checked
 
 
-def test_every_granted_credential_is_in_the_personas_compose_block(
+def test_every_granted_credential_is_in_the_renders_compose_block(
     built_stack, web_compose, entries
 ):
-    """switch on ⇒ the credential's env line is on that persona's service, and
+    """switch on ⇒ the credential's env line is on that render's service, and
     a credential the gate withholds is NOT — the tier boundary, registry-side."""
     checked = 0
     for entry in entries:
-        config = _persona_config(built_stack, entry)
+        config = _render_config(built_stack, entry)
         env = _env_names(web_compose["services"][f"web-{entry['name']}"])
         for contract in REACH_CONTRACTS.values():
             for grant in contract.credentials:
                 entitled = grant.gate is None or grant.gate(config)
                 checked += 1
                 assert (grant.env in env) == entitled, (
-                    f"persona {entry['persona']!r}: {grant.env} "
+                    f"render {entry['render']!r}: {grant.env} "
                     f"{'missing from' if entitled else 'leaked into'} web-{entry['name']} "
                     f"(services.{contract.service})"
                 )
@@ -654,7 +655,7 @@ def test_every_entitled_shared_path_is_mounted(built_stack, web_compose, entries
     """gate ⇒ a mount whose target ends with the configured relative path."""
     checked = 0
     for entry in entries:
-        config = _persona_config(built_stack, entry)
+        config = _render_config(built_stack, entry)
         targets = _mount_targets(web_compose["services"][f"web-{entry['name']}"])
         for shared in SHARED_PATHS:
             raw = dotted_get(config, shared.config_key) or dotted_get(
@@ -665,7 +666,7 @@ def test_every_entitled_shared_path_is_mounted(built_stack, web_compose, entries
             checked += 1
             assert raw, f"{shared.config_key} entitles but names nothing"
             assert any(t.endswith(f"/{str(raw).strip()}") for t in targets), (
-                f"persona {entry['persona']!r} is entitled to {shared.describe} "
+                f"render {entry['render']!r} is entitled to {shared.describe} "
                 f"({shared.config_key}={raw!r}) but web-{entry['name']} mounts it nowhere: {targets}"
             )
     assert checked
@@ -674,22 +675,22 @@ def test_every_entitled_shared_path_is_mounted(built_stack, web_compose, entries
 def test_the_bluesky_web_sidecar_accepts_every_entitled_users_secret(
     built_stack, host_config, web_compose, entries
 ):
-    """A persona proxies its BLUESKY tab into the sidecar with the secret ITS
+    """A render proxies its BLUESKY tab into the sidecar with the secret ITS
     container holds — its own, under the fixed ``OSPREY_TERMINAL_SECRET``.
     The sidecar's OWN compose file (the services stack — the web overlay is a
     separate single-file compose project that could never merge into it)
     lists every entitled user's variable beside the accept flag the web gate
-    requires; a user whose persona shows no BLUESKY tab gets no key to it.
+    requires; a user whose render shows no BLUESKY tab gets no key to it.
 
     Read off the file ``osprey build`` wrote, because that is the file
     ``osprey up`` starts: the start is as-built and re-renders nothing, so a
     grant the build's render did not carry reaches no container. (This test
-    once re-rendered the services compose from ``build/`` with the persona
+    once re-rendered the services compose from ``build/`` with the render
     projects in place and asserted on THAT — a render no verb performs, which
     is how a sidecar that refused every user's secret shipped green.)
     """
-    from osprey.deployment.web_terminals.personas import config_declares_bluesky_panel
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
+    from osprey.deployment.web_terminals.roster import config_declares_bluesky_panel
     from osprey.interfaces.web_auth import ROSTER_ACCEPT_ENV
 
     assert "bluesky_web" in host_config["deployed_services"]
@@ -710,7 +711,7 @@ def test_the_bluesky_web_sidecar_accepts_every_entitled_users_secret(
         assert presented in (web_compose["services"][f"web-{entry['name']}"]["environment"]), (
             f"web-{entry['name']} presents {var}"
         )
-        entitled = config_declares_bluesky_panel(_persona_config(built_stack, entry))
+        entitled = config_declares_bluesky_panel(_render_config(built_stack, entry))
         checked += entitled
         assert (var in handed) == entitled, (
             f"{var} {'missing from' if entitled else 'leaked into'} the bluesky-web sidecar"
@@ -917,7 +918,7 @@ def test_every_render_local_key_names_its_own_services_file_and_is_not_projected
 
     A render-local key survives the attached strip because it names a file in
     the render's OWN data tree; a projected key is copied from the HOST. One key
-    cannot be both, or a persona would carry its own value and the host's at
+    cannot be both, or a render would carry its own value and the host's at
     once and the build would have to choose between them.
     """
     from osprey.deployment.reach import render_local_keys
@@ -984,8 +985,8 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
       facts are derived from the ``va_archiver:`` block on their own build
       path, which refuses an attached profile that names no host itself.
     * ``no_client_reach`` (the recorder, the dispatch worker, the chat
-      bridges): nothing inside a persona container dials them; each is a
-      host-side writer or a worker that dials the persona, never the reverse.
+      bridges): nothing inside a render container dials them; each is a
+      host-side writer or a worker that dials the render, never the reverse.
     """
     silent = [
         contract
@@ -1007,15 +1008,15 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
 
 
 def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
-    """The roster grant is per USER, by the rendered config of the persona that
+    """The roster grant is per USER, by the rendered config of the render that
     user runs (their own, else the default), in roster order — the same rule the
     web-terminal render grants every other credential by. The deploy config's
     own panels grant nobody."""
-    from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
+    from osprey.deployment.web_terminals.roster import bluesky_panel_secret_env_vars
 
-    for persona, declares in (("viewer", False), ("operator", True)):
-        project = tmp_path / "build" / f"demo-{persona}"
+    for tier, declares in (("viewer", False), ("operator", True)):
+        project = tmp_path / "build" / f"demo-{tier}"
         project.mkdir(parents=True)
         panels = {"bluesky": {"url": "http://localhost:10071"}} if declares else {}
         (project / "config.yml").write_text(
@@ -1025,17 +1026,21 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
         "web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}},
         "modules": {
             "web_terminals": {
-                "default_persona": "viewer",
-                "personas": {
-                    "viewer": {"project": "demo-viewer", "project_path": "build/demo-viewer"},
-                    "operator": {"project": "demo-operator", "project_path": "build/demo-operator"},
+                "default_tier": "viewer",
+                "renders": {
+                    "viewer": tier_render(
+                        "viewer", "demo-viewer", project_path="build/demo-viewer"
+                    ),
+                    "operator": tier_render(
+                        "operator", "demo-operator", project_path="build/demo-operator"
+                    ),
                 },
                 # Object entries carry the frozen `index` every materialized
                 # roster has; a bare string is the legacy spelling.
                 "users": [
-                    {"name": "alice", "index": 0, "persona": "operator"},
-                    {"name": "bob", "index": 1, "persona": "viewer"},
-                    "carol",  # the default persona, which hides the tab
+                    {"name": "alice", "index": 0, "tier": "operator"},
+                    {"name": "bob", "index": 1, "tier": "viewer"},
+                    "carol",  # the default tier, which hides the tab
                 ],
             }
         },
@@ -1043,22 +1048,22 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
 
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
 
-    config["modules"]["web_terminals"]["default_persona"] = "operator"
+    config["modules"]["web_terminals"]["default_tier"] = "operator"
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [
         terminal_secret_env_var("alice"),
         terminal_secret_env_var("carol"),
     ]
 
-    # A user with no persona at all (a roster the render refuses) is entitled
+    # A user with no render at all (a roster the render refuses) is entitled
     # to nothing, whatever the deploy config shows.
-    del config["modules"]["web_terminals"]["default_persona"]
+    del config["modules"]["web_terminals"]["default_tier"]
     assert bluesky_panel_secret_env_vars(config, tmp_path) == [terminal_secret_env_var("alice")]
 
 
 def test_the_graph_channel_finder_is_a_store_consumer_of_its_own():
     """The graph paradigm's channel finder dials the store through its own
     server, whether or not the `graph` MCP server is switched on — so a
-    persona that switches that server off but keeps the channel finder is
+    render that switches that server off but keeps the channel finder is
     still projected the store's address, and refused without one."""
     from osprey.deployment.reach import project_attached_overrides
 
@@ -1088,8 +1093,8 @@ def test_the_graph_channel_finder_is_a_store_consumer_of_its_own():
 
 def test_a_host_that_names_the_stores_database_projects_it_beside_the_address():
     """The database name is the host's fact about the store, as ``uri`` and
-    ``username`` are: every session a persona opens against an external store
-    has to name the database that holds the corpus, and a persona told only the
+    ``username`` are: every session a render opens against an external store
+    has to name the database that holds the corpus, and a render told only the
     address would open them against the driver's default and read a corpus
     that is not there. Projected on the same gate as the address, so a render
     with no store consumer is told nothing about it either."""
@@ -1158,7 +1163,7 @@ def test_every_lane_the_registry_knows_has_a_contract_of_its_own():
     :data:`SECOND_LANE_KEYS` is where a lane for a new control target is
     named — the stand-in's among them — and reach builds a contract for each
     without spelling any of them. A lane with no contract would be a bridge
-    no persona is projected, no build refuses and no health probe knocks on.
+    no render is projected, no build refuses and no health probe knocks on.
     """
     assert set(LANE_KEYS) == {LANE_ONE} | set(SECOND_LANE_KEYS.values())
     for lane in LANE_KEYS:
@@ -1177,7 +1182,7 @@ def test_a_lanes_launch_token_follows_that_lanes_own_target():
     """The per-target boundary, lane by lane: a deployment built for a live
     machine, arming writes on its virtual-accelerator lane alone, hands out the
     VA lane's token and withholds the live lane's — even though the two lanes
-    run in one container for one persona."""
+    run in one container for one render."""
     config = {
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
         "control_system": {

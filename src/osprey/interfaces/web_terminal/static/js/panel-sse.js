@@ -30,7 +30,7 @@ import {
 } from './panel-agent-attention.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { PANELS, TERMINAL_RAIL_ID } from './panel-catalog.js';
-import { ensureRailMembership, addPanel } from './panel-lifecycle.js';
+import { ensureRailMembership, addPanel, applyRailOrder } from './panel-lifecycle.js';
 import { entryIds, placeEntry } from './panel-rail.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
 
@@ -109,6 +109,8 @@ export function subscribePanelEvents(sseDeps) {
   //                                               stranded on screen), then switches
   //                                               to the next member+healthy panel
   //                                               or the empty state.
+  //   rail_order       {type, order}            — an operator reordered the rail:
+  //                                               every member, top to bottom.
   //   panel_arrange    {type, tiles, focus?, prune_rail?}
   //                                             — a whole-workspace layout
   //                                               request: exactly these
@@ -167,6 +169,9 @@ export function subscribePanelEvents(sseDeps) {
 
         } else if (data.type === 'panel_visibility' && data.panel) {
           applyPanelVisibility(data.panel, data.visible, data.source, data.index);
+
+        } else if (data.type === 'rail_order' && Array.isArray(data.order)) {
+          applyRailOrder(data.order);
 
         } else if (data.type === 'panel_arrange' && Array.isArray(data.tiles)) {
           // A whole-workspace arrangement (agent arrange_workspace, or a human
@@ -336,4 +341,6 @@ async function resyncPanelState() {
   for (const id of [...c.memberSet]) {
     if (!serverVisible.has(id)) applyPanelVisibility(id, false);
   }
+  // A missed rail_order frame is converged from the same read.
+  applyRailOrder(config.visible);
 }

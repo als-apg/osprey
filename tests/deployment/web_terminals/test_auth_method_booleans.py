@@ -43,11 +43,11 @@ from typing import Any
 
 import pytest
 
-from osprey.deployment.web_terminals.personas import auth_is_enforced
 from osprey.deployment.web_terminals.render import (
     SUPPORTED_AUTH_METHODS,
     _auth_tls_context,
 )
+from osprey.deployment.web_terminals.roster import auth_is_enforced
 
 #: The derived booleans, in the order the table above reads them.
 _BOOLEANS = (

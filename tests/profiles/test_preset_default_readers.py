@@ -19,13 +19,13 @@ from osprey.deployment.telemetry_lint import lint_telemetry
 
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
-#: The documents an operator starts from; persona presets extend control-assistant.
-ROOT_PRESETS = ("control-assistant", "hello-world", "ariel-standalone", "channel-finder-standalone")
+#: The documents an operator starts from; bundled tiers and apps are laid over them.
+ROOT_PRESETS = ("control-assistant", "hello-world")
 
 #: The reader a roster-less preset declares.
 ROSTERLESS_READER = "operator"
-#: The roster persona whose user is the default reader.
-ADMIN_PERSONA = "admin"
+#: The roster tier whose user is the default reader.
+ADMIN_TIER = "admin"
 
 
 def _config(preset: str) -> dict[str, Any]:
@@ -42,14 +42,14 @@ def _expected_reader(config: dict[str, Any]) -> str:
     roster = _roster(config)
     if not roster:
         return ROSTERLESS_READER
-    admins = [user["name"] for user in roster if user.get("persona") == ADMIN_PERSONA]
-    assert len(admins) == 1, f"expected one {ADMIN_PERSONA} roster user, got {admins}"
+    admins = [user["name"] for user in roster if user.get("tier") == ADMIN_TIER]
+    assert len(admins) == 1, f"expected one {ADMIN_TIER} roster user, got {admins}"
     return admins[0]
 
 
 def test_the_store_presets_are_the_ones_named() -> None:
     deploying = {preset for preset in ROOT_PRESETS if tc.store_deployed(_config(preset))}
-    assert deploying == {"control-assistant", "hello-world", "ariel-standalone"}
+    assert deploying == {"control-assistant", "hello-world"}
 
 
 @pytest.mark.parametrize("preset", ROOT_PRESETS)

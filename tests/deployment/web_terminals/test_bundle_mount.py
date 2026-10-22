@@ -6,17 +6,17 @@ what every assertion here is about:
 * **The source is shared, the target is per service.** All entitled users mount
   the SAME host directory — a concept alice drafts is the same file bob's
   container and the qmd sidecar read, not a copy. The in-container path,
-  though, is derived per persona from that persona's own
-  ``container_project_dir``, because two personas built from different projects
+  though, is derived per render from that render's own
+  ``container_project_dir``, because two renders built from different projects
   read their bundle at two different paths and one hardcoded target would mount
   it where only one of them looks.
-* **The mount shadows the persona's baked copy.** An image may ship its own
+* **The mount shadows the render's baked copy.** An image may ship its own
   rendered bundle at that path; the bind covers it. Deliberate — the bundle is
   operational knowledge, edited between image builds — and asserted here so the
   behaviour cannot be quietly reversed.
-* **Entitlement is per persona.** A persona whose project names no
+* **Entitlement is per render.** A render whose project names no
   ``facility_knowledge.bundle_path`` has nothing that would read the directory
-  and gets no mount, resolved the same way every other per-persona grant is.
+  and gets no mount, resolved the same way every other per-render grant is.
 
 The provisioning half — setgid, group-writable, group inherited never invented —
 is what makes container A's writes readable by container B and indexable by the
@@ -29,12 +29,15 @@ import copy
 import logging
 import os
 import pathlib
+import re
 import stat
 
 import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._renders import tier_render
 
 from .test_golden_render import EXAMPLE_CONFIG
 
@@ -43,26 +46,26 @@ from .test_golden_render import EXAMPLE_CONFIG
 BUNDLE_PATH = "data/facility/knowledge"
 BUNDLE_SOURCE = f"./{BUNDLE_PATH}"
 
-#: The reference roster's one persona, entitled to the bundle.
+#: The reference roster's one render, entitled to the bundle.
 DEFAULT_ENTITLED = {"assistant"}
 
 
-def _config(*, bundle_path: str | None = BUNDLE_PATH, personas: bool = False) -> dict:
-    """The reference roster on its default persona, or on two personas,
+def _config(*, bundle_path: str | None = BUNDLE_PATH, tiers: bool = False) -> dict:
+    """The reference roster on its default tier, or on two renders,
     optionally bundle-configured."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     if bundle_path is not None:
         config["facility_knowledge"] = {"bundle_path": bundle_path}
-    if personas:
+    if tiers:
         web_terminals = config["modules"]["web_terminals"]
-        web_terminals["default_persona"] = "operator"
-        web_terminals["personas"] = {
-            "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
-            "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
+        web_terminals["default_tier"] = "operator"
+        web_terminals["renders"] = {
+            "operator": tier_render("operator", "dls-operator", project_path="../dls-operator"),
+            "physicist": tier_render("physicist", "dls-physicist", project_path="../dls-physicist"),
         }
         web_terminals["users"] = [
-            {"name": "alice", "index": 0, "persona": "operator"},
-            {"name": "bob", "index": 1, "persona": "physicist"},
+            {"name": "alice", "index": 0, "tier": "operator"},
+            {"name": "bob", "index": 1, "tier": "physicist"},
         ]
     return config
 
@@ -95,22 +98,20 @@ def _bundle_mounts(config: dict, **kwargs) -> dict[str, list[str]]:
 def test_no_bundle_configured_mounts_nothing():
     """A deployment that names no bundle path has no directory to hand out, and
     must render exactly what it rendered before this feature existed."""
-    assert _bundle_mounts(_config(bundle_path=None), facility_bundle_personas=DEFAULT_ENTITLED) == {
+    assert _bundle_mounts(_config(bundle_path=None), facility_bundle_renders=DEFAULT_ENTITLED) == {
         "web-alice": [],
         "web-bob": [],
     }
 
 
-def test_target_is_computed_per_persona_from_its_own_project_dir():
+def test_target_is_computed_per_render_from_its_own_project_dir():
     """The property a shared hardcoded path would break.
 
     ``operator`` and ``physicist`` are built from different projects, so their
     ``container_project_dir`` values differ and the same configured
     ``data/facility/knowledge`` resolves to two different in-container paths.
     """
-    mounts = _bundle_mounts(
-        _config(personas=True), facility_bundle_personas={"operator", "physicist"}
-    )
+    mounts = _bundle_mounts(_config(tiers=True), facility_bundle_renders={"operator", "physicist"})
 
     assert mounts == {
         "web-alice": [f"{BUNDLE_SOURCE}:/app/dls-operator/{BUNDLE_PATH}"],
@@ -121,18 +122,16 @@ def test_target_is_computed_per_persona_from_its_own_project_dir():
 def test_source_is_one_shared_directory_for_every_user():
     """Per-user copies would defeat the point: a concept drafted in one
     container has to be the file the next one reads."""
-    mounts = _bundle_mounts(
-        _config(personas=True), facility_bundle_personas={"operator", "physicist"}
-    )
+    mounts = _bundle_mounts(_config(tiers=True), facility_bundle_renders={"operator", "physicist"})
     sources = {mount.split(":")[0] for mounts_ in mounts.values() for mount in mounts_}
 
     assert sources == {BUNDLE_SOURCE}
 
 
-def test_only_entitled_personas_get_the_mount():
-    """A persona whose project names no bundle path has nothing that would read
+def test_only_entitled_renders_get_the_mount():
+    """A render whose project names no bundle path has nothing that would read
     the directory."""
-    mounts = _bundle_mounts(_config(personas=True), facility_bundle_personas={"operator"})
+    mounts = _bundle_mounts(_config(tiers=True), facility_bundle_renders={"operator"})
 
     assert mounts == {
         "web-alice": [f"{BUNDLE_SOURCE}:/app/dls-operator/{BUNDLE_PATH}"],
@@ -140,16 +139,16 @@ def test_only_entitled_personas_get_the_mount():
     }
 
 
-def test_no_entitled_personas_mounts_nothing():
+def test_no_entitled_renders_mounts_nothing():
     """The default when the caller resolves no set — a bundle is never granted
-    on a guess, the same rule the per-persona credentials follow."""
-    assert _bundle_mounts(_config(personas=True)) == {"web-alice": [], "web-bob": []}
+    on a guess, the same rule the per-render credentials follow."""
+    assert _bundle_mounts(_config(tiers=True)) == {"web-alice": [], "web-bob": []}
 
 
 def test_mount_is_read_write():
     """The agent drafts concepts into the bundle; only the qmd sidecar's mount of
     the same directory is read-only."""
-    mounts = _bundle_mounts(_config(), facility_bundle_personas=DEFAULT_ENTITLED)["web-alice"]
+    mounts = _bundle_mounts(_config(), facility_bundle_renders=DEFAULT_ENTITLED)["web-alice"]
 
     assert mounts == [f"{BUNDLE_SOURCE}:/app/dls_controls-assistant/{BUNDLE_PATH}"]
     assert not mounts[0].endswith(":ro")
@@ -160,23 +159,24 @@ def test_absolute_bundle_path_is_not_re_anchored():
     distinction the agent-data mount makes, and the reason the join happens in
     Python rather than as a template concatenation."""
     mounts = _volumes(
-        _config(bundle_path="/srv/shared/knowledge"), facility_bundle_personas=DEFAULT_ENTITLED
+        _config(bundle_path="/srv/shared/knowledge"), facility_bundle_renders=DEFAULT_ENTITLED
     )["web-alice"]
 
     assert "/srv/shared/knowledge:/srv/shared/knowledge" in mounts
 
 
 def test_blank_bundle_path_is_treated_as_unset():
-    assert _bundle_mounts(
-        _config(bundle_path="   "), facility_bundle_personas=DEFAULT_ENTITLED
-    ) == {"web-alice": [], "web-bob": []}
+    assert _bundle_mounts(_config(bundle_path="   "), facility_bundle_renders=DEFAULT_ENTITLED) == {
+        "web-alice": [],
+        "web-bob": [],
+    }
 
 
 def test_overlay_still_parses_with_the_mount_present():
     """The mount is emitted inside a Jinja conditional between two other volume
     lines; a whitespace slip there produces YAML compose cannot read."""
     compose = yaml.safe_load(
-        render_web_terminals(_config(), facility_bundle_personas=DEFAULT_ENTITLED)[
+        render_web_terminals(_config(), facility_bundle_renders=DEFAULT_ENTITLED)[
             "docker-compose.web.yml"
         ]
     )
@@ -208,7 +208,7 @@ def test_entitled_services_join_the_bundles_group():
     SERVING requests there comes from the entrypoint's own `/etc/group` join,
     asserted separately in tests/deployment/test_entrypoint_script.py."""
     services = _services(
-        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=20
+        _config(), facility_bundle_renders=DEFAULT_ENTITLED, facility_bundle_gid=20
     )
 
     assert services["web-alice"]["group_add"] == ["20"]
@@ -219,7 +219,7 @@ def test_unentitled_services_join_no_group():
     """A container with no bundle mounted has no corpus to reach, so handing it a
     host group would widen its access for nothing."""
     services = _services(
-        _config(personas=True), facility_bundle_personas={"operator"}, facility_bundle_gid=20
+        _config(tiers=True), facility_bundle_renders={"operator"}, facility_bundle_gid=20
     )
 
     assert services["web-alice"]["group_add"] == ["20"]
@@ -231,7 +231,7 @@ def test_no_gid_emits_no_group_add():
     guessed one would be worse than emitting none: the mount still works
     wherever the container's own uid already has access."""
     services = _services(
-        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=None
+        _config(), facility_bundle_renders=DEFAULT_ENTITLED, facility_bundle_gid=None
     )
 
     assert "group_add" not in services["web-alice"]
@@ -241,7 +241,7 @@ def test_gid_is_quoted_so_compose_reads_it_as_a_group():
     """Numeric group ids and group names share the field, so the value is
     rendered as a string rather than a bare YAML integer."""
     rendered = render_web_terminals(
-        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=20
+        _config(), facility_bundle_renders=DEFAULT_ENTITLED, facility_bundle_gid=20
     )["docker-compose.web.yml"]
 
     assert '      - "20"' in rendered
@@ -262,22 +262,22 @@ def test_gid_is_read_off_the_provisioned_directory(tmp_path):
 
 
 def test_shadowing_is_documented_in_the_rendered_artifact():
-    """A persona-baked bundle disappearing under this mount is the most likely
+    """A render-baked bundle disappearing under this mount is the most likely
     confusion the feature produces, so the reason must be readable in the file an
     operator on the deploy host actually opens — a Jinja comment would be
     stripped from the render and never reach them."""
-    rendered = render_web_terminals(_config(), facility_bundle_personas=DEFAULT_ENTITLED)[
+    rendered = render_web_terminals(_config(), facility_bundle_renders=DEFAULT_ENTITLED)[
         "docker-compose.web.yml"
     ]
 
-    assert "SHADOWS the copy baked into the persona image" in rendered
+    assert re.search(r"SHADOWS the copy baked into the \w+ image", rendered)
 
 
 def test_no_shadowing_note_without_a_mount_to_explain():
     """The note travels with the mount; a deployment that mounts nothing must
     render byte-identically to what it rendered before this feature."""
     rendered = render_web_terminals(
-        _config(bundle_path=None), facility_bundle_personas=DEFAULT_ENTITLED
+        _config(bundle_path=None), facility_bundle_renders=DEFAULT_ENTITLED
     )["docker-compose.web.yml"]
 
     assert "SHADOWS" not in rendered
@@ -289,7 +289,7 @@ def test_sharing_strategy_is_stated_in_the_rendered_artifact():
     rendered compose file on the deploy host, so both the mechanism and its
     umask limit have to be legible there."""
     rendered = render_web_terminals(
-        _config(), facility_bundle_personas=DEFAULT_ENTITLED, facility_bundle_gid=20
+        _config(), facility_bundle_renders=DEFAULT_ENTITLED, facility_bundle_gid=20
     )["docker-compose.web.yml"]
 
     assert "SHARING:" in rendered
@@ -329,16 +329,16 @@ def test_sharing_strategy_is_stated_in_the_how_to_page():
     ],
 )
 def test_config_needs_facility_bundle(config, expected):
-    from osprey.deployment.web_terminals.personas import config_needs_facility_bundle
+    from osprey.deployment.web_terminals.roster import config_needs_facility_bundle
 
     assert config_needs_facility_bundle(config) is expected
 
 
-def test_personas_needing_facility_bundle_reads_each_personas_config(tmp_path):
-    """The same per-persona walk every other grant uses: a persona's own rendered
-    config.yml decides, and an unrendered persona contributes nothing rather than
+def test_renders_needing_facility_bundle_reads_each_renders_config(tmp_path):
+    """The same per-render walk every other grant uses: a render's own rendered
+    config.yml decides, and an unrendered render contributes nothing rather than
     being granted on a guess."""
-    from osprey.deployment.web_terminals.personas import personas_needing_facility_bundle
+    from osprey.deployment.web_terminals.roster import renders_needing_facility_bundle
 
     (tmp_path / "dls-operator").mkdir()
     (tmp_path / "dls-operator" / "config.yml").write_text(
@@ -346,20 +346,20 @@ def test_personas_needing_facility_bundle_reads_each_personas_config(tmp_path):
     )
     (tmp_path / "dls-physicist").mkdir()
     (tmp_path / "dls-physicist" / "config.yml").write_text(yaml.safe_dump({"facility": {}}))
-    config = _config(personas=True)
-    catalog = config["modules"]["web_terminals"]["personas"]
+    config = _config(tiers=True)
+    catalog = config["modules"]["web_terminals"]["renders"]
     catalog["operator"]["project_path"] = "dls-operator"
     catalog["physicist"]["project_path"] = "dls-physicist"
 
-    assert personas_needing_facility_bundle(config, tmp_path) == {"operator"}
+    assert renders_needing_facility_bundle(config, tmp_path) == {"operator"}
 
 
-def test_unrendered_persona_is_not_entitled(tmp_path):
-    from osprey.deployment.web_terminals.personas import personas_needing_facility_bundle
+def test_unrendered_render_is_not_entitled(tmp_path):
+    from osprey.deployment.web_terminals.roster import renders_needing_facility_bundle
 
-    config = _config(personas=True)
+    config = _config(tiers=True)
 
-    assert personas_needing_facility_bundle(config, tmp_path) == set()
+    assert renders_needing_facility_bundle(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -367,32 +367,33 @@ def test_unrendered_persona_is_not_entitled(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _lintable(tmp_path, persona_bundle_path: str | None) -> dict:
-    """A local-mode roster with one rendered persona, linted from *tmp_path*.
+def _lintable(tmp_path, render_bundle_path: str | None) -> dict:
+    """A local-mode roster with one rendered render, linted from *tmp_path*.
 
     ``project_path`` resolves against the working directory in lint, which is
-    why callers chdir; the roster is trimmed to one persona so the finding under
+    why callers chdir; the roster is trimmed to one render so the finding under
     test is the only one about bundles.
     """
     project = tmp_path / "dls-operator"
     project.mkdir()
     (project / "Dockerfile").write_text("FROM scratch")
-    persona_config: dict = {"project_name": "dls-operator"}
-    if persona_bundle_path is not None:
-        persona_config["facility_knowledge"] = {"bundle_path": persona_bundle_path}
-    (project / "config.yml").write_text(yaml.safe_dump(persona_config))
+    render_config: dict = {"project_name": "dls-operator"}
+    if render_bundle_path is not None:
+        render_config["facility_knowledge"] = {"bundle_path": render_bundle_path}
+    (project / "config.yml").write_text(yaml.safe_dump(render_config))
 
-    config = _config(personas=True)
+    config = _config(tiers=True)
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
-    web_terminals["personas"] = {
-        "operator": {
-            "project": "dls-operator",
-            "project_path": "dls-operator",
-            "build_profile": "personas/operator.yml",
-        }
+    web_terminals["renders"] = {
+        "operator": tier_render(
+            "operator",
+            "dls-operator",
+            project_path="dls-operator",
+            build_profile=f"{TIERS_DIRNAME}/operator.yml",
+        )
     }
-    web_terminals["users"] = [{"name": "alice", "index": 0, "persona": "operator"}]
+    web_terminals["users"] = [{"name": "alice", "index": 0, "tier": "operator"}]
     return config
 
 
@@ -402,14 +403,14 @@ def _bundle_findings(config: dict) -> list:
     return [
         f
         for f in lint_web_terminals(config)
-        if f.code == "web_terminals.persona_bundle_path_divergence"
+        if f.code == "web_terminals.render_bundle_path_divergence"
     ]
 
 
-def test_lint_flags_a_persona_that_relocated_its_bundle(tmp_path, monkeypatch):
-    """The failure this catches has no other symptom: the persona IS entitled
+def test_lint_flags_a_render_that_relocated_its_bundle(tmp_path, monkeypatch):
+    """The failure this catches has no other symptom: the render IS entitled
     (its config names a bundle), so the deployment's bundle is bound at the
-    deployment's path — while the persona's knowledge tools read its own path,
+    deployment's path — while the render's knowledge tools read its own path,
     which nothing mounted. The panel lists no concepts and every layer reports
     success."""
     monkeypatch.chdir(tmp_path)
@@ -429,7 +430,7 @@ def test_lint_is_quiet_when_the_paths_agree(tmp_path, monkeypatch):
     assert _bundle_findings(_lintable(tmp_path, BUNDLE_PATH)) == []
 
 
-def test_lint_is_quiet_for_a_persona_that_configures_no_bundle(tmp_path, monkeypatch):
+def test_lint_is_quiet_for_a_render_that_configures_no_bundle(tmp_path, monkeypatch):
     """Not entitled, so nothing is mounted for it and there is no target to
     disagree with."""
     monkeypatch.chdir(tmp_path)
@@ -438,7 +439,7 @@ def test_lint_is_quiet_for_a_persona_that_configures_no_bundle(tmp_path, monkeyp
 
 
 def test_lint_is_quiet_when_the_deployment_configures_no_bundle(tmp_path, monkeypatch):
-    """No mount exists at all, so a persona's own path cannot be shadowed by a
+    """No mount exists at all, so a render's own path cannot be shadowed by a
     differing one."""
     monkeypatch.chdir(tmp_path)
     config = _lintable(tmp_path, "data/kb")

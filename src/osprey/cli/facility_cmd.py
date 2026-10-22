@@ -16,7 +16,7 @@ change the verdict or the exit code. A device whose stated s lies outside its
 periodic model's deck prints one warning on stderr; it does not change the exit
 code. A scenario that moves a readback beyond its setpoint's tolerance, and a
 lane whose float setpoints declare no tolerance, print the build's
-settle-tolerance warning on stderr; it does not change the exit code. Persona and image renders are checked by ``osprey build`` alone.
+settle-tolerance warning on stderr; it does not change the exit code. Render and image renders are checked by ``osprey build`` alone.
 
 ``osprey facility show [--json] [ID]`` builds in memory as ``validate`` does
 and prints what the build holds: the identity, the records per kind and the

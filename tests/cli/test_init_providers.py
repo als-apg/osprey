@@ -314,5 +314,5 @@ def test_a_customized_catalog_is_a_note_and_not_a_finding(
 
     assert report.note is not None
     assert PROVIDERS_FILENAME in report.note
-    assert "osprey profile expand --providers" in report.note
+    assert "osprey init --revalidate" in report.note
     assert report.unmarked == []

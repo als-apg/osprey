@@ -130,7 +130,7 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
         ]
     if required is not None:
         # The deploy gate's own sentence, verbatim: it already names the
-        # variable, its provider and persona, what the absence costs and how to
+        # variable, its provider and render, what the absence costs and how to
         # resolve it, and carries no value. Restating it here would be a second
         # wording of the same refusal, free to drift from the one `osprey up`
         # prints.

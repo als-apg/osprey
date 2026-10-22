@@ -2,7 +2,7 @@
 
 A deployment starts with `osprey init --preset NAME [--set K=V]`, which
 resolves the named preset through the profile pipeline and materializes it as
-`profile.yml` (plus `data/`, `personas/`, `.env.example`) at a repo's root.
+`profile.yml` (plus `data/`, the retired layer directory, `.env.example`) at a repo's root.
 `osprey build --repo DIR` is zero-argument from there: it re-resolves that
 repo's own `profile.yml`, with no preset/--set surface of its own, and renders
 `DIR/build/`. This module covers both halves — the resolution pipeline `osprey
@@ -13,7 +13,7 @@ with the profile.yml it finds.
 
 A `--set` pair is an EDIT of the profile, not one more inheritance layer: it
 replaces the value at the key it names, whatever was there. Inheritance
-(`extends:`, a persona delta, a host-variant overlay) still adds — string lists
+(`extends:`, a layer, a host-variant overlay) still adds — string lists
 union — and the two are pinned apart below.
 """
 
@@ -21,18 +21,22 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
-from click.testing import CliRunner
+from click.testing import CliRunner, Result
 
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
+from osprey.cli.build_profile_presets import _presets_dir
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests._preset_data import copy_bundle_data
+from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 
 @pytest.fixture
@@ -175,84 +179,6 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["artifacts"]["hooks"] == ["memory-guard"]
-
-
-def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_path: Path) -> None:
-    """The ariel-standalone preset's ``claude_md_template`` must travel from
-    the preset YAML, through the build-profile parser, into the render
-    context, into the rendered ``CLAUDE.md``, and into the manifest creation
-    block so that ``osprey build`` round-trips the persona choice.
-
-    Drift-guard: if any layer of that wiring (BuildProfile field,
-    _KNOWN_PROFILE_KEYS, _parse_profile, build_cmd's context/manifest_context
-    propagation, or the renderer's template-selection branch) breaks, the
-    preset silently falls back to the control-system persona — exactly the
-    regression this test pins down.
-    """
-    import json
-
-    result = _materialize(runner, str(tmp_path), "smoke", "ariel-standalone")
-    assert result.exit_code == 0, result.output
-
-    project_dir = _project(tmp_path, "smoke")
-
-    claude_md = (project_dir / "CLAUDE.md").read_text(encoding="utf-8")
-    assert "Logbook Research Assistant" in claude_md, claude_md[:200]
-    assert "Control System Assistant" not in claude_md
-
-    manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
-
-
-def test_ariel_standalone_narrates_every_scenario_of_its_facility(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """The standalone logbook is every scenario story of the facility it shows.
-
-    ``ariel.demo_narrative: all`` reads the built simulator view, so what a
-    standalone deploy seeds is ALL of the example facility's scenario entries,
-    in nominal-first order, each with the very picture bytes the scenario
-    attaches.
-    """
-    import osprey
-    from osprey.facility.scenarios import scenario_logbook
-    from osprey.simulation.apply import demo_narrative_logbook
-    from tests._simulator_view import facility_scenarios
-
-    facility_scenarios_dir = (
-        pathlib.Path(osprey.__file__).parent / "templates" / "facilities" / "example" / "scenarios"
-    )
-
-    result = _materialize(runner, str(tmp_path), "smoke", "ariel-standalone")
-    assert result.exit_code == 0, result.output
-    render = _project(tmp_path, "smoke")
-    ariel = _config_yaml(render)["ariel"]
-    assert "ingestion" not in ariel, "the demo narrative replaces the demo ingest"
-    assert ariel["demo_narrative"] == "all"
-    seeded = demo_narrative_logbook(ariel, render)
-
-    scenarios = facility_scenarios(facility_scenarios_dir)
-    order = sorted(scenarios, key=lambda name: (name != "nominal", name))
-    expected = [
-        entry
-        for name in order
-        for entry in scenario_logbook(
-            {"name": name, **scenarios[name]}, facility_scenarios_dir / name
-        )
-    ]
-
-    assert [e.entry_id for e in seeded] == [e.entry_id for e in expected]
-    assert [(e.title, e.text, e.when) for e in seeded] == [
-        (e.title, e.text, e.when) for e in expected
-    ]
-
-    def _pictures(entry):
-        """A shipped picture by its bytes, a plot spec by its parsed contents."""
-        return [item.read_bytes() if isinstance(item, pathlib.Path) else item for item in entry]
-
-    for got, want in zip(seeded, expected, strict=True):
-        assert _pictures(got.attachments) == _pictures(want.attachments), got.entry_id
-    assert sum(len(e.attachments) for e in seeded) == 3
 
 
 def test_preset_control_assistant_ships_live_gateway_telemetry(
@@ -489,7 +415,7 @@ def test_set_yaml_typed_values(runner: CliRunner, tmp_path: Path) -> None:
 # An edit states; inheritance adds
 #
 # The two things that reach a profile mean different things. `extends:`, a
-# persona delta and a host-variant overlay are inheritance — a layer is a
+# layer and a host-variant overlay are inheritance — a layer is a
 # DIFFERENCE, so string lists union and taking something away is an explicit
 # verb. A `--set` pair is an EDIT — it REPLACES the value at the key it names,
 # whatever was there. The cases below are the ones where the difference is
@@ -539,15 +465,31 @@ def test_a_set_list_replaces_rather_than_unions_with_the_preset() -> None:
     assert profile.config["claude_code.permissions.deny"] == ["Bash(rm)"]
 
 
-def test_a_persona_inherits_the_bases_deny_entries_by_union() -> None:
-    """The inheritance half: control-assistant-knowledge extends control-assistant.
+def _profile_extending_control_assistant(directory: Path) -> Path:
+    """A repo profile that extends control-assistant and denies one more tool."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "data").mkdir(exist_ok=True)
+    profile = directory / "profile.yml"
+    profile.write_text(
+        "name: Narrowed\n"
+        "extends: control-assistant\n"
+        "data: data\n"
+        "config:\n"
+        "  claude_code.permissions.deny: [mcp__osprey_facility_knowledge__draft_concept]\n",
+        encoding="utf-8",
+    )
+    return profile
+
+
+def test_a_profile_inherits_the_bases_deny_entries_by_union(tmp_path: Path) -> None:
+    """The inheritance half: a profile that extends control-assistant.
 
     Its delta adds one denied tool and inherits the base's, because a layer is
     a difference and string lists union. Pinned beside the edit case below so
     the two rules are read together — this is what an edit at the same key has
     to override.
     """
-    profile, _dir = resolve_build_profile(None, "control-assistant-knowledge")
+    profile, _dir = resolve_build_profile(_profile_extending_control_assistant(tmp_path), None)
 
     assert profile.config["claude_code.permissions.deny"] == [
         "mcp__osprey_workspace__setup_patch",
@@ -555,17 +497,17 @@ def test_a_persona_inherits_the_bases_deny_entries_by_union() -> None:
     ]
 
 
-def test_an_edit_applies_after_extends_and_replaces_the_inherited_list() -> None:
+def test_an_edit_applies_after_extends_and_replaces_the_inherited_list(tmp_path: Path) -> None:
     """The edit half of the same key: `--set` lands AFTER `extends` resolution.
 
     Applied as one more layer under inheritance it would union with both the
-    persona's entry and the base's, and the base's
+    profile's entry and the base's, and the base's
     `mcp__osprey_workspace__setup_patch` would reappear in a list the operator
     just stated in full. Applied to the resolved document, it is the list.
     """
     profile, _dir = resolve_build_profile(
+        _profile_extending_control_assistant(tmp_path),
         None,
-        "control-assistant-knowledge",
         set_pairs=("config.claude_code.permissions.deny=[Bash(rm)]",),
     )
 
@@ -640,7 +582,7 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
     """A web-terminal render probes each MCP server at the address the agent dials.
 
     The terminals run on the host's network, where a compose service name does
-    not resolve, so every render the build writes (host, persona, image copy)
+    not resolve, so every render the build writes (host, tier, app, image copy)
     carries ``health.auto.mcp.url_key: host_url``. Inside a container, the
     derived probe then dials exactly the URL the agent's ``.mcp.json`` names.
     """
@@ -666,13 +608,16 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
 
-    personas = sorted(path.stem for path in (repo / "personas").glob("*.yml"))
-    assert personas
+    tiers = sorted(path.stem for path in (repo / "tiers").glob("*.yml"))
+    apps = sorted(path.stem for path in (repo / "apps").glob("*.yml"))
+    assert tiers
+    assert apps
     images = sorted((repo / "build" / ".image").iterdir())
     assert images
     renders = [
         repo / "build",
-        *(_persona_project(repo, persona) for persona in personas),
+        *(_render_project(repo, tier) for tier in tiers),
+        *(_render_project(repo, app) for app in apps),
         *(image / "build" for image in images),
     ]
     for render in renders:
@@ -682,7 +627,7 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
     agent_url = json.loads((repo / "build" / ".mcp.json").read_text())["mcpServers"][
         "facility_tools"
     ]["url"]
-    for render in (repo / "build", _persona_project(repo, personas[0])):
+    for render in (repo / "build", _render_project(repo, tiers[0])):
         cfg = _config_yaml(render)
         category = derive_mcp_servers(parse_health_config(cfg.get("health")), cfg)
         assert category is not None and category.checks is not None
@@ -811,7 +756,7 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     assert _profile_yaml(tmp_path / "smoke")["provenance"]["preset"] == preset
     # 4. Every preset must explicitly pin the facility timezone — agent timestamp
     #    interpretation/rendering keys off system.timezone, and a preset that omits
-    #    it falls back to a silent default (the ariel_standalone blind spot). Binding
+    #    it falls back to a silent default. Binding
     #    to list_presets() auto-forces any new preset to declare it too.
     config = _config_yaml(project_dir)
     tz = config.get("system", {}).get("timezone")
@@ -819,76 +764,6 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
         f"preset {preset!r} does not pin system.timezone — agent timestamps would "
         f"fall back to a silent default; add an explicit `system.timezone`"
     )
-
-
-def _attached_presets() -> list[str]:
-    """Every bundled preset that builds attached (``deploy_services: false``)."""
-    return [
-        name
-        for name in list_presets()
-        if not resolve_build_profile(None, preset=name)[0].deploy_services
-    ]
-
-
-@pytest.fixture(scope="module")
-def host_render_configs() -> dict[str, dict]:
-    """Rendered ``config.yml`` of each host preset, filled by the first test to build it.
-
-    Filled from inside a test rather than built here, so the host render runs
-    under the same function-scoped fixtures (the session graph-index cache) it
-    always has. A host render is a function of its preset alone: the only path
-    in it is the repo's own, and nothing read from it below is a path.
-    """
-    return {}
-
-
-@pytest.mark.parametrize("preset", _attached_presets())
-def test_attached_preset_built_alone_is_told_its_templates_defaults(
-    preset: str, runner: CliRunner, tmp_path: Path, host_render_configs: dict[str, dict]
-) -> None:
-    """A persona preset materialized on its own — no hosting deployment in the
-    repo — still builds, and is told what its app template deploys.
-
-    Built beside its host, an attached render is told the host's client-facing
-    facts from the host's render (``osprey.deployment.reach``). Built alone
-    there is no such render, but the persona extends a deployment of the SAME
-    app template, so the template rendered as a deployment is what the host
-    would say at the shipped defaults. Every consumer the preset switches on
-    must then resolve, and the sidecar port must be the one the template
-    deploys — read from a real render of the parent preset rather than spelled
-    here, so a moved default moves both.
-    """
-    from osprey.cli.build_profile_presets import _load_preset_raw
-    from osprey.deployment.reach import reach_errors
-
-    result = _materialize(runner, str(tmp_path), "alone", preset)
-    assert result.exit_code == 0, result.output
-    config = _config_yaml(_project(tmp_path, "alone"))
-    assert reach_errors(config) == []
-
-    parent = _load_preset_raw(preset)[0].get("extends")
-    assert parent, f"{preset} extends nothing — which deployment is its host?"
-    host = host_render_configs.get(Path(parent).stem)
-    if host is None:
-        assert _materialize(runner, str(tmp_path), "host", Path(parent).stem).exit_code == 0
-        host = host_render_configs[Path(parent).stem] = _config_yaml(_project(tmp_path, "host"))
-    assert config["services"]["qmd"]["port"] == host["services"]["qmd"]["port"]
-    # The tabs the preset selects are told their address too — what a
-    # deployment of the template derives when it injects the sidecars, read
-    # by running the same injectors over the template-as-deployment.
-    from osprey.cli.build_profile import resolve_build_profile
-
-    # `enabled` is each render's OWN selection, not a projected fact: the
-    # host deployment carries the block for the tab its personas select
-    # (switched off there), and the persona that selects it switches it on.
-    selected = resolve_build_profile(None, preset=preset)[0].web_panels
-    for panel in ("events", "bluesky"):
-        if panel in selected:
-            told = {k: v for k, v in config["web"]["panels"][panel].items() if k != "enabled"}
-            hosts = {k: v for k, v in host["web"]["panels"][panel].items() if k != "enabled"}
-            assert told == hosts, panel
-            assert config["web"]["panels"][panel]["enabled"] is True, panel
-            assert host["web"]["panels"][panel]["enabled"] is False, panel
 
 
 def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_path: Path) -> None:
@@ -899,7 +774,7 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     written by the dispatch injector moments later; refusing before that
     would name the very key the build was about to supply. The injector also
     fills the label and the health endpoint, so the tab health-gates itself
-    and every persona told this entry gets the whole of it.
+    and every render told this entry gets the whole of it.
     """
     repo = tmp_path / "pathpin"
     created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
@@ -915,45 +790,23 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     assert events["url"].startswith("http://localhost:")
     assert events["label"] == "EVENTS"
     assert events["health_endpoint"] == "/health"
-    # The deployment itself does not select the tab (its write-armed personas
+    # The deployment itself does not select the tab (its write-armed renders
     # do), so its own render carries the complete entry switched off.
     assert events["enabled"] is False
-    # Every persona inherited the pin. The one that selects the tab is told
+    # Every render inherited the pin. The one that selects the tab is told
     # the whole entry from this render and switches it on; the ones that do
     # not keep the inherited fragment switched off instead of rendering an
     # empty-url tab.
-    personas = {
+    tiers = {
         path.name.rsplit("-", 1)[1]: yaml.safe_load((path / "config.yml").read_text())
         for path in _project(tmp_path, "pathpin").glob("pathpin-*")
     }
-    assert set(personas) >= {"readonly", "readwrite"}
-    assert personas["readwrite"]["web"]["panels"]["events"] == {**events, "enabled": True}
-    readonly_events = personas["readonly"]["web"]["panels"]["events"]
+    assert set(tiers) >= {"readonly", "readwrite"}
+    assert tiers["readwrite"]["web"]["panels"]["events"] == {**events, "enabled": True}
+    readonly_events = tiers["readonly"]["web"]["panels"]["events"]
     assert readonly_events["path"] == "/custom-route"
     assert readonly_events["enabled"] is False
     assert "url" not in readonly_events
-
-
-def test_attached_profile_built_alone_may_name_its_host_by_hand(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """Built alone, the profile's ``config:`` is where a host that differs from
-    the template's defaults is named, and it wins over those defaults.
-
-    Beside a host the same spelling is refused as a second home for one fact;
-    alone there is no first home, so the hand-spelled value IS the projection.
-    """
-    preset = "control-assistant-logbook"
-    repo = tmp_path / "alone"
-    created = runner.invoke(init, [str(repo), "--preset", preset, "--no-git"])
-    assert created.exit_code == 0, created.output
-    profile = _profile_yaml(repo)
-    profile["config"]["services.qmd.port"] = 9180
-    (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
-
-    result = _render_from(runner, repo / "profile.yml")
-    assert result.exit_code == 0, result.output
-    assert _config_yaml(_project(tmp_path, "alone"))["services"]["qmd"]["port"] == 9180
 
 
 def test_control_assistant_preset_wires_its_simulation(runner: CliRunner, tmp_path: Path) -> None:
@@ -1137,6 +990,11 @@ class TestDeployServicesKnob:
     )
 
     def _build(self, runner: CliRunner, tmp_path: Path, extra: str) -> Path:
+        result = self._attempt(runner, tmp_path, extra)
+        assert result.exit_code == 0, result.output
+        return _project(tmp_path, "smoke")
+
+    def _attempt(self, runner: CliRunner, tmp_path: Path, extra: str) -> Result:
         profile = tmp_path / "smoke" / "profile.yml"
         profile.parent.mkdir()
         _facility_data(profile.parent, "control_assistant")
@@ -1146,9 +1004,11 @@ class TestDeployServicesKnob:
         # profile without it is refused by the Reach Contract (the bind source
         # would be an empty directory), and this class is about the knob.
         (profile.parent / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
-        result = _render_from(runner, str(profile))
-        assert result.exit_code == 0, result.output
-        return _project(tmp_path, "smoke")
+        # The tiers and apps the inherited roster names, which `osprey init`
+        # copies beside the profile from the bundled layer presets.
+        for layer in ("tiers", "apps"):
+            shutil.copytree(_presets_dir() / layer, profile.parent / layer)
+        return _render_from(runner, str(profile))
 
     def test_default_true_scaffolds_services(self, runner: CliRunner, tmp_path: Path) -> None:
         """Baseline: the same profile without the knob deploys its own stack."""
@@ -1180,13 +1040,34 @@ class TestDeployServicesKnob:
         # No services/ directory at all.
         assert not (project / "services").exists()
 
-    def test_readonly_persona_builds_attached(self, runner: CliRunner, tmp_path: Path) -> None:
-        """The shipped read-only persona preset builds as an attached project."""
-        result = _materialize(runner, str(tmp_path), "op", "control-assistant-readonly")
-        assert result.exit_code == 0, result.output
-        cfg = _config_yaml(_project(tmp_path, "op"))
-        assert cfg["deployed_services"] == []
-        assert not (_project(tmp_path, "op") / "services").exists()
+    def test_an_attached_build_judges_dispatch_tier_against_its_own_base(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """An attached build has no host render, so each render reads its host
+        off the profile rendered as a deployment. ``dispatch.tier: readonly`` is
+        judged against the deployment's own base, which floors the Config panel
+        — not against the ``admin`` tier's render, whose own posture enables it.
+        """
+        project = self._build(runner, tmp_path, extra="deploy_services: false\n")
+
+        assert _config_yaml(project)["web"]["config_panel"]["enabled"] is False
+        admin = _config_yaml(_render_project(tmp_path / "smoke", "admin"))
+        assert admin["web"]["config_panel"]["enabled"] is True
+
+    def test_an_attached_base_that_lifts_a_refused_flag_still_refuses_the_tier(
+        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The control: the judgment still happens on an attached build, on the
+        deployment's own base — a base that enables the Config panel hands it
+        to the headless dispatch tier, which is refused by name."""
+        result = self._attempt(
+            runner,
+            tmp_path,
+            extra="deploy_services: false\nconfig:\n  web.config_panel.enabled: true\n",
+        )
+
+        assert result.exit_code != 0
+        assert "dispatch.tier 'readonly' enables web.config_panel.enabled" in caplog.text
 
 
 def test_set_free_form_model_builds(
@@ -1258,45 +1139,45 @@ def test_set_value_invalid_yaml_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Persona renders
+# Renders
 #
-# A persona project is rendered from a delta over this repo's own profile, by
+# A render project is rendered from a delta over this repo's own profile, by
 # `osprey build` and by nothing else: one build of a repo writes its own
-# `build/` plus `build/<repo>-<persona>/` for every delta in `personas/`. Both
+# `build/` plus `build/<repo>-<render>/` for every delta in the retired layer directory. Both
 # cases below drive that through the real command; the delta emission they
-# depend on is pinned in tests/cli/test_persona_profile_emission.py.
+# depend on is pinned in tests/cli/test_layer_emission.py.
 # ---------------------------------------------------------------------------
 
 
-def _persona_project(repo: pathlib.Path, persona: str) -> pathlib.Path:
-    """Where a build of *repo* renders *persona*.
+def _render_project(repo: pathlib.Path, tier: str) -> pathlib.Path:
+    """Where a build of *repo* renders *render*.
 
     The one spelling of the rule, so a test never assembles the path by hand:
     the render's name is the repo's own name and the delta's stem, which is also
     what `osprey init` writes into each catalog entry's `project_path`.
     """
-    return repo / "build" / f"{repo.name}-{persona}"
+    return repo / "build" / f"{repo.name}-{tier}"
 
 
-def test_persona_delta_build_resolves_from_the_profile_root(
+def test_layer_delta_build_resolves_from_the_profile_root(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """FR-10 anchoring: a delta under `personas/` inherits the root profile and
+    """FR-10 anchoring: a delta under tiers/ inherits the root profile and
     everything it names anchors at the ROOT, not at the delta's own parent."""
     root = tmp_path / "prof"
-    (root / "personas").mkdir(parents=True)
+    (root / TIERS_DIRNAME).mkdir(parents=True)
     copy_bundle_data(root / "data", "hello_world")
     (root / "data" / "FACILITY_MARKER.txt").write_text("from the root\n")
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
         "model: claude-sonnet-5\ndata: data\n"
     )
-    (root / "personas" / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
+    (root / TIERS_DIRNAME / "readonly.yml").write_text("name: ReadOnly\nmodel: claude-haiku-4-5\n")
 
     result = _render_from(runner, str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
-    project = _persona_project(root, "readonly")
+    project = _render_project(root, "readonly")
     # The delta alone names no provider and no data tree; both come from the root.
     assert _config_yaml(project)["claude_code"]["provider"] == "anthropic"
     assert (project / "data" / "FACILITY_MARKER.txt").is_file()
@@ -1307,7 +1188,7 @@ def test_persona_delta_build_resolves_from_the_profile_root(
     assert _config_yaml(root / "build")["claude_code"]["default_model"] == "claude-sonnet-5"
 
 
-def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
+def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """FR-10: an excluded convention artifact must not reach the project at all.
@@ -1317,7 +1198,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     freezing the shadow against regen — the exact inverse of what the exclusion
     asked for. And it fails silent (exit 0, no warning, hash correct), because
     the exclusion IS folded into the profile hash, so the project reads as fresh
-    while carrying an artifact the persona explicitly dropped.
+    while carrying an artifact the render explicitly dropped.
 
     Asserted through the CLI, not against `_apply_conventions`: the defect this
     pins lived in the WIRE between resolution and that call. The producer side
@@ -1332,7 +1213,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     the flat case and silently miss the namespaced one.
     """
     root = tmp_path / "prof"
-    (root / "personas").mkdir(parents=True)
+    (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
     (root / "agents").mkdir()
     (root / "commands" / "osprey").mkdir(parents=True)
     copy_bundle_data(root / "data", "hello_world")
@@ -1346,7 +1227,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
         "model: claude-sonnet-5\ndata: data\n"
     )
-    (root / "personas" / "narrow.yml").write_text(
+    (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\n"
         "exclude:\n"
         "  agents:\n"
@@ -1358,7 +1239,7 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     result = _render_from(runner, str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
-    project = _persona_project(root, "narrow")
+    project = _render_project(root, "narrow")
     assert not (project / ".claude" / "agents" / "orbit-writer.md").exists()
     assert not (project / ".claude" / "commands" / "osprey" / "scan.md").exists()
     # Absence from the project is only half of it: the original defect also
@@ -1379,15 +1260,15 @@ def test_persona_exclusion_keeps_the_artifact_out_of_the_built_project(
     assert "commands/osprey/scan" in wide_owned, wide_owned
 
 
-def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
+def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """``exclude: web_panels:`` must reach the render, not just the selection.
 
     The web terminal reads its tab strip from ``web.panels.<id>`` alone. A
-    persona subtracts a tab from ``web_panels``, but every ``config:`` fact
+    render subtracts a tab from ``web_panels``, but every ``config:`` fact
     about that panel — a builtin's label, a custom panel's url — is inherited
-    additively and lands in the persona's render regardless; before the
+    additively and lands in the render's render regardless; before the
     selection was projected onto those blocks, each one still rendered as a
     tab (a builtin block without ``enabled: false`` is on, and a custom block
     was on unconditionally). Asserted through the CLI, on the rendered
@@ -1398,7 +1279,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     from osprey.profiles.web_panels import UNIVERSAL_PANELS
 
     root = tmp_path / "prof"
-    (root / "personas").mkdir(parents=True)
+    (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
     _facility_data(root, "control_assistant")
     (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
@@ -1414,15 +1295,15 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
         "  web.panels.grafana.label: GRAFANA\n"
         "  web.panels.grafana.url: http://grafana.local:3000\n"
     )
-    (root / "personas" / "narrow.yml").write_text(
+    (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\nexclude:\n  web_panels:\n    - lattice\n    - grafana\n"
     )
 
     result = _render_from(runner, str(root / "profile.yml"))
     assert result.exit_code == 0, result.output
 
-    narrow = _config_yaml(_persona_project(root, "narrow"))["web"]["panels"]
-    # The inherited facts are still there — a persona cannot subtract config —
+    narrow = _config_yaml(_render_project(root, "narrow"))["web"]["panels"]
+    # The inherited facts are still there — a render cannot subtract config —
     # and each block now says it is not a tab of this render.
     assert narrow["lattice"] == {"label": "LATTICE", "enabled": False}
     assert narrow["grafana"]["url"] == "http://grafana.local:3000"
@@ -1430,7 +1311,7 @@ def test_persona_exclusion_of_a_panel_switches_its_inherited_block_off(
     assert narrow["okf"]["enabled"] is True
     with patch(
         "osprey_connectors.workspace.load_osprey_config",
-        return_value=_config_yaml(_persona_project(root, "narrow")),
+        return_value=_config_yaml(_render_project(root, "narrow")),
     ):
         enabled, custom, _default = _load_panel_config()
     assert enabled == UNIVERSAL_PANELS | {"okf"}
@@ -1456,7 +1337,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     from osprey.interfaces.web_terminal.app import _load_panel_config
 
     root = tmp_path / "prof"
-    (root / "personas").mkdir(parents=True)
+    (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
     _facility_data(root, "control_assistant")
     (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
@@ -1473,7 +1354,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
         "      label: BEAM\n"
         "      url: http://beam.local:9000\n"
     )
-    (root / "personas" / "narrow.yml").write_text(
+    (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\nexclude:\n  web_panels:\n    - beam.viewer\n"
     )
 
@@ -1481,7 +1362,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
     assert result.exit_code == 0, result.output
 
     wide_config = _config_yaml(root / "build")
-    narrow_config = _config_yaml(_persona_project(root, "narrow"))
+    narrow_config = _config_yaml(_render_project(root, "narrow"))
     wide = wide_config["web"]["panels"]
     narrow = narrow_config["web"]["panels"]
     assert wide["beam.viewer"]["enabled"] is True
@@ -1494,63 +1375,6 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
             _enabled, custom, _default = _load_panel_config()
         assert [panel["id"] for panel in custom] == expected
-
-
-class TestGraphModeRequiresAGraphStore:
-    """`osprey init` refuses graph mode on a preset whose app template has no store.
-
-    The paradigm is selectable on any profile, but its store is a service rather
-    than a bundled database file — so the one preset built on the storeless
-    ``channel_finder_standalone`` template turns the mode away at
-    materialization time, before a project that could not answer anything
-    reaches disk.
-    """
-
-    def test_set_graph_mode_on_the_standalone_preset_is_refused(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """The refusal reaches the operator by name of the block it is missing.
-
-        `osprey init` reports an unmaterializable preset as a usage error (exit
-        2) on stderr, not through the build log — the operator got the ``--set``
-        wrong, and the message says which block would have made it right.
-        """
-        result = _materialize(
-            runner,
-            str(tmp_path),
-            "cf",
-            "channel-finder-standalone",
-            "--set",
-            "channel_finder_mode=graph",
-        )
-        assert result.exit_code == 2, result.output
-        assert "services.graphdb" in result.output
-        assert "channel_finder_mode: graph" in result.output
-        assert not (tmp_path / "cf" / "profile.yml").exists()
-
-    def test_set_graph_mode_on_the_control_assistant_preset_is_accepted(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
-        """Control: the same ``--set`` on a store-deploying preset materializes.
-
-        Without it the refusal above could pass because ``--set
-        channel_finder_mode=graph`` is refused everywhere rather than because
-        this app template ships no store.
-        """
-        repo = pathlib.Path(tmp_path) / "cr"
-        result = runner.invoke(
-            init,
-            [
-                str(repo),
-                "--preset",
-                "control-assistant",
-                "--no-git",
-                "--set",
-                "channel_finder_mode=graph",
-            ],
-        )
-        assert result.exit_code == 0, result.output
-        assert _profile_yaml(repo)["channel_finder_mode"] == "graph"
 
 
 class TestRenderConfigReading:

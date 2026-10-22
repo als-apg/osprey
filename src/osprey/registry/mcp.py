@@ -196,7 +196,7 @@ PANEL_TOKEN_ENV_NAME = "OSPREY_PANEL_TOKEN"
 #: Like the env name above, each piece of this URL is owned elsewhere and
 #: spelled literally rather than imported — ``OSPREY_WEB_PORT`` by
 #: ``interfaces.common_middleware``, the ``events`` panel segment by
-#: ``deployment.web_terminals.personas`` (which imports THIS module, so the
+#: ``deployment.web_terminals.roster`` (which imports THIS module, so the
 #: import cannot run the other way), the ``/mcp`` tail by ``osprey.dispatch``.
 #: One test pins all of them against their owners.
 #:
@@ -1148,7 +1148,7 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "against the deployment's configured lattice model."
         ),
         # Its only compute path is mcp__python__execute (read-only kernels), so
-        # it must keep that tool even in a writes-disabled (read-only) persona.
+        # it must keep that tool even in a writes-disabled (read-only) render.
         requires_ask_tools=frozenset({"mcp__python__execute"}),
     ),
 }

@@ -26,51 +26,53 @@ from osprey.deployment.web_terminals.artifacts import (
     OpenModeEgressError,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
-from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
+from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.services.auth_sidecar.passwords import verify_password
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey.utils import config_writer
 from osprey_connectors.dotenv import parse_dotenv_file
+from tests._renders import tier_render
 
 _FORBIDDEN_ARGV_TOKENS = {"prune", "-a", "--all", "system", "network"}
 _GLOB_METACHARACTERS = set("*?[")
 
 
-#: The persona every roster built by :func:`_config` runs unless told otherwise.
-DEFAULT_PERSONA = "assistant"
+#: The render every roster built by :func:`_config` runs unless told otherwise.
+DEFAULT_TIER = "assistant"
 
 
 def _config(
     users,
     *,
     project_name="demo-project",
-    personas=None,
-    default_persona=None,
+    renders=None,
+    default_tier=None,
     image_source=None,
 ):
     """Minimal-but-complete facility config exercising every field decommission_user reads.
 
-    ``personas``/``default_persona``/``image_source`` are only exercised by the
-    nuke persona-image tests; omitted, every entry runs the one default persona
-    :data:`DEFAULT_PERSONA`, whose rendered project :func:`_write_config` lays
+    ``renders``/``default_tier``/``image_source`` are only exercised by the
+    nuke render-image tests; omitted, every entry runs the one default tier
+    :data:`DEFAULT_TIER`, whose rendered project :func:`_write_config` lays
     down.
     """
     web_terminals = {
         "enabled": True,
         "users": users,
     }
-    if personas is None:
-        personas = {
-            DEFAULT_PERSONA: {
-                "project": f"{project_name}-assistant",
-                "project_path": f"build/{project_name}-assistant",
-            }
+    if renders is None:
+        renders = {
+            DEFAULT_TIER: tier_render(
+                DEFAULT_TIER,
+                f"{project_name}-assistant",
+                project_path=f"build/{project_name}-assistant",
+            )
         }
-        default_persona = default_persona or DEFAULT_PERSONA
-    web_terminals["personas"] = personas
-    if default_persona is not None:
-        web_terminals["default_persona"] = default_persona
+        default_tier = default_tier or DEFAULT_TIER
+    web_terminals["renders"] = renders
+    if default_tier is not None:
+        web_terminals["default_tier"] = default_tier
     if image_source is not None:
         web_terminals["image_source"] = image_source
     return {
@@ -85,12 +87,12 @@ def _config(
 def _write_config(tmp_path, config):
     path = tmp_path / "config.yml"
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
-    # The default persona's rendered settings artifact, which every build
+    # The default tier's rendered settings artifact, which every build
     # ships. The open-mode gate reads it and fails closed on an absent one,
     # which would refuse every `auth.method: none` verb below for a reason none
     # of them is about.
     web_terminals = config["modules"]["web_terminals"]
-    entry = (web_terminals.get("personas") or {}).get(DEFAULT_PERSONA)
+    entry = (web_terminals.get("renders") or {}).get(DEFAULT_TIER)
     if isinstance(entry, dict) and isinstance(entry.get("project_path"), str):
         settings = tmp_path / entry["project_path"] / ".claude" / "settings.json"
         settings.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +214,7 @@ def fake_runtime_prune(monkeypatch):
 def fake_runtime_nuke(monkeypatch):
     """Like ``fake_runtime_prune``, but also lets tests control ``compose down``'s
     exit code/stderr — needed to exercise nuke's abort-before-volume-removal path
-    on a failed teardown — and each candidate persona image's simulated
+    on a failed teardown — and each candidate render image's simulated
     ``image inspect`` result.
 
     Returns ``(calls, listing, down_result, image_labels)``: ``calls``/
@@ -1116,28 +1118,28 @@ def test_nuke_argv_safety_no_dangerous_flags_project_scoped_down_exact_named_vol
 
 
 # =============================================================================
-# nuke: persona-local image teardown
+# nuke: render-local image teardown
 # =============================================================================
 
 
-def _persona_config(users, **kwargs):
-    """A ``_config`` with one local-mode persona catalog entry, ``control-room``,
-    set as ``default_persona`` — so every bare-string roster entry (no explicit
-    ``persona:`` key) resolves to it, and ``image_source: local`` means every
+def _render_config(users, **kwargs):
+    """A ``_config`` with one local-mode render catalog entry, ``control-room``,
+    set as ``default_tier`` — so every bare-string roster entry (no explicit
+    ``tier:`` key) resolves to it, and ``image_source: local`` means every
     such entry's image is the local-build tag under test."""
     return _config(
         users,
-        personas={"control-room": {"project": "acc-control", "project_path": "/x"}},
-        default_persona="control-room",
+        renders={"control-room": tier_render("control-room", "acc-control", project_path="/x")},
+        default_tier="control-room",
         image_source="local",
         **kwargs,
     )
 
 
-def test_nuke_removes_label_verified_persona_local_image(tmp_path, monkeypatch, fake_runtime_nuke):
+def test_nuke_removes_label_verified_render_local_image(tmp_path, monkeypatch, fake_runtime_nuke):
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"  # matches THIS deployment
     _assert_no_input_prompt(monkeypatch)
@@ -1153,11 +1155,11 @@ def test_nuke_skips_image_with_mismatched_project_label_and_warns(
 ):
     """Image tags are host-global: a tag that resolves for THIS roster but whose
     com.osprey.project label names a different deployment must survive — it may
-    belong to a sibling deployment that happens to use the same persona/project
+    belong to a sibling deployment that happens to use the same render/project
     naming."""
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "some-other-project"
     _assert_no_input_prompt(monkeypatch)
@@ -1180,7 +1182,7 @@ def test_nuke_skips_image_with_missing_label_and_warns(
     treated the same as a mismatch: skipped with a warning, never removed."""
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = None  # exists, but unlabeled
     _assert_no_input_prompt(monkeypatch)
@@ -1197,7 +1199,7 @@ def test_nuke_tolerates_absent_image_silently(tmp_path, monkeypatch, capsys, fak
     (there's nothing wrong, it just was never built/already gone)."""
     calls, listing, _down_result, _image_labels = fake_runtime_nuke  # no entry -> inspect fails
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     _assert_no_input_prompt(monkeypatch)
 
@@ -1208,15 +1210,15 @@ def test_nuke_tolerates_absent_image_silently(tmp_path, monkeypatch, capsys, fak
 
 
 def test_nuke_on_an_unresolved_roster_plans_no_image(tmp_path, monkeypatch, fake_runtime_nuke):
-    """A roster that does not resolve (here: no persona catalog at all) still
+    """A roster that does not resolve (here: no render catalog at all) still
     tears down: the lenient resolution names no image for its entries, so there
     is no candidate to inspect or remove."""
     calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"], project_name="demo-project")
     web_terminals = config["modules"]["web_terminals"]
-    del web_terminals["personas"]
-    del web_terminals["default_persona"]
+    del web_terminals["renders"]
+    del web_terminals["default_tier"]
     config_path = _write_config(tmp_path, config)
     _assert_no_input_prompt(monkeypatch)
 
@@ -1225,14 +1227,12 @@ def test_nuke_on_an_unresolved_roster_plans_no_image(tmp_path, monkeypatch, fake
     assert [c for c in calls if c[1:3] in (["image", "inspect"], ["image", "rm"])] == []
 
 
-def test_nuke_dedupes_one_image_removal_per_shared_persona(
-    tmp_path, monkeypatch, fake_runtime_nuke
-):
-    """Two roster users on the same persona share one image tag — nuke must
+def test_nuke_dedupes_one_image_removal_per_shared_render(tmp_path, monkeypatch, fake_runtime_nuke):
+    """Two roster users on the same render share one image tag — nuke must
     inspect and remove it once, not once per user."""
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice", "bob"], project_name="demo-project")
+    config = _render_config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
@@ -1259,7 +1259,7 @@ def test_nuke_image_removal_happens_after_compose_down_and_volume_removal(
 ):
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
@@ -1275,12 +1275,12 @@ def test_nuke_image_removal_happens_after_compose_down_and_volume_removal(
 def test_nuke_prints_image_plan_before_confirmation(
     tmp_path, monkeypatch, capsys, fake_runtime_nuke
 ):
-    """Both the removed and skipped persona images must appear in the printed
+    """Both the removed and skipped render images must appear in the printed
     plan before the typed-confirmation prompt is read — the operator must see
     the exact image outcome, same as the container/volume plan."""
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"
 
@@ -1296,7 +1296,7 @@ def test_nuke_prints_image_plan_before_confirmation(
 
     out = capsys.readouterr().out
     assert "acc-control:local" in out
-    # "image(s)", not "persona image(s)": the set now also carries the auth
+    # "image(s)", not "render image(s)": the set now also carries the auth
     # sidecar's own local tag when authentication is on in local mode.
     assert "image(s)" in out
     # The plan (containing the image line) was printed strictly before input() was read.
@@ -1311,7 +1311,7 @@ def test_nuke_without_confirmation_never_removes_or_inspects_images_when_decline
     labels (read-only), but zero image rm argv may ever be emitted."""
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"
     monkeypatch.setattr("builtins.input", lambda prompt="": "")
@@ -1329,7 +1329,7 @@ def test_nuke_argv_safety_image_rm_is_single_exact_named_tag(
     argv, no glob metacharacters, no forbidden tokens."""
     calls, listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice", "bob"], project_name="demo-project")
+    config = _render_config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"
 
@@ -1347,14 +1347,14 @@ def test_nuke_argv_safety_image_rm_is_single_exact_named_tag(
         )
 
 
-def test_decommission_never_touches_images_even_with_local_personas_configured(
+def test_decommission_never_touches_images_even_with_local_renders_configured(
     tmp_path, monkeypatch, fake_runtime
 ):
     """decommission stays containers+volumes only — image teardown is nuke's
-    responsibility alone, even when the facility config has local-mode personas
+    responsibility alone, even when the facility config has local-mode renders
     configured."""
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice", "bob"], project_name="demo-project")
+    config = _render_config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
 
     lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
@@ -1362,13 +1362,13 @@ def test_decommission_never_touches_images_even_with_local_personas_configured(
     assert [c for c in fake_runtime if c[1] == "image" or "image" in c] == []
 
 
-def test_prune_never_touches_images_even_with_local_personas_configured(
+def test_prune_never_touches_images_even_with_local_renders_configured(
     tmp_path, monkeypatch, fake_runtime_prune
 ):
     """prune stays containers+volumes only — same boundary as decommission."""
     calls, listing = fake_runtime_prune
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
     listing["containers"] = ["demo-project-web-eve"]
@@ -2167,10 +2167,10 @@ def test_prune_partial_purge_failure_still_forces_the_earlier_removals_into_effe
     assert [cmd for cmd in calls if "--force-recreate" in cmd]
 
 
-def _auth_persona_config(users, *, method="password", auth_image=None, image_source="local"):
-    """A local-mode persona config with authentication on — the shape that makes
+def _auth_render_config(users, *, method="password", auth_image=None, image_source="local"):
+    """A local-mode render config with authentication on — the shape that makes
     the sidecar's own :local tag a nuke candidate."""
-    config = _persona_config(users, project_name="demo-project")
+    config = _render_config(users, project_name="demo-project")
     config["modules"]["web_terminals"]["image_source"] = image_source
     auth: dict = {"method": method}
     if auth_image is not None:
@@ -2183,10 +2183,10 @@ def test_nuke_auth_sidecar_image_is_removed_when_label_verified(
     tmp_path, monkeypatch, fake_runtime_nuke
 ):
     """The sidecar's local tag is this deployment's to tear down, on the same
-    label-verified terms as a persona tag — nothing else ever removes it."""
+    label-verified terms as a render tag — nothing else ever removes it."""
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config_path = _write_config(tmp_path, _auth_persona_config(["alice"]))
+    config_path = _write_config(tmp_path, _auth_render_config(["alice"]))
     image_labels["demo-project-auth:local"] = "demo-project"
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
@@ -2212,7 +2212,7 @@ def test_nuke_auth_sidecar_image_is_not_a_candidate(
     candidate; removing an image this deployment never built is not ours to do."""
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config_path = _write_config(tmp_path, _auth_persona_config(["alice"], **kwargs))
+    config_path = _write_config(tmp_path, _auth_render_config(["alice"], **kwargs))
     image_labels["demo-project-auth:local"] = "demo-project"  # exists and is ours
     image_labels["acc-control:local"] = "demo-project"
     _assert_no_input_prompt(monkeypatch)
@@ -2228,49 +2228,49 @@ def test_nuke_auth_sidecar_image_is_not_a_candidate(
 # =============================================================================
 
 
-def _persona_roster_config(users):
-    """A config whose catalog makes the two personas distinguishable by image.
+def _render_roster_config(users):
+    """A config whose catalog makes the two renders distinguishable by image.
 
-    ``readwrite`` is the default, so a survivor whose ``persona: readonly`` is
+    ``readwrite`` is the default, so a survivor whose ``tier: readonly`` is
     lost re-resolves onto it — the privilege change this section exists to
-    catch. Only the non-default persona carries a suffixed image, so the two are
-    told apart by what ``resolve_personas`` returns, not by the roster text.
+    catch. Only the non-default tier carries a suffixed image, so the two are
+    told apart by what ``resolve_cards`` returns, not by the roster text.
     """
     return _config(
         users,
-        personas={
-            "readonly": {"project": "ctl-readonly"},
-            "readwrite": {"project": "ctl-readwrite"},
+        renders={
+            "readonly": tier_render("readonly", "ctl-readonly"),
+            "readwrite": tier_render("readwrite", "ctl-readwrite"),
         },
-        default_persona="readwrite",
+        default_tier="readwrite",
     )
 
 
 def _resolved_by_name(config_path):
-    """resolve_personas() over the config as it now stands ON DISK."""
+    """resolve_cards() over the config as it now stands ON DISK."""
     with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     web_terminals = data["modules"]["web_terminals"]
-    resolved = resolve_personas(web_terminals, data.get("registry", {}), strict=True)
+    resolved = resolve_cards(web_terminals, data.get("registry", {}), strict=True)
     return {entry["name"]: entry for entry in resolved}
 
 
 @pytest.mark.usefixtures("fake_runtime")
-def test_decommission_keeps_each_survivors_persona_in_the_rewritten_roster(tmp_path, monkeypatch):
-    """The rewritten roster carries every survivor's ``persona:`` key.
+def test_decommission_keeps_each_survivors_render_in_the_rewritten_roster(tmp_path, monkeypatch):
+    """The rewritten roster carries every survivor's ``tier:`` key.
 
     It is written back from the AUTHORED entries, not from the render-facing
-    projection: that projection drops ``persona``, and a roster with no
-    ``persona:`` keys re-resolves every survivor onto ``default_persona``.
+    projection: that projection drops ``render``, and a roster with no
+    ``tier:`` keys re-resolves every survivor onto ``default_tier``.
     """
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(
         tmp_path,
-        _persona_roster_config(
+        _render_roster_config(
             [
-                {"name": "alice", "index": 0, "persona": "readonly"},
-                {"name": "bob", "index": 1, "persona": "readwrite"},
-                {"name": "carol", "index": 2, "persona": "readonly"},
+                {"name": "alice", "index": 0, "tier": "readonly"},
+                {"name": "bob", "index": 1, "tier": "readwrite"},
+                {"name": "carol", "index": 2, "tier": "readonly"},
             ]
         ),
     )
@@ -2278,24 +2278,24 @@ def test_decommission_keeps_each_survivors_persona_in_the_rewritten_roster(tmp_p
     lifecycle.decommission_user(str(config_path), "carol", assume_yes=True)
 
     assert _reload_users(config_path) == [
-        {"name": "alice", "index": 0, "persona": "readonly"},
-        {"name": "bob", "index": 1, "persona": "readwrite"},
+        {"name": "alice", "index": 0, "tier": "readonly"},
+        {"name": "bob", "index": 1, "tier": "readwrite"},
     ]
 
 
 @pytest.mark.usefixtures("fake_runtime")
-def test_decommission_leaves_survivors_resolving_to_their_own_persona_image(tmp_path, monkeypatch):
+def test_decommission_leaves_survivors_resolving_to_their_own_render_image(tmp_path, monkeypatch):
     """The consequence that roster text stands for: after the removal each
-    survivor still resolves to the image their own persona names — the
-    non-default ``readonly`` user is NOT moved onto the default persona."""
+    survivor still resolves to the image their own render names — the
+    non-default ``readonly`` user is NOT moved onto the default tier."""
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(
         tmp_path,
-        _persona_roster_config(
+        _render_roster_config(
             [
-                {"name": "alice", "index": 0, "persona": "readonly"},
-                {"name": "bob", "index": 1, "persona": "readwrite"},
-                {"name": "carol", "index": 2, "persona": "readonly"},
+                {"name": "alice", "index": 0, "tier": "readonly"},
+                {"name": "bob", "index": 1, "tier": "readwrite"},
+                {"name": "carol", "index": 2, "tier": "readonly"},
             ]
         ),
     )
@@ -2303,10 +2303,10 @@ def test_decommission_leaves_survivors_resolving_to_their_own_persona_image(tmp_
     lifecycle.decommission_user(str(config_path), "carol", assume_yes=True)
 
     resolved = _resolved_by_name(config_path)
-    assert resolved["alice"]["persona"] == "readonly"
+    assert resolved["alice"]["render"] == "readonly"
     assert resolved["alice"]["image"] == "registry.example.org/web-terminal-readonly:latest"
-    # bob was already on the default persona: unsuffixed image, unchanged.
-    assert resolved["bob"]["persona"] == "readwrite"
+    # bob was already on the default tier: unsuffixed image, unchanged.
+    assert resolved["bob"]["render"] == "readwrite"
     assert resolved["bob"]["image"] == "registry.example.org/web-terminal:latest"
 
 
@@ -2314,7 +2314,7 @@ def test_decommission_leaves_survivors_resolving_to_their_own_persona_image(tmp_
 def test_decommission_preserves_survivor_keys_the_normalizer_does_not_read(tmp_path, monkeypatch):
     """Removing one user rewrites the whole roster, so it must write back what
     the operator authored about the OTHERS rather than a projection of it.
-    ``persona`` is the key that made this a safety problem; the rule is general,
+    ``render`` is the key that made this a safety problem; the rule is general,
     which is what ``shift`` — a key nothing in this module reads — stands for.
     """
     monkeypatch.chdir(tmp_path)
@@ -2516,14 +2516,14 @@ def test_passwd_recreate_argv_addresses_the_repos_web_stack_from_any_directory(
 # re-render would leave config.yml already rewritten, the artifacts stale, and
 # the container/volume removal below never run. The verb must refuse before it
 # touches the roster — and must NOT lose the escape hatch that lets an operator
-# decommission the offending persona's own user.
+# decommission the offending render's own user.
 # =============================================================================
 
 
-def _conflicted_persona_config(tmp_path, users, *, personas):
-    """A roster whose persona projects are really on disk under *tmp_path*.
+def _conflicted_render_config(tmp_path, users, *, renders):
+    """A roster whose render projects are really on disk under *tmp_path*.
 
-    `personas` maps a persona name to `(writes_enabled, denies_bash)`, so a case
+    `renders` maps a render name to `(writes_enabled, denies_bash)`, so a case
     can pair the launch-token entitlement with either shipped permission state.
     Every project runs the bluesky server explicitly -- the server is opt-in in
     the registry, so omitting the key would leave no project entitled and no
@@ -2532,7 +2532,7 @@ def _conflicted_persona_config(tmp_path, users, *, personas):
     import json as _json
 
     catalog = {}
-    for name, (writes, denies_bash) in personas.items():
+    for name, (writes, denies_bash) in renders.items():
         project_dir = tmp_path / "profiles" / name
         (project_dir / ".claude").mkdir(parents=True)
         (project_dir / "config.yml").write_text(
@@ -2549,28 +2549,28 @@ def _conflicted_persona_config(tmp_path, users, *, personas):
             _json.dumps({"permissions": {"deny": ["Bash"] if denies_bash else []}}),
             encoding="utf-8",
         )
-        catalog[name] = {"project": name, "project_path": f"profiles/{name}"}
-    # The default is a persona with no conflict, so removing the last user of a
+        catalog[name] = tier_render(name, name, project_path=f"profiles/{name}")
+    # The default is a render with no conflict, so removing the last user of a
     # conflicted one drops it from the referenced set.
-    default = next(name for name, (writes, denies) in personas.items() if denies or not writes)
-    return _config(users, personas=catalog, default_persona=default)
+    default = next(name for name, (writes, denies) in renders.items() if denies or not writes)
+    return _config(users, renders=catalog, default_tier=default)
 
 
-_TIERED_PERSONAS = {"armed": (True, False), "safe": (False, True)}
+_TIERED_RENDERS = {"armed": (True, False), "safe": (False, True)}
 _TIERED_USERS = [
-    {"name": "alice", "index": 0, "persona": "armed"},
-    {"name": "bob", "index": 1, "persona": "safe"},
+    {"name": "alice", "index": 0, "tier": "armed"},
+    {"name": "bob", "index": 1, "tier": "safe"},
 ]
 
 
 def test_decommission_refuses_before_touching_the_roster_when_a_survivor_is_conflicted(
     tmp_path, monkeypatch, fake_runtime
 ):
-    """Removing bob while alice's persona is conflicted must abort cleanly. The
+    """Removing bob while alice's render is conflicted must abort cleanly. The
     roster edit is precisely what makes a failed decommission half-applied, so
     the refusal has to land before it — not at the re-render that follows."""
     monkeypatch.chdir(tmp_path)
-    config = _conflicted_persona_config(tmp_path, _TIERED_USERS, personas=_TIERED_PERSONAS)
+    config = _conflicted_render_config(tmp_path, _TIERED_USERS, renders=_TIERED_RENDERS)
     config_path = _write_config(tmp_path, config)
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
@@ -2583,15 +2583,15 @@ def test_decommission_refuses_before_touching_the_roster_when_a_survivor_is_conf
     assert [c for c in fake_runtime if c[1] == "rm"] == []
 
 
-def _open_mode_roster_config(tmp_path, users, *, personas):
-    """A roster running OPEN whose persona projects are really on disk.
+def _open_mode_roster_config(tmp_path, users, *, renders):
+    """A roster running OPEN whose render projects are really on disk.
 
-    `personas` maps a persona name to the tools its shipped settings LIFT from the
-    template's deny defaults, so a case can pair the open posture with a persona
+    `renders` maps a render name to the tools its shipped settings LIFT from the
+    template's deny defaults, so a case can pair the open posture with a render
     that can still reach the host network and one that cannot.
     """
     catalog = {}
-    for name, lifted in personas.items():
+    for name, lifted in renders.items():
         project_dir = tmp_path / "profiles" / name
         (project_dir / ".claude").mkdir(parents=True)
         (project_dir / "config.yml").write_text(
@@ -2602,20 +2602,20 @@ def _open_mode_roster_config(tmp_path, users, *, personas):
             json.dumps({"permissions": {"deny": [e for e in DENY_DEFAULTS if e not in lifted]}}),
             encoding="utf-8",
         )
-        catalog[name] = {"project": name, "project_path": f"profiles/{name}"}
-    # The default is a persona that reaches nothing, so removing the last user of
+        catalog[name] = tier_render(name, name, project_path=f"profiles/{name}")
+    # The default is a render that reaches nothing, so removing the last user of
     # an offending one drops it from the referenced set.
-    default = next(name for name, lifted in personas.items() if not lifted)
-    config = _config(users, personas=catalog, default_persona=default)
+    default = next(name for name, lifted in renders.items() if not lifted)
+    config = _config(users, renders=catalog, default_tier=default)
     config["modules"]["web_terminals"]["auth"] = {"method": "none"}
     return config
 
 
 _OPEN_USERS = [
-    {"name": "alice", "index": 0, "persona": "reaching"},
-    {"name": "bob", "index": 1, "persona": "contained"},
+    {"name": "alice", "index": 0, "tier": "reaching"},
+    {"name": "bob", "index": 1, "tier": "contained"},
 ]
-_OPEN_PERSONAS = {"reaching": ("Bash",), "contained": ()}
+_OPEN_RENDERS = {"reaching": ("Bash",), "contained": ()}
 
 
 def test_decommission_refuses_before_touching_the_roster_when_open_mode_is_unsafe(
@@ -2626,7 +2626,7 @@ def test_decommission_refuses_before_touching_the_roster_when_open_mode_is_unsaf
     refusal has to land before it rather than at the re-render that follows."""
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(
-        tmp_path, _open_mode_roster_config(tmp_path, _OPEN_USERS, personas=_OPEN_PERSONAS)
+        tmp_path, _open_mode_roster_config(tmp_path, _OPEN_USERS, renders=_OPEN_RENDERS)
     )
 
     with pytest.raises(OpenModeEgressError) as excinfo:
@@ -2640,11 +2640,11 @@ def test_decommission_refuses_before_touching_the_roster_when_open_mode_is_unsaf
 @pytest.mark.usefixtures("fake_runtime")
 def test_decommission_of_the_open_mode_offenders_own_user_still_succeeds(tmp_path, monkeypatch):
     """The same escape hatch, on the same POST-removal roster: removing the
-    offending persona's last user drops it from the referenced set, and that
+    offending render's last user drops it from the referenced set, and that
     removal is the one remediation needing no image rebuild."""
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(
-        tmp_path, _open_mode_roster_config(tmp_path, _OPEN_USERS, personas=_OPEN_PERSONAS)
+        tmp_path, _open_mode_roster_config(tmp_path, _OPEN_USERS, renders=_OPEN_RENDERS)
     )
 
     lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
@@ -2652,15 +2652,15 @@ def test_decommission_of_the_open_mode_offenders_own_user_still_succeeds(tmp_pat
     assert [entry["name"] for entry in _reload_users(config_path)] == ["bob"]
 
 
-def test_decommission_of_the_conflicted_personas_own_user_still_succeeds(
+def test_decommission_of_the_conflicted_renders_own_user_still_succeeds(
     tmp_path, monkeypatch, fake_runtime
 ):
     """THE ESCAPE HATCH. Moving the check earlier must not cost the operator the
     one remediation that needs no image rebuild: removing the conflicted
-    persona's last user. The probed roster is the POST-removal one, so that
-    persona stops being referenced and the conflict dissolves."""
+    render's last user. The probed roster is the POST-removal one, so that
+    render stops being referenced and the conflict dissolves."""
     monkeypatch.chdir(tmp_path)
-    config = _conflicted_persona_config(tmp_path, _TIERED_USERS, personas=_TIERED_PERSONAS)
+    config = _conflicted_render_config(tmp_path, _TIERED_USERS, renders=_TIERED_RENDERS)
     config_path = _write_config(tmp_path, config)
 
     lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
@@ -2947,7 +2947,7 @@ def test_nuke_still_removes_images_after_a_refused_volume_and_names_a_refused_im
 ):
     calls, _listing, _down_result, image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
-    config = _persona_config(["alice"], project_name="demo-project")
+    config = _render_config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
     image_labels["acc-control:local"] = "demo-project"
     alice_claude, _alice_agent = resolve_user_volume_names(config, "alice")

@@ -37,7 +37,7 @@ DSN_LOGGER = "osprey.services.ariel_search.config"
 #: The bundled presets that run ARIEL against a Postgres of their own. The
 #: framework template renders no ``ariel`` or ``services`` block, so the
 #: deployment's statement about both comes from its profile's ``config:``.
-ARIEL_PRESETS = ["ariel-standalone", "control-assistant"]
+ARIEL_PRESETS = ["control-assistant"]
 
 
 def _preset_source(preset: str) -> str:

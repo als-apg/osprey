@@ -5,7 +5,7 @@ committed sources. Each states in its ``_reproduce`` line the command that
 rewrites it, or that it is frozen and none does. This module's loader
 reads them, and the tests below hold the frozen invariants every later
 comparison relies on: the fingerprint's size, role split and pinned sha256,
-the in_context size, the standalone address set, the limits projection and
+the in_context size, the limits projection and
 the byte identity of the pre-LINE channel-finder index copies.
 
 The copies are read to prove nothing was lost, never to fix the index's shape.
@@ -434,13 +434,6 @@ def test_in_context_size_is_frozen() -> None:
     golden = load_golden("in_context_size.json")
     assert golden["size"] == len(golden["rows"]) == 569
     assert {row["address"] for row in golden["rows"]} <= fingerprint_addresses()
-
-
-def test_standalone_address_set_is_frozen() -> None:
-    golden = load_golden("cf_standalone_addresses.json")
-    addresses = golden["addresses"]
-    assert golden["count"] == len(addresses) == 1228
-    assert addresses == sorted(set(addresses))
 
 
 def test_limits_name_only_setpoints_of_the_fingerprint() -> None:

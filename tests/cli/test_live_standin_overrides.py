@@ -273,12 +273,12 @@ def test_live_standin_overrides_do_not_refuse_the_deployments_own_posture() -> N
     )
 
 
-def test_live_standin_overrides_do_not_refuse_the_persona_write_posture() -> None:
-    """``live_standin.writes_enabled`` is the read-only persona's own key.
+def test_live_standin_overrides_do_not_refuse_the_render_write_posture() -> None:
+    """``live_standin.writes_enabled`` is the read-only render's own key.
 
     The refusal is a LEAF allowlist, never a prefix over the stand-in's block:
     where the stand-in is and what proves it reachable are the build's; whether
-    a given login may write to it is the persona's.
+    a given login may write to it is the render's.
     """
     assert (
         live_standin_duplicate_key_errors(

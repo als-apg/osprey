@@ -198,11 +198,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # same project image, so it goes with the dispatch stack: `services: {}` is
     # the spelling because a single service cannot be nulled.
     #
-    # modules.web_terminals.enabled: false drops the preset's per-persona
-    # web-terminal stack (two persona images + nginx, all built locally):
-    # nothing in this proof touches persona routing, and the deploy-up
-    # credential preflight would otherwise abort for the personas' missing
-    # LLM key. Persona coverage lives in the dedicated web-terminals lanes.
+    # modules.web_terminals.enabled: false drops the preset's per-render
+    # web-terminal stack (two render images + nginx, all built locally):
+    # nothing in this proof touches render routing, and the deploy-up
+    # credential preflight would otherwise abort for the renders' missing
+    # LLM key. Render coverage lives in the dedicated web-terminals lanes.
     # One dotted LEAF key on purpose -- stating just `.enabled` leaves
     # the preset's `modules.web_terminals` siblings intact, whereas stating
     # the `modules.web_terminals` key itself would replace the subtree (same

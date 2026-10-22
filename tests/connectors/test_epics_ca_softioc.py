@@ -265,10 +265,17 @@ def test_a_dispatch_trigger_stays_armed_across_a_repoint(ioc, prefix):
 
 def test_the_archiver_recorder_samples_through_the_ca_loop(ioc, prefix):
     """A channel nobody serves costs only itself, within the cadence, and every
-    sample, whatever loop it runs on, reuses the one channel cache of the CA loop."""
-    result = _drive("recorder", prefix, ioc)
+    sample, whatever loop it runs on, reuses the one channel cache of the CA loop.
 
-    for sample in result["samples"]:
-        assert sample == {"AO": 1.5, "LONG": 3, "MBBO": 1}, result
+    The first sample also pays the channels' connection, under the same cadence
+    deadline, so on a slow host it may keep only what answered in time; it never
+    holds a wrong value. Every later sample reads the cached channels and is whole.
+    """
+    result = _drive("recorder", prefix, ioc)
+    served = {"AO": 1.5, "LONG": 3, "MBBO": 1}
+
+    cold, *warm = result["samples"]
+    assert cold.items() <= served.items(), result
+    assert warm and all(sample == served for sample in warm), result
     assert all(seconds < 2.0 for seconds in result["elapsed"]), result
     assert result["ca_loop_caches"] == [True], result

@@ -17,7 +17,6 @@ from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
@@ -40,6 +39,7 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
     terminal_secret_env_var,
 )
+from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.interfaces import common_middleware
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
@@ -64,6 +64,7 @@ from osprey.services.auth_sidecar.app import (
 )
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX, env_var_suffix
 from osprey_connectors.workspace import agent_data_base_dir
+from tests._renders import tier_render
 
 
 class _InMemoryBytecodeCache(BytecodeCache):
@@ -172,8 +173,8 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
         "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": "dls_controls-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
     }
     if groups is not None:
         web_terminals["landing"] = {"groups": groups}
@@ -214,18 +215,18 @@ def test_render_refuses_registry_mode_without_a_registry_url(registry: Any) -> N
 
 
 @pytest.mark.parametrize("image_source", ["registry", "local"])
-def test_render_refuses_a_roster_with_no_persona_catalog(image_source: str) -> None:
-    """Nothing but a persona's project names the directory a terminal runs in,
+def test_render_refuses_a_roster_with_no_render_catalog(image_source: str) -> None:
+    """Nothing but a render's project names the directory a terminal runs in,
     so the render refuses a roster with no catalog in either image source."""
     # Arrange
     config = _config(["alice"])
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = image_source
-    del web_terminals["personas"]
-    del web_terminals["default_persona"]
+    del web_terminals["renders"]
+    del web_terminals["default_tier"]
 
     # Act / Assert
-    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+    with pytest.raises(ValueError, match=re.escape(RENDER_CATALOG_REQUIRED)):
         render_web_terminals(config)
 
 
@@ -636,15 +637,12 @@ def test_landing_transform_renders_links_group_items() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Landing sections for standalone-service personas (`landing_group`)
+# Landing sections and card badges
 #
-# A roster is not always a list of people: a deployment may run a whole second
-# product behind its own login (the shipped control-assistant stack runs the
-# ARIEL logbook assistant beside its two operator tiers). A persona declaring
-# `landing_group` files its users under their own landing heading, drawn as a
-# `variant: "tray"` section, so the page reads people first and services after.
-# Presentation only — nothing about the container, its ports or its routes
-# moves.
+# The landing page draws people under one heading and, in a `variant: "tray"`
+# section, the deployment's shared apps (see test_landing_groups.py for the
+# groups themselves). These pin the template's section markup and the tier
+# badge each person's card carries.
 # ---------------------------------------------------------------------------
 
 
@@ -677,42 +675,37 @@ def _cards_in_section(landing_html: str, heading: str) -> list[str]:
     return re.findall(r'<span class="landing-card-label">([^<]*)</span>', body)
 
 
-def _roster_config(users: list[dict], personas: dict, groups: list[dict] | None = None) -> dict:
-    """A config whose roster resolves against a persona catalog.
+def _roster_config(users: list[dict], tiers: dict, groups: list[dict] | None = None) -> dict:
+    """A config whose roster resolves against a render catalog.
 
     ``image_source`` stays at its registry default so the catalog needs no
-    per-persona project paths on disk — these tests are about the landing page,
+    per-render project paths on disk — these tests are about the landing page,
     not about image resolution.
     """
     config = copy.deepcopy(_config(users, groups=groups))
-    config["modules"]["web_terminals"]["personas"] = personas
-    config["modules"]["web_terminals"]["default_persona"] = next(iter(personas))
+    config["modules"]["web_terminals"]["renders"] = tiers
+    config["modules"]["web_terminals"]["default_tier"] = next(iter(tiers))
     return config
 
 
 _OPERATOR_CATALOG = {
-    "readonly": {"project": "dls-readonly", "build_profile": "readonly"},
-    "readwrite": {"project": "dls-readwrite", "build_profile": "readwrite"},
-    "ariel": {
-        "project": "dls-ariel",
-        "build_profile": "ariel",
-        "landing_group": "Standalone deployments",
-    },
+    "readonly": tier_render("readonly", "dls-readonly", build_profile="readonly"),
+    "readwrite": tier_render("readwrite", "dls-readwrite", build_profile="readwrite"),
+    "ariel": tier_render("ariel", "dls-ariel", build_profile="ariel"),
 }
 
 _OPERATOR_ROSTER = [
-    {"name": "alice", "index": 0, "persona": "readwrite"},
-    {"name": "bob", "index": 1, "persona": "readonly"},
-    {"name": "ariel", "index": 2, "persona": "ariel"},
+    {"name": "alice", "index": 0, "tier": "readwrite"},
+    {"name": "bob", "index": 1, "tier": "readonly"},
+    {"name": "ariel", "index": 2, "tier": "ariel"},
 ]
 
 
-def test_landing_group_persona_lifts_its_users_into_their_own_tray_section() -> None:
-    """The declaring persona's users leave the roster section for a tray of their own.
+def test_landing_without_shared_apps_renders_no_tray() -> None:
+    """A roster of people alone renders exactly one flat section.
 
-    This is the whole feature in one assertion: alice and bob stay under the
-    roster heading, ariel moves below into a section headed by the persona's
-    `landing_group`, and only that second section carries the tray class.
+    The tray is the apps group's; a deployment sharing no app must not wear the
+    class anywhere in its page body.
     """
     # Arrange
     config = _roster_config(_OPERATOR_ROSTER, _OPERATOR_CATALOG)
@@ -721,153 +714,19 @@ def test_landing_group_persona_lifts_its_users_into_their_own_tray_section() -> 
     landing_html = render_web_terminals(config)["nginx/landing.html"]
 
     # Assert
-    assert _sections(landing_html) == [
-        ("landing-group", "Terminals"),
-        ("landing-group landing-tray", "Standalone deployments"),
-    ]
-    assert _cards_in_section(landing_html, "Terminals") == ["alice", "bob"]
-    assert _cards_in_section(landing_html, "Standalone deployments") == ["ariel"]
-
-
-def test_landing_group_changes_nothing_but_the_landing_page() -> None:
-    """`landing_group` is presentation: the compose overlay and nginx fragment
-    for the same roster are byte-identical with and without it.
-
-    The key names a landing section, and a reader could reasonably fear it also
-    moves the container somewhere — this pins that it does not touch the image,
-    the ports, the volumes or the proxy route.
-    """
-    # Arrange
-    plain_catalog = copy.deepcopy(_OPERATOR_CATALOG)
-    del plain_catalog["ariel"]["landing_group"]
-    with_group = _roster_config(_OPERATOR_ROSTER, _OPERATOR_CATALOG)
-    without_group = _roster_config(_OPERATOR_ROSTER, plain_catalog)
-
-    # Act
-    grouped = render_web_terminals(with_group)
-    ungrouped = render_web_terminals(without_group)
-
-    # Assert
-    assert grouped["docker-compose.web.yml"] == ungrouped["docker-compose.web.yml"]
-    assert grouped["nginx/nginx.conf"] == ungrouped["nginx/nginx.conf"]
-    # ...and the landing page is the ONLY artifact that did move.
-    assert grouped["nginx/landing.html"] != ungrouped["nginx/landing.html"]
-
-
-def test_landing_without_any_landing_group_renders_no_tray() -> None:
-    """A catalog declaring none renders exactly one flat section, as before.
-
-    The additivity guard: every deployment predating this key must keep its
-    current landing page, so the tray class must not appear anywhere.
-    """
-    # Arrange
-    catalog = copy.deepcopy(_OPERATOR_CATALOG)
-    del catalog["ariel"]["landing_group"]
-    config = _roster_config(_OPERATOR_ROSTER, catalog)
-
-    # Act
-    landing_html = render_web_terminals(config)["nginx/landing.html"]
-
-    # Assert
     assert _sections(landing_html) == [("landing-group", "Terminals")]
+    assert _cards_in_section(landing_html, "Terminals") == ["alice", "bob", "ariel"]
     # Body only: the stylesheet always carries the `.landing-tray` RULE; what
     # must be absent is any element wearing the class.
     assert "landing-tray" not in _body(landing_html)
 
 
-def test_landing_users_section_label_is_configurable() -> None:
-    """`{type: users, label: ...}` renames the section holding the ungrouped users."""
-    # Arrange
-    config = _roster_config(
-        _OPERATOR_ROSTER, _OPERATOR_CATALOG, groups=[{"type": "users", "label": "Users"}]
-    )
-
-    # Act
-    landing_html = render_web_terminals(config)["nginx/landing.html"]
-
-    # Assert
-    assert _sections(landing_html) == [
-        ("landing-group", "Users"),
-        ("landing-group landing-tray", "Standalone deployments"),
-    ]
-
-
-def test_landing_tray_sections_follow_first_appearance_roster_order() -> None:
-    """Two distinct `landing_group`s order by where each is first seen in the roster.
-
-    Ordering has to come from the config rather than from dict iteration
-    accident, so an operator can predict the page from the roster alone. The
-    catalog below deliberately declares the two personas in the OPPOSITE order
-    to the roster.
-    """
-    # Arrange
-    catalog = {
-        "dashboards": {"project": "dls-dash", "landing_group": "Dashboards"},
-        "ariel": {"project": "dls-ariel", "landing_group": "Standalone deployments"},
-        "readonly": {"project": "dls-readonly"},
-    }
-    roster = [
-        {"name": "bob", "index": 0, "persona": "readonly"},
-        {"name": "ariel", "index": 1, "persona": "ariel"},
-        {"name": "lattice", "index": 2, "persona": "dashboards"},
-    ]
-    config = _roster_config(roster, catalog)
-
-    # Act
-    landing_html = render_web_terminals(config)["nginx/landing.html"]
-
-    # Assert
-    assert _sections(landing_html) == [
-        ("landing-group", "Terminals"),
-        ("landing-group landing-tray", "Standalone deployments"),
-        ("landing-group landing-tray", "Dashboards"),
-    ]
-
-
-def test_landing_two_users_of_one_grouped_persona_share_a_single_tray() -> None:
-    """A `landing_group` is a section, not a card: two users of the same persona
-    land in one tray rather than opening two identically-headed ones."""
-    # Arrange
-    roster = [
-        {"name": "ariel", "index": 0, "persona": "ariel"},
-        {"name": "ariel-archive", "index": 1, "persona": "ariel"},
-    ]
-    config = _roster_config(roster, _OPERATOR_CATALOG)
-
-    # Act
-    landing_html = render_web_terminals(config)["nginx/landing.html"]
-
-    # Assert
-    assert [cls for cls, _ in _sections(landing_html)].count("landing-group landing-tray") == 1
-    assert _cards_in_section(landing_html, "Standalone deployments") == [
-        "ariel",
-        "ariel-archive",
-    ]
-
-
-def test_landing_group_heading_is_html_escaped() -> None:
-    """The heading is operator-supplied config, so it is escaped like every other
-    interpolated string on this page — it reaches an element body, not an
-    attribute, but it reaches the document either way."""
-    # Arrange
-    catalog = copy.deepcopy(_OPERATOR_CATALOG)
-    catalog["ariel"]["landing_group"] = "<script>alert('g')</script>"
-    config = _roster_config(_OPERATOR_ROSTER, catalog)
-
-    # Act
-    landing_html = render_web_terminals(config)["nginx/landing.html"]
-
-    # Assert
-    assert "<script>alert" not in landing_html
-    assert "&lt;script&gt;" in landing_html
-
-
-def test_landing_persona_badge_is_dropped_when_it_only_repeats_the_user_name() -> None:
+def test_landing_render_badge_is_dropped_when_it_only_repeats_the_user_name() -> None:
     """A card reading `ariel` over a badge reading `ARIEL` says nothing twice.
 
     The badge names which tier a login belongs to, so it earns its place only
-    when it differs from the label — the case a single-tenant service persona
-    (roster entry and persona named after the same thing) never hits, and a
+    when it differs from the label — the case a single-tenant service render
+    (roster entry and render named after the same thing) never hits, and a
     people roster always does.
     """
     # Arrange
@@ -881,11 +740,11 @@ def test_landing_persona_badge_is_dropped_when_it_only_repeats_the_user_name() -
     assert badges == ["readwrite", "readonly"]
 
 
-def test_landing_persona_badge_is_dropped_case_insensitively() -> None:
+def test_landing_render_badge_is_dropped_case_insensitively() -> None:
     """The badge renders uppercase, so `Ariel`/`ariel` would read as duplicated too."""
     # Arrange
-    catalog = {"Ariel": {"project": "dls-ariel", "landing_group": "Standalone deployments"}}
-    config = _roster_config([{"name": "ariel", "index": 0, "persona": "Ariel"}], catalog)
+    catalog = {"Ariel": tier_render("Ariel", "dls-ariel")}
+    config = _roster_config([{"name": "ariel", "index": 0, "tier": "Ariel"}], catalog)
 
     # Act
     landing_html = render_web_terminals(config)["nginx/landing.html"]
@@ -1791,38 +1650,40 @@ def test_theme_value_is_yaml_quoted_and_round_trips() -> None:
     assert _service_env(compose, "web-alice")["OSPREY_WEB_THEME"] == tricky
 
 
-def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
-    """A persona's `extra_mounts` render as additional `volumes:` entries on every
-    user of that persona, after the framework mounts (claude-config, agent-data,
+def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
+    """A render's `extra_mounts` render as additional `volumes:` entries on every
+    user of that render, after the framework mounts (claude-config, agent-data,
     this user's audit subdirectory, its control-context record directory, the
     simulator logs and the guarded-run directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    web_terminals["default_persona"] = "assistant"
-    web_terminals["personas"] = {
-        "assistant": {
-            "project": "dls_controls-assistant",
-            "project_path": "../dls_controls-assistant",
-            "build_profile": "profiles/assistant.yml",
-        },
-        "gui": {
-            "project": "dls-gui",
-            "project_path": "../dls-gui",
-            "build_profile": "profiles/gui.yml",
-            "extra_mounts": ["/opt/site-data:/app/site-data:ro", "shared-cache:/app/cache"],
-        },
+    web_terminals["default_tier"] = "assistant"
+    web_terminals["renders"] = {
+        "assistant": tier_render(
+            "assistant",
+            "dls_controls-assistant",
+            project_path="../dls_controls-assistant",
+            build_profile="profiles/assistant.yml",
+        ),
+        "gui": tier_render(
+            "gui",
+            "dls-gui",
+            project_path="../dls-gui",
+            build_profile="profiles/gui.yml",
+            extra_mounts=["/opt/site-data:/app/site-data:ro", "shared-cache:/app/cache"],
+        ),
     }
     web_terminals["users"] = [
-        {"name": "alice", "index": 0},  # default persona, no extra_mounts
-        {"name": "bob", "index": 1, "persona": "gui"},
+        {"name": "alice", "index": 0},  # default tier, no extra_mounts
+        {"name": "bob", "index": 1, "tier": "gui"},
     ]
 
     # Act
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the six default mounts plus the persona's two
+    # Assert — bob (gui) carries the six default mounts plus the render's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
@@ -1834,8 +1695,8 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
-    # alice (default persona, no extra_mounts) keeps exactly the framework's own
-    # six mounts — the persona's list adds to them, never reorders them.
+    # alice (default tier, no extra_mounts) keeps exactly the framework's own
+    # six mounts — the render's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls_controls-assistant/var/agent_data",
@@ -1850,7 +1711,7 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A persona with no `extra_mounts` emits exactly the six
+    """A render with no `extra_mounts` emits exactly the six
     framework per-user volume lines — claude-config, agent-data, this user's own
     audit subdirectory, its own control-context record directory, the simulator
     logs of its mock target and the guarded-run directory — and the extra_mounts
@@ -3800,7 +3661,7 @@ def test_registry_mode_names_the_auth_sidecar_under_the_registry_and_image_tag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Registry mode with no `auth.image`: the sidecar is `<registry.url>/<project>-auth`
-    on the tag every persona image carries, `${VAR}` expanded at render, so one
+    on the tag every terminal image carries, `${VAR}` expanded at render, so one
     `OSPREY_IMAGE_TAG` names every image the deployment pushes."""
     # Arrange
     monkeypatch.setenv("OSPREY_IMAGE_TAG", "3f9c2a1b0")
@@ -3817,7 +3678,7 @@ def test_registry_mode_names_the_auth_sidecar_under_the_registry_and_image_tag(
 
 
 def test_registry_mode_auth_sidecar_defaults_to_the_latest_tag() -> None:
-    """With no `image_tag` the sidecar follows the personas' `latest`."""
+    """With no `image_tag` the sidecar follows the terminal images' `latest`."""
     auth = _compose(_auth_config())["services"]["auth"]
 
     assert auth["image"] == (
@@ -4553,7 +4414,7 @@ def test_every_terminal_carries_the_session_lifetime_under_every_method(method: 
     is emitted under every method all the same: the container cannot know at
     build time which posture it will run under, and a deploy-time change of
     method must not leave a terminal missing the number it now needs. It has to
-    travel as environment: the persona's `config.yml` is baked into the image
+    travel as environment: the render's `config.yml` is baked into the image
     at build time, so a deploy-time edit re-renders this overlay and nothing
     else.
 
@@ -4789,36 +4650,36 @@ def test_render_auth_off_still_renders_roster_names_that_collide_on_their_suffix
 # dashboard DATA endpoint. It reaches a web terminal through the PER-USER
 # `environment:` block rather than the shared `env_file: .env.production`,
 # because that one file is handed to EVERY user: a token placed there would give
-# a read-only persona a credential that can fire triggers. Gating on the
-# persona's declared EVENTS panel is what keeps the tier boundary intact.
+# a read-only render a credential that can fire triggers. Gating on the
+# render's declared EVENTS panel is what keeps the tier boundary intact.
 # ---------------------------------------------------------------------------
 
 _DISPATCHER_TOKEN_LINE = "EVENT_DISPATCHER_TOKEN=${EVENT_DISPATCHER_TOKEN:-}"
 
 
-def _events_persona_config() -> dict:
-    """Two personas; only `readwrite` declares the EVENTS panel."""
+def _events_render_config() -> dict:
+    """Two renders; only `readwrite` declares the EVENTS panel."""
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    web_terminals["default_persona"] = "readonly"
-    web_terminals["personas"] = {
-        "readonly": {"project": "dls-readonly", "project_path": "../dls-readonly"},
-        "readwrite": {"project": "dls-readwrite", "project_path": "../dls-readwrite"},
+    web_terminals["default_tier"] = "readonly"
+    web_terminals["renders"] = {
+        "readonly": tier_render("readonly", "dls-readonly", project_path="../dls-readonly"),
+        "readwrite": tier_render("readwrite", "dls-readwrite", project_path="../dls-readwrite"),
     }
     web_terminals["users"] = [
-        {"name": "alice", "index": 0, "persona": "readwrite"},
-        {"name": "bob", "index": 1, "persona": "readonly"},
+        {"name": "alice", "index": 0, "tier": "readwrite"},
+        {"name": "bob", "index": 1, "tier": "readonly"},
     ]
     return config
 
 
-def test_events_panel_persona_gets_the_dispatcher_token() -> None:
-    """A user whose persona declares the EVENTS panel gets the dispatcher bearer in
+def test_events_panel_render_gets_the_dispatcher_token() -> None:
+    """A user whose render declares the EVENTS panel gets the dispatcher bearer in
     its own `environment:` block, interpolated from the deploy `.env` at compose
     time so the secret is never written into a rendered artifact."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), dispatcher_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), dispatcher_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4827,13 +4688,13 @@ def test_events_panel_persona_gets_the_dispatcher_token() -> None:
     assert _DISPATCHER_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
 
 
-def test_persona_without_events_panel_gets_no_dispatcher_token() -> None:
-    """The tier boundary: a persona declaring no EVENTS panel must not receive a
+def test_render_without_events_panel_gets_no_dispatcher_token() -> None:
+    """The tier boundary: a render declaring no EVENTS panel must not receive a
     credential that can fire triggers -- which is exactly why this cannot live in
     the shared .env.production that every user's container reads."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), dispatcher_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), dispatcher_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4843,14 +4704,14 @@ def test_persona_without_events_panel_gets_no_dispatcher_token() -> None:
     assert not any("EVENT_DISPATCHER_TOKEN" in line for line in bob_env)
 
 
-def test_render_without_dispatcher_personas_emits_no_token_line() -> None:
+def test_render_without_dispatcher_renders_emits_no_token_line() -> None:
     """The no-project-root render path (`osprey scaffold web-terminals render`)
-    passes no persona set, the same way it passes no auth digest -- so it emits no
+    passes no render set, the same way it passes no auth digest -- so it emits no
     credential. Harmless: every `osprey up` re-renders through the artifacts seam,
     which resolves the set from disk."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -4871,7 +4732,7 @@ def test_render_without_dispatcher_personas_emits_no_token_line() -> None:
 # ARIEL tab reports the database as unavailable.
 #
 # Per-user, not `.env.production`, for the same reason as the dispatcher token:
-# that file is handed to every user alike and cannot express "the personas that
+# that file is handed to every user alike and cannot express "the renders that
 # configure ARIEL".
 # ---------------------------------------------------------------------------
 
@@ -4879,13 +4740,13 @@ _ARIEL_PASSWORD_LINE = "ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}"
 _ARIEL_READONLY_PASSWORD_LINE = "ARIEL_DB_READONLY_PASSWORD=${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}"
 
 
-def test_ariel_persona_gets_the_database_password() -> None:
-    """A user whose persona configures ARIEL gets the minted Postgres password in
+def test_ariel_render_gets_the_database_password() -> None:
+    """A user whose render configures ARIEL gets the minted Postgres password in
     its own `environment:` block, interpolated from the deploy `.env` at compose
     time so the secret is never written into a rendered artifact."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), ariel_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4894,11 +4755,11 @@ def test_ariel_persona_gets_the_database_password() -> None:
     assert _ARIEL_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
 
 
-def test_persona_without_ariel_gets_no_database_password() -> None:
-    """A persona that configures no logbook needs no logbook credential."""
+def test_render_without_ariel_gets_no_database_password() -> None:
+    """A render that configures no logbook needs no logbook credential."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), ariel_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4908,7 +4769,7 @@ def test_persona_without_ariel_gets_no_database_password() -> None:
     assert not any("ARIEL_DB_PASSWORD" in line for line in bob_env)
 
 
-def test_ariel_persona_gets_the_readonly_role_password() -> None:
+def test_ariel_render_gets_the_readonly_role_password() -> None:
     """The SQL tool's own identity travels with the ingestion one.
 
     Both rungs of the derived DSN are read by the same process; a container
@@ -4917,7 +4778,7 @@ def test_ariel_persona_gets_the_readonly_role_password() -> None:
     """
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), ariel_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4928,12 +4789,12 @@ def test_ariel_persona_gets_the_readonly_role_password() -> None:
     assert not any("ARIEL_DB_READONLY_PASSWORD" in line for line in bob_env)
 
 
-def test_render_without_ariel_personas_emits_no_password_line() -> None:
-    """The no-project-root render path passes no persona set and so emits no
+def test_render_without_ariel_renders_emits_no_password_line() -> None:
+    """The no-project-root render path passes no render set and so emits no
     credential, exactly as it does for the dispatcher token."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -4956,11 +4817,11 @@ def test_render_without_ariel_personas_emits_no_password_line() -> None:
 _PHOEBUS_HANDLE_LINE = "PHOEBUS_REQUIRE_HANDLE=1"
 
 
-def test_phoebus_persona_gets_the_require_handle_stamp() -> None:
-    """A user whose persona runs Phoebus refuses the implicit "active" display."""
+def test_phoebus_render_gets_the_require_handle_stamp() -> None:
+    """A user whose render runs Phoebus refuses the implicit "active" display."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), phoebus_handle_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), phoebus_handle_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4969,11 +4830,11 @@ def test_phoebus_persona_gets_the_require_handle_stamp() -> None:
     assert _PHOEBUS_HANDLE_LINE in compose["services"]["web-alice"]["environment"]
 
 
-def test_persona_without_phoebus_gets_no_require_handle_stamp() -> None:
-    """A persona that runs no Phoebus server carries no Phoebus switch."""
+def test_render_without_phoebus_gets_no_require_handle_stamp() -> None:
+    """A render that runs no Phoebus server carries no Phoebus switch."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), phoebus_handle_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), phoebus_handle_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -4983,12 +4844,12 @@ def test_persona_without_phoebus_gets_no_require_handle_stamp() -> None:
     assert not any(line.startswith("PHOEBUS_REQUIRE_HANDLE") for line in bob_env)
 
 
-def test_render_without_phoebus_handle_personas_emits_no_stamp() -> None:
-    """The no-project-root render path passes no persona set and so emits no
-    stamp for persona entries, exactly as it does for every disk-derived grant."""
+def test_render_without_phoebus_handle_renders_emits_no_stamp() -> None:
+    """The no-project-root render path passes no render set and so emits no
+    stamp for render entries, exactly as it does for every disk-derived grant."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -5005,7 +4866,7 @@ def test_render_without_phoebus_handle_personas_emits_no_stamp() -> None:
 # credentials above, and more sharply: the shared `.env.production` is handed to
 # every user's container alike, so a launch token placed there would hand
 # queue-start capability -- physical hardware motion -- to the read-only
-# personas that must never hold it.
+# renders that must never hold it.
 # ---------------------------------------------------------------------------
 
 _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
@@ -5029,15 +4890,15 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 _ARCHIVER_PASSWORD_LINE = "MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}"
 
 
-def test_archiver_persona_gets_the_store_password() -> None:
-    """A user whose persona reads a store password gets it in its own `environment:`
+def test_archiver_render_gets_the_store_password() -> None:
+    """A user whose render reads a store password gets it in its own `environment:`
     block, interpolated from the deploy `.env` at compose time so the secret is
     never written into a rendered artifact."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(),
-            archiver_credential_personas={"readwrite": ("MONGO_ROOT_PASSWORD",)},
+            _events_render_config(),
+            archiver_credential_renders={"readwrite": ("MONGO_ROOT_PASSWORD",)},
         )["docker-compose.web.yml"]
     )
 
@@ -5046,12 +4907,12 @@ def test_archiver_persona_gets_the_store_password() -> None:
 
 
 def test_archiver_grant_carries_the_configured_variable_name() -> None:
-    """A persona whose connector names another variable is handed THAT one."""
+    """A render whose connector names another variable is handed THAT one."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(),
-            archiver_credential_personas={"readwrite": ("FACILITY_DB_PW",)},
+            _events_render_config(),
+            archiver_credential_renders={"readwrite": ("FACILITY_DB_PW",)},
         )["docker-compose.web.yml"]
     )
 
@@ -5061,13 +4922,13 @@ def test_archiver_grant_carries_the_configured_variable_name() -> None:
     assert not any("MONGO_ROOT_PASSWORD" in line for line in alice_env)
 
 
-def test_persona_without_an_archiver_credential_gets_none() -> None:
-    """A persona whose archiver names no credential variable gets no line."""
+def test_render_without_an_archiver_credential_gets_none() -> None:
+    """A render whose archiver names no credential variable gets no line."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(),
-            archiver_credential_personas={"readwrite": ("MONGO_ROOT_PASSWORD",)},
+            _events_render_config(),
+            archiver_credential_renders={"readwrite": ("MONGO_ROOT_PASSWORD",)},
         )["docker-compose.web.yml"]
     )
 
@@ -5076,12 +4937,12 @@ def test_persona_without_an_archiver_credential_gets_none() -> None:
     assert not any("MONGO_ROOT_PASSWORD" in line for line in bob_env)
 
 
-def test_render_without_archiver_personas_emits_no_password_line() -> None:
-    """The no-project-root render path passes no persona map and so emits no
+def test_render_without_archiver_renders_emits_no_password_line() -> None:
+    """The no-project-root render path passes no render map and so emits no
     credential, exactly as it does for the other three."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -5091,12 +4952,12 @@ def test_render_without_archiver_personas_emits_no_password_line() -> None:
 
 
 def test_archiver_grant_emits_one_line_per_named_variable() -> None:
-    """Every variable the persona's archiver names reaches its container, in order."""
+    """Every variable the render's archiver names reaches its container, in order."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(),
-            archiver_credential_personas={"readwrite": ("ARCHIVER_TOKEN", "OTHER_PW")},
+            _events_render_config(),
+            archiver_credential_renders={"readwrite": ("ARCHIVER_TOKEN", "OTHER_PW")},
         )["docker-compose.web.yml"]
     )
 
@@ -5112,8 +4973,8 @@ def test_archiver_grant_for_one_variable_renders_unchanged() -> None:
     """One named variable renders as one line in place, with no blank line added."""
     # Act
     text = render_web_terminals(
-        _events_persona_config(),
-        archiver_credential_personas={"readwrite": ("MONGO_ROOT_PASSWORD",)},
+        _events_render_config(),
+        archiver_credential_renders={"readwrite": ("MONGO_ROOT_PASSWORD",)},
     )["docker-compose.web.yml"]
 
     # Assert
@@ -5139,8 +5000,8 @@ def test_archiver_ca_bundle_is_mounted_read_only_at_the_same_path() -> None:
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(),
-            archiver_ca_bundle_personas={"readwrite": (_SITE_CA,)},
+            _events_render_config(),
+            archiver_ca_bundle_renders={"readwrite": (_SITE_CA,)},
         )["docker-compose.web.yml"]
     )
 
@@ -5155,7 +5016,7 @@ def test_archiver_ca_bundle_is_mounted_read_only_at_the_same_path() -> None:
 def test_render_without_ca_bundles_emits_no_mount() -> None:
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -5170,7 +5031,7 @@ def test_ca_bundle_mount_carries_any_path() -> None:
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), archiver_ca_bundle_personas={"readwrite": (odd,)}
+            _events_render_config(), archiver_ca_bundle_renders={"readwrite": (odd,)}
         )["docker-compose.web.yml"]
     )
 
@@ -5182,9 +5043,9 @@ def test_ca_bundle_mount_carries_any_path() -> None:
 
 def test_ca_bundle_mount_does_not_move_the_other_lines() -> None:
     # Act
-    without = render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+    without = render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     with_mount = render_web_terminals(
-        _events_persona_config(), archiver_ca_bundle_personas={"readwrite": (_SITE_CA,)}
+        _events_render_config(), archiver_ca_bundle_renders={"readwrite": (_SITE_CA,)}
     )["docker-compose.web.yml"]
 
     # Assert
@@ -5193,14 +5054,14 @@ def test_ca_bundle_mount_does_not_move_the_other_lines() -> None:
     assert len([line for line in diff if line.startswith("+ ")]) == 4
 
 
-def test_entitled_persona_gets_the_launch_token() -> None:
-    """A user whose persona is entitled to arm a queue start gets the launch token
+def test_entitled_render_gets_the_launch_token() -> None:
+    """A user whose render is entitled to arm a queue start gets the launch token
     in its own `environment:` block, interpolated from the deploy `.env` at compose
     time so the secret is never written into a rendered artifact."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), launch_token_personas={"bluesky": {"readwrite"}}
+            _events_render_config(), launch_token_renders={"bluesky": {"readwrite"}}
         )["docker-compose.web.yml"]
     )
 
@@ -5208,14 +5069,14 @@ def test_entitled_persona_gets_the_launch_token() -> None:
     assert _LAUNCH_TOKEN_LINE in compose["services"]["web-alice"]["environment"]
 
 
-def test_unentitled_persona_gets_no_launch_token() -> None:
-    """The tier boundary: a persona outside the entitled set must not receive the
+def test_unentitled_render_gets_no_launch_token() -> None:
+    """The tier boundary: a render outside the entitled set must not receive the
     credential that arms hardware motion -- which is exactly why this cannot live
     in the shared .env.production that every user's container reads."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), launch_token_personas={"bluesky": {"readwrite"}}
+            _events_render_config(), launch_token_renders={"bluesky": {"readwrite"}}
         )["docker-compose.web.yml"]
     )
 
@@ -5228,15 +5089,15 @@ def test_unentitled_persona_gets_no_launch_token() -> None:
 # a second bridge with its own launch token, because each lane is a whole stack
 # armed separately -- one shared token would let a launch approved against one
 # machine be replayed against the other. Entitlement is therefore per lane as
-# well as per persona: a persona armed on both lanes is handed both tokens, one
+# well as per tier: a render armed on both lanes is handed both tokens, one
 # armed on a single lane is handed that lane's alone, and the tier boundary --
-# an unentitled persona receives nothing -- is the same one throughout.
+# an unentitled render receives nothing -- is the same one throughout.
 
 _SECOND_LANE_TOKEN_LINE = "BLUESKY_LIVE_LAUNCH_TOKEN=${BLUESKY_LIVE_LAUNCH_TOKEN:-}"
 
 
-def _two_lane_persona_config() -> dict:
-    config = _events_persona_config()
+def _two_lane_render_config() -> dict:
+    config = _events_render_config()
     config["services"] = {
         "bluesky": {"port": 10080, "target": "va"},
         "bluesky_live": {"port": default_port("bluesky_second_lane"), "target": "live"},
@@ -5244,12 +5105,12 @@ def _two_lane_persona_config() -> dict:
     return config
 
 
-def test_entitled_persona_on_a_two_lane_deployment_gets_both_launch_tokens() -> None:
+def test_entitled_render_on_a_two_lane_deployment_gets_both_launch_tokens() -> None:
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _two_lane_persona_config(),
-            launch_token_personas={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
+            _two_lane_render_config(),
+            launch_token_renders={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
         )["docker-compose.web.yml"]
     )
 
@@ -5259,12 +5120,12 @@ def test_entitled_persona_on_a_two_lane_deployment_gets_both_launch_tokens() -> 
     assert _SECOND_LANE_TOKEN_LINE in alice_env
 
 
-def test_unentitled_persona_on_a_two_lane_deployment_gets_neither_token() -> None:
+def test_unentitled_render_on_a_two_lane_deployment_gets_neither_token() -> None:
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _two_lane_persona_config(),
-            launch_token_personas={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
+            _two_lane_render_config(),
+            launch_token_renders={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
         )["docker-compose.web.yml"]
     )
 
@@ -5278,7 +5139,7 @@ def test_single_lane_deployment_grants_lane_ones_token_alone() -> None:
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), launch_token_personas={"bluesky": {"readwrite"}}
+            _events_render_config(), launch_token_renders={"bluesky": {"readwrite"}}
         )["docker-compose.web.yml"]
     )
 
@@ -5290,9 +5151,9 @@ def test_single_lane_deployment_grants_lane_ones_token_alone() -> None:
 _VA_LANE_TOKEN_LINE = "BLUESKY_VA_LAUNCH_TOKEN=${BLUESKY_VA_LAUNCH_TOKEN:-}"
 
 
-def _va_lane_persona_config() -> dict:
+def _va_lane_render_config() -> dict:
     """A deployment whose baseline is the live machine, plus an opt-in VA lane."""
-    config = _events_persona_config()
+    config = _events_render_config()
     config["services"] = {
         "bluesky": {"port": 10080, "target": "live"},
         "bluesky_va": {"port": default_port("bluesky_second_lane"), "target": "va"},
@@ -5300,15 +5161,15 @@ def _va_lane_persona_config() -> dict:
     return config
 
 
-def test_persona_armed_on_the_va_lane_alone_gets_only_that_lanes_token() -> None:
+def test_render_armed_on_the_va_lane_alone_gets_only_that_lanes_token() -> None:
     """Why the posture is per target: a deployment whose baseline is a live machine
-    arms writes on its virtual-accelerator lane alone, and the persona entitled
+    arms writes on its virtual-accelerator lane alone, and the render entitled
     there must not also receive the live lane's token -- holding it would let a
     launch approved against the simulator be replayed against the machine."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _va_lane_persona_config(), launch_token_personas={"bluesky_va": {"readwrite"}}
+            _va_lane_render_config(), launch_token_renders={"bluesky_va": {"readwrite"}}
         )["docker-compose.web.yml"]
     )
 
@@ -5321,11 +5182,11 @@ def test_render_emits_no_launch_token_value_anywhere() -> None:
     """A launch token reaches a container as a compose interpolation from the deploy
     `.env` and never as a value in a rendered artifact: the render writes neither
     `bluesky.launch_token` nor `bluesky.lane_launch_tokens`, the two config keys a
-    literal token could travel into a persona's project under."""
+    literal token could travel into a render's project under."""
     # Act
     compose_text = render_web_terminals(
-        _two_lane_persona_config(),
-        launch_token_personas={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
+        _two_lane_render_config(),
+        launch_token_renders={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
     )["docker-compose.web.yml"]
 
     # Assert
@@ -5337,14 +5198,14 @@ def test_render_emits_no_launch_token_value_anywhere() -> None:
     ]
 
 
-def test_render_without_launch_token_personas_emits_no_token_line() -> None:
+def test_render_without_launch_token_renders_emits_no_token_line() -> None:
     """The no-project-root render path (`osprey scaffold web-terminals render`)
     passes no per-lane map, so no user is armed on any lane. Harmless: every
     `osprey up` re-renders through the artifacts seam, which resolves the map
     from disk."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -5365,7 +5226,7 @@ def test_render_without_launch_token_personas_emits_no_token_line() -> None:
 # query fails.
 #
 # Per-user, not `.env.users`, for the same reason as the credentials above: that
-# file is handed to every user alike and cannot say "the personas that configure
+# file is handed to every user alike and cannot say "the renders that configure
 # a graph store". Note this grant crosses the tier boundary on purpose -- Neo4j
 # has one write-capable account, and read-only-ness is enforced by the graph
 # server's read transactions, not by withholding the password.
@@ -5374,13 +5235,13 @@ def test_render_without_launch_token_personas_emits_no_token_line() -> None:
 _GRAPHDB_PASSWORD_LINE = "GRAPHDB_PASSWORD=${GRAPHDB_PASSWORD:-ospreygraph}"
 
 
-def test_graphdb_persona_gets_the_store_password() -> None:
-    """A user whose persona configures a graph store gets the minted Neo4j password
+def test_graphdb_render_gets_the_store_password() -> None:
+    """A user whose render configures a graph store gets the minted Neo4j password
     in its own `environment:` block, interpolated from the deploy `.env` at compose
     time so the secret is never written into a rendered artifact."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), graphdb_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), graphdb_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -5389,11 +5250,11 @@ def test_graphdb_persona_gets_the_store_password() -> None:
     assert _GRAPHDB_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
 
 
-def test_persona_without_graphdb_gets_no_store_password() -> None:
-    """A persona that configures no graph store needs no graph-store credential."""
+def test_render_without_graphdb_gets_no_store_password() -> None:
+    """A render that configures no graph store needs no graph-store credential."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), graphdb_personas={"readwrite"})[
+        render_web_terminals(_events_render_config(), graphdb_renders={"readwrite"})[
             "docker-compose.web.yml"
         ]
     )
@@ -5403,12 +5264,12 @@ def test_persona_without_graphdb_gets_no_store_password() -> None:
     assert not any("GRAPHDB_PASSWORD" in line for line in bob_env)
 
 
-def test_render_without_graphdb_personas_emits_no_store_password_line() -> None:
-    """The no-project-root render path passes no persona set and so emits no
+def test_render_without_graphdb_renders_emits_no_store_password_line() -> None:
+    """The no-project-root render path passes no render set and so emits no
     credential, exactly as it does for the dispatcher token."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
+        render_web_terminals(_events_render_config())["docker-compose.web.yml"]
     )
 
     # Assert
@@ -5430,7 +5291,7 @@ def test_render_without_graphdb_personas_emits_no_store_password_line() -> None:
 
 def test_no_terminal_environment_names_a_telemetry_credential() -> None:
     """Neither the login nor any store-issued token rides `environment:`."""
-    for config in (_events_persona_config(), _config(["alice"])):
+    for config in (_events_render_config(), _config(["alice"])):
         compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
         for name, service in compose["services"].items():
             env = service.get("environment") or []
@@ -5441,12 +5302,12 @@ def test_no_terminal_environment_names_a_telemetry_credential() -> None:
 _COLLECTOR_VARS = ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME")
 
 
-def test_a_persona_exporting_to_a_collector_gets_its_token_and_every_referenced_variable() -> None:
+def test_a_render_exporting_to_a_collector_gets_its_token_and_every_referenced_variable() -> None:
     """Each referenced variable, in order, one `${VAR:-}` line each."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), telemetry_vars_personas={"readwrite": _COLLECTOR_VARS}
+            _events_render_config(), telemetry_vars_renders={"readwrite": _COLLECTOR_VARS}
         )["docker-compose.web.yml"]
     )
 
@@ -5459,12 +5320,12 @@ def test_a_persona_exporting_to_a_collector_gets_its_token_and_every_referenced_
     assert positions == list(range(positions[0], positions[0] + len(lines)))
 
 
-def test_a_persona_without_telemetry_variables_gets_no_extra_line() -> None:
-    """Only the persona that names the variables receives them."""
+def test_a_render_without_telemetry_variables_gets_no_extra_line() -> None:
+    """Only the render that names the variables receives them."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(
-            _events_persona_config(), telemetry_vars_personas={"readwrite": _COLLECTOR_VARS}
+            _events_render_config(), telemetry_vars_renders={"readwrite": _COLLECTOR_VARS}
         )["docker-compose.web.yml"]
     )
 
@@ -5477,7 +5338,7 @@ def test_the_collector_variables_are_interpolated_never_written() -> None:
     """Compose resolves each reference from the deploy `.env`; no value is rendered."""
     # Act
     rendered = render_web_terminals(
-        _events_persona_config(), telemetry_vars_personas={"readwrite": ("OTLP_TOKEN",)}
+        _events_render_config(), telemetry_vars_renders={"readwrite": ("OTLP_TOKEN",)}
     )["docker-compose.web.yml"]
 
     # Assert

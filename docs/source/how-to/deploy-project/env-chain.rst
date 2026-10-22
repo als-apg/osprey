@@ -182,7 +182,7 @@ are.
    agent's SQL tool queries through, created by an init script the same
    volume initialization runs. A volume that predates the role simply does not
    have it, and the agent says so once at start-up rather than failing. See
-   :doc:`../ariel/standalone-deployment` for adopting the role on an existing
+   :ref:`ariel-sql-readonly-role` for adopting the role on an existing
    database.
 
 Egress through a site proxy
@@ -229,7 +229,7 @@ certificate inside the container, and the chain is the wrong place to put it: a
 ``SSL_CERT_FILE`` naming a path the image does not carry stops httpx from
 constructing a client at all. Set ``images.site_ca`` in ``config.yml`` instead
 and rebuild — the CA is installed into the project image, each web-terminal
-persona image and the login sidecar, and each of the three points its own tools
+image and the login sidecar, and each of the three points its own tools
 at the merged bundle. The
 site-CA block ``osprey init`` writes into ``.env.shared`` is for the
 *containers* that read the whole chain, not for this.

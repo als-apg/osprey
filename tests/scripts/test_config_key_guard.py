@@ -102,7 +102,7 @@ def test_approval_matcher_parser_extracts_tool_names():
     and every governed set comes back empty — and equal to nothing.
     """
     guard = make_guard()
-    assert guard.governed_tools("ariel-standalone")
+    assert guard.governed_tools("control-assistant")
 
 
 def test_line_anchored_regexes_are_matched_with_re_m():
@@ -187,22 +187,23 @@ def test_the_union_covers_both_sources():
     assert guard_module.FRAMEWORK_SOURCE not in union["approval.enabled"], (
         "an operator-stated key comes from the presets alone"
     )
-    assert union["approval.enabled"] == {
-        guard_module.preset_id(rel) for rel in MANIFEST["render_contexts"]["presets"]
-    }
+    roots = {guard_module.preset_id(rel) for rel in MANIFEST["render_contexts"]["presets"]}
+    apps = set(make_guard().resolved_apps())
+    # Every app is composed over the host, so a host fact reaches each app render.
+    assert union["approval.enabled"] == roots | apps
 
 
 def test_leaves_below_a_data_map_are_not_demanded():
-    """Provider, persona and layout NAMES are the deployment's, not schema.
+    """Provider, render and layout NAMES are the deployment's, not schema.
 
-    Without the skip every persona a facility declares would be an unmapped
+    Without the skip every render a facility declares would be an unmapped
     key, so this asserts both halves: the names below a data map pass, and the
     data map's own entry is still required.
     """
     guard = make_guard()
     prefixes = guard.data_map_prefixes()
     assert "api.providers" in prefixes
-    assert "modules.web_terminals.personas" in prefixes
+    assert "modules.web_terminals.renders" in prefixes
 
     below = [
         path for path in guard.union() if any(path.startswith(f"{prefix}.") for prefix in prefixes)
@@ -212,13 +213,15 @@ def test_leaves_below_a_data_map_are_not_demanded():
         "a data map's leaves must not be enumerated in the manifest"
     )
 
+    # The render catalog is written by the build, so no union source carries
+    # it; the provider catalog is the data map the union populates.
     def stop_calling_it_a_data_map(manifest):
-        del manifest["keys"]["modules.web_terminals.personas"]["data-map"]
+        del manifest["keys"]["api.providers"]["data-map"]
 
     demanding = make_guard(stop_calling_it_a_data_map)
     demanding.check_unmapped_keys()
     assert "unmapped-key" in modes(demanding)
-    assert "modules.web_terminals.personas." in details(demanding)
+    assert "api.providers." in details(demanding)
 
 
 def test_mode_2_unmatched_evidence_regex_goes_red():
@@ -506,14 +509,14 @@ def test_a_same_value_key_stated_differently_goes_red(key: str, value: Any):
 
 
 def test_a_same_value_mark_on_a_divergent_key_goes_red():
-    # hooks.debug is false in hello-world and true in the other three, on purpose.
+    # hooks.debug is false in hello-world and true in control-assistant, on purpose.
     guard = make_guard(mark_same_value("hooks.debug"))
     guard.check_parity()
     assert "parity" in modes(guard)
     text = details(guard)
     assert "hooks.debug" in text
     assert "False in ['hello-world']" in text
-    assert "channel-finder-standalone" in text
+    assert "control-assistant" in text
 
 
 @pytest.mark.parametrize("key", ["web.theme", "services.telemetry_store.port"])
@@ -560,12 +563,11 @@ def test_the_parity_table_names_exactly_the_value_marked_keys():
 
 
 CONTROL_ASSISTANT = "src/osprey/profiles/presets/control-assistant.yml"
-ARIEL_STANDALONE = "src/osprey/profiles/presets/ariel-standalone.yml"
 HELLO_WORLD = "src/osprey/profiles/presets/hello-world.yml"
 
 
 def copy_presets(tmp_path: Path) -> Path:
-    """A temp root holding just the four presets the markers live in.
+    """A temp root holding just the presets the markers live in.
 
     The stanzas moved out of the app templates and into the presets when the
     templates were deleted: the preset is the file ``osprey init`` copies out as
@@ -624,36 +626,6 @@ def test_mode_6_registered_server_with_no_stanza_anywhere_goes_red(tmp_path):
     guard.check_panel_port_markers(registry_keys=set(FRAMEWORK_WEB_SERVERS) | {"timing_panel"})
     assert "panel-port" in modes(guard)
     assert "timing_panel" in details(guard)
-
-
-def test_mode_6_one_preset_losing_a_stanza_goes_red(tmp_path):
-    """The union claims are blind to this, which is why the per-preset map exists.
-
-    ariel-standalone drops its own ``ariel`` stanza while control-assistant
-    still carries one. Every union-based claim therefore still holds — no
-    invented name, coverage complete, reference preset complete — so the
-    per-preset check is provably the only thing that can fire.
-    """
-    root = copy_presets(tmp_path)
-    victim = root / ARIEL_STANDALONE
-    victim.write_text(victim.read_text().replace("  # osprey:panel-port ariel\n", ""))
-
-    guard = make_guard(root=root)
-    markers = guard.panel_port_markers()
-    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-
-    registry = set(FRAMEWORK_WEB_SERVERS)
-    assert markers[ARIEL_STANDALONE] == {"artifact"}
-    assert set().union(*markers.values()) == registry, (
-        "coverage must stay complete, or the union claim would fire instead"
-    )
-    assert any(names >= registry for names in markers.values()), (
-        "the reference preset must stay complete, or claim (c) would fire instead"
-    )
-
-    guard.check_panel_port_markers()
-    assert "panel-port" in modes(guard)
-    assert "no longer documents ['ariel']" in details(guard)
 
 
 def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
@@ -929,14 +901,39 @@ def test_vacuous_bare_word_evidence_goes_red():
 
 def test_wrong_governed_set_claim_goes_red():
     def overstate_the_claim(manifest):
-        manifest["governed_sets"]["claims"]["channel-finder-standalone"]["tools"] = [
-            "setup_patch",
-            "channel_write",
-        ]
+        manifest["governed_sets"]["claims"]["channel-finder"]["tools"].append("channel_write")
 
     guard = make_guard(overstate_the_claim)
     guard.check_governed_sets()
     assert "governed-set" in modes(guard)
+    assert "channel-finder" in details(guard)
+
+
+def test_governed_claims_are_the_logbook_and_channel_finder_apps():
+    claims = MANIFEST["governed_sets"]["claims"]
+    assert set(claims) == {"logbook", "channel-finder"}
+    for name, claim in claims.items():
+        assert claim["preset"] == f"{guard_module.PRESET_DIR}/apps/{name}.yml"
+        assert claim["exhaustive"] is True
+
+
+def test_an_empty_governed_claims_mapping_goes_red():
+    """No claims at all is not a pass: every shipped claim would go unchecked."""
+
+    def drop_every_claim(manifest):
+        manifest["governed_sets"]["claims"] = {}
+
+    guard = make_guard(drop_every_claim)
+    guard.check_governed_sets()
+    assert "governed-set" in modes(guard)
+    assert "claims is empty" in details(guard)
+
+
+def test_the_logbook_claim_is_measured_from_the_app_render():
+    """The logbook app governs its write pair; the host's machine tools are gone."""
+    tools = make_guard().governed_tools("logbook")
+    assert {"entry_create", "entry_publish"} <= tools
+    assert not tools & {"channel_write", "execute", "control_target_set", "queue_add"}
 
 
 def test_missing_keeps_asset_goes_red():
@@ -1229,3 +1226,89 @@ def test_back_test_sums_hits_across_roots_newer_than_the_baseline():
     guard.back_test(_baseline_commit())
     assert "back-test" in modes(guard)
     assert "cannot fail" in details(guard)
+
+
+# ── the apps context ─────────────────────────────────────────────────────
+
+#: Keys no root preset states and every app does, so their only writer is the
+#: apps context.
+APP_ONLY_KEYS = (
+    "claude_code.servers.python",
+    "claude_code.servers.python.enabled",
+    "claude_code.servers.osprey_facility_knowledge",
+    "claude_code.servers.osprey_facility_knowledge.enabled",
+    "web.control_target_picker",
+)
+
+
+def test_the_apps_context_composes_every_bundled_app():
+    from osprey.cli.build_profile_presets import list_apps
+
+    guard = make_guard()
+    assert set(guard.resolved_apps()) == set(list_apps())
+    rendered = guard.rendered()
+    for name in list_apps():
+        assert name in rendered, f"{name} is not a union source under its own name"
+
+
+@pytest.mark.parametrize("key", APP_ONLY_KEYS)
+def test_an_app_only_key_has_its_writer_in_the_apps_context(key: str):
+    union = make_guard().union()
+    apps = set(make_guard().resolved_apps())
+    assert union.get(key), f"{key} is not in the union"
+    assert union[key] <= apps, f"{key} is expected from the apps alone, got {union[key]}"
+
+
+def test_dropping_the_apps_context_strands_the_app_only_keys():
+    def drop_the_apps(manifest):
+        manifest["render_contexts"]["apps"] = []
+
+    guard = make_guard(drop_the_apps)
+    guard.check_phantom_keys()
+    assert "phantom-key" in modes(guard)
+    text = details(guard)
+    for key in APP_ONLY_KEYS:
+        assert f"{key} is in the manifest but nothing renders it" in text
+
+
+def test_an_app_renders_as_the_host_with_the_app_over_it():
+    """Host framework render + host config + app config, as a build writes it."""
+    guard = make_guard()
+    cfg = guard.render_one("channel-finder")
+    # The app's own field decides the derived pipeline mode, not the host's.
+    assert cfg["channel_finder"]["pipeline_mode"] == "hierarchical"
+    assert guard.render_one("control-assistant")["channel_finder"]["pipeline_mode"] == "graph"
+    # A host fact survives; the app's switch wins; the write boundary is pinned.
+    assert cfg["approval"]["enabled"] is True
+    assert cfg["claude_code"]["servers"]["python"]["enabled"] is False
+    assert cfg["control_system"]["writes_enabled"] is False
+
+
+def test_parity_expects_the_root_presets_alone():
+    """An app lacking an all-templates key is not a parity failure; a root is.
+
+    ``hooks.debug`` is marked all-templates and reaches every app through the
+    host, so one app's composed config is doctored to lose it.
+    """
+    assert MANIFEST["keys"]["hooks.debug"].get("all-templates")
+
+    app_drops_it = make_guard()
+    del app_drops_it.resolved_apps()["logbook"][1]["hooks"]["debug"]
+    assert "logbook" not in app_drops_it.union()["hooks.debug"]
+    app_drops_it.check_parity()
+    assert app_drops_it.result.ok, details(app_drops_it)
+
+    root_drops_it = make_guard()
+    rendered = root_drops_it.rendered()
+    del rendered["hello-world"][0]["hooks"]["debug"]
+    root_drops_it.check_parity()
+    assert "parity" in modes(root_drops_it)
+    assert "absent from ['hello-world']" in details(root_drops_it)
+
+
+def test_an_app_host_outside_the_root_presets_is_refused():
+    def host_an_app(manifest):
+        manifest["render_contexts"]["host"] = f"{guard_module.PRESET_DIR}/apps/logbook.yml"
+
+    with pytest.raises(ValueError, match="render_contexts.host"):
+        make_guard(host_an_app).resolved_apps()

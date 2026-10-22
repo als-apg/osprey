@@ -14,7 +14,7 @@ pin the matrix of :mod:`osprey.services.auth_sidecar.routes.recheck` row by row:
   by search.
 * ``oidc`` with no claims map — the provider subject is the subject, and the
   role is the roster's: nothing asked the provider about privilege, so the role
-  is the one the render bound this user's persona from.
+  is the one the render bound this user's render from.
 * ``oidc`` with a claims map — the role comes from the validated ID token, by
   the category set task 4.4 established, and is *cross-checked* against the
   roster's own. A token mapping someone into a role other than the one their
@@ -349,7 +349,7 @@ class TestThePasswordRow:
 
 class TestTheOidcRowWithoutAClaimsMap:
     """No claim binding: nothing asked the provider about privilege, so the role
-    is the one the RENDER bound — the roster entry this user's persona came
+    is the one the RENDER bound — the roster entry this user's render came
     from, which is what the grant names as its source. Audited like every other
     login."""
 
@@ -426,8 +426,8 @@ class TestTheOidcRowWithAClaimsMap:
         assert refused.value.reason == audit.REASON_ROLE_MISMATCH
 
     def test_an_entry_with_no_rendered_role_carries_the_claims(self) -> None:
-        """The one honest gap, stated in the module docstring: a ``persona:``-
-        pinned entry (or one riding the default persona) has no rendered role
+        """The one honest gap, stated in the module docstring: a ``tier:``-
+        pinned entry (or one riding the default tier) has no rendered role
         for the claim to disagree with, so the claim's role is what it carries."""
         grant = recheck_login(
             method=METHOD_OIDC,
@@ -503,8 +503,8 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
     """SC4, end to end through the OIDC callback.
 
     The deviation this class exists to close: alice's roster entry says
-    ``role: observer``, so ``effective_persona`` built her container from the
-    observer persona — while her IdP group maps to ``operator``. Before the
+    ``role: observer``, so ``effective_tier`` built her container from the
+    observer render — while her IdP group maps to ``operator``. Before the
     cross-check, that login was a 303 whose session, forwarded header and every
     ledger line said ``operator`` about a container running as ``observer``.
     """

@@ -64,6 +64,7 @@ from osprey.cli.profile_conventions import (
 )
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import LAYER_DIRNAMES, TIERS_DIRNAME
 
 
 def _write(path: Path, content: str = "x\n") -> Path:
@@ -618,7 +619,7 @@ def test_base_md_at_the_convention_root_is_accepted_and_planned(profile_dir: Pat
 
 
 def test_base_md_copies_even_without_a_roster(profile_dir: Path):
-    """The baseline is roster-independent: a persona render (no roster) still
+    """The baseline is roster-independent: a render (no roster) still
     carries the profile's text, like every other convention artifact."""
     _write(profile_dir / PER_USER_CONTEXT_DIRNAME / CONTEXT_BASELINE_FILENAME, "# baseline\n")
 
@@ -813,7 +814,8 @@ def test_known_root_entries_are_not_flagged(profile_dir: Path):
     _write(profile_dir / "triggers.yml")
     _write(profile_dir / ".env")
     _write(profile_dir / ".env.example")
-    (profile_dir / "personas").mkdir()
+    for layer_dir in LAYER_DIRNAMES:
+        (profile_dir / layer_dir).mkdir()
     (profile_dir / "data").mkdir()
     for source in CONVENTION_SOURCES:
         (profile_dir / source).mkdir()
@@ -871,7 +873,7 @@ def zone_repo(tmp_path: Path) -> Path:
     _write(repo / "profile.yml", "name: als-exemplar\n")
     _write(repo / "triggers.yml")
     (repo / "data").mkdir()
-    (repo / "personas").mkdir()
+    (repo / TIERS_DIRNAME).mkdir()
     _write(repo / "rules" / "safety.md")
     _write(repo / "web-terminal-context" / "operator" / "CONTEXT.md")
     _write(repo / "README.md")
@@ -1714,11 +1716,11 @@ def test_a_dotted_name_cannot_impersonate_a_nested_key():
     )  # the dotted rendering really does collide — hence the tuple keys
 
 
-# ── Posture: is the rendered persona still setup_patch-capable? ────────
+# ── Posture: is the rendered render still setup_patch-capable? ────────
 
 
-def _persona_config(deny: object, *, include_permissions: bool = True) -> dict:
-    """A persona config.yml document carrying (or not) a `claude_code` deny list."""
+def _render_config(deny: object, *, include_permissions: bool = True) -> dict:
+    """A render config.yml document carrying (or not) a `claude_code` deny list."""
     config: dict = {"control_system": {"writes_enabled": False}}
     if include_permissions:
         config["claude_code"] = {"permissions": {"deny": deny}}
@@ -1726,13 +1728,13 @@ def _persona_config(deny: object, *, include_permissions: bool = True) -> dict:
 
 
 def test_setup_patch_capable_is_false_when_the_tool_is_denied():
-    config = _persona_config(["Bash", SETUP_PATCH_TOOL])
+    config = _render_config(["Bash", SETUP_PATCH_TOOL])
     assert is_setup_patch_capable(config) is False
 
 
 def test_setup_patch_capable_is_true_when_another_tool_is_denied():
     """A non-empty deny that leaves the tool alone still leaves the capability."""
-    assert is_setup_patch_capable(_persona_config(["Bash", "Edit"])) is True
+    assert is_setup_patch_capable(_render_config(["Bash", "Edit"])) is True
 
 
 def test_setup_patch_capable_is_true_with_no_deny_block():
@@ -1742,18 +1744,18 @@ def test_setup_patch_capable_is_true_with_no_deny_block():
 
 
 def test_setup_patch_capable_is_true_with_no_claude_code_block():
-    assert is_setup_patch_capable(_persona_config(None, include_permissions=False)) is True
+    assert is_setup_patch_capable(_render_config(None, include_permissions=False)) is True
     assert is_setup_patch_capable({}) is True
 
 
 def test_setup_patch_capable_is_true_for_an_empty_or_null_deny():
-    assert is_setup_patch_capable(_persona_config([])) is True
-    assert is_setup_patch_capable(_persona_config(None)) is True
+    assert is_setup_patch_capable(_render_config([])) is True
+    assert is_setup_patch_capable(_render_config(None)) is True
 
 
 def test_setup_patch_capable_is_false_under_a_wildcard_deny():
     """A deny that names the tool by pattern removes the capability just as hard."""
-    assert is_setup_patch_capable(_persona_config(["mcp__osprey_workspace__*"])) is False
+    assert is_setup_patch_capable(_render_config(["mcp__osprey_workspace__*"])) is False
 
 
 def test_setup_patch_capable_reads_a_rendered_settings_json_shape():
@@ -1784,8 +1786,8 @@ def test_a_bare_string_deny_is_no_deny_at_all():
     ``build_profile_load._reject_permission_list_shapes`` refuses it at parse
     time, which is what makes reading it as nothing the safe answer here.
     """
-    assert is_setup_patch_capable(_persona_config(SETUP_PATCH_TOOL)) is True
-    assert is_setup_patch_capable(_persona_config("Bash")) is True
+    assert is_setup_patch_capable(_render_config(SETUP_PATCH_TOOL)) is True
+    assert is_setup_patch_capable(_render_config("Bash")) is True
     # And the render agrees: 34 single-character entries, none of them the tool.
     from osprey.cli.templates.claude_code import _rendered_deny_list
 
@@ -1801,9 +1803,9 @@ def test_a_bare_string_deny_is_no_deny_at_all():
 
 
 def _lifting_config(deny: object, remove_deny: object) -> dict:
-    """A persona config.yml carrying an inherited deny AND a tier's lift of it.
+    """A render config.yml carrying an inherited deny AND a tier's lift of it.
 
-    The shape a rendered persona ``config.yml`` really has: a delta cannot
+    The shape a rendered render ``config.yml`` really has: a delta cannot
     subtract from an inherited list, so both lists ship side by side and the
     render composes them.
     """
@@ -1885,7 +1887,7 @@ def test_a_settings_shaped_document_ignores_a_stray_remove_deny():
 
 
 def _render_ctx(config: dict) -> dict:
-    """The render context a persona ``config.yml`` produces, as the build builds it.
+    """The render context a render ``config.yml`` produces, as the build builds it.
 
     ``ctx['facility_permissions']`` is literally ``claude_code.permissions``
     (``templates/claude_code.py``), and the floor is left empty on purpose: the
@@ -1915,11 +1917,11 @@ def _render_ctx(config: dict) -> dict:
     ],
 )
 def test_the_predicate_matches_the_rendered_deny_list(config: dict):
-    """For every list-shaped document, the predicate answers what the render renders.
+    """For every list-shaped document, the predicate answers what the render produces.
 
     Parity — not a lean in a safe direction — is the criterion, because the two
     consumers pull opposite ways: the Dockerfile GRANTS the config.yml chown on
-    ``True`` and the persona-roster guard REFUSES on ``True``. This holds the
+    ``True`` and the render-roster guard REFUSES on ``True``. This holds the
     predicate against ``_rendered_deny_list``, the function whose
     ``d not in remove_deny`` the exact subtraction mirrors, so the duplicated
     composition cannot drift from the render without a red test.

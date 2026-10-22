@@ -25,6 +25,8 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey_connectors.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from tests._renders import app_render, tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -53,8 +55,10 @@ _CLEAN_CONFIG = {
             "ariel_base_port": default_port("ariel", 0, base=_OVERRIDE_PORT_BASE),
             "lattice_base_port": default_port("lattice", 0, base=_OVERRIDE_PORT_BASE),
             "users": ["alice", "bob"],
-            "default_persona": "assistant",
-            "personas": {"assistant": {"project": "test-assistant"}},
+            "default_tier": "assistant",
+            "renders": {
+                "assistant": tier_render("assistant", "test-assistant"),
+            },
         },
     },
 }
@@ -1181,23 +1185,37 @@ def test_lint_object_form_duplicate_name_is_still_a_duplicate_user_error() -> No
     assert any(f.code == "web_terminals.duplicate_user" for f in errors)
 
 
-# --- persona catalog identity/reference checks -------------------------------
+# --- render catalog identity/reference checks -------------------------------
 
 
-def test_lint_clean_persona_catalog_reports_no_error_findings() -> None:
-    """A well-formed catalog with a valid default_persona and a matching
-    explicit reference must not trip any of the new persona checks."""
+def _tier_config(renders: dict, *, users: list, default_tier: str | None = "assistant") -> dict:
+    """`_CLEAN_CONFIG` spelled the way a rendered deployment states its catalog:
+    the build's `renders` projection (`kind: tier` entries), a `default_tier`,
+    and roster entries that name a `tier:`."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web = config["modules"]["web_terminals"]
+    del web["default_tier"]
+    web["renders"] = {name: {"kind": "tier", **entry} for name, entry in renders.items()}
+    if default_tier is not None:
+        web["default_tier"] = default_tier
+    web["users"] = users
+    return config
+
+
+def test_lint_clean_render_catalog_reports_no_error_findings() -> None:
+    """A well-formed catalog with a valid default_tier and a matching
+    explicit reference must not trip any of the new render checks."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["registry"] = {"url": "registry.example.org:5050"}
-    config["modules"]["web_terminals"]["personas"] = {
-        "assistant": {"project": "als-assistant"},
-        "analysis": {"project": "als-analysis", "build_profile": "profiles/analysis.yml"},
+    config["modules"]["web_terminals"]["renders"] = {
+        "assistant": tier_render("assistant", "als-assistant"),
+        "analysis": tier_render("analysis", "als-analysis", build_profile="profiles/analysis.yml"),
     }
-    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["default_tier"] = "assistant"
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0},
-        {"name": "bob", "index": 1, "persona": "analysis"},
+        {"name": "bob", "index": 1, "tier": "analysis"},
     ]
 
     # Act
@@ -1207,68 +1225,71 @@ def test_lint_clean_persona_catalog_reports_no_error_findings() -> None:
     assert _errors(findings) == []
 
 
-def test_lint_unknown_explicit_persona_reference_is_an_error() -> None:
-    """A roster entry's own `persona:` key must name a catalog entry."""
+def test_lint_unknown_explicit_tier_reference_is_an_error() -> None:
+    """A roster entry's own `tier:` key must name a rendered tier."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
-    config["modules"]["web_terminals"]["default_persona"] = "assistant"
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "persona": "ghost"}
-    ]
+    config = _tier_config(
+        {"assistant": {"project": "als-assistant"}},
+        users=[{"name": "alice", "index": 0, "tier": "ghost"}],
+    )
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    unknown_ref = [f for f in errors if f.code == "web_terminals.unknown_persona_reference"]
+    unknown_ref = [f for f in errors if f.code == "web_terminals.unknown_tier_reference"]
     assert unknown_ref
     assert any("alice" in f.message and "ghost" in f.message for f in unknown_ref)
+    assert any("tiers/ghost.yml" in f.message for f in unknown_ref)
 
 
-def test_lint_unknown_inherited_default_persona_reference_is_an_error() -> None:
-    """A user with no `persona:` of its own inherits `default_persona`; if that
-    name isn't in the catalog, the inherited reference is unresolvable too."""
+def test_lint_unknown_inherited_default_tier_reference_is_an_error() -> None:
+    """A user with no `tier:` of its own inherits `default_tier`; if that name
+    is no rendered tier, the inherited reference is unresolvable too."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
-    config["modules"]["web_terminals"]["default_persona"] = "ghost"
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
+    config = _tier_config(
+        {"assistant": {"project": "als-assistant"}},
+        users=[{"name": "alice", "index": 0}],
+        default_tier="ghost",
+    )
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.unknown_persona_reference" for f in errors)
+    assert any(f.code == "web_terminals.unknown_tier_reference" for f in errors)
 
 
-def test_lint_default_persona_not_in_catalog_is_an_error() -> None:
-    """`default_persona` must itself name a catalog entry."""
+def test_lint_default_tier_not_rendered_is_an_error() -> None:
+    """`default_tier` must itself name a rendered tier."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
-    config["modules"]["web_terminals"]["default_persona"] = "ghost"
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
+    config = _tier_config(
+        {"assistant": {"project": "als-assistant"}},
+        users=[{"name": "alice", "index": 0}],
+        default_tier="ghost",
+    )
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.unknown_default_persona" for f in errors)
+    assert any(f.code == "web_terminals.unknown_default_tier" for f in errors)
     assert any(
-        "ghost" in f.message for f in errors if f.code == "web_terminals.unknown_default_persona"
+        "ghost" in f.message for f in errors if f.code == "web_terminals.unknown_default_tier"
     )
 
 
-def test_lint_default_persona_in_catalog_reports_no_error() -> None:
-    """A `default_persona` that does name a catalog entry must not be flagged."""
+def test_lint_default_tier_in_catalog_reports_no_error() -> None:
+    """A `default_tier` that does name a catalog entry must not be flagged."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
-    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["renders"] = {
+        "assistant": tier_render("assistant", "als-assistant"),
+    }
+    config["modules"]["web_terminals"]["default_tier"] = "assistant"
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
@@ -1276,52 +1297,54 @@ def test_lint_default_persona_in_catalog_reports_no_error() -> None:
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code == "web_terminals.unknown_default_persona" for f in errors)
+    assert not any(f.code == "web_terminals.unknown_default_tier" for f in errors)
 
 
-def test_lint_persona_catalog_bad_charset_is_an_error() -> None:
-    """A persona catalog key becomes an image-tag suffix and a path component;
-    it's held to the same charset as usernames."""
+def test_lint_render_bad_charset_is_an_error() -> None:
+    """A render name becomes an image-tag suffix and a path component; it's
+    held to the same charset as usernames."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"Bad Persona": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
+    config = _tier_config(
+        {"Bad Render": {"project": "als-x"}},
+        users=[{"name": "alice", "index": 0}],
+    )
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_persona_charset" for f in errors)
+    assert any(f.code == "web_terminals.invalid_render_charset" for f in errors)
 
 
-def test_lint_persona_charset_rejects_a_trailing_newline() -> None:
-    """Same `fullmatch`-not-`match` rule as the username charset check: a persona
-    key with a trailing newline is not clean."""
+def test_lint_render_charset_rejects_a_trailing_newline() -> None:
+    """Same `fullmatch`-not-`match` rule as the username charset check: a render
+    name with a trailing newline is not clean."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"ops\n": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
+    config = _tier_config(
+        {"ops\n": {"project": "als-x"}},
+        users=[{"name": "alice", "index": 0}],
+    )
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.invalid_persona_charset" for f in errors)
+    assert any(f.code == "web_terminals.invalid_render_charset" for f in errors)
 
 
-def test_lint_persona_named_after_a_service_is_not_an_error() -> None:
-    """A persona name becomes an image-tag suffix and a path component, never a
+def test_lint_render_named_after_a_service_is_not_an_error() -> None:
+    """A render name becomes an image-tag suffix and a path component, never a
     compose service key, so it has no service name to collide with."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["registry"] = {"url": "registry.example.com:5050/als"}
-    config["modules"]["web_terminals"]["personas"] = {"nginx": {"project": "als-x"}}
-    config["modules"]["web_terminals"]["default_persona"] = "nginx"
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "persona": "nginx"}
-    ]
+    config["modules"]["web_terminals"]["renders"] = {
+        "nginx": tier_render("nginx", "als-x"),
+    }
+    config["modules"]["web_terminals"]["default_tier"] = "nginx"
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0, "tier": "nginx"}]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1330,14 +1353,14 @@ def test_lint_persona_named_after_a_service_is_not_an_error() -> None:
     assert _errors(findings) == []
 
 
-def test_lint_persona_seed_base_non_bool_is_an_error() -> None:
-    """A persona `seed_base` that isn't a boolean (e.g. the YAML string
+def test_lint_render_seed_base_non_bool_is_an_error() -> None:
+    """A render `seed_base` that isn't a boolean (e.g. the YAML string
     "false", which is truthy and would silently defeat the opt-out) is an
     error."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {
-        "standalone": {"project": "als-x", "seed_base": "false"}
+    config["modules"]["web_terminals"]["renders"] = {
+        "standalone": tier_render("standalone", "als-x", seed_base="false"),
     }
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
@@ -1346,16 +1369,16 @@ def test_lint_persona_seed_base_non_bool_is_an_error() -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_invalid_seed_base" for f in errors)
+    assert any(f.code == "web_terminals.render_invalid_seed_base" for f in errors)
 
 
-def test_lint_persona_seed_base_bool_is_accepted() -> None:
+def test_lint_render_seed_base_bool_is_accepted() -> None:
     """A boolean `seed_base` (either value) trips no seed_base finding."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {
-        "keep": {"project": "als-keep", "seed_base": True},
-        "drop": {"project": "als-drop", "seed_base": False},
+    config["modules"]["web_terminals"]["renders"] = {
+        "keep": tier_render("keep", "als-keep", seed_base=True),
+        "drop": tier_render("drop", "als-drop", seed_base=False),
     }
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
@@ -1363,26 +1386,28 @@ def test_lint_persona_seed_base_bool_is_accepted() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
+    assert not any(f.code == "web_terminals.render_invalid_seed_base" for f in findings)
 
 
-def test_lint_persona_seed_base_absent_is_accepted() -> None:
-    """A persona entry with no `seed_base` key at all trips no seed_base finding."""
+def test_lint_render_seed_base_absent_is_accepted() -> None:
+    """A render entry with no `seed_base` key at all trips no seed_base finding."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {"plain": {"project": "als-x"}}
+    config["modules"]["web_terminals"]["renders"] = {
+        "plain": tier_render("plain", "als-x"),
+    }
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_invalid_seed_base" for f in findings)
+    assert not any(f.code == "web_terminals.render_invalid_seed_base" for f in findings)
 
 
-def test_lint_minimal_catalog_reports_no_persona_findings() -> None:
-    """The minimal catalog — one default persona stating its project, no
-    `persona:` keys on the roster — trips none of the per-persona checks."""
+def test_lint_minimal_catalog_reports_no_render_findings() -> None:
+    """The minimal catalog — one default tier stating its project, no
+    `tier:` keys on the roster — trips none of the per-render checks."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
 
@@ -1390,30 +1415,30 @@ def test_lint_minimal_catalog_reports_no_persona_findings() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    persona_codes = {
-        "web_terminals.invalid_persona_charset",
-        "web_terminals.persona_invalid_seed_base",
-        "web_terminals.unknown_default_persona",
-        "web_terminals.unknown_persona_reference",
+    render_codes = {
+        "web_terminals.invalid_render_charset",
+        "web_terminals.render_invalid_seed_base",
+        "web_terminals.unknown_default_tier",
+        "web_terminals.unknown_tier_reference",
     }
-    assert not any(f.code in persona_codes for f in findings)
+    assert not any(f.code in render_codes for f in findings)
 
 
 # --- mode-coherence checks ---------------------------------------------------
 
 
-def _persona_config(**overrides: object) -> dict:
-    """A minimal config with a persona catalog in effect, for the mode-coherence
+def _render_config(**overrides: object) -> dict:
+    """A minimal config with a render catalog in effect, for the mode-coherence
     tests below. Callers override/add keys under `modules.web_terminals` and/or
     the top-level `registry` section via the two supported override kwargs."""
     config = copy.deepcopy(_CLEAN_CONFIG)
     web_terminals_overrides = overrides.pop("web_terminals", {})
     registry_overrides = overrides.pop("registry", None)
     assert not overrides, f"unsupported override keys: {sorted(overrides)}"
-    config["modules"]["web_terminals"]["personas"] = {
-        "assistant": {"project": "als-assistant"},
+    config["modules"]["web_terminals"]["renders"] = {
+        "assistant": tier_render("assistant", "als-assistant"),
     }
-    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["default_tier"] = "assistant"
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
     config["modules"]["web_terminals"].update(web_terminals_overrides)
     if registry_overrides is not None:
@@ -1424,7 +1449,7 @@ def _persona_config(**overrides: object) -> dict:
 def test_lint_unknown_image_source_is_an_error() -> None:
     """An `image_source` value that is neither `registry` nor `local` is an error."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={"image_source": "s3"}, registry={"url": "registry.example.org:5050"}
     )
 
@@ -1440,7 +1465,7 @@ def test_lint_unknown_image_source_is_an_error() -> None:
 def test_lint_registry_mode_without_registry_url_is_an_error() -> None:
     """`image_source: registry` (the default) needs registry.url to pull images."""
     # Arrange
-    config = _persona_config()
+    config = _render_config()
     del config["registry"]  # image_source unset -> registry
 
     # Act
@@ -1454,7 +1479,7 @@ def test_lint_registry_mode_without_registry_url_is_an_error() -> None:
 def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> None:
     """A registry.url that is actually set clears the coherence error."""
     # Arrange
-    config = _persona_config(registry={"url": "registry.example.org:5050"})
+    config = _render_config(registry={"url": "registry.example.org:5050"})
 
     # Act
     findings = lint_web_terminals(config)
@@ -1464,7 +1489,7 @@ def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> 
     assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
 
 
-def test_lint_no_persona_catalog_still_requires_registry_url() -> None:
+def test_lint_no_render_catalog_still_requires_registry_url() -> None:
     """With no catalog every user pulls `<registry.url>/web-terminal:<tag>`, so
     the refusal is the same as with a catalog."""
     # Arrange
@@ -1481,7 +1506,7 @@ def test_lint_no_persona_catalog_still_requires_registry_url() -> None:
     assert "deploy.registry.url" in missing[0].message
 
 
-def test_lint_no_persona_catalog_with_registry_url_reports_no_missing_url_error() -> None:
+def test_lint_no_render_catalog_with_registry_url_reports_no_missing_url_error() -> None:
     """A no-catalog config that sets registry.url carries no coherence error."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -1496,10 +1521,12 @@ def test_lint_no_persona_catalog_with_registry_url_reports_no_missing_url_error(
 def test_lint_local_mode_with_registry_url_is_a_warning() -> None:
     """`image_source: local` never reads registry.url; setting it anyway warns."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {"assistant": {"project": "als-assistant", "project_path": "/nonexistent"}},
+            "renders": {
+                "assistant": tier_render("assistant", "als-assistant", project_path="/nonexistent"),
+            },
         },
         registry={"url": "registry.example.org:5050"},
     )
@@ -1515,13 +1542,13 @@ def test_lint_local_mode_with_registry_url_is_a_warning() -> None:
 @pytest.mark.parametrize("image_source", ["registry", "local"])
 def test_lint_without_catalog_is_an_error(image_source: str) -> None:
     """Web terminals need a catalog in either image source — the lint-side
-    mirror of resolve_personas()'s strict ValueError guard."""
+    mirror of resolve_cards()'s strict ValueError guard."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     web = config["modules"]["web_terminals"]
     web["image_source"] = image_source
-    del web["personas"]
-    del web["default_persona"]
+    del web["renders"]
+    del web["default_tier"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1532,13 +1559,13 @@ def test_lint_without_catalog_is_an_error(image_source: str) -> None:
 
 
 @pytest.mark.parametrize("image_source", ["registry", "local"])
-def test_lint_without_default_persona_is_an_error(image_source: str) -> None:
-    """A catalog alone isn't enough; default_persona is also required."""
+def test_lint_without_default_tier_is_an_error(image_source: str) -> None:
+    """A catalog alone isn't enough; default_tier is also required."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     web = config["modules"]["web_terminals"]
     web["image_source"] = image_source
-    del web["default_persona"]
+    del web["default_tier"]
 
     # Act
     findings = lint_web_terminals(config)
@@ -1554,8 +1581,8 @@ def test_lint_requires_catalog_fires_on_an_empty_roster() -> None:
     config = copy.deepcopy(_CLEAN_CONFIG)
     web = config["modules"]["web_terminals"]
     web["users"] = []
-    del web["personas"]
-    del web["default_persona"]
+    del web["renders"]
+    del web["default_tier"]
 
     # Act
     codes = [f.code for f in _errors(lint_web_terminals(config))]
@@ -1565,50 +1592,54 @@ def test_lint_requires_catalog_fires_on_an_empty_roster() -> None:
 
 
 @pytest.mark.parametrize("rendered_project", [False, True])
-def test_lint_ready_made_persona_without_project_is_an_error(rendered_project: bool) -> None:
-    """A referenced persona with neither build_profile nor project names no
+def test_lint_ready_made_render_without_project_is_an_error(rendered_project: bool) -> None:
+    """A referenced render with neither build_profile nor project names no
     directory, at either altitude."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {
-        "assistant": {"project_path": "elsewhere/assistant"}
+    config["modules"]["web_terminals"]["renders"] = {
+        "assistant": tier_render(
+            "assistant", None, project_path="elsewhere/assistant", build_profile=None
+        ),
     }
 
     # Act
     findings = lint_web_terminals(config, rendered_project=rendered_project)
 
     # Assert
-    errors = [f for f in _errors(findings) if f.code == "web_terminals.persona_missing_project"]
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.render_missing_project"]
     assert len(errors) == 1
     assert "'assistant'" in errors[0].message
 
 
 @pytest.mark.parametrize("rendered_project", [False, True])
-def test_lint_build_profile_persona_without_project_is_not_missing_its_project(
+def test_lint_build_profile_render_without_project_is_not_missing_its_project(
     rendered_project: bool,
 ) -> None:
-    """The build derives a build_profile persona's project, so it is not
+    """The build derives a build_profile render's project, so it is not
     reported as missing one."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["personas"] = {
-        "assistant": {"build_profile": "personas/assistant.yml"}
+    config["modules"]["web_terminals"]["renders"] = {
+        "assistant": tier_render("assistant", None, build_profile=f"{TIERS_DIRNAME}/assistant.yml"),
     }
 
     # Act
     findings = lint_web_terminals(config, rendered_project=rendered_project)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_missing_project" for f in findings)
+    assert not any(f.code == "web_terminals.render_missing_project" for f in findings)
 
 
 def test_lint_local_mode_missing_project_path_is_an_error() -> None:
-    """A referenced persona with no `project_path` set can't be built locally."""
+    """A referenced render with no `project_path` set can't be built locally."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {"assistant": {"project": "als-assistant"}},
+            "renders": {
+                "assistant": tier_render("assistant", "als-assistant"),
+            },
         }
     )
 
@@ -1617,7 +1648,7 @@ def test_lint_local_mode_missing_project_path_is_an_error() -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_missing_project_path" for f in errors)
+    assert any(f.code == "web_terminals.render_missing_project_path" for f in errors)
 
 
 def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> None:
@@ -1626,11 +1657,13 @@ def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> N
     # Arrange (basename matches `project` so the name invariant passes and we
     # exercise the existence check itself, not the name-mismatch check)
     missing_path = tmp_path / "als-assistant"
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(missing_path)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(missing_path), build_profile=None
+                ),
             },
         }
     )
@@ -1640,7 +1673,7 @@ def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> N
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_project_path_not_dir" for f in errors)
+    assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
 
 
 def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
@@ -1649,11 +1682,13 @@ def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
@@ -1663,21 +1698,23 @@ def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
+    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
 
 
 def test_lint_local_mode_missing_config_yml_is_an_error(tmp_path) -> None:
     """A project_path directory with no config.yml can't be existence-checked
-    for its own project_name, and can't confirm the persona's identity."""
+    for its own project_name, and can't confirm the render's identity."""
     # Arrange
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
@@ -1687,7 +1724,7 @@ def test_lint_local_mode_missing_config_yml_is_an_error(tmp_path) -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_missing_config_yml" for f in errors)
+    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
 
 
 def test_lint_local_mode_well_formed_project_path_reports_no_error(tmp_path) -> None:
@@ -1698,11 +1735,13 @@ def test_lint_local_mode_well_formed_project_path_reports_no_error(tmp_path) -> 
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
@@ -1723,11 +1762,13 @@ def test_lint_local_mode_project_name_mismatch_is_an_error(tmp_path) -> None:
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: something-else\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
@@ -1737,27 +1778,29 @@ def test_lint_local_mode_project_name_mismatch_is_an_error(tmp_path) -> None:
 
     # Assert
     errors = _errors(findings)
-    mismatch = [f for f in errors if f.code == "web_terminals.persona_project_mismatch"]
+    mismatch = [f for f in errors if f.code == "web_terminals.render_project_mismatch"]
     assert mismatch
     assert any("als-assistant" in f.message and "something-else" in f.message for f in mismatch)
 
 
-def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_path) -> None:
-    """A catalog entry nobody references (no user's `persona:`, not
-    `default_persona`) is outside the local-mode existence checks — an unused
-    draft entry never blocks a deploy since only referenced personas are ever
+def test_lint_local_mode_unreferenced_render_project_path_is_not_checked(tmp_path) -> None:
+    """A catalog entry nobody references (no user's `tier:`, not
+    `default_tier`) is outside the local-mode existence checks — an unused
+    draft entry never blocks a deploy since only referenced renders are ever
     built."""
     # Arrange
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)},
-                "unused": {"project": "draft-unused", "project_path": "/nonexistent"},
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
+                "unused": tier_render("unused", "draft-unused", project_path="/nonexistent"),
             },
         }
     )
@@ -1775,25 +1818,26 @@ def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_pa
 def test_lint_local_mode_missing_project_path_with_build_profile_is_a_warning(
     tmp_path,
 ) -> None:
-    """A referenced persona whose project_path does not exist yet but carries a
+    """A referenced render whose project_path does not exist yet but carries a
     usable build_profile is a WARNING, not an error and not a mere note.
 
     Not an error, because nothing is misconfigured — this is the ordinary state
-    of a persona added since the last build, and `osprey build` clears it. Not
+    of a render added since the last build, and `osprey build` clears it. Not
     informational, because `osprey up` refuses to start until the render is
     there, so the message has to say both halves: what renders it, and that a
     start will not run meanwhile."""
     # Arrange (project_path basename matches `project`; directory not created)
     missing_path = tmp_path / "als-assistant"
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "project_path": str(missing_path),
-                    "build_profile": "personas/assistant.yml",
-                }
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    project_path=str(missing_path),
+                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
+                ),
             },
         }
     )
@@ -1806,7 +1850,7 @@ def test_lint_local_mode_missing_project_path_with_build_profile_is_a_warning(
     not_rendered = [
         f
         for f in _warnings(findings)
-        if f.code == "web_terminals.persona_project_path_not_rendered_yet"
+        if f.code == "web_terminals.render_project_path_not_rendered_yet"
     ]
     assert not_rendered, findings
     # The message must name the command that renders it AND the refusal that
@@ -1817,7 +1861,7 @@ def test_lint_local_mode_missing_project_path_with_build_profile_is_a_warning(
     assert "REFUSES" in message
     assert "osprey up will render" not in message
     # The hard "not a directory" error must not fire alongside the warning.
-    assert not any(f.code == "web_terminals.persona_project_path_not_dir" for f in findings)
+    assert not any(f.code == "web_terminals.render_project_path_not_dir" for f in findings)
 
 
 def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_error(
@@ -1827,11 +1871,13 @@ def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_err
     from, so a non-existent project_path remains the pre-existing hard error."""
     # Arrange
     missing_path = tmp_path / "als-assistant"
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(missing_path)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(missing_path), build_profile=None
+                ),
             },
         }
     )
@@ -1841,10 +1887,8 @@ def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_err
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_project_path_not_dir" for f in errors)
-    assert not any(
-        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
-    )
+    assert any(f.code == "web_terminals.render_project_path_not_dir" for f in errors)
+    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
 def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_path) -> None:
@@ -1856,15 +1900,16 @@ def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_pa
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "project_path": str(project_dir),
-                    "build_profile": "personas/assistant.yml",
-                }
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    project_path=str(project_dir),
+                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
+                ),
             },
         }
     )
@@ -1874,10 +1919,8 @@ def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_pa
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
-    assert not any(
-        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
-    )
+    assert any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
+    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
 def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_path) -> None:
@@ -1887,15 +1930,16 @@ def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_pa
     project_dir = tmp_path / "als-assistant"
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "project_path": str(project_dir),
-                    "build_profile": "personas/assistant.yml",
-                }
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    project_path=str(project_dir),
+                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
+                ),
             },
         }
     )
@@ -1905,23 +1949,22 @@ def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_pa
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_missing_config_yml" for f in errors)
-    assert not any(
-        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
-    )
+    assert any(f.code == "web_terminals.render_missing_config_yml" for f in errors)
+    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
 def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
-    """Local-mode config whose one persona carries `build_profile`, project_path absent."""
-    return _persona_config(
+    """Local-mode config whose one render carries `build_profile`, project_path absent."""
+    return _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "project_path": str(tmp_path / "als-assistant"),
-                    "build_profile": build_profile,
-                }
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    project_path=str(tmp_path / "als-assistant"),
+                    build_profile=build_profile,
+                ),
             },
         }
     )
@@ -1932,12 +1975,12 @@ def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
     [
         "control-assistant",  # bundled preset name -- the pre-delta spelling
         "control_assistant",  # same, underscore spelling
-        "/abs/personas/assistant.yml",  # absolute: could name any profile on the host
-        "../elsewhere/personas/assistant.yml",  # climbs out of the profile
-        "personas/../assistant.yml",  # climbs back out through the right directory
-        "profiles/assistant.yml",  # a sibling directory of personas/
-        "assistant.yml",  # the profile root itself, not personas/
-        "personas/nested/assistant.yml",  # deeper than one level: never read as a delta
+        f"/abs/{TIERS_DIRNAME}/assistant.yml",  # absolute: could name any profile on the host
+        f"../elsewhere/{TIERS_DIRNAME}/assistant.yml",  # climbs out of the profile
+        f"{TIERS_DIRNAME}/../assistant.yml",  # climbs back out through the right directory
+        "profiles/assistant.yml",  # a sibling directory of tiers/
+        "assistant.yml",  # the profile root itself, not tiers/
+        f"{TIERS_DIRNAME}/nested/assistant.yml",  # deeper than one level: never read as a delta
     ],
 )
 def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
@@ -1952,12 +1995,37 @@ def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
 
     # Assert
     errors = _errors(findings)
-    bad = [f for f in errors if f.code == "web_terminals.persona_build_profile_not_a_delta"]
+    bad = [f for f in errors if f.code == "web_terminals.render_build_profile_not_a_delta"]
     assert bad, f"{build_profile!r} must be an error"
-    assert any("personas/assistant.yml" in f.message for f in bad)  # names the fix
-    assert not any(
-        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
+    assert any(f"{TIERS_DIRNAME}/assistant.yml" in f.message for f in bad)  # names the fix
+    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        (tier_render, f"{TIERS_DIRNAME}/assistant.yml"),
+        (app_render, f"{APPS_DIRNAME}/assistant.yml"),
+    ],
+    ids=["tier", "app"],
+)
+def test_lint_not_a_delta_names_the_file_of_the_entry_kind(tmp_path, build, expected) -> None:
+    """The remedy names the file `osprey init` writes for the render's kind:
+    `tiers/<name>.yml` for a tier, `apps/<name>.yml` for an app."""
+    # Arrange
+    entry = build(
+        "assistant",
+        "als-assistant",
+        project_path=str(tmp_path / "als-assistant"),
+        build_profile="control-assistant",
     )
+
+    # Act
+    findings = lint._check_one_render_project_path("assistant", entry)
+
+    # Assert
+    assert [f.code for f in findings] == ["web_terminals.render_build_profile_not_a_delta"]
+    assert f"{expected!r}" in findings[0].message
 
 
 def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_path) -> None:
@@ -1975,21 +2043,22 @@ def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_p
     errors = _errors(lint_web_terminals(config))
 
     # Assert
-    assert any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in errors)
+    assert any(f.code == "web_terminals.render_build_profile_not_a_delta" for f in errors)
 
 
-def test_lint_local_mode_delta_valued_build_profile_is_accepted(tmp_path) -> None:
+@pytest.mark.parametrize("layer_dir", [TIERS_DIRNAME, *RETIRED_LAYER_DIRS])
+def test_lint_local_mode_delta_valued_build_profile_is_accepted(tmp_path, layer_dir: str) -> None:
     """The one accepted shape -- what `osprey init` emits -- draws no
     shape finding at all. Lint cannot check the file exists (it holds a config,
     not the deployed project), and must not pretend otherwise."""
     # Act
     findings = lint_web_terminals(
-        _local_mode_build_profile_config(tmp_path, "personas/assistant.yml")
+        _local_mode_build_profile_config(tmp_path, f"{layer_dir}/assistant.yml")
     )
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in findings)
-    assert any(f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings)
+    assert not any(f.code == "web_terminals.render_build_profile_not_a_delta" for f in findings)
+    assert any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
 def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary() -> None:
@@ -1997,16 +2066,17 @@ def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary() -> None:
     a generated CI job as a committed profile path, so a `profiles/*.yml` value
     stays valid there and must not inherit the local-mode shape error."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "registry",
-            "default_persona": "assistant",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "build_profile": "profiles/assistant.yml",
-                },
-                "analysis": {"project": "als-analysis", "build_profile": "profiles/analysis.yml"},
+            "default_tier": "assistant",
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", build_profile="profiles/assistant.yml"
+                ),
+                "analysis": tier_render(
+                    "analysis", "als-analysis", build_profile="profiles/analysis.yml"
+                ),
             },
         }
     )
@@ -2015,7 +2085,7 @@ def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_build_profile_not_a_delta" for f in findings)
+    assert not any(f.code == "web_terminals.render_build_profile_not_a_delta" for f in findings)
 
 
 def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(tmp_path) -> None:
@@ -2024,15 +2094,16 @@ def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(
     render. A disagreement is an error even with a build_profile present."""
     # Arrange (basename "wrong-name" != project "als-assistant"; dir absent)
     project_path = tmp_path / "wrong-name"
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "project_path": str(project_path),
-                    "build_profile": "personas/assistant.yml",
-                }
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    project_path=str(project_path),
+                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
+                ),
             },
         }
     )
@@ -2042,13 +2113,11 @@ def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(
 
     # Assert
     errors = _errors(findings)
-    mismatch = [f for f in errors if f.code == "web_terminals.persona_project_path_name_mismatch"]
+    mismatch = [f for f in errors if f.code == "web_terminals.render_project_path_name_mismatch"]
     assert mismatch
     assert any("wrong-name" in f.message and "als-assistant" in f.message for f in mismatch)
     # The name-mismatch supersedes the awaiting-a-render demotion.
-    assert not any(
-        f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings
-    )
+    assert not any(f.code == "web_terminals.render_project_path_not_rendered_yet" for f in findings)
 
 
 def test_lint_local_mode_name_invariant_fires_for_an_otherwise_wellformed_dir(tmp_path) -> None:
@@ -2060,11 +2129,13 @@ def test_lint_local_mode_name_invariant_fires_for_an_otherwise_wellformed_dir(tm
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
@@ -2074,8 +2145,8 @@ def test_lint_local_mode_name_invariant_fires_for_an_otherwise_wellformed_dir(tm
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in errors)
-    assert not any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
+    assert any(f.code == "web_terminals.render_project_path_name_mismatch" for f in errors)
+    assert not any(f.code == "web_terminals.render_missing_dockerfile" for f in errors)
 
 
 def test_lint_local_mode_matching_basename_reports_no_name_invariant_error(tmp_path) -> None:
@@ -2086,11 +2157,13 @@ def test_lint_local_mode_matching_basename_reports_no_name_invariant_error(tmp_p
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
@@ -2099,7 +2172,7 @@ def test_lint_local_mode_matching_basename_reports_no_name_invariant_error(tmp_p
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in findings)
+    assert not any(f.code == "web_terminals.render_project_path_name_mismatch" for f in findings)
     assert _errors(findings) == []
 
 
@@ -2108,10 +2181,12 @@ def test_lint_registry_mode_does_not_run_project_path_name_invariant(tmp_path) -
     images and must not evaluate project_path basenames at all."""
     # Arrange (basename disagrees with project, but image_source is registry)
     project_path = tmp_path / "wrong-name"
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_path)},
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_path)
+                ),
             },
         },
         registry={"url": "registry.example.org:5050"},
@@ -2121,34 +2196,32 @@ def test_lint_registry_mode_does_not_run_project_path_name_invariant(tmp_path) -
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in findings)
+    assert not any(f.code == "web_terminals.render_project_path_name_mismatch" for f in findings)
 
 
-def test_lint_two_personas_sharing_a_project_across_renders_is_an_error() -> None:
-    """Two referenced personas with one `project` over DIFFERENT renders would
+def test_lint_two_tiers_sharing_a_project_across_renders_is_an_error() -> None:
+    """Two referenced tiers with one `project` over DIFFERENT renders would
     race both builds onto the single `<project>:local` tag — the losing
-    persona's users silently run the winning persona's image."""
+    tier's users silently run the winning tier's image."""
     # Arrange
-    config = _persona_config(
-        web_terminals={
-            "image_source": "local",
-            "users": [
-                {"name": "alice", "index": 0, "persona": "assistant"},
-                {"name": "bob", "index": 1, "persona": "analysis"},
-            ],
-            "personas": {
-                "assistant": {"project": "shared", "project_path": "build/shared"},
-                "analysis": {"project": "shared", "project_path": "elsewhere/shared"},
-            },
-        }
+    config = _tier_config(
+        {
+            "assistant": {"project": "shared", "project_path": "build/shared"},
+            "analysis": {"project": "shared", "project_path": "elsewhere/shared"},
+        },
+        users=[
+            {"name": "alice", "index": 0, "tier": "assistant"},
+            {"name": "bob", "index": 1, "tier": "analysis"},
+        ],
     )
+    config["modules"]["web_terminals"]["image_source"] = "local"
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    collisions = [f for f in errors if f.code == "web_terminals.persona_project_collision"]
+    collisions = [f for f in errors if f.code == "web_terminals.render_project_collision"]
     assert collisions
     assert any(
         "'assistant'" in f.message and "'analysis'" in f.message and "shared:local" in f.message
@@ -2156,41 +2229,44 @@ def test_lint_two_personas_sharing_a_project_across_renders_is_an_error() -> Non
     )
 
 
-def test_lint_two_personas_sharing_one_render_is_not_a_collision() -> None:
-    """The same `project` AND the same `project_path` is one render deliberately
-    serving both personas — one image, no race, no finding."""
+def test_lint_two_tiers_sharing_one_render_path_is_a_collision() -> None:
+    """Every tier renders its own `build/<project>-<name>`, so two tiers naming
+    one `project` collide on the `<project>:local` tag even when they also name
+    one `project_path` — there is no deliberate shared render to exempt."""
     # Arrange
-    config = _persona_config(
-        web_terminals={
-            "image_source": "local",
-            "users": [
-                {"name": "alice", "index": 0, "persona": "assistant"},
-                {"name": "bob", "index": 1, "persona": "analysis"},
-            ],
-            "personas": {
-                "assistant": {"project": "shared", "project_path": "build/shared"},
-                "analysis": {"project": "shared", "project_path": "build/shared"},
-            },
-        }
+    config = _tier_config(
+        {
+            "assistant": {"project": "shared", "project_path": "build/shared"},
+            "analysis": {"project": "shared", "project_path": "build/shared"},
+        },
+        users=[
+            {"name": "alice", "index": 0, "tier": "assistant"},
+            {"name": "bob", "index": 1, "tier": "analysis"},
+        ],
     )
+    config["modules"]["web_terminals"]["image_source"] = "local"
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.persona_project_collision" for f in findings)
+    collisions = [
+        f for f in _errors(findings) if f.code == "web_terminals.render_project_collision"
+    ]
+    assert len(collisions) == 1
+    assert "'assistant'" in collisions[0].message and "'analysis'" in collisions[0].message
 
 
-def test_lint_persona_project_equal_to_deployment_project_name_is_an_error() -> None:
-    """The dispatch worker already owns `<deployment project>:local`; a persona
+def test_lint_render_project_equal_to_deployment_project_name_is_an_error() -> None:
+    """The dispatch worker already owns `<deployment project>:local`; a render
     render with the same name would overwrite it (or be overwritten) with
     entirely different content."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {"project": "my-deploy", "project_path": "build/my-deploy"},
+            "renders": {
+                "assistant": tier_render("assistant", "my-deploy", project_path="build/my-deploy"),
             },
         }
     )
@@ -2201,30 +2277,30 @@ def test_lint_persona_project_equal_to_deployment_project_name_is_an_error() -> 
 
     # Assert
     errors = _errors(findings)
-    shadows = [f for f in errors if f.code == "web_terminals.persona_project_shadows_worker_image"]
+    shadows = [f for f in errors if f.code == "web_terminals.render_shadows_project_image"]
     assert shadows
     assert any("my-deploy:local" in f.message for f in shadows)
 
 
-def test_lint_registry_mode_skips_persona_project_collision_checks() -> None:
-    """Registry mode pulls per-persona images; no local tags exist to collide."""
+def test_lint_registry_mode_skips_render_project_collision_checks() -> None:
+    """Registry mode pulls per-render images; no local tags exist to collide."""
     # Arrange (both collisions present, but image_source is registry)
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "users": [
-                {"name": "alice", "index": 0, "persona": "assistant"},
-                {"name": "bob", "index": 1, "persona": "analysis"},
+                {"name": "alice", "index": 0, "tier": "assistant"},
+                {"name": "bob", "index": 1, "tier": "analysis"},
             ],
-            "personas": {
-                "assistant": {
-                    "project": "shared",
-                    "build_profile": "profiles/assistant.yml",
-                },
-                "analysis": {
-                    "project": "shared",
-                    "project_path": "elsewhere/shared",
-                    "build_profile": "profiles/analysis.yml",
-                },
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "shared", build_profile="profiles/assistant.yml"
+                ),
+                "analysis": tier_render(
+                    "analysis",
+                    "shared",
+                    project_path="elsewhere/shared",
+                    build_profile="profiles/analysis.yml",
+                ),
             },
         },
         registry={"url": "registry.example.org:5050"},
@@ -2238,26 +2314,26 @@ def test_lint_registry_mode_skips_persona_project_collision_checks() -> None:
     assert not any(
         f.code
         in (
-            "web_terminals.persona_project_collision",
-            "web_terminals.persona_project_shadows_worker_image",
+            "web_terminals.render_project_collision",
+            "web_terminals.render_shadows_project_image",
         )
         for f in findings
     )
 
 
-def test_lint_registry_mode_non_default_persona_without_build_profile_is_an_error() -> None:
-    """In registry mode, a non-default persona has no local project_path to
+def test_lint_registry_mode_non_default_tier_without_build_profile_is_an_error() -> None:
+    """In registry mode, a non-default tier has no local project_path to
     build from — `build_profile` is its only route to a CI build job."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
-            "personas": {
-                "assistant": {"project": "als-assistant"},
-                "analysis": {"project": "als-analysis"},
+            "renders": {
+                "assistant": tier_render("assistant", "als-assistant"),
+                "analysis": tier_render("analysis", "als-analysis", build_profile=None),
             },
             "users": [
                 {"name": "alice", "index": 0},
-                {"name": "bob", "index": 1, "persona": "analysis"},
+                {"name": "bob", "index": 1, "tier": "analysis"},
             ],
         },
         registry={"url": "registry.example.org:5050"},
@@ -2268,40 +2344,39 @@ def test_lint_registry_mode_non_default_persona_without_build_profile_is_an_erro
 
     # Assert
     errors = _errors(findings)
-    missing_profile = [f for f in errors if f.code == "web_terminals.persona_missing_build_profile"]
+    missing_profile = [f for f in errors if f.code == "web_terminals.render_missing_build_profile"]
     assert missing_profile
     assert any("analysis" in f.message for f in missing_profile)
 
 
-def test_lint_registry_mode_default_persona_is_exempt_from_build_profile() -> None:
-    """The default persona's image is built by the core CI job, not a
-    per-persona one — it never needs `build_profile`."""
+def test_lint_registry_mode_default_tier_is_exempt_from_build_profile() -> None:
+    """The default tier's image is built by the core CI job, not a
+    per-render one — it never needs `build_profile`."""
     # Arrange
-    config = _persona_config(registry={"url": "registry.example.org:5050"})
+    config = _render_config(registry={"url": "registry.example.org:5050"})
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code == "web_terminals.persona_missing_build_profile" for f in errors)
+    assert not any(f.code == "web_terminals.render_missing_build_profile" for f in errors)
 
 
-def test_lint_registry_mode_non_default_persona_with_build_profile_reports_no_error() -> None:
-    """Setting build_profile on the non-default persona clears the error."""
+def test_lint_registry_mode_non_default_tier_with_build_profile_reports_no_error() -> None:
+    """Setting build_profile on the non-default tier clears the error."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
-            "personas": {
-                "assistant": {"project": "als-assistant"},
-                "analysis": {
-                    "project": "als-analysis",
-                    "build_profile": "profiles/analysis.yml",
-                },
+            "renders": {
+                "assistant": tier_render("assistant", "als-assistant"),
+                "analysis": tier_render(
+                    "analysis", "als-analysis", build_profile="profiles/analysis.yml"
+                ),
             },
             "users": [
                 {"name": "alice", "index": 0},
-                {"name": "bob", "index": 1, "persona": "analysis"},
+                {"name": "bob", "index": 1, "tier": "analysis"},
             ],
         },
         registry={"url": "registry.example.org:5050"},
@@ -2312,22 +2387,23 @@ def test_lint_registry_mode_non_default_persona_with_build_profile_reports_no_er
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code == "web_terminals.persona_missing_build_profile" for f in errors)
+    assert not any(f.code == "web_terminals.render_missing_build_profile" for f in errors)
 
 
-# --- persona extra_mounts syntax ---------------------------------------------
+# --- render extra_mounts syntax ---------------------------------------------
 
 
-def test_lint_valid_persona_extra_mounts_reports_no_error() -> None:
+def test_lint_valid_render_extra_mounts_reports_no_error() -> None:
     """Well-formed compose volume strings (2 or 3 non-empty colon parts) pass."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "extra_mounts": ["/opt/site-data:/app/site-data:ro", "cache:/app/cache"],
-                },
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    extra_mounts=["/opt/site-data:/app/site-data:ro", "cache:/app/cache"],
+                ),
             },
         },
         registry={"url": "registry.example.org:5050"},
@@ -2338,21 +2414,20 @@ def test_lint_valid_persona_extra_mounts_reports_no_error() -> None:
 
     # Assert
     errors = _errors(findings)
-    assert not any(f.code.startswith("web_terminals.persona_") for f in errors)
     assert not any("extra_mount" in f.code for f in errors)
 
 
-def test_lint_malformed_persona_extra_mount_string_is_an_error() -> None:
+def test_lint_malformed_render_extra_mount_string_is_an_error() -> None:
     """An entry that isn't a 2-or-3-part colon string renders a broken volume line."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    # no colon at all, empty part, and too many parts
-                    "extra_mounts": ["no-colon", "/a::ro", "/a:/b:ro:extra"],
-                },
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    extra_mounts=["no-colon", "/a::ro", "/a:/b:ro:extra"],
+                ),
             },
         },
         registry={"url": "registry.example.org:5050"},
@@ -2362,18 +2437,18 @@ def test_lint_malformed_persona_extra_mount_string_is_an_error() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    errors = [f for f in _errors(findings) if f.code == "web_terminals.persona_invalid_extra_mount"]
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.render_invalid_extra_mount"]
     assert len(errors) == 3
     assert any("no-colon" in f.message for f in errors)
 
 
-def test_lint_non_list_persona_extra_mounts_is_an_error() -> None:
+def test_lint_non_list_render_extra_mounts_is_an_error() -> None:
     """`extra_mounts` must be a list; a scalar is a distinct, reported error."""
     # Arrange
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
-            "personas": {
-                "assistant": {"project": "als-assistant", "extra_mounts": "/a:/b:ro"},
+            "renders": {
+                "assistant": tier_render("assistant", "als-assistant", extra_mounts="/a:/b:ro"),
             },
         },
         registry={"url": "registry.example.org:5050"},
@@ -2384,13 +2459,13 @@ def test_lint_non_list_persona_extra_mounts_is_an_error() -> None:
 
     # Assert
     errors = _errors(findings)
-    assert any(f.code == "web_terminals.persona_extra_mounts_not_list" for f in errors)
+    assert any(f.code == "web_terminals.render_extra_mounts_not_list" for f in errors)
 
 
-def test_lint_absent_persona_extra_mounts_reports_no_error() -> None:
-    """A persona that omits `extra_mounts` is never flagged — the key is optional."""
+def test_lint_absent_render_extra_mounts_reports_no_error() -> None:
+    """A render that omits `extra_mounts` is never flagged — the key is optional."""
     # Arrange
-    config = _persona_config(registry={"url": "registry.example.org:5050"})
+    config = _render_config(registry={"url": "registry.example.org:5050"})
 
     # Act
     findings = lint_web_terminals(config)
@@ -2480,8 +2555,10 @@ def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> N
     config = copy.deepcopy(_CLEAN_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
-    web_terminals["default_persona"] = "ops"
-    web_terminals["personas"] = {"ops": {"project": "ops-app", "project_path": "profiles/ops"}}
+    web_terminals["default_tier"] = "ops"
+    web_terminals["renders"] = {
+        "ops": tier_render("ops", "ops-app", project_path="profiles/ops"),
+    }
     web_terminals["image_tag"] = "${IMAGE_TAG}"
 
     # Act
@@ -4561,17 +4638,18 @@ def _profile_config(**web_terminals_overrides: object) -> dict:
     web_terminals: dict = {
         "enabled": True,
         "image_source": "local",
-        "default_persona": "readonly",
+        "default_tier": "readonly",
         "users": [
-            {"name": "alice", "index": 0, "persona": "readonly"},
-            {"name": "bob", "index": 1, "persona": "readonly"},
+            {"name": "alice", "index": 0, "tier": "readonly"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
         ],
-        "personas": {
-            "readonly": {
-                "project": "ca-readonly",
-                "project_path": "../ca-readonly",
-                "build_profile": "control-assistant-readonly",
-            }
+        "renders": {
+            "readonly": tier_render(
+                "readonly",
+                "ca-readonly",
+                project_path="../ca-readonly",
+                build_profile="control-assistant",
+            ),
         },
     }
     web_terminals.update(web_terminals_overrides)
@@ -4606,7 +4684,7 @@ def test_lint_profile_config_skips_the_checks_a_profile_cannot_answer() -> None:
     # Assert
     assert profile_findings == []
     assert {f.code for f in _errors(rendered_findings)} == {
-        "web_terminals.persona_build_profile_not_a_delta"
+        "web_terminals.render_build_profile_not_a_delta"
     }
 
 
@@ -4642,7 +4720,7 @@ def test_lint_profile_config_lets_a_deeper_dotted_key_refine_the_subtree() -> No
     """`modules.web_terminals.enabled: false` beside a whole
     `modules.web_terminals:` subtree wins, the way `osprey build` applies them —
     a profile that switches the module off must lint as switched off. This is
-    exactly how the bundled persona presets inherit their parent's catalog."""
+    exactly how the bundled tier presets inherit their parent's catalog."""
     # Arrange
     config = _profile_config(users=[{"name": "alice", "index": 0}, {"name": "alice", "index": 1}])
     config["modules.web_terminals.enabled"] = False
@@ -4668,27 +4746,30 @@ def test_lint_profile_config_ignores_a_config_block_that_omits_the_module() -> N
     assert findings == []
 
 
-# --- write posture: a read-only-looking persona that inherits an armed block -
+# --- write posture: a read-only-looking render that inherits an armed block -
 
-_WRITE_HOLE_CODE = "web_terminals.persona_inherits_armed_connector"
+_WRITE_HOLE_CODE = "web_terminals.tier_inherits_armed_connector"
 
 
 def _write_posture_config(tmp_path, delta_config: dict, **profile_keys: object) -> dict:
-    """A profile whose one referenced persona is a delta beside it, written with
+    """A profile whose one referenced render is a delta beside it, written with
     *delta_config* as its own `config:` block. Extra `profile_keys` land in the
     profile's own block — the layer the delta is merged over."""
-    (tmp_path / "personas").mkdir(exist_ok=True)
-    (tmp_path / "personas" / "tier.yml").write_text(
+    (tmp_path / TIERS_DIRNAME).mkdir(exist_ok=True)
+    (tmp_path / TIERS_DIRNAME / "tier.yml").write_text(
         yaml.safe_dump({"name": "Tier", "config": delta_config})
     )
     config = _profile_config(
-        default_persona="tier",
-        users=[{"name": "alice", "index": 0, "persona": "tier"}],
-        personas={
-            "tier": {
-                "project": "ca-tier",
-                "project_path": "../ca-tier",
-                "build_profile": "personas/tier.yml",
+        default_tier="tier",
+        users=[{"name": "alice", "index": 0, "tier": "tier"}],
+        **{
+            "renders": {
+                "tier": tier_render(
+                    "tier",
+                    "ca-tier",
+                    project_path="../ca-tier",
+                    build_profile=f"{TIERS_DIRNAME}/tier.yml",
+                ),
             }
         },
     )
@@ -4696,13 +4777,13 @@ def _write_posture_config(tmp_path, delta_config: dict, **profile_keys: object) 
     return config
 
 
-def test_lint_readonly_persona_inheriting_an_armed_connector_block_is_an_error(
+def test_lint_readonly_tier_inheriting_an_armed_connector_block_is_an_error(
     tmp_path,
 ) -> None:
     """The write hole this check exists for: the delta pins the flat key off, so
     it reads as a read-only tier, while the profile it is merged over arms one
     connector type — and a per-type key never falls back to the flat one, so the
-    persona is armed. The message has to name the file that was written and the
+    render is armed. The message has to name the file that was written and the
     inherited key, because those are the two things the author cannot see."""
     # Arrange
     config = _write_posture_config(
@@ -4718,12 +4799,12 @@ def test_lint_readonly_persona_inheriting_an_armed_connector_block_is_an_error(
     holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
     assert len(holes) == 1, findings
     message = holes[0].message
-    assert "personas/tier.yml" in message
+    assert f"{TIERS_DIRNAME}/tier.yml" in message
     assert "control_system.connector.epics.writes_enabled" in message
     assert "control_system.writes_enabled" in message
 
 
-def test_lint_persona_that_pins_the_inherited_block_itself_is_not_a_write_hole(
+def test_lint_render_that_pins_the_inherited_block_itself_is_not_a_write_hole(
     tmp_path,
 ) -> None:
     """Pinning the block off is the fix the message asks for, so the same
@@ -4745,7 +4826,7 @@ def test_lint_persona_that_pins_the_inherited_block_itself_is_not_a_write_hole(
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_persona_that_arms_the_block_itself_is_not_a_write_hole(tmp_path) -> None:
+def test_lint_render_that_arms_the_block_itself_is_not_a_write_hole(tmp_path) -> None:
     """The shape the shipped simulator tier has: the delta writes BOTH the flat
     false and the one block it arms, so nothing about its posture is inherited.
     Read off the merged document these two cases are the same keys with the same
@@ -4766,9 +4847,9 @@ def test_lint_persona_that_arms_the_block_itself_is_not_a_write_hole(tmp_path) -
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_persona_that_arms_the_flat_key_is_not_a_write_hole(tmp_path) -> None:
+def test_lint_render_that_arms_the_flat_key_is_not_a_write_hole(tmp_path) -> None:
     """Nothing is hidden from an author who wrote `writes_enabled: true`: that
-    persona claims no read-only posture for an inherited block to contradict."""
+    render claims no read-only posture for an inherited block to contradict."""
     # Arrange
     config = _write_posture_config(
         tmp_path,
@@ -4783,7 +4864,7 @@ def test_lint_persona_that_arms_the_flat_key_is_not_a_write_hole(tmp_path) -> No
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_persona_that_says_nothing_about_write_posture_is_not_a_write_hole(
+def test_lint_render_that_says_nothing_about_write_posture_is_not_a_write_hole(
     tmp_path,
 ) -> None:
     """A delta with no posture of its own inherits both keys and claims
@@ -4845,15 +4926,16 @@ def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
             }
         )
     )
-    config = _persona_config(
+    config = _render_config(
         web_terminals={
             "image_source": "local",
-            "personas": {
-                "assistant": {
-                    "project": "als-assistant",
-                    "project_path": str(project_dir),
-                    "build_profile": "personas/assistant.yml",
-                }
+            "renders": {
+                "assistant": tier_render(
+                    "assistant",
+                    "als-assistant",
+                    project_path=str(project_dir),
+                    build_profile=f"{TIERS_DIRNAME}/assistant.yml",
+                ),
             },
         }
     )
@@ -4865,40 +4947,35 @@ def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
     assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-@pytest.mark.parametrize(
-    "preset",
-    [
-        "control-assistant-readonly",
-        "control-assistant-readwrite",
-        "control-assistant-admin",
-    ],
-)
-def test_lint_shipped_write_posture_tiers_report_no_write_hole(preset: str) -> None:
+@pytest.mark.parametrize("tier", ["readonly", "readwrite", "admin"])
+def test_lint_shipped_write_posture_tiers_report_no_write_hole(tmp_path: Path, tier: str) -> None:
     """Every shipped tier writes its own posture down in full — the read-only
     one pins each block off beside the flat key, and the two write-capable ones
     pin the flat key false and arm the one block they mean to arm. A finding
     against any of them would refuse our own reference stack."""
-    # Arrange
+    # Arrange: the bundled tier file beside the profile, as `osprey init` writes it.
+    import shutil
+
+    from osprey.cli.build_profile import _presets_dir
+
+    (tmp_path / "tiers").mkdir()
+    shutil.copy(_presets_dir() / "tiers" / f"{tier}.yml", tmp_path / "tiers" / f"{tier}.yml")
     config = _profile_config(
-        default_persona="tier",
-        users=[{"name": "alice", "index": 0, "persona": "tier"}],
-        personas={
-            "tier": {
-                "project": "ca-tier",
-                "project_path": "../ca-tier",
-                "build_profile": preset,
-            }
-        },
+        default_tier=tier,
+        users=[{"name": "alice", "index": 0, "tier": tier}],
     )
+    del config["modules.web_terminals"]["renders"]
+    del config["modules.web_terminals"]["default_tier"]
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=tmp_path)
 
-    # Assert
+    # Assert: the tier was read, and holds no write hole.
+    assert [f.code for f in findings if f.code == "web_terminals.render_privileges_unknown"] == []
     assert [f.message for f in findings if f.code == _WRITE_HOLE_CODE] == []
 
 
-def test_lint_preset_persona_inheriting_an_armed_block_is_an_error(tmp_path, monkeypatch) -> None:
+def test_lint_preset_render_inheriting_an_armed_block_is_an_error(tmp_path, monkeypatch) -> None:
     """The same hole on the other authoring path: a catalog entry naming a
     bundled preset, whose posture is split between the preset and the parent it
     extends. Read after `extends` resolution the two files are indistinguishable
@@ -4932,13 +5009,13 @@ def test_lint_preset_persona_inheriting_an_armed_block_is_an_error(tmp_path, mon
     # ordinary profiles with no data tree.
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets_dir)
     config = _profile_config(
-        default_persona="tier",
-        users=[{"name": "alice", "index": 0, "persona": "tier"}],
-        personas={
-            "tier": {
-                "project": "ca-tier",
-                "project_path": "../ca-tier",
-                "build_profile": "facility-readonly",
+        default_tier="tier",
+        users=[{"name": "alice", "index": 0, "tier": "tier"}],
+        **{
+            "renders": {
+                "tier": tier_render(
+                    "tier", "ca-tier", project_path="../ca-tier", build_profile="facility-readonly"
+                ),
             }
         },
     )
@@ -4951,28 +5028,6 @@ def test_lint_preset_persona_inheriting_an_armed_block_is_an_error(tmp_path, mon
     assert len(holes) == 1, findings
     assert "facility-readonly" in holes[0].message
     assert "control_system.connector.epics.writes_enabled" in holes[0].message
-
-
-def test_preset_authored_config_reads_the_layer_before_extends() -> None:
-    """The seam the preset half of the check is built on: the preset's own
-    `config:` block, not the one its `extends` chain resolves to. The shipped
-    read-write tier is the case that needs the distinction — it writes all
-    three of its posture keys itself, and its parent writes the connector type."""
-    # Arrange
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.cli.build_profile_resolve import preset_authored_config
-
-    # Act
-    authored = preset_authored_config("control-assistant-readwrite")
-    resolved, _root = resolve_build_profile(None, "control-assistant-readwrite")
-
-    # Assert
-    assert authored["control_system.writes_enabled"] is False
-    assert authored["control_system.connector.epics.writes_enabled"] is False
-    assert authored["control_system.connector.virtual_accelerator.writes_enabled"] is True
-    # The parent's key: in the resolved document, absent from the authored one.
-    assert "control_system.type" not in authored
-    assert resolved.config["control_system.type"] == "virtual_accelerator"
 
 
 def _shipped_preset_names() -> list[str]:
@@ -4995,8 +5050,9 @@ def test_every_shipped_preset_lints_clean_at_profile_altitude(preset: str) -> No
 
     profile = yaml.safe_load((_presets_dir() / f"{preset}.yml").read_text())
 
-    # Act
-    findings = lint_profile_config(profile.get("config") or {})
+    # Act: the bundled tiers/ and apps/ sit beside the preset, as a
+    # materialized repo's sit beside its profile.yml.
+    findings = lint_profile_config(profile.get("config") or {}, profile_root=_presets_dir())
 
     # Assert
     assert [f.message for f in findings] == []
@@ -5036,7 +5092,7 @@ LINT_ENTRY_POINTS = (
 def test_the_engine_is_not_wired_into_build_profile_validate() -> None:
     """`BuildProfile.validate()` also runs during profile RESOLUTION, which
     `osprey init` goes through — running the engine there pre-empts that
-    command's own persona validator, which reports every unusable catalog entry
+    command's own render validator, which reports every unusable catalog entry
     at once. The engine belongs to the commands; this pins that it stayed there.
     """
     # Arrange
@@ -5052,102 +5108,106 @@ def test_the_engine_is_not_wired_into_build_profile_validate() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Roles resolved into personas (Task 4.2 wiring)
+# Roles resolved into renders (Task 4.2 wiring)
 #
-# Once `effective_persona` routes a roster `role:` into a persona at lint's two
-# roster walks, the EXISTING persona rules answer the role's persona too. That
-# is why the authorization parser deliberately added no "a role's persona is in
+# Once `effective_tier` routes a roster `role:` into a render at lint's two
+# roster walks, the EXISTING render rules answer the role's render too. That
+# is why the authorization parser deliberately added no "a role's render is in
 # the catalog" rule of its own — it would report the same config twice.
 # ---------------------------------------------------------------------------
 
 
-def _role_config(role_persona: str, *, catalog: dict | None = None) -> dict:
-    """A clean config whose sole roster entry reaches its persona through a role."""
+def _role_config(role_tier: str, *, catalog: dict | None = None) -> dict:
+    """A clean config whose sole roster entry reaches its render through a role."""
     config = copy.deepcopy(_CLEAN_CONFIG)
     web = config["modules"]["web_terminals"]
     web["users"] = [{"name": "alice", "index": 0, "role": "operator"}]
-    web["authorization"] = {"roles": {"operator": {"persona": role_persona}}}
+    web["authorization"] = {"roles": {"operator": {"tier": role_tier}}}
     if catalog is not None:
-        # Beside the default persona, so the role's persona is not the default.
-        web["personas"] = {**web["personas"], **catalog}
+        # Beside the default tier, so the role's render is not the default.
+        web["renders"] = {**web["renders"], **catalog}
         config["registry"] = {"url": "registry.example.org"}
     return config
 
 
-def test_lint_role_naming_an_uncatalogued_persona_is_the_unknown_persona_finding() -> None:
-    """THE wiring proof: a role bound to a persona the catalog has never heard of
-    is caught by the existing unknown-persona rule, reached through
-    `effective_persona`. No new rule, and no duplicate report."""
+def test_lint_role_naming_an_uncatalogued_render_is_the_unknown_tier_finding() -> None:
+    """THE wiring proof: a role bound to a render the catalog has never heard of
+    is caught by the existing unknown-render rule, reached through
+    `effective_tier`. No new rule, and no duplicate report."""
     # Arrange
-    config = _role_config("ghost", catalog={"cli": {"project": "cli", "build_profile": "p.yml"}})
+    config = _role_config(
+        "ghost", catalog={"cli": tier_render("cli", "cli", build_profile="p.yml")}
+    )
 
     # Act
     codes = [f.code for f in _errors(lint_web_terminals(config))]
 
     # Assert
-    assert "web_terminals.unknown_persona_reference" in codes
-    assert codes.count("web_terminals.unknown_persona_reference") == 1
+    assert "web_terminals.unknown_tier_reference" in codes
+    assert codes.count("web_terminals.unknown_tier_reference") == 1
 
 
-def test_lint_role_bound_persona_is_checked_like_a_pinned_one() -> None:
-    """lint's `_referenced_persona_names` walk reaches a role-bound persona, so
-    the per-persona rules (here: registry mode's `build_profile` requirement)
+def test_lint_role_bound_render_is_checked_like_a_pinned_one() -> None:
+    """lint's `_referenced_render_names` walk reaches a role-bound render, so
+    the per-render rules (here: registry mode's `build_profile` requirement)
     apply to it. A role must not be a way to skip a check a pin cannot skip."""
     # Arrange
-    config = _role_config("gui", catalog={"gui": {"project": "als-gui"}})
+    config = _role_config("gui", catalog={"gui": tier_render("gui", "als-gui", build_profile=None)})
 
     # Act
     codes = [f.code for f in _errors(lint_web_terminals(config))]
 
     # Assert
-    assert "web_terminals.persona_missing_build_profile" in codes
+    assert "web_terminals.render_missing_build_profile" in codes
 
 
-def test_lint_role_bound_persona_in_the_catalog_is_clean() -> None:
+def test_lint_role_bound_render_in_the_catalog_is_clean() -> None:
     """The feature's working shape must not itself be a finding."""
     # Arrange
     config = _role_config(
-        "gui", catalog={"gui": {"project": "als-gui", "build_profile": "personas/gui.yml"}}
+        "gui",
+        catalog={"gui": tier_render("gui", "als-gui", build_profile=f"{TIERS_DIRNAME}/gui.yml")},
     )
 
     # Act / Assert
     assert _errors(lint_web_terminals(config)) == []
 
 
-def test_lint_entry_carrying_both_a_persona_and_a_role_is_an_error() -> None:
+def test_lint_entry_carrying_both_a_render_and_a_role_is_an_error() -> None:
     """Both bind the same slot, so which one governs is unwritten — and a later
-    edit to the role's persona would silently not reach this entry. Lint is the
-    friendly half of the pair `effective_persona` raises on."""
+    edit to the role's render would silently not reach this entry. Lint is the
+    friendly half of the pair `effective_tier` raises on."""
     # Arrange
     config = _role_config(
-        "gui", catalog={"gui": {"project": "als-gui", "build_profile": "personas/gui.yml"}}
+        "gui",
+        catalog={"gui": tier_render("gui", "als-gui", build_profile=f"{TIERS_DIRNAME}/gui.yml")},
     )
-    config["modules"]["web_terminals"]["users"][0]["persona"] = "cli"
+    config["modules"]["web_terminals"]["users"][0]["tier"] = "cli"
 
     # Act
     codes = [f.code for f in _errors(lint_web_terminals(config))]
 
     # Assert
-    assert "web_terminals.conflicting_user_persona_and_role" in codes
+    assert "web_terminals.conflicting_user_tier_and_role" in codes
     # The ambiguity IS the finding: the entry is not also reported for whichever
     # of the two the lint pass might otherwise have preferred.
     assert "web_terminals.unknown_role_reference" not in codes
 
 
-def test_lint_conflicting_persona_and_role_survives_an_undeclared_role() -> None:
+def test_lint_conflicting_tier_and_role_survives_an_undeclared_role() -> None:
     """The conflict is a roster shape, so it is reported whether or not the role
     itself is declared — and it replaces the undeclared-role finding."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "persona": "cli", "role": "nope"}
+        {"name": "alice", "index": 0, "tier": "cli", "role": "nope"}
     ]
 
     # Act
     codes = [f.code for f in _errors(lint_web_terminals(config))]
 
     # Assert
-    assert "web_terminals.conflicting_user_persona_and_role" in codes
+    assert "web_terminals.conflicting_user_tier_and_role" in codes
     assert "web_terminals.unknown_role_reference" not in codes
 
 
@@ -5155,12 +5215,12 @@ def test_lint_conflicting_persona_and_role_survives_an_undeclared_role() -> None
 # The one inert role source left in the stanza
 #
 # Its former sibling — a roster `role:` under `oidc` — is NOT inert any more:
-# the render resolves that entry's persona from it and the sidecar cross-checks
+# the render resolves that entry's render from it and the sidecar cross-checks
 # the ID token's role against it. `claims` has no such second job.
 # ---------------------------------------------------------------------------
 
 _CLAIMS_STANZA = {
-    "roles": {"operator": {"persona": "cli"}},
+    "roles": {"operator": {"tier": "cli"}},
     "claims": {"claim": "groups", "map": {"als-operators": "operator"}},
 }
 
@@ -5198,7 +5258,7 @@ def test_lint_a_claims_block_under_oidc_is_silent() -> None:
 
 
 def test_lint_a_roster_role_under_oidc_is_not_reported_as_inert() -> None:
-    """The asymmetry, pinned. A roster `role:` under `oidc` binds the persona
+    """The asymmetry, pinned. A roster `role:` under `oidc` binds the render
     the container is built from AND is the cross-check the sidecar refuses a
     disagreeing ID token against, so it is emitted under both methods and is
     never an inert source."""
@@ -5206,7 +5266,7 @@ def test_lint_a_roster_role_under_oidc_is_not_reported_as_inert() -> None:
     config = _auth_config({"method": "oidc"})
     web = config["modules"]["web_terminals"]
     web["users"] = [{"name": "alice", "index": 0, "role": "operator"}]
-    web["authorization"] = {"roles": {"operator": {"persona": "cli"}}}
+    web["authorization"] = {"roles": {"operator": {"tier": "cli"}}}
 
     # Act
     codes = [f.code for f in lint_web_terminals(config)]
@@ -5246,7 +5306,7 @@ def test_lint_does_not_raise_on_an_incoherent_authorization_stanza_with_roles() 
 
 
 def _open_mode_config(tmp_path, *, method: str = "none", deny: list[str] | None = None) -> dict:
-    """A one-persona roster on *method* whose rendered project ships exactly *deny*."""
+    """A one-render roster on *method* whose rendered project ships exactly *deny*."""
     import json
 
     from osprey.agent_runner.tool_names import DENY_DEFAULTS
@@ -5259,21 +5319,23 @@ def _open_mode_config(tmp_path, *, method: str = "none", deny: list[str] | None 
         json.dumps({"permissions": {"deny": list(DENY_DEFAULTS) if deny is None else deny}}),
         encoding="utf-8",
     )
-    return _persona_config(
+    return _render_config(
         web_terminals={
             "image_source": "local",
             "auth": {"method": method},
-            "users": [{"name": "alice", "index": 0, "persona": "assistant"}],
-            "personas": {
-                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            "users": [{"name": "alice", "index": 0, "tier": "assistant"}],
+            "renders": {
+                "assistant": tier_render(
+                    "assistant", "als-assistant", project_path=str(project_dir)
+                ),
             },
         }
     )
 
 
-def test_lint_open_mode_persona_that_may_reach_the_host_network_is_an_error(tmp_path) -> None:
+def test_lint_open_mode_render_that_may_reach_the_host_network_is_an_error(tmp_path) -> None:
     """The headline. Under `auth.method: none` nginx vouches for every terminal it
-    proxies, so a persona whose shipped settings lift the shell is one prompt away
+    proxies, so a render whose shipped settings lift the shell is one prompt away
     from a neighbour's session — and an authoring run must say so rather than
     leaving it to the start."""
     # Arrange
@@ -5294,7 +5356,7 @@ def test_lint_open_mode_persona_that_may_reach_the_host_network_is_an_error(tmp_
 def test_lint_open_mode_rule_and_the_deploy_gate_cannot_disagree(tmp_path) -> None:
     """The property that makes the rule worth having: it is the deploy gate's own
     predicate, not a second reading of it. A rule free to re-derive "which
-    personas may reach the network" is a rule free to bless a start nobody can
+    renders may reach the network" is a rule free to bless a start nobody can
     perform."""
     # Arrange
     from osprey.deployment.web_terminals.artifacts import (
@@ -5313,8 +5375,8 @@ def test_lint_open_mode_rule_and_the_deploy_gate_cannot_disagree(tmp_path) -> No
         check_open_mode_requirements(config, tmp_path)
 
 
-def test_lint_open_mode_unrendered_persona_is_told_to_render(tmp_path) -> None:
-    """The fail-closed case with the remedy that clears it. A persona with no
+def test_lint_open_mode_unrendered_render_is_told_to_render(tmp_path) -> None:
+    """The fail-closed case with the remedy that clears it. A render with no
     rendered settings.json denies nothing this rule can see, and telling that
     operator to restore a deny entry points at a file that is not there."""
     # Arrange
@@ -5331,8 +5393,8 @@ def test_lint_open_mode_unrendered_persona_is_told_to_render(tmp_path) -> None:
 
 
 def test_lint_a_walled_deployment_is_not_asked_the_open_question(tmp_path) -> None:
-    """The gate is about what nginx vouches for, not about what a persona may run:
-    behind the magic-link wall a persona with a shell is a deliberate, documented
+    """The gate is about what nginx vouches for, not about what a render may run:
+    behind the magic-link wall a render with a shell is a deliberate, documented
     posture and must not be flagged."""
     # Arrange
     from osprey.agent_runner.tool_names import DENY_DEFAULTS
@@ -5362,7 +5424,7 @@ def test_lint_open_mode_with_the_shipped_deny_list_reports_nothing(tmp_path) -> 
     assert not any(f.code == "web_terminals.open_mode_egress" for f in findings)
 
 
-# --- shared cards on privileged personas --------------------------------------
+# --- shared cards on privileged tiers --------------------------------------
 
 
 def _shipped_profile_config() -> dict:
@@ -5377,9 +5439,21 @@ def _shipped_profile_config() -> dict:
     return copy.deepcopy(resolved.config)
 
 
-def test_lint_shared_card_on_a_privileged_persona_is_an_error() -> None:
+def _shipped_profile_root() -> Path:
+    """The directory the shipped `control-assistant` preset lives in.
+
+    Its `tiers/` and `apps/` files are the renders a profile-altitude lint
+    reads, so the shared-card guard sees the `admin` tier's privileges.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+
+    _resolved, profile_dir = resolve_build_profile(None, "control-assistant")
+    return Path(profile_dir)
+
+
+def test_lint_shared_card_on_a_privileged_tier_is_an_error() -> None:
     """`access: any` on the card that resolves to the setup-patch-capable
-    `admin` persona hands the deployment-editing surfaces to every roster
+    `admin` render hands the deployment-editing surfaces to every roster
     login — an ERROR naming the entry, the privileges and the remedy."""
     # Arrange
     config = _shipped_profile_config()
@@ -5388,7 +5462,7 @@ def test_lint_shared_card_on_a_privileged_persona_is_an_error() -> None:
             user["access"] = "any"
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
@@ -5399,7 +5473,7 @@ def test_lint_shared_card_on_a_privileged_persona_is_an_error() -> None:
     assert "[" not in offenders[0].message
 
 
-def test_lint_shared_card_on_an_unprivileged_persona_reports_nothing() -> None:
+def test_lint_shared_card_on_an_unprivileged_tier_reports_nothing() -> None:
     """Sharing bob's `readonly` card is the feature — no finding."""
     # Arrange
     config = _shipped_profile_config()
@@ -5408,7 +5482,7 @@ def test_lint_shared_card_on_an_unprivileged_persona_reports_nothing() -> None:
             user["access"] = "any"
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
@@ -5421,15 +5495,15 @@ def test_lint_owner_only_privileged_card_draws_no_shared_finding() -> None:
     config = _shipped_profile_config()
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
 
 
-def test_lint_domain_card_on_a_privileged_persona_is_an_error() -> None:
+def test_lint_domain_card_on_a_privileged_tier_is_an_error() -> None:
     """The shape this whole feature adds, on the one card it must not be added
-    to: a domain grant on the setup-patch-capable `admin` persona hands the
+    to: a domain grant on the setup-patch-capable `admin` render hands the
     deployment-editing surfaces to a whole institution. The rule reads the
     resolved principal set, so it sees this exactly as it sees `access: any`."""
     # Arrange
@@ -5439,7 +5513,7 @@ def test_lint_domain_card_on_a_privileged_persona_is_an_error() -> None:
             user["access"] = ["domain:example.com"]
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
@@ -5449,10 +5523,10 @@ def test_lint_domain_card_on_a_privileged_persona_is_an_error() -> None:
     assert "'admin'" in offenders[0].message
 
 
-def test_lint_user_card_on_a_privileged_persona_is_an_error() -> None:
+def test_lint_user_card_on_a_privileged_tier_is_an_error() -> None:
     """Naming one person is still naming somebody other than the card's own
     user, so the privileged card is still shared. Narrowing the grant does not
-    make the persona safe to hand over, and the rule must not read a one-member
+    make the render safe to hand over, and the rule must not read a one-member
     list as if it were owner-only."""
     # Arrange
     config = _shipped_profile_config()
@@ -5461,7 +5535,7 @@ def test_lint_user_card_on_a_privileged_persona_is_an_error() -> None:
             user["access"] = ["user:carol@example.com"]
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
@@ -5470,7 +5544,7 @@ def test_lint_user_card_on_a_privileged_persona_is_an_error() -> None:
     assert "'user:carol@example.com'" in offenders[0].message
 
 
-def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:
+def test_lint_self_only_card_on_a_privileged_tier_reports_nothing() -> None:
     """`[self]` is the explicit spelling of owner-only — the same resolved set
     as `access: own` and as an unwritten key — so the privileged card is not
     shared and the rule stays silent. The dividing line is the resolved set,
@@ -5482,7 +5556,7 @@ def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:
             user["access"] = ["self"]
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
@@ -5834,7 +5908,7 @@ def test_lint_control_identity_shipped_preset_reports_nothing() -> None:
     config = _shipped_profile_config()
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     assert _control_identity_findings(findings) == []
@@ -5844,7 +5918,7 @@ def test_lint_control_identity_shipped_preset_reports_nothing() -> None:
 
 _LIVE_WRITER_CODE = "web_terminals.live_writer_without_control_identity"
 
-# A persona that writes to the facility's real machine: `live` is the baseline
+# A render that writes to the facility's real machine: `live` is the baseline
 # and its own block arms writes.
 _LIVE_WRITER_DELTA = {
     "control_system.type": "epics",
@@ -5859,13 +5933,13 @@ def _live_writer_config(
     auth: object = None,
     user: dict | None = None,
 ) -> dict:
-    """A walled profile whose one card runs a persona delta beside it."""
+    """A walled profile whose one card runs a layer beside it."""
     config = _write_posture_config(
         tmp_path, _LIVE_WRITER_DELTA if delta_config is None else delta_config
     )
     web_terminals = config["modules.web_terminals"]
     web_terminals["auth"] = {"method": "password"} if auth is None else auth
-    web_terminals["users"] = [{"name": "alice", "index": 0, "persona": "tier", **(user or {})}]
+    web_terminals["users"] = [{"name": "alice", "index": 0, "tier": "tier", **(user or {})}]
     return config
 
 
@@ -5874,7 +5948,7 @@ def _live_writer_findings(findings: list[Finding]) -> list[Finding]:
 
 
 def test_lint_live_writer_without_control_identity_is_a_warn(tmp_path) -> None:
-    """An owner-only card behind a wall whose persona arms writes on `live`,
+    """An owner-only card behind a wall whose render arms writes on `live`,
     with no control_identity, is one WARN naming the user and the remedy."""
     # Arrange
     config = _live_writer_config(tmp_path)
@@ -5914,8 +5988,8 @@ def test_lint_live_writer_with_control_identity_reports_nothing(tmp_path) -> Non
     assert _live_writer_findings(findings) == []
 
 
-def test_lint_live_writer_rule_reads_a_rendered_persona(tmp_path) -> None:
-    """At deploy altitude the rendered persona `config.yml` is the document."""
+def test_lint_live_writer_rule_reads_a_rendered_render(tmp_path) -> None:
+    """At deploy altitude the rendered render `config.yml` is the document."""
     # Arrange
     render_dir = tmp_path / "build" / "ca-tier"
     render_dir.mkdir(parents=True)
@@ -5926,9 +6000,11 @@ def test_lint_live_writer_rule_reads_a_rendered_persona(tmp_path) -> None:
     )
     config = _auth_config({"method": "password"})
     web_terminals = config["modules"]["web_terminals"]
-    web_terminals["users"] = [{"name": "alice", "index": 0, "persona": "tier"}]
-    web_terminals["default_persona"] = "tier"
-    web_terminals["personas"] = {"tier": {"project": "ca-tier", "project_path": "build/ca-tier"}}
+    web_terminals["users"] = [{"name": "alice", "index": 0, "tier": "tier"}]
+    web_terminals["default_tier"] = "tier"
+    web_terminals["renders"] = {
+        "tier": tier_render("tier", "ca-tier", project_path="build/ca-tier"),
+    }
 
     # Act
     findings = _live_writer_findings(lint_web_terminals(config, project_root=tmp_path))
@@ -6007,7 +6083,88 @@ def test_lint_live_writer_rule_is_silent_on_the_shipped_preset() -> None:
     config = _shipped_profile_config()
 
     # Act
-    findings = lint_profile_config(config)
+    findings = lint_profile_config(config, profile_root=_shipped_profile_root())
 
     # Assert
     assert _live_writer_findings(findings) == []
+
+
+# --- profile altitude: the tiers/ and apps/ files are the renders -------------
+
+
+def _tier_files_profile(tmp_path: Path, *, tiers: list[str], apps: list[str]) -> Path:
+    """A profile directory holding one empty `tiers/<name>.yml` per tier and
+    one `apps/<name>.yml` per app — what `osprey init` materializes."""
+    for dirname, names in (("tiers", tiers), ("apps", apps)):
+        (tmp_path / dirname).mkdir(exist_ok=True)
+        for name in names:
+            (tmp_path / dirname / f"{name}.yml").write_text("{}\n", encoding="utf-8")
+    return tmp_path
+
+
+def _profile_web_terminals(users: list, *, default_tier: str = "ops") -> dict:
+    """A profile `config:` block with no catalog of its own — no `renders`, no
+    `renders` — so the tier files beside the profile are the only catalog."""
+    return {
+        "registry.url": "registry.example.org:5050",
+        "modules.web_terminals": {
+            "enabled": True,
+            "default_tier": default_tier,
+            "users": users,
+        },
+    }
+
+
+def test_lint_profile_tier_files_are_the_tier_catalog(tmp_path) -> None:
+    """A profile names its tiers by the files in `tiers/`, never by a catalog in
+    `profile.yml`; a roster naming those tiers draws no unknown-tier or
+    missing-catalog finding."""
+    # Arrange
+    profile_root = _tier_files_profile(tmp_path, tiers=["ops", "viewer"], apps=["logbook"])
+    config = _profile_web_terminals(
+        [{"name": "alice", "index": 0}, {"name": "bob", "index": 1, "tier": "viewer"}]
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=profile_root)
+
+    # Assert
+    codes = {f.code for f in _errors(findings)}
+    assert "web_terminals.unknown_tier_reference" not in codes
+    assert "web_terminals.unknown_default_tier" not in codes
+    assert "web_terminals.requires_catalog" not in codes
+
+
+def test_lint_profile_tier_with_no_tier_file_is_an_error(tmp_path) -> None:
+    """A tier the profile names but holds no file for is reported against the
+    file that is missing — and an app file does not stand in for a tier."""
+    # Arrange
+    profile_root = _tier_files_profile(tmp_path, tiers=["ops"], apps=["logbook"])
+    config = _profile_web_terminals(
+        [
+            {"name": "alice", "index": 0, "tier": "ghost"},
+            {"name": "bob", "index": 1, "tier": "logbook"},
+        ]
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=profile_root)
+
+    # Assert
+    unknown = [f for f in _errors(findings) if f.code == "web_terminals.unknown_tier_reference"]
+    assert any("'alice'" in f.message and "tiers/ghost.yml" in f.message for f in unknown)
+    assert any("'bob'" in f.message and "tiers/logbook.yml" in f.message for f in unknown)
+
+
+def test_lint_profile_tier_files_do_not_mutate_the_caller_config(tmp_path) -> None:
+    """The projection is the lint's own view; the profile config it was handed
+    gains no `renders` key."""
+    # Arrange
+    profile_root = _tier_files_profile(tmp_path, tiers=["ops"], apps=[])
+    config = _profile_web_terminals([{"name": "alice", "index": 0}])
+
+    # Act
+    lint_profile_config(config, profile_root=profile_root)
+
+    # Assert
+    assert "renders" not in config["modules.web_terminals"]

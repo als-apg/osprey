@@ -20,7 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_profile import resolve_build_profile
+from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
+from osprey.cli.build_profile_presets import list_apps, list_tiers
 from osprey.cli.templates.artifact_library import validate_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -148,6 +149,36 @@ def test_preset_yaml_parses_and_artifacts_resolve(preset: str) -> None:
         validate_artifacts(artifacts)
 
 
+def _all_layers() -> list[str]:
+    """Every bundled tier and app, named ``<kind>/<stem>`` as the preset reader takes it."""
+    return [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()]
+
+
+def _unknown_web_panels(panels: list[str], config: dict) -> list[str]:
+    """The ``panels`` that are neither built in, derived, nor URL-backed by ``config``."""
+    from osprey.deployment.reach import REACH_CONTRACTS
+    from osprey.profiles.web_panels import BUILTIN_PANELS
+
+    derived = {p.panel for c in REACH_CONTRACTS.values() for p in c.projected if p.panel}
+    return [
+        p
+        for p in panels
+        if p not in BUILTIN_PANELS and p not in derived and f"web.panels.{p}.url" not in config
+    ]
+
+
+def _valid_web_panels() -> str:
+    """What a ``web_panels`` entry may be, spelled out for a failure message."""
+    from osprey.deployment.reach import REACH_CONTRACTS
+    from osprey.profiles.web_panels import BUILTIN_PANELS
+
+    derived = {p.panel for c in REACH_CONTRACTS.values() for p in c.projected if p.panel}
+    return (
+        f"(valid: built-in {sorted(BUILTIN_PANELS)}, a panel the Reach Contract "
+        f"projects a URL for {sorted(derived)}, or a web.panels.<id>.url override)"
+    )
+
+
 @pytest.mark.parametrize("preset", _all_presets())
 def test_preset_web_panels_against_registry(preset: str) -> None:
     """Every ``web_panels`` entry must be a built-in panel or a URL-backed custom panel.
@@ -160,29 +191,36 @@ def test_preset_web_panels_against_registry(preset: str) -> None:
     Plus the third case the Reach Contract introduced, which is why this check
     reads the registry rather than a hardcoded pair: a panel whose URL the
     build DERIVES is legitimately url-less in the preset. The deploying profile
-    derives it from its own sidecar block, and an attached persona is told it
-    by projection from the hosting render — so a persona preset that spelled
+    derives it from its own sidecar block, and an attached render is told it
+    by projection from the hosting render — so a tier preset that spelled
     the URL would be stating a fact it cannot keep true. This scan sees only
     what the preset chain itself declares, not what a deployment's sidecar
     block would add; the build-time refusal for a selected panel the deployment
     cannot back is ``reach.selected_panel_errors``, not this static scan.
     """
-    from osprey.deployment.reach import REACH_CONTRACTS
-    from osprey.profiles.web_panels import BUILTIN_PANELS
-
-    derived = {p.panel for c in REACH_CONTRACTS.values() for p in c.projected if p.panel}
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config = getattr(profile, "config", {}) or {}
-    unknown = [
-        p
-        for p in profile.web_panels
-        if p not in BUILTIN_PANELS and p not in derived and f"web.panels.{p}.url" not in config
-    ]
-    assert not unknown, (
-        f"{preset}.yml declares unknown web_panels: {unknown} "
-        f"(valid: built-in {sorted(BUILTIN_PANELS)}, a panel the Reach Contract "
-        f"projects a URL for {sorted(derived)}, or a web.panels.<id>.url override)"
-    )
+    unknown = _unknown_web_panels(list(profile.web_panels), config)
+    assert not unknown, f"{preset}.yml declares unknown web_panels: {unknown} {_valid_web_panels()}"
+
+
+@pytest.mark.parametrize("layer", _all_layers())
+def test_tier_and_app_web_panels_against_registry(layer: str) -> None:
+    """The same contract over every bundled tier and app.
+
+    A layer file is not a profile on its own (it names no ``data:``), so it is
+    read as the document ``osprey init`` copies, and judged on the panels and
+    the ``config:`` it states itself.
+    """
+    raw, _path = _load_preset_raw(layer)
+    panels = [p for p in raw.get("web_panels") or [] if isinstance(p, str)]
+    unknown = _unknown_web_panels(panels, raw.get("config") or {})
+    assert not unknown, f"{layer}.yml declares unknown web_panels: {unknown} {_valid_web_panels()}"
+
+
+def test_the_layer_listing_is_not_empty() -> None:
+    """Guards the layer parametrization above against running over nothing."""
+    assert {"tiers/readonly", "apps/logbook"} <= set(_all_layers())
 
 
 def _iter_skill_files() -> list[Path]:
@@ -296,7 +334,7 @@ def test_slash_commands_resolve_targets() -> None:
 
 #: Values a shipped preset must not write as a live key. Each is the OSPREY
 #: project's own address, not a facility's: rendered live, `osprey init` copies
-#: it into the operator's profile.yml and `osprey profile expand` puts it back,
+#: it into the operator's profile.yml and `osprey init --revalidate` puts it back,
 #: so every deployment carries the maintainers' mailbox, tracker or
 #: documentation site as if it had chosen it. The code defaults still supply
 #: them, and each preset documents the key as a commented example, so nothing

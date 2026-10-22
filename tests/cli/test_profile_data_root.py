@@ -21,6 +21,8 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.cli.build_profile_emit import emit_layer_delta_yaml
+from osprey.cli.build_profile_presets import list_apps, list_tiers
 from osprey.cli.templates.scaffolding import copy_template_data
 from osprey.facility.build import build_facility
 from osprey.facility.views.limits import limits_document
@@ -63,7 +65,27 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
     profile["config"].update(extra_config)
     path = profile_dir / "profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
+    _materialize_layers(profile_dir, profile["name"])
     return path
+
+
+def _materialize_layers(profile_dir: Path, profile_name: str) -> None:
+    """Write the bundled tiers and apps beside ``profile.yml``, as ``osprey init`` does.
+
+    The inherited roster names tiers and shared apps, and each resolves only to
+    a file in the repo's ``tiers/`` or ``apps/``.
+    """
+    for kind, names in (("tiers", list_tiers()), ("apps", list_apps())):
+        (profile_dir / kind).mkdir(exist_ok=True)
+        for name in names:
+            (profile_dir / kind / f"{name}.yml").write_text(
+                emit_layer_delta_yaml(
+                    preset_name=f"{kind}/{name}",
+                    profile_name=profile_name,
+                    profile_filename=f"{kind}/{name}.yml",
+                ),
+                encoding="utf-8",
+            )
 
 
 def _build(profile_path: Path) -> Path:

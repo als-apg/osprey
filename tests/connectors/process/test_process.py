@@ -2,10 +2,10 @@
 
 import asyncio
 import os
+import select
 import signal
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -90,15 +90,33 @@ async def test_a_child_that_exited_after_closing_its_stream_keeps_its_exit_code(
     """A supervisor puts a child down as soon as its stream ends, and such a
     child has usually exited already. The blocked loop holds that window open:
     the child has exited and the loop has not yet seen it when it is put down.
+
+    The child exits only when told to, and only after the loop is blocked; the
+    parent learns of the exit from a pipe the child holds open until it dies,
+    so no timing guess decides which side of the window the test lands on.
     """
+    go_read, go_write = os.pipe()
+    exited_read, exited_write = os.pipe()
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-c",
-        "import os, time; os.close(1); time.sleep(0.05); os._exit(3)",
+        "import os, sys; os.close(1); os.read(int(sys.argv[1]), 1); os._exit(3)",
+        str(go_read),
         stdout=asyncio.subprocess.PIPE,
+        pass_fds=(go_read, exited_write),
     )
-    assert await process.stdout.read() == b""
-    time.sleep(0.5)
+    os.close(go_read)
+    os.close(exited_write)
+    try:
+        assert await process.stdout.read() == b""
+        # From here the loop stays blocked until the child is gone.
+        os.write(go_write, b"x")
+        ready, _, _ = select.select([exited_read], [], [], 30.0)
+        assert ready, "the child did not exit after it was told to"
+        assert os.read(exited_read, 1) == b""
+    finally:
+        os.close(go_write)
+        os.close(exited_read)
     assert process.returncode is None
 
     assert await terminate(process, 5.0) == 3

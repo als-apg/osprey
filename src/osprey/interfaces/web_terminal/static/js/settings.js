@@ -46,7 +46,7 @@ let agentPanel = null;
 let settingsDrawer = null;
 
 // Per-session warning for the settings drawer (resets on server restart), and
-// per PERSONA: localStorage is origin-scoped, so on a multi-user mount a bare
+// per RENDER: localStorage is origin-scoped, so on a multi-user mount a bare
 // key would let whoever acknowledged the safety warning first wave it away for
 // everyone else on the box. Resolved through scopedStorageKey() at each use —
 // see storage-scope.js.

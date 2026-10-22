@@ -87,7 +87,7 @@ class TestPyatSpecialistAgentCatalog:
         assert adef.description
 
     def test_the_description_names_no_particular_machine(self):
-        """This sentence is rendered into every persona's prompt, everywhere.
+        """This sentence is rendered into every render's prompt, everywhere.
 
         It is the framework speaking about a framework agent, so it can only
         say what the agent computes against — the lattice model this

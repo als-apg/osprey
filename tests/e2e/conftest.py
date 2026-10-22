@@ -12,16 +12,11 @@ from pathlib import Path
 import pytest
 
 from osprey.registry import reset_registry
+from tests.conftest import E2E_REFUSAL_KEY as _REFUSAL_KEY
+from tests.conftest import E2E_REFUSAL_RELAY_KEY as _RELAY_KEY
 from tests.e2e.provider import MODEL_FREE_MARKER, e2e_provider, provider_refusal
 
 _E2E_ROOT = Path(__file__).resolve().parent
-
-#: ``workerinput`` flag the controller sets when it relays a worker's refusal.
-_RELAY_KEY = "osprey_e2e_refusal_relay"
-#: ``workeroutput`` key a worker hands its refusal to the controller under.
-_REFUSAL_KEY = "osprey_e2e_refusal"
-#: The refusals the controller collected from its workers.
-_REFUSALS = pytest.StashKey[list[str]]()
 
 
 def _print_failure_now(report) -> None:
@@ -148,11 +143,13 @@ def pytest_collection_modifyitems(config, items):
 
     ``UsageError`` rather than a skip or a collection error: it ends the session
     with the message and no traceback. Under xdist collection runs in a worker,
-    where a ``UsageError`` reaches the operator as an ``INTERNALERROR``
-    traceback, so a worker whose controller relays the refusal selects nothing
-    and hands the message over; the controller prints it and ends the session
-    as a usage error. A worker with no relay raises, so the run still stops.
-    The rest of ``tests/`` is untouched.
+    where a ``UsageError`` reaches the operator as xdist's ``INTERNALERROR``
+    about a crashed item and the message is lost, so a worker whose controller
+    relays the refusal selects nothing and hands the message over; the
+    controller prints it and ends the session as a usage error. The relay is
+    the controller's half and lives in ``tests/conftest.py``, the one conftest
+    every run under ``tests/`` loads on the controller. A worker with no relay
+    raises, so the run still stops. The rest of ``tests/`` is untouched.
     """
     if config.getoption("collectonly", False) or _run_names_a_provider():
         return
@@ -171,36 +168,6 @@ def pytest_collection_modifyitems(config, items):
     config.workeroutput[_REFUSAL_KEY] = message
     config.hook.pytest_deselected(items=list(items))
     items[:] = []
-
-
-@pytest.hookimpl(optionalhook=True)
-def pytest_configure_node(node):
-    """Tell each xdist worker that this controller prints its refusal."""
-    node.workerinput[_RELAY_KEY] = True
-
-
-@pytest.hookimpl(optionalhook=True)
-def pytest_testnodedown(node):
-    """Collect the refusal a worker handed over."""
-    message = getattr(node, "workeroutput", {}).get(_REFUSAL_KEY)
-    if message:
-        node.config.stash.setdefault(_REFUSALS, []).append(message)
-
-
-@pytest.hookimpl(optionalhook=True, trylast=True)
-def pytest_sessionfinish(session):
-    """Print a relayed refusal and end the session as a usage error.
-
-    Every worker collects the same selection, so every refusal is identical and
-    the first one is printed.
-    """
-    refusals = session.config.stash.get(_REFUSALS, [])
-    if not refusals:
-        return
-    sys.stdout.flush()
-    sys.stderr.write(f"ERROR: {refusals[0]}\n")
-    sys.stderr.flush()
-    session.exitstatus = pytest.ExitCode.USAGE_ERROR
 
 
 def pytest_configure(config):

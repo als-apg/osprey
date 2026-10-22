@@ -1135,7 +1135,7 @@ html[data-ui-mode="simple"] .session-selector {
 .panel-rail-icon[data-icon="ariel"]::before { content: "\25ce"; }     /* ◎ ariel */
 .panel-rail-icon[data-icon="channel-finder"]::before { content: "\2315"; } /* ⌕ channels */
 .panel-rail-icon[data-icon="lattice"]::before { content: "\2b21"; }   /* ⬡ lattice */
-.panel-rail-icon[data-icon="okf"]::before { content: "\1f56e"; }      /* 🕮 knowledge */
+.panel-rail-icon[data-icon="okf"]::before { content: "\b6"; }         /* ¶ knowledge */
 .panel-rail-icon[data-icon="jupyter"]::before { content: "\25a6"; }  /* ▦ notebook cells */
 .panel-rail-icon[data-icon="system-health"]::before { content: "\223f"; } /* ∿ health trace */
 
@@ -1190,6 +1190,14 @@ html[data-ui-mode="simple"] .session-selector {
 .panel-rail-button.dragging {
   opacity: 0.4;
 }
+
+/* Reordering along the rail: a line at the edge the dragged entry will land
+   against. Inset shadows rather than borders, so the marker never shifts the
+   entries it sits between. */
+.panel-rail-button.drop-before { box-shadow: inset 0 2px 0 var(--color-accent-light); }
+.panel-rail-button.drop-after { box-shadow: inset 0 -2px 0 var(--color-accent-light); }
+html[data-rail-position="top"] .panel-rail-button.drop-before { box-shadow: inset 2px 0 0 var(--color-accent-light); }
+html[data-rail-position="top"] .panel-rail-button.drop-after { box-shadow: inset -2px 0 0 var(--color-accent-light); }
 
 /* The design system's `.agent-attention` badge is pinned to the same top-right
    corner (highlight.css), so the two would sit on top of each other. The badge

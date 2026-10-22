@@ -157,8 +157,8 @@ def test_the_llama_cpp_entry_expands_to_its_server_root(monkeypatch):
     assert not get_provider_registry().is_chat("llama-cpp")
 
 
-#: The two presets that ship an ``ariel:`` block, and so the picture modules.
-ARIEL_PRESETS = ("control-assistant", "ariel-standalone")
+#: The presets that ship an ``ariel:`` block, and so the picture modules.
+ARIEL_PRESETS = ("control-assistant",)
 
 
 def _preset_ariel(preset: str) -> dict:

@@ -724,6 +724,56 @@ async def set_panel_visibility(body: PanelVisibilityRequest, request: Request):
     return {"status": "ok", "panel": body.panel, "visible": body.visible}
 
 
+class RailOrderRequest(BaseModel):
+    """Move a rail member so it sits directly above ``before``.
+
+    ``before`` names another member; ``None`` moves the panel to the foot of
+    the rail. The SESSION entry is not a member, so it is never a target and
+    always stays at the head.
+    """
+
+    panel: str
+    before: str | None = None
+
+
+@router.post("/api/rail-order")
+async def set_rail_order(body: RailOrderRequest, request: Request):
+    """Reorder the rail and broadcast the whole resulting order via SSE.
+
+    The rail's order is server-owned like its membership, so every client and
+    every reload shows the same rail. The frame carries the full order rather
+    than the one move, which makes applying it idempotent and lets a client
+    that missed an earlier frame converge from this one.
+
+    Args:
+        body: ``panel`` (the member to move) and ``before`` (the member it
+            should sit above, or ``None`` for the foot of the rail).
+        request: Incoming FastAPI request carrying ``app.state``.
+
+    Returns:
+        ``{"status": "ok", "order": [<id>, ...]}``
+
+    Raises:
+        HTTPException: 422 when ``panel`` or ``before`` is not on the rail, or
+            when ``before`` names the panel itself.
+    """
+    # Membership, resolved the same way ``get_panels`` resolves ``visible``.
+    stored_visible = getattr(request.app.state, "visible_panels", None)
+    if stored_visible is None:
+        visible_panels = sorted(getattr(request.app.state, "enabled_panels", set()))
+    else:
+        visible_panels = list(stored_visible)
+    if body.panel not in visible_panels:
+        raise HTTPException(status_code=422, detail=f"Not on the rail: {body.panel}")
+    if body.before is not None and (body.before == body.panel or body.before not in visible_panels):
+        raise HTTPException(status_code=422, detail=f"Cannot place before: {body.before}")
+    order = [p for p in visible_panels if p != body.panel]
+    order.insert(order.index(body.before) if body.before else len(order), body.panel)
+    request.app.state.visible_panels = order
+    request.app.state.broadcaster.broadcast({"type": "rail_order", "order": order})
+    return {"status": "ok", "order": order}
+
+
 class PanelCloseRequest(BaseModel):
     panel: str
     source: Literal["agent"] | None = None

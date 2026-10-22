@@ -219,7 +219,7 @@ def test_the_store_memory_rule_passes_on_every_presets_default_config() -> None:
         ), name
         assert preflight_problems(config) == [], name
         assert telemetry_errors(config) == [], name
-    assert {"hello-world", "ariel-standalone", "control-assistant"} <= set(deploying)
+    assert {"hello-world", "control-assistant"} <= set(deploying)
 
 
 def test_the_gateway_memory_rule_names_r_and_every_term() -> None:
@@ -389,8 +389,8 @@ def _roles_web(**extra: Any) -> dict[str, Any]:
         "users": [{"name": "alice", "index": 0, "role": "operator", "history": "own"}],
         "authorization": {
             "roles": {
-                "operator": {"persona": "operator"},
-                "lead": {"persona": "operator", "history": "all"},
+                "operator": {"tier": "operator"},
+                "lead": {"tier": "operator", "history": "all"},
             },
         },
         **extra,

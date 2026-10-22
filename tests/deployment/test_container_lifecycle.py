@@ -23,7 +23,7 @@ from osprey.deployment.errors import (
     DeploymentPreconditionError,
     UnmetPreconditionsError,
 )
-from osprey.deployment.web_terminals import postup_hooks, provision
+from osprey.deployment.web_terminals import postup_hooks, provision, render_images
 
 
 @pytest.fixture(autouse=True)
@@ -42,11 +42,11 @@ def _inert_orphan_reconcile(monkeypatch):
 
 
 def _web_terminals_on() -> dict:
-    """An enabled web-terminals stanza with no users, on its default persona."""
+    """An enabled web-terminals stanza with no users, on its default tier."""
     return {
         "enabled": True,
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": "demo-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": {"kind": "tier", "project": "demo-assistant"}},
     }
 
 
@@ -711,8 +711,8 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
 
 # ---------------------------------------------------------------------------
 # deploy_up_web_terminals mode wiring (Task 3.3) -- image_source local vs.
-# registry branching: ensure_env_production always runs first, build_persona_images
-# is wired via resolve_personas(strict=True) in local mode only, and local mode
+# registry branching: ensure_env_production always runs first, build_render_images
+# is wired via resolve_cards(strict=True) in local mode only, and local mode
 # never emits a `pull` argv (the pull-guard: `compose pull` hard-fails on a
 # local-only tag).
 # ---------------------------------------------------------------------------
@@ -721,20 +721,21 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
 def _web_terminals_config(image_source: str, **web_terminals_overrides) -> dict:
     """A minimal web-terminals-only facility config for the given image_source.
 
-    Always carries a persona catalog + default_persona (satisfies local
-    mode's own configuration requirement, matching build_persona_images'
+    Always carries a render catalog + default_tier (satisfies local
+    mode's own configuration requirement, matching build_render_images'
     ValueError guard) even for registry-mode tests, so the same helper
     covers both branches without a second config shape.
     """
     web_terminals = {
         "enabled": True,
         "image_source": image_source,
-        "default_persona": "ops",
-        "personas": {
+        "default_tier": "ops",
+        "renders": {
             "ops": {
+                "kind": "tier",
                 "project": "ops-app",
                 "project_path": "/nonexistent/ops-app",
-                "build_profile": "control-assistant",
+                "build_profile": "tiers/ops.yml",
             }
         },
     }
@@ -762,6 +763,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(render_images, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
@@ -772,12 +774,12 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     # suite. Inert here so the mode-wiring tests exercise only the
     # local/registry step ordering.
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda *a, **k: None)
-    # The persona-render check is a separate concern with its own dedicated
+    # The render-render check is a separate concern with its own dedicated
     # tests below; keep it inert here so the mode-wiring tests exercise only the
     # local/registry step ordering rather than any repo's rendered state.
     monkeypatch.setattr(
         provision,
-        "verify_persona_renders",
+        "verify_renders",
         lambda config, resolved_users, repo_root=None: None,
     )
 
@@ -793,11 +795,16 @@ def test_local_mode_never_emits_a_pull_argv(monkeypatch, tmp_path, _mode_wiring_
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config("local")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
+    # The default tier is served with nobody on it, so local mode builds it;
+    # the build is recorded rather than run.
+    builds: list[list[str]] = []
+    monkeypatch.setattr(render_images, "run_captured", lambda cmd, **k: builds.append(list(cmd)))
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     cmds = [c["cmd"] for c in _mode_wiring_collab]
-    assert not any("pull" in cmd for cmd in cmds)
+    assert not any("pull" in cmd for cmd in cmds + builds)
+    assert [cmd[cmd.index("-t") + 1] for cmd in builds] == ["ops-app:local"]
     assert any("up" in cmd and "-d" in cmd for cmd in cmds)
     # ensure_env_production generated .env.users from .env since neither
     # was present -- local mode's own branch, exercised end-to-end here.
@@ -853,24 +860,24 @@ def test_registry_mode_raises_before_any_compose_call_when_env_production_missin
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
 
 
-def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
+def test_local_mode_unresolvable_render_raises_before_any_compose_call(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """A user referencing a persona absent from the catalog must raise via
-    resolve_personas(strict=True) before build_persona_images or any compose
+    """A user referencing a render absent from the catalog must raise via
+    resolve_cards(strict=True) before build_render_images or any compose
     call -- surfacing actionably instead of an opaque unbuilt-tag failure at
     `compose up` (the reviewer integration note from task 3.2).
 
     The collect-all pass now asks this question one step ahead of the
     preflight that used to raise it, so the refusal arrives in the aggregate
-    frame. The persona is still named, which is the property that matters."""
+    frame. The render is still named, which is the property that matters."""
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config(
-        "local", users=[{"name": "alice", "index": 0, "persona": "no-such-persona"}]
+        "local", users=[{"name": "alice", "index": 0, "tier": "no-such-render"}]
     )
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
 
-    with pytest.raises(UnmetPreconditionsError, match="no-such-persona"):
+    with pytest.raises(UnmetPreconditionsError, match="no-such-render"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
@@ -879,14 +886,14 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
 def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_compose(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """The local-mode preflight order is load-bearing: check every persona has
+    """The local-mode preflight order is load-bearing: check every render has
     the render `osprey build` wrote FIRST, then ensure_env_production, then
     build the image, then compose. ensure_env_production's claude_code
-    credential sweep reads each rendered persona's config.yml, so a deploy
+    credential sweep reads each rendered render's config.yml, so a deploy
     missing one has to be refused before that sweep runs (and long before any
-    compose call). A spy on verify_persona_renders (overriding the fixture's
+    compose call). A spy on verify_renders (overriding the fixture's
     inert stub) proves the wiring line actually runs it -- and runs it BEFORE
-    build_persona_images, which needs the rendered context to exist.
+    build_render_images, which needs the rendered context to exist.
 
     The collect-all pass asks the same render question once more, ahead of the
     preflight, which is why the spy sees a third call. It only reads, so the
@@ -903,14 +910,14 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
     )
     monkeypatch.setattr(
         provision,
-        "verify_persona_renders",
-        lambda cfg, resolved_users, repo_root=None: order.append("verify_persona_renders"),
+        "verify_renders",
+        lambda cfg, resolved_users, repo_root=None: order.append("verify_renders"),
     )
 
     def _fake_build(_cfg, _resolved_users, _dev_mode, _env):
-        order.append("build_persona_images")
+        order.append("build_render_images")
 
-    monkeypatch.setattr(provision, "build_persona_images", _fake_build)
+    monkeypatch.setattr(provision, "build_render_images", _fake_build)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
@@ -921,35 +928,35 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
 
     # The collect-all pass reads the renders first (and nothing else -- it
     # probes .env.users generation rather than calling ensure_env_production).
-    # The fail-fast deploy_up preflight then runs the persona check +
+    # The fail-fast deploy_up preflight then runs the render check +
     # ensure_env_production once BEFORE the image-build stage, and
     # deploy_up_web_terminals re-runs the same (idempotent) pair; then exactly
     # three compose calls (the stale-container `rm -f` preflight, the web
     # `up -d`, then the advisory nginx config reload; no deployed_services, no
     # pull in local mode).
     assert order == [
-        "verify_persona_renders",
-        "verify_persona_renders",
+        "verify_renders",
+        "verify_renders",
         "ensure_env_production",
-        "verify_persona_renders",
+        "verify_renders",
         "ensure_env_production",
-        "build_persona_images",
+        "build_render_images",
         "compose",
         "compose",
         "compose",
     ]
 
 
-def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
+def test_local_mode_passes_resolve_cards_output_to_build_render_images(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """build_persona_images must receive resolve_personas(strict=True)'s own
+    """build_render_images must receive resolve_cards(strict=True)'s own
     output, not some other user-list shape -- confirmed by asserting the
-    resolved persona/project fields it actually threads through."""
+    resolved render/project fields it actually threads through."""
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
     config = _web_terminals_config(
         "local",
-        users=[{"name": "alice", "index": 0}],  # no explicit persona -> falls back to "ops"
+        users=[{"name": "alice", "index": 0}],  # no explicit render -> falls back to "ops"
     )
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
     # This test's roster is non-empty (unlike the other mode-wiring tests), so
@@ -962,17 +969,17 @@ def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
     def _fake_build(_cfg, resolved_users, _dev_mode, _env):
         captured_users.extend(resolved_users)
 
-    monkeypatch.setattr(provision, "build_persona_images", _fake_build)
+    monkeypatch.setattr(provision, "build_render_images", _fake_build)
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     assert len(captured_users) == 1
     assert captured_users[0]["name"] == "alice"
-    assert captured_users[0]["persona"] == "ops"
+    assert captured_users[0]["render"] == "ops"
     assert captured_users[0]["project"] == "ops-app"
 
 
-def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _mode_wiring_collab):
+def test_registry_mode_never_calls_build_render_images(monkeypatch, tmp_path, _mode_wiring_collab):
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -980,7 +987,7 @@ def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _
     build_calls = []
     monkeypatch.setattr(
         provision,
-        "build_persona_images",
+        "build_render_images",
         lambda *a, **k: build_calls.append(a),
     )
 
@@ -989,10 +996,10 @@ def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _
     assert build_calls == []
 
 
-def test_registry_mode_never_verifies_persona_renders(monkeypatch, tmp_path, _mode_wiring_collab):
-    """The persona-render check is a local-mode-only step (registry mode pulls
+def test_registry_mode_never_verifies_renders(monkeypatch, tmp_path, _mode_wiring_collab):
+    """The render-render check is a local-mode-only step (registry mode pulls
     prebuilt images and needs no render at all) -- it must never run on the
-    registry path, mirroring the build_persona_images guard. A recording spy
+    registry path, mirroring the build_render_images guard. A recording spy
     overrides the fixture's inert stub so a stray call would be caught, not
     swallowed."""
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
@@ -1002,7 +1009,7 @@ def test_registry_mode_never_verifies_persona_renders(monkeypatch, tmp_path, _mo
     render_calls = []
     monkeypatch.setattr(
         provision,
-        "verify_persona_renders",
+        "verify_renders",
         lambda *a, **k: render_calls.append(a),
     )
 
@@ -1749,7 +1756,7 @@ def test_rebuild_deployment_cleans_before_delegating_to_deploy_up(monkeypatch, t
 def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path):
     """A web-terminals project's rebuild must reach the web reconcile — the
     pre-delegation rebuild ran only the plain services path, so nginx and the
-    persona containers never came back up after clean."""
+    render containers never came back up after clean."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
     monkeypatch.setattr(
@@ -1983,8 +1990,8 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
 # ---------------------------------------------------------------------------
 # _project_image_build_cmd -- com.osprey.project label + OSPREY_DEV build-arg
 # (task 2.5). The label lets a later `nuke` verify a tag belongs to this
-# deployment before removing it (matching the persona build path); OSPREY_DEV=1
-# is added iff --dev, mirroring the persona dev path.
+# deployment before removing it (matching the render build path); OSPREY_DEV=1
+# is added iff --dev, mirroring the render dev path.
 # ---------------------------------------------------------------------------
 
 
@@ -2578,22 +2585,22 @@ def test_project_image_build_cmd_carries_the_site_build_args(tmp_path):
 
 
 @pytest.mark.usefixtures("no_site_env")
-def test_project_and_persona_builds_share_one_site_arg_producer(tmp_path):
-    """Two builders, one producer: an image built for a persona and the project
+def test_project_and_render_builds_share_one_site_arg_producer(tmp_path):
+    """Two builders, one producer: an image built for a render and the project
     image must not end up trusting different CAs or resolving from different
     indexes on the same host."""
-    from osprey.deployment.web_terminals import persona_images
+    from osprey.deployment.web_terminals import render_images
 
     config = _site_config(tmp_path, offline=True)
     project = container_lifecycle._project_image_build_cmd(config, "docker", str(tmp_path))
-    persona = persona_images._persona_image_build_cmd(
+    tier = render_images._render_image_build_cmd(
         "docker", str(tmp_path), "demo:local", "myfacility", config
     )
 
     site_args = set(container_lifecycle.site_image_build_args(config, tmp_path))
     assert site_args, "the fixture config declares site axes"
     assert site_args <= set(project)
-    assert site_args <= set(persona)
+    assert site_args <= set(tier)
 
 
 # ---------------------------------------------------------------------------
@@ -2801,7 +2808,7 @@ def test_deploy_up_summarizes_even_when_nothing_deploys(_wiring_calls, monkeypat
 
 
 # ---------------------------------------------------------------------------
-# deploy_up ordering: the web-terminal preflight (persona render check +
+# deploy_up ordering: the web-terminal preflight (render check +
 # .env.users credential gate) must run BEFORE the expensive project-image
 # build -- a missing provider secret aborts in seconds, not after minutes of
 # docker build.

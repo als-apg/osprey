@@ -18,7 +18,7 @@ def test_the_control_assistant_preset_starts_in_rf_thermal() -> None:
     assert resolve_default_scenarios(config) == ("rf-thermal",)
 
 
-@pytest.mark.parametrize("preset", ["hello-world", "ariel-standalone", "channel-finder-standalone"])
+@pytest.mark.parametrize("preset", ["hello-world"])
 def test_the_other_presets_state_no_start_set(preset: str) -> None:
     config = _expand_dotted(resolve_build_document(None, preset).profile.config)
     assert "default_scenarios" not in config.get("simulation", {})

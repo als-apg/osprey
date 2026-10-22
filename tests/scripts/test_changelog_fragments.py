@@ -1710,7 +1710,7 @@ class TestPreTagTopup:
             "asksage-api-key-variable.fixed.md",
             "compose-template-hygiene.internal.md",
             "connector-shim-reexports.internal.md",
-            "drift-persona-render-names.fixed.md",
+            "drift-render-render-names.fixed.md",
             "health-status-order.internal.md",
             "lazy-export-maps.internal.md",
             "queue-unfamiliar-state.fixed.md",

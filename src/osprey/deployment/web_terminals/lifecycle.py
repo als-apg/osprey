@@ -59,15 +59,15 @@ repo (:func:`~osprey.deployment.web_terminals.provision.force_recreate_auth_side
 ``repo_root``) is what makes the file on disk and the running sidecar agree
 from any directory.
 
-Image-scoping boundary (applies only to :func:`nuke_stack`'s persona-image
+Image-scoping boundary (applies only to :func:`nuke_stack`'s render-image
 teardown): unlike containers and volumes, image tags are host-global — two
-OSPREY deployments that happen to use identically-named persona renders would
-build identically-named ``<persona.project>:local`` tags. There is no
+OSPREY deployments that happen to use identically-named renders would
+build identically-named ``<render.project>:local`` tags. There is no
 label-filtered *listing* equivalent to ``ps -a``/``volume ls`` for this (image
 tags aren't compose-project-scoped), so each candidate tag is instead
 individually verified with ``image inspect`` against its own
 ``com.osprey.project`` label (stamped by the local-mode image build,
-:func:`osprey.deployment.web_terminals.persona_images.build_persona_images`) before it
+:func:`osprey.deployment.web_terminals.render_images.build_render_images`) before it
 is ever considered for removal — a missing or mismatched label means the tag
 is skipped with a warning, not removed, since it may belong to a sibling
 deployment.
@@ -115,17 +115,19 @@ from osprey.deployment.web_terminals.auth_credentials import (
     set_auth_password,
 )
 from osprey.deployment.web_terminals.naming import web_container_name, web_service_user
-from osprey.deployment.web_terminals.personas import (
+from osprey.deployment.web_terminals.postup_hooks import reload_nginx_config
+from osprey.deployment.web_terminals.render import _auth_tls_context
+from osprey.deployment.web_terminals.roster import (
     access_phrase,
     as_dict,
+    authored_people,
     effective_image_source,
     entry_is_shared,
     freeze_user_indices,
-    normalize_users,
-    resolve_personas,
+    refuse_app_card,
+    resolve_cards,
+    roster_entries,
 )
-from osprey.deployment.web_terminals.postup_hooks import reload_nginx_config
-from osprey.deployment.web_terminals.render import _auth_tls_context
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.utils.config_writer import config_replace_list
 from osprey_connectors.config import ConfigBuilder
@@ -178,8 +180,8 @@ def decommission_user(
 
     Order of operations, each a prerequisite for the next:
 
-    1. Resolve the user against the roster; unknown user -> ``ValueError``, nothing
-       touched.
+    1. Resolve the user against the roster; a shared app card or an unknown user
+       -> ``ValueError``, nothing touched.
     2. If ``archive``/``purge`` was requested, gate on a typed confirmation
        *before touching anything* — a decline (or a blank/non-matching response
        without ``assume_yes``) must be a true no-op: roster, ``config.yml``,
@@ -191,10 +193,10 @@ def decommission_user(
        fields and drop the target user, leaving their index as a gap so
        survivors' ports never shift. Write the result back to ``config.yml``,
        comment-preserving. The survivors are written **as authored**
-       (:func:`~osprey.deployment.web_terminals.personas.freeze_user_indices`),
+       (:func:`~osprey.deployment.web_terminals.roster.freeze_user_indices`),
        not as the render-facing projection: writing the projection would strip
-       each survivor's ``persona:`` key, and a roster with no ``persona:`` keys
-       re-resolves every survivor onto ``default_persona`` — a silent privilege
+       each survivor's ``tier:`` key, and a roster with no ``tier:`` keys
+       re-resolves every survivor onto ``default_tier`` — a silent privilege
        change on the next render, in the direction of the default. ``role:``
        is the other key with that consequence and is written back for the
        same reason.
@@ -216,25 +218,29 @@ def decommission_user(
         assume_yes: Skip the typed confirmation gate for volume destruction.
 
     Raises:
-        ValueError: If ``user`` is not present in ``modules.web_terminals.users``.
+        ValueError: If ``user`` is a shared app card (see :func:`refuse_app_card`)
+            or is not present in ``modules.web_terminals.users``.
         RuntimeError: If the container runtime daemon is not running, or volume
             destruction was requested but not confirmed.
-        BashLaunchTokenConflictError: If a persona that survives this removal
+        BashLaunchTokenConflictError: If a render that survives this removal
             would hold ``BLUESKY_LAUNCH_TOKEN`` while its shipped settings still
             permit ``Bash``. Raised before ``config.yml`` is touched, so nothing
-            is half-applied; removing the offending persona's own last user is
+            is half-applied; removing the offending render's own last user is
             unaffected, because the check reads the post-removal roster.
         RemovalIncompleteError: If every other step finished but a volume the
             policy should have removed is still there.
     """
     config_path = Path(config_path)
     config = ConfigBuilder(str(config_path)).raw_config
+    web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
+    refuse_app_card(web_terminals, user)
     _require_running_runtime(config)
 
     repo_root = resolve_repo_root(config, config_path)
 
-    web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    migrated = freeze_user_indices(web_terminals.get("users"))
+    # People only: this roster is written back to config.yml, where derived
+    # app entries never go.
+    migrated = freeze_user_indices(authored_people(web_terminals))
 
     if not any(entry["name"] == user for entry in migrated):
         raise ValueError(
@@ -262,7 +268,7 @@ def decommission_user(
     # `config_replace_list` had already written the roster edit — leaving the file
     # updated, the artifacts stale, and the container/volume removal never run.
     # The probe roster is the POST-removal one, which is what preserves the
-    # escape hatch: decommissioning the offending persona's last user drops it
+    # escape hatch: decommissioning the offending render's last user drops it
     # from the referenced set, so that removal still succeeds.
     post_removal_config = {
         **config,
@@ -273,7 +279,7 @@ def decommission_user(
     }
     check_bash_launch_token_conflict(post_removal_config, repo_root)
     # The open-mode gate on the same roster, for the same reason and with the
-    # same escape hatch: removing the last user of a persona that can reach the
+    # same escape hatch: removing the last user of a render that can reach the
     # host network drops it from the referenced set, and that removal is the
     # remediation which needs no image rebuild.
     check_open_mode_requirements(post_removal_config, repo_root)
@@ -390,7 +396,9 @@ def prune_users(
     repo_root = resolve_repo_root(config, config_path)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
+    # Every card, app cards included: an app's container is a roster member,
+    # never an orphan.
+    roster_names = {entry["name"] for entry in roster_entries(web_terminals)}
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config, ignore_orphans=True)
@@ -494,7 +502,7 @@ def remove_orphan_terminals(config: dict[str, Any]) -> dict[str, str]:
         particular order. Empty when the roster owns every terminal it finds.
     """
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
+    roster_names = {entry["name"] for entry in roster_entries(web_terminals)}
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config, ignore_orphans=True)
@@ -529,7 +537,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     removes *everything* this project owns — every web-terminal, nginx, and base
     service container, every named volume belonging to this project's web
     terminals (roster *and* off-roster/orphaned alike), and every roster
-    persona's locally-built image — with no retain option.
+    render's locally-built image — with no retain option.
 
     Containers are torn down with a single project-scoped ``compose -p <project>
     down`` rather than by enumerating container names one at a time: the base
@@ -551,7 +559,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     scoping boundary this relies on).
 
     Image removal is deliberately the least trusting step: image tags
-    (``<persona.project>:local``) are host-global, not scoped to this
+    (``<render.project>:local``) are host-global, not scoped to this
     project the way ``com.docker.compose.project``-labeled containers/volumes
     are, so a same-named tag could belong to an entirely different deployment.
     Every candidate tag is therefore ``image inspect``-verified against its own
@@ -570,9 +578,9 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
        discovery :func:`prune_users` uses) — so a user who was decommissioned
        with the default retain policy, or hand-edited out of ``config.yml``,
        still gets their volumes torn down by ``nuke``.
-    3. Compute the image teardown set: resolve the roster's personas leniently
-       (:func:`osprey.deployment.web_terminals.personas.resolve_personas` with
-       ``strict=False`` — a stale/bad persona reference never blocks ``nuke``),
+    3. Compute the image teardown set: resolve the roster's renders leniently
+       (:func:`osprey.deployment.web_terminals.roster.resolve_cards` with
+       ``strict=False`` — a stale/bad render reference never blocks ``nuke``),
        collect the distinct ``:local``-suffixed image tags (registry-mode
        images are never ``:local`` and an unresolved entry names no image, so
        neither is a candidate), then ``image inspect`` each candidate and
@@ -611,7 +619,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     _require_running_runtime(config)
 
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
-    roster_names = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+    roster_names = [entry["name"] for entry in roster_entries(web_terminals)]
 
     runtime_cmd = get_runtime_command(config)
     runtime = runtime_cmd[0]
@@ -630,12 +638,12 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     for user_volumes in orphan_volumes.values():
         volumes.extend(user_volumes)
 
-    # Roster personas' locally-built images. Lenient resolution: an entry that
+    # Roster renders' locally-built images. Lenient resolution: an entry that
     # does not resolve has no image and is no candidate.
     registry_cfg = as_dict(config.get("registry"))
-    personas_resolved = resolve_personas(web_terminals, registry_cfg, strict=False)
+    renders_resolved = resolve_cards(web_terminals, registry_cfg, strict=False)
     candidate_images: list[str] = []
-    for entry in personas_resolved:
+    for entry in renders_resolved:
         image = entry["image"]
         if isinstance(image, str) and image.endswith(":local") and image not in candidate_images:
             candidate_images.append(image)
@@ -643,7 +651,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     # The auth sidecar's own locally-built tag, on exactly the terms that
     # produced it: a sidecar method AND local mode AND no auth.image pinning an
     # external image (see provision.build_auth_sidecar_image). It is a candidate
-    # like any persona tag — the same com.osprey.project label verification
+    # like any render tag — the same com.osprey.project label verification
     # below decides whether it is really ours, since image tags are host-global.
     auth_ctx = _auth_tls_context(web_terminals)
     if (
@@ -660,7 +668,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     # Each candidate is individually label-verified against THIS deployment's
     # project name before it is ever considered for removal — image tags are
     # host-global, so a sibling deployment's identically-named tag must survive
-    # even if it happens to match this roster's persona naming.
+    # even if it happens to match this roster's render naming.
     images_to_remove: list[str] = []
     skipped_images: list[tuple[str, str | None]] = []
     for image in candidate_images:
@@ -976,18 +984,20 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     The verb behind ``osprey users passwd <user>``. Order of operations, each a
     prerequisite for the next:
 
-    1. Gate on this deployment having an OSPREY-managed password to change at
+    1. Gate on ``user`` being a person: a shared app card has no password of
+       its own (:func:`refuse_app_card`).
+    2. Gate on this deployment having an OSPREY-managed password to change at
        all. ``auth.method: none`` has no credentials, and under ``oidc`` the
        facility's identity provider holds them — writing a hash in either case
        would produce a credential nothing ever checks, while telling the
        operator their password had changed.
-    2. Gate on the roster. An off-roster name keys a variable no rendered
+    3. Gate on the roster. An off-roster name keys a variable no rendered
        sidecar reads, so its "new password" could never be used.
-    3. Gate on the container runtime, *before* anything is written, so a
+    4. Gate on the container runtime, *before* anything is written, so a
        rotation cannot leave an operator holding a password that the deployment
        was never told about.
-    4. Replace the stored hash (:func:`~osprey.deployment.web_terminals.auth_credentials.set_auth_password`).
-    5. Force-recreate the sidecar through the shared
+    5. Replace the stored hash (:func:`~osprey.deployment.web_terminals.auth_credentials.set_auth_password`).
+    6. Force-recreate the sidecar through the shared
        :func:`~osprey.deployment.web_terminals.provision.force_recreate_auth_sidecar`,
        so the new password works the moment this returns rather than at the next
        deploy. That primitive re-renders the artifacts first, so the recreated
@@ -1016,8 +1026,9 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
         password: The new cleartext password. Hashed by the callee; never stored.
 
     Raises:
-        ValueError: If authentication is off or IdP-held, or ``user`` is not on
-            the roster. Nothing is written in either case.
+        ValueError: If ``user`` is a shared app card, authentication is off or
+            IdP-held, or ``user`` is not on the roster. Nothing is written in
+            any of these cases.
         RuntimeError: If the container runtime is unreachable, or (from
             :func:`~osprey.deployment.web_terminals.auth_credentials.set_auth_password`)
             if ``.env.auth`` could not be written — the message says plainly
@@ -1030,6 +1041,9 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     config_path = Path(config_path)
     config = ConfigBuilder(str(config_path)).raw_config
     web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
+    # First of all gates: an app card is not a person whatever the auth method,
+    # and saying so is the precise answer.
+    refuse_app_card(web_terminals, user)
 
     # Read through the same parser the render and the deploy preflight use, so
     # the three can never disagree about what this deployment's `auth` means.
@@ -1048,7 +1062,7 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             "there; nothing was modified."
         )
 
-    roster = normalize_users(web_terminals.get("users"))
+    roster = roster_entries(web_terminals)
     if not any(entry["name"] == user for entry in roster):
         raise ValueError(
             f"User {user!r} is not present in modules.web_terminals.users; no password was changed."
@@ -1435,7 +1449,7 @@ def remove_image(
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
-        tag: Exact image tag, e.g. ``"<persona.project>:local"``.
+        tag: Exact image tag, e.g. ``"<render.project>:local"``.
             Never a glob or label selector.
         env: Environment for the subprocess call. Defaults to inheriting the
             parent process environment.

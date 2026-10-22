@@ -22,7 +22,7 @@ module is that channel table, plus the validation that keeps it honest:
   framework writer. A separate question from the reservations above, which ask
   which build channel owns a path (see :func:`is_reserved_write`).
 * :func:`is_setup_patch_capable` — the posture read shared by every gate that
-  has to know whether a rendered persona can still reach the setup tool.
+  has to know whether a rendered render can still reach the setup tool.
 * :func:`plan_convention_copies` — the pure source → destination plan a build
   carries out.
 * :func:`ownership_name` — the destination → ``scaffold.user_owned`` name rule,
@@ -52,7 +52,7 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import BUILD_DIR_NAME, STATE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME, LAYER_DIRNAMES, STATE_DIR_NAME
 
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
@@ -272,7 +272,8 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         PROVIDERS_FILENAME,
         PROFILE_TRIGGERS_FILENAME,
         "data",
-        "personas",
+        # The tier and app files laid over the profile, by location.
+        *LAYER_DIRNAMES,
         "profiles",
         "scripts",
         "ci-extra.yml",
@@ -1016,7 +1017,7 @@ def protected_view(target_file: str, doc: Mapping[str, Any]) -> dict[tuple[str, 
 
 #: The workspace MCP tool that patches a built project's ``config.yml`` and
 #: ``.mcp.json`` — the one write surface that can change what the agent itself
-#: is allowed to do. A persona keeps or loses the setup capability by whether
+#: is allowed to do. A render keeps or loses the setup capability by whether
 #: the render leaves this name outside ``permissions.deny``; see
 #: :func:`is_setup_patch_capable`.
 SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
@@ -1053,9 +1054,9 @@ def _deny_entries(config: Any) -> list[str]:
 
     Two shapes reach this, and they are told apart by which block is present:
 
-    * a **persona config** (``config.yml``-shaped), whose deny lives under
+    * a **render config** (``config.yml``-shaped), whose deny lives under
       ``claude_code.permissions.deny`` — the shape the render context and the
-      persona-roster guard hold, and the primary input. This shape is NOT yet
+      render-roster guard hold, and the primary input. This shape is NOT yet
       composed: a profile delta cannot subtract from an inherited list, so a
       tier that lifts a base deny carries the inherited ``deny`` and its own
       ``claude_code.permissions.remove_deny`` side by side, and the
@@ -1068,7 +1069,7 @@ def _deny_entries(config: Any) -> list[str]:
       :func:`is_setup_patch_capable`); that it is wrong does not;
     * a rendered ``.claude/settings.json``, which has no ``claude_code:``
       wrapper and carries ``permissions.deny`` at the top level. Read only when
-      no ``claude_code`` block is present, which a persona config always has
+      no ``claude_code`` block is present, which a render config always has
       when it says anything about permissions at all. Without this branch a
       settings document handed here would find nothing and read as *capable*
       while the tool is in fact denied — a mis-call must not fail open. This
@@ -1098,7 +1099,7 @@ def _deny_entries(config: Any) -> list[str]:
     """
     root = config if isinstance(config, Mapping) else {}
     claude_code = root.get("claude_code")
-    persona_shaped = isinstance(claude_code, Mapping)
+    render_shaped = isinstance(claude_code, Mapping)
     if isinstance(claude_code, Mapping):
         permissions = claude_code.get("permissions")
     elif claude_code is None:
@@ -1108,7 +1109,7 @@ def _deny_entries(config: Any) -> list[str]:
     if not isinstance(permissions, Mapping):
         return []
     deny = permission_entries(permissions.get("deny"))
-    if not persona_shaped:
+    if not render_shaped:
         return deny
     lifted = set(permission_entries(permissions.get("remove_deny")))
     return [entry for entry in deny if entry not in lifted]
@@ -1117,12 +1118,12 @@ def _deny_entries(config: Any) -> list[str]:
 def is_setup_patch_capable(config: Any) -> bool:
     """Whether ``config``'s render leaves the setup capability in the agent's hands.
 
-    The posture question every later gate asks about a persona: can this render
+    The posture question every later gate asks about a tier: can this render
     still reach :data:`SETUP_PATCH_TOOL`? Consumed by the container's render
-    context, by the persona-roster guard, and by the lint belt, so that all
+    context, by the render-roster guard, and by the lint belt, so that all
     three answer it the same way instead of each re-reading the deny list.
 
-    ``config`` is a **rendered persona config** — the ``config.yml``-shaped
+    ``config`` is a **rendered render config** — the ``config.yml``-shaped
     document whose deny list lives at ``claude_code.permissions.deny``, read
     together with the ``remove_deny`` beside it so that a tier which lifts an
     inherited deny reports as capable. A rendered ``.claude/settings.json``
@@ -1132,7 +1133,7 @@ def is_setup_patch_capable(config: Any) -> bool:
 
     The deny is what *removes* the capability, so every way of not having one —
     no ``claude_code`` block, no ``permissions``, no ``deny`` key, an empty or
-    null deny — leaves the persona capable. This is not a permissive default
+    null deny — leaves the render capable. This is not a permissive default
     dressed up as a rule: an unwritten deny is exactly the state of a project
     that never gated the tool, and the readonly tier expresses itself by
     *adding* the entry.
@@ -1149,10 +1150,10 @@ def is_setup_patch_capable(config: Any) -> bool:
 
     **Parity is the criterion, not conservatism**, because the two consumers
     pull in opposite directions. The container's Dockerfile *grants* the
-    ``build/config.yml`` chown on ``True``; the persona-roster guard *refuses*
-    a ``default_persona`` or a shared card on ``True``. So there is no safe
+    ``build/config.yml`` chown on ``True``; the render-roster guard *refuses*
+    a ``default_tier`` or a shared card on ``True``. So there is no safe
     direction to lean: an answer biased toward ``False`` waves a capable
-    persona past the roster guard, and one biased toward ``True`` hands an
+    render past the roster guard, and one biased toward ``True`` hands an
     image's ``config.yml`` to an agent that cannot in fact patch it. The only
     answer that serves both consumers is the render's own, which is why every
     reading rule here is stated as a mirror of the render rather than as a
@@ -1160,7 +1161,7 @@ def is_setup_patch_capable(config: Any) -> bool:
     ``test_the_predicate_matches_the_rendered_deny_list``.
 
     Args:
-        config: The rendered persona config (see above). Tolerant of a missing
+        config: The rendered render config (see above). Tolerant of a missing
             or misshapen block — an unreadable document reports no deny, and an
             unreadable ``remove_deny`` lifts nothing.
 
@@ -1621,7 +1622,7 @@ def plan_convention_copies(
     Args:
         profile_dir: The profile root directory.
         context_users: Resolved web-terminal roster. ``None`` or empty skips
-            the per-user context category entirely — a persona build disables
+            the per-user context category entirely — a render build disables
             ``modules.web_terminals``, so it has no roster to derive from.
 
     Returns:
@@ -1647,7 +1648,7 @@ def plan_convention_copies(
                 if baseline.is_file():
                     # Roster-independent by design: the baseline overrides the
                     # framework's fallback for every seeded user at once, so it
-                    # copies even on a build with no roster (a persona render),
+                    # copies even on a build with no roster (a render),
                     # like every other convention artifact.
                     copies.append(
                         ConventionCopy(

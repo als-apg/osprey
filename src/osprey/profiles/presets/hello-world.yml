@@ -298,7 +298,7 @@ config:
   # overrides it per user.
   # web.tour: once
   # Whether the title bar offers the control-target picker. `false` only for
-  # a persona that reaches no machine.
+  # a tier that reaches no machine.
   # web.control_target_picker: true
 
   # ── Health checks ──────────────────────────────────────────────────────────

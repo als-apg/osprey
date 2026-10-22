@@ -82,6 +82,7 @@ class _Repo(NamedTuple):
 #: folds it into the subtree at render time, deeper wins.
 _ROSTER_SUBTREE_KEY = "modules.web_terminals"
 _ROSTER_USERS_KEY = "modules.web_terminals.users"
+_ROSTER_SHARED_KEY = "modules.web_terminals.shared"
 
 
 def _check_archive_purge(archive: bool, purge: bool) -> None:
@@ -113,6 +114,8 @@ def _profile_roster_lists(profile_path: Path, user: str) -> bool:
     """Whether ``profile.yml``'s roster still names *user*."""
     import yaml
 
+    from osprey.deployment.web_terminals.roster import _roster_entry_name
+
     try:
         document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
@@ -121,7 +124,7 @@ def _profile_roster_lists(profile_path: Path, user: str) -> bool:
     if located is None:
         return False
     container, key = located
-    return any(_entry_name(entry) == user for entry in container[key])
+    return any(_roster_entry_name(entry) == user for entry in container[key])
 
 
 def _rendered_roster_lists(config_path: str, user: str) -> bool:
@@ -132,6 +135,8 @@ def _rendered_roster_lists(config_path: str, user: str) -> bool:
     """
     import yaml
 
+    from osprey.deployment.web_terminals.roster import _roster_entry_name
+
     try:
         document = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
@@ -140,19 +145,56 @@ def _rendered_roster_lists(config_path: str, user: str) -> bool:
     web_terminals = modules.get("web_terminals") if isinstance(modules, dict) else None
     roster = web_terminals.get("users") if isinstance(web_terminals, dict) else None
     return (
-        any(_entry_name(entry) == user for entry in roster) if isinstance(roster, list) else False
+        any(_roster_entry_name(entry) == user for entry in roster)
+        if isinstance(roster, list)
+        else False
     )
 
 
-def _entry_name(entry: Any) -> str | None:
-    """A roster entry's username, for either spelling (bare string or mapping)."""
-    if isinstance(entry, str):
-        return entry
-    if isinstance(entry, dict):
-        name = entry.get("name")
-        if isinstance(name, str):
-            return name
-    return None
+def _refuse_app_card(session: _Repo, user: str) -> None:
+    """Refuse *user* when either roster the verb reads names it as a shared app card.
+
+    Runs first in every per-person verb, before any prompt, engine call or file
+    edit, so a refusal touches nothing. Both rosters are asked: the rendered
+    ``build/config.yml`` the engines act on, and ``profile.yml``, which the
+    ``remove`` resume path reads — an app added to the profile but not yet built
+    must not pass for a half-removed person. Each is judged by
+    :func:`~osprey.deployment.web_terminals.roster.refuse_app_card`, the check
+    the engine runs too, so the verb and its engine refuse alike. An unreadable
+    file names no app.
+
+    Raises:
+        ValueError: If *user* is a shared app card; the session reports it as
+            the verb's failure.
+    """
+    import yaml
+
+    from osprey.deployment.web_terminals.roster import refuse_app_card
+
+    def _load(path: Path) -> Any:
+        try:
+            return yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            return None
+
+    subtrees: list[Any] = []
+    rendered = _load(Path(session.config))
+    modules = rendered.get("modules") if isinstance(rendered, dict) else None
+    if isinstance(modules, dict):
+        subtrees.append(modules.get("web_terminals"))
+
+    profile = _load(session.root / PROFILE_FILENAME)
+    config_block = profile.get("config") if isinstance(profile, dict) else None
+    if isinstance(config_block, dict):
+        subtree = config_block.get(_ROSTER_SUBTREE_KEY)
+        shared = config_block.get(_ROSTER_SHARED_KEY)
+        if shared is None and isinstance(subtree, dict):
+            shared = subtree.get("shared")
+        # Apps only: the profile's people are not what is being asked about.
+        subtrees.append({"shared": shared})
+
+    for web_terminals in subtrees:
+        refuse_app_card(web_terminals, user)
 
 
 class _RosterEdit(NamedTuple):
@@ -185,10 +227,10 @@ def _drop_user_from_profile_roster(profile_path: Path, user: str) -> _RosterEdit
     tidy-up) would silently bring them back.
 
     Surviving entries are edited in place, never rebuilt from
-    :func:`~osprey.deployment.web_terminals.personas.normalize_users`: that
+    :func:`~osprey.deployment.web_terminals.roster.normalize_users`: that
     normalizer keeps only ``name``/``index`` plus three optional fields and
-    drops ``persona``, so writing its output back would silently re-assign every
-    surviving user to the default persona.
+    drops ``render``, so writing its output back would silently re-assign every
+    surviving user to the default tier.
 
     Indices are frozen first, exactly as the engine freezes them: a bare-string
     entry takes its list position as an explicit ``index`` so that removing an
@@ -257,7 +299,7 @@ def _roster_usernames(config_path: str) -> list[str]:
     Returns:
         The usernames, empty for a deployment with no web-terminal roster.
     """
-    from osprey.deployment.web_terminals.personas import normalize_users
+    from osprey.deployment.web_terminals.roster import normalize_users
     from osprey_connectors.config import load_project_config
 
     config = load_project_config(config_path)
@@ -621,6 +663,11 @@ def remove(user: str, repo: Path | None, archive: bool, purge: bool, yes: bool) 
         from osprey.deployment.staleness import check_drift
         from osprey.deployment.web_terminals.lifecycle import decommission_user
 
+        # Before everything below: an app card is not a person, and none of the
+        # resume probe, the engine, the `.env` purge or the profile edit may
+        # act on one.
+        _refuse_app_card(session, user)
+
         profile_path = session.root / PROFILE_FILENAME
         # A removal whose profile write never landed leaves the user off the
         # rendered roster and on the profile's. The engine has nothing left to
@@ -951,6 +998,10 @@ def passwd(user: str, repo: Path | None) -> None:
     """
     with _users_session(repo) as session:
         from osprey.deployment.web_terminals.lifecycle import rotate_user_password
+
+        # Before the prompt, so an app card is refused without asking for a
+        # password it could never have.
+        _refuse_app_card(session, user)
 
         # hide_input: the password is never echoed to the terminal, never
         # placed on the argv (where it would land in shell history and in

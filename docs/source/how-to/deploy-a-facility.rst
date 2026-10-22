@@ -46,7 +46,8 @@ scaffolding that goes with it:
    demo-facility/
    ├── profile.yml                       the manifest you own — edit this
    ├── data/                             channel databases, knowledge, lattice
-   ├── personas/                         one delta per web-terminal persona
+   ├── tiers/                            one delta per access level of the agent
+   ├── apps/                             one file per app on the shared cards
    ├── services/facility-mcp/            the facility's own container
    ├── scripts/verify.sh                 the post-deploy health check
    ├── .env                              the deployment's secrets
@@ -178,8 +179,8 @@ Step 1 — Create the facility repository
 
 The command writes the whole repository, runs ``git init`` at its root, and
 commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the three personas it rendered, the two env files, and the
-README.
+data directory, the three tiers and three apps it wrote, the two env files,
+and the README.
 
 The folder name is read once, here. ``osprey init`` records it in
 ``profile.yml`` as the deployment's name on a host:
@@ -212,12 +213,10 @@ stack than Demo Facility runs, so the first edit is subtraction. Delete:
   and ``bluesky-plans``.
 * from ``agents:`` — ``logbook-search`` and ``logbook-deep-research``. Both
   query a logbook database at runtime, and this facility does not deploy one.
-* for the same reason, the ``logbook`` entries under ``modules.web_terminals``
-  in ``config:`` — the roster entry (``- name: logbook``) and the ``logbook:``
-  persona — plus the ``personas/logbook.yml`` delta they point at. That card
-  is the standalone ARIEL logbook terminal, and it needs the logbook database
-  this facility does not run. The ``knowledge`` card stays: it reads the graph
-  store this facility keeps.
+* for the same reason, the ``logbook`` line under ``modules.web_terminals.shared``
+  in ``config:``, plus ``apps/logbook.yml``. That card is the logbook app, and
+  it needs the logbook database this facility does not run. The ``knowledge``
+  app stays: it reads the graph store this facility keeps.
 * from ``web_panels:`` — ``ariel``, ``events`` and ``bluesky``.
 * from ``config:`` — the ``claude_code.servers.bluesky.enabled`` line and every
   ``web.panels.events.*`` and ``web.panels.bluesky.*`` override. The panels they
@@ -304,25 +303,11 @@ host, set real passwords in ``.env`` (or rotate with ``osprey users passwd``)
 and serve TLS — :doc:`web-terminal/multi-user/login` walks through both, and through single
 sign-on if your site runs one.
 
-Then confirm the persona catalog, further down the same ``config:`` block
-under ``modules.web_terminals:``. After Step 2's trim the block reads:
-
-.. code-block:: yaml
-
-     personas:
-       readonly:
-         build_profile: personas/readonly.yml
-       readwrite:
-         build_profile: personas/readwrite.yml
-
-Nothing to edit. Each entry names only the delta the persona is built from.
-``osprey build`` derives where it renders, ``build/<project_name>-<persona>``
-(here ``build/demo-facility-readonly``), and writes that into
-``build/config.yml``, which is where the web tier reads it. Renaming the
-deployment therefore moves every persona render with it, and there is no
-second copy of the name to keep in step. A ``project:`` or ``project_path:``
-line beside a ``build_profile`` is refused by the build, which says to delete
-it.
+Nothing else in the block needs editing. Each tier a user names is a file in
+``tiers/``, each name under ``shared:`` a file in ``apps/``, and ``osprey build``
+renders every one to ``build/<project_name>-<name>`` (here
+``build/demo-facility-readonly``). Renaming the deployment moves every render
+with it, and there is no second copy of the name to keep in step.
 
 
 .. _deploy-a-facility-own-service:
@@ -531,7 +516,7 @@ them from a mirror instead; leave the key out and the pipeline names the public
 images, which is what a runner with internet access wants.
 
 ``image_source: local`` says the deploy host builds the web-terminal images
-itself from the rendered persona projects, rather than pulling them from a
+itself from the rendered tier and app projects, rather than pulling them from a
 registry.
 
 With ``registry``, the host pulls them under names derived from this block's
@@ -787,7 +772,7 @@ The deployment's name on the host is ``project_name:`` in ``profile.yml``, not
 the folder the repository sits in. Moving or renaming the folder changes
 nothing. Changing ``project_name:`` renames the deployment, and everything
 named from it follows: the compose project, the volumes, the images, the web
-containers and the persona renders. Stop the stack under its old name first,
+containers and the tier and app renders. Stop the stack under its old name first,
 because ``osprey down`` addresses the name the current ``build/`` was rendered
 with:
 

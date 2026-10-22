@@ -53,12 +53,12 @@ by a rule rather than by whichever branch happened to be written last.
 
 **The role a login carries must be the role its terminal was built as.** A
 roster entry's ``role:`` is not a second opinion about privilege — it is what
-the *render* resolved this user's persona from, so it already decided which
+the *render* resolved this user's render from, so it already decided which
 container the login lands in. The matrix therefore reads it under every method
 that mints a session:
 
 * Under ``password`` it is the whole answer. The entry names a role, the render
-  built that user's terminal from the persona it resolves to, and no third party
+  built that user's terminal from the render it resolves to, and no third party
   is involved.
 * Under ``oidc`` with **no** claim binding it is still the answer. The provider
   proves *who* this is; nothing in the deployment asked it about privilege, so
@@ -74,7 +74,7 @@ that mints a session:
   not match the terminal behind the door.
 
 **The one gap, stated rather than papered over.** A roster entry that names no
-role — a ``persona:`` pin, or an entry riding the default persona — gives the
+role — a ``tier:`` pin, or an entry riding the default tier — gives the
 cross-check nothing to compare against. Its container is not role-bound at all,
 so there is no rendered role for the claim to disagree with, and the claim's
 role is what the session carries. That is the honest reading: the deployment
@@ -383,7 +383,7 @@ def recheck_login(
     if not claim_roles:
         # This deployment binds no claims, so nothing asked the provider about
         # privilege. The role is the one the RENDER bound — the same roster
-        # entry the persona behind this user's door was resolved from.
+        # entry the render behind this user's door was resolved from.
         return _grant(subject=asserted_subject, role=rendered_role, role_source=ROLE_SOURCE_ROSTER)
 
     if rendered_role:
@@ -401,8 +401,8 @@ def recheck_login(
         # decided which roles are admissible, so the grant credits the claim.
         return _grant(subject=asserted_subject, role=rendered_role, role_source=ROLE_SOURCE_CLAIM)
 
-    # The roster bound this entry no role — a `persona:` pin or the default
-    # persona, whose container is not role-bound — so there is no card role to
+    # The roster bound this entry no role — a `tier:` pin or the default
+    # render, whose container is not role-bound — so there is no card role to
     # choose by: one mapped role is carried, several are refused. See the
     # module docstring's "one gap".
     if len(claim_roles) > 1:
@@ -431,7 +431,7 @@ def _grant(*, subject: str, role: str, role_source: str) -> LoginGrant:
 
     The *source* is normalised rather than checked, because the caller passes a
     row of the matrix and not a value from outside: every row names a source,
-    and a row whose role came back empty — a roster entry riding a ``persona:``
+    and a row whose role came back empty — a roster entry riding a ``tier:``
     pin, which is a legitimate login and not a mistake — has nothing for one to
     describe. Dropping it here is what keeps "a source implies a role" true of
     every grant this module hands out, without a second refusal shape for a

@@ -233,9 +233,9 @@ def profile_edits() -> dict[str, Any]:
     image, so it goes with the dispatch stack: ``services: {}`` is the spelling
     because a single service cannot be nulled.
 
-    ``modules.web_terminals.enabled: False`` drops the preset's per-persona
-    web-terminal stack (two persona images + nginx, all built locally) for
-    the same reason: nothing in the plan stack touches persona routing, and
+    ``modules.web_terminals.enabled: False`` drops the preset's per-render
+    web-terminal stack (two render images + nginx, all built locally) for
+    the same reason: nothing in the plan stack touches render routing, and
     that coverage lives in the dedicated web-terminals lanes
     (control-assistant-demo-e2e, multi-user-deploy-lifecycle-e2e,
     tests/e2e/web_terminals/). One dotted LEAF key on purpose -- the preset

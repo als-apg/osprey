@@ -3,14 +3,14 @@
 The unit tests pin the kernel's per-cell stamps against a synthetic record,
 and the proxy integration test pins the panel's HTTP and websocket legs against
 a sidecar started by hand. Neither can answer the question this file exists
-for: inside a deployed persona container, with a real terminal session, a real
+for: inside a deployed render container, with a real terminal session, a real
 controls MCP server and a real control system behind the cells, does a
 notebook kernel read, refuse, follow and survive the way the panel promises?
 
 THE DEPLOYMENT THIS BUILDS
 --------------------------
 One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
-roster user (``alice``) on one persona that keeps the preset's write gate armed
+roster user (``alice``) on one render that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
 target, with the live stand-in deployed beside it as the ``standin`` target,
@@ -102,6 +102,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.posture_store import STATE_DIR_NAME
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e._facility_select import repo_view
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
@@ -118,11 +119,11 @@ PROJECT_NAME = "osprey-e2e-jnb"
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
 PRESET = "control-assistant"
 USER = "alice"
-PERSONA = "operator"
-#: ``osprey build`` renders a persona delta to ``build/<repo>-<persona>``, and
-#: the catalog must name that same project or a start refuses the render.
-PERSONA_PROJECT = f"{PROJECT_NAME}-{PERSONA}"
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
+RENDER = "operator"
+#: ``osprey build`` renders a layer to ``build/<repo>-<render>``, and
+#: its image is tagged by that project.
+RENDER_PROJECT = f"{PROJECT_NAME}-{RENDER}"
+RENDER_IMAGE_TAG = f"{RENDER_PROJECT}:local"
 #: Service images ``osprey up`` builds per project, exact tags for the teardown.
 SERVICE_IMAGE_TAGS = (f"{PROJECT_NAME}-va:local", f"{PROJECT_NAME}-qmd:local")
 
@@ -325,10 +326,10 @@ def _profile_edits() -> dict[str, Any]:
     container they add is a minute of build. The preset's ``services:`` block
     holds the record archive, which runs the same project image as the
     dispatcher, so it goes with the dispatch stack: ``services: {}`` is the
-    spelling because a single service cannot be nulled. The roster and the persona
-    catalog are rewritten in :func:`_shape_repo` instead of stated here: they
-    are derived from the preset's own catalog, which only exists once the
-    repo is materialized.
+    spelling because a single service cannot be nulled. The roster and its tier
+    are rewritten in :func:`_shape_repo` instead of stated here: this lane's
+    tier is its own file in ``tiers/``, and ``osprey init`` materializes only
+    the tiers OSPREY ships, so the roster can name it only once the repo exists.
     """
     return {
         "config": {
@@ -343,7 +344,6 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": PERSONA,
                 "auth": {"method": "token"},
             },
         },
@@ -357,35 +357,35 @@ def _profile_edits() -> dict[str, Any]:
 
 
 def _shape_repo(repo: Path) -> None:
-    """One roster user on one persona delta, after ``osprey init`` materialized the preset's.
+    """One roster user on this lane's own tier, after ``osprey init`` wrote the preset's.
 
-    ``osprey init`` renders one delta per preset persona and unions the roster
-    override onto the preset's own; the profile is rewritten here to the shape
-    this lane deploys. The delta keeps the write gate armed the way the preset's
-    read-write persona does, and declares no ``extends`` — a file in
-    ``personas/`` inherits from the profile beside it.
+    ``osprey init`` writes a file per tier the preset's roster names; the
+    profile is rewritten here to the shape this lane deploys, and those files
+    give way to the one tier it runs. That tier keeps the write gate armed the
+    way the preset's read-write tier does, and declares no ``extends`` — a
+    file in tiers/ inherits from the profile beside it.
     """
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     terminals = profile["config"]["modules.web_terminals"]
-    terminals["users"] = [{"name": USER, "index": 0, "persona": PERSONA}]
-    # The delta is the entry's only source: the build derives the persona's
-    # `project` / `project_path` from the profile's `project_name` and refuses
-    # a profile that spells either.
-    terminals["personas"] = {PERSONA: {"build_profile": f"personas/{PERSONA}.yml"}}
-    terminals["default_persona"] = PERSONA
+    terminals["users"] = [{"name": USER, "index": 0, "tier": RENDER}]
+    # The delta in tiers/ is the render's only source: the build derives the
+    # render's `project` / `project_path` from the profile's `project_name` and
+    # its file from the tier's name, so the profile spells no catalog.
+    terminals["default_tier"] = RENDER
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
-    personas = repo / "personas"
-    for delta in personas.glob("*.yml"):
+    renders = repo / TIERS_DIRNAME
+    renders.mkdir(exist_ok=True)
+    for delta in renders.glob("*.yml"):
         delta.unlink()
-    (personas / f"{PERSONA}.yml").write_text(
-        f"name: {PROJECT_NAME} ({PERSONA})\n"
-        "deploy_services: false\n"
+    # No attachment spellings: the build attaches every tier to its deployment
+    # and refuses a tier file that restates it.
+    (renders / f"{RENDER}.yml").write_text(
+        f"name: {PROJECT_NAME} ({RENDER})\n"
         "config:\n"
         "  control_system.writes_enabled: true\n"
-        "  web.ui_mode: expert\n"
-        "  modules.web_terminals.enabled: false\n",
+        "  web.ui_mode: expert\n",
         encoding="utf-8",
     )
 
@@ -457,7 +457,7 @@ def _teardown(project: str | None) -> None:
         _runtime_cli("compose", "-p", str(project_name), "down", timeout=120)
         remove_project_volumes(str(project_name), runtime=RUNTIME)
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        for tag in (PERSONA_IMAGE_TAG, *SERVICE_IMAGE_TAGS):
+        for tag in (RENDER_IMAGE_TAG, *SERVICE_IMAGE_TAGS):
             _runtime_cli("rmi", "-f", tag, timeout=120)
 
 
@@ -1119,7 +1119,7 @@ def test_notebook_edit_is_allowed_under_notebooks_and_badges_the_panel(terminal:
     """
     assert terminal.agent_data_root and terminal.pty_pid
     settings = json.loads(
-        (terminal.repo / "build" / PERSONA_PROJECT / ".claude" / "settings.json").read_text(
+        (terminal.repo / "build" / RENDER_PROJECT / ".claude" / "settings.json").read_text(
             encoding="utf-8"
         )
     )

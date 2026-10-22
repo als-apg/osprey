@@ -2,7 +2,7 @@
 
 Extracts the web-terminal-only provisioning logic ``osprey up`` runs
 before and around the compose invocation for a ``modules.web_terminals``
-deploy: per-persona local image builds (over the persona projects ``osprey
+deploy: per-render local image builds (over the render projects ``osprey
 build`` rendered), ``.env.users`` generation for local-mode deploys, ``.env.auth``
 credential provisioning and its fail-closed gate when authentication is on,
 rootless-podman ``loginctl`` linger, the advisory post-up ``verify.sh`` smoke
@@ -56,9 +56,9 @@ from osprey.deployment.web_terminals.artifacts import (
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
     check_open_mode_requirements,
-    dangerously_allowed_bash_personas,
+    dangerously_allowed_bash_renders,
     deployment_is_open,
-    open_mode_missing_by_persona,
+    open_mode_missing_by_render,
     web_compose_file,
     write_web_terminal_artifacts,
 )
@@ -77,16 +77,6 @@ from osprey.deployment.web_terminals.env_production import (
     users_env_required_problem,
 )
 from osprey.deployment.web_terminals.lint import lint_web_terminals
-from osprey.deployment.web_terminals.persona_images import (
-    build_persona_images,
-    verify_persona_renders,
-)
-from osprey.deployment.web_terminals.personas import (
-    effective_image_source,
-    entry_is_shared,
-    normalize_users,
-    resolve_personas,
-)
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
     run_verify_script,
@@ -102,6 +92,16 @@ from osprey.deployment.web_terminals.render import (
     _auth_tls_context,
     resolve_auth_image,
 )
+from osprey.deployment.web_terminals.render_images import (
+    build_render_images,
+    verify_renders,
+)
+from osprey.deployment.web_terminals.roster import (
+    effective_image_source,
+    entry_is_shared,
+    resolve_cards,
+    roster_entries,
+)
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey_connectors.logger import get_logger
@@ -114,9 +114,9 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
 
     ``deploy_up`` invokes this ahead of its (minutes-long) project-image
     build so the deploy aborts that need no image at all — a roster
-    :func:`resolve_personas` refuses (no persona catalog or no
-    ``default_persona``, in either image source; an unknown reference; a
-    persona with no ``project``), checked first, a persona that would hold
+    :func:`resolve_cards` refuses (no render catalog or no
+    ``default_tier``, in either image source; an unknown reference; a
+    render with no ``project``), checked first, a render that would hold
     ``BLUESKY_LAUNCH_TOKEN`` while its agent may also run a shell
     (:func:`~osprey.deployment.web_terminals.artifacts.check_bash_launch_token_conflict`),
     a missing provider auth secret
@@ -124,8 +124,8 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     sidecar with no image name (:func:`_require_auth_sidecar_image`) and
     an auth credential that could not be established
     (:func:`_provision_auth_secrets`) — surface in seconds. Local mode first
-    checks that every referenced persona has a rendered project (the credential
-    sweep reads each rendered persona's ``config.yml``), exactly as the main
+    checks that every referenced render has a rendered project (the credential
+    sweep reads each rendered render's ``config.yml``), exactly as the main
     provisioning path does, which is why the repo root is passed to both: the
     renders it looks for are the ones ``osprey build`` wrote into that repo's
     ``build/``.
@@ -143,7 +143,7 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     write (and print) passwords for a stack that never comes up.
 
     Every step is idempotent, so :func:`deploy_up_web_terminals` re-running
-    the same sequence later is a cheap no-op: the persona check reads and
+    the same sequence later is a cheap no-op: the render check reads and
     writes nothing, and an existing ``.env.users`` is returned as-is. Auth
     provisioning is idempotent in the same sense — an established hash or secret
     is never rewritten. Assumes the project-root cwd every
@@ -162,14 +162,14 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     """
     root = _resolved_repo_root(config, repo_root)
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    # First, in both image sources: a roster with no persona catalog, no
-    # default_persona, an unknown reference or a persona with no project is
+    # First, in both image sources: a roster with no render catalog, no
+    # default_tier, an unknown reference or a render with no project is
     # refused before anything below mints a credential.
-    resolved_users = resolve_personas(web_terminals, config.get("registry") or {}, strict=True)
+    resolved_users = resolve_cards(web_terminals, config.get("registry") or {}, strict=True)
     if effective_image_source(web_terminals) == "local":
-        verify_persona_renders(config, resolved_users, repo_root=root)
+        verify_renders(config, resolved_users, repo_root=root)
     # BEFORE ensure_env_production, for the same reason auth provisioning runs
-    # last: a persona that would hold BLUESKY_LAUNCH_TOKEN while its shipped
+    # last: a render that would hold BLUESKY_LAUNCH_TOKEN while its shipped
     # settings still permit `Bash` is a deploy that must not come up, and
     # discovering that after the image build would have already minted (and
     # printed) credentials for it. The render seam and `decommission_user` check
@@ -177,14 +177,14 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # are load-bearing.
     check_bash_launch_token_conflict(config, root)
     # Immediately after, and ahead of the same steps: an OPEN deployment whose
-    # personas can still reach the host network is refused on the same terms —
+    # renders can still reach the host network is refused on the same terms —
     # before the image build, and before any credential is minted or printed.
     check_open_mode_requirements(config, root)
     # The one waiver of either refusal is never silent: every `up` that runs
     # under it names the key and who it waved through. It reports rather than
     # gates, so it sits below both gates and above the work they guard --
     # silence is how a dev-box key reaches a machine.
-    if waived := dangerously_allowed_bash_personas(config, root):
+    if waived := dangerously_allowed_bash_renders(config, root):
         logger.warning(
             "%s is set: %s may run Bash while holding a launch token, so the "
             "chat approval on queue_start is not the only way to arm a queue. "
@@ -215,27 +215,27 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     _provision_terminal_secrets(web_terminals, str(root))
 
 
-def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
-    """Whether any referenced persona's rendered project would refuse this start.
+def render_problem(config: dict, repo_root: Path | str) -> str | None:
+    """Whether any referenced render's rendered project would refuse this start.
 
-    :func:`verify_persona_renders` asked as a question. It walks the same set
+    :func:`verify_renders` asked as a question. It walks the same set
     :func:`preflight_web_terminals` walks, in the same mode gate, and reports
-    what that call would have raised — a persona with no render, a partial one,
+    what that call would have raised — a render with no render, a partial one,
     a model its provider cannot serve, or a telemetry block naming an
     observability credential this deployment cannot resolve.
 
-    Pure: every step reads. ``resolve_personas`` parses the catalog,
-    ``verify_persona_renders`` stats rendered directories and parses their
+    Pure: every step reads. ``resolve_cards`` parses the catalog,
+    ``verify_renders`` stats rendered directories and parses their
     ``config.yml`` (expanding ``${VAR}`` against the repo root's ``.env``), and
     neither writes a file, starts a process, or touches the container runtime.
 
     Registry-mode deploys answer ``None`` unconditionally — nothing on this
-    host renders their persona projects, so there is no render to have a problem
+    host renders their render projects, so there is no render to have a problem
     with — with one deliberate exception: an OPEN deployment
     (``auth.method: none``) is asked the question in registry mode too, because
     it is refused without those renders anyway.
     :func:`~osprey.deployment.web_terminals.artifacts.check_open_mode_requirements`
-    reads each persona's rendered ``.claude/settings.json`` to decide whether an
+    reads each render's rendered ``.claude/settings.json`` to decide whether an
     agent can reach the deployment's own terminals, and fails closed on an
     artifact it cannot read — so on a pull-only host every open deployment meets
     a refusal whose remedy (restore the deny entries and rebuild) cannot clear
@@ -247,15 +247,15 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 
     :param config: Raw deploy config.
     :param repo_root: The deployment repo whose ``build/`` holds the renders.
-    :return: The refusal sentence, or ``None`` when every persona is usable.
+    :return: The refusal sentence, or ``None`` when every render is usable.
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if effective_image_source(web_terminals) != "local" and not deployment_is_open(config):
         return None
     registry_cfg = config.get("registry") or {}
     try:
-        resolved_users = resolve_personas(web_terminals, registry_cfg, strict=True)
-        verify_persona_renders(config, resolved_users, repo_root=Path(repo_root))
+        resolved_users = resolve_cards(web_terminals, registry_cfg, strict=True)
+        verify_renders(config, resolved_users, repo_root=Path(repo_root))
     except ValueError as exc:
         return str(exc)
     return None
@@ -273,8 +273,8 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 #: about to be opened. These codes are that question.
 #:
 #: * ``shared_card_privileged`` — a card every roster login may open whose
-#:   persona can edit this deployment. The exposure itself.
-#: * ``persona_privileges_unknown`` — a persona whose document is unreadable
+#:   render can edit this deployment. The exposure itself.
+#: * ``render_privileges_unknown`` — a render whose document is unreadable
 #:   where the answer would decide something. "Cannot tell" is not "harmless"
 #:   on the one path where the answer is about to become a running container.
 #: * ``auth_seeded_password`` — a login that still accepts a password the
@@ -283,32 +283,32 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 _UP_BLOCKING_LINT_CODES = frozenset(
     {
         "web_terminals.shared_card_privileged",
-        "web_terminals.persona_privileges_unknown",
+        "web_terminals.render_privileges_unknown",
         "web_terminals.auth_seeded_password",
     }
 )
 
 #: The privilege findings an `osprey up` SAYS but does not refuse over.
 #:
-#: * ``privileged_default_persona`` — an authoring mistake, not an open door:
+#: * ``privileged_default_tier`` — an authoring mistake, not an open door:
 #:   the entries that inherit it are still behind whatever wall the deployment
 #:   has. Refusing the start of a running stack over roster shape would stop a
 #:   shift to fix a profile.
 #: * ``unauthenticated_privileged_deployment`` — the ``auth.method: none``
 #:   version of the exposure, which is the shipped default and a legitimate
 #:   loopback posture; see
-#:   :func:`~osprey.deployment.web_terminals.personas.deployment_wide_privileged_exposure_problems`.
-#: * ``persona_privileges_unknown`` — the same ``auth.method: none`` posture with
-#:   the persona's document unreadable, which the belt reports at WARN there
+#:   :func:`~osprey.deployment.web_terminals.roster.deployment_wide_privileged_exposure_problems`.
+#: * ``render_privileges_unknown`` — the same ``auth.method: none`` posture with
+#:   the render's document unreadable, which the belt reports at WARN there
 #:   rather than dropping. This code appears in BOTH sets, and the two filters
 #:   are what tell them apart: each selects on severity AND code, never on code
 #:   alone, so the advisory form of this finding can never refuse a start and
 #:   the blocking form can never be printed and walked past.
 _UP_ADVISORY_LINT_CODES = frozenset(
     {
-        "web_terminals.privileged_default_persona",
+        "web_terminals.privileged_default_tier",
         "web_terminals.unauthenticated_privileged_deployment",
-        "web_terminals.persona_privileges_unknown",
+        "web_terminals.render_privileges_unknown",
     }
 )
 
@@ -324,7 +324,7 @@ def web_terminal_preflight_advisories(
     deliberately not build-failing (see :data:`_UP_ADVISORY_LINT_CODES`), so the
     start says them out loud and proceeds.
 
-    Pure — it reads the rendered persona configs and returns strings. The
+    Pure — it reads the rendered render configs and returns strings. The
     printing belongs to the caller, which is the pass that already owns this
     deploy's output column.
 
@@ -351,7 +351,7 @@ def web_terminal_preflight_problems(
     scaffold web-terminals lint`` and the ``render`` pre-render gate read the
     rendered altitude; ``osprey up`` read none of it, so a hand-edited
     ``build/config.yml`` — a file no build fingerprint covers, since
-    ``profile.yml`` is untouched — could share a privileged persona's card
+    ``profile.yml`` is untouched — could share a privileged tier's card
     (``access: any``) and start containers with the lint screaming into a
     terminal nobody ran. Only the open-door codes block here; see
     :data:`_UP_BLOCKING_LINT_CODES`.
@@ -383,7 +383,7 @@ def _privilege_lint_halves(config: dict, root: Path) -> tuple[list[str], list[st
     The two public probes above are two readings of the same
     :func:`~osprey.deployment.web_terminals.lint.lint_web_terminals` run, and the
     deploy path wants both. Running the lint once per reading walked every
-    referenced persona's rendered ``config.yml`` off disk twice, plus notice-doc
+    referenced render's rendered ``config.yml`` off disk twice, plus notice-doc
     resolution, for an answer that is identical between the two — on a pass whose
     whole promise is to report in seconds.
 
@@ -423,20 +423,20 @@ def web_terminal_preflight_report(
     root = _resolved_repo_root(config, repo_root)
     findings: list[tuple[str, str]] = []
 
-    if (problem := persona_render_problem(config, root)) is not None:
+    if (problem := render_problem(config, root)) is not None:
         findings.append((problem, ""))
     # Same position as in the gate: ahead of the .env.users question, because a
-    # persona that may arm hardware from a shell is the more serious of the two
+    # render that may arm hardware from a shell is the more serious of the two
     # and an operator reading top-down should meet it first.
     if offenders := bash_launch_token_offenders(config, root):
         findings.append((str(BashLaunchTokenConflictError(offenders)), ""))
-    # Next, in the gate's own order: an open deployment whose personas can reach
+    # Next, in the gate's own order: an open deployment whose renders can reach
     # its terminals is the other refusal an operator must see before being told
     # about anything the deploy merely needs. Reported through the gate's own
     # error, so the report an operator reads BEFORE the refusal names the one
     # entry that is lifted rather than the whole egress set — and says "no
     # render here" where that is the actual problem.
-    if open_missing := open_mode_missing_by_persona(config, root):
+    if open_missing := open_mode_missing_by_render(config, root):
         findings.append((str(OpenModeEgressError(open_missing)), ""))
     # The broader of the two .env.users questions, not the generate-path one:
     # it covers the render this deploy would refuse to generate AND the file
@@ -497,7 +497,8 @@ def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
         a charset violation, or two usernames colliding onto one secret
         variable, both raised by ``ensure_terminal_secrets``.
     """
-    usernames = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
+    # Every card's container refuses a request without its secret, app cards included.
+    usernames = [entry["name"] for entry in roster_entries(web_terminals)]
     result = ensure_terminal_secrets(repo_root, usernames)
     if result.missing:
         raise RuntimeError(
@@ -582,9 +583,7 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
         # and a minted password printed for it would tell the operator the
         # opposite of the truth.
         usernames = [
-            entry["name"]
-            for entry in normalize_users(web_terminals.get("users"))
-            if not entry_is_shared(entry)
+            entry["name"] for entry in roster_entries(web_terminals) if not entry_is_shared(entry)
         ]
         credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
         _report_unshown_mints(credentials)
@@ -828,9 +827,9 @@ def _require_auth_sidecar_image(config: dict) -> None:
     that mode never produces. Without this the deploy would reach ``compose
     pull``/``up`` and die on a tag no registry has, with nothing to say which
     key was missing. The sidecar is named under ``registry.url`` like the
-    persona images, so this fires only when neither ``auth.image`` nor
+    terminal images, so this fires only when neither ``auth.image`` nor
     ``registry.url`` is set. Pushing the image is the facility CI's job, as
-    for the persona images.
+    for the terminal images.
 
     A no-op when no sidecar is rendered at all and in local mode
     (:func:`build_auth_sidecar_image` produces the tag there).
@@ -859,7 +858,7 @@ def _require_auth_sidecar_image(config: dict) -> None:
 def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> tuple[Path, bool]:
     """Write the bundled sidecar Dockerfile into this project's build tree.
 
-    The sidecar has no rendered project of its own (unlike a persona) and no
+    The sidecar has no rendered project of its own (unlike a render) and no
     compose ``build:`` block (unlike a backend service), so its build context is
     materialized here from the template package. Overwritten on every deploy: it
     holds no operator-owned content, only the bundled files plus whatever
@@ -905,7 +904,7 @@ def build_auth_sidecar_image(
     only producer of that tag: the web compose overlay declares the sidecar with
     an ``image:`` and no ``build:`` block, so nothing else would ever create it.
     Called from :func:`deploy_up_web_terminals`'s local branch, beside
-    :func:`build_persona_images` and before any compose invocation.
+    :func:`build_render_images` and before any compose invocation.
 
     The tag is deliberately local-only, which is exactly why the web stack's
     ``pull`` runs in registry mode ONLY (see :func:`deploy_up_web_terminals`'s
@@ -966,7 +965,7 @@ def build_auth_sidecar_image(
         str(context_dir / "Dockerfile"),
         # OSPREY_PROJECT_NAME is what stamps `com.osprey.project` on the image
         # (the Dockerfile's final metadata-only layer), the same ownership label
-        # persona images carry — `nuke` verifies it before removing a tag, so an
+        # render images carry — `nuke` verifies it before removing a tag, so an
         # unlabeled image here would be left behind by a full teardown.
         "--build-arg",
         f"OSPREY_PROJECT_NAME={project_label}",
@@ -983,7 +982,7 @@ def build_auth_sidecar_image(
         # relaxing it with no wheel to overlay would silently build released
         # code under a flag that means "run my local code".
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
-    # The same site build args the project and persona images get, from the
+    # The same site build args the project and render images get, from the
     # same producer: this image reaches the identity provider over TLS, so a
     # site CA it does not carry is a login stack that starts green and fails
     # every discovery fetch. Staged into THIS context, after it is
@@ -1031,7 +1030,7 @@ def _roster_identities(config: dict) -> list[str]:
     container runtime creates root-owned.
 
     Resolved with ``strict=False`` for the reason
-    :func:`_audit_identities` states: an unresolvable persona reference renders
+    :func:`_audit_identities` states: an unresolvable render reference renders
     no service and so needs no directory, and the strict resolve that refuses
     it — with an explanation this function has none of — runs later on the same
     path.
@@ -1043,7 +1042,7 @@ def _roster_identities(config: dict) -> list[str]:
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     registry_cfg = config.get("registry") or {}
-    return [entry["name"] for entry in resolve_personas(web_terminals, registry_cfg, strict=False)]
+    return [entry["name"] for entry in resolve_cards(web_terminals, registry_cfg, strict=False)]
 
 
 def _ensure_control_target_dirs(config: dict, repo_root: Path | str) -> None:
@@ -1103,14 +1102,14 @@ def _audit_identities(config: dict) -> list[str]:
 
     The roster, plus ``sidecar`` whenever a sidecar service is rendered at all.
     Derived from the same two sources the compose overlay renders those services
-    from — :func:`resolve_personas` for the users,
+    from — :func:`resolve_cards` for the users,
     :func:`~osprey.deployment.web_terminals.render._auth_tls_context` for the
     auth method — so the set of directories this deploy provisions is exactly
     the set of directories the render is about to mount. A directory missing
     from here is a bind source the container runtime creates root-owned; one too
     many is an empty directory nobody writes.
 
-    Resolved with ``strict=False``: an unresolvable persona reference renders no
+    Resolved with ``strict=False``: an unresolvable render reference renders no
     service and so needs no directory, and the strict resolve that refuses it
     (with an explanation this function has none of) runs later on the same path.
 
@@ -1226,7 +1225,7 @@ def web_stack_compose_cmd(
     if env_file_args is None:
         # Function-local import: container_lifecycle imports this module at its
         # top level, so importing it back at module scope would be a cycle
-        # (same reason persona_images imports _resolve_pip_spec locally).
+        # (same reason render_images imports _resolve_pip_spec locally).
         from osprey.deployment.container_lifecycle import _env_file_args
 
         env_file_args = _env_file_args(root, provider)
@@ -1436,11 +1435,11 @@ def deploy_up_web_terminals(
       missing — a registry deploy expects CI to have produced it already),
       then the web stack runs ``pull`` before ``up -d``.
     - **local**: :func:`ensure_env_production` generates ``.env.users``
-      from ``.env`` when absent. Then :func:`build_persona_images` builds
-      every referenced persona's ``<project>:local`` image —
-      called with :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
-      ``strict=True`` output, so an unresolvable persona reference (unknown
-      catalog entry, or ``local`` mode with no catalog/``default_persona``
+      from ``.env`` when absent. Then :func:`build_render_images` builds
+      every referenced render's ``<project>:local`` image —
+      called with :func:`osprey.deployment.web_terminals.roster.resolve_cards`'s
+      ``strict=True`` output, so an unresolvable render reference (unknown
+      catalog entry, or ``local`` mode with no catalog/``default_tier``
       configured at all) raises HERE, before any compose invocation, rather
       than surfacing as an opaque "no such image" failure at ``compose up``.
       Local mode's web-stack invocation then runs bare ``up -d`` — NO
@@ -1508,7 +1507,7 @@ def deploy_up_web_terminals(
     build. The web stack never needs ``--build`` — none of its images have
     a ``build:`` block (registry mode) or is otherwise built with this
     module's own dev-wheel machinery (local mode — see
-    :func:`build_persona_images`).
+    :func:`build_render_images`).
 
     :param config: Raw deploy config.
     :param compose_files: Compose files ``prepare_compose_files`` already
@@ -1517,7 +1516,7 @@ def deploy_up_web_terminals(
         above for why that alone doesn't get an ``up`` invocation).
     :param dev_mode: Whether ``--dev`` was passed; appends ``--build`` to the
         services stack's ``up -d`` invocation when set, and is threaded into
-        :func:`build_persona_images` (local mode) for its own dev-wheel
+        :func:`build_render_images` (local mode) for its own dev-wheel
         staging.
     :param env: Base environment for the pull/up subprocesses (already has
         ``DEV_MODE`` applied by the caller when relevant); pinned with
@@ -1621,30 +1620,30 @@ def deploy_up_web_terminals(
     local_mode = effective_image_source(web_terminals) == "local"
 
     if local_mode:
-        # strict=True: an unresolvable persona reference is a misconfiguration
+        # strict=True: an unresolvable render reference is a misconfiguration
         # that must surface HERE -- before compose ever runs -- not as an
         # opaque unbuilt-tag failure at `compose up` (see docstring's MODE
         # BRANCH section). `osprey up`'s lint gate
         # (`web_terminal_preflight_problems`) blocks only on the open-door codes
         # of `_UP_BLOCKING_LINT_CODES`, so this strict resolve is still the only
-        # preflight standing between a broken persona catalog and that opaque failure.
+        # preflight standing between a broken render catalog and that opaque failure.
         registry_cfg = config.get("registry") or {}
-        resolved_users = resolve_personas(web_terminals, registry_cfg, strict=True)
-        # Every referenced persona must already have the project `osprey build`
+        resolved_users = resolve_cards(web_terminals, registry_cfg, strict=True)
+        # Every referenced render must already have the project `osprey build`
         # rendered for it, so the image build below always finds a complete
         # context. This renders nothing: a gap is a stale or partial build, and
         # the refusal names the rebuild that fixes it.
-        verify_persona_renders(config, resolved_users, repo_root=repo_root)
+        verify_renders(config, resolved_users, repo_root=repo_root)
         # ensure_env_production AFTER that check because the check REFUSES: its
-        # claude_code credential sweep reads each rendered persona's config.yml,
+        # claude_code credential sweep reads each rendered render's config.yml,
         # so a deploy missing one has to be stopped before the sweep meets a
         # directory that is not there. Still BEFORE any compose invocation: a
         # missing/ungeneratable .env.users would otherwise surface as an
         # opaque compose "env file not found" failure only once `up` runs.
         ensure_env_production(config, repo_root)
-        build_persona_images(config, resolved_users, dev_mode, env)
+        build_render_images(config, resolved_users, dev_mode, env)
         # The sidecar's own local-only tag, produced by the same rule and at the
-        # same point as the persona images: nothing else builds it, and the web
+        # same point as the render images: nothing else builds it, and the web
         # stack's `up` below would otherwise die on a tag that does not exist.
         build_auth_sidecar_image(config, dev_mode, env, repo_root=repo_root)
     else:

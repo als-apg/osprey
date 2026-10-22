@@ -68,14 +68,12 @@ class TestActive:
             config_with_standin(), endpoint_host=host, endpoint_port=STANDIN_PORT
         )
 
-    def test_a_persona_render_carrying_only_the_projected_port_is_the_standin(self) -> None:
+    def test_a_render_carrying_only_the_projected_port_is_the_standin(self) -> None:
         """No ``deployed_services`` conjunct: the projected port is the whole
         evidence, so an attached render answers as the single-user one does."""
-        persona_render = {"services": {"live_standin": {"port": STANDIN_PORT}}}
+        render = {"services": {"live_standin": {"port": STANDIN_PORT}}}
 
-        assert live_standin_active(
-            persona_render, endpoint_host="127.0.0.1", endpoint_port=STANDIN_PORT
-        )
+        assert live_standin_active(render, endpoint_host="127.0.0.1", endpoint_port=STANDIN_PORT)
 
     def test_the_port_may_be_stated_as_text(self) -> None:
         """A YAML-quoted port still names the port it names."""
@@ -194,12 +192,12 @@ class TestArchiveBelongsToStandin:
         stand-in's history."""
         assert not archive_belongs_to_standin(config_with_recorder(deployed=[]))
 
-    def test_a_persona_render_carrying_only_the_projected_port(self) -> None:
-        """A persona of a host that does not record: the port reached it, and there
+    def test_a_render_carrying_only_the_projected_port(self) -> None:
+        """A render of a host that does not record: the port reached it, and there
         was no recorder to project."""
-        persona_render = {"services": {"live_standin": {"port": STANDIN_PORT}}}
+        render = {"services": {"live_standin": {"port": STANDIN_PORT}}}
 
-        assert not archive_belongs_to_standin(persona_render)
+        assert not archive_belongs_to_standin(render)
 
     @pytest.mark.parametrize(
         "deployed",
@@ -228,13 +226,13 @@ class TestArchiveBelongsToStandin:
         assert ARCHIVER_RECORDER_SERVICE == "archiver_recorder"
 
     # The projected spelling: the same fact, in the render that is told it.
-    # A web-terminal persona is an attached render: it lists no services, so
+    # A web-terminal render is an attached render: it lists no services, so
     # `deployed_services` cannot carry this fact, and the build projects the
     # recorder's own block from the host's render instead (the
-    # `archiver_recorder` Reach Contract). The persona reads the host's store,
+    # `archiver_recorder` Reach Contract). The render reads the host's store,
     # so it has to reach the host's answer.
 
-    def test_a_persona_told_the_recorder_block_answers_like_its_host(self) -> None:
+    def test_a_render_told_the_recorder_block_answers_like_its_host(self) -> None:
         """The parity case: no deployed_services, both projected facts, True."""
         assert archive_belongs_to_standin(
             {

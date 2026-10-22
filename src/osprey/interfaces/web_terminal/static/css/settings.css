@@ -415,7 +415,7 @@
 }
 
 /* The "don't ask again" waiver — quiet secondary text beside the decision.
-   Per persona (scopedStorageKey); Shift-clicking Apply re-shows the dialog,
+   Per render (scopedStorageKey); Shift-clicking Apply re-shows the dialog,
    which is also where the waiver is unticked. */
 .settings-confirm-skip {
   display: flex;

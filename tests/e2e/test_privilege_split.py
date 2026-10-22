@@ -8,7 +8,7 @@ line landed on the file it names, in the layer order that makes it stick.
 
 Two renders of the ``control-assistant`` preset are built (one ``osprey init``
 + ``osprey build``, which renders the deployment's own project AND one per
-persona delta):
+layer):
 
 * the **base render** — the single-user, restricted tier. Its permission render
   denies ``setup_patch``, so the Dockerfile's ``is_setup_patch_capable`` branch
@@ -319,13 +319,13 @@ def rendered_config(preset_repo: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def admin_project(rendered_config: dict) -> str:
-    """The admin persona's project name, read from the render's own catalog.
+    """The admin render's project name, read from the render's own catalog.
 
     Derived rather than spelled: the catalog is what ``osprey build`` renders a
     project per, so a hand-written ``<repo>-admin`` here would be a second
     source of truth that a naming change could silently desynchronize.
     """
-    catalog = rendered_config["modules"]["web_terminals"]["personas"]
+    catalog = rendered_config["modules"]["web_terminals"]["renders"]
     return catalog["admin"]["project"]
 
 
@@ -981,7 +981,7 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
     """Seed one roster user's live container, exactly as ``osprey up`` does.
 
     The admin image is reused rather than a third one built: carol is the
-    roster's admin-persona user, so her resolved ``container_project_dir`` IS
+    roster's admin-render user, so her resolved ``container_project_dir`` IS
     this image's project by construction — which keeps the seeding assertions
     on the real catalog and the real roster instead of a hand-made config.
 
@@ -995,25 +995,25 @@ def seeded_container(admin_image, preset_repo: Path, rendered_config: dict):
     class to a skip. Overriding the project name keeps both properties: the
     test never touches a container it did not create, and it always runs.
 
-    Only carol's persona is seeded, and it names its own ``project``, so the
+    Only carol's render is seeded, and it names its own ``project``, so the
     override cannot reach the project path — the project name feeds
-    ``resolve_personas`` solely as the default for a persona that names none.
+    ``resolve_cards`` solely as the default for a render that names none.
     Asserted below rather than assumed.
     """
     tag, project = admin_image
     user = "carol"
     rendered_config = copy.deepcopy(rendered_config)
     web_terminals = rendered_config["modules"]["web_terminals"]
-    persona = next(u for u in web_terminals["users"] if u["name"] == user)["persona"]
-    assert web_terminals["personas"][persona]["project"] == project, (
+    tier = next(u for u in web_terminals["users"] if u["name"] == user)["tier"]
+    assert web_terminals["renders"][tier]["project"] == project, (
         "this fixture reuses the admin image for the seeding target; the "
         "roster no longer maps carol onto it"
     )
 
     rendered_config["project_name"] = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
-    assert web_terminals["personas"][persona]["project"] == project, (
-        "the project-name override changed the persona's project; it is only "
-        "supposed to be the default for a persona that names none"
+    assert web_terminals["renders"][tier]["project"] == project, (
+        "the project-name override changed the render's project; it is only "
+        "supposed to be the default for a render that names none"
     )
     name = web_container_name(resolve_project_name(rendered_config), user)
     skill = "e2e-privsplit-probe"

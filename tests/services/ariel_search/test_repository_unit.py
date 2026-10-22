@@ -378,9 +378,9 @@ class TestUpsertEntryReingestHazards:
     ) -> None:
         """Pins the ``'[]'::jsonb`` CASE that protects ARIEL-native attachments.
 
-        Hazard: the adapter write contract carries no attachments, so an entry
-        published by ARIEL comes back from the next poll with
-        ``attachments = '[]'::jsonb``. Collapsing the CASE into a plain
+        Hazard: an adapter that takes no files lists none of an entry's
+        ARIEL-native attachments, so an entry published by ARIEL comes back from
+        the next poll with ``attachments = '[]'::jsonb``. Collapsing the CASE into a plain
         ``attachments = EXCLUDED.attachments`` erases web-uploaded attachments
         and orphans their stored blobs -- unrecoverable, and invisible until
         someone opens the entry.
@@ -432,7 +432,10 @@ class TestUpsertEntryReingestHazards:
 
         await repo.upsert_entry(entry)
 
-        params = fake_pool.calls[0][1]
+        # A non-empty list first locks the row to read the stored list.
+        (params,) = [
+            call[1] for call in fake_pool.calls if "INSERT INTO enhanced_entries" in call[0]
+        ]
         assert params[:5] == [
             entry["entry_id"],
             entry["source_system"],

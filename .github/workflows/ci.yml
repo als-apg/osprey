@@ -1660,7 +1660,7 @@ jobs:
             --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
             --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
             --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-            --ignore=tests/e2e/web_terminals/test_persona_permissions_scripted.py \
+            --ignore=tests/e2e/web_terminals/test_render_permissions_scripted.py \
             --ignore=tests/e2e/tier2
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -1858,7 +1858,7 @@ jobs:
           tests/e2e/web_terminals/test_loopback_chokepoint.py \
           tests/e2e/web_terminals/test_session_restart_e2e.py \
           tests/e2e/web_terminals/test_terminal_auth_e2e.py \
-          tests/e2e/web_terminals/test_persona_permissions_scripted.py \
+          tests/e2e/web_terminals/test_render_permissions_scripted.py \
           -v --tb=short --durations=15 -n 4 --dist loadfile \
           --junitxml=junit-e2e-no-model.xml
 
@@ -2195,10 +2195,10 @@ jobs:
     timeout-minutes: 60
     # Only run on PRs from same repo (secrets unavailable on forks).
     # Besides the dispatcher/worker stack, the same deploy stands up the
-    # preset's two-persona web tier (nginx + one terminal container per
-    # roster user, both persona images built locally), so this lane also
+    # preset's two-tier web layer (nginx + one terminal container per
+    # roster user, both render images built locally), so this lane also
     # carries the multi-user topology + write-posture proofs (T1-T4 in
-    # tests/e2e/test_dispatch_deploy.py). Persona image builds add
+    # tests/e2e/test_dispatch_deploy.py). Render image builds add
     # cold-cache minutes; the two builds share most layers.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
@@ -3734,7 +3734,7 @@ jobs:
     name: Privilege Split E2E (built images, stat-level ownership proof)
     runs-on: ubuntu-latest
     # Two image builds of the control-assistant preset (base + admin render);
-    # they share every layer up to the persona's own config, so the second is
+    # they share every layer up to the render's own config, so the second is
     # mostly cache — but the first is the same cold EPICS-toolchain compile
     # dockerfile-e2e pays, hence the same order of budget plus the second image.
     # A THIRD image build lives here too: the audit two-container mechanism
@@ -4231,7 +4231,7 @@ jobs:
     - name: Clean up any stranded write-back-e2e resources
       if: always()
       run: |
-        for case in profile divergent orphan persona; do
+        for case in rebuild divergent render; do
           project="osprey-e2e-wb-${case}"
           docker rm -f "${project}-ariel-postgres" || true
           docker compose -p "$project" down || true
@@ -4391,10 +4391,10 @@ jobs:
         docker rm -f osprey-e2e-auth-perimeter-nginx || true
         docker compose -p osprey-e2e-auth-perimeter down || true
         docker rmi -f osprey-e2e-auth-perimeter-auth:local || true
-        docker rmi -f authe2e-operator:local || true
+        docker rmi -f osprey-e2e-auth-perimeter-readonly:local || true
 
   terminal-auth-multiuser-e2e:
-    name: Terminal Auth Multi-User E2E (auth.method token + none, real persona image)
+    name: Terminal Auth Multi-User E2E (auth.method token + none, real render image)
     runs-on: ubuntu-latest
     # Raised from the 60 this lane carried while it stood up ONE deployment.
     # What the second posture adds is a second render and a second `osprey up`
@@ -4416,7 +4416,7 @@ jobs:
     # volume lifecycle) against the runtime.
     #
     # DELIBERATELY ITS OWN LANE, for the same reason auth-perimeter-e2e is one.
-    # The terminal behind nginx here is the REAL `osprey web`, so the persona
+    # The terminal behind nginx here is the REAL `osprey web`, so the render
     # image is a real `pip install osprey-framework` with a C toolchain plus the
     # Claude Code CLI — minutes, cold, every run. Folding it into the all-stub
     # lifecycle lanes would make every lifecycle run pay that build; folding it
@@ -4424,17 +4424,15 @@ jobs:
     # lane (which is why the module carries the `dockerbuild` marker and is
     # --ignore'd there).
     #
-    # TWO deployments, ONE build. The module proves both sidecar-less postures:
+    # TWO deployments, ONE recipe. The module proves both sidecar-less postures:
     # `auth.method: token` (the DEFAULT, and what an absent `auth:` block
     # renders) where nginx injects nothing and each terminal's own `?token=`
     # exchange is the gate; and `auth.method: none` (OPEN, navigation-only)
     # where nginx injects each user's operator secret and executed code is
-    # refused the deployment's own web ports. Both lanes share one persona
-    # project and therefore one
-    # `:local` image, so the second `osprey up` re-runs the build against a
-    # byte-identical context and hits the runtime cache: the added cost over the
-    # single-posture lane this replaces is a second render plus a second deploy,
-    # not a second image build.
+    # refused the deployment's own web ports. A tier's `:local` image is tagged
+    # for the deployment that renders it, so each lane builds its own; the
+    # second build runs the same recipe and takes every layer up to the project
+    # copy from the runtime's cache.
     #
     # Complement, not duplicate, of auth-perimeter-e2e: that lane proves the
     # AUTHENTICATED perimeter (sidecar + nginx auth_request + header injection),
@@ -4472,7 +4470,7 @@ jobs:
       run: uv sync --extra dev
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
-    # `--dev` stages this branch's locally-built wheel into the persona image, so
+    # `--dev` stages this branch's locally-built wheel into the render image, so
     # the terminal whose gate is under test runs THIS branch's code rather than a
     # published release. No provider secret is needed: the fixture writes a fake
     # ANTHROPIC_API_KEY and the PTY never contacts a model.
@@ -4511,12 +4509,12 @@ jobs:
         done
         docker rm -f osprey-e2e-open-multiuser-nginx || true
         docker compose -p osprey-e2e-open-multiuser down || true
-        # ONE image for both lanes: the persona catalog entry names its own
-        # `project`, so the tag is `<project>:local` with no persona suffix.
-        docker rmi -f authmulti-operator:local || true
+        # Each lane's tier image, tagged `<project_name>-<tier>:local`.
+        docker rmi -f osprey-e2e-token-multiuser-readonly:local || true
+        docker rmi -f osprey-e2e-open-multiuser-readonly:local || true
 
   full-chain-auth-e2e:
-    name: Full-Chain Auth E2E (real sidecar + role-resolved persona + audit ledgers)
+    name: Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)
     runs-on: ubuntu-latest
     # Higher than the two single-build auth lanes (60/55) because this job does
     # strictly more of the same work: BOTH real images, cold, in one job. Two
@@ -4557,7 +4555,7 @@ jobs:
     # perimeter in front of a stub, terminal-auth-multiuser-e2e proves the
     # app-owned gate with auth OFF. This one proves what only both halves real
     # at once can show — that the identity the sidecar established reaches the
-    # container it authorized, that the role decides which persona that
+    # container it authorized, that the role decides which tier render that
     # container runs, and that each decision lands in its own identity's audit
     # ledger and nowhere else.
     # Base-ref clause matches the two lanes above, and for the same reason:
@@ -4669,19 +4667,19 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
           | xargs -r docker volume rm -f || true
         docker rmi -f osprey-e2e-full-chain-auth-auth:local || true
-        docker rmi -f fullchain-operator:local || true
-        docker rmi -f fullchain-probe:local || true
+        docker rmi -f osprey-e2e-full-chain-auth-operator:local || true
+        docker rmi -f osprey-e2e-full-chain-auth-probe:local || true
         # The project image `osprey up` builds, which the history service runs.
         docker rmi -f osprey-e2e-full-chain-auth:local || true
 
   jupyter-panel-e2e:
-    name: Notebook Panel E2E (deployed persona + a kernel that follows the terminal)
+    name: Notebook Panel E2E (deployed render + a kernel that follows the terminal)
     runs-on: ubuntu-latest
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. No secret is needed: the fixture writes a fake ANTHROPIC_API_KEY and
     # nothing in the module contacts a model.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # One cold persona image build (the neighbouring single-build auth lanes
+    # One cold render image build (the neighbouring single-build auth lanes
     # measure 7-11 minutes for the same work), one `osprey up --dev`, then the
     # notebook assertions and a second down/up in the last test — which reuses
     # the images the first build produced. The module caps its own `up` at
@@ -4720,7 +4718,7 @@ jobs:
         docker info > /dev/null
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
-    # `--dev` stages this branch's locally-built wheel into the persona image,
+    # `--dev` stages this branch's locally-built wheel into the render image,
     # so the kernel launcher, the sidecar and the guard hook under test are all
     # THIS branch's code rather than a published release.
     - name: Run notebook panel E2E

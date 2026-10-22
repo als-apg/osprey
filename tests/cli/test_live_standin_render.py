@@ -255,7 +255,7 @@ def _rendered_composes(build: Path) -> dict[str, dict[str, Any]]:
 
 
 def _rendered_configs(build: Path) -> dict[str, dict[str, Any]]:
-    """The deployment's own rendered config, plus one per persona project."""
+    """The deployment's own rendered config, plus one per render project."""
     configs = {"<deployment>": _config(build)}
     for path in sorted(build.glob(f"{EXEMPLAR_DIRNAME}-*/config.yml")):
         configs[path.parent.name] = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -560,12 +560,12 @@ class TestABuildWithoutTheKeyIsUntouched:
     def test_live_standin_render_off_leaves_no_stand_in_in_any_rendered_config(
         self, plain_build
     ) -> None:
-        """Not the deployment's config, and not any persona's either.
+        """Not the deployment's config, and not any render's either.
 
         Every rendered config is checked rather than only the deployment's,
         because the stand-in's port is projected into attached renders ungated
         — which is right when there IS one, and would be a phantom machine in
-        a persona's roster when there is not.
+        a render's roster when there is not.
         """
         for name, config in _rendered_configs(plain_build).items():
             assert "live_standin" not in config.get("services", {}), name
@@ -625,7 +625,7 @@ class TestABuildWithoutTheKeyIsUntouched:
         tree, because two other things there move for reasons of their own and
         pinning them here would pin someone else's invariant:
         ``.osprey-manifest.json`` carries a wall-clock timestamp, and the
-        bluesky-web sidecar's roster secrets are resolved from the personas'
+        bluesky-web sidecar's roster secrets are resolved from the renders'
         rendered configs, which a FIRST build has not written yet.
         """
         repo = _exemplar(tmp_path, standin=None)

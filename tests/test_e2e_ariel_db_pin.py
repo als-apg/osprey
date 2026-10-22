@@ -95,11 +95,20 @@ def test_a_preset_that_extends_an_ariel_preset_is_pinned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The ARIEL settings a variant inherits are the parent's, read through ``extends:``."""
-    monkeypatch.setenv("OSPREY_ARIEL_DB_URI", CELL_URI)
+    from osprey.cli import build_profile_presets
 
-    assert sdk_helpers._ariel_db_pins("control_assistant_readonly") == {
-        "ariel.database.uri": CELL_URI
-    }
+    monkeypatch.setenv("OSPREY_ARIEL_DB_URI", CELL_URI)
+    real = build_profile_presets._load_preset_raw
+    variant = {"name": "Variant", "extends": "control-assistant", "config": {"web.port": 1}}
+
+    def _load(name: str) -> tuple[dict, Path]:
+        if name == "variant":
+            return variant, Path("variant.yml")
+        return real(name)
+
+    monkeypatch.setattr(build_profile_presets, "_load_preset_raw", _load)
+
+    assert sdk_helpers._ariel_db_pins("variant") == {"ariel.database.uri": CELL_URI}
 
 
 def test_a_preset_without_ariel_is_not_pinned(monkeypatch: pytest.MonkeyPatch) -> None:

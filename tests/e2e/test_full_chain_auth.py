@@ -1,6 +1,6 @@
 """Acceptance proof for the WHOLE identity chain on real artifacts: a password
 login at the deployed sidecar, an ``authorization:`` role that decides which
-persona a user's container runs, the four identity headers nginx forwards
+render a user's container runs, the four identity headers nginx forwards
 from the sidecar's answer, and the audit records those decisions leave behind in
 each identity's OWN ledger subdirectory.
 
@@ -23,21 +23,21 @@ because there the app-owned gate is the only gate.
 
 Neither of them can answer the question this file exists for: with auth ON, does
 the *identity* the sidecar established actually arrive at the container it
-authorized, does the ROLE it resolved decide which persona that container runs,
+authorized, does the ROLE it resolved decide which render that container runs,
 and does every decision on the way land in the ledger of the identity that made
 it — and only there. That question needs both halves real at once, which is why
 this is the one job in the repo that builds the deployed sidecar Dockerfile AND
-a real framework persona image in the same deployment.
+a real framework render image in the same deployment.
 
 THE DEPLOYMENT THIS BUILDS, AND WHY EACH ROSTER USER IS THERE
 -------------------------------------------------------------
 One ``osprey up --dev`` of a ``hello-world`` render with ``auth.method:
-password``, an ``authorization:`` stanza binding two roles to two personas, and
+password``, an ``authorization:`` stanza binding two roles to two renders, and
 a six-entry roster. Every entry earns its place by being the only shape that
 can prove one thing:
 
 =========  =============  ==========  =========================================
-user       role           persona     what only this entry can prove
+user       role           render     what only this entry can prove
 =========  =============  ==========  =========================================
 ``alice``  ``operator``   REAL app    A password login reaches HER container,
                                       and an in-container protected-key refusal
@@ -80,22 +80,22 @@ half is ``tests/deployment/web_terminals/test_auth_serving_oidc.py``: one OIDC
 login through the rendered nginx and the real sidecar, against a stub provider
 in the serving harness's network namespace.
 
-**The persona each user runs is decided by the ROLE, never by a ``persona:``
+**The render each user runs is decided by the ROLE, never by a ``tier:``
 pin.** That is not incidental to the fixture — it is the FR6 mechanism under
-test. ``authorization.roles`` maps ``operator`` → the real framework persona and
-``observer`` → the probe stub, ``default_persona`` catches the role-less
-entries, and no roster entry here carries a ``persona:`` key at all (an entry
-carrying both is refused by ``effective_persona``, deliberately). So
-``test_alices_container_runs_the_persona_her_role_named`` fails the moment role
+test. ``authorization.roles`` maps ``operator`` → the real framework render and
+``observer`` → the probe stub, ``default_tier`` catches the role-less
+entries, and no roster entry here carries a ``tier:`` key at all (an entry
+carrying both is refused by ``effective_tier``, deliberately). So
+``test_alices_container_runs_the_render_her_role_named`` fails the moment role
 resolution stops reaching the render.
 
-ONE REAL FRAMEWORK PERSONA, FOUR CHEAP PROBES — AND WHY THE SPLIT IS HONEST
+ONE REAL FRAMEWORK RENDER, FOUR CHEAP PROBES — AND WHY THE SPLIT IS HONEST
 --------------------------------------------------------------------------
 The four non-alice entries run an alpine + python3 stub that answers every
 request with the request's OWN headers as JSON. That is not a cost dodge that
 weakens the proof; it is the only way to make the header assertions exact. The
 real ``osprey web`` does not echo what it received, so a lane with only real
-personas could assert that a request SUCCEEDED but never that the upstream saw
+renders could assert that a request SUCCEEDED but never that the upstream saw
 exactly one ``X-Osprey-Auth-Subject`` with the sidecar's value and no forged
 one.
 
@@ -110,7 +110,7 @@ each ``/_osprey_auth/<user>`` subrequest — where there is no sidecar answer to
 forward and the clear is the only thing standing between a client's header and
 the upstream.
 
-Alice's persona is the real thing for the complementary reason: the ledger
+Alice's render is the real thing for the complementary reason: the ledger
 assertions need the real audit writer, the real ``/api/config`` protected-set
 gate and the real per-user mount, none of which a stub has.
 
@@ -189,6 +189,7 @@ import yaml
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.provision import force_recreate_auth_sidecar
+from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.port_layout import DEFAULT_PORT_BASE, PORT_BASE_CONFIG_KEY, default_port
 from osprey.services.auth_sidecar.identity_headers import (
     ACCOUNT_HEADER,
@@ -199,6 +200,8 @@ from osprey.services.auth_sidecar.identity_headers import (
 from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
 from osprey_connectors.config import ConfigBuilder
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests.e2e._render_stub import stub_render_image
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -209,11 +212,8 @@ from tests.e2e.profile_edits import set_pairs
 #: image is built from a config that never moves ``deployment.port_base``, so
 #: the layout's default base is the right one to derive it at.
 #:
-#: Still true after the DEPLOYMENT moved to :data:`PORT_BASE` below, for two
-#: independent reasons, and it is worth knowing both: the persona image comes
-#: from :func:`_render_reference_project`, whose own override sets no base at
-#: all, so its ``EXPOSE`` really is at the default base; and nothing binds this
-#: number anyway, because the per-user compose service sets
+#: Still true after the DEPLOYMENT moved to :data:`PORT_BASE` below, because
+#: nothing binds this number: the per-user compose service sets
 #: ``OSPREY_TERMINAL_WEB_PORT``/``OSPREY_WEB_PORT`` explicitly to that user's
 #: port off the DEPLOYMENT's base (``docker-compose.web.yml.j2``, which is also
 #: what the healthcheck probes). This is the stub's fallback for the case that
@@ -235,23 +235,24 @@ PROJECT_NAME = "osprey-e2e-full-chain-auth"
 #: The compose project name the web tier's containers and the sidecar image
 #: are named by.
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
-#: The facility token, and the stem of the two catalog personas' projects.
-PREFIX = "fullchain"
-#: The preset the host repo and both persona projects are rendered from — the
-#: smallest one that stands up a serving ``osprey web``.
+#: The preset the repo is materialized from — the smallest one that stands up a
+#: serving ``osprey web``.
 PRESET = "hello-world"
+#: The tier ``osprey init`` is handed for every tier this lane names: init
+#: writes the tiers OSPREY ships, and this lane's two are its own files, which
+#: replace it once the repo exists (:func:`_author_tiers`).
+BUNDLED_STAND_IN = "readonly"
 
-#: The two catalog personas. ``operator`` is the REAL framework image; ``probe``
-#: is the header-echoing stub. Their catalog *projects* differ because a
-#: persona's image tag is ``<catalog project>:local`` — the render names the
-#: image, so two personas sharing a project name would share a tag.
-TERMINAL_PERSONA = "operator"
-TERMINAL_PROJECT = f"{PREFIX}-operator"
-PROBE_PERSONA = "probe"
-PROBE_PROJECT = f"{PREFIX}-probe"
+#: This deployment's own two tiers, each a file in ``tiers/``. ``operator`` runs
+#: the REAL framework image; ``probe`` is the header-echoing stub. A tier's image
+#: is tagged by its render project, ``<project_name>-<tier>``.
+TERMINAL_RENDER = "operator"
+TERMINAL_PROJECT, _ = render_project(PROJECT_NAME, TERMINAL_RENDER)
+PROBE_RENDER = "probe"
+PROBE_PROJECT, _ = render_project(PROJECT_NAME, PROBE_RENDER)
 
 #: Role names, as ``authorization.roles`` declares them. ``operator`` binds the
-#: real persona, ``observer`` the probe — so which image a container runs is
+#: real render, ``observer`` the probe — so which image a container runs is
 #: itself an assertion about role resolution.
 ROLE_OPERATOR = "operator"
 ROLE_OBSERVER = "observer"
@@ -302,8 +303,8 @@ PORT_BASE = 23000
 HOST_PORTS = {slot: default_port(slot, base=PORT_BASE) for slot in ("nginx", "auth")}
 
 AUTH_IMAGE_TAG = f"{PROJECT}-auth:local"
-# `<catalog project>:local`, exactly as resolve_personas derives a local-mode
-# persona tag for a catalog entry that names its own project.
+# `<render project>:local`, exactly as resolve_cards derives a local-mode
+# tier's tag.
 TERMINAL_IMAGE_TAG = f"{TERMINAL_PROJECT}:local"
 PROBE_IMAGE_TAG = f"{PROBE_PROJECT}:local"
 
@@ -326,7 +327,7 @@ VERB_TIMEOUT_SEC = 120
 # `init` + `build` render the whole repo (no dependency install, no lifecycle
 # hooks — see the flags below), which is filesystem work rather than network.
 RENDER_TIMEOUT_SEC = 600
-# The sidecar answers /health as soon as its app imports; the real persona's
+# The sidecar answers /health as soon as its app imports; the real render's
 # `osprey web` boot (import the framework, start the app) is slower.
 AUTH_READY_TIMEOUT_SEC = 180.0
 TERMINAL_READY_TIMEOUT_SEC = 300.0
@@ -479,100 +480,8 @@ def _exec(container: str, *argv: str, timeout: int = 30) -> subprocess.Completed
 
 
 # ---------------------------------------------------------------------------
-# The two persona projects
+# The two tiers
 # ---------------------------------------------------------------------------
-
-
-def _render_reference_project(root: Path, osprey_bin: Path) -> Path:
-    """Render a throwaway ``hello-world`` deployment and return its ``build/``.
-
-    The persona ``alice``'s role resolves to must run the REAL ``osprey web``,
-    which needs a real container repo: the production project ``Dockerfile``
-    (the one that installs the framework and launches ``osprey web``) and a
-    rendered ``config.yml`` the app can actually serve. Rather than hand-roll
-    either — a hand-written recipe drifts from the shipped one, and a
-    hand-written config misses keys the app reads — this renders a genuine
-    deployment through the same ``osprey init``/``osprey build`` surface an
-    operator uses, and :func:`_write_terminal_persona_project` reuses that
-    render's own artifacts.
-
-    ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
-    quick: nothing here installs a venv or builds an image, it only writes
-    files.
-
-    Rendered under the persona's OWN catalog project name on purpose: the
-    production project Dockerfile bakes ``COPY . /app/<project>/`` and
-    ``WORKDIR /app/<project>`` from that name, and ``resolve_personas`` derives
-    the per-user ``container_project_dir`` as ``/app/<catalog project>``. Naming
-    the reference render for the catalog project keeps the two equal, so the
-    compose service's mount targets — the per-user AUDIT bind above all — land
-    on the directory the app actually runs in.
-    """
-    root.mkdir(parents=True, exist_ok=True)
-    ref_repo = root / TERMINAL_PROJECT
-    # Telemetry ON in the persona render too, as in the deployment's own
-    # override: the lane deploys the telemetry store and gateway, and a
-    # terminal's telemetry settings come only from its persona's render.
-    init = _run_osprey(
-        osprey_bin,
-        [
-            "init",
-            str(ref_repo),
-            "--preset",
-            PRESET,
-            "--no-git",
-            *set_pairs({"config": {"claude_code.telemetry.enabled": True}}),
-        ],
-        root,
-        timeout=RENDER_TIMEOUT_SEC,
-    )
-    assert init.returncode == 0, _fmt("osprey init (terminal persona reference)", init)
-    build = _run_osprey(
-        osprey_bin,
-        ["build", "--repo", str(ref_repo), "--skip-deps", "--skip-lifecycle"],
-        root,
-        timeout=RENDER_TIMEOUT_SEC,
-    )
-    assert build.returncode == 0, _fmt("osprey build (terminal persona reference)", build)
-    ref_build = ref_repo / "build"
-    assert (ref_build / "config.yml").is_file() and (ref_build / "Dockerfile").is_file(), (
-        f"reference render is incomplete at {ref_build}"
-    )
-    return ref_build
-
-
-def _write_terminal_persona_project(root: Path, ref_build: Path) -> Path:
-    """A local-mode persona project whose container runs the REAL ``osprey web``.
-
-    The persona is spelled the way a start requires — ``config.yml`` +
-    ``Dockerfile`` in the flat render (``_check_existing_render`` reads these,
-    and ``verify_persona_renders`` also parses the flat ``config.yml``), and the
-    same two under the container image context at the ``.image/<name>`` sibling
-    whose ``build/Dockerfile`` the image is actually built from
-    (``_persona_image_context``).
-
-    Both copies come from the throwaway render rather than being written by
-    hand: the image context is the reference render's WHOLE container repo,
-    copied verbatim, whose ``Dockerfile`` is the production project image
-    (``COPY . /app/<name>/``, then ``osprey web`` from that directory). That is
-    what makes alice's terminal a real app — with the real audit writer and the
-    real ``/api/config`` protected-set gate — rather than a stub.
-
-    Under ``osprey up --dev`` the persona build stages the locally-built wheel
-    into this same image context, so the running terminal is this branch's code.
-    """
-    root.mkdir(parents=True, exist_ok=True)
-    reference_context = ref_build / ".image" / TERMINAL_PROJECT
-    assert (reference_context / "profile.yml").is_file(), (
-        f"reference container repo missing profile.yml at {reference_context}"
-    )
-
-    image_context = root.parent / ".image" / root.name
-    shutil.copytree(reference_context, image_context)
-
-    shutil.copy2(ref_build / "config.yml", root / "config.yml")
-    shutil.copy2(ref_build / "Dockerfile", root / "Dockerfile")
-    return root
 
 
 #: The probe upstream: an HTTP server whose whole job is to report the request
@@ -666,36 +575,42 @@ HTTPServer((HOST, PORT), Handler).serve_forever()
 '''
 
 
-#: The setup tool the deny entry has to name for a persona to read as unable to
+#: The setup tool the deny entry has to name for a render to read as unable to
 #: edit its own deployment. Spelled here rather than imported so the stub's
 #: config is a literal an operator could have written; the import-side spelling
 #: is ``profile_conventions.SETUP_PATCH_TOOL``.
 _SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
 
 
-def _probe_config_yml() -> dict[str, Any]:
-    """The probe persona's rendered ``config.yml`` — floors and a project name.
+def _tier_files() -> dict[str, str]:
+    """This lane's two tier files, by name, as they are written into ``tiers/``.
 
-    The two floors are asserted TWICE by the build, at two altitudes, and both
-    read THIS file: the probe's catalog entry names no ``build_profile`` — it
-    is a project supplied ready-made, not one the build renders from a delta —
-    so at the PROFILE altitude ``osprey build`` reads the persona's own render
-    at its ``project_path``, and at the RENDERED altitude the deploy path reads
-    the same file. A persona whose project never mentions the keys reads as
-    holding both surfaces, and the build refuses a shared card or a default
-    persona whose document it cannot read at all. Written in the NESTED
-    spelling because this is a rendered ``config.yml``, not a profile
-    ``config:`` block.
+    ``operator`` states no differences: it renders the deployment's own posture,
+    and its image is the production project image, so alice's terminal is the
+    real app. ``probe`` states the three deployment-editing floors — the Config
+    panel off, the scaffold gallery read-only and the setup tool denied. It is the default tier and the tier
+    of the shared card, and the build refuses either unless its render holds
+    neither surface; the guard is satisfied by the render being harmless, never
+    by the check being skipped.
     """
     return {
-        "project_name": PROBE_PROJECT,
-        "web": {"config_panel": {"enabled": False}},
-        "claude_code": {"permissions": {"deny": [_SETUP_PATCH_TOOL]}},
+        TERMINAL_RENDER: f"name: {PROJECT_NAME} ({TERMINAL_RENDER})\n",
+        PROBE_RENDER: yaml.safe_dump(
+            {
+                "name": f"{PROJECT_NAME} ({PROBE_RENDER})",
+                "config": {
+                    "web.config_panel.enabled": False,
+                    "web.scaffold_gallery.write_enabled": False,
+                    "claude_code.permissions.deny": [_SETUP_PATCH_TOOL],
+                },
+            },
+            sort_keys=False,
+        ),
     }
 
 
-def _write_probe_persona_project(root: Path) -> Path:
-    """A minimal local-mode persona project whose stub REPORTS its request.
+def _probe_dockerfile() -> str:
+    """The probe tier's image recipe: a stub that REPORTS its request.
 
     Beyond what the idling lifecycle stub provides (a ``dispatch`` user and the
     mount-point directories the per-user compose service declares volumes onto),
@@ -704,22 +619,17 @@ def _write_probe_persona_project(root: Path) -> Path:
     app: nginx shares the host network namespace and is the only thing meant to
     reach a per-user port.
 
-    ``config.yml`` and ``Dockerfile`` are the two files a start requires of a
-    persona's rendered project, in BOTH copies a real build produces: the flat
-    host render at the project path, and the container copy at the
-    ``.image/<name>`` sibling whose ``build/Dockerfile`` the image is built
-    from, with the build CONTEXT at that sibling. ``probe.py`` therefore sits
-    beside the Dockerfile and is copied as ``build/probe.py``.
+    It replaces the recipe ``osprey build`` rendered for the tier
+    (:func:`tests.e2e._render_stub.stub_render_image`), with ``probe.py`` beside
+    it in the image context. The tier's rendered ``config.yml`` stays, so a
+    start checks it exactly as it would a real one.
 
     ``curl`` is installed for the per-user service's healthcheck (``curl -fsS
     http://<bind>:<port>/health``); without it the container runs but reports
     unhealthy, which reads in a failure log like a broken deployment.
     """
-    root.mkdir(parents=True, exist_ok=True)
-    config_text = yaml.safe_dump(_probe_config_yml(), sort_keys=False)
-    (root / "config.yml").write_text(config_text, encoding="utf-8")
     container_dir = f"/app/{PROBE_PROJECT}"
-    dockerfile_text = (
+    return (
         "FROM alpine:3.20\n"
         "RUN apk add --no-cache python3 curl \\\n"
         "    && adduser -D dispatch \\\n"
@@ -736,18 +646,6 @@ def _write_probe_persona_project(root: Path) -> Path:
         "COPY build/probe.py /srv/probe.py\n"
         'CMD ["python3", "/srv/probe.py"]\n'
     )
-    (root / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
-
-    # The container copy the image is actually built from: `docker build
-    # -f <context>/build/Dockerfile <context>` with the context at the
-    # `.image/<name>` sibling. The stub's recipe holds no host paths, so the
-    # container copy IS the host copy.
-    image_build = root.parent / ".image" / root.name / "build"
-    image_build.mkdir(parents=True)
-    (image_build / "config.yml").write_text(config_text, encoding="utf-8")
-    (image_build / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
-    (image_build / "probe.py").write_text(_PROBE_SOURCE, encoding="utf-8")
-    return root
 
 
 # ---------------------------------------------------------------------------
@@ -763,8 +661,8 @@ def _roster() -> list[dict[str, Any]]:
     dropped entirely. Declaration order and index agree here, which is what the
     per-user port assignment reads.
 
-    No entry carries a ``persona:`` key. ``effective_persona`` refuses an entry
-    naming both a persona and a role — a role binds the persona, and a pin is
+    No entry carries a ``tier:`` key. ``effective_tier`` refuses an entry
+    naming both a render and a role — a role binds the render, and a pin is
     the pre-authorization mechanism for the same slot — so binding by role is
     not a stylistic choice here, it is the only spelling this roster may use.
     """
@@ -834,9 +732,9 @@ def _profile_edits() -> dict[str, Any]:
                 "enabled": True,
                 "image_source": "local",
                 # The role-less entries land here, which is why the cheap
-                # persona is the default and the expensive one is reached
+                # render is the default and the expensive one is reached
                 # only through a role.
-                "default_persona": PROBE_PERSONA,
+                "default_tier": PROBE_RENDER,
                 "users": _roster(),
                 "auth": {
                     "method": "password",
@@ -847,8 +745,8 @@ def _profile_edits() -> dict[str, Any]:
                 # presents no ID token — the roster is the authority here.
                 "authorization": {
                     "roles": {
-                        ROLE_OPERATOR: {"persona": TERMINAL_PERSONA},
-                        ROLE_OBSERVER: {"persona": PROBE_PERSONA},
+                        ROLE_OPERATOR: {"tier": TERMINAL_RENDER},
+                        ROLE_OBSERVER: {"tier": PROBE_RENDER},
                     }
                 },
             },
@@ -856,40 +754,63 @@ def _profile_edits() -> dict[str, Any]:
     }
 
 
-def _add_persona_catalog(repo: Path, terminal_path: Path, probe_path: Path) -> None:
-    """Point the profile's persona catalog at the two hand-written projects.
+#: The profile key every web-terminal edit of this lane sits under.
+_WEB_TERMINALS = "modules.web_terminals"
 
-    After materialization, deliberately. ``osprey init`` renders one delta per
-    catalog entry and requires each entry to name a preset that EXTENDS the host
-    preset — the shape a rendered persona has. Both personas here are projects
-    supplied from elsewhere instead, so the entries are added to ``profile.yml``
-    once the repo exists and before ``osprey build`` reads it, which is the
-    remedy materialization itself names for a hand-written persona.
 
-    Neither entry names a ``build_profile``: that key means "the build renders
-    this persona from a delta", and the build then derives the render's
-    ``project`` and ``project_path`` itself. A ready-made project states its
-    ``project_path`` instead, and is read from there at both altitudes — which
-    is how the probe, the shared and default persona of this roster, shows the
-    build it holds neither deployment-editing surface (see
-    :func:`_probe_config_yml`). The guard is satisfied by the persona being
-    harmless, never by the check being skipped.
+def _bundled_stand_in(edits: dict[str, Any]) -> dict[str, Any]:
+    """*edits* with every tier they name replaced by :data:`BUNDLED_STAND_IN`.
 
-    Written as the dotted key ``modules.web_terminals.personas``, the same
-    spelling the lane's own edits use: a profile's ``config:`` is a flat bag
-    of dotted paths into the rendered config, and one more path is how a
-    catalog joins the stanza the edits already wrote.
+    ``osprey init`` writes a file only for a tier OSPREY ships and refuses a
+    roster naming any other: a facility's own tier exists as a file in the
+    repo's ``tiers/``, which the repo must exist to hold. So the repo is made
+    with a bundled tier wherever the lane names one, and
+    :func:`_author_tiers` puts the lane's own tiers in their place.
+
+    The shared card's ``access`` waits for the lane's roster too. Under this
+    preset the stand-in renders the deployment's own editing surfaces, which
+    init rightly refuses to share; the probe tier the card really runs holds
+    none of them, and the build judges the card again against it.
+    """
+    stand_in = copy.deepcopy(edits)
+    web_terminals = stand_in["config"]["modules.web_terminals"]
+    web_terminals["default_tier"] = BUNDLED_STAND_IN
+    roles = (web_terminals.get("authorization") or {}).get("roles") or {}
+    for binding in roles.values():
+        binding["tier"] = BUNDLED_STAND_IN
+    for entry in web_terminals["users"]:
+        entry.pop("access", None)
+    return stand_in
+
+
+def _author_tiers(repo: Path, edits: dict[str, Any]) -> None:
+    """Write this lane's own tiers into ``tiers/`` and point the roster at them.
+
+    The way a facility adds a tier: a file in ``tiers/`` (:func:`_tier_files`),
+    and the profile's ``default_tier``, roster and role bindings naming it. The stand-in
+    tier ``osprey init`` wrote is removed, so the repo holds exactly the tiers
+    it deploys.
 
     A YAML round-trip rather than a text splice: the emitted profile is plain
     YAML, and the comments a dump drops are documentation for an operator, not
     input to the build.
     """
+    tiers = repo / TIERS_DIRNAME
+    (tiers / f"{BUNDLED_STAND_IN}.yml").unlink()
+    for name, text in _tier_files().items():
+        (tiers / f"{name}.yml").write_text(text, encoding="utf-8")
+
+    wanted = edits["config"]["modules.web_terminals"]
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals.personas"] = {
-        TERMINAL_PERSONA: {"project": TERMINAL_PROJECT, "project_path": str(terminal_path)},
-        PROBE_PERSONA: {"project": PROBE_PROJECT, "project_path": str(probe_path)},
-    }
+    # The profile spells its config as dotted leaves, so a role binding is the
+    # leaf ``...authorization.roles.<role>.tier``.
+    config = profile["config"]
+    config[f"{_WEB_TERMINALS}.default_tier"] = wanted["default_tier"]
+    config[f"{_WEB_TERMINALS}.users"] = copy.deepcopy(wanted["users"])
+    roles = (wanted.get("authorization") or {}).get("roles") or {}
+    for role, binding in roles.items():
+        config[f"{_WEB_TERMINALS}.authorization.roles.{role}.tier"] = binding["tier"]
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
 
@@ -908,35 +829,32 @@ def _shared_card_credential() -> str:
 
 
 def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = None) -> Path:
-    """``init`` + persona catalog + ``build`` — the repo this lane deploys.
+    """``init`` + this lane's tiers + ``build`` + the probe recipe — the repo this lane deploys.
 
     *edits* replaces :func:`_profile_edits` for a render this lane only reads.
 
     ``--skip-deps``/``--skip-lifecycle`` keep the render off the network and
     quick: nothing here runs the deployment's own venv, only its containers.
     """
-    ref_build = _render_reference_project(tmp_path / "reference", osprey_bin)
-    # Persona project directories are named for their CATALOG PROJECT, not for
-    # their role in this fixture: lint refuses a `project_path` whose basename
-    # differs from the entry's `project`, because the render `osprey build`
-    # writes is found by project and the two must agree. The reference render
-    # gets its own parent directory so it does not collide with the terminal
-    # persona's project directory of the same name.
-    personas_root = tmp_path / "personas"
-    terminal_path = _write_terminal_persona_project(personas_root / TERMINAL_PROJECT, ref_build)
-    probe_path = _write_probe_persona_project(personas_root / PROBE_PROJECT)
-
+    edits = edits or _profile_edits()
     repo = tmp_path / PROJECT_NAME
 
     init = _run_osprey(
         osprey_bin,
-        ["init", str(repo), "--preset", PRESET, "--no-git", *set_pairs(edits or _profile_edits())],
+        [
+            "init",
+            str(repo),
+            "--preset",
+            PRESET,
+            "--no-git",
+            *set_pairs(_bundled_stand_in(edits)),
+        ],
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
     assert init.returncode == 0, _fmt("osprey init (full-chain auth)", init)
 
-    _add_persona_catalog(repo, terminal_path, probe_path)
+    _author_tiers(repo, edits)
 
     build = _run_osprey(
         osprey_bin,
@@ -945,6 +863,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = 
         timeout=RENDER_TIMEOUT_SEC,
     )
     assert build.returncode == 0, _fmt("osprey build (full-chain auth)", build)
+    stub_render_image(repo, PROBE_PROJECT, _probe_dockerfile(), {"probe.py": _PROBE_SOURCE})
 
     # The one knob, read back off the render before anything binds. Every host
     # port this lane reaches is `default_port(slot, base=PORT_BASE)`, and that
@@ -1379,7 +1298,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
 # ---------------------------------------------------------------------------
 
 
-def test_up_builds_the_real_sidecar_and_both_persona_images(deployment: dict[str, Any]) -> None:
+def test_up_builds_the_real_sidecar_and_both_render_images(deployment: dict[str, Any]) -> None:
     """Both framework builds and the probe image landed, and the sidecar is configured.
 
     Every assertion below runs against these three images; this one pins that
@@ -1399,21 +1318,21 @@ def test_up_builds_the_real_sidecar_and_both_persona_images(deployment: dict[str
 
 
 @pytest.mark.usefixtures("deployment")
-def test_alices_container_runs_the_persona_her_role_named() -> None:
+def test_alices_container_runs_the_render_her_role_named() -> None:
     """FR6, end to end: the ROLE decided which image each container runs.
 
-    No roster entry here carries a ``persona:`` key — alice reaches the real
-    framework persona only because ``authorization.roles`` maps her ``operator``
-    role onto it, and the role-less entries fall to ``default_persona``. Break
-    role resolution anywhere between the parser and ``resolve_personas`` and
+    No roster entry here carries a ``tier:`` key — alice reaches the real
+    framework render only because ``authorization.roles`` maps her ``operator``
+    role onto it, and the role-less entries fall to ``default_tier``. Break
+    role resolution anywhere between the parser and ``resolve_cards`` and
     alice's container comes up on the probe image, which this compares by tag.
     """
     assert _container_image(_web_container(REAL_USER)) == TERMINAL_IMAGE_TAG, (
-        f"{REAL_USER}'s role did not resolve to the {TERMINAL_PERSONA!r} persona"
+        f"{REAL_USER}'s role did not resolve to the {TERMINAL_RENDER!r} render"
     )
     for user in (HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER):
         assert _container_image(_web_container(user)) == PROBE_IMAGE_TAG, (
-            f"{user} did not resolve to the {PROBE_PERSONA!r} persona"
+            f"{user} did not resolve to the {PROBE_RENDER!r} render"
         )
 
 

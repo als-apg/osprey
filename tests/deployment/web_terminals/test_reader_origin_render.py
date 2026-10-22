@@ -43,6 +43,7 @@ from osprey.services.auth_sidecar.identity_headers import (
 from osprey.services.auth_sidecar.routes import history as verify_history
 from osprey.services.auth_sidecar.routes.entry import ENTRY_PATH
 from osprey.services.auth_sidecar.routes.logout import LOGOUT_PATH
+from tests._renders import tier_render
 
 _GOLDEN_DIR = Path(__file__).parent / "golden" / "reader_origin"
 _FACILITY_NAME = "Demo Light Source"
@@ -67,8 +68,8 @@ def _config(web: dict[str, Any] | None = None, store: dict[str, Any] | None = No
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice", "bob"],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "dls_controls-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
                 **(web or {}),
             }
         },

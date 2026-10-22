@@ -113,10 +113,15 @@ class OpenedCard:
         name: The roster card, which is also its terminal's mount segment.
         own: Whether the card is the person's own by roster identity, rather
             than one shared with them. Listed first, and untagged.
+        label: The title the chooser shows: the app's ``name:`` for a shared
+            app card (:meth:`AuthSettings.label`), the roster name otherwise.
+            Left empty, it is resolved through the settings when the page
+            renders, so a card is never listed under a blank title.
     """
 
     name: str
     own: bool
+    label: str = ""
 
 
 def password_cards(settings: AuthSettings, person: str) -> tuple[OpenedCard, ...]:
@@ -144,9 +149,9 @@ def password_cards(settings: AuthSettings, person: str) -> tuple[OpenedCard, ...
     opened: list[OpenedCard] = []
     for card in settings.users:
         if ACCESS_ROSTER in settings.access(card):
-            opened.append(OpenedCard(name=card, own=card == person))
+            opened.append(OpenedCard(name=card, own=card == person, label=settings.label(card)))
         elif card == person and settings.owner_admitted(card):
-            opened.append(OpenedCard(name=card, own=True))
+            opened.append(OpenedCard(name=card, own=True, label=settings.label(card)))
     return tuple(sorted(opened, key=lambda card: not card.own))
 
 
@@ -191,7 +196,15 @@ def render(
             "username": username,
             "error": error,
             "enter_path": ENTRY_PATH,
-            "cards": [{"name": card.name, "href": _href(card), "own": card.own} for card in cards],
+            "cards": [
+                {
+                    "name": card.name,
+                    "label": card.label or settings.label(card.name),
+                    "href": _href(card),
+                    "own": card.own,
+                }
+                for card in cards
+            ],
             "theme_blocks": _theme_blocks(settings.web_theme or _DEFAULT_THEME_FAMILY),
             "app_name": settings.web_app_name,
             "next": next_target,

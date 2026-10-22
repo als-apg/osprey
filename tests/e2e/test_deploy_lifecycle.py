@@ -85,10 +85,11 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.qmd_service import QMDServiceConfig
 from osprey.deployment.staleness import BUILD_DIRNAME
-from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS
+from osprey.deployment.web_terminals.roster import normalize_users
 from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
+from tests._renders import tier_render
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -418,7 +419,7 @@ def _seed_repo(
             requires the file to exist, not to hold anything.
         write_users_env: Write an empty ``.env.users`` beside ``.env``.
             The web compose file names it unconditionally, so compose fails to
-            parse without one; the local-mode persona test turns this off
+            parse without one; the local-mode render test turns this off
             because generating that file from ``.env`` is its subject.
     """
     build_dir = dest / BUILD_DIRNAME
@@ -686,7 +687,7 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
 # seed/remove/prune/reset) in isolation. It cannot prove ISOLATION itself
 # — that two independent OSPREY deployments on the same host never
 # cross-contaminate — because it only ever has one compose project running.
-# This is the corrected, persona-agnostic acceptance shape for the phase-3
+# This is the corrected, render-agnostic acceptance shape for the phase-3
 # label-discovery caveat (see lifecycle.py's module docstring's volume- and
 # image-scoping boundaries): it stands up two real compose projects (A, B)
 # from two distinct temp deployment repos and asserts A's prune/remove/reset
@@ -695,10 +696,10 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
 # The image-isolation case is the subtle one: container/volume isolation is
 # enforced by the compose-assigned ``com.docker.compose.project`` label, which
 # two projects can never share. Image *tags*, however, are host-global — two
-# independent deployments that happen to choose the same persona catalog
-# ``project``/persona-name pair (plausible: "assistant"/"default" is an
+# independent deployments that happen to choose the same render catalog
+# ``project``/render-name pair (plausible: "assistant"/"default" is an
 # obvious convention two facilities might both reach for) would produce the
-# identical ``<project>-<persona>:local`` tag string. This test manufactures
+# identical ``<project>-<render>:local`` tag string. This test manufactures
 # exactly that collision — a tag project A's own roster resolves to, but
 # which is (independently) labeled with B's ``com.osprey.project`` value —
 # and asserts reset's label verification skips it rather than trusting the
@@ -744,14 +745,14 @@ PORTS_B = {
     "system_health": 20150,
 }
 
-# Persona catalog "project" values chosen so that A's own roster reference
-# ("mainp") produces a tag distinct from B, while the "borrowed" persona
+# Render catalog "project" values chosen so that A's own roster reference
+# ("mainp") produces a tag distinct from B, while the "borrowed" render
 # models a same-shaped tag that happens to collide with what a (hypothetical)
 # sibling deployment already built and labeled as its own.
-A_PERSONA_PROJECT = "e2e-two-proj-a-persona"
-COLLISION_PERSONA_PROJECT = "e2e-two-proj-collision"
-TAG_A_OWN = f"{A_PERSONA_PROJECT}:local"
-TAG_COLLISION = f"{COLLISION_PERSONA_PROJECT}:local"
+A_RENDER_PROJECT = "e2e-two-proj-a-render"
+COLLISION_RENDER_PROJECT = "e2e-two-proj-collision"
+TAG_A_OWN = f"{A_RENDER_PROJECT}:local"
+TAG_COLLISION = f"{COLLISION_RENDER_PROJECT}:local"
 
 
 def _make_isolation_repo(
@@ -804,7 +805,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         regression would have something of B's to leak into A's output.
       * A's ``users prune --dry-run``: must list only A's own orphan.
       * A's ``users remove``: must never name a B container/project.
-      * A's ``reset``: must remove exactly A's own label-verified persona
+      * A's ``reset``: must remove exactly A's own label-verified render
         image, leave a same-shaped-but-differently-labeled ("collision") tag
         alone, and leave every one of B's containers/volumes running.
     """
@@ -892,7 +893,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
 
         # --------------------------------------------------------------
         # Isolation 3 — A's reset removes exactly A's own label-verified
-        # persona image; a same-shaped tag labeled as belonging to B
+        # render image; a same-shaped tag labeled as belonging to B
         # survives; B's entire stack (containers + volumes) is untouched.
         # --------------------------------------------------------------
         keeper_idx, keeper2_idx = _roster_indices(config_path_a, ("keeper", "keeper2"))
@@ -901,24 +902,24 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             ["modules", "web_terminals", "users"],
             [
                 {"name": "keeper", "index": keeper_idx},
-                {"name": "keeper2", "index": keeper2_idx, "persona": "borrowed"},
+                {"name": "keeper2", "index": keeper2_idx, "tier": "borrowed"},
             ],
         )
         config_writer.config_update_fields(
             config_path_a,
             {
                 "modules.web_terminals.image_source": "local",
-                "modules.web_terminals.default_persona": "mainp",
-                "modules.web_terminals.personas": {
-                    "mainp": {"project": A_PERSONA_PROJECT},
-                    "borrowed": {"project": COLLISION_PERSONA_PROJECT},
+                "modules.web_terminals.default_tier": "mainp",
+                "modules.web_terminals.renders": {
+                    "mainp": tier_render("mainp", A_RENDER_PROJECT),
+                    "borrowed": tier_render("borrowed", COLLISION_RENDER_PROJECT),
                 },
             },
         )
 
         # A trivial local image — content is irrelevant, only the tag and the
         # com.osprey.project label matter to reset's verification.
-        build_ctx = tmp_path / "persona-build-ctx"
+        build_ctx = tmp_path / "render-build-ctx"
         build_ctx.mkdir()
         (build_ctx / "Dockerfile").write_text('FROM alpine:3.20\nCMD ["true"]\n', encoding="utf-8")
 
@@ -931,11 +932,11 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
             str(build_ctx),
             timeout=60,
         )
-        assert build_own.returncode == 0, _fmt("build A's own persona image", build_own)
+        assert build_own.returncode == 0, _fmt("build A's own render image", build_own)
         image_tags_built.append(TAG_A_OWN)
 
-        # Same tag SHAPE (<project>-<persona>:local) that A's own roster
-        # resolves to via the "borrowed" persona, but labeled as belonging to
+        # Same tag SHAPE (<project>-<render>:local) that A's own roster
+        # resolves to via the "borrowed" render, but labeled as belonging to
         # B — simulating an independent deployment that happens to have
         # built/owned this exact tag string.
         build_collision = _runtime_cli(
@@ -956,7 +957,7 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
         assert reset_a.returncode == 0, _fmt("osprey reset (A)", reset_a)
 
         assert _runtime_cli("image", "inspect", TAG_A_OWN, timeout=15).returncode != 0, (
-            "reset did not remove A's own label-verified persona image"
+            "reset did not remove A's own label-verified render image"
         )
         assert _runtime_cli("image", "inspect", TAG_COLLISION, timeout=15).returncode == 0, (
             "reset removed a same-shaped tag labeled as belonging to a different "
@@ -996,35 +997,35 @@ def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
 
 
 # =============================================================================
-# Heterogeneous personas: local-mode build-from-checkout, and registry-mode
-# default-persona-only pull
+# Heterogeneous renders: local-mode build-from-checkout, and registry-mode
+# default-render-only pull
 # =============================================================================
 #
 # The two tests above prove lifecycle mechanics and cross-project isolation for
 # the phase-3 homogeneous (every user = one CI-baked image) shape. This section
 # is the phase-4 acceptance: a facility config whose roster spans more than one
-# persona (its own image + its own project identity), reconciled by `deploy
+# render (its own image + its own project identity), reconciled by `deploy
 # up` under BOTH `image_source` modes.
 #
 # LOCAL MODE (the core case): a temp checkout that ships two fully
-# self-contained persona project directories (each just a Dockerfile +
+# self-contained render project directories (each just a Dockerfile +
 # config.yml — real render output isn't needed, only what
-# resolve_personas()/build_persona_images() actually read) alongside a
+# resolve_cards()/build_render_images() actually read) alongside a
 # facility config referencing them, and ONLY a `.env` file — no
 # `.env.users`, no registry, no CI. `osprey up` must derive
-# `.env.users` from `.env`, build both persona images locally (never
+# `.env.users` from `.env`, build both render images locally (never
 # pulling — a purely local, never-pushed tag would make `compose pull`
 # hard-fail, so a green `osprey up` here is itself proof the pull-guard held),
-# and bring up a heterogeneous roster (two users sharing the default persona,
-# one on a second, non-default persona) with each container's own declared
-# port and each persona's own agent-data mount.
+# and bring up a heterogeneous roster (two users sharing the default tier,
+# one on a second, non-default tier) with each container's own declared
+# port and each render's own agent-data mount.
 #
 # REGISTRY MODE: reuses the existing single-project fixture/registry
 # infrastructure (`repo`, `stub_image`) rather than duplicating it,
-# adding just a persona catalog with a default persona. Both of the fixture's
-# users resolve to that default persona, so `osprey up` must pull the SAME
-# un-suffixed stub tag it always did (introducing a persona catalog must not
-# re-image the default persona) and must never build anything.
+# adding just a render catalog with a default tier. Both of the fixture's
+# users resolve to that default tier, so `osprey up` must pull the SAME
+# un-suffixed stub tag it always did (introducing a render catalog must not
+# re-image the default tier) and must never build anything.
 #
 # Same container-ops safety guardrail as the rest of this file: every removal
 # below names one exact container, one exact volume, one exact image tag, or
@@ -1048,11 +1049,11 @@ HETERO_PORTS = {
     "system_health": 20550,
 }
 
-HETERO_DEFAULT_PERSONA = "assistant"
-HETERO_ALT_PERSONA = "alt"
-# The persona catalog `project` values are names this test picks: each names its
-# persona's image tag and its `/app/<project>` directory, which the persona's
-# Dockerfile creates and resolve_personas() resolves the mounts under.
+HETERO_DEFAULT_TIER = "assistant"
+HETERO_ALT_RENDER = "alt"
+# The render catalog `project` values are names this test picks: each names its
+# render's image tag and its `/app/<project>` directory, which the render's
+# Dockerfile creates and resolve_cards() resolves the mounts under.
 HETERO_DEFAULT_PROJECT = "e2ehet-assistant"
 HETERO_ALT_PROJECT = "e2ehet-alt"
 HETERO_DEFAULT_TAG = f"{HETERO_DEFAULT_PROJECT}:local"
@@ -1077,20 +1078,20 @@ _HETERO_ENV_CONTENT = (
 )
 
 
-def _write_persona_project(root: Path, project_name: str, container_project_dir: str) -> Path:
-    """A minimal local-mode persona project: ``Dockerfile`` + ``config.yml``,
+def _write_render_project(root: Path, project_name: str, container_project_dir: str) -> Path:
+    """A minimal local-mode render project: ``Dockerfile`` + ``config.yml``,
     in both copies a real build produces (the flat render and its
     ``.image/<name>`` sibling).
 
     Mirrors ``Dockerfile.web_terminal_stub``'s shape (a throwaway alpine
     stand-in that stays running and satisfies what seeding.py's container-side
     reconcile needs: a ``dispatch`` user and the two mount-point directories
-    the compose template declares volumes onto) but parametrized per persona,
-    since each persona has its own ``container_project_dir``
-    (:func:`osprey.deployment.web_terminals.personas.resolve_personas`'s contract).
+    the compose template declares volumes onto) but parametrized per render,
+    since each render has its own ``container_project_dir``
+    (:func:`osprey.deployment.web_terminals.roster.resolve_cards`'s contract).
     ``config.yml`` only needs ``project_name`` -- nothing in the local-mode
-    build path (:func:`osprey.deployment.web_terminals.provision.build_persona_images`)
-    reads anything else from a persona project's own config.
+    build path (:func:`osprey.deployment.web_terminals.provision.build_render_images`)
+    reads anything else from a render project's own config.
 
     The agent-data directory is pre-created at ``var/agent_data``, which is what
     ``agent_data.base_dir`` defaults to and therefore where the render mounts
@@ -1116,9 +1117,9 @@ def _write_persona_project(root: Path, project_name: str, container_project_dir:
     )
     (root / "config.yml").write_text(config_text, encoding="utf-8")
     (root / "Dockerfile").write_text(dockerfile_text, encoding="utf-8")
-    # The container copy the persona image is actually built from: `docker build
+    # The container copy the render image is actually built from: `docker build
     # -f <context>/build/Dockerfile <context>` with the context at the
-    # `.image/<name>` sibling (`_persona_image_context`). The stub's recipe
+    # `.image/<name>` sibling (`_render_image_context`). The stub's recipe
     # holds no host paths, so the container copy IS the host copy.
     image_build = root.parent / ".image" / root.name / "build"
     image_build.mkdir(parents=True)
@@ -1127,16 +1128,16 @@ def _write_persona_project(root: Path, project_name: str, container_project_dir:
     return root
 
 
-def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> dict:
+def _hetero_config_dict(default_tier_path: Path, alt_render_path: Path) -> dict:
     """The heterogeneous facility config: local-mode image_source, a 2-entry
-    persona catalog, and a roster where alice/bob inherit the default persona
+    render catalog, and a roster where alice/bob inherit the default tier
     and carol references the non-default one explicitly.
     """
     return {
         "project_name": HETERO_PROJECT_NAME,
         "container_runtime": "docker",
         "facility": {
-            "name": "E2E Heterogeneous Persona Fixture",
+            "name": "E2E Heterogeneous Render Fixture",
         },
         "system": {"timezone": "UTC"},
         "llm": {"api_key_env_var": "ANTHROPIC_API_KEY"},
@@ -1159,16 +1160,18 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": HETERO_DEFAULT_PERSONA,
-                "personas": {
-                    HETERO_DEFAULT_PERSONA: {
-                        "project": HETERO_DEFAULT_PROJECT,
-                        "project_path": str(default_persona_path),
-                    },
-                    HETERO_ALT_PERSONA: {
-                        "project": HETERO_ALT_PROJECT,
-                        "project_path": str(alt_persona_path),
-                    },
+                "default_tier": HETERO_DEFAULT_TIER,
+                "renders": {
+                    HETERO_DEFAULT_TIER: tier_render(
+                        HETERO_DEFAULT_TIER,
+                        HETERO_DEFAULT_PROJECT,
+                        project_path=str(default_tier_path),
+                    ),
+                    HETERO_ALT_RENDER: tier_render(
+                        HETERO_ALT_RENDER,
+                        HETERO_ALT_PROJECT,
+                        project_path=str(alt_render_path),
+                    ),
                 },
                 "nginx_port": HETERO_PORTS["nginx"],
                 "web_base_port": HETERO_PORTS["web"],
@@ -1181,7 +1184,7 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
                 "users": [
                     "alice",
                     "bob",
-                    {"name": "carol", "index": 2, "persona": HETERO_ALT_PERSONA},
+                    {"name": "carol", "index": 2, "tier": HETERO_ALT_RENDER},
                 ],
             },
         },
@@ -1189,25 +1192,23 @@ def _hetero_config_dict(default_persona_path: Path, alt_persona_path: Path) -> d
 
 
 def _make_hetero_repo(tmp_path: Path) -> Path:
-    """Build the throwaway checkout: two persona project dirs + the deployment
+    """Build the throwaway checkout: two render project dirs + the deployment
     repo that references them, with ONLY a ``.env`` (no ``.env.users``) --
     the exact "checkout with only a .env" shape the local-mode acceptance
     scenario needs.
     """
-    default_persona_path = _write_persona_project(
-        tmp_path / "persona-assistant",
+    default_tier_path = _write_render_project(
+        tmp_path / "render-assistant",
         HETERO_DEFAULT_PROJECT,
         f"/app/{HETERO_DEFAULT_PROJECT}",
     )
-    alt_persona_path = _write_persona_project(
-        tmp_path / "persona-alt", HETERO_ALT_PROJECT, f"/app/{HETERO_ALT_PROJECT}"
+    alt_render_path = _write_render_project(
+        tmp_path / "render-alt", HETERO_ALT_PROJECT, f"/app/{HETERO_ALT_PROJECT}"
     )
 
     return _seed_repo(
         tmp_path / "project",
-        yaml.safe_dump(
-            _hetero_config_dict(default_persona_path, alt_persona_path), sort_keys=False
-        ),
+        yaml.safe_dump(_hetero_config_dict(default_tier_path, alt_render_path), sort_keys=False),
         name=HETERO_PROJECT_NAME,
         env_text=_HETERO_ENV_CONTENT,
         write_users_env=False,
@@ -1288,14 +1289,14 @@ def test_deploy_lifecycle_port_tables_bind_every_family_once() -> None:
 
 @pytest.mark.usefixtures("stub_image")
 def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
-    """The phase-4 flagship: a heterogeneous 2-persona LOCAL-MODE deploy from a
+    """The phase-4 flagship: a heterogeneous 2-render LOCAL-MODE deploy from a
     checkout with only a ``.env`` reaches healthy.
 
     Drives a single ``osprey up`` against a deployment repo whose roster spans
-    two personas (alice+bob on the default, carol on a second, non-default
-    persona), then targeted-recreates carol's container to prove her
-    persona's agent-data volume (mounted at HER OWN project dir, not the
-    default persona's) survives.
+    two renders (alice+bob on the default, carol on a second, non-default
+    render), then targeted-recreates carol's container to prove her
+    render's agent-data volume (mounted at HER OWN project dir, not the
+    default tier's) survives.
     """
     osprey_bin = _find_osprey_console_script()
     repo = _make_hetero_repo(tmp_path)
@@ -1312,7 +1313,7 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         assert not users_env_path.exists()
 
         # --------------------------------------------------------------
-        # up: local build of both referenced persona images, .env.users
+        # up: local build of both referenced render images, .env.users
         # generation, and bring-up of a heterogeneous roster. A local-only,
         # never-pushed tag makes `compose pull` hard-fail -- a green return
         # here is itself proof the local-mode pull-guard held (no `pull` ran).
@@ -1340,21 +1341,21 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
 
         # --------------------------------------------------------------
         # Two distinct :local images, each labeled with THIS deployment's
-        # project (not either persona's own project) -- what a later `reset`
-        # verifies before removing a persona image tag.
+        # project (not either render's own project) -- what a later `reset`
+        # verifies before removing a render image tag.
         # --------------------------------------------------------------
         assert _image_exists(HETERO_DEFAULT_TAG), f"{HETERO_DEFAULT_TAG} was not built"
         assert _image_exists(HETERO_ALT_TAG), f"{HETERO_ALT_TAG} was not built"
         assert _image_label(HETERO_DEFAULT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
         assert _image_label(HETERO_ALT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
 
-        # alice & bob share the DEFAULT persona's image; carol runs the alt one.
+        # alice & bob share the DEFAULT render's image; carol runs the alt one.
         assert _container_image(alice_c) == HETERO_DEFAULT_TAG
         assert _container_image(bob_c) == HETERO_DEFAULT_TAG
         assert _container_image(carol_c) == HETERO_ALT_TAG
 
         # --------------------------------------------------------------
-        # Two same-persona users on DISTINCT declared ports.
+        # Two same-render users on DISTINCT declared ports.
         # --------------------------------------------------------------
         assert _container_env_var(alice_c, "OSPREY_TERMINAL_WEB_PORT") == str(
             HETERO_PORTS["web"] + 0
@@ -1365,8 +1366,8 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         )
 
         # --------------------------------------------------------------
-        # carol's (non-default persona) agent-data volume mounts at HER OWN
-        # project dir, not the default persona's /app/<project>-assistant.
+        # carol's (non-default tier) agent-data volume mounts at HER OWN
+        # project dir, not the default tier's /app/<project>-assistant.
         # --------------------------------------------------------------
         carol_agent_volume = f"{HETERO_PROJECT_NAME}_carol-agent-data"
         assert (
@@ -1433,14 +1434,14 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
 
 
 def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image: str) -> None:
-    """Registry mode with a persona catalog: the default persona still pulls
+    """Registry mode with a render catalog: the default tier still pulls
     the unchanged, un-suffixed stub tag, and no local build is ever invoked.
 
     Reuses the single-project fixture's ``repo``/``stub_image``
     infrastructure (its committed ``[alice, bob]`` roster, its registry
     pointed at the throwaway local registry the ``stub_image`` fixture
-    pushed into) rather than duplicating it -- only a persona catalog with a
-    default persona is added on top.
+    pushed into) rather than duplicating it -- only a render catalog with a
+    default tier is added on top.
     """
     osprey_bin = _find_osprey_console_script()
     config_path = repo / BUILD_DIRNAME / "config.yml"
@@ -1449,26 +1450,28 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
         config_path,
         {
             "modules.web_terminals.image_source": "registry",
-            "modules.web_terminals.default_persona": "assistant",
-            "modules.web_terminals.personas": {"assistant": {"project": f"{PROJECT}-assistant"}},
+            "modules.web_terminals.default_tier": "assistant",
+            "modules.web_terminals.renders": {
+                "assistant": tier_render("assistant", f"{PROJECT}-assistant")
+            },
         },
     )
 
-    # The tag a LOCAL build would have produced for this persona (it has its
+    # The tag a LOCAL build would have produced for this render (it has its
     # own catalog `project`, so the tag names the render alone) -- must
     # never exist, since registry mode builds nothing.
     never_built_tag = f"{PROJECT}-assistant:local"
 
     try:
         up = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt("osprey up (registry-mode personas)", up)
+        assert up.returncode == 0, _fmt("osprey up (registry-mode renders)", up)
 
         for user in ("alice", "bob"):
             container = _web_container(user)
             assert _container_id(container) is not None, f"{container} not created"
             image = _container_image(container)
             assert image == stub_image, (
-                f"{user}'s default-persona container did not pull the unsuffixed "
+                f"{user}'s default-render container did not pull the unsuffixed "
                 f"registry tag: got {image!r}, expected {stub_image!r}"
             )
 
@@ -1500,7 +1503,7 @@ def test_deploy_lifecycle_heterogeneous_registry_mode_up(repo: Path, stub_image:
 #   * `group_add: ["<gid>"]` on each entitled service decides which groups the
 #     container's processes are MEMBERS of (render.render_web_terminals).
 #
-# A write-then-read check alone exercises neither: every persona image in this
+# A write-then-read check alone exercises neither: every render image in this
 # module runs the same uid, so the read would succeed by uid coincidence with
 # `group_add` deleted. So the membership half is asserted directly, three times
 # over: in the RENDERED overlay (the gid the deploy read off the provisioned
@@ -1566,17 +1569,17 @@ QMD_IMAGE = os.environ.get("OSPREY_QMD_IMAGE") or "osprey-qmd:local-validate"
 #: root exactly as a facility config spells it.
 BUNDLE_REL = "data/facility/knowledge"
 
-#: The project the fixture catalog's default persona names, and where the
-#: scenario renders that persona's config.yml (relative to the repo root).
-DEFAULT_PERSONA_PROJECT = f"{PROJECT}-assistant"
-DEFAULT_PERSONA_RENDER = f"{BUILD_DIRNAME}/{DEFAULT_PERSONA_PROJECT}"
+#: The project the fixture catalog's default tier names, and where the
+#: scenario renders that render's config.yml (relative to the repo root).
+DEFAULT_TIER_PROJECT = f"{PROJECT}-assistant"
+DEFAULT_RENDER = f"{BUILD_DIRNAME}/{DEFAULT_TIER_PROJECT}"
 
 #: Where that same directory lands inside a web-terminal container. Derived by
 #: render._container_bundle_dir as `<container_project_dir>/<bundle_path>`, and
-#: `container_project_dir` for this fixture's default persona is
+#: `container_project_dir` for this fixture's default tier is
 #: `/app/<its project>` -- the directory Dockerfile.web_terminal_stub already
 #: creates.
-CONTAINER_BUNDLE_DIR = f"/app/{DEFAULT_PERSONA_PROJECT}/{BUNDLE_REL}"
+CONTAINER_BUNDLE_DIR = f"/app/{DEFAULT_TIER_PROJECT}/{BUNDLE_REL}"
 
 #: Where the sidecar mounts it, and the collection it is indexed under. Both
 #: come from the framework's own constants rather than being re-spelled, since
@@ -1833,18 +1836,18 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     )
     _retarget_bundle_group_if_vacuous(bundle_dir, dispatch_primary_gid)
 
-    # The entitlement: both users run the default persona, whose rendered
-    # config.yml names the bundle path (personas.personas_needing_facility_bundle).
-    persona_render = repo / DEFAULT_PERSONA_RENDER
-    persona_render.mkdir(parents=True, exist_ok=True)
-    (persona_render / "config.yml").write_text(
+    # The entitlement: both users run the default tier, whose rendered
+    # config.yml names the bundle path (renders.renders_needing_facility_bundle).
+    render = repo / DEFAULT_RENDER
+    render.mkdir(parents=True, exist_ok=True)
+    (render / "config.yml").write_text(
         yaml.safe_dump({"facility_knowledge": {"bundle_path": BUNDLE_REL}}), encoding="utf-8"
     )
 
     config_writer.config_update_fields(
         config_path,
         {
-            "modules.web_terminals.personas.assistant.project_path": DEFAULT_PERSONA_RENDER,
+            "modules.web_terminals.renders.assistant.project_path": DEFAULT_RENDER,
             # The location: the deploy config names the one shared directory
             # every entitled container binds.
             "facility_knowledge.bundle_path": BUNDLE_REL,
@@ -1910,7 +1913,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
 
         # --------------------------------------------------------------
         # 3 — and the RUNNING container is genuinely in that group. This is
-        # the half a naive write-then-read test cannot reach: every persona
+        # the half a naive write-then-read test cannot reach: every render
         # image in this module runs the same uid, so a read would succeed by
         # coincidence with group_add deleted.
         #
@@ -1940,7 +1943,7 @@ def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
         # fall in that range a root probe would report membership the IMAGE
         # granted and pass with group_add deleted. `dispatch` -- the
         # unprivileged user Dockerfile.web_terminal_stub creates, and the one a
-        # real persona image runs its agent as -- carries only its own primary
+        # real render image runs its agent as -- carries only its own primary
         # group, so a gid that shows up beside it was granted by group_add.
         #
         # That reasoning has one hole, and it is checked rather than assumed:

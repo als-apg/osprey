@@ -33,8 +33,8 @@ no longer running.
 :func:`type_writes_enabled` and :func:`target_writes_enabled` answer "may this
 deployment write" the same way and for the same reason. Write posture is per
 connector type, so a deployment whose real machine is a live one can arm its
-simulator alone; and the lint that reads the config, the persona that tells an
-operator what they hold, and the connector that would perform the write all have
+simulator alone; and the lint that reads the config, the profile card that tells
+an operator what they hold, and the connector that would perform the write all have
 to agree about which types are armed. Two readings of one posture is one of them
 being wrong about a machine somebody can move.
 

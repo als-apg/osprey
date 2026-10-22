@@ -42,7 +42,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import writer
 from osprey.audit.envelope import POSTURE_SOURCE_APP
-from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
     STATE_COOKIE_NAME,

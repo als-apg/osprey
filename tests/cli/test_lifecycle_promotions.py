@@ -51,13 +51,14 @@ from osprey.deployment import compose_generator, container_lifecycle, wheel_buil
 from osprey.deployment.web_terminals import (
     auth_credentials,
     env_production,
-    persona_images,
     postup_hooks,
     provision,
+    render_images,
     seeding,
 )
 from osprey.simulation import apply
 from tests._preset_data import bundle_data_root
+from tests._renders import tier_render
 from tests.cli.conftest import TerminalProbe
 
 
@@ -1688,10 +1689,10 @@ class TestWebTerminalAbsorbedRowsSayNothingOfTheirOwn:
 
         assert_sub_step(printed, "smoke check verify.sh: exit 0")
 
-    def test_the_persona_image_build_is_not_announced(self):
+    def test_the_render_image_build_is_not_announced(self):
         """Row 19: the live build region carries the progress in between."""
-        source = Path(persona_images.__file__).read_text(encoding="utf-8")
-        assert "Building persona image" not in source
+        source = Path(render_images.__file__).read_text(encoding="utf-8")
+        assert "Building render image" not in source
 
     def test_the_auth_sidecar_build_is_not_announced(self, monkeypatch, tmp_path, caplog):
         """Row 20, source-level AND on a real build: the step says it instead."""
@@ -1746,7 +1747,7 @@ class TestWebTerminalCopyStyle:
     _MODULES = (
         auth_credentials,
         env_production,
-        persona_images,
+        render_images,
         postup_hooks,
         provision,
         seeding,
@@ -1889,7 +1890,7 @@ def _write_a_verify_script(project_root: Path) -> None:
 
 
 def _seed_config(users: list[str]) -> dict:
-    """A roster the seed loop can resolve personas for."""
+    """A roster the seed loop can resolve renders for."""
     return {
         "project_name": "demo",
         "facility": {"name": "Demo", "prefix": "dls"},
@@ -1898,8 +1899,8 @@ def _seed_config(users: list[str]) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": users,
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
             }
         },
     }

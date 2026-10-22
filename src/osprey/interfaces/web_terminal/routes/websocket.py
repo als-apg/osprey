@@ -1948,7 +1948,7 @@ class _PostureRequestFacts:
     configured: tuple[str, ...]
     #: The targets this request actually touches (``all`` expands here).
     wanted: tuple[str, ...]
-    #: ``session_posture(section)``: the persona ceiling, per target.
+    #: ``session_posture(section)``: the render ceiling, per target.
     ceilings: dict[str, bool]
     #: The ``writes_enabled`` config key each wanted target's ceiling came from.
     writes_keys: dict[str, str]
@@ -1964,7 +1964,7 @@ class _PostureRequestFacts:
 
 
 def _session_ceilings(section: Any) -> dict[str, bool]:
-    """The persona ceiling per target: ``session_posture(section)``.
+    """The render ceiling per target: ``session_posture(section)``.
 
     The per-target map, never the union. The union is true as soon as ONE
     target is armed, so on a mixed render it would offer a writes toggle on the
@@ -2349,7 +2349,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
 # that answer for the target the deployment is on; its popover shows one row per
 # configured target, and every row carries enough for the operator to act on it
 # — the machine's name, where it points, whether anything is reaching it, the
-# ceiling the persona rendered, the operator's own narrowing, and what a switch
+# ceiling the rendered, the operator's own narrowing, and what a switch
 # would do.
 #
 # Every one of those facts is derived HERE and not in the browser, for the same
@@ -3126,7 +3126,7 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       (``session_posture``); the posture is the operator's own narrowing; the
       effective answer is the whole rule the connector applies, which also folds
       in a read-only run. A popover that showed only the last of them could not
-      say whether a locked toggle is the persona's doing or the operator's.
+      say whether a locked toggle is the render's doing or the operator's.
     * ``narrowing_refusal`` — ``null``, or the reason word narrowing this target
       would earn (``selected_role_missing`` on a deployment whose block
       configures ``write_access`` alone). It is the one lock reason the payload

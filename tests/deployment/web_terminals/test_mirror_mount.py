@@ -2,13 +2,13 @@
 
 One more host directory the per-user containers WRITE, with the same shape as
 the knowledge bundle (``test_bundle_mount.py``) and asserted the same way: a
-persona whose render enables ``qmd_export`` runs that module inside its own
+render whose render enables ``qmd_export`` runs that module inside its own
 container, and the module writes wherever ``mirror_path`` resolves — the
-persona's project root, in-container. Bound to the deployment's one mirror
+render's project root, in-container. Bound to the deployment's one mirror
 (the directory the host exporter fills and the sidecar indexes), the entry
 reaches the search corpus; unbound, it lands in the container's writable layer
 where nothing indexes it and the next recreate discards it. Entitlement is per
-persona, the source is shared, the target is per service.
+render, the source is shared, the target is per service.
 
 The mirror joins the same ``group_add`` story as the bundle, and the two are
 emitted as one list per service. The per-user audit subdirectory is the third
@@ -25,18 +25,20 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._renders import tier_render
 
 from .test_golden_render import EXAMPLE_CONFIG
 
 MIRROR_PATH = "var/ariel_mirror"
 MIRROR_SOURCE = f"./{MIRROR_PATH}"
 
-#: The reference roster's one persona, entitled to the mirror.
+#: The reference roster's one render, entitled to the mirror.
 DEFAULT_ENTITLED = {"assistant"}
 
 
-def _config(*, mirror: bool = True, personas: bool = False, via_settings: bool = True) -> dict:
-    """The reference roster on its default persona, or on two personas, running a
+def _config(*, mirror: bool = True, tiers: bool = False, via_settings: bool = True) -> dict:
+    """The reference roster on its default tier, or on two renders, running a
     qmd export."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     if mirror:
@@ -46,16 +48,16 @@ def _config(*, mirror: bool = True, personas: bool = False, via_settings: bool =
         else:
             export["mirror_path"] = MIRROR_PATH
         config["ariel"] = {"enhancement_modules": {"qmd_export": export}}
-    if personas:
+    if tiers:
         web_terminals = config["modules"]["web_terminals"]
-        web_terminals["default_persona"] = "operator"
-        web_terminals["personas"] = {
-            "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
-            "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
+        web_terminals["default_tier"] = "operator"
+        web_terminals["renders"] = {
+            "operator": tier_render("operator", "dls-operator", project_path="../dls-operator"),
+            "physicist": tier_render("physicist", "dls-physicist", project_path="../dls-physicist"),
         }
         web_terminals["users"] = [
-            {"name": "alice", "index": 0, "persona": "operator"},
-            {"name": "bob", "index": 1, "persona": "physicist"},
+            {"name": "alice", "index": 0, "tier": "operator"},
+            {"name": "bob", "index": 1, "tier": "physicist"},
         ]
     return config
 
@@ -88,36 +90,36 @@ def test_no_qmd_export_mounts_no_mirror():
 def test_mirror_path_on_the_module_block_is_honoured_too():
     """``settings.mirror_path`` wins when present; the bare key is read otherwise —
     the exporter's own merge rule, followed here so the mount lands where it writes."""
-    assert _mirror_mounts(_config(via_settings=False), ariel_mirror_personas=DEFAULT_ENTITLED) == {
+    assert _mirror_mounts(_config(via_settings=False), ariel_mirror_renders=DEFAULT_ENTITLED) == {
         "web-alice": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
         "web-bob": [f"{MIRROR_SOURCE}:/app/dls_controls-assistant/{MIRROR_PATH}"],
     }
 
 
-def test_target_is_computed_per_persona_from_its_own_project_dir():
-    mounts = _mirror_mounts(_config(personas=True), ariel_mirror_personas={"operator", "physicist"})
+def test_target_is_computed_per_render_from_its_own_project_dir():
+    mounts = _mirror_mounts(_config(tiers=True), ariel_mirror_renders={"operator", "physicist"})
     assert mounts == {
         "web-alice": [f"{MIRROR_SOURCE}:/app/dls-operator/{MIRROR_PATH}"],
         "web-bob": [f"{MIRROR_SOURCE}:/app/dls-physicist/{MIRROR_PATH}"],
     }
 
 
-def test_only_entitled_personas_get_the_mirror():
-    mounts = _mirror_mounts(_config(personas=True), ariel_mirror_personas={"operator"})
+def test_only_entitled_renders_get_the_mirror():
+    mounts = _mirror_mounts(_config(tiers=True), ariel_mirror_renders={"operator"})
     assert mounts == {
         "web-alice": [f"{MIRROR_SOURCE}:/app/dls-operator/{MIRROR_PATH}"],
         "web-bob": [],
     }
 
 
-def test_no_entitled_personas_mounts_no_mirror():
-    assert _mirror_mounts(_config(personas=True)) == {"web-alice": [], "web-bob": []}
+def test_no_entitled_renders_mounts_no_mirror():
+    assert _mirror_mounts(_config(tiers=True)) == {"web-alice": [], "web-bob": []}
 
 
 def test_disabled_export_mounts_nothing():
     config = _config()
     config["ariel"]["enhancement_modules"]["qmd_export"]["enabled"] = False
-    assert _mirror_mounts(config, ariel_mirror_personas=DEFAULT_ENTITLED) == {
+    assert _mirror_mounts(config, ariel_mirror_renders=DEFAULT_ENTITLED) == {
         "web-alice": [],
         "web-bob": [],
     }
@@ -126,13 +128,13 @@ def test_disabled_export_mounts_nothing():
 def test_absolute_mirror_path_is_not_re_anchored():
     config = _config()
     config["ariel"]["enhancement_modules"]["qmd_export"]["settings"]["mirror_path"] = "/srv/mirror"
-    volumes = _volumes(config, ariel_mirror_personas=DEFAULT_ENTITLED)["web-alice"]
+    volumes = _volumes(config, ariel_mirror_renders=DEFAULT_ENTITLED)["web-alice"]
     assert "/srv/mirror:/srv/mirror" in volumes
 
 
 def test_mirror_mount_is_read_write():
     """The container's exporter writes here; only the sidecar mounts it ``:ro``."""
-    (mount,) = _mirror_mounts(_config(), ariel_mirror_personas=DEFAULT_ENTITLED)["web-alice"]
+    (mount,) = _mirror_mounts(_config(), ariel_mirror_renders=DEFAULT_ENTITLED)["web-alice"]
     assert not mount.endswith(":ro")
 
 
@@ -155,8 +157,8 @@ def test_each_distinct_gid_is_listed_once():
     config = _config()
     config["facility_knowledge"] = {"bundle_path": "data/facility/knowledge"}
     entitled = {
-        "facility_bundle_personas": DEFAULT_ENTITLED,
-        "ariel_mirror_personas": DEFAULT_ENTITLED,
+        "facility_bundle_renders": DEFAULT_ENTITLED,
+        "ariel_mirror_renders": DEFAULT_ENTITLED,
     }
     groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=20, **entitled)
     assert groups == {"web-alice": ["20"], "web-bob": ["20"]}
@@ -165,9 +167,7 @@ def test_each_distinct_gid_is_listed_once():
 
 
 def test_mirror_gid_reaches_only_entitled_services():
-    groups = _group_add(
-        _config(personas=True), ariel_mirror_personas={"operator"}, ariel_mirror_gid=21
-    )
+    groups = _group_add(_config(tiers=True), ariel_mirror_renders={"operator"}, ariel_mirror_gid=21)
     assert groups == {"web-alice": ["21"], "web-bob": []}
 
 
@@ -184,9 +184,9 @@ def test_mirror_dir_is_named_for_entitled_services_only():
     ``OSPREY_ARIEL_MIRROR_DIR``. Gated on the MOUNT, not on the gid: a platform
     that reads no gid back still binds the directory, and the entrypoint stats
     the group off what it can see."""
-    config = _config(personas=True)
-    mounts = _mirror_mounts(config, ariel_mirror_personas={"operator"})
-    named = _mirror_dir_env(config, ariel_mirror_personas={"operator"})
+    config = _config(tiers=True)
+    mounts = _mirror_mounts(config, ariel_mirror_renders={"operator"})
+    named = _mirror_dir_env(config, ariel_mirror_renders={"operator"})
     assert named == {"web-alice": mounts["web-alice"][0].split(":")[1], "web-bob": None}
 
 
@@ -237,13 +237,13 @@ def test_mirror_dir_is_named_for_entitled_services_only():
     ],
 )
 def test_config_needs_ariel_mirror(config, expected):
-    from osprey.deployment.web_terminals.personas import config_needs_ariel_mirror
+    from osprey.deployment.web_terminals.roster import config_needs_ariel_mirror
 
     assert config_needs_ariel_mirror(config) is expected
 
 
-def test_personas_needing_ariel_mirror_reads_each_personas_config(tmp_path):
-    from osprey.deployment.web_terminals.personas import personas_needing_ariel_mirror
+def test_renders_needing_ariel_mirror_reads_each_renders_config(tmp_path):
+    from osprey.deployment.web_terminals.roster import renders_needing_ariel_mirror
 
     (tmp_path / "dls-operator").mkdir()
     (tmp_path / "dls-operator" / "config.yml").write_text(
@@ -257,12 +257,12 @@ def test_personas_needing_ariel_mirror_reads_each_personas_config(tmp_path):
     )
     (tmp_path / "dls-physicist").mkdir()
     (tmp_path / "dls-physicist" / "config.yml").write_text(yaml.safe_dump({"facility": {}}))
-    config = _config(personas=True)
-    catalog = config["modules"]["web_terminals"]["personas"]
+    config = _config(tiers=True)
+    catalog = config["modules"]["web_terminals"]["renders"]
     catalog["operator"]["project_path"] = "dls-operator"
     catalog["physicist"]["project_path"] = "dls-physicist"
 
-    assert personas_needing_ariel_mirror(config, tmp_path) == {"operator"}
+    assert renders_needing_ariel_mirror(config, tmp_path) == {"operator"}
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +284,7 @@ def test_mirror_reader_is_shared_with_the_sidecar_corpus_list(tmp_path):
     corpora = {c["collection"]: c for c in _resolve_qmd_corpora(config, str(tmp_path))}
     assert corpora["ariel"]["source"] == MIRROR_SOURCE
     assert resolve_ariel_mirror_dir(config, tmp_path) == tmp_path / MIRROR_PATH
-    (mount,) = _mirror_mounts(config, ariel_mirror_personas=DEFAULT_ENTITLED)["web-alice"]
+    (mount,) = _mirror_mounts(config, ariel_mirror_renders=DEFAULT_ENTITLED)["web-alice"]
     assert mount.split(":")[0] == corpora["ariel"]["source"]
 
 
@@ -293,31 +293,32 @@ def test_mirror_reader_is_shared_with_the_sidecar_corpus_list(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _mirror_lintable(tmp_path, persona_mirror: str | None, deploy_mirror: str | None) -> dict:
-    """A local-mode roster with one rendered persona, linted from *tmp_path*."""
+def _mirror_lintable(tmp_path, render_mirror: str | None, deploy_mirror: str | None) -> dict:
+    """A local-mode roster with one rendered render, linted from *tmp_path*."""
     project = tmp_path / "dls-operator"
     project.mkdir(exist_ok=True)
     (project / "Dockerfile").write_text("FROM scratch")
-    persona_config: dict = {"project_name": "dls-operator"}
-    if persona_mirror is not None:
-        persona_config["ariel"] = {
-            "enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": persona_mirror}}
+    render_config: dict = {"project_name": "dls-operator"}
+    if render_mirror is not None:
+        render_config["ariel"] = {
+            "enhancement_modules": {"qmd_export": {"enabled": True, "mirror_path": render_mirror}}
         }
-    (project / "config.yml").write_text(yaml.safe_dump(persona_config))
+    (project / "config.yml").write_text(yaml.safe_dump(render_config))
 
-    config = _config(mirror=deploy_mirror is not None, personas=True, via_settings=False)
+    config = _config(mirror=deploy_mirror is not None, tiers=True, via_settings=False)
     if deploy_mirror is not None:
         config["ariel"]["enhancement_modules"]["qmd_export"]["mirror_path"] = deploy_mirror
     web_terminals = config["modules"]["web_terminals"]
     web_terminals["image_source"] = "local"
-    web_terminals["personas"] = {
-        "operator": {
-            "project": "dls-operator",
-            "project_path": "dls-operator",
-            "build_profile": "personas/operator.yml",
-        }
+    web_terminals["renders"] = {
+        "operator": tier_render(
+            "operator",
+            "dls-operator",
+            project_path="dls-operator",
+            build_profile=f"{TIERS_DIRNAME}/operator.yml",
+        )
     }
-    web_terminals["users"] = [{"name": "alice", "index": 0, "persona": "operator"}]
+    web_terminals["users"] = [{"name": "alice", "index": 0, "tier": "operator"}]
     return config
 
 
@@ -327,19 +328,17 @@ def _mirror_findings(config: dict) -> list:
     return [
         f
         for f in lint_web_terminals(config)
-        if f.code == "web_terminals.persona_mirror_path_divergence"
+        if f.code == "web_terminals.render_mirror_path_divergence"
     ]
 
 
-def test_lint_flags_a_persona_exporting_where_the_deployment_writes_no_mirror(
-    tmp_path, monkeypatch
-):
-    """The persona is entitled (its config runs a qmd export) but the
+def test_lint_flags_a_render_exporting_where_the_deployment_writes_no_mirror(tmp_path, monkeypatch):
+    """The render is entitled (its config runs a qmd export) but the
     deployment writes no mirror, so the overlay has no source to bind: the
-    persona's exporter would write into its writable layer, unindexed and
+    render's exporter would write into its writable layer, unindexed and
     lost at the next recreate, with every layer reporting success."""
     monkeypatch.chdir(tmp_path)
-    config = _mirror_lintable(tmp_path, persona_mirror=MIRROR_PATH, deploy_mirror=None)
+    config = _mirror_lintable(tmp_path, render_mirror=MIRROR_PATH, deploy_mirror=None)
 
     (finding,) = _mirror_findings(config)
 
@@ -347,9 +346,9 @@ def test_lint_flags_a_persona_exporting_where_the_deployment_writes_no_mirror(
     assert "runs none" in finding.message
 
 
-def test_lint_flags_a_persona_that_relocated_its_mirror(tmp_path, monkeypatch):
+def test_lint_flags_a_render_that_relocated_its_mirror(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    config = _mirror_lintable(tmp_path, persona_mirror="var/elsewhere", deploy_mirror=MIRROR_PATH)
+    config = _mirror_lintable(tmp_path, render_mirror="var/elsewhere", deploy_mirror=MIRROR_PATH)
 
     (finding,) = _mirror_findings(config)
 
@@ -357,7 +356,7 @@ def test_lint_flags_a_persona_that_relocated_its_mirror(tmp_path, monkeypatch):
     assert "var/elsewhere" in finding.message and MIRROR_PATH in finding.message
 
 
-def test_lint_is_quiet_when_persona_and_deployment_agree_on_the_mirror(tmp_path, monkeypatch):
+def test_lint_is_quiet_when_render_and_deployment_agree_on_the_mirror(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert _mirror_findings(_mirror_lintable(tmp_path, MIRROR_PATH, MIRROR_PATH)) == []
     assert _mirror_findings(_mirror_lintable(tmp_path, None, MIRROR_PATH)) == []

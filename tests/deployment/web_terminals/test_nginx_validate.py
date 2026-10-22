@@ -54,6 +54,7 @@ from osprey.deployment.web_terminals.render import (
 )
 from osprey.port_layout import default_port
 from tests._container_support import docker_cli_unavailable_reason_once
+from tests._renders import tier_render
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -107,8 +108,8 @@ def _config(tls: dict | None = None, auth: dict | None = None, users: list | Non
     web_terminals: dict = {
         "enabled": True,
         "users": ["alice", "bob"] if users is None else users,
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": "demo-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", "demo-assistant")},
     }
     if tls is not None:
         web_terminals["tls"] = tls

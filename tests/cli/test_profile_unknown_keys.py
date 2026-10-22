@@ -137,6 +137,19 @@ def test_every_bundled_preset_passes_the_stricter_schema() -> None:
         resolve_build_profile(None, name)
 
 
+@pytest.mark.parametrize(("dirname", "kind"), [("tiers", "tier"), ("apps", "app")])
+def test_every_bundled_tier_and_app_passes_its_kind_schema(dirname: str, kind: str) -> None:
+    """A bundled tier or app spells only keys legal in its kind."""
+    from osprey.cli.build_profile_load import reject_unknown_kind_keys
+    from osprey.cli.profile_root import ProfileKind
+
+    files = sorted((build_profile_presets._presets_dir() / dirname).glob("*.yml"))
+    assert files
+    for path in files:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        reject_unknown_kind_keys(document, ProfileKind(kind), f"{dirname}/{path.name}")
+
+
 # ---------------------------------------------------------------------------
 # `app_template:` left the profile schema
 # ---------------------------------------------------------------------------
@@ -159,7 +172,7 @@ def test_app_template_refusal_names_expand(tmp_path: Path) -> None:
 
     message = str(excinfo.value)
     assert "app_template is no longer a profile key" in message
-    assert "osprey profile expand" in message
+    assert "osprey init --revalidate" in message
     # Not the generic "did you mean" / key-list wording: that one tells the
     # operator to delete the key, which loses the config it stood for.
     assert "valid keys are:" not in message
@@ -205,7 +218,18 @@ def test_schema_min_osprey_is_pinned() -> None:
     Stamping the running ``__version__`` instead would let the emitting release
     satisfy its own gate while ignoring the keys it just wrote.
     """
-    assert _PROFILE_SCHEMA_MIN_OSPREY == "2026.9.0"
+    assert _PROFILE_SCHEMA_MIN_OSPREY == "2026.10.0"
+
+
+def test_schema_floor_is_above_the_last_pre_vocabulary_release() -> None:
+    """A release that predates tiers/apps must refuse a repo spelled that way.
+
+    Such a release checks ``max(its lineage, its own floor)`` — at most the
+    previous floor ``2026.9.0`` — against the stamped ``>=`` this floor, so
+    the bump only bites while it stays strictly above that value.
+    """
+    assert Version(_PROFILE_SCHEMA_MIN_OSPREY) > Version("2026.9.0")
+    assert Version("2026.9.0") not in SpecifierSet(f">={_PROFILE_SCHEMA_MIN_OSPREY}")
 
 
 def test_running_osprey_satisfies_the_schema_floor() -> None:
@@ -243,3 +267,17 @@ def test_schema_floor_covers_the_keys_it_gates() -> None:
     the floor would read only in part, and ``data:`` names the tree it copies.
     """
     assert {"config", "data"} <= _KNOWN_PROFILE_KEYS
+
+
+def test_schema_floor_covers_the_layer_kinds_it_gates() -> None:
+    """The bump to the floor exists for the tiers/apps vocabulary.
+
+    A tier file and an app file each have their own closed key set; a release
+    older than the floor knows neither kind and would read the roster only in
+    part.
+    """
+    from osprey.cli.build_profile_load import known_profile_keys
+    from osprey.cli.profile_root import ProfileKind
+
+    assert {"image", "seed_base", "extra_mounts"} <= known_profile_keys(ProfileKind.TIER)
+    assert {"name", "image"} <= known_profile_keys(ProfileKind.APP)

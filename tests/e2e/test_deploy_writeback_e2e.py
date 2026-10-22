@@ -42,11 +42,11 @@ So this file drives the real CLI against a real container runtime:
   running volumes were initialized with remains recoverable, and neither value
   is ever printed.
 
-* **persona stack**
-  (:func:`test_personas_are_rendered_by_the_build_from_this_repos_own_deltas`)
-  — the same repo layout seen from the persona side. ``osprey build`` renders
-  each persona project from a delta in this repo's own ``personas/``, into
-  ``build/`` where the rest of the render lives, so a persona is as disposable
+* **render stack**
+  (:func:`test_renders_are_rendered_by_the_build_from_this_repos_own_deltas`)
+  — the same repo layout seen from the render side. ``osprey build`` renders
+  each render project from a delta in this repo's own tiers/, into
+  ``build/`` where the rest of the render lives, so a render is as disposable
   as everything else a build produces and a start has one to verify. This case
   needs no container: the render is the subject.
 
@@ -69,7 +69,7 @@ from a ``finally`` so a failed assertion mid-sequence still cleans up.
 
 Only a public upstream image is pulled (``pgvector/pgvector:pg16``) — no
 image is built here, which is
-what keeps a full run to minutes rather than the tens of minutes a persona or
+what keeps a full run to minutes rather than the tens of minutes a render or
 project image would cost.
 
 Gating: needs a container runtime (daemon actually running, not just the CLI
@@ -95,6 +95,7 @@ import yaml
 
 from osprey.deployment.reset import MINTED_ENV_BANNERS
 from osprey_connectors.dotenv import parse_dotenv_text
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
@@ -124,15 +125,15 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
 # ---------------------------------------------------------------------------
 PROJECT_REBUILD = "osprey-e2e-wb-rebuild"
 PROJECT_DIVERGENT = "osprey-e2e-wb-divergent"
-PROJECT_PERSONA = "osprey-e2e-wb-persona"
+PROJECT_RENDER = "osprey-e2e-wb-render"
 
 PORTS_REBUILD = {"postgres": 21432}
 PORTS_DIVERGENT = {"postgres": 21433}
-PORTS_PERSONA = {"postgres": 21435}
-# Per-user web-terminal port families for the persona case. Never bound: the
-# persona deploy is driven only as far as its preflight (see that test), so
+PORTS_RENDER = {"postgres": 21435}
+# Per-user web-terminal port families for the render case. Never bound: the
+# render deploy is driven only as far as its preflight (see that test), so
 # these exist to keep the host-port preflight itself conflict-free.
-PORTS_PERSONA_WEB = {
+PORTS_RENDER_WEB = {
     "nginx": 21600,
     "web": 21610,
     "artifact": 21620,
@@ -345,11 +346,16 @@ def _env_of(path: Path) -> dict[str, str]:
     return parse_dotenv_text(path.read_text(encoding="utf-8"))
 
 
-def _persona_catalog(repo: Path) -> dict[str, dict]:
-    """``modules.web_terminals.personas`` as rendered into ``build/config.yml``."""
+def _render_catalog(repo: Path) -> dict[str, dict]:
+    """The tier entries of ``modules.web_terminals.renders`` in ``build/config.yml``."""
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    return web_terminals.get("personas") or {}
+    renders = web_terminals.get("renders") or {}
+    return {
+        name: entry
+        for name, entry in renders.items()
+        if isinstance(entry, dict) and entry.get("kind") == "tier"
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -714,38 +720,37 @@ def test_divergent_shell_export_never_overwrites_the_pinned_secret(tmp_path: Pat
 
 
 # =============================================================================
-# (c) Persona stack
+# (c) Render stack
 # =============================================================================
 
 
-def test_personas_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path: Path) -> None:
-    """Personas are rendered by the BUILD, from the repo's own ``personas/``.
+def test_renders_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path: Path) -> None:
+    """Renders are rendered by the BUILD, from the repo's own tiers/.
 
-    ``control-assistant`` is the shipped two-persona stack. ``osprey init``
-    writes a delta per persona into ``<repo>/personas/`` and rewrites the
-    catalog's ``build_profile`` to point at those files; ``osprey build`` then
-    renders each persona project into ``build/`` beside the deployment's own
-    render. That anchoring is the whole feature: a delta merges over the profile
-    the deployment was built from, which is what gives every persona the host's
+    ``control-assistant`` ships a multi-tier stack. ``osprey init`` writes a
+    file per tier into ``<repo>/tiers/``; ``osprey build`` then renders each
+    into ``build/`` beside the deployment's own render and projects it into
+    the rendered config as a catalog entry named for the file. That anchoring is the whole feature: a delta merges over the profile
+    the deployment was built from, which is what gives every render the host's
     data tree and its convention artifacts.
 
     Rendering at build time is what makes ``build/`` a complete account of what
     a start will run — a start renders nothing and refuses when a referenced
-    persona has no project — so this drives ``init`` and ``build`` only. No
-    container is created and no persona IMAGE is built: those take tens of
+    render has no project — so this drives ``init`` and ``build`` only. No
+    container is created and no render IMAGE is built: those take tens of
     minutes and prove nothing about profile resolution.
 
-    A persona's ``.env`` is deliberately NOT asserted against the deployment's
-    minted secrets. Minting happens at ``up``, after the render, so a persona's
+    A render's ``.env`` is deliberately NOT asserted against the deployment's
+    minted secrets. Minting happens at ``up``, after the render, so a render's
     copy could only ever hold what existed when the build ran; the secrets that
-    reach a persona container come from the repo ``.env`` the deploy mounts,
+    reach a render container come from the repo ``.env`` the deploy mounts,
     which the rebuild case above is the proof of.
     """
-    project_name = PROJECT_PERSONA
-    web = PORTS_PERSONA_WEB
+    project_name = PROJECT_RENDER
+    web = PORTS_RENDER_WEB
     edits = {
         "config": {
-            "services.postgresql.port_host": PORTS_PERSONA["postgres"],
+            "services.postgresql.port_host": PORTS_RENDER["postgres"],
             "modules.web_terminals.nginx_port": web["nginx"],
             "modules.web_terminals.web_base_port": web["web"],
             "modules.web_terminals.artifact_base_port": web["artifact"],
@@ -756,51 +761,48 @@ def test_personas_are_rendered_by_the_build_from_this_repos_own_deltas(tmp_path:
     }
 
     try:
-        # The repo root IS the profile root: profile.yml, personas/ and the
+        # The repo root IS the profile root: profile.yml, tiers/ and the
         # deltas the catalog points at all live here.
         repo = _init_and_build(tmp_path, project_name, "control-assistant", edits)
 
-        catalog = _persona_catalog(repo)
-        assert catalog, "the control-assistant build produced no persona catalog"
+        catalog = _render_catalog(repo)
+        assert catalog, "the control-assistant build produced no render catalog"
 
-        for persona, entry in catalog.items():
-            delta = repo / "personas" / f"{persona}.yml"
-            assert entry.get("build_profile") == f"personas/{persona}.yml", (
-                f"persona {persona!r} does not point at a delta in this repo: "
-                f"{entry.get('build_profile')!r}"
+        for render, entry in catalog.items():
+            delta = repo / TIERS_DIRNAME / f"{render}.yml"
+            assert delta.is_file(), (
+                f"render {render!r} has no file in this repo's {TIERS_DIRNAME}/: "
+                f"osprey init did not write {delta}"
             )
-            assert delta.is_file(), f"osprey init did not write {delta}"
 
             # The catalog's project_path is repo-relative and lands inside the
-            # render, which is what makes a persona disposable with the rest of
+            # render, which is what makes a render disposable with the rest of
             # build/ and what a start verifies before it builds any image.
-            persona_dir = (repo / entry["project_path"]).resolve()
-            assert persona_dir.is_relative_to(repo / "build"), (
-                f"persona {persona!r} was rendered at {persona_dir}, outside build/ — "
-                "a persona project is build output and must not outlive a rebuild"
+            layer_dir = (repo / entry["project_path"]).resolve()
+            assert layer_dir.is_relative_to(repo / "build"), (
+                f"render {render!r} was rendered at {layer_dir}, outside build/ — "
+                "a render project is build output and must not outlive a rebuild"
             )
-            assert (persona_dir / "config.yml").is_file(), (
-                f"persona {persona!r} was not rendered at {persona_dir}"
+            assert (layer_dir / "config.yml").is_file(), (
+                f"render {render!r} was not rendered at {layer_dir}"
             )
-            assert (persona_dir / "Dockerfile").is_file(), (
-                f"persona {persona!r} render has no Dockerfile, so a start would "
-                f"refuse it as partial: {persona_dir}"
+            assert (layer_dir / "Dockerfile").is_file(), (
+                f"render {render!r} render has no Dockerfile, so a start would "
+                f"refuse it as partial: {layer_dir}"
             )
 
-            manifest = json.loads(
-                (persona_dir / ".osprey-manifest.json").read_text(encoding="utf-8")
-            )
+            manifest = json.loads((layer_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
             rendered_from = Path(manifest["build_args"]["profile_path_abs"]).resolve()
             assert rendered_from == delta.resolve(), (
-                f"persona {persona!r} was rendered from {rendered_from}, not from the "
+                f"render {render!r} was rendered from {rendered_from}, not from the "
                 "delta in this deployment's own repo — it would carry a different "
                 "facility's data, conventions and secrets"
             )
 
-            # No persona materializes a source zone of its own: there is exactly
+            # No render materializes a source zone of its own: there is exactly
             # one profile in a deployment repo, and it is the one at the root.
-            assert not (persona_dir / "profile.yml").exists(), (
-                f"persona {persona!r} materialized its own profile at {persona_dir}"
+            assert not (layer_dir / "profile.yml").exists(), (
+                f"render {render!r} materialized its own profile at {layer_dir}"
             )
 
     finally:

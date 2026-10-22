@@ -10,14 +10,16 @@ every path any spelling addresses stays present in the tree.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import _parse_profile
-from osprey.cli.build_profile_merge import _resolve_extends
-from osprey.cli.build_profile_presets import _load_preset_raw
+from osprey.cli.build_profile_merge import resolve_profile_document
+from osprey.cli.build_profile_presets import _load_preset_raw, list_apps, list_tiers
 from osprey.facility.errors import FacilityBuildError
 from osprey.utils.config_writer import config_read, config_update_fields
 
@@ -90,19 +92,27 @@ def test_a_start_set_stated_twice_is_checked_as_the_render_keeps_it() -> None:
 
 
 @pytest.mark.parametrize(
-    "preset",
-    [
-        "control-assistant-admin",
-        "control-assistant-knowledge",
-        "control-assistant-logbook",
-        "control-assistant-readonly",
-        "control-assistant-readwrite",
-    ],
+    "layer",
+    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
 )
-def test_a_child_preset_that_turns_the_web_terminals_off_reads_off(preset: str) -> None:
-    raw, path = _load_preset_raw(preset)
-    config = _resolve_extends(dict(raw), path)["config"]
-    assert _expand_dotted(config)["modules"]["web_terminals"]["enabled"] is False
+def test_a_child_preset_that_turns_the_web_terminals_off_reads_off(
+    layer: str, tmp_path: Path
+) -> None:
+    """Every tier and app render is attached: its web-terminal module reads off
+    although the host spells ``modules.web_terminals`` as a dotted prefix
+    holding a mapping with ``enabled: true``."""
+    host, _host_path = _load_preset_raw("control-assistant")
+    assert _expand_dotted(host["config"])["modules"]["web_terminals"]["enabled"] is True
+    (tmp_path / "profile.yml").write_text(yaml.safe_dump(host), encoding="utf-8")
+    raw, _path = _load_preset_raw(layer)
+    layer_path = tmp_path / f"{layer}.yml"
+    layer_path.parent.mkdir()
+    layer_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+    document = resolve_profile_document(dict(raw), layer_path, warn=False)
+
+    assert document.is_layer
+    assert _expand_dotted(document.raw["config"])["modules"]["web_terminals"]["enabled"] is False
 
 
 def test_a_path_one_spelling_states_stays_addressed_when_a_later_mapping_omits_it() -> None:

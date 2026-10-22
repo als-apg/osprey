@@ -5,7 +5,7 @@
  *
  * The pointer is the one slot both views read to decide which session they
  * are on, so the contract under test is small and load-bearing: the key is
- * resolved per persona, a write of an unchanged value is not a change, and
+ * resolved per user, a write of an unchanged value is not a change, and
  * subscribers hear every value the tab settles on — including the null of a
  * clear, which is how the chat learns the session is gone.
  *
@@ -61,10 +61,10 @@ describe('reading and writing', () => {
   });
 });
 
-describe('per-persona scope', () => {
+describe('per-user scope', () => {
   // On a multi-user mount every `/u/<user>/` shares one origin, so the bare
-  // key is a slot any persona may have written. A session key replayed across
-  // personas would attach one persona's surface to another's process.
+  // key is a slot any user may have written. A session key replayed across
+  // users would attach one user's surface to another's process.
 
   test("bob's write goes to bob's key and leaves the shared slot alone", () => {
     localStorage.setItem(STORAGE_KEY, 'someone-elses-session');
@@ -76,7 +76,7 @@ describe('per-persona scope', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBe('someone-elses-session');
   });
 
-  test("a bare key left by another persona is not bob's pointer", () => {
+  test("a bare key left by another user is not bob's pointer", () => {
     localStorage.setItem(STORAGE_KEY, 'someone-elses-session');
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
 

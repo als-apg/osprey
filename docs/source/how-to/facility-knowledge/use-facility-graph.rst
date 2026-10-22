@@ -177,14 +177,13 @@ file reaches the graph with:
    $ osprey build && osprey up
 
 
-What the Presets Seed
+What the Preset Seeds
 =====================
 
-Both presets seed the graph view ``osprey build`` writes from their facility
-file, ``data/graph/facility.ttl`` under the render. No hand-written corpus
-ships. The ARIEL standalone preset's facility file describes the same machine
-as the control-assistant preset's, so every OSPREY demo describes one
-facility. Point ``ttl_path`` at a corpus of your own to seed that instead.
+The control-assistant preset seeds the graph view ``osprey build`` writes from
+its facility file, ``data/graph/facility.ttl`` under the render. No
+hand-written corpus ships. Point ``ttl_path`` at a corpus of your own to seed
+that instead.
 
 .. note::
 
@@ -225,7 +224,7 @@ in that block are doing. A dropped list member needs its own marker: one
 comment does not cover the key beside it.
 
 Which differences are refused and which are only reported is set out under
-:ref:`Preset drift, and osprey profile expand <profile-preset-drift>` in the
+:ref:`Preset drift <profile-preset-drift>` in the
 profile reference.
 
 If the corpus lives in a database other than ``neo4j`` on that store, name it
@@ -368,7 +367,7 @@ together:
 A channel finder already running on the host keeps the index it opened, so
 restart it to pick up a rebuilt one. A deployed stack needs nothing: its build
 writes the index into the image it starts from — one per render, so each
-per-user persona image carries an index derived from the corpus that render
+per-user tier image carries an index derived from the corpus that render
 stages, not a copy borrowed from the deployment's.
 
 ``osprey health`` reports both halves under the channel finder category:
@@ -386,7 +385,7 @@ Multi-User Operator Terminals
 =============================
 
 The ``control-assistant-readonly``, ``control-assistant-readwrite`` and
-``control-assistant-admin`` personas (:doc:`../web-terminal/multi-user/index`)
+``control-assistant-admin`` tier renders (:doc:`../web-terminal/multi-user/index`)
 get the same facility-knowledge-graph agent and its tools, reading the hosting
 deployment's store, and — the preset runs ``channel_finder_mode: graph`` — a
 channel finder that answers from it too. They are attached renders — they
@@ -394,33 +393,33 @@ deploy no services of their own — so they have to be told which port that
 store is published on. Per-user web terminal containers run with
 ``network_mode: host``, so a container's ``localhost`` *is* the deployment
 host, and the build copies the bolt port from the hosting deployment's own
-render into each persona. The corpus is the one thing about the store a
-persona is *not* told: ``services.graphdb.ttl_path`` names the graph view
-every render writes for itself, so each persona keeps the key as its own and
-the build derives that persona's search index from it.
+render into each tier and app. The corpus is the one thing about the store a
+render is *not* told: ``services.graphdb.ttl_path`` names the graph view
+every render writes for itself, so each render keeps the key as its own and
+the build derives that render's search index from it.
 
 Two consequences worth knowing before you move anything:
 
-* **Move the port on the hosting deployment and every persona follows.** A
-  persona built beside its deployment is told the store's bolt port from the
+* **Move the port on the hosting deployment and every render follows.** A
+  tier or app built beside its deployment is told the store's bolt port from the
   deployment's own render — the same way it is told the qmd sidecar's port,
   the Postgres the logbook lives in and the rest (:doc:`/how-to/build-profiles`) — so
-  nothing in a persona preset restates it, and a persona that restates it
+  nothing in a tier or app file restates it, and one that restates it
   with a different number is refused at build time.
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
-  publishes the store there and not on ``localhost``, so the personas would no
+  publishes the store there and not on ``localhost``, so the renders would no
   longer reach it. URL-backed panels have the same shape — they name
   ``http://127.0.0.1:<port>`` outright (:doc:`../web-terminal/panels`) — so a
   deployment that moves off loopback has to revisit both.
 
-The read-only persona receives ``GRAPHDB_PASSWORD`` as well. The store has a
+The read-only tier receives ``GRAPHDB_PASSWORD`` as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server's read transaction rather than by the credential — the same posture the
 ARIEL database credential already takes. ``control-assistant-logbook`` has no
 control surface and no graph tools by design. ``control-assistant-knowledge``
-is the persona built around the graph: it keeps the facility-knowledge-graph
+is the app built around the graph: it keeps the facility-knowledge-graph
 agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
-that reads or writes the machine — the standalone card for "how is the
+that reads or writes the machine — the shared card for "how is the
 machine put together" questions.
 
 

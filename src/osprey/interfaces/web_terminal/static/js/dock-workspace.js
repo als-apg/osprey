@@ -42,9 +42,9 @@ const LAYOUT_KEY_PREFIX = 'osprey-dock-layout-';
  *  this session.
  *
  *  Never used bare: every read and write goes through `layoutKey()`, which
- *  picks the view's variant and suffixes it per persona through
+ *  picks the view's variant and suffixes it per render through
  *  `scopedStorageKey()`. Project key alone is not enough on a multi-user mount,
- *  where every persona shares one origin and would otherwise inherit — and
+ *  where every render shares one origin and would otherwise inherit — and
  *  overwrite — whichever arrangement another operator left behind for the same
  *  project. Resolved at each use, never stored resolved, so the key always
  *  reflects the document actually being served (see storage-scope.js).

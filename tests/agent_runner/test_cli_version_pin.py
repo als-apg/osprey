@@ -2,7 +2,7 @@
 
 The pin ends up after ``@anthropic-ai/claude-code@`` in an ``npx`` or ``npm``
 command line: the interactive launch argv, the project image's build argument
-and the persona image's. In that position npm also accepts an alias, a URL, a
+and the render image's. In that position npm also accepts an alias, a URL, a
 git address, a folder, a tarball in the working directory, a range and a
 dist-tag — none of which names one build. So a pin is an exact version and
 nothing else, and the same table of bad pins is refused wherever the value is
@@ -20,7 +20,7 @@ from osprey.agent_runner import launcher
 from osprey.agent_runner.launcher import build_claude_launch_argv
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION, _default_cli_version
 from osprey.deployment.container_lifecycle import _resolve_claude_cli_version
-from osprey.deployment.web_terminals.persona_images import _resolve_persona_claude_cli_version
+from osprey.deployment.web_terminals.render_images import _resolve_render_claude_cli_version
 from osprey.health.core.claude_cli import claude_cli_pinned
 from osprey.health.models import Status
 
@@ -184,7 +184,7 @@ def test_the_project_image_build_argument_keeps_a_good_pin_and_its_default():
 
 
 @pytest.mark.parametrize("pin", EVERY_BAD_PIN, ids=repr)
-def test_the_persona_image_build_argument_refuses_a_bad_pin(tmp_path: Path, pin):
+def test_the_render_image_build_argument_refuses_a_bad_pin(tmp_path: Path, pin):
     import yaml
 
     (tmp_path / "config.yml").write_text(
@@ -192,15 +192,15 @@ def test_the_persona_image_build_argument_refuses_a_bad_pin(tmp_path: Path, pin)
     )
 
     with pytest.raises(ValueError, match="claude_code.cli_version"):
-        _resolve_persona_claude_cli_version(str(tmp_path))
+        _resolve_render_claude_cli_version(str(tmp_path))
 
 
-def test_the_persona_image_build_argument_keeps_a_good_pin(tmp_path: Path):
+def test_the_render_image_build_argument_keeps_a_good_pin(tmp_path: Path):
     (tmp_path / "config.yml").write_text(
         "claude_code:\n  cli_version: '2.1.146'\n", encoding="utf-8"
     )
 
-    assert _resolve_persona_claude_cli_version(str(tmp_path)) == "2.1.146"
+    assert _resolve_render_claude_cli_version(str(tmp_path)) == "2.1.146"
 
 
 @pytest.mark.parametrize("pin", EVERY_BAD_PIN, ids=repr)

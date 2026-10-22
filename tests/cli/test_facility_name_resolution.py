@@ -115,7 +115,7 @@ def channel_finder_project(tmp_path_factory) -> Path:
         TemplateManager(),
         project_name="cf-facility",
         output_dir=out_dir,
-        data_bundle="channel_finder_standalone",
+        data_bundle="control_assistant",
         context={"channel_finder_mode": "in_context", "default_provider": "anthropic"},
     )
 
@@ -159,8 +159,8 @@ def _first_render(tmp_path_factory, name: str, context: dict) -> Path:
     return TemplateManager().create_project(
         project_name=name,
         output_dir=tmp_path_factory.mktemp(name),
-        data_bundle="channel_finder_standalone",
-        data_root=bundle_data_root("channel_finder_standalone"),
+        data_bundle="control_assistant",
+        data_root=bundle_data_root("control_assistant"),
         context={"channel_finder_mode": "in_context", "default_provider": "anthropic", **context},
     )
 

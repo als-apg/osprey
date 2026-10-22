@@ -3065,7 +3065,7 @@ async def run_quickstart(
     source: str | None,
     progress: _ProgressCb = None,
     *,
-    project_dir: Path | None = None,
+    project_dir: Path | None = None,  # noqa: ARG001 - part of the CLI-facing signature
 ) -> QuickstartResult:
     """Run the complete ARIEL quickstart sequence.
 
@@ -3073,8 +3073,9 @@ async def run_quickstart(
         config_dict: The ``ariel:`` config section.
         source: A logbook file or URL to ingest in place of the configured source.
         progress: Receives each progress line.
-        project_dir: The built project the config belongs to; its simulator
-            view supplies ``ariel.demo_narrative``.
+        project_dir: The built project the config belongs to. Not read: with
+            no ingestion source the quickstart enhances what the logbook already
+            holds, which a deploy seeded from the project's active scenarios.
     """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.connection import create_connection_pool
@@ -3120,13 +3121,10 @@ async def run_quickstart(
         elif progress:
             progress("  Tables: already up to date")
 
-        if (not config.ingestion or not config.ingestion.source_url) and config_dict.get(
-            "demo_narrative"
-        ):
-            count, enhanced_count = await _quickstart_narrative(config_dict, project_dir, progress)
-        elif not config.ingestion or not config.ingestion.source_url:
+        if not config.ingestion or not config.ingestion.source_url:
             if progress:
                 progress("\nNo ingestion source configured. Skipping data ingestion.")
+            enhanced_count = await _quickstart_enhance_existing(config_dict, progress)
         else:
             if progress:
                 progress(f"Ingesting data from: {config.ingestion.source_url}")
@@ -3189,47 +3187,25 @@ async def run_quickstart(
     )
 
 
-async def _quickstart_narrative(
-    config_dict: dict, project_dir: Path | None, progress: _ProgressCb
-) -> tuple[int, int]:
-    """Seed ``ariel.demo_narrative`` into an empty logbook, then enhance what it holds.
+async def _quickstart_enhance_existing(config_dict: dict, progress: _ProgressCb) -> int:
+    """Run the enhancement pass over the entries the logbook already holds.
 
-    The narrative is written the way a deploy writes it -- rows and pictures,
-    no enhancement (see :func:`~osprey.simulation.apply.seed_narrative_if_empty`)
-    -- so a quickstart after an ``osprey up`` that already seeded it finds the
-    entries in place and adds none. The enhancement pass that follows is what
-    the quickstart adds over the deploy: embeddings for semantic and hybrid
-    search, and captions where a vision model answers.
-
-    The scenarios are read from *project_dir*'s simulator view
-    (:func:`~osprey.simulation.apply.demo_narrative_logbook`).
+    A deploy seeds the active scenarios' narrative as rows and pictures with no
+    enhancement (see :func:`~osprey.simulation.apply.seed_active_logbook`); what
+    the quickstart adds over it is embeddings for semantic and hybrid search,
+    and captions where a vision model answers. An empty logbook has nothing to
+    enhance.
 
     Returns:
-        ``(entries seeded, entries the enhancement pass processed)``.
+        The number of entries the enhancement pass processed.
     """
-    from datetime import datetime
-
-    from osprey.simulation.apply import (
-        demo_narrative_logbook,
-        demo_narrative_scenarios,
-        seed_narrative_if_empty,
-    )
-    from osprey_connectors.config import get_facility_timezone
-
-    logbook = demo_narrative_logbook(config_dict, project_dir)
+    held = await logbook_entry_count(config_dict)
+    if not held:
+        return 0
     if progress:
-        names = demo_narrative_scenarios(config_dict, project_dir)
-        progress(f"Seeding the demo narrative of: {', '.join(names)}")
-    seeded = await seed_narrative_if_empty(
-        config_dict, logbook, datetime.now(get_facility_timezone())
-    )
-    if progress:
-        if seeded:
-            progress(f"  Entries: {seeded} seeded")
-        else:
-            progress("  Entries: the logbook already holds entries; none added")
-    enhanced = await run_enhance(config_dict, None, False, max(len(logbook), 1), progress)
-    return seeded, enhanced.entries_processed
+        progress(f"Enhancing the {held} entries the logbook holds")
+    enhanced = await run_enhance(config_dict, None, False, held, progress)
+    return enhanced.entries_processed
 
 
 async def get_purge_info(config_dict: dict) -> PurgeInfo:

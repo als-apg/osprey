@@ -80,8 +80,8 @@ from osprey.deployment.telemetry_config import (
     reader_port,
     store_deployed,
 )
-from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
+from osprey.deployment.web_terminals.roster import is_app_entry, roster_entries
 from osprey.port_layout import (
     CA_DEFAULT_PORT,
     PORT_BASE_CONFIG_KEY,
@@ -771,7 +771,7 @@ def derive_web_terminal_bindings(config):
     family at its roster index: ``<family base> + index`` for the terminal
     itself and for each companion server (artifact gallery, ARIEL, lattice, …).
     The index band is allocated whole — a user holds a slot in every family
-    whether or not the persona starts that panel — so the whole band is checked,
+    whether or not the render starts that panel — so the whole band is checked,
     the same way the allocator reserves it.
 
     The ports are derived the same way the render derives them, from the same
@@ -804,7 +804,9 @@ def derive_web_terminal_bindings(config):
 
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(config))
     bindings = []
-    for entry in normalize_users(web_terminals.get("users")):
+    # Every card the deployment runs, shared app cards included: an app's
+    # derived slot binds host ports like any person's, so the preflight must see it.
+    for entry in roster_entries(web_terminals):
         user = entry["name"]
         try:
             ports = allocate_ports(base_ports, entry["index"])
@@ -814,7 +816,11 @@ def derive_web_terminal_bindings(config):
         for family, port in ports.items():
             slot = SLOTS_BY_NAME.get(family)
             family_key = slot.config_key if slot is not None else None
-            remedy = f"index for user {user!r} in modules.web_terminals.users"
+            remedy = (
+                f"position of app {user!r} in modules.web_terminals.shared"
+                if is_app_entry(entry)
+                else f"index for user {user!r} in modules.web_terminals.users"
+            )
             if family_key:
                 remedy = f"{remedy} (or {family_key})"
             bindings.append(

@@ -1,11 +1,11 @@
 // @ts-check
 /**
- * Per-persona scoping of the web terminal's remaining shared-origin
+ * Per-user scoping of the web terminal's remaining shared-origin
  * localStorage keys:
  *   npx vitest run tests/interfaces/web_terminal/js/storage-scope-keys.test.js
  *
  * localStorage is origin-scoped, not path-scoped, so on a multi-user mount
- * (`/u/alice/`, `/u/bob/`) every persona shares one slot per bare key. The
+ * (`/u/alice/`, `/u/bob/`) every user shares one slot per bare key. The
  * server stamps `data-osprey-storage-scope` on <html>; each reader and writer
  * derives its key through storage-scope.js's `scopedStorageKey()`, and a scoped
  * read NEVER falls back to the bare key (that polluted slot is the whole bug).
@@ -89,9 +89,9 @@ describe('rail-position.js (the writer half of the rail-boot pair)', () => {
     expect(localStorage.getItem(BASE)).toBe('top');
   });
 
-  test("another persona's pin does not pin bob's rail against the theme coupling", () => {
+  test("another user's pin does not pin bob's rail against the theme coupling", () => {
     // The shared slot, written by whoever flipped the rail last. Read as bob's
-    // own pin it would freeze his rail wherever that persona left it.
+    // own pin it would freeze his rail wherever that user left it.
     localStorage.setItem(BASE, 'top');
     serveAs('bob');
     initRailThemeCoupling({ family_rail_defaults: { retro: 'top' } });
@@ -158,7 +158,7 @@ describe('tour.js', () => {
     click('.tour-invite-actions .tour-btn:not(.primary)');
   }
 
-  test('a persona still gets the invite another persona dismissed', () => {
+  test('a user still gets the invite another user dismissed', () => {
     localStorage.setItem(BASE, '1');
     serveAs('bob');
     mountShell();
@@ -168,7 +168,7 @@ describe('tour.js', () => {
     expect(document.querySelector('.tour-card')).not.toBe(null);
   });
 
-  test('dismissing marks only this persona as having seen it', () => {
+  test('dismissing marks only this user as having seen it', () => {
     serveAs('bob');
     mountShell();
     inviteNow();
@@ -203,7 +203,7 @@ describe('panel-agent-attention.js acknowledgements', () => {
     initAgentAttention(rail);
   }
 
-  test('an ack is stored per persona — panel ids are shared, personas are not', () => {
+  test('an ack is stored per user — panel ids are shared, users are not', () => {
     serveAs('bob');
     mountRail();
     expect(badgePanelActivity(PANEL, 42)).toBe(true);
@@ -238,7 +238,7 @@ describe('panel-agent-attention.js acknowledgements', () => {
     return document.querySelector('.panel-rail-button')?.classList.contains('agent-attention') ?? false;
   }
 
-  test("another persona's acknowledgement does not silence bob's badge on reload", async () => {
+  test("another user's acknowledgement does not silence bob's badge on reload", async () => {
     localStorage.setItem(`agent-ack:${PANEL}`, '42');
     serveAs('bob');
     mountRail();
@@ -316,7 +316,7 @@ describe('palette.js recent commands', () => {
     document.body.innerHTML = '';
   });
 
-  test('executing a command records it under this persona\'s key', async () => {
+  test('executing a command records it under this user\'s key', async () => {
     serveAs('bob');
     openPalette(makeDeps());
     await flushMicro();
@@ -328,7 +328,7 @@ describe('palette.js recent commands', () => {
     expect(localStorage.getItem(BASE)).toBe(null);
   });
 
-  test("another persona's Recent list is never read", async () => {
+  test("another user's Recent list is never read", async () => {
     localStorage.setItem(BASE, JSON.stringify([RESTART]));
     serveAs('bob');
 
@@ -338,7 +338,7 @@ describe('palette.js recent commands', () => {
     expect(headings()).not.toContain('Recent');
   });
 
-  test('this persona\'s own Recent list renders', async () => {
+  test('this user\'s own Recent list renders', async () => {
     localStorage.setItem(`${BASE}--bob`, JSON.stringify([RESTART]));
     serveAs('bob');
 

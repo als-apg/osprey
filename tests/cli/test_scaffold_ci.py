@@ -718,7 +718,7 @@ def test_list_reads_the_build_zone_of_the_repo_it_is_standing_in(
     runner: CliRunner, built_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No ``--project``: the repo is found, and its build zone is where to look."""
-    monkeypatch.chdir(built_repo / "personas")
+    monkeypatch.chdir(built_repo / "tiers")
 
     result = runner.invoke(scaffold, ["list"])
 

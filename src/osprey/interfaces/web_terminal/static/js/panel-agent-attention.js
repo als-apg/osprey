@@ -58,7 +58,7 @@ const badgeTs = new Map();
 /** Key prefix for a panel's acknowledged ts. Panel ids are deployment-wide, so
  *  on a multi-user mount (one origin, one localStorage) the prefix alone would
  *  make one operator's acknowledgement suppress another's badge for the same
- *  panel. The resolved key is scoped per persona — see storage-scope.js. */
+ *  panel. The resolved key is scoped per render — see storage-scope.js. */
 const ACK_KEY_PREFIX = 'agent-ack:';
 
 /** This document's ack key for `panelId`, resolved at the point of use.

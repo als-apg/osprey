@@ -1,5 +1,5 @@
 /**
- * Unit tests for theme-manager.js's per-persona scoping of its localStorage
+ * Unit tests for theme-manager.js's per-user scoping of its localStorage
  * preference slot.
  *
  * theme-manager is the hub-role writer for the same key theme-boot.js reads
@@ -72,7 +72,7 @@ describe('theme-manager.js storage scoping', () => {
       expect(window.localStorage.getItem(LEGACY_KEY)).toBeNull();
     });
 
-    test("one persona's write does not land in another's slot", () => {
+    test("one user's write does not land in another's slot", () => {
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');
       ThemeManager.initTheme({ role: 'hub' });
 
@@ -132,7 +132,7 @@ describe('theme-manager.js storage scoping', () => {
       expect(ThemeManager.getTheme()).toBe('light');
     });
 
-    test("a scoped hub does not see another persona's stored preference", () => {
+    test("a scoped hub does not see another user's stored preference", () => {
       window.localStorage.setItem(
         `${LEGACY_KEY}--bob`,
         JSON.stringify({ family: 'retro', mode: 'dark' })

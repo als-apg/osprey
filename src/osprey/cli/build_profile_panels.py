@@ -5,10 +5,10 @@ nothing else (``interfaces/web_terminal/app.py``), while what a profile
 *selects* is its ``web_panels:`` list. The two are one fact in two places, and
 they only stay one fact if the build carries the selection across: every block
 the render ends up with — the template's own ``enabled: true`` for a selected
-builtin, a ``config:`` fact about a custom panel's address, a fact a persona
+builtin, a ``config:`` fact about a custom panel's address, a fact a render
 inherits for a tab it excluded, a block an injector writes into a deploying
-render for a tab only its personas select — is told whether this render shows
-it. Facts stay where they are (a persona cannot subtract ``config:``, and the
+render for a tab only its renders select — is told whether this render shows
+it. Facts stay where they are (a render cannot subtract ``config:``, and the
 Reach Contract copies addresses from the host's render), so nothing about
 inheritance moves; only ``enabled`` does, and it says exactly one thing:
 *selected here*.

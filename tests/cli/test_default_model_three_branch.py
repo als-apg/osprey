@@ -123,5 +123,13 @@ class TestShippedPresetsResolve:
         assert spec.default_model_id in spec.served_models
 
     def test_every_shipped_preset_is_covered(self):
-        """No preset may drop out of the parametrization by shipping no yml."""
-        assert len(list(PRESET_DIR.glob("*.yml"))) >= 6
+        """No preset may drop out of the parametrization by shipping no yml.
+
+        The parametrization globs the deployment presets; tiers and apps live
+        one directory down and name no provider of their own.
+        """
+        from osprey.cli.build_profile_presets import list_presets
+
+        shipped = sorted(p.stem for p in PRESET_DIR.glob("*.yml"))
+        assert shipped == list_presets()
+        assert {"control-assistant", "hello-world"} <= set(shipped)

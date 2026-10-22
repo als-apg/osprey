@@ -1,0 +1,33 @@
+# Demo Facility (readonly) — one access level of this deployment's agent
+#
+# A tier adds to ../profile.yml and never subtracts from it: the build lays
+# this file over that one. Services, data and ports stay profile.yml's. To see
+# the combined result:
+#   osprey validate tiers/readonly.yml
+#
+# Copied from the bundled `readonly` tier with the rest of this fixture. Like
+# profile.yml beside it, it carries no `provenance:` block: this fixture is
+# trimmed by hand, so there is no emission for `osprey validate` to hold it
+# against.
+
+name: Demo Facility (readonly)
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block.
+config:
+  # The axis this tier hard-pins, and it takes three keys rather than one.
+  # The flat key is the posture a connector type inherits when its own block
+  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
+  # in the deployment's profile would arm that type over it. So the read-only
+  # tier pins every block off as well as the key they inherit from, and a type
+  # that arms writes here has to be added by name.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Pared-down operator layout: chat only, workspace hidden until the agent
+  # puts something in it. Pinned on both sides of the tier boundary (readwrite
+  # pins `expert`), same rationale as writes_enabled.
+  #
+  # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
+  # because only the write-capable tiers add them by name.
+  web.ui_mode: simple

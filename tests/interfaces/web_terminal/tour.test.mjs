@@ -8,7 +8,7 @@
  * shell. applyTourConfig() records the invite policy from GET /api/panels and
  * arms the automatic invite; startTour() is the on-demand entry (rail control,
  * palette) that ignores the policy. Steps whose anchor is absent drop out. The
- * dismissal flag is storage-scoped (per-persona scoping is covered in
+ * dismissal flag is storage-scoped (per-user scoping is covered in
  * js/storage-scope-keys.test.js).
  *
  * What the first card SAYS about this deployment, and what the "Try it" chips

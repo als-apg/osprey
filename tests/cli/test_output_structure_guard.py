@@ -327,6 +327,10 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "inside output.machine_mode(), so every human line is on stderr and this "
         "is the one document on stdout, the same class as audit_cmd's report.",
     ),
+    "cli/init_cmd.py": (
+        1,
+        "--revalidate's unified diff, byte parity like scaffold_cmd's diff seams",
+    ),
     "cli/query_cmd.py": (
         2,
         "The two machine seams: the --json document, and the agent-text "

@@ -333,12 +333,12 @@ The queue belongs to the facility, and OSPREY gates its own doors to it, not eve
 gaps follow from that, and a deployment should know them:
 
 - **A plan added from inside a container.** Something already running there --- a Python run,
-  or a persona whose profile allows a shell --- can reach the queue's own port and add a plan
+  or a tier whose profile allows a shell --- can reach the queue's own port and add a plan
   under any name it chooses, or none. The gap is that such a name is unvouched: OSPREY did not
   mint it, and it binds all the same, so the plan is judged against whoever it names. With no
   name it runs at the lane's ceiling.
 - **A shell reaching the panel's dispatcher address.** The panel token sits in the agent's own
-  environment, so the same shell can fire a job without the approval prompt. Building a persona
+  environment, so the same shell can fire a job without the approval prompt. Building a tier
   that allows a shell warns about exactly this, and a sandboxed run cannot do it --- neither the
   token nor the port is there. The job still runs as the real person, under their narrowing.
 - **A direct login at the panel's own address.** Unnamed, as above, and at the lane's ceiling.

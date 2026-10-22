@@ -4,7 +4,7 @@ An operator reads the framework's own prose — an agent description, a log line
 a `--help` example, a comment in a rendered compose file — as a statement about
 *their* deployment. When that prose carries the name of whoever happened to
 write it, it is wrong everywhere else, and it is wrong in the one place a
-deployer cannot edit: files that `osprey init --force` and `profile expand`
+deployer cannot edit: files that `osprey init --force` and `--revalidate`
 regenerate.
 
 The rule this pins is therefore not "fewer names" but "no identities": shipped

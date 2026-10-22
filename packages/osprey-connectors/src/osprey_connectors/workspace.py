@@ -8,7 +8,8 @@ rather than inside any one layer.
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Final
 
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 
@@ -25,6 +26,40 @@ STATE_DIR_NAME = "var"
 #: CLI's repo walk and the hook library's anchor both look for. Spelled here
 #: because this layer must not import ``cli``.
 PROFILE_FILENAME = "profile.yml"
+
+#: Directory beside ``profile.yml`` (or in the bundled presets) holding tiers:
+#: access levels of the deployment's own agent.
+TIERS_DIRNAME: Final = "tiers"
+
+#: Directory beside ``profile.yml`` (or in the bundled presets) holding apps:
+#: separate agents built from the same deployment.
+APPS_DIRNAME: Final = "apps"
+
+#: Each live layer directory -> the kind word its files are read as. The
+#: listing order is the order every layer listing follows. Spelled here, below
+#: ``cli``, because the hook library and the runtime read the layout too.
+LAYER_DIR_KINDS: Mapping[str, str] = MappingProxyType({TIERS_DIRNAME: "tier", APPS_DIRNAME: "app"})
+
+#: Each retired layer directory -> the live directory its files are read as,
+#: with one warning naming the move. Closing the deprecation window is deleting
+#: the entry.
+RETIRED_LAYER_DIRS: Mapping[str, str] = MappingProxyType(
+    {"personas": TIERS_DIRNAME}  # retired-spelling
+)
+
+#: Every directory beside ``profile.yml`` whose files are layers: the live ones
+#: in listing order, then the retired ones.
+LAYER_DIRNAMES: tuple[str, ...] = (*LAYER_DIR_KINDS, *RETIRED_LAYER_DIRS)
+
+
+def layer_dir_kind(dirname: str) -> str | None:
+    """The kind word (``"tier"`` or ``"app"``) a layer directory's files are read as.
+
+    A retired directory answers with its successor's kind; any other name is
+    not a layer directory and answers ``None``.
+    """
+    return LAYER_DIR_KINDS.get(RETIRED_LAYER_DIRS.get(dirname, dirname))
+
 
 #: Where the build stages the container-destined copy of a project, under the
 #: render zone. Each is a deployment REPO — ``profile.yml`` and the source zone

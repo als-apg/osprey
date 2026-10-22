@@ -20,13 +20,17 @@ from osprey import __version__
 from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.build_profile_deploy import deploy_aware_config_errors
 from osprey.cli.build_profile_merge import compute_preset_hash
+from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.cli.repo_resolver import find_repo_root
+from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.fixtures.lifecycle_repo import (
+    APP_PRESETS,
     EXEMPLAR_DIRNAME,
     EXEMPLAR_PRESET,
     IGNORED_ZONE_PATTERNS,
-    PERSONA_PRESETS,
+    SHARED_APPS,
     STATE_DIRS,
+    TIER_PRESETS,
     build_exemplar_repo,
     exemplar_source_files,
 )
@@ -73,9 +77,12 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         ".gitignore",
         ".env.example",
         "ci-extra.yml",
-        "personas/readonly.yml",
-        "personas/readwrite.yml",
-        "personas/knowledge.yml",
+        f"{TIERS_DIRNAME}/readonly.yml",
+        f"{TIERS_DIRNAME}/readwrite.yml",
+        f"{TIERS_DIRNAME}/admin.yml",
+        f"{APPS_DIRNAME}/logbook.yml",
+        f"{APPS_DIRNAME}/knowledge.yml",
+        f"{APPS_DIRNAME}/channel-finder.yml",
         "data/README.md",
         "data/facility/knowledge/index.md",
         "web-terminal-context/alice/.gitkeep",
@@ -221,7 +228,7 @@ def test_profile_resolves_and_validates(lifecycle_repo: Path) -> None:
     profile.validate(profile_dir)
     # The lint `osprey validate` and `osprey build` both gate on — judged on the
     # merged view the build renders, not on the raw config block. `profile_root`
-    # as both commands pass it: the catalog names `personas/<name>.yml` deltas,
+    # as both commands pass it: the catalog names `tiers/<name>.yml` deltas,
     # which are relative to the profile and not to wherever pytest is running.
     assert (
         deploy_aware_config_errors(profile.deploy, profile.config, profile_root=profile_dir) == []
@@ -252,11 +259,11 @@ def test_ci_variant_resolves_and_validates(lifecycle_repo_factory, tmp_path: Pat
     assert "image_source" not in profile.config["modules.web_terminals"]
 
 
-@pytest.mark.parametrize("persona", sorted(PERSONA_PRESETS))
-def test_persona_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, persona: str) -> None:
-    """A persona is a delta whose root is the repo, not personas/."""
+@pytest.mark.parametrize("render", sorted(TIER_PRESETS))
+def test_layer_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, render: str) -> None:
+    """A tier is a delta whose root is the repo, not the ``tiers/`` directory."""
     profile, profile_dir = resolve_build_profile(
-        lifecycle_repo / "personas" / f"{persona}.yml", None
+        lifecycle_repo / TIERS_DIRNAME / f"{render}.yml", None
     )
 
     profile.validate(profile_dir)
@@ -265,26 +272,38 @@ def test_persona_delta_resolves_over_the_repo_profile(lifecycle_repo: Path, pers
     )
 
     assert profile_dir == lifecycle_repo
-    assert profile.name == f"Als Exemplar ({persona})"
+    assert profile.name == f"Als Exemplar ({render})"
     assert profile.deploy_services is False
     # readwrite and admin are armed on the simulator alone; every tier pins the
     # flat key off, so only the simulator's own block separates them.
     assert profile.config["control_system.writes_enabled"] is False
     assert profile.config.get(
         "control_system.connector.virtual_accelerator.writes_enabled", False
-    ) is (persona in ("readwrite", "admin"))
+    ) is (render in ("readwrite", "admin"))
 
 
-def test_persona_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> None:
-    """The catalog names each persona's delta; the build derives where it lands."""
+def test_render_catalog_names_only_each_renders_source(lifecycle_repo: Path) -> None:
+    """The profile carries no render catalog; the layer files are the sources.
+
+    Location is the type: every file in ``tiers/`` and ``apps/`` is one render,
+    and the build derives its project and where it lands. The roster names
+    apps by stem in ``shared:``, and each one has its file in ``apps/``.
+    """
     profile, _ = resolve_build_profile(lifecycle_repo / "profile.yml", None)
-    personas = profile.config["modules.web_terminals"]["personas"]
+    web_terminals = profile.config["modules.web_terminals"]
 
     assert profile.project_name == "als-exemplar"
-    for name, entry in personas.items():
-        assert "project" not in entry, name
-        assert "project_path" not in entry, name
-        assert entry["build_profile"] == f"personas/{name}.yml"
+    assert "renders" not in web_terminals
+    assert [
+        (kind, path.relative_to(lifecycle_repo).as_posix())
+        for kind, path in layer_files(lifecycle_repo)
+    ] == [
+        *((ProfileKind.TIER, f"{TIERS_DIRNAME}/{name}.yml") for name in sorted(TIER_PRESETS)),
+        *((ProfileKind.APP, f"{APPS_DIRNAME}/{name}.yml") for name in sorted(APP_PRESETS)),
+    ]
+    assert tuple(web_terminals["shared"]) == SHARED_APPS
+    for name in SHARED_APPS:
+        assert (lifecycle_repo / APPS_DIRNAME / f"{name}.yml").is_file(), name
 
 
 def test_provenance_records_the_live_preset(lifecycle_repo: Path) -> None:

@@ -182,7 +182,7 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
 def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
     """All dev-staging artifacts (wheels + requirements manifest) in a context.
 
-    Callers that stage into a long-lived directory (project-image and persona
+    Callers that stage into a long-lived directory (project-image and render
     builds) snapshot this before/after staging so their ``finally`` cleanup
     removes exactly what staging added — wheel AND manifest — and nothing that
     was already there.
@@ -202,7 +202,7 @@ def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
 
 # Per-process memo for the dev-wheel build: one deploy stages the SAME wheel
 # into many build contexts (every service context, the project image root, each
-# persona project), and `rebuild_deployment` even renders the compose files
+# render project), and `rebuild_deployment` even renders the compose files
 # twice — so without a memo `python -m build` (an isolated-env build taking tens
 # of seconds) runs once per staging call. Key: resolved osprey source root.
 # Value: path to the cached built wheel (in a memo-owned temp dir), or None when
@@ -422,7 +422,7 @@ def _copy_local_framework_for_override(out_dir):
                 "dependencies.\nCheck that the build context directory is writable.",
             ) from manifest_error
 
-        # Fires once per build context -- the deployment, each persona, each
+        # Fires once per build context -- the deployment, each render, each
         # image copy -- so as a step it would repeat one fact N times. The step
         # on the build above states it once.
         logger.debug(f"Copied osprey wheels: {', '.join(w.name for w in cached_wheels)}")

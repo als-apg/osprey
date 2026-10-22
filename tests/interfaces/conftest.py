@@ -410,7 +410,7 @@ BROWSER_ENGINES: tuple[str, ...] = ("chromium", "webkit")
 #: neither of which opens a browser.
 #:
 #: The key is answered rather than only written. tour.js reads it through
-#: ``scopedStorageKey``, so on a multi-user mount it is per persona
+#: ``scopedStorageKey``, so on a multi-user mount it is per render
 #: (``…-v1--alice``) and the scope comes from an attribute the server stamps on
 #: ``<html>`` — which an init script cannot read, because it runs before that
 #: element exists. Seeding the bare key alone therefore dismisses the invite on

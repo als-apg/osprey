@@ -30,6 +30,7 @@ import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import default_port
+from tests._renders import tier_render
 
 #: A base this deployment is pinned to rather than the framework default, so
 #: every number below is an explicit config override and the stamp cannot pass
@@ -71,8 +72,8 @@ def _config(users: list[str], **auth: object) -> dict:
         "ariel_base_port": _ARIEL_BASE_PORT,
         "lattice_base_port": _LATTICE_BASE_PORT,
         "users": users,
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": "demo-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", "demo-assistant")},
     }
     if auth:
         stanza = dict(auth)
