@@ -4,6 +4,12 @@ Stability: the exception class names and ``reason`` codes defined here are
 public API. Removing or renaming any of them is a major version bump; adding
 new ones is a minor version bump.
 
+Three roots partition what a connector raises when a call fails, and no class
+lies under two of them: :class:`ChannelError`, a failure about one named
+channel that leaves the connector in place; :class:`ConnectorUnavailableError`,
+the connector itself is gone and its supervisor replaces it; and
+:class:`ConnectorInternalError`, a connector bug that nothing recovers from.
+
 ``ChannelWriteFailedError``'s reason codes are the uppercased ``WriteOutcome``
 words for the outcomes that raise, so the reason a caller branches on and the
 outcome the result reports are one vocabulary.
@@ -22,14 +28,17 @@ __all__ = [
     "NOT_A_CHANNEL",
     "RAW_CLIENT_WRITE_MARKER",
     "BuildProfileError",
+    "ChannelError",
     "ChannelLimitsViolationError",
     "ChannelNotFoundError",
     "ChannelReadFailedError",
+    "ChannelUnreachableError",
     "ChannelWriteBlockedError",
     "ChannelWriteFailedError",
     "ClientLibraryRefusedError",
     "ConfigurationError",
     "ConnectorInternalError",
+    "ConnectorUnavailableError",
     "RefusalReason",
     "RegistryError",
     "raw_client_write_message",
@@ -346,22 +355,63 @@ class ChannelReadFailedError(Exception):
 NOT_A_CHANNEL = "not a channel of this facility"
 
 
-class ChannelNotFoundError(LookupError):
+class ChannelError(Exception):
+    """A failure about one named channel; the connector that raised it stays in place.
+
+    ``channel_address`` names the channel, in process and across the
+    connector-host boundary alike. No supervisor recovers from a channel
+    error: it is reported against its channel and nothing is restarted. It has
+    no builtin base that another root shares, so no ``except ConnectionError``
+    or ``except TimeoutError`` reads it as a lost connector.
+    """
+
+    def __init__(self, channel_address: str, message: str):
+        self.channel_address = channel_address
+        super().__init__(message)
+
+
+class ChannelNotFoundError(ChannelError, LookupError):
     """Raised when an address is not a channel of the facility a connector serves.
 
     Only a connector that holds the facility's whole address set raises it. A
     connector that cannot tell an unknown name from an unreachable one (a
     Channel Access search that finds nothing times out) raises
-    ``ConnectionError`` instead. A write to such an address is not raised: it
-    comes back ``refused`` with ``refusal_reason`` :attr:`reason`.
+    :class:`ChannelUnreachableError` instead. A write to such an address is not
+    raised: it comes back ``refused`` with ``refusal_reason`` :attr:`reason`.
     """
 
     #: The refusal reason a write to an address outside the facility carries.
     reason = RefusalReason.CHANNEL_NOT_FOUND
 
     def __init__(self, channel_address: str):
-        self.channel_address = channel_address
-        super().__init__(f"{channel_address} is {NOT_A_CHANNEL}")
+        super().__init__(channel_address, f"{channel_address} is {NOT_A_CHANNEL}")
+
+
+class ChannelUnreachableError(ChannelError):
+    """One channel could not be reached: it was lost, or it did not answer in time.
+
+    The connector that raised it is healthy and keeps serving every other
+    channel, so nothing is replaced for it; the failure is that channel's
+    device, not the control system as a whole. Its text names the address.
+    """
+
+    def __init__(self, channel_address: str, message: str | None = None):
+        super().__init__(channel_address, message or f"{channel_address} did not answer")
+
+
+class ConnectorUnavailableError(ConnectionError):
+    """The connector itself is gone: its transport, context or process is lost.
+
+    Every channel it serves fails alike until it is replaced, and the
+    supervisor that owns the connector's lifetime replaces it at most once per
+    instance. ``recovery`` is what that supervisor did, one
+    ``{"action", "text"}`` record per step, set by the supervisor and by
+    nothing else; it is empty until a supervisor has acted.
+    """
+
+    def __init__(self, message: str, recovery: "Sequence[Mapping[str, str]]" = ()):
+        self.recovery: tuple[Mapping[str, str], ...] = tuple(recovery)
+        super().__init__(message)
 
 
 class ConnectorInternalError(RuntimeError):
