@@ -108,7 +108,7 @@ from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 RUNTIME = "docker"
 

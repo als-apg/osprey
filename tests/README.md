@@ -63,8 +63,7 @@ files are gone after the run, and a failing test's files stay under
 summary while that root holds other runs' trees is pytest pruning them at exit;
 the exit report names it (`cleanup_numbered_dir`).
 
-**E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
-`-m e2e`.
+**E2E tests are separate.** Run them with `pytest tests/e2e/`.
 
 **CI caps every unit test at 600 seconds** (`--timeout=600
 --timeout-method=signal`, on the lane's pytest line only — an ini default would

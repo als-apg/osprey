@@ -18,7 +18,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -233,7 +232,6 @@ class _StubConfig:
         workerinput: dict | None = None,
     ) -> None:
         self.markers: list[str] = []
-        self.option = SimpleNamespace(markexpr="")
         self.hook = _StubHook()
         self._collect_only = collect_only
         if workerinput is not None:
@@ -273,7 +271,7 @@ def test_configure_registers_the_markers_without_a_provider() -> None:
     among them."""
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
     assert any(line.startswith(f"{MODEL_FREE_MARKER}:") for line in config.markers)
 
 
@@ -284,7 +282,7 @@ def test_enumerating_the_suite_needs_no_provider() -> None:
     config = _StubConfig(collect_only=True)
     e2e_conftest.pytest_configure(config)
     e2e_conftest.pytest_collection_modifyitems(config, [])
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
 
 
 def test_a_named_provider_lets_configure_register_its_markers(
@@ -294,7 +292,7 @@ def test_a_named_provider_lets_configure_register_its_markers(
     monkeypatch.setenv(E2E_PROVIDER_ENV, "cborg")
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
-    assert any(line.startswith("e2e:") for line in config.markers)
+    assert any(line.startswith("e2e_smoke:") for line in config.markers)
 
 
 # ---------------------------------------------------------------------------

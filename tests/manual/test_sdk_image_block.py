@@ -230,7 +230,6 @@ async def _run_spike() -> tuple[str, object]:
 #   * OSPREY_RUN_SDK_IMAGE_SPIKE — explicit opt-in so a local `pytest tests/`
 #     with keys present still skips this real-API, cost-incurring run.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.skipif(
         not os.environ.get("OSPREY_RUN_SDK_IMAGE_SPIKE"),
         reason="manual spike; set OSPREY_RUN_SDK_IMAGE_SPIKE=1 to run",

@@ -47,7 +47,6 @@ from tests.e2e._facility_select import repo_view, seeded_readback
 from tests.e2e.sdk_helpers import HAS_SDK, init_project, is_claude_code_available
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.harness_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),

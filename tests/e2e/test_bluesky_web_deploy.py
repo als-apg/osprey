@@ -141,7 +141,6 @@ SCAN_TIMEOUT_SEC = 90.0
 # module docstring's "Per-function flaky" note. `flaky` is applied per
 # function below to tests 1-4 only.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

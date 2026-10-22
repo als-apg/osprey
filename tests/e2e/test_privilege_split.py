@@ -127,7 +127,6 @@ _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 _WEB_SLOT = default_port("web")
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),

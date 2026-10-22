@@ -91,7 +91,6 @@ def _expected() -> list[str]:
     return [name for name, _ in SECTOR_BPMS]
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.agentic_benchmark
 @pytest.mark.requires_als_apg

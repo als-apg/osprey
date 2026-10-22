@@ -78,7 +78,6 @@ from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
     pytest.mark.model_free,
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

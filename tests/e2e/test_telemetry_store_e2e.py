@@ -88,7 +88,6 @@ from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
     pytest.mark.model_free,
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

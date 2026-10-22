@@ -149,7 +149,6 @@ if RUNTIME not in _SUPPORTED_RUNTIMES:
     )
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(

@@ -625,10 +625,7 @@ asyncio_mode = "auto"
 # temporary root when the next process exits, and a whole suite's tree left there would cost that
 # process minutes of silent exit.
 tmp_path_retention_policy = "failed"
-# WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
-# See tests/e2e/README.md for details
 markers = [
-    "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
     "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on. Tests carrying it live under tests/e2e/, which keeps them out of the unit lane",
     "e2e_tutorial: Tutorial workflow validation tests",

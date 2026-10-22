@@ -165,11 +165,6 @@ All new functionality must include tests.
    # With coverage
    uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
 
-.. warning::
-
-   E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
-   The marker-based approach causes registry state leaks and service conflicts.
-
 Front-End (JavaScript) Testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

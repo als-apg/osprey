@@ -109,8 +109,7 @@ not inherit their state -- the queue itself lives in a Redis named volume.
 Gating: needs Docker. Lives in ``tests/e2e/`` so the fast lane
 (``pytest tests/ --ignore=tests/e2e``) never collects this ~20-minute
 build+deploy; run it by name --
-``uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v`` -- never with
-``-m e2e`` (the marker selection leaks registries; see the repo convention).
+``uv run pytest tests/e2e/test_bluesky_queue_e2e.py -v``.
 """
 
 from __future__ import annotations
@@ -277,7 +276,6 @@ def _auth_headers() -> dict[str, str]:
 
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

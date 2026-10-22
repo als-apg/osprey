@@ -220,7 +220,7 @@ from tests.e2e.profile_edits import set_pairs
 #: never happens here, not the port it serves on.
 _WEB_SLOT = default_port("web")
 
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 _SUPPORTED_RUNTIMES = ("docker", "podman")
 RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")

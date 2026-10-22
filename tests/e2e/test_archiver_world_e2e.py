@@ -79,7 +79,6 @@ import pytest
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA image build + a real multi-service deploy -- runs in
     # the dedicated archiver-world-e2e CI job, never the shared e2e-tests lane

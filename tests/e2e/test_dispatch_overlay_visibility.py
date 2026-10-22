@@ -124,7 +124,6 @@ DATA_FILE = "overlay_visibility.json"
 SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt lands
 
 pytestmark = [
-    pytest.mark.e2e,
     # Gates on the credential of whichever provider the run builds with.
     pytest.mark.requires_e2e_provider,
     pytest.mark.slow,

@@ -64,7 +64,6 @@ from tests.e2e.test_graph_mcp_smoke import (
 logger = logging.getLogger(__name__)
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.channel_finder_benchmark,
     pytest.mark.slow,
     pytest.mark.requires_als_apg,
