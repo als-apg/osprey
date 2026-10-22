@@ -309,13 +309,17 @@ def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
             "input": event.input,
         }
     if isinstance(event, ResultEvent):
-        return {
+        result: dict[str, Any] = {
             "type": "result",
             "is_error": event.is_error,
             "total_cost_usd": event.total_cost_usd,
             "duration_ms": event.duration_ms,
             "num_turns": event.num_turns,
         }
+        # The conversation the child is on after the turn, which a turn can change.
+        if event.session_id:
+            result["session_id"] = event.session_id
+        return result
     if isinstance(event, SystemEvent):
         frame: dict[str, Any] = {"type": "system", "subtype": event.subtype}
         # The init message carries the id of the transcript the child is
