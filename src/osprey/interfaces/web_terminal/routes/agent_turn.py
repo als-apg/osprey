@@ -28,7 +28,9 @@ and a transcript filename, so the grammar is closed rather than length-bounded
 to this class of identifier.
 
 Only the expert surface is recorded. The simple view's chat pool knows its own
-turn boundaries from the SDK client and needs no hook, and a report arriving
+turn boundaries from the SDK client and needs no hook, and the chat route
+records the simple view's conversation from the SDK's own reports, so the
+hook's simple-surface reports stay dropped. A report arriving
 with any other surface — including none, when the environment variable that
 names it is unset — is accepted and dropped rather than refused: a hook cannot
 act on a 4xx, and a refusal would put an error in the operator's terminal for

@@ -40,6 +40,7 @@ import osprey.interfaces.web_terminal.routes.chat as chat_module
 import osprey.interfaces.web_terminal.session_handoff as handoff_module
 from osprey.audit.envelope import POSTURE_SOURCE_LIVE, POSTURE_SOURCE_PROCESS
 from osprey.audit.posture import posture_source
+from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
@@ -49,6 +50,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.chat import _strip_for_chat
+from osprey_connectors import posture_store
 from tests.interfaces.web_terminal._fakes import (
     assistant_message,
     result_message,
@@ -532,6 +534,108 @@ class TestChatResumesTheKeysTranscript:
 
         assert registry.resume_ids == [None]
         assert frames[0] == {"type": "session_reset"}
+
+
+#: The key a pooled chat is on, and the conversation its agent moves to.
+_KEY = "aaaaaaaa-1111-2222-3333-444444444444"
+_NEW = "bbbbbbbb-1111-2222-3333-444444444444"
+
+
+@pytest.fixture
+def agent_data_root(tmp_path, monkeypatch):
+    """Pin the agent-data root under the test's directory, as a spawn does."""
+    root = tmp_path / "shared_agent_data"
+    root.mkdir()
+    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    posture_store.invalidate_cache()
+    yield root
+    posture_store.invalidate_cache()
+
+
+def _result_on(session_id: str) -> dict:
+    return {"type": "result", "is_error": False, "session_id": session_id}
+
+
+def _turn(client, chat_id: str, *, stream: bool) -> list[dict]:
+    """The frames one prompt answers with, on either branch."""
+    if stream:
+        resp = client.post("/api/chat", json={"prompt": "p", "chat_id": chat_id})
+        return _data_frames(resp.text)
+    resp = client.post(
+        "/api/chat", params={"stream": "false"}, json={"prompt": "p", "chat_id": chat_id}
+    )
+    return resp.json()["events"]
+
+
+def _resets(frames: list[dict]) -> int:
+    return sum(1 for f in frames if f.get("type") == "session_reset")
+
+
+@pytest.mark.usefixtures("agent_data_root")
+class TestChatFollowsTheConversation:
+    """The key's map entry follows the conversation its chat agent is on.
+
+    The SDK names the conversation on every result and on the init message; a
+    turn that moves it (a ``/clear``) is marked with ``session_reset`` where
+    the move is seen, and a session-UUID key records the new conversation the
+    way the terminal's hook does.
+    """
+
+    def _moved_twice(self, *, stream: bool, chat_id: str = _KEY, new: str = _NEW):
+        session = _FakeChatSession([{"type": "text", "content": "a"}, _result_on(chat_id)])
+        app = _make_chat_app(_FakeRegistry(session=session, pooled_key=chat_id))
+        client = TestClient(app)
+        first = _turn(client, chat_id, stream=stream)
+        map_after_first = dict(app.state.transcript_map)
+        session._events = [{"type": "text", "content": "b"}, _result_on(new)]
+        second = _turn(client, chat_id, stream=stream)
+        return app, first, map_after_first, second
+
+    @pytest.mark.parametrize("stream", [True, False], ids=["sse", "buffered"])
+    def test_a_moved_conversation_is_marked_and_recorded(self, stream):
+        app, first, map_after_first, second = self._moved_twice(stream=stream)
+
+        assert _resets(first) == 0
+        assert map_after_first == {}
+        assert _resets(second) == 1
+        reset = second.index({"type": "session_reset"})
+        assert second[reset + 1] == {"type": "result", "is_error": False}
+        assert transcript_map.get(app, _KEY) == _NEW
+
+    def test_a_first_report_under_another_id_records_it_without_a_reset(self):
+        session = _FakeChatSession(
+            [{"type": "system", "subtype": "init", "session_id": _NEW}, _result_on(_NEW)]
+        )
+        app = _make_chat_app(_FakeRegistry(session=session, pooled_key=_KEY))
+
+        frames = _turn(TestClient(app), _KEY, stream=True)
+
+        assert _resets(frames) == 0
+        assert transcript_map.get(app, _KEY) == _NEW
+
+    def test_a_key_outside_the_uuid_grammar_is_marked_but_never_recorded(self):
+        app, _first, _map, second = self._moved_twice(
+            stream=True, chat_id="user-42-chat-3", new=_NEW
+        )
+
+        assert _resets(second) == 1
+        assert app.state.transcript_map == {}
+
+    def test_a_report_outside_the_uuid_grammar_is_never_recorded(self):
+        session = _FakeChatSession([_result_on("sdk-session")])
+        app = _make_chat_app(_FakeRegistry(session=session, pooled_key=_KEY))
+
+        _turn(TestClient(app), _KEY, stream=True)
+
+        assert app.state.transcript_map == {}
+
+    def test_the_next_child_under_the_key_resumes_the_moved_conversation(self):
+        app, *_ = self._moved_twice(stream=True)
+
+        with patch.object(handoff_module, "_transcripts_on_disk", lambda _app: {_KEY, _NEW}):
+            request = asyncio.run(handoff_module._spawn_request(app, _KEY, "expert"))
+
+        assert request.resume_id == _NEW
 
 
 class TestInterruptEndpoint:
@@ -1133,6 +1237,7 @@ class TestChatTurnRelease:
     async def test_release_under_cancelled_scope_then_reuse(self):
         with _seam(_partial_then_hold_responder("partial")) as make:
             registry = OperatorRegistry()
+            app = _make_chat_app(registry)
             session, token = await registry.get_or_create_chat_session("c", "/tmp", {})
             token = session.acquire_turn()
             client = make.created[0]
@@ -1140,7 +1245,7 @@ class TestChatTurnRelease:
             # Drive the real buffered handler as a task, then cancel it mid-turn.
             task = asyncio.create_task(
                 chat_module._buffered_response(
-                    session, token, "p", fresh_conversation=False, turn_timeout_s=30
+                    app, "c", session, token, "p", fresh_conversation=False, turn_timeout_s=30
                 )
             )
             await asyncio.wait_for(client.reached_hold.wait(), timeout=1.0)
@@ -1165,7 +1270,7 @@ class TestChatTurnRelease:
             client.responder = _clean_responder("after-cancel")
             token2 = session.acquire_turn()
             resp = await chat_module._buffered_response(
-                session, token2, "p2", fresh_conversation=False, turn_timeout_s=5
+                app, "c", session, token2, "p2", fresh_conversation=False, turn_timeout_s=5
             )
             payload = _json.loads(resp.body)
             assert payload["text"] == "after-cancel"
