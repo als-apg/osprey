@@ -5,11 +5,16 @@ from pathlib import Path
 
 import pytest
 
+import osprey_connectors.errors as errors_module
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.errors import (
+    ChannelError,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    ConnectorInternalError,
+    ConnectorUnavailableError,
     RefusalReason,
 )
 
@@ -99,6 +104,58 @@ class TestChannelNotFoundError:
     def test_a_bare_blocked_write_names_no_refuser(self):
         err = ChannelWriteBlockedError("X", "CHANNEL_NOT_FOUND")
         assert str(err) == "X is not a channel of this facility"
+
+    def test_is_a_channel_error(self):
+        assert isinstance(ChannelNotFoundError("X"), ChannelError)
+
+
+#: The roots that partition what a first-party connector raises.
+FAILURE_ROOTS = (ChannelError, ConnectorUnavailableError, ConnectorInternalError)
+
+
+class TestTheFailureRoots:
+    def test_an_unreachable_channel_is_a_channel_error_and_no_connection_error(self):
+        failure = ChannelUnreachableError("SR:DEAD:IOC")
+        assert isinstance(failure, ChannelError)
+        assert not isinstance(failure, (ConnectionError, TimeoutError, OSError))
+
+    def test_a_lost_connector_is_a_connection_error(self):
+        assert isinstance(ConnectorUnavailableError("the transport is gone"), ConnectionError)
+
+    def test_an_unreachable_channel_names_its_address(self):
+        failure = ChannelUnreachableError("SR:DEAD:IOC")
+        assert failure.channel_address == "SR:DEAD:IOC"
+        assert str(failure) == "SR:DEAD:IOC did not answer"
+
+    def test_an_unreachable_channel_keeps_the_text_it_was_given(self):
+        failure = ChannelUnreachableError("SR:DEAD:IOC", message="SR:DEAD:IOC timed out")
+        assert failure.channel_address == "SR:DEAD:IOC"
+        assert str(failure) == "SR:DEAD:IOC timed out"
+
+    def test_a_lost_connector_carries_no_recovery_until_its_supervisor_sets_one(self):
+        failure = ConnectorUnavailableError("the transport is gone")
+        assert failure.recovery == ()
+        assert str(failure) == "the transport is gone"
+
+    def test_a_lost_connector_takes_the_supervisors_recovery(self):
+        record = {"action": "connector_dropped", "text": "dropped"}
+        failure = ConnectorUnavailableError("gone", recovery=(record,))
+        assert failure.recovery == (record,)
+
+    def test_the_roots_are_disjoint(self):
+        for index, root in enumerate(FAILURE_ROOTS):
+            for other in FAILURE_ROOTS[index + 1 :]:
+                assert not issubclass(root, other) and not issubclass(other, root)
+
+    def test_no_public_class_lies_under_two_roots(self):
+        public = [getattr(errors_module, name) for name in errors_module.__all__]
+        for cls in (item for item in public if isinstance(item, type)):
+            roots = [root for root in FAILURE_ROOTS if issubclass(cls, root)]
+            assert len(roots) <= 1, f"{cls.__name__} lies under {roots}"
+
+    def test_the_roots_are_public(self):
+        for root in (*FAILURE_ROOTS, ChannelUnreachableError):
+            assert root.__name__ in errors_module.__all__
 
 
 class TestChannelWriteFailedError:
