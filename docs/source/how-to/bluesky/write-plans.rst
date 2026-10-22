@@ -149,7 +149,7 @@ mounts that file unchanged.
        unit: A
      - name: SR:DIAG:BPM:01:POSITION:X
        pv: SR:DIAG:BPM:01:POSITION:X
-       unit: mm
+       unit: m
 
 **Settables** are devices a plan may drive: one per setpoint channel of the
 facility file, written to that channel and read back from the channel it is
