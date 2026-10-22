@@ -41,10 +41,6 @@ PORT_PICKERS = frozenset(
 
 #: Files under ``tests/`` that still pick a released port, sorted.
 REMAINING_SITES: tuple[str, ...] = (
-    "cli/test_als_lane.py",
-    "cli/test_web_bind.py",
-    "cli/test_web_cmd.py",
-    "cli/test_web_session_lifetime.py",
     "connectors/test_epics_ca_softioc.py",
     "deployment/test_host_ports.py",
     "deployment/test_qmd_entrypoint_loopback_probe.py",

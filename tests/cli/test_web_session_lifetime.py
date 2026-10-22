@@ -493,13 +493,6 @@ def test_declared_store_dir_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    """A port nothing is listening on right now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
 def _render_on_port(repo: Path, port: int) -> None:
     """Stub a build whose config.yml pins the terminal to *port* on loopback."""
     stub_build(
@@ -564,10 +557,10 @@ class TestSessionsClearRefusesALiveServer:
     """A running server would undo the delete, so the verb declines to pretend."""
 
     def test_a_listener_on_the_resolved_port_refuses_and_names_the_stop_verb(
-        self, runner, lifecycle_repo
+        self, reserve_port, runner, lifecycle_repo
     ):
         """A FOREGROUND server writes no PID file, so the socket is the probe."""
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
@@ -582,8 +575,10 @@ class TestSessionsClearRefusesALiveServer:
         assert "osprey web stop" in _flat(result.output)
         assert store.is_file(), "a refused clear must leave the store untouched"
 
-    def test_force_clears_anyway_and_says_what_force_does_not_do(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_force_clears_anyway_and_says_what_force_does_not_do(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
@@ -604,7 +599,7 @@ class TestSessionsClearRefusesALiveServer:
         assert "only stops them surviving the NEXT restart" in caveat
 
     def test_a_detached_servers_pid_file_refuses_with_nothing_listening(
-        self, runner, lifecycle_repo
+        self, reserve_port, runner, lifecycle_repo
     ):
         """The other half of the liveness read, on its own.
 
@@ -612,7 +607,7 @@ class TestSessionsClearRefusesALiveServer:
         yet still owns its sessions -- the PID file is the handle on it, and it
         has to refuse without any help from the socket probe.
         """
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
         _write_pid_file(lifecycle_repo)
@@ -623,8 +618,10 @@ class TestSessionsClearRefusesALiveServer:
         assert "osprey web stop" in _flat(result.output)
         assert store.is_file(), "a refused clear must leave the store untouched"
 
-    def test_force_clears_past_a_pid_file_with_the_same_caveat(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_force_clears_past_a_pid_file_with_the_same_caveat(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
         _write_pid_file(lifecycle_repo)
@@ -642,8 +639,10 @@ class TestSessionsClearRefusesALiveServer:
 class TestSessionsClearWithNoServer:
     """With nothing serving, the delete means what it says."""
 
-    def test_it_reports_the_digests_it_dropped_and_removes_the_file(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_it_reports_the_digests_it_dropped_and_removes_the_file(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
@@ -653,9 +652,11 @@ class TestSessionsClearWithNoServer:
         assert "Dropped 2 persisted session(s)." in _flat(result.output)
         assert not store.exists()
 
-    def test_every_port_keyed_store_goes_not_only_this_one(self, runner, lifecycle_repo):
+    def test_every_port_keyed_store_goes_not_only_this_one(
+        self, reserve_port, runner, lifecycle_repo
+    ):
         """One deployment can have served on several ports; all of them clear."""
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         mine = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
         other = _write_store(lifecycle_repo, "sessions-9999.json", 1)
@@ -667,8 +668,10 @@ class TestSessionsClearWithNoServer:
         assert "Dropped 6 persisted session(s)." in _flat(result.output)
         assert not mine.exists() and not other.exists() and not bare.exists()
 
-    def test_an_unreadable_store_counts_nothing_but_is_still_deleted(self, runner, lifecycle_repo):
-        port = _free_port()
+    def test_an_unreadable_store_counts_nothing_but_is_still_deleted(
+        self, reserve_port, runner, lifecycle_repo
+    ):
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _store_dir(lifecycle_repo) / f"sessions-{port}.json"
         store.parent.mkdir(parents=True, exist_ok=True)
@@ -681,9 +684,9 @@ class TestSessionsClearWithNoServer:
         assert not store.exists()
 
     def test_a_deployment_that_never_persisted_anything_is_not_an_error(
-        self, runner, lifecycle_repo
+        self, reserve_port, runner, lifecycle_repo
     ):
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         assert not _store_dir(lifecycle_repo).exists()
 
@@ -693,10 +696,10 @@ class TestSessionsClearWithNoServer:
         assert "Dropped 0 persisted session(s)." in _flat(result.output)
 
     def test_the_group_position_of_repo_reaches_the_subcommand(
-        self, runner, lifecycle_repo, tmp_path
+        self, reserve_port, runner, lifecycle_repo, tmp_path
     ):
         """``osprey web --repo X sessions clear`` is the same request as the tail form."""
-        port = _free_port()
+        port = reserve_port()
         _render_on_port(lifecycle_repo, port)
         store = _write_store(lifecycle_repo, f"sessions-{port}.json", 2)
 
