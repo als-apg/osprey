@@ -721,7 +721,7 @@ _SHIPPED_PLAN_ARGS: dict[str, tuple[dict[str, Any], set[str], set[str]]] = {
         {
             "correctors": ["COR1"],
             "readbacks": ["BPM1"],
-            "span_a": 1.0,
+            "span": 1.0,
             "num": 3,
             "sweep": "bidirectional",
         },

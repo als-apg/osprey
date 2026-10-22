@@ -1318,7 +1318,7 @@ class TestShippedExemplarsPassValidation:
             sample_args={
                 movable_field: ["hcm1", "hcm2"],
                 readable_field: ["bpm1", "bpm2"],
-                "span_a": 2.0,
+                "span": 2.0,
                 "num": 3,
             },
         )

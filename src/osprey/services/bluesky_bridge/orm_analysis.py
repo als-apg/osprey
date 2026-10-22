@@ -262,7 +262,7 @@ def sliced_response_matrix(
     against its OWN currents over its OWN slice only, which drops
     `build_response_matrix`'s centred-sweep requirement entirely: idle
     correctors' rows are never in the slice to begin with, so a
-    `monodirectional` sweep over `[0, span_a]` (which that function rejects
+    `monodirectional` sweep over `[0, span]` (which that function rejects
     with `DegenerateFitError`, its polyfit having no way to tell a one-sided
     sweep from a biased idle reading) fits correctly here. A slope is
     invariant to a shift in its x axis, so this path needs to know nothing

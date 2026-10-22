@@ -2323,7 +2323,7 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: P
 
 
 def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
-    """Every corrector the ORM lane sweeps holds ``+-SPAN_A`` on the model.
+    """Every corrector the ORM lane sweeps holds ``+-SPAN`` on the model.
 
     The lane sweeps one model's correctors, the model whose corrector a limits
     record bounds. A write the model cannot solve is refused and leaves the
@@ -2343,7 +2343,7 @@ def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
     composite = Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
     for setpoint in sorted(correctors):
         before = composite.get(setpoint)
-        for value in (-test_orm_roundtrip.SPAN_A, test_orm_roundtrip.SPAN_A):
+        for value in (-test_orm_roundtrip.SPAN, test_orm_roundtrip.SPAN):
             try:
                 composite.set({setpoint: value})
             except WriteRefusedError as exc:

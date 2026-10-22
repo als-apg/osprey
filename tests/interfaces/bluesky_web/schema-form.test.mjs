@@ -40,29 +40,29 @@ const ORM_SCHEMA = {
       type: 'array',
       'x-widget': 'channel-list',
     },
-    span_a: {
+    span: {
       description: 'Maximum corrector kick, in amps, at the far end of the sweep.',
       exclusiveMinimum: 0,
       maximum: 10.0,
-      title: 'Max kick (A)',
+      title: 'Max kick',
       type: 'number',
     },
     num: {
-      description: 'Number of evenly-spaced current points per corrector.',
+      description: 'Number of evenly-spaced kicks per corrector.',
       minimum: 3,
       title: 'Number of steps',
       type: 'integer',
     },
     sweep: {
       default: 'bidirectional',
-      description: 'bidirectional sweeps [-span_a, +span_a]; monodirectional sweeps [0, +span_a].',
+      description: 'bidirectional sweeps [-span, +span]; monodirectional sweeps [0, +span].',
       enum: ['bidirectional', 'monodirectional'],
       title: 'Sweep direction',
       type: 'string',
       'x-widget': 'segmented',
     },
   },
-  required: ['correctors', 'readbacks', 'span_a', 'num'],
+  required: ['correctors', 'readbacks', 'span', 'num'],
   title: 'PARAMS',
   type: 'object',
 };
@@ -186,14 +186,14 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
 
     // Five labeled rows, in schema order.
     const names = $$(form, '.field-name').map((n) => n.textContent);
-    expect(names).toEqual(['Correctors', 'BPMs', 'Max kick (A)', 'Number of steps', 'Sweep direction']);
+    expect(names).toEqual(['Correctors', 'BPMs', 'Max kick', 'Number of steps', 'Sweep direction']);
 
     // Both device lists render as the vertical channel-list widget — not the
     // wrapping chip well, and not a lone text box.
     expect($$(form, '.channel-list').length).toBe(2);
     expect($$(form, '.chips').length).toBe(0);
 
-    // span_a: number input carrying the schema bounds.
+    // span: number input carrying the schema bounds.
     const numberInputs = $$(form, 'input[type="number"]');
     const spanA = numberInputs.find((i) => i.step === 'any');
     expect(spanA.min).toBe('0');
@@ -217,14 +217,14 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
 
   test('a layout option places fields into side-by-side rows', () => {
     renderSchemaForm(form, ORM_SCHEMA, {
-      layout: [['correctors', 'readbacks'], ['span_a', 'num'], ['sweep']],
+      layout: [['correctors', 'readbacks'], ['span', 'num'], ['sweep']],
     });
     const rows = $$(form, '.form-row');
     expect(rows.length).toBe(3);
     expect(rows[0].style.getPropertyValue('--cols')).toBe('2');
     expect($$(rows[0], '.field-name').map((n) => n.textContent)).toEqual(['Correctors', 'BPMs']);
     expect($$(rows[1], '.field-name').map((n) => n.textContent)).toEqual([
-      'Max kick (A)',
+      'Max kick',
       'Number of steps',
     ]);
     expect($$(rows[2], '.field-name').map((n) => n.textContent)).toEqual(['Sweep direction']);
@@ -248,7 +248,7 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
     expect(collect()).toEqual({
       correctors: ['HCM1', 'HCM2', 'HCM3'],
       readbacks: ['BPM1'],
-      span_a: 2.5,
+      span: 2.5,
       num: 7,
       // The segmented control always contributes; untouched, it is its default.
       sweep: 'bidirectional',
@@ -563,13 +563,13 @@ describe('applyValues (field registry / programmatic draft application)', () => 
   test('applies a number field and an integer field, coercing display text', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
     const nativeCount = countNativeEvents(form);
-    collect.applyValues({ span_a: 4, num: 6 });
+    collect.applyValues({ span: 4, num: 6 });
     expect(nativeCount()).toBe(0);
     const spanA = $$(form, 'input[type="number"]').find((i) => i.step === 'any');
     const num = $$(form, 'input[type="number"]').find((i) => i.step === '1');
     expect(spanA.value).toBe('4');
     expect(num.value).toBe('6');
-    expect(collect()).toEqual({ span_a: 4, num: 6, sweep: 'bidirectional' });
+    expect(collect()).toEqual({ span: 4, num: 6, sweep: 'bidirectional' });
   });
 
   test('applies a boolean toggle without a click/change event', () => {
@@ -672,27 +672,27 @@ describe('applyValues (field registry / programmatic draft application)', () => 
     const collect = renderSchemaForm(form, ORM_SCHEMA);
     const listener = vi.fn();
     form.addEventListener('form-change', listener);
-    collect.applyValues({ span_a: 1, num: 3, sweep: 'monodirectional' });
+    collect.applyValues({ span: 1, num: 3, sweep: 'monodirectional' });
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
   test('keys absent from values are left untouched across separate applyValues calls', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
-    collect.applyValues({ span_a: 5 });
-    expect(collect()).toEqual({ span_a: 5, sweep: 'bidirectional' });
+    collect.applyValues({ span: 5 });
+    expect(collect()).toEqual({ span: 5, sweep: 'bidirectional' });
 
     // A disjoint second call must not clobber the field set by the first.
     collect.applyValues({ num: 4 });
-    expect(collect()).toEqual({ span_a: 5, num: 4, sweep: 'bidirectional' });
+    expect(collect()).toEqual({ span: 5, num: 4, sweep: 'bidirectional' });
   });
 
   test('exposes a top-level field registry keyed by schema property name', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
     expect(Object.keys(collect.fields).sort()).toEqual(
-      ['correctors', 'readbacks', 'num', 'span_a', 'sweep'].sort()
+      ['correctors', 'readbacks', 'num', 'span', 'sweep'].sort()
     );
-    expect(typeof collect.fields.span_a.setValue).toBe('function');
-    expect(collect.fields.span_a.el).toBeTruthy();
+    expect(typeof collect.fields.span.setValue).toBe('function');
+    expect(collect.fields.span.el).toBeTruthy();
   });
 
   test('the returned collector is still callable directly — the collectPlanArgs() contract is unchanged', () => {

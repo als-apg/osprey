@@ -106,7 +106,7 @@ SCAN_TIMEOUT_SEC = 120.0
 # value that lets the "every point visited" check (b) distinguish "grid
 # actually swept" from "coincidentally saw the endpoints twice". Values stay
 # well inside the band of the corrector a limits record bounds (+-12A in the
-# example facility, the band test_orm_roundtrip.py's SPAN_A documents), and
+# example facility, the band test_orm_roundtrip.py's SPAN documents), and
 # NUM_POINTS meets grid_scan's own `ge=2` num_points floor.
 AXIS_START_A = -3.0
 AXIS_STOP_A = 3.0

@@ -120,7 +120,7 @@ HEALTH_TIMEOUT_SEC = 300.0
 # Within the corrector channel_limits band (+-12A) and the response model's
 # documented linear regime (ORMParams' own docstring); NUM_POINTS >= 3 per
 # the schema's `ge=3`.
-SPAN_A = 5.0
+SPAN = 5.0
 
 #: 6 correctors x 21 points = 126 rows, sized deliberately past the 100-row
 #: default window of ``GET /runs/{id}/data``. The figure route computes over a
@@ -594,7 +594,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     plan_args = {
         "correctors": list(correctors),
         "readbacks": list(bpms),
-        "span_a": SPAN_A,
+        "span": SPAN,
         "num": NUM_POINTS,
     }
     expected_rows = len(correctors) * NUM_POINTS
@@ -791,8 +791,8 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     # reading this stack serves is still, so the VA's correctors idle at 0 A,
     # here those kicks ARE these absolute currents and the model needs no
     # offset of its own.
-    step = (2 * SPAN_A) / (NUM_POINTS - 1)
-    currents = [-SPAN_A + i * step for i in range(NUM_POINTS)]
+    step = (2 * SPAN) / (NUM_POINTS - 1)
+    currents = [-SPAN + i * step for i in range(NUM_POINTS)]
     model = _model_response_matrix(deployed_orm_stack.repo, correctors, bpms, currents)
 
     assert np.allclose(measured, model, rtol=MATCH_RTOL, atol=MATCH_ATOL), (

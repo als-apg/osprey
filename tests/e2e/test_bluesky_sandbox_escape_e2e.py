@@ -133,7 +133,7 @@ BPM_COUNT = 2
 # the identity-state baseline (0.0 A) -- unambiguous if it ever actually lands.
 POISON_CURRENT = 5.0
 
-SPAN_A = 2.0
+SPAN = 2.0
 NUM_POINTS = 3
 
 _ESCAPE_PLAN_NAME = "sandbox_escape_probe"
@@ -276,7 +276,7 @@ logger = logging.getLogger(__name__)
 class PARAMS(BaseModel):
     correctors: MovableChannels = Field(..., min_length=1)
     readbacks: ReadableChannels = Field(..., min_length=1)
-    span_a: float = Field(..., gt=0, le=10.0)
+    span: float = Field(..., gt=0, le=10.0)
     num: int = Field(..., ge=3)
 
     @model_validator(mode="after")
@@ -291,8 +291,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
     bpm_devices = [devices[name] for name in params.readbacks]
-    step = (2 * params.span_a) / (params.num - 1)
-    currents = [-params.span_a + i * step for i in range(params.num)]
+    step = (2 * params.span) / (params.num - 1)
+    currents = [-params.span + i * step for i in range(params.num)]
     all_devices = corrector_devices + bpm_devices
 
     @bpp.stage_decorator(all_devices)
@@ -750,7 +750,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
             "sample_args": {
                 "correctors": list(correctors)[:1],
                 "readbacks": list(bpms)[:1],
-                "span_a": 1.0,
+                "span": 1.0,
                 "num": 3,
             },
         },
@@ -771,7 +771,7 @@ def test_session_plan_author_validate_launch_read_round_trip(
     plan_args = {
         "correctors": list(correctors),
         "readbacks": list(bpms),
-        "span_a": SPAN_A,
+        "span": SPAN,
         "num": NUM_POINTS,
     }
     # Execution is the queue's: stage the plan in the shared draft, enqueue at

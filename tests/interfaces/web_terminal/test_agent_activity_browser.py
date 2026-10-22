@@ -402,7 +402,7 @@ _PLAN_ARGS: dict[str, dict] = {
         "readbacks": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
     },
-    "orm": {"correctors": ["COR1"], "readbacks": ["BPM1"], "span_a": 1.0, "num": 3},
+    "orm": {"correctors": ["COR1"], "readbacks": ["BPM1"], "span": 1.0, "num": 3},
 }
 
 

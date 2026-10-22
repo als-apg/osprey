@@ -75,7 +75,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
         {
             "correctors": ["hcm1", "hcm2"],
             "readbacks": ["bpm1", "bpm2", "bpm3"],
-            "span_a": 2.0,
+            "span": 2.0,
             "num": 5,
         },
         devices=orm_devices,
@@ -116,7 +116,7 @@ def test_orm_plan_restores_each_corrector_through_the_real_loader_path(
         {
             "correctors": ["hcm1", "hcm2"],
             "readbacks": ["bpm1"],
-            "span_a": 3.0,
+            "span": 3.0,
             "num": 3,
         },
         devices=orm_devices,
@@ -161,7 +161,7 @@ def test_orm_plan_output_is_fittable_by_the_analysis_it_feeds() -> None:
         {
             "correctors": list(correctors),
             "readbacks": readbacks,
-            "span_a": 2.0,
+            "span": 2.0,
             "num": 5,
         },
         devices=devices,
@@ -226,7 +226,7 @@ def test_orm_plan_rows_carry_the_demand_column_the_setpoint_fit_reads() -> None:
     devices = asyncio.run(connect_all({"hcm1": fake.device("hcm1"), "bpm1": MockReadable("bpm1")}))
     run_uid = run_plan(
         "orm",
-        {"correctors": ["hcm1"], "readbacks": ["bpm1"], "span_a": 2.0, "num": 3},
+        {"correctors": ["hcm1"], "readbacks": ["bpm1"], "span": 2.0, "num": 3},
         devices=devices,
         plans=plan_loader.get_facility_plans().plans,
     )
@@ -251,7 +251,7 @@ def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) 
         {
             "correctors": ["hcm1"],
             "readbacks": ["bpm1", "bpm2"],
-            "span_a": 1.0,
+            "span": 1.0,
             "num": 4,
         },
         devices=orm_devices,

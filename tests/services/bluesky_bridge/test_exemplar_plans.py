@@ -107,7 +107,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
         {
             "correctors": ["hcm1", "hcm2"],
             "readbacks": ["bpm1", "bpm2"],
-            "span_a": 2.0,
+            "span": 2.0,
             "num": 3,
         },
         devices=orm_devices,

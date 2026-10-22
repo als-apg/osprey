@@ -36,7 +36,7 @@ shipped catalog currently has exactly two such plans (``orm``, ``grid_scan``
 -- see the project's "no bba/tune_scan" convention: only ``orm`` + n-d
 ``grid_scan`` ship), but NEITHER name is hardcoded here:
 ``_build_minimal_plan_args`` maps the winning candidate's JSON ``schema`` by
-FIELD SHAPE (``correctors``+``readbacks``+``span_a``+``num`` vs.
+FIELD SHAPE (``correctors``+``readbacks``+``span``+``num`` vs.
 ``axes``+``readbacks``) onto the derived corrector/BPM device names, so a
 future third exemplar plan is picked up automatically as long as it matches
 one of those two shapes, and is otherwise skipped rather than crashing the
@@ -313,7 +313,7 @@ def _build_minimal_plan_args(
     corrector_names = list(correctors.keys())
     bpm_names = list(bpms.keys())
 
-    if {"correctors", "readbacks", "span_a", "num"} <= props.keys():
+    if {"correctors", "readbacks", "span", "num"} <= props.keys():
         # orm-shaped: sweep one corrector over a small bounded
         # current range, reading the BPMs.
         if not corrector_names or not bpm_names:
@@ -321,7 +321,7 @@ def _build_minimal_plan_args(
         return {
             "correctors": corrector_names[:1],
             "readbacks": bpm_names[: min(2, len(bpm_names))],
-            "span_a": 1.0,
+            "span": 1.0,
             "num": 3,
         }
 

@@ -1593,7 +1593,7 @@ def _figure(
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
     "readbacks": ["bpm_01", "bpm_17", "bpm_23"],
-    "span_a": 1.0,
+    "span": 1.0,
     "num": 9,
 }
 
@@ -1711,7 +1711,7 @@ def test_floor_accepts_draft_assembled_across_two_calls() -> None:
     is incremental, so the state the add sees is the fold of both — grading a
     single call's ``plan_args_patch`` would wrongly fail this correct run."""
     traces = [
-        _draft(patch={"correctors": ["corrector_01"], "span_a": 1.0}),
+        _draft(patch={"correctors": ["corrector_01"], "span": 1.0}),
         _draft(plan_name=None, patch={"readbacks": ["bpm_01"], "num": 9}),
         _add(),
         _start(),
@@ -1892,10 +1892,10 @@ _LIVE_ENVELOPED_ADD_RESULT = (
     r'{"result":"{\"run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"revision\": 5, \"item\":'
     r" {\"item_type\": \"plan\", \"name\": \"orm\", \"kwargs\": {\"correctors\": "
     r"[\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": [\"SR:DIAG:BPM:01:POSITION:X\"], "
-    r"\"span_a\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
+    r"\"span\": 2.0, \"num\": 5, \"sweep\": \"bidirectional\"}, \"meta\": "
     r"{\"osprey_run_id\": \"5f2d23d785c042dfa3eeeaeddc898ee3\", \"osprey_plan\": {\"name\": "
     r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": "
-    r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
+    r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span\": 2.0, \"num\": 5, \"sweep\": "
     r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
     r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}, \"armed\": true}"}'
 )

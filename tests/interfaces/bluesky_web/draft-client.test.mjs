@@ -61,10 +61,10 @@ const ORM_SCHEMA = {
       type: 'array',
       'x-widget': 'channel-list',
     },
-    span_a: {
+    span: {
       exclusiveMinimum: 0,
       maximum: 10.0,
-      title: 'Max kick (A)',
+      title: 'Max kick',
       type: 'number',
     },
     num: {
@@ -73,7 +73,7 @@ const ORM_SCHEMA = {
       type: 'integer',
     },
   },
-  required: ['correctors', 'span_a', 'num'],
+  required: ['correctors', 'span', 'num'],
   title: 'PARAMS',
   type: 'object',
 };
@@ -445,15 +445,15 @@ describe('shouldAutoSwitch / shouldShowAgentDraftBanner', () => {
 
 describe('computeDelta', () => {
   test('a present key goes into plan_args_patch', () => {
-    const { plan_args_patch, remove } = computeDelta({ num: 4, span_a: 1.5 }, ['num']);
+    const { plan_args_patch, remove } = computeDelta({ num: 4, span: 1.5 }, ['num']);
     expect(plan_args_patch).toEqual({ num: 4 });
     expect(remove).toEqual([]);
   });
 
   test('a blanked (absent/OMIT-dropped) key goes into remove[]', () => {
-    const { plan_args_patch, remove } = computeDelta({ num: 4 }, ['num', 'span_a']);
+    const { plan_args_patch, remove } = computeDelta({ num: 4 }, ['num', 'span']);
     expect(plan_args_patch).toEqual({ num: 4 });
-    expect(remove).toEqual(['span_a']);
+    expect(remove).toEqual(['span']);
   });
 });
 
@@ -550,7 +550,7 @@ describe('createDraftClient — binding transitions', () => {
     harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 5 } }, revision: 1 });
 
     harness.deps.getDraft.mockResolvedValueOnce({
-      draft: { plan_name: 'orm', plan_args: { num: 7, span_a: 2.5 } },
+      draft: { plan_name: 'orm', plan_args: { num: 7, span: 2.5 } },
       revision: 1,
     });
 
@@ -559,7 +559,7 @@ describe('createDraftClient — binding transitions', () => {
     expect(harness.client.isBound()).toBe(true);
     expect(harness.deps.onBoundChange).toHaveBeenCalledWith(true);
     // Seeded from the fresh GET /draft snapshot, not bare schema defaults.
-    expect(harness.getCollector()()).toEqual({ num: 7, span_a: 2.5 });
+    expect(harness.getCollector()()).toEqual({ num: 7, span: 2.5 });
   });
 
   test('selecting a plan that does not match the draft stays unbound, no affordance', async () => {
@@ -784,7 +784,7 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
 
   test('blanking a field marks it pending and PATCHes it into remove[]', async () => {
     const spanInput = /** @type {HTMLInputElement} */ (
-      harness.getCollector().fields.span_a.el.querySelector('input')
+      harness.getCollector().fields.span.el.querySelector('input')
     );
     spanInput.value = '';
     spanInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -793,7 +793,7 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
 
     expect(harness.deps.patchDraft).toHaveBeenCalledTimes(1);
     const body = harness.deps.patchDraft.mock.calls[0][0];
-    expect(body.remove).toEqual(['span_a']);
+    expect(body.remove).toEqual(['span']);
     expect(body.plan_args_patch).toEqual({});
   });
 
@@ -1009,22 +1009,22 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
     const harness = makeHarness();
     harness.push({
       type: 'hello',
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     harness.deps.getDraft.mockResolvedValueOnce({
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     await harness.client.onPlanSelected('orm');
-    expect(harness.getCollector()()).toEqual({ num: 5, span_a: 2 });
+    expect(harness.getCollector()()).toEqual({ num: 5, span: 2 });
 
-    // The agent removed span_a: the new draft no longer carries it, but it's
+    // The agent removed span: the new draft no longer carries it, but it's
     // still named in changed[].
     harness.push({
       type: 'change',
       draft: { plan_name: 'orm', plan_args: { num: 5 } },
-      changed: ['span_a'],
+      changed: ['span'],
       revision: 2,
       origin: 'mcp-agent',
     });
@@ -1038,17 +1038,17 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
     const harness = makeHarness();
     harness.push({
       type: 'hello',
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     harness.deps.getDraft.mockResolvedValueOnce({
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     await harness.client.onPlanSelected('orm');
-    expect(harness.getCollector()()).toEqual({ num: 5, span_a: 2 });
+    expect(harness.getCollector()()).toEqual({ num: 5, span: 2 });
 
-    // 409 on the next flush -> resync to a snapshot that no longer has span_a.
+    // 409 on the next flush -> resync to a snapshot that no longer has span.
     harness.deps.patchDraft.mockResolvedValueOnce({
       ok: false,
       status: 409,
@@ -1065,7 +1065,7 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
 
     await harness.client.flushNow();
 
-    // span_a is gone from the resynced snapshot -- it must be cleared, not
+    // span is gone from the resynced snapshot -- it must be cleared, not
     // left showing its stale prior value.
     expect(harness.getCollector()()).toEqual({ num: 5 });
 
@@ -1088,7 +1088,7 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
     });
     harness.deps.patchDraft
       .mockReturnValueOnce(firstPatch)
-      .mockResolvedValueOnce({ ok: true, status: 200, body: { revision: 20, changed: ['span_a'], plan_name: 'orm' } });
+      .mockResolvedValueOnce({ ok: true, status: 200, body: { revision: 20, changed: ['span'], plan_name: 'orm' } });
 
     const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
     numInput.value = '2';
@@ -1098,7 +1098,7 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
     // A second edit lands on a DIFFERENT field while the first PATCH is
     // still in flight (its promise hasn't resolved yet).
     const spanInput = /** @type {HTMLInputElement} */ (
-      harness.getCollector().fields.span_a.el.querySelector('input')
+      harness.getCollector().fields.span.el.querySelector('input')
     );
     spanInput.value = '3';
     spanInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1108,7 +1108,7 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
 
     expect(harness.deps.patchDraft).toHaveBeenCalledTimes(2);
     expect(harness.deps.patchDraft.mock.calls[0][0].plan_args_patch).toEqual({ num: 2 });
-    expect(harness.deps.patchDraft.mock.calls[1][0].plan_args_patch).toEqual({ span_a: 3 });
+    expect(harness.deps.patchDraft.mock.calls[1][0].plan_args_patch).toEqual({ span: 3 });
     // The mid-flight edit's own PATCH revision is what gets pinned.
     expect(result).toEqual({ patched: true, revision: 20 });
 
@@ -1218,7 +1218,7 @@ describe('createDraftClient — agent auto-switch wiring', () => {
     await harness.client.onPlanSelected('grid_scan');
     expect(harness.deps.selectPlan).not.toHaveBeenCalled();
 
-    const draft = { plan_name: 'orm', plan_args: { num: 4, span_a: 1.5 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = { plan_name: 'orm', plan_args: { num: 4, span: 1.5 }, updated_by: 'mcp-agent', updated_at: T1 };
     harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
     harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
     await settleAsyncWork();
@@ -1227,9 +1227,9 @@ describe('createDraftClient — agent auto-switch wiring', () => {
     expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
     expect(harness.client.isBound()).toBe(true);
     // The whole applied arg set flashes — the frame's changed[] named only
-    // 'num', but span_a is agent-authored content newly on screen too.
+    // 'num', but span is agent-authored content newly on screen too.
     expect(harness.getCollector().fields.num.el.classList.contains('agent-flash')).toBe(true);
-    expect(harness.getCollector().fields.span_a.el.classList.contains('agent-flash')).toBe(true);
+    expect(harness.getCollector().fields.span.el.classList.contains('agent-flash')).toBe(true);
 
     harness.client.destroy();
   });
