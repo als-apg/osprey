@@ -4,7 +4,7 @@ The build registers exactly what the conventions copied as
 ``scaffold.user_owned`` — one rule for every artifact class, skills and
 services owned as whole directories — regen skips and prune never unlinks an
 owned path, a uniform notice announces any framework-selected artifact a
-profile file overrides, and a persona exclusion restores the framework render.
+profile file overrides, and a render exclusion restores the framework render.
 """
 
 from __future__ import annotations
@@ -170,7 +170,7 @@ def test_mirror_may_not_write_the_hooks_subtree(profile_dir: Path, project_path:
 
     Uniform with `.claude/rules/` and every other convention destination: two
     writers on one artifact give it two names — `project/.claude/hooks/x.py`
-    and `hooks/x.py` — and a persona excluding one would silently leave the
+    and `hooks/x.py` — and a render excluding one would silently leave the
     other standing.
     """
     _write(project_path / "config.yml", yaml.safe_dump({"scaffold": {"user_owned": []}}))
@@ -232,7 +232,7 @@ def test_unshadowed_copies_get_no_notice(
     assert "overrides framework" not in caplog.text
 
 
-# ── Persona exclusion: post-exclude ownership ────────────────────────
+# ── Render exclusion: post-exclude ownership ────────────────────────
 
 
 def test_excluded_shadow_restores_the_framework_render(

@@ -360,11 +360,11 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
     cannot authenticate — so a shell holding only half of what is needed is
     told what is missing instead of being handed a file.
 
-    Only the deployment's own provider, deliberately. A persona that
+    Only the deployment's own provider, deliberately. A render that
     authenticates elsewhere needs its key in the same file, but that gap belongs
     to ``.env.users`` generation further down the deploy, which names the
-    persona and the variable it is missing; anticipating it here would mean
-    re-deriving the persona sweep for a prompt whose whole job is to get the
+    render and the variable it is missing; anticipating it here would mean
+    re-deriving the render sweep for a prompt whose whole job is to get the
     file into existence.
 
     Args:
@@ -609,7 +609,7 @@ def up_verb(
 
     One exception, by design: a deployment with web terminals re-renders that
     stack at every start (its compose file, nginx config, landing page, and any
-    persona whose project is missing). Those follow the user roster rather than
+    render whose project is missing). Those follow the user roster rather than
     the build, so a roster edit takes effect on the next start.
 
     It reads profile.yml for one thing: a fingerprint. If the profile has

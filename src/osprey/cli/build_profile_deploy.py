@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAULT_TIER_KEY
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
@@ -62,8 +63,8 @@ _PROFILE_OWNED_KEYS: dict[str, str] = {
     "timezone": "the profile's `config:` key `system.timezone`",
     "control_system": "the profile's `config:` key `control_system.type`",
     "users": "the profile's `config:` key `modules.web_terminals.users`",
-    "personas": "the profile's `config:` key `modules.web_terminals.personas`",
-    "default_persona": "the profile's `config:` key `modules.web_terminals.default_persona`",
+    RETIRED_CATALOG_KEY: "one file per tier in `tiers/` and per app in `apps/` beside profile.yml",
+    RETIRED_DEFAULT_TIER_KEY: "the profile's `config:` key `modules.web_terminals.default_tier`",
 }
 
 #: Environment declarations have one channel for the whole profile, so the
@@ -92,6 +93,10 @@ IMAGE_SOURCE_CONFIG_KEY = f"{WEB_TERMINALS_CONFIG_PATH}.image_source"
 #: registry mode the build fills it from ``deploy.registry.url`` when the
 #: profile's ``config:`` block names none.
 REGISTRY_URL_CONFIG_KEY = "registry.url"
+
+#: Where the build writes ``dispatch.tier`` in the rendered config
+#: (``_inject_dispatch``), and so where the lint view carries it.
+DISPATCH_TIER_CONFIG_KEY = "services.dispatch_worker.tier"
 
 _KNOWN_DEPLOY_KEYS = frozenset(
     {"ci", "ci_image_prefix", "registry", "host", "image_source", "external_projects"}
@@ -324,37 +329,66 @@ def deploy_config_overrides(deploy: DeployConfig | None, config: Any) -> dict[st
     return overrides
 
 
+def profile_dispatch_tier(profile: Any) -> str | None:
+    """A resolved profile's ``dispatch.tier``, or ``None`` when it sets none.
+
+    Read defensively, as the lint view's callers hand it on: a profile without
+    a ``dispatch:`` block — or a stand-in that carries none — has no dispatch
+    tier.
+    """
+    dispatch = getattr(profile, "dispatch", None)
+    tier = getattr(dispatch, "tier", None)
+    return tier if isinstance(tier, str) and tier else None
+
+
 def build_lint_view(
-    deploy: DeployConfig | None, config: Any, project_name: str | None
+    deploy: DeployConfig | None,
+    config: Any,
+    project_name: str | None,
+    *,
+    profile_root: Path | None = None,
+    dispatch_tier: str | None = None,
 ) -> dict[str, Any]:
     """The config the profile lint judges: the ``config:`` block as the build renders it.
 
-    Three contributions over the profile's own entries, each one the build
+    Four contributions over the profile's own entries, each one the build
     also writes into ``build/config.yml``:
 
     - what the ``deploy:`` block contributes (:func:`deploy_config_overrides`);
-    - every rendered persona's ``project`` / ``project_path``, derived from
-      ``project_name``
-      (:func:`~osprey.deployment.web_terminals.persona_naming.derived_persona_catalog`);
+    - the render projection ``modules.web_terminals.renders`` — one entry per
+      tier and app file under *profile_root*, its ``project`` /
+      ``project_path`` derived from ``project_name``
+      (:func:`~osprey.deployment.web_terminals.render_naming.derived_renders`);
     - ``project_name`` itself, at the root, where the rendered config carries
-      it — so the rules that compare a persona's project with the deployment's
-      own (the worker-image shadow, the persona collisions) judge real values
-      before any render exists.
+      it — so the rules that compare a render's project with the deployment's
+      own (the project-image shadow, the render collisions) judge real values
+      before any render exists;
+    - ``dispatch.tier`` as ``services.dispatch_worker.tier``, the key the build
+      writes it under, so the lint names the dispatch tier among the renders
+      the deployment serves by one key at both altitudes.
 
     Args:
         deploy: The profile's parsed ``deploy:`` block, or ``None``.
         config: The profile's ``config:`` block.
         project_name: The profile's top-level ``project_name:``, or ``None``
             when it states none (nothing is derived from an absent name).
+        profile_root: The deployment repo whose ``tiers/`` and ``apps/`` the
+            projection lists; ``None`` projects no render.
+        dispatch_tier: The profile's ``dispatch.tier``, or ``None`` when it
+            sets none (nothing is written then, as the build writes nothing).
 
     Returns:
         A flat bag of the profile's dotted keys with the derived ones laid over.
     """
     view: dict[str, Any] = {**config, **deploy_config_overrides(deploy, config)}
+    if dispatch_tier is not None:
+        view[DISPATCH_TIER_CONFIG_KEY] = dispatch_tier
     if project_name:
-        from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
+        from osprey.deployment.web_terminals.render_naming import derived_renders
 
-        view.update(derived_persona_catalog(config, project_name))
+        view.update(
+            derived_renders(config, project_name, profile_root, dispatch_tier=dispatch_tier)
+        )
         view["project_name"] = project_name
     return view
 
@@ -365,6 +399,7 @@ def deploy_aware_config_errors(
     *,
     profile_root: Path | None = None,
     project_name: str | None = None,
+    dispatch_tier: str | None = None,
 ) -> list[str]:
     """Lint a profile's web stack against the config the BUILD will render.
 
@@ -396,15 +431,15 @@ def deploy_aware_config_errors(
     Args:
         deploy: The profile's parsed ``deploy:`` block, or ``None``.
         config: The profile's ``config:`` block.
-        profile_root: The directory the profile being linted lives in. Persona
-            deltas (``build_profile: personas/<name>.yml``) are named relative
-            to it, so a caller that omits it gets a lint that reads no delta
-            unless it happens to be running from the repo root — which is how
-            ``osprey build`` from a subdirectory, and ``--repo`` from anywhere,
-            used to pass a roster the profile gate exists to refuse. Every
-            command surface passes it.
+        profile_root: The directory the profile being linted lives in. Its
+            ``tiers/`` and ``apps/`` are the renders the projection lists, so
+            a caller that omits it gets a lint that sees no render — and would
+            pass a roster the profile gate exists to refuse. Every command
+            surface passes it.
         project_name: The profile's top-level ``project_name:``; see
             :func:`build_lint_view` for what is derived from it.
+        dispatch_tier: The profile's ``dispatch.tier``; see
+            :func:`build_lint_view`.
 
     Returns:
         The lint messages that must fail the command, empty when it passes.
@@ -414,7 +449,9 @@ def deploy_aware_config_errors(
     from osprey.deployment.telemetry_lint import telemetry_errors
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
-    view = build_lint_view(deploy, config, project_name)
+    view = build_lint_view(
+        deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
+    )
     return [
         *profile_config_errors(view, profile_root=profile_root),
         *telemetry_errors(_nest_dotted(view)),
@@ -427,6 +464,7 @@ def deploy_aware_config_warnings(
     *,
     profile_root: Path | None = None,
     project_name: str | None = None,
+    dispatch_tier: str | None = None,
 ) -> list[str]:
     """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
 
@@ -441,7 +479,9 @@ def deploy_aware_config_warnings(
     from osprey.deployment.telemetry_lint import telemetry_warnings
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
 
-    view = build_lint_view(deploy, config, project_name)
+    view = build_lint_view(
+        deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
+    )
     return [
         *profile_config_warnings(view, profile_root=profile_root),
         *telemetry_warnings(_nest_dotted(view)),

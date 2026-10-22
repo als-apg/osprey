@@ -36,7 +36,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -59,6 +59,10 @@ from osprey.docs_links import setup_remedy
 from osprey_connectors.config import load_project_config
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
+from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
+
+if TYPE_CHECKING:
+    from osprey.cli.scaffold_layers import LayerKind
 
 logger = get_logger("scaffold")
 
@@ -161,7 +165,7 @@ class ClaimTarget:
     Attributes:
         name: The canonical artifact name (``rules/safety``,
             ``commands/osprey/scan``, ``skills/orbit-check``) — the same
-            vocabulary the build registers ownership under and a persona delta
+            vocabulary the build registers ownership under and a layer
             excludes by.
         project_rel: Project-relative posix path of the artifact.
         profile_rel: Profile-relative posix path of its convention slot.
@@ -185,15 +189,15 @@ class ClaimOutcome:
         target: The resolved claim target.
         profile_path: Absolute path the artifact now lives at.
         profile_root: The profile root it was moved into.
-        is_persona_delta: The project was built from a persona delta, so the
-            destination is the delta's *root* profile — every persona built
+        is_layer: The project was built from a layer, so the
+            destination is the delta's *root* profile — every render built
             from it sees the artifact.
     """
 
     target: ClaimTarget
     profile_path: Path
     profile_root: Path
-    is_persona_delta: bool
+    is_layer: bool
 
 
 def _claimable_convention(category: str) -> ConventionDir | None:
@@ -456,7 +460,7 @@ def _project_profile_root(project_dir: Path) -> tuple[Path, bool]:
     """Resolve the profile root a project's claims land in.
 
     Follows the manifest's ``build_args.profile_path_abs`` — the path the build
-    actually resolved — and anchors it the way the build does: a persona delta
+    actually resolved — and anchors it the way the build does: a layer
     anchors at its *root* profile, because convention directories live there
     and a delta can only exclude from them.
 
@@ -469,7 +473,7 @@ def _project_profile_root(project_dir: Path) -> tuple[Path, bool]:
     resolver stays free of claim vocabulary.
 
     Returns:
-        ``(profile_root, is_persona_delta)``.
+        ``(profile_root, is_layer)``.
 
     Raises:
         ScaffoldClaimError: If the project names no profile, the profile it
@@ -493,12 +497,12 @@ def _project_profile_root(project_dir: Path) -> tuple[Path, bool]:
         )
 
     if resolved.root is None:
-        # All that is left is a persona delta whose root profile is gone. That
+        # All that is left is a layer whose root profile is gone. That
         # error already names the file that has to exist, and says it better
         # than a claim-flavoured rewording would.
         raise ScaffoldClaimError(str(resolved.root_error)) from resolved.root_error
 
-    profile_root, is_delta = resolved.root, resolved.is_persona_delta
+    profile_root, is_delta = resolved.root, resolved.is_layer
 
     if not profile_root.is_dir():
         raise ScaffoldClaimError(
@@ -700,7 +704,7 @@ def claim_into_profile(project_dir: Path, name: str) -> ClaimOutcome:
         target=target,
         profile_path=destination,
         profile_root=profile_root,
-        is_persona_delta=is_delta,
+        is_layer=is_delta,
     )
 
 
@@ -779,9 +783,10 @@ def scaffold(ctx):
 
     The ci verb regenerates the repo's pipeline and health check from the
     profile's deploy: block, and the systemd verb writes a unit that starts
-    this deployment at boot. The personas verb writes one file per persona the
-    profile catalogs, and the pull verb copies a preset's packaged content (its
-    app template's data and the facility it names) into this repo. The other
+    this deployment at boot. The tiers and apps verbs write the tier and app
+    files a preset's web-terminal roster names, and the pull verb copies a
+    preset's packaged content (its app template's data and the facility it
+    names) into this repo. The other
     verbs cover build artifacts, which can be claimed per-facility: claiming
     moves the artifact out of the build zone and into the profile beside it,
     which is where you then edit it. Every build copies it back and marks it
@@ -792,7 +797,8 @@ def scaffold(ctx):
     \b
       osprey scaffold ci                          # Re-emit the CI files
       osprey scaffold systemd                     # Write the boot unit
-      osprey scaffold personas                    # Write the persona files
+      osprey scaffold tiers                       # Write the tier files
+      osprey scaffold apps                        # Write the app files
       osprey scaffold pull control-assistant --list # Show what a preset offers
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
@@ -859,49 +865,19 @@ def ci(repo: Path | None, force: bool) -> None:
         raise SystemExit(1)
 
 
-@scaffold.command(name="personas")
-@repo_option
-@click.option(
-    "--from",
-    "from_preset",
-    metavar="PRESET",
-    default=None,
-    help="Preset whose persona catalog to emit. Default: the preset this repo was created from.",
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Rewrite a persona file that already exists.",
-)
-def personas(repo: Path | None, from_preset: str | None, force: bool) -> None:
-    """Emit one persona file per persona this profile catalogs.
-
-    Writes personas/<name>.yml for every entry in the profile's
-    modules.web_terminals.personas catalog, then points each entry at the file
-    beside it. The second half is what makes a pasted-in catalog this repo's
-    own: until the entries name these files, they still resolve to the presets
-    they were copied from.
-
-    Each file is a delta, merged over this profile because of where it sits, so
-    it carries only what the persona changes. A file that is already there is
-    yours: it is reported and left alone, and --force replaces it.
-
-    Examples:
-
-    \b
-      $ osprey scaffold personas --from control-assistant
-      $ osprey scaffold personas --force
-      $ osprey scaffold personas --repo ~/deployments/als-exemplar
-    """
-    # Imported here rather than at module scope: all three pull the whole
+def _scaffold_layer_files(
+    repo: Path | None, from_preset: str | None, force: bool, kind: LayerKind
+) -> None:
+    """The body of ``scaffold tiers`` and ``scaffold apps``; ``kind`` is the folder."""
+    # Imported here rather than at module scope: these pull the whole
     # build-profile chain in behind them, and every other verb in this group
     # runs without any of it.
     from .build_profile import resolve_build_profile
-    from .build_profile_emit import emits_persona_profiles, persona_catalog
     from .build_profile_resolve import PROFILE_FILENAME
     from .profile_cmd import _resolve_preset_bundle
-    from .scaffold_personas import emit_persona_files, repoint_persona_catalog
+    from .scaffold_layers import plan_layer_files, unnamed_by_roster, write_layer_files
 
+    word = LAYER_DIR_KINDS[kind]
     # Resolved before anything is emitted: standing outside a repo is a mistake
     # about where the command was run, not a scaffolding failure.
     repo_root = find_repo_root(repo)
@@ -911,21 +887,13 @@ def personas(repo: Path | None, from_preset: str | None, force: bool) -> None:
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
 
-    if not emits_persona_profiles(profile.config):
-        # The catalog is what says which personas exist, so without it there is
-        # nothing to emit and nothing to point anywhere.
-        raise click.ClickException(
-            f"This profile catalogs no personas, so there is nothing to emit. Add the "
-            f"modules.web_terminals.personas catalog to {PROFILE_FILENAME}, then run this again."
-        )
-
     preset = from_preset or (profile.provenance.preset if profile.provenance else None)
     if not preset:
         # A repo materialized by osprey init records its preset; a hand-written
         # profile records nothing, and then only the operator knows.
         raise click.UsageError(
             "This profile does not record the preset it came from, so --from is required. "
-            "Pass --from PRESET to name the preset whose persona catalog to emit."
+            f"Pass --from PRESET to name the preset whose {word} files to emit."
         )
 
     # Shared with the init path rather than re-derived: an unknown preset is a
@@ -934,31 +902,111 @@ def personas(repo: Path | None, from_preset: str | None, force: bool) -> None:
     preset_name, _bundle = _resolve_preset_bundle(preset)
 
     try:
-        report = emit_persona_files(repo_root, profile.name, preset_name, force=force)
+        results, texts = plan_layer_files(repo_root, profile.name, preset_name, kind, force=force)
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
 
-    repointed = repoint_persona_catalog(repo_root, report.names)
-
-    for relative in report.written:
-        console.print(f"  [success]✓[/success] {relative}")
-    for relative in report.skipped:
-        console.print(f"  [dim]= {relative} (exists, use --force)[/dim]")
-
-    # The emission follows the preset's catalog; the repoint follows this
-    # repo's. A persona in the first and not the second has a file nothing
-    # reads, which only the operator can fix.
-    catalog = persona_catalog(profile.config)
-    uncatalogued = [name for name in report.names if name not in catalog]
-    if uncatalogued:
-        console.print(
-            f"  [warning]![/warning] not in this profile's catalog: {', '.join(uncatalogued)}"
+    if not results:
+        raise click.ClickException(
+            f"Preset {preset_name!r} names no {word} in its web-terminal roster, so there "
+            f"is nothing to emit. Pass --from PRESET to name a preset that has one."
         )
 
-    if repointed:
-        console.print(f"  catalog: {repointed} entries repointed")
-    else:
-        console.print("  catalog: already current")
+    refused = [result for result in results if result.action == "refused"]
+    if refused:
+        for result in refused:
+            console.print(
+                f"  [error]✗[/error] {result.relative} not written: it exists and differs "
+                f"from the bundled {word}; --force replaces it"
+            )
+        # Non-zero before a single byte is written: one refusal stops the whole
+        # emission, so there is no half-replaced set for an operator to sort out.
+        raise SystemExit(1)
+
+    write_layer_files(repo_root, texts)
+    for result in results:
+        if result.action == "unchanged":
+            console.print(f"  [dim]= {result.relative} (unchanged)[/dim]")
+        else:
+            console.print(f"  [success]✓[/success] {result.relative} ({result.action})")
+
+    # Adopting another preset's files does not deploy them: until this repo's
+    # roster names one, it sits unread, and an operator could take it for live.
+    unnamed = unnamed_by_roster(profile, results, kind)
+    if unnamed:
+        console.print(
+            f"  [warning]⚠[/warning] not named by this repo's roster, so nothing deploys "
+            f"them yet: {', '.join(unnamed)}"
+        )
+
+
+_FROM_HELP = "Preset whose {} to emit. Default: the preset this repo was created from."
+
+
+@scaffold.command(name="tiers")
+@repo_option
+@click.option(
+    "--from",
+    "from_preset",
+    metavar="PRESET",
+    default=None,
+    help=_FROM_HELP.format("tier files"),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace a tier file that exists and differs.",
+)
+def tiers(repo: Path | None, from_preset: str | None, force: bool) -> None:
+    """Emit the tier files a preset's web-terminal roster names.
+
+    Writes tiers/<name>.yml for every tier the preset's roster names, exactly
+    as osprey init does: the bundled tier written out in full, with its
+    comments and a provenance block. A file whose content already matches is
+    left untouched. A file that differs is yours: it is reported, nothing is
+    written, and --force replaces it.
+
+    Examples:
+
+    \b
+      $ osprey scaffold tiers
+      $ osprey scaffold tiers --from control-assistant
+      $ osprey scaffold tiers --force
+    """
+    _scaffold_layer_files(repo, from_preset, force, TIERS_DIRNAME)
+
+
+@scaffold.command(name="apps")
+@repo_option
+@click.option(
+    "--from",
+    "from_preset",
+    metavar="PRESET",
+    default=None,
+    help=_FROM_HELP.format("app files"),
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Replace an app file that exists and differs.",
+)
+def apps(repo: Path | None, from_preset: str | None, force: bool) -> None:
+    """Emit the app files a preset's web-terminal roster shares.
+
+    Writes apps/<name>.yml for every app the preset's roster names under
+    shared:, exactly as osprey init does: the bundled app written out in full,
+    with its comments and a provenance block. A file whose content already
+    matches is left untouched. A file that differs is yours: it is reported,
+    nothing is written, and --force replaces it.
+
+    Examples:
+
+    \b
+      $ osprey scaffold apps
+      $ osprey scaffold apps --from control-assistant
+      $ osprey scaffold apps --force
+    """
+    _scaffold_layer_files(repo, from_preset, force, APPS_DIRNAME)
 
 
 @scaffold.command(name="pull")
@@ -1006,7 +1054,7 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
       $ osprey scaffold pull control-assistant:web-terminal-context
       $ osprey scaffold pull hello-world:mcp_servers/example_server --force
     """
-    # Imported here for the same reason `ci` and `personas` do it: the
+    # Imported here for the same reason `ci` and `tiers` do it: the
     # build-profile chain behind a preset is not loaded for any of the
     # ownership verbs in this group.
     from .profile_cmd import _preset_data, _resolve_preset_bundle
@@ -1427,10 +1475,10 @@ def claim(name, repo):
         f"\n  [success]✓[/success] Moved {noun} {outcome.target.project_rel} "
         f"→ [path]{outcome.profile_path}[/path]"
     )
-    if outcome.is_persona_delta:
+    if outcome.is_layer:
         console.print(
-            "  [dim]This project builds a persona delta; convention directories live "
-            "at the profile root, so every persona built from it gets this "
+            "  [dim]This project builds a layer; convention directories live "
+            "at the profile root, so every render built from it gets this "
             f"{outcome.target.entry_noun}.[/dim]"
         )
     console.print(
@@ -1582,7 +1630,7 @@ def unclaim(name, repo):
     Ownership that a build derived from the profile is re-registered by the
     next build, so releasing it here holds only until then — the profile is
     where such an artifact is given up, by removing it from its convention
-    directory (or excluding it in a persona delta).
+    directory (or excluding it in a layer).
 
     Examples:
 
@@ -1756,8 +1804,8 @@ def web_terminals_lint(repo, config_path):
     # The repo root, not the working directory: a catalog entry's
     # `project_path` is relative to the deployment repo — the same anchor
     # `write_web_terminal_artifacts` resolves it against — so a lint run from
-    # anywhere else used to read no persona `config.yml` at all and report
-    # every persona as unprivileged.
+    # anywhere else used to read no render `config.yml` at all and report
+    # every render as unprivileged.
     # The telemetry store's rules ride the same command: its readers are named
     # beside the roster, and a deployment is linted in one pass.
     from osprey.deployment.telemetry_lint import lint_telemetry
@@ -1824,6 +1872,7 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
+    from osprey.deployment.web_terminals.roster import app_titles_in
 
     repo_root = find_repo_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
@@ -1831,9 +1880,9 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     if not no_lint:
         from osprey.deployment.web_terminals.lint import lint_web_terminals
 
-        # `project_root` for the same reason `lint` passes it: persona
+        # `project_root` for the same reason `lint` passes it: render
         # `project_path` values anchor on the deployment repo, and a gate that
-        # cannot find a persona's rendered config.yml passes every roster.
+        # cannot find a render's rendered config.yml passes every roster.
         findings = lint_web_terminals(config, project_root=repo_root)
         errors = [f for f in findings if f.severity == "error"]
         warnings = [f for f in findings if f.severity == "warn"]
@@ -1854,10 +1903,13 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
             )
 
     # The preview names the facility by the project name, the name a build
-    # with no authored identity records.
+    # with no authored identity records; each app card is titled by its
+    # apps/<name>.yml `name:`, as the deploy titles it.
     try:
         artifacts = render_web_terminals(
-            config, facility_name=str(config.get("project_name") or "")
+            config,
+            facility_name=str(config.get("project_name") or ""),
+            app_titles=app_titles_in(repo_root / APPS_DIRNAME),
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc

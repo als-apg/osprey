@@ -35,6 +35,7 @@ from osprey.deployment.web_terminals.ports import (
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import resolve_port_base
+from tests._renders import tier_render
 
 pytestmark = [pytest.mark.e2e, pytest.mark.model_free]
 
@@ -78,8 +79,8 @@ def _sample_config() -> dict:
                     {"name": "bob", "index": 1},
                     {"name": "carol", "index": 2},
                 ],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "dls-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "dls-assistant")},
                 "landing": {
                     "groups": [
                         {"type": "users"},
@@ -108,11 +109,11 @@ def test_scaffold_render_consistency_across_all_generated_artifacts(tmp_path: Pa
     # Arrange
     config = _sample_config()
     web_terminals = config["modules"]["web_terminals"]
-    # The default persona's render, which the lint reads its privileges from.
-    persona = tmp_path / "dls-assistant"
-    persona.mkdir()
-    (persona / "config.yml").write_text("project_name: dls-assistant\n", encoding="utf-8")
-    web_terminals["personas"]["assistant"]["project_path"] = "dls-assistant"
+    # The default tier's render, which the lint reads its privileges from.
+    tier = tmp_path / "dls-assistant"
+    tier.mkdir()
+    (tier / "config.yml").write_text("project_name: dls-assistant\n", encoding="utf-8")
+    web_terminals["renders"]["assistant"]["project_path"] = "dls-assistant"
     roster = web_terminals["users"]
     users = [entry["name"] for entry in roster]
     # Same effective base set the render allocates from: config values plus

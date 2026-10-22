@@ -93,7 +93,7 @@ services:
       # it keeps the role it has — the agent then falls back to the ingestion
       # identity with one warning rather than failing to start. Adopting the
       # role on an existing volume is the one-shot command in the
-      # "Read-only role for the SQL tool" section of the standalone-deployment
+      # "Read-only role for the SQL tool" section of the ARIEL search-modes
       # how-to, which runs this same file by hand.
       - ./build/services/postgresql/10-readonly-role.sh:/docker-entrypoint-initdb.d/10-readonly-role.sh:ro
     networks:

@@ -4,12 +4,12 @@ Covers ``osprey.deployment.web_terminals.provision`` in isolation: the web
 stack's own ``compose down``, the single post-``up`` force-recreate (podman
 image drift), the ``preflight_web_terminals`` auth-credential provisioning
 (mint order and the fail-closed gate), and the auth sidecar's image
-production (registry-mode ``auth.image`` requirement, local-mode build, pull
+production (registry-mode sidecar image name, local-mode build, pull
 scoping) plus the shared force-recreate primitive. The
 deploy_up-entry orchestration that wires the provisioning modules together
 lives in ``tests/deployment/test_container_lifecycle.py``; the split-out
 provisioning steps have their own modules and test files
-(``test_persona_images.py``, ``test_env_production.py``,
+(``test_render_images.py``, ``test_env_production.py``,
 ``test_auth_credentials.py``, ``test_postup_hooks.py``).
 """
 
@@ -35,7 +35,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AuthSecretsResult,
     TerminalSecretsResult,
 )
-from osprey.deployment.web_terminals.personas import PERSONA_CATALOG_REQUIRED
+from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
@@ -292,8 +292,9 @@ def test_reconcile_skipped_when_compose_file_unreadable(monkeypatch, tmp_path):
 def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-auth:1") -> dict:
     """A registry-mode web-terminals config with `method` authentication.
 
-    Carries an `auth.image` by default because registry mode requires one (see
-    the sidecar-image section below); pass None to exercise that requirement.
+    Carries an `auth.image` by default because the config has no `registry.url`
+    to name the sidecar under (see the sidecar-image section below); pass None
+    to exercise that requirement.
     """
     auth: dict = {"method": method}
     if auth_image is not None:
@@ -304,11 +305,12 @@ def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-aut
         "modules": {
             "web_terminals": {
                 "users": list(users),
-                "default_persona": "assistant",
-                "personas": {
+                "default_tier": "assistant",
+                "renders": {
                     "assistant": {
+                        "kind": "tier",
                         "project": "als_controls-assistant",
-                        "project_path": _DEFAULT_PERSONA_PATH,
+                        "project_path": _DEFAULT_TIER_PATH,
                     }
                 },
                 "auth": auth,
@@ -317,12 +319,12 @@ def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-aut
     }
 
 
-#: Where the default persona of :func:`_auth_config` is rendered.
-_DEFAULT_PERSONA_PATH = "build/als_controls-assistant"
+#: Where the default tier of :func:`_auth_config` is rendered.
+_DEFAULT_TIER_PATH = "build/als_controls-assistant"
 
 
-def _write_default_persona_settings(project_root: Path) -> None:
-    """Ship the default persona's rendered `.claude/settings.json`, as a build does.
+def _write_default_tier_settings(project_root: Path) -> None:
+    """Ship the default tier's rendered `.claude/settings.json`, as a build does.
 
     The open-mode gate reads it and fails closed on its absence. Every real
     build renders one; a fixture root without one models a deployment that
@@ -336,7 +338,7 @@ def _write_default_persona_settings(project_root: Path) -> None:
     import contextlib
     import json
 
-    settings = project_root / _DEFAULT_PERSONA_PATH / ".claude" / "settings.json"
+    settings = project_root / _DEFAULT_TIER_PATH / ".claude" / "settings.json"
     with contextlib.suppress(OSError):
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text(
@@ -351,7 +353,7 @@ def _run_preflight(monkeypatch, project_root: Path, config: dict):
     a registry-mode root with no .env.production); it is covered by
     test_env_production.py, so stub it out to keep these assertions about auth.
     """
-    _write_default_persona_settings(project_root)
+    _write_default_tier_settings(project_root)
     monkeypatch.chdir(project_root)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
     return provision.preflight_web_terminals(config)
@@ -417,10 +419,10 @@ def test_preflight_mints_credentials_then_secrets_for_the_roster(
 
     monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
     monkeypatch.setattr(provision, "ensure_auth_session_secrets", _fake_secrets)
-    # Local mode resolves personas and verifies their renders; neither is this
+    # Local mode resolves renders and verifies their renders; neither is this
     # test's subject, and local mode needs no auth.image.
-    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
-    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "resolve_cards", lambda *a, **kw: [])
+    monkeypatch.setattr(provision, "verify_renders", lambda *a, **kw: None)
 
     config = _auth_config("password", users=["alice", {"name": "bob-2", "index": 4}])
     config["modules"]["web_terminals"]["image_source"] = image_source
@@ -830,7 +832,7 @@ def test_preflight_does_not_warn_without_a_gitignore_at_all(monkeypatch, tmp_pat
 
 
 # ---------------------------------------------------------------------------
-# Auth sidecar image: the registry-mode requirement and the local-mode build
+# Auth sidecar image: the registry-mode name and the local-mode build
 # ---------------------------------------------------------------------------
 
 
@@ -841,15 +843,23 @@ def _sidecar_config(image_source: str, *, auth_image=None, method="password") ->
     return config
 
 
-def test_registry_mode_without_auth_image_fails_preflight(monkeypatch, tmp_path):
-    """Registry mode builds nothing locally, and the compose overlay falls back
-    to a `:local` tag that mode never produces — so a deployment that forgot
-    auth.image must abort here, naming the key, instead of dying at `pull` on a
-    tag no registry has."""
+def test_registry_mode_without_auth_image_or_registry_url_fails_preflight(monkeypatch, tmp_path):
+    """Registry mode builds nothing locally, and with neither `auth.image` nor
+    `registry.url` the sidecar has no name to pull — so the deploy aborts here,
+    naming both keys, instead of dying at `pull` on a `:local` tag no registry has."""
     _stub_clean_provisioning(monkeypatch, tmp_path)
 
-    with pytest.raises(RuntimeError, match="auth.image"):
+    with pytest.raises(RuntimeError, match=r"registry\.url .*auth\.image"):
         _run_preflight(monkeypatch, tmp_path, _sidecar_config("registry"))
+
+
+def test_registry_mode_with_registry_url_needs_no_auth_image(monkeypatch, tmp_path):
+    """The sidecar is named under `registry.url` like the terminal images."""
+    _stub_clean_provisioning(monkeypatch, tmp_path)
+    config = _sidecar_config("registry")
+    config["registry"] = {"url": "reg.example/osprey"}
+
+    _run_preflight(monkeypatch, tmp_path, config)
 
 
 def test_registry_mode_with_auth_image_passes_preflight(monkeypatch, tmp_path):
@@ -863,8 +873,8 @@ def test_registry_mode_with_auth_image_passes_preflight(monkeypatch, tmp_path):
 def test_local_mode_needs_no_auth_image_at_preflight(monkeypatch, tmp_path):
     """Local mode produces the tag itself, so the key is optional there."""
     _stub_clean_provisioning(monkeypatch, tmp_path)
-    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
+    monkeypatch.setattr(provision, "verify_renders", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "resolve_cards", lambda *a, **kw: [])
 
     _run_preflight(monkeypatch, tmp_path, _sidecar_config("local"))
 
@@ -979,9 +989,9 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "runtime_env", lambda config, env, **kw: dict(env))
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
-    monkeypatch.setattr(provision, "resolve_personas", lambda *a, **kw: [])
-    monkeypatch.setattr(provision, "verify_persona_renders", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "resolve_cards", lambda *a, **kw: [])
+    monkeypatch.setattr(provision, "verify_renders", lambda *a, **kw: None)
+    monkeypatch.setattr(provision, "build_render_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)
@@ -1211,8 +1221,8 @@ def test_force_recreate_auth_sidecar_is_a_warning_not_a_failure_without_a_stack(
 # ---------------------------------------------------------------------------
 
 
-def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
-    """Write a persona project under *root*; return its relative project_path.
+def _render_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
+    """Write a render project under *root*; return its relative project_path.
 
     Every project here runs the bluesky server, spelled out rather than left to
     a default: the server is opt-in in the registry, so a project that omits the
@@ -1237,7 +1247,7 @@ def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) 
     )
     # The template's own `deny_defaults`, verbatim — what a rendered project really
     # ships. These rosters run `auth.method: none`, and the open-mode gate refuses
-    # a persona that does not deny the whole host-network egress set, so a shorter
+    # a render that does not deny the whole host-network egress set, so a shorter
     # list here would refuse every one of these tests for the wrong reason.
     deny = [entry for entry in DENY_DEFAULTS if denies_bash or entry != "Bash"]
     (project_dir / ".claude" / "settings.json").write_text(
@@ -1246,19 +1256,20 @@ def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) 
     return f"profiles/{name}"
 
 
-def _persona_roster_config(root: Path, *, denies_bash: bool) -> dict:
-    """A registry-mode roster whose single persona both enables writes and runs bluesky."""
+def _render_roster_config(root: Path, *, denies_bash: bool) -> dict:
+    """A registry-mode roster whose single render both enables writes and runs bluesky."""
     return {
         "project_name": "demo-project",
         "modules": {
             "web_terminals": {
-                "users": [{"name": "alice", "index": 0, "persona": "readwrite"}],
-                "default_persona": "readwrite",
+                "users": [{"name": "alice", "index": 0, "tier": "readwrite"}],
+                "default_tier": "readwrite",
                 "auth": {"method": "none"},
-                "personas": {
+                "renders": {
                     "readwrite": {
+                        "kind": "tier",
                         "project": "rw",
-                        "project_path": _persona_project(
+                        "project_path": _render_project(
                             root, "rw", writes=True, denies_bash=denies_bash
                         ),
                     }
@@ -1268,9 +1279,9 @@ def _persona_roster_config(root: Path, *, denies_bash: bool) -> dict:
     }
 
 
-def test_preflight_refuses_a_bash_permitting_launch_token_persona(monkeypatch, tmp_path):
-    """The fail-fast gate: an entitled persona shipping no shell deny stops the
-    deploy in seconds, naming the persona.
+def test_preflight_refuses_a_bash_permitting_launch_token_render(monkeypatch, tmp_path):
+    """The fail-fast gate: an entitled render shipping no shell deny stops the
+    deploy in seconds, naming the render.
 
     `ensure_env_production` is deliberately NOT stubbed here. It raises on this
     root too, so demanding specifically a `BashLaunchTokenConflictError` proves
@@ -1278,7 +1289,7 @@ def test_preflight_refuses_a_bash_permitting_launch_token_persona(monkeypatch, t
     would surface the wrong error and fail this test.
     """
     monkeypatch.chdir(tmp_path)
-    config = _persona_roster_config(tmp_path, denies_bash=False)
+    config = _render_roster_config(tmp_path, denies_bash=False)
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         provision.preflight_web_terminals(config)
@@ -1301,13 +1312,13 @@ def test_preflight_refuses_before_any_credential_is_minted(monkeypatch, tmp_path
     )
 
     with pytest.raises(BashLaunchTokenConflictError):
-        provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=False))
+        provision.preflight_web_terminals(_render_roster_config(tmp_path, denies_bash=False))
 
     assert reached == []
 
 
 def test_preflight_refuses_a_registry_roster_with_no_catalog_before_any_mint(monkeypatch, tmp_path):
-    """A registry deployment with no persona catalog names no project for its
+    """A registry deployment with no renders projection names no project for its
     terminals; the preflight refuses it first, before any gate or credential."""
     monkeypatch.chdir(tmp_path)
     reached: list[str] = []
@@ -1321,10 +1332,10 @@ def test_preflight_refuses_a_registry_roster_with_no_catalog_before_any_mint(mon
     )
     config = _auth_config("password")
     web_terminals = config["modules"]["web_terminals"]
-    del web_terminals["personas"]
-    del web_terminals["default_persona"]
+    del web_terminals["renders"]
+    del web_terminals["default_tier"]
 
-    with pytest.raises(ValueError, match=re.escape(PERSONA_CATALOG_REQUIRED)):
+    with pytest.raises(ValueError, match=re.escape(RENDER_CATALOG_REQUIRED)):
         provision.preflight_web_terminals(config)
 
     assert reached == []
@@ -1336,13 +1347,13 @@ def test_preflight_refuses_a_registry_roster_with_no_catalog_before_any_mint(mon
 # The twin of the block above, and pinned in the same two places for the same
 # reason: the render seam's tests cover WHAT is refused, and only this placement
 # can cover WHEN. The gate sits immediately after the Bash guard and ahead of
-# `ensure_env_production`, so an open deployment whose personas can reach its own
+# `ensure_env_production`, so an open deployment whose renders can reach its own
 # terminals is refused before the image build and before a credential is minted.
 # ---------------------------------------------------------------------------
 
 
 def _egress_permitting_roster_config(root: Path, *, lift: str = "WebFetch") -> dict:
-    """The same open roster, whose persona denies the shell but ships one web tool.
+    """The same open roster, whose render denies the shell but ships one web tool.
 
     `denies_bash=True` deliberately: the Bash/launch-token guard runs first and
     would refuse this roster on its own terms, and a test that let it fire would
@@ -1351,7 +1362,7 @@ def _egress_permitting_roster_config(root: Path, *, lift: str = "WebFetch") -> d
     """
     import json
 
-    config = _persona_roster_config(root, denies_bash=True)
+    config = _render_roster_config(root, denies_bash=True)
     (root / "profiles" / "rw" / ".claude" / "settings.json").write_text(
         json.dumps({"permissions": {"deny": [entry for entry in DENY_DEFAULTS if entry != lift]}}),
         encoding="utf-8",
@@ -1359,9 +1370,9 @@ def _egress_permitting_roster_config(root: Path, *, lift: str = "WebFetch") -> d
     return config
 
 
-def test_preflight_refuses_an_egress_permitting_persona_under_open_mode(monkeypatch, tmp_path):
-    """The fail-fast gate for the open posture: a persona that still holds one
-    web tool stops the deploy in seconds, naming the persona and the entry.
+def test_preflight_refuses_an_egress_permitting_render_under_open_mode(monkeypatch, tmp_path):
+    """The fail-fast gate for the open posture: a render that still holds one
+    web tool stops the deploy in seconds, naming the render and the entry.
 
     `ensure_env_production` is deliberately NOT stubbed, exactly as in the Bash
     twin above. It raises on this root too, so demanding specifically an
@@ -1399,19 +1410,19 @@ def test_preflight_refuses_the_open_deployment_before_any_credential_is_minted(
     assert reached == []
 
 
-def test_preflight_passes_a_persona_that_denies_the_whole_egress_set(monkeypatch, tmp_path):
+def test_preflight_passes_a_render_that_denies_the_whole_egress_set(monkeypatch, tmp_path):
     """The negative control: the shipped deny list clears this gate too, so the
     guard cannot be passing by refusing every open deployment."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
 
-    provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=True))
+    provision.preflight_web_terminals(_render_roster_config(tmp_path, denies_bash=True))
 
 
 # ---------------------------------------------------------------------------
 # Open mode requires the render the gate reads -- in BOTH image-source modes
 #
-# `check_open_mode_requirements` reads each persona's rendered
+# `check_open_mode_requirements` reads each render's rendered
 # `.claude/settings.json` and fails closed on one it cannot read. On a pull-only
 # host nothing renders those projects, so without this every registry-mode open
 # deployment met a refusal whose remedy could not clear it. The render problem is
@@ -1420,15 +1431,15 @@ def test_preflight_passes_a_persona_that_denies_the_whole_egress_set(monkeypatch
 
 
 def _registry_open_repo(root: Path, *, rendered: bool) -> dict:
-    """A registry-mode, open deployment repo; its one persona rendered or not."""
+    """A registry-mode, open deployment repo; its one rendered or not."""
     import json
 
     import yaml
 
-    (root / "personas").mkdir(parents=True, exist_ok=True)
+    (root / "tiers").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text("name: Facility\n", encoding="utf-8")
     (root / ".env").write_text("ANTHROPIC_API_KEY=sk-facility\n", encoding="utf-8")
-    (root / "personas" / "operator.yml").write_text("name: operator\n", encoding="utf-8")
+    (root / "tiers" / "operator.yml").write_text("name: operator\n", encoding="utf-8")
     if rendered:
         # Both copies a build leaves behind: the flat host render the catalog
         # names, and the container repo its image is built from.
@@ -1451,13 +1462,13 @@ def _registry_open_repo(root: Path, *, rendered: bool) -> dict:
                 "enabled": True,
                 "image_source": "registry",
                 "auth": {"method": "none"},
-                "users": [{"name": "alice", "index": 0, "persona": "operator"}],
-                "default_persona": "operator",
-                "personas": {
+                "users": [{"name": "alice", "index": 0, "tier": "operator"}],
+                "default_tier": "operator",
+                "renders": {
                     "operator": {
+                        "kind": "tier",
                         "project": "op",
                         "project_path": "build/op",
-                        "build_profile": "personas/operator.yml",
                     }
                 },
             }
@@ -1491,7 +1502,7 @@ def test_an_open_registry_deployment_is_asked_for_the_render_the_gate_reads(monk
 
 def test_a_rendered_registry_deployment_still_starts_open(monkeypatch, tmp_path):
     """The counterfactual that keeps the requirement honest: a registry-mode open
-    deployment whose personas ARE rendered here, denying the whole egress set,
+    deployment whose renders ARE rendered here, denying the whole egress set,
     draws no finding at all. The cost of gating on a shipped artifact is one
     `osprey build`, not the end of open registry deployments."""
     root = tmp_path.resolve()
@@ -1513,7 +1524,7 @@ def test_a_walled_registry_deployment_is_not_asked_for_a_render(monkeypatch, tmp
     config = _registry_open_repo(root, rendered=False)
     config["modules"]["web_terminals"]["auth"] = {"method": "token"}
 
-    assert provision.persona_render_problem(config, root) is None
+    assert provision.render_problem(config, root) is None
 
 
 def _seeded_password_repo(root: Path, *, fqdn: str) -> dict:
@@ -1581,18 +1592,18 @@ def test_the_seeded_password_refusal_is_blocking_not_advisory(monkeypatch, tmp_p
     assert not any("osprey users passwd" in advisory for advisory in advisories)
 
 
-def test_preflight_passes_a_persona_that_denies_bash(monkeypatch, tmp_path):
-    """The negative control: the same entitled persona shipping the shell deny
+def test_preflight_passes_a_render_that_denies_bash(monkeypatch, tmp_path):
+    """The negative control: the same entitled render shipping the shell deny
     clears the gate, so the guard cannot be passing by refusing everything."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
 
-    provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=True))
+    provision.preflight_web_terminals(_render_roster_config(tmp_path, denies_bash=True))
 
 
 def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch, tmp_path, caplog):
     """The waiver must never be silent: every `osprey up` that runs under it
-    prints a warning naming the key and the personas it waved through, at the
+    prints a warning naming the key and the renders it waved through, at the
     exact point the refusal would otherwise have fired."""
     import logging
 
@@ -1607,8 +1618,8 @@ def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch,
     monkeypatch.setattr(
         provision, "_provision_terminal_secrets", lambda wt, root: reached.append("terminal")
     )
-    config = _persona_roster_config(tmp_path, denies_bash=False)
-    # `token`, not the helper's open default: this persona is missing the same
+    config = _render_roster_config(tmp_path, denies_bash=False)
+    # `token`, not the helper's open default: this render is missing the same
     # `Bash` deny that the open-mode egress gate refuses a deployment for, and
     # the waiver is deliberately about the launch-token refusal alone. Left
     # open, the test would fail on the other gate and prove nothing about this
@@ -1635,7 +1646,7 @@ def test_preflight_stays_quiet_when_dangerously_allow_bash_waives_nothing(
     monkeypatch.chdir(tmp_path)
     for name in ("ensure_env_production", "_provision_auth_secrets", "_provision_terminal_secrets"):
         monkeypatch.setattr(provision, name, lambda *a, **k: None)
-    config = _persona_roster_config(tmp_path, denies_bash=True)
+    config = _render_roster_config(tmp_path, denies_bash=True)
     config["dangerously_allow_bash"] = True
 
     with caplog.at_level(logging.WARNING):
@@ -1667,12 +1678,12 @@ def _up_with_roster(monkeypatch, tmp_path, roster=("alice", "bob"), config=None)
     """Run the web-stack `up` from `tmp_path` with `roster` as the resolved roster.
 
     Every collaborator is stubbed by `_stub_web_stack`, which also resolves an
-    EMPTY roster -- so the persona resolve is re-patched here, after it, to the
+    EMPTY roster -- so the render resolve is re-patched here, after it, to the
     names this deployment renders a terminal for.
     """
     _stub_web_stack(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        provision, "resolve_personas", lambda *a, **kw: [{"name": name} for name in roster]
+        provision, "resolve_cards", lambda *a, **kw: [{"name": name} for name in roster]
     )
     provision.deploy_up_web_terminals(config or _sidecar_config("local"), [], False, {}, [])
 

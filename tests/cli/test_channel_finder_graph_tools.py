@@ -341,18 +341,18 @@ def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path
     assert validate_agent_tools_against_permissions(project_dir) == []
 
 
-def test_channel_finder_standalone_renders_its_paradigm_and_no_graph_server(tmp_path):
-    """The bundle that ships neither a store nor a graph paradigm."""
-    project_dir = _create_project(
-        TemplateManager(),
-        project_name="cf-standalone-tools",
-        output_dir=tmp_path,
-        data_bundle="channel_finder_standalone",
-        context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
+def test_a_project_with_no_store_renders_its_paradigm_and_no_graph_server(tmp_path):
+    """A project that declares neither a store nor the graph paradigm."""
+    from osprey.utils.config_writer import config_delete_field
+
+    manager, project_dir = _control_assistant(
+        tmp_path, "cf-nostore-tools", "hierarchical", deploy_services=False
     )
+    config_delete_field(project_dir / "config.yml", "services.graphdb")
+    manager.regenerate_claude_code(project_dir)
 
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
-    assert (config.get("services") or {}).get("graphdb") is None, "the bundle ships no store"
+    assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
 
     assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("hierarchical")
     assert _graph_server_entries(_settings_permission_entries(project_dir)) == []

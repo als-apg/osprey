@@ -386,8 +386,8 @@ class TemplateManager:
         # Resolve allowed outputs from THIS render's effective artifact selection —
         # `artifacts` above, already the caller's own selection where it supplied
         # one and the data bundle's otherwise. Re-loading the bundle manifest here
-        # would discard the caller's: a persona render inherits its host's data
-        # bundle, so the bundle manifest is the HOST's selection, and a persona
+        # would discard the caller's: a render inherits its host's data
+        # bundle, so the bundle manifest is the HOST's selection, and a render
         # that drops an artifact by name would still have it allowed. Skills are
         # where that shows, being the one family copied on the strength of this set
         # alone (hooks and rules gate inside their own templates, agents are

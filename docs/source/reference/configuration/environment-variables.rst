@@ -56,7 +56,7 @@ deployment, which is why none of them is a config key.
        build, outranking ``images.site_ca`` / ``images.pip_no_proxy`` /
        ``images.pip_index_url`` / ``images.pip_extra_index_url`` exactly as the
        two image axes outrank ``images.registry`` / ``images.tag``. Whichever
-       layer wins is handed to the project image, each web-terminal persona
+       layer wins is handed to the project image, each web-terminal
        image and the login sidecar — see
        :doc:`/how-to/deploy-project/project-image`.
    * - ``OSPREY_OFFLINE``

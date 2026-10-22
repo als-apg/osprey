@@ -19,7 +19,7 @@
  *     single source of truth and this element reads state back through
  *     `getTheme()`/`getFamily()` + `subscribe()`.
  *   - **View** (Expert/Simple) — frame-params.js's `pickUiMode()`, which
- *     persists the explicit choice under the per-persona `osprey-ui-mode`
+ *     persists the explicit choice under the per-render `osprey-ui-mode`
  *     key, drops a leftover one-shot `?mode=` deep-link so it cannot out-rank
  *     that choice on the next reload, then posts
  *     `{type: 'osprey-mode-change', mode}` to this element's OWN window.

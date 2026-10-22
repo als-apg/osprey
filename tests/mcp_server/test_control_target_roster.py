@@ -924,13 +924,13 @@ class TestLiveStandinLabel:
 
         assert metadata["standin"]["label"] == "LIVE MACHINE"
 
-    def test_a_persona_render_says_the_same_word_as_the_deployment(self):
+    def test_a_render_says_the_same_word_as_the_deployment(self):
         """Multi-user parity: the projected port is the whole evidence.
 
         An attached project's render carries ``services: {}`` except for the
         keys its reach contract projects, and no ``deployed_services`` at all.
         One word of label for a single-user session and a different word for
-        the same machine seen through a persona would be the bug.
+        the same machine seen through a render would be the bug.
         """
         raw = standin_config(deployed=False)
         assert "deployed_services" not in raw

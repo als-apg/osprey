@@ -82,6 +82,8 @@ from osprey.deployment.compose_generator import (
     control_target_identity_dir,
     resolve_project_name,
 )
+from osprey.deployment.web_terminals.render_naming import render_project
+from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
@@ -120,7 +122,14 @@ VA_CA_PORT = 15069
 PROJECT_NAME = "suproj"
 DISPATCHER_CONTAINER = f"{PROJECT_NAME}-event-dispatcher"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
-WORKER_AGENT_DATA = f"/app/{PROJECT_NAME}/var/agent_data"
+#: The tier this module runs the dispatch workers at (``dispatch.tier``). The
+#: preset ships ``readonly``, under which a worker has no write tool to call;
+#: the rows here judge an owned and an owner-less write, so their worker is one
+#: that may write. A tiered worker runs that tier's image, rooted at
+#: ``/app/<project_name>-<tier>`` — with no web terminal beside it.
+WORKER_TIER = "readwrite"
+WORKER_PROJECT, _ = render_project(PROJECT_NAME, WORKER_TIER)
+WORKER_AGENT_DATA = f"/app/{WORKER_PROJECT}/var/agent_data"
 
 DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 DISPATCHER_MCP_URL = f"{DISPATCHER_URL}{DISPATCHER_MCP_PATH}"
@@ -369,6 +378,8 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
             f"virtual_accelerator.pva_port={VA_PVA_PORT}",
+            "--set",
+            f"dispatch.tier={WORKER_TIER}",
         ],
         cwd=base,
         timeout=300,
@@ -392,6 +403,11 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    assert dispatch_tier_name(rendered) == WORKER_TIER, (
+        f"the build runs the dispatch workers at {dispatch_tier_name(rendered)!r}, not "
+        f"{WORKER_TIER!r}: every worker-side path below is rooted at the tier's project"
+    )
     _assert_the_build_serves_the_probe(repo, probe)
 
     # APPENDED, never rewritten: `osprey init` seeded this file and `osprey

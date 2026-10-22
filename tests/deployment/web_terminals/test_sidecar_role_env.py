@@ -10,7 +10,7 @@ There are exactly two, and each has its own end of the compose overlay to cross:
 * the ROSTER's own `role:`, under BOTH login methods, carried per user onto
   render.py's service dicts and read back by `RosterRoles.from_env()` out of
   `OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>`. It is what the render resolved this user's
-  persona from — so it is the session role under `password`, and under `oidc`
+  render from — so it is the session role under `password`, and under `oidc`
   it is the CROSS-CHECK TARGET the claim's role must agree with.
 
 The compose overlay is the only thing joining either pair of ends, and until it
@@ -58,6 +58,7 @@ from osprey.services.auth_sidecar.app import (
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes.oidc import ENV_ROLE_CLAIM, ENV_ROLE_MAP, RoleBinding
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, RosterRoles
+from tests._renders import tier_render
 
 #: A group name shaped the way an LDAP-backed IdP emits one: commas and equals
 #: signs from the DN itself, and — inside the `cn` — the `": "` an operator
@@ -72,21 +73,21 @@ def _config(
     authorization: dict | None = None,
     method: str = "oidc",
     users: list | None = None,
-    personas: dict | None = None,
-    default_persona: str | None = None,
+    tiers: dict | None = None,
+    default_tier: str | None = None,
 ) -> dict:
     """A rendering config with the sidecar on and, optionally, an authorization block.
 
-    ``users`` takes bare names or full roster mappings; ``personas`` /
-    ``default_persona`` are what a roster carrying `role:` needs, since the role
-    resolves to a persona the catalog has to declare before the strict render
+    ``users`` takes bare names or full roster mappings; ``renders`` /
+    ``default_tier`` are what a roster carrying `role:` needs, since the role
+    resolves to a render the catalog has to declare before the strict render
     will produce anything at all.
     """
     web_terminals: dict = {
         "enabled": True,
         "users": users if users is not None else ["alice", "bob"],
-        "default_persona": "assistant",
-        "personas": {"assistant": {"project": "demo-assistant"}},
+        "default_tier": "assistant",
+        "renders": {"assistant": tier_render("assistant", "demo-assistant")},
         # `allow_insecure_http` because the render refuses any auth method over
         # cleartext otherwise — a gate with its own coverage, not this file's subject.
         "auth": {"method": method, "allow_insecure_http": True},
@@ -95,10 +96,10 @@ def _config(
         web_terminals["auth"]["oidc"] = {"issuer": "https://sso.dls.example.org"}
     if authorization is not None:
         web_terminals["authorization"] = authorization
-    if personas is not None:
-        web_terminals["personas"] = personas
-    if default_persona is not None:
-        web_terminals["default_persona"] = default_persona
+    if tiers is not None:
+        web_terminals["renders"] = tiers
+    if default_tier is not None:
+        web_terminals["default_tier"] = default_tier
     return {
         "facility": {
             "prefix": "dls",
@@ -114,8 +115,8 @@ def _authorization(claim_map: dict[str, str] | None) -> dict:
     """Two declared roles, and (when `claim_map` is given) the claim binding them."""
     block: dict = {
         "roles": {
-            "operator": {"persona": "operator"},
-            "observer": {"persona": "observer"},
+            "operator": {"tier": "operator"},
+            "observer": {"tier": "observer"},
         }
     }
     if claim_map is not None:
@@ -314,12 +315,12 @@ def test_the_role_variables_are_gated_on_the_oidc_method() -> None:
 # The password posture: the roster's own `role:`
 # ---------------------------------------------------------------------------
 
-#: Two personas for the roles below to bind. A role that named no catalogued
-#: persona would not render at all (`resolve_personas` is strict here), so the
+#: Two renders for the roles below to bind. A role that named no catalogued
+#: render would not render at all (`resolve_cards` is strict here), so the
 #: catalog is a precondition of the fixture rather than part of its subject.
-_ROSTER_PERSONAS = {
-    "console": {"project": "dls-assistant", "project_path": "profiles/console"},
-    "readonly": {"project": "dls-assistant", "project_path": "profiles/readonly"},
+_ROSTER_RENDERS = {
+    "console": tier_render("console", "dls-assistant", project_path="profiles/console"),
+    "readonly": tier_render("readonly", "dls-assistant", project_path="profiles/readonly"),
 }
 
 #: A role name written the way an operator writes a human-readable one, carrying
@@ -331,35 +332,35 @@ _SEPARATOR_ROLE = "shift lead: day"
 
 
 def _roster_authorization(extra_roles: dict[str, str] | None = None) -> dict:
-    """The `{role: persona}` table the roster entries below bind through."""
+    """The `{role: render}` table the roster entries below bind through."""
     roles: dict = {
-        "operator": {"persona": "console"},
-        "observer": {"persona": "readonly"},
+        "operator": {"tier": "console"},
+        "observer": {"tier": "readonly"},
     }
-    for role_name, persona in (extra_roles or {}).items():
-        roles[role_name] = {"persona": persona}
+    for role_name, tier in (extra_roles or {}).items():
+        roles[role_name] = {"tier": tier}
     return {"roles": roles}
 
 
 #: alice binds a role; `bob-j` binds one under a name whose env-var suffix is not
-#: just an uppercasing (`-` maps to `_`); carol pins a persona directly and so
+#: just an uppercasing (`-` maps to `_`); carol pins a render directly and so
 #: holds no role at all. One roster covering all three shapes, because they have
 #: to coexist — the render walks them in one pass.
 _ROLE_ROSTER = [
     {"name": "alice", "index": 0, "role": "operator"},
     {"name": "bob-j", "index": 1, "role": "observer"},
-    {"name": "carol", "index": 2, "persona": "readonly"},
+    {"name": "carol", "index": 2, "tier": "readonly"},
 ]
 
 
 def _roster_config(*, method: str = "password", users: list | None = None, **kwargs) -> dict:
-    """A rendering config whose roster binds personas through `role:`."""
+    """A rendering config whose roster binds renders through `role:`."""
     return _config(
         method=method,
         users=_ROLE_ROSTER if users is None else users,
         authorization=_roster_authorization(kwargs.pop("extra_roles", None)),
-        personas=_ROSTER_PERSONAS,
-        default_persona="console",
+        tiers=_ROSTER_RENDERS,
+        default_tier="console",
         **kwargs,
     )
 
@@ -428,16 +429,16 @@ class TestTheRosterRoleReachesTheSidecar:
         assert roles.role_for("carol") == ""
         assert dict(roles.roles) == {"alice": "operator", "bob-j": "observer"}
 
-    def test_a_persona_pinned_entry_gets_no_role_of_its_own(self) -> None:
-        """carol pins `persona: readonly` and holds no role — and none is invented.
+    def test_a_render_pinned_entry_gets_no_role_of_its_own(self) -> None:
+        """carol pins `tier: readonly` and holds no role — and none is invented.
 
-        The direction of the mapping is one-way: a role BINDS a persona
-        (`authorization.roles.<role>.persona`), so a persona can be read off a
+        The direction of the mapping is one-way: a role BINDS a render
+        (`authorization.roles.<role>.render`), so a render can be read off a
         role but never the other way. Deriving carol a role from her pin would
         have to search the role table backwards for whichever role happens to
         name `readonly` today — handing her a privilege she never asked for, and
         silently re-tiering her the next time another role is bound to the same
-        persona.
+        render.
         """
         # Act
         env_lines = _sidecar_env(_roster_config())
@@ -446,7 +447,7 @@ class TestTheRosterRoleReachesTheSidecar:
         # Assert — no variable for carol, under any spelling...
         assert not [line for line in role_lines if line.startswith(_role_var("carol"))]
         assert not [line for line in role_lines if "CAROL" in line]
-        # ...and her persona name appears as nobody's role, including her own.
+        # ...and her render name appears as nobody's role, including her own.
         assert not [line for line in role_lines if line.endswith("=readonly")]
         assert "observer" == _roster_roles(env_lines).role_for("bob-j")
 
@@ -469,7 +470,7 @@ class TestTheRosterRoleReachesTheSidecar:
         """NOT gated on the method, unlike the claim binding — and this is the
         line that carries SC4.
 
-        A roster `role:` is what the render resolved this user's persona from,
+        A roster `role:` is what the render resolved this user's render from,
         so it already decided which container their login lands in. Under `oidc`
         the sidecar needs it as the CROSS-CHECK TARGET: a validated ID token
         mapping someone into a different role describes a terminal they are not

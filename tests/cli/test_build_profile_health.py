@@ -28,12 +28,39 @@ def test_a_deployment_that_enables_web_terminals_serves_them(config: dict[str, A
     assert serves_web_terminals(config) is True
 
 
-def test_a_persona_render_serves_web_terminals_with_the_module_switched_off() -> None:
+def test_a_tier_or_app_render_serves_web_terminals_with_the_module_switched_off() -> None:
+    """A tier's or app's render is its deployment's config with the module off
+    and the roster inherited — the shape the tier merge hands the build."""
     config = {
-        "modules.web_terminals": {"enabled": True, "personas": {"ro": {"project": "x-ro"}}},
+        "modules.web_terminals": {
+            "default_tier": "readonly",
+            "users": [{"name": "alice", "index": 0, "tier": "readwrite"}],
+            "shared": ["logbook"],
+        },
         "modules.web_terminals.enabled": False,
     }
     assert serves_web_terminals(config) is True
+    assert health_config_overrides(config) == {"health.auto.mcp.url_key": "host_url"}
+
+
+def test_a_config_carrying_the_renders_projection_serves_web_terminals() -> None:
+    config = {
+        "modules.web_terminals": {
+            "renders": {"readonly": {"kind": "tier", "project": "x-readonly"}},
+        },
+        "modules.web_terminals.enabled": False,
+    }
+    assert serves_web_terminals(config) is True
+
+
+@pytest.mark.parametrize(
+    "web_terminals",
+    [{"renders": {}}, {"default_tier": ""}, {"shared": ["logbook"]}],
+    ids=["empty-renders", "empty-default-tier", "no-tier"],
+)
+def test_a_switched_off_module_without_a_tier_serves_none(web_terminals: dict[str, Any]) -> None:
+    config = {"modules.web_terminals": web_terminals, "modules.web_terminals.enabled": False}
+    assert serves_web_terminals(config) is False
 
 
 @pytest.mark.parametrize(

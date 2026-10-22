@@ -26,9 +26,11 @@
     enter_path: str, required
       Where the form posts. Comes from the route module's own constant.
 
-    cards: list[{"name", "href", "own"}]
-      The unlocked terminals, own cards first. `href` is the terminal's mount;
-      `own` is false for a card shared with this person, which is tagged.
+    cards: list[{"name", "label", "href", "own"}]
+      The unlocked terminals, own cards first. `label` is the title shown: the
+      app's `name:` for a shared app card, the roster name for a person's.
+      `href` is the terminal's mount; `own` is false for a card shared with
+      this person, which is tagged.
 
     next: str
       Where a successful sign-in returns the browser, already validated by the
@@ -70,7 +72,7 @@
     <p class="login-hint">You are logged in to each of these.</p>
     <ul class="login-cards">
       {%- for card in cards %}
-      <li><a href="{{ card.href|e }}">{{ card.name|e }}</a>
+      <li><a href="{{ card.href|e }}">{{ card.label|e }}</a>
         {%- if not card.own %} <span class="login-tag">shared</span>{% endif %}</li>
       {%- endfor %}
     </ul>

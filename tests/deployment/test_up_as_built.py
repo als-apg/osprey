@@ -8,7 +8,7 @@ absence of ``prepare_compose_files`` on every path: a start verb that re-rendere
 them would make "what is running" unanswerable from the filesystem. The
 web-terminal stack is the deliberate exception, and it covers three files: its
 compose file, nginx config and landing page are re-rendered at every start
-because they follow the user roster rather than the build. Persona projects are
+because they follow the user roster rather than the build. Render projects are
 not among them — ``osprey build`` renders one per delta and a start only checks
 they are there — so a build wiping ``build/`` is what puts a changed delta into
 force.
@@ -51,6 +51,7 @@ from osprey.deployment.deployment_record import (
 )
 from osprey.deployment.web_terminals import provision
 from osprey_connectors.workspace import container_image_context
+from tests._renders import tier_render
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -691,14 +692,14 @@ def test_an_unparseable_profile_refuses_rather_than_reading_as_clean(lifecycle_r
 def test_version_skew_warns_and_starts(lifecycle_repo, started):
     """A framework upgrade must not stand between an operator and their stack."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
-    render_build(lifecycle_repo, version="1900.1.1")
+    render_build(lifecycle_repo, version="2099.1.1")
 
     result = run_up(lifecycle_repo, "-d")
 
     assert result.exit_code == 0, result.output
     assert started
-    assert "rendered by osprey 1900.1.1" in result.stderr
-    assert "rendered by osprey 1900.1.1" not in result.stdout
+    assert "rendered by osprey 2099.1.1" in result.stderr
+    assert "rendered by osprey 2099.1.1" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -1009,8 +1010,8 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
                     "ariel_base_port": 8300,
                     "lattice_base_port": 8400,
                     "users": ["alice"],
-                    "default_persona": "assistant",
-                    "personas": {"assistant": {"project": "ex-assistant"}},
+                    "default_tier": "assistant",
+                    "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                 }
             },
         }
@@ -1092,8 +1093,8 @@ def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo,
                     "web_terminals": {
                         "enabled": True,
                         "users": ["alice"],
-                        "default_persona": "assistant",
-                        "personas": {"assistant": {"project": "ex-assistant"}},
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                     }
                 },
             }
@@ -1154,7 +1155,7 @@ def _password_roster(project_root: Path) -> dict:
 def test_a_mint_prints_the_password_on_a_terminal(tmp_path, monkeypatch, capsys):
     """The show-once design is unchanged where a person is watching."""
     monkeypatch.setattr(provision, "_stdout_is_a_terminal", lambda: True)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
 
     provision._provision_auth_secrets(_password_roster(tmp_path), str(tmp_path))
 
@@ -1173,7 +1174,7 @@ def test_a_mint_prints_no_password_when_stdout_is_not_a_terminal(
     of ``.env.auth``, which holds hashes.
     """
     monkeypatch.setattr(provision, "_stdout_is_a_terminal", lambda: False)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
 
     provision._provision_auth_secrets(_password_roster(tmp_path), str(tmp_path))
 
@@ -1206,7 +1207,7 @@ def test_a_mint_prints_no_password_when_stdout_is_not_a_terminal(
 def test_a_supplied_password_is_never_echoed_either_way(tmp_path, monkeypatch, capsys):
     """A password the operator already knows is hashed in without a notice."""
     monkeypatch.setattr(provision, "_stdout_is_a_terminal", lambda: True)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
     roster = _password_roster(tmp_path)
     (tmp_path / ".env").write_text("OSPREY_AUTH_PW_ALICE=chosen-by-hand\n", encoding="utf-8")
 
@@ -1234,7 +1235,7 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
         return real(usernames, project_root, echo=echo)
 
     monkeypatch.setattr(provision, "ensure_auth_credentials", _record)
-    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda web_terminals: None)
+    monkeypatch.setattr(provision, "_require_auth_sidecar_image", lambda config: None)
 
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     config = json.loads(
@@ -1250,8 +1251,8 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
                         "enabled": True,
                         "auth": {"method": "password"},
                         "users": ["alice"],
-                        "default_persona": "assistant",
-                        "personas": {"assistant": {"project": "ex-assistant"}},
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                     }
                 },
             }
@@ -1607,8 +1608,8 @@ def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
                     # test is about.
                     "auth": {"method": "password", "allow_insecure_http": True},
                     "users": ["alice", "bob"],
-                    "default_persona": "assistant",
-                    "personas": {"assistant": {"project": "ex-assistant"}},
+                    "default_tier": "assistant",
+                    "renders": {"assistant": tier_render("assistant", "ex-assistant")},
                 }
             },
         }

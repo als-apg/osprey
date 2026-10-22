@@ -229,6 +229,18 @@ enums:
       tuner_position_readback:
         description: Measured tuner position.
         aliases: [tuner readback, tuner position, measured tuner position]
+      gap_setpoint:
+        description: Commanded magnetic gap of an insertion device.
+        aliases: [gap setpoint, set gap, id gap setpoint, undulator gap setpoint]
+      gap_readback:
+        description: Measured magnetic gap of an insertion device.
+        aliases: [gap readback, gap, id gap, measured gap, undulator gap]
+      offset_setpoint:
+        description: Commanded longitudinal offset (phase) of an insertion device's magnet rows.
+        aliases: [offset setpoint, set offset, phase setpoint, row offset setpoint]
+      offset_readback:
+        description: Measured longitudinal offset (phase) of an insertion device's magnet rows.
+        aliases: [offset readback, offset, phase, measured offset, row offset]
       temperature_readback:
         description: Measured temperature.
         aliases: [temperature, temperature readback, measured temperature, temperature reading]

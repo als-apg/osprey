@@ -47,7 +47,7 @@ export const CATEGORY_HELP = {
 // ---- Category Routing ---- //
 
 export const BEHAVIOR_CATEGORIES = new Set(['agents', 'skills', 'rules', 'output-styles']);
-export const BEHAVIOR_OUTPUTS = new Set(['CLAUDE.md']);      // whichever persona renders it, behavior tab
+export const BEHAVIOR_OUTPUTS = new Set(['CLAUDE.md']);      // whichever render builds it, behavior tab
 export const SAFETY_CATEGORIES = new Set(['hooks']);
 export const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config category, config tab
 
@@ -55,7 +55,7 @@ export const CONFIG_NAMES = new Set(['mcp-json', 'settings-json']); // config ca
  * Behavior-tab display-category tables, consumed by initScaffoldGallery.
  *
  * Keys are output paths, not canonical names: the artifact at `CLAUDE.md` is
- * the deployment's persona (`claude-md`, `claude-md-ariel`, …). None of those
+ * the deployment's render (`claude-md`, `claude-md-logbook`, …). None of those
  * names has a "/", so the service reports it in the catch-all `config`
  * category; the override gives it a section of its own.
  * It is deliberately NOT called "system prompt": CLAUDE.md is delivered as a

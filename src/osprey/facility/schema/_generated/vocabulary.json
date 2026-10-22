@@ -856,6 +856,27 @@
     },
     {
       "aliases": [
+        "gap readback",
+        "gap",
+        "id gap",
+        "measured gap",
+        "undulator gap"
+      ],
+      "description": "Measured magnetic gap of an insertion device.",
+      "name": "gap_readback"
+    },
+    {
+      "aliases": [
+        "gap setpoint",
+        "set gap",
+        "id gap setpoint",
+        "undulator gap setpoint"
+      ],
+      "description": "Commanded magnetic gap of an insertion device.",
+      "name": "gap_setpoint"
+    },
+    {
+      "aliases": [
         "gradient readback",
         "cavity gradient readback",
         "measured gradient",
@@ -959,6 +980,27 @@
       "aliases": [],
       "description": "Modulator state-machine command (StateCmd; MemberOf=Boolean Control).",
       "name": "modulator_state_command"
+    },
+    {
+      "aliases": [
+        "offset readback",
+        "offset",
+        "phase",
+        "measured offset",
+        "row offset"
+      ],
+      "description": "Measured longitudinal offset (phase) of an insertion device's magnet rows.",
+      "name": "offset_readback"
+    },
+    {
+      "aliases": [
+        "offset setpoint",
+        "set offset",
+        "phase setpoint",
+        "row offset setpoint"
+      ],
+      "description": "Commanded longitudinal offset (phase) of an insertion device's magnet rows.",
+      "name": "offset_setpoint"
     },
     {
       "aliases": [],

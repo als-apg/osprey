@@ -287,7 +287,7 @@ REASON_ROLE_MISMATCH = "role_mismatch"
 """The claim's role is not the role this user's terminal was rendered into.
 
 The cross-check the roster half of the federated posture exists for. A roster
-entry's ``role:`` decides, at build time, which persona this user's container
+entry's ``role:`` decides, at build time, which render this user's container
 runs — so a login whose validated ID token maps to a *different* role is a login
 that would land the person in a terminal their asserted privilege does not
 describe. Refused rather than reconciled: taking the claim would hand them a

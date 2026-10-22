@@ -162,7 +162,7 @@ class TestModelIdResolution:
 
 
 #: The bundled presets that ship a logbook, and so a composition block.
-_PRESETS_WITH_LOGBOOK = ["control-assistant", "ariel-standalone"]
+_PRESETS_WITH_LOGBOOK = ["control-assistant"]
 
 
 def _profile(preset: str):

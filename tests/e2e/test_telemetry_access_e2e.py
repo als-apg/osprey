@@ -143,9 +143,9 @@ _SCRUBBED_ENV = (
 def _profile_edits() -> dict[str, Any]:
     """The pins this module's assertions stand on, as ``osprey init --set`` edits.
 
-    Roster entries are objects with an explicit index. The persona catalog is
-    added after ``init`` (:func:`_complete_profile`): ``init`` materializes one
-    profile per catalog entry, and this deployment builds no persona.
+    Roster entries are objects with an explicit index. Both run the bundled
+    ``readonly`` tier, which ``init`` writes into ``tiers/``; this deployment
+    starts no terminal, so which tier carries no meaning here.
     """
     return {
         "config": {
@@ -156,7 +156,7 @@ def _profile_edits() -> dict[str, Any]:
             "modules.web_terminals": {
                 "enabled": True,
                 "image_source": "registry",
-                "default_persona": "assistant",
+                "default_tier": "readonly",
                 "users": [{"name": ALICE, "index": 0}, {"name": BOB, "index": 1}],
                 "auth": {"method": "password", "allow_insecure_http": True},
             },
@@ -173,12 +173,9 @@ def _profile_edits() -> dict[str, Any]:
 
 
 def _complete_profile(repo: Path) -> None:
-    """Add the persona catalog and the bluesky block ``init --set`` cannot spell."""
+    """Add the bluesky block ``init --set`` cannot spell."""
     path = repo / "profile.yml"
     profile = yaml.safe_load(path.read_text(encoding="utf-8"))
-    profile["config"]["modules.web_terminals.personas"] = {
-        "assistant": {"project": f"{PROJECT_NAME}-assistant"}
-    }
     profile["bluesky"] = {"tiled_enabled": False}
     path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
@@ -363,6 +360,11 @@ def _wait_ready(stack: Stack, timeout: float = 180.0) -> None:
                 httpx.get(
                     f"http://127.0.0.1:{tc.metrics_port(stack.config)}/metrics", timeout=3
                 ).raise_for_status()
+                # The tests post to the OTLP receiver, which opens after
+                # /metrics does. A published port with nothing listening behind
+                # it accepts and then resets, so any answer here, whatever its
+                # status, is the receiver being up.
+                httpx.get(f"{stack.gateway_url}/v1/logs", timeout=3)
                 return
         except (AssertionError, httpx.HTTPError) as exc:
             last = str(exc)

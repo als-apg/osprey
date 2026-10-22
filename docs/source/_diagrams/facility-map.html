@@ -1,0 +1,173 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1200 700" role="img" aria-labelledby="fm-title fm-desc">
+  <title id="fm-title">The facility file: sources under data/facility, one facility file, a view per service</title>
+  <desc id="fm-desc">On the left, the sources under data/facility. Imported sources are written by osprey facility import mml, from a Middle Layer export, into imported/mml, and by osprey facility import list, from a channel list, into imported/list; each import rewrites its own directory. Authored sources are edited by hand: records, models and decks; fixes.yaml; limits.yaml and seeds.yaml; measurement and scenarios; identity.yaml and classes.yaml; and the knowledge pages. osprey build loads, combines, applies the fixes, validates against the facility-agnostic schema (core.yaml and vocabulary.yaml, LinkML carried from NARAD) and computes, giving one file, build/facility.json, with places, devices, channels, groups, models and limits, plus identity, classes and scenarios, and the provenance of every record. From it the build writes one view per service: the channel-finder index of the selected pipeline, read by the channel-finder server; the graph, data/graph/facility.ttl, seeded into the graph store by osprey up; the simulator view, served by the virtual accelerator; a pyAML configuration per measured model, read by the measurement tools in the python executor; the Bluesky devices, read by the Bluesky worker; the limits, read by the write checks; and the facts, read into the agents' prompts and the facility_description tool. The knowledge pages are read in place by the facility-knowledge server; the build checks that each page's device link names a device.</desc>
+  <defs>
+    <marker id="fm-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fm-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+  </defs>
+  <text class="te" x="176" y="30" text-anchor="middle">SOURCES · data/facility/</text>
+  <text class="te" x="550" y="30" text-anchor="middle">THE FACILITY FILE</text>
+  <text class="te" x="815" y="30" text-anchor="middle">VIEWS · build/data/</text>
+  <text class="te" x="1075" y="30" text-anchor="middle">READ BY</text>
+
+  <!-- imported -->
+  <rect class="zone" x="16" y="44" width="320" height="152" rx="8"/>
+  <text class="te" x="28" y="62">IMPORTED · REWRITTEN BY EACH IMPORT</text>
+  <rect class="nb-ext" x="28" y="74" width="232" height="52" rx="6"/>
+  <text class="tn" x="144" y="94" text-anchor="middle">Middle Layer export</text>
+  <text class="ts" x="144" y="110" text-anchor="middle">import mml → imported/mml/</text>
+  <rect class="nb-ext" x="28" y="134" width="232" height="52" rx="6"/>
+  <text class="tn" x="144" y="154" text-anchor="middle">channel list (CSV)</text>
+  <text class="ts" x="144" y="170" text-anchor="middle">import list → imported/list/</text>
+  <line class="e" x1="260" y1="100" x2="360" y2="100" marker-end="url(#fm-arr)"/>
+  <line class="e" x1="260" y1="160" x2="360" y2="160" marker-end="url(#fm-arr)"/>
+
+  <!-- authored -->
+  <rect class="zone" x="16" y="210" width="320" height="430" rx="8"/>
+  <text class="te" x="28" y="228">AUTHORED · EDITED BY HAND</text>
+  <rect class="nb-in" x="28" y="240" width="232" height="50" rx="6"/>
+  <text class="tn" x="144" y="260" text-anchor="middle">records/ · models.yaml · decks/</text>
+  <text class="ts" x="144" y="276" text-anchor="middle">places, devices, channels, groups, models</text>
+  <line class="e" x1="260" y1="265" x2="360" y2="265" marker-end="url(#fm-arr)"/>
+  <rect class="nb-in" x="28" y="300" width="232" height="50" rx="6"/>
+  <text class="tn" x="144" y="320" text-anchor="middle">fixes.yaml</text>
+  <text class="ts" x="144" y="336" text-anchor="middle">set · add · drop a record, by id</text>
+  <line class="e" x1="260" y1="325" x2="360" y2="325" marker-end="url(#fm-arr)"/>
+  <rect class="nb-in" x="28" y="360" width="232" height="50" rx="6"/>
+  <text class="tn" x="144" y="380" text-anchor="middle">limits.yaml · seeds.yaml</text>
+  <text class="ts" x="144" y="396" text-anchor="middle">write limits · simulated channel behaviour</text>
+  <line class="e" x1="260" y1="385" x2="360" y2="385" marker-end="url(#fm-arr)"/>
+  <rect class="nb-in" x="28" y="420" width="232" height="50" rx="6"/>
+  <text class="tn" x="144" y="440" text-anchor="middle">measurement/ · scenarios/</text>
+  <text class="ts" x="144" y="456" text-anchor="middle">what a model measures · simulated faults</text>
+  <line class="e" x1="260" y1="445" x2="360" y2="445" marker-end="url(#fm-arr)"/>
+  <rect class="nb-in" x="28" y="480" width="232" height="50" rx="6"/>
+  <text class="tn" x="144" y="500" text-anchor="middle">identity.yaml · classes.yaml</text>
+  <text class="ts" x="144" y="516" text-anchor="middle">who the facility is · classes it adds</text>
+  <line class="e" x1="260" y1="505" x2="360" y2="505" marker-end="url(#fm-arr)"/>
+  <rect class="nb-in" x="28" y="578" width="232" height="50" rx="6"/>
+  <text class="tn" x="144" y="598" text-anchor="middle">knowledge/</text>
+  <text class="ts" x="144" y="614" text-anchor="middle">pages, linked to devices by id</text>
+
+  <!-- build -->
+  <rect class="nb nb-acc-stroke" x="360" y="60" width="40" height="490" rx="8"/>
+  <text class="tn" x="380" y="305" text-anchor="middle" transform="rotate(-90 380 305)">osprey build · combine · apply fixes · validate · compute</text>
+  <line class="e-acc" x1="400" y1="305" x2="440" y2="305" marker-end="url(#fm-arr-acc)"/>
+
+  <!-- facility file -->
+  <rect class="nb-foc" x="440" y="60" width="220" height="410" rx="8"/>
+  <text class="tn" x="550" y="82" text-anchor="middle">build/facility.json</text>
+  <text class="ts" x="550" y="97" text-anchor="middle">generated · never edited</text>
+  <rect class="nb" x="454" y="110" width="192" height="40" rx="4"/>
+  <text class="tn" x="550" y="127" text-anchor="middle">places</text>
+  <text class="ts" x="550" y="142" text-anchor="middle">the facility's own tree</text>
+  <rect class="nb" x="454" y="156" width="192" height="40" rx="4"/>
+  <text class="tn" x="550" y="173" text-anchor="middle">devices</text>
+  <text class="ts" x="550" y="188" text-anchor="middle">a class from the vocabulary</text>
+  <rect class="nb" x="454" y="202" width="192" height="40" rx="4"/>
+  <text class="tn" x="550" y="219" text-anchor="middle">channels</text>
+  <text class="ts" x="550" y="234" text-anchor="middle">address · role · pair · signal</text>
+  <rect class="nb" x="454" y="248" width="192" height="40" rx="4"/>
+  <text class="tn" x="550" y="265" text-anchor="middle">groups</text>
+  <text class="ts" x="550" y="280" text-anchor="middle">named sets of devices</text>
+  <rect class="nb" x="454" y="294" width="192" height="40" rx="4"/>
+  <text class="tn" x="550" y="311" text-anchor="middle">models</text>
+  <text class="ts" x="550" y="326" text-anchor="middle">engine · deck · wiring</text>
+  <rect class="nb" x="454" y="340" width="192" height="40" rx="4"/>
+  <text class="tn" x="550" y="357" text-anchor="middle">limits</text>
+  <text class="ts" x="550" y="372" text-anchor="middle">from limits.yaml</text>
+  <text class="ts" x="550" y="404" text-anchor="middle">+ identity · classes · scenarios</text>
+  <text class="ts" x="550" y="422" text-anchor="middle">every record: id + where it came from</text>
+  <text class="ts" x="550" y="440" text-anchor="middle">minimum: a channel list</text>
+
+  <rect class="nb" x="454" y="496" width="192" height="54" rx="6"/>
+  <text class="tn" x="550" y="514" text-anchor="middle">facility-agnostic schema</text>
+  <text class="ts" x="550" y="528" text-anchor="middle">core.yaml + vocabulary.yaml</text>
+  <text class="ts" x="550" y="541" text-anchor="middle">LinkML, carried from NARAD</text>
+  <line class="e e-dash" x1="550" y1="496" x2="550" y2="472" marker-end="url(#fm-arr)"/>
+
+  <!-- views and readers -->
+  <rect class="nb nb-acc-stroke" x="700" y="62" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="81" text-anchor="middle">channel-finder index</text>
+  <text class="ts" x="815" y="97" text-anchor="middle">the profile's pipeline mode only</text>
+  <line class="e-acc" x1="660" y1="85" x2="700" y2="85" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb" x="970" y="62" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="81" text-anchor="middle">channel-finder server</text>
+  <text class="ts" x="1077" y="97" text-anchor="middle">finds addresses</text>
+  <line class="e" x1="930" y1="85" x2="970" y2="85" marker-end="url(#fm-arr)"/>
+
+  <rect class="nb nb-acc-stroke" x="700" y="120" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="139" text-anchor="middle">graph</text>
+  <text class="ts" x="815" y="155" text-anchor="middle">graph/facility.ttl · NARAD terms</text>
+  <line class="e-acc" x1="660" y1="143" x2="700" y2="143" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb" x="970" y="120" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="139" text-anchor="middle">graph store</text>
+  <text class="ts" x="1077" y="155" text-anchor="middle">seeded by osprey up</text>
+  <line class="e" x1="930" y1="143" x2="970" y2="143" marker-end="url(#fm-arr)"/>
+
+  <rect class="nb nb-acc-stroke" x="700" y="178" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="197" text-anchor="middle">simulator</text>
+  <text class="ts" x="815" y="213" text-anchor="middle">simulator/ · addresses, models, seeds</text>
+  <line class="e-acc" x1="660" y1="201" x2="700" y2="201" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb" x="970" y="178" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="197" text-anchor="middle">virtual accelerator</text>
+  <text class="ts" x="1077" y="213" text-anchor="middle">serves every address</text>
+  <line class="e" x1="930" y1="201" x2="970" y2="201" marker-end="url(#fm-arr)"/>
+
+  <rect class="nb nb-acc-stroke" x="700" y="236" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="255" text-anchor="middle">pyAML</text>
+  <text class="ts" x="815" y="271" text-anchor="middle">pyaml/&lt;model&gt;/ · per measured model</text>
+  <line class="e-acc" x1="660" y1="259" x2="700" y2="259" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb" x="970" y="236" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="255" text-anchor="middle">measurement tools</text>
+  <text class="ts" x="1077" y="271" text-anchor="middle">in the python executor</text>
+  <line class="e" x1="930" y1="259" x2="970" y2="259" marker-end="url(#fm-arr)"/>
+
+  <rect class="nb nb-acc-stroke" x="700" y="294" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="313" text-anchor="middle">Bluesky devices</text>
+  <text class="ts" x="815" y="329" text-anchor="middle">settable = setpoint + its readback</text>
+  <line class="e-acc" x1="660" y1="317" x2="700" y2="317" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb" x="970" y="294" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="313" text-anchor="middle">Bluesky worker</text>
+  <text class="ts" x="1077" y="329" text-anchor="middle">plans</text>
+  <line class="e" x1="930" y1="317" x2="970" y2="317" marker-end="url(#fm-arr)"/>
+
+  <rect class="nb nb-acc-stroke" x="700" y="352" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="371" text-anchor="middle">limits</text>
+  <text class="ts" x="815" y="387" text-anchor="middle">channel_limits.json</text>
+  <line class="e-acc" x1="660" y1="375" x2="700" y2="375" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb-st" x="970" y="352" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="371" text-anchor="middle">write checks</text>
+  <text class="ts" x="1077" y="387" text-anchor="middle">see Safety Chain</text>
+  <line class="e" x1="930" y1="375" x2="970" y2="375" marker-end="url(#fm-arr)"/>
+
+  <rect class="nb nb-acc-stroke" x="700" y="410" width="230" height="46" rx="6"/>
+  <text class="tn" x="815" y="429" text-anchor="middle">facts</text>
+  <text class="ts" x="815" y="445" text-anchor="middle">facility_facts.json, .md</text>
+  <line class="e-acc" x1="660" y1="433" x2="700" y2="433" marker-end="url(#fm-arr-acc)"/>
+  <rect class="nb" x="970" y="410" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="429" text-anchor="middle">agent prompts</text>
+  <text class="ts" x="1077" y="445" text-anchor="middle">+ facility_description tool</text>
+  <line class="e" x1="930" y1="433" x2="970" y2="433" marker-end="url(#fm-arr)"/>
+
+  <!-- knowledge: read in place -->
+  <line class="e" x1="260" y1="603" x2="970" y2="603" marker-end="url(#fm-arr)"/>
+  <rect class="mask" x="700" y="595" width="230" height="14" rx="2"/>
+  <text class="ta" x="815" y="606" text-anchor="middle">READ IN PLACE · LINKS CHECKED AT BUILD</text>
+  <rect class="nb" x="970" y="580" width="214" height="46" rx="6"/>
+  <text class="tn" x="1077" y="599" text-anchor="middle">facility-knowledge server</text>
+  <text class="ts" x="1077" y="615" text-anchor="middle">procedures, terms</text>
+
+  <line class="divider" x1="16" y1="660" x2="1184" y2="660"/>
+  <text class="te" x="16" y="684">LEGEND</text>
+  <rect x="88" y="675" width="10" height="10" rx="2" style="fill: var(--od-ext); stroke: var(--od-ext-stroke)"/>
+  <text class="ta" x="104" y="684">imported: corrected through fixes.yaml, never by hand</text>
+  <rect x="440" y="675" width="10" height="10" rx="2" style="fill: var(--od-input); stroke: var(--od-soft)"/>
+  <text class="ta" x="456" y="684">authored</text>
+  <rect x="540" y="675" width="10" height="10" rx="2" style="fill: var(--od-accent-tint); stroke: var(--od-accent)"/>
+  <text class="ta" x="556" y="684">the facility file</text>
+  <rect x="680" y="675" width="10" height="10" rx="2" style="fill: var(--od-box); stroke: var(--od-accent)"/>
+  <text class="ta" x="696" y="684">a view: generated, never edited</text>
+</svg>
+</div>

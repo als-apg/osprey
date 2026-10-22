@@ -3,7 +3,7 @@
 The build makes the facility file once, from the profile's ``data/facility/``,
 before the project venv and before any render; each render then receives it
 through ``render_facility_outputs``: the deployment's own (``build/``), each
-persona's (``build/<repo>-<persona>/``) and each container image's
+render's (``build/<repo>-<render>/``) and each container image's
 (``build/.image/<name>/build/``). Every copy is the same bytes, equal sources
 give equal bytes in a second build, and a facility stop ends the build before
 the venv is created.
@@ -31,17 +31,23 @@ pytestmark = [pytest.mark.slow]
 #: One repo name for both builds: an identity without a ``name`` takes it.
 REPO = "demo"
 
+#: The bundled app whose render selects the hierarchical channel-finder pipeline.
+CHANNEL_FINDER_APP = "channel-finder"
+
+#: The hierarchical channel index a hierarchical render carries.
+CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
+
 
 def _build(repo: Path, *extra: str) -> Any:
     return CliRunner().invoke(build, ["--repo", str(repo), "--skip-lifecycle", *extra])
 
 
 def _render_roots(repo: Path) -> list[Path]:
-    """The deployment's render, each persona's and each container image's."""
+    """The deployment's render, each render's and each container image's."""
     build_dir = repo / BUILD_DIR_NAME
-    personas = sorted(build_dir.glob(f"{REPO}-*/config.yml"))
+    tiers = sorted(build_dir.glob(f"{REPO}-*/config.yml"))
     images = sorted((build_dir / IMAGE_DIR_NAME).glob(f"*/{BUILD_DIR_NAME}/config.yml"))
-    return [build_dir, *(path.parent for path in personas), *(path.parent for path in images)]
+    return [build_dir, *(path.parent for path in tiers), *(path.parent for path in images)]
 
 
 def test_every_render_root_carries_a_byte_equal_facility_file(
@@ -66,9 +72,15 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
 ) -> None:
     outputs = built_control_assistant.outputs
     assert len(outputs) == len(_render_roots(built_control_assistant.repo))
-    # The Bluesky view rides only on a render that runs a Bluesky lane.
+    # The Bluesky view rides only on a render that runs a Bluesky lane, and the
+    # hierarchical channel index only on the one render that selects the
+    # hierarchical pipeline: the channel-finder app's.
+    hierarchical = [render.render_dir.name for render in outputs if CHANNEL_INDEX in render.files]
+    assert hierarchical == [f"{REPO}-{CHANNEL_FINDER_APP}"] * 2
     for render in outputs:
-        assert [path for path in render.files if path != "data/bluesky_devices.yml"] == [
+        assert [
+            path for path in render.files if path not in ("data/bluesky_devices.yml", CHANNEL_INDEX)
+        ] == [
             "data/channel_limits.json",
             "data/facility_facts.json",
             "data/facility_facts.md",

@@ -318,8 +318,6 @@ def test_external_projects_must_be_a_list() -> None:
         ("timezone", "America/Los_Angeles", "system.timezone"),
         ("control_system", {"type": "epics"}, "control_system.type"),
         ("users", ["operator"], "modules.web_terminals.users"),
-        ("personas", {"analysis": {}}, "modules.web_terminals.personas"),
-        ("default_persona", "assistant", "modules.web_terminals.default_persona"),
     ],
 )
 def test_a_profile_owned_key_is_rejected_naming_its_real_home(

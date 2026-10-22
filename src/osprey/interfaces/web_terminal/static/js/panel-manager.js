@@ -103,6 +103,10 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {number} [index] - where an addition goes among the rail's panel
  *   entries (SESSION not counted); absent, it goes to the end
  *
+ * @typedef {object} RailOrderEvent
+ * @property {'rail_order'} type
+ * @property {string[]} order - every rail member, top to bottom (SESSION not included)
+ *
  * @typedef {object} PanelCloseEvent
  * @property {'panel_close'} type
  * @property {string} panel
@@ -131,8 +135,8 @@ import { subscribePanelEvents } from './panel-sse.js';
  *   panel?: string, detail?: string }} target
  * @property {number} [ts]
  *
- * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelCloseEvent | PanelRegisterEvent
- *   | PanelArrangeEvent | AgentActivityEvent} PanelSSEEvent
+ * @typedef {PanelFocusEvent | PanelVisibilityEvent | RailOrderEvent | PanelCloseEvent
+ *   | PanelRegisterEvent | PanelArrangeEvent | AgentActivityEvent} PanelSSEEvent
  */
 
 // ---- State ----

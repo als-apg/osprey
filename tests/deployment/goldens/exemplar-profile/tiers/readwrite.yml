@@ -1,0 +1,40 @@
+# Demo Facility (readwrite) — one access level of this deployment's agent
+#
+# A tier adds to ../profile.yml and never subtracts from it: the build lays
+# this file over that one. Services, data and ports stay profile.yml's. To see
+# the combined result:
+#   osprey validate tiers/readwrite.yml
+#
+# Copied from the bundled `readwrite` tier with the rest of this fixture. Like
+# profile.yml beside it, it carries no `provenance:` block: this fixture is
+# trimmed by hand, so there is no emission for `osprey validate` to hold it
+# against.
+
+name: Demo Facility (readwrite)
+
+# The write-oriented panels, added by name to the deployment's builtin set.
+# Each tab's URL, path and label are not spelled here: the deployment's build
+# derives them when it injects the event dispatcher and the bluesky-web
+# sidecar, and this tier's render is told them from the deployment's render
+# (the Reach Contract, `osprey.deployment.reach`), so a sidecar moved in the
+# deployment's profile moves the tab with it.
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY, as in the deployment's own config: block.
+config:
+  # The tier boundary, and it takes three keys. Armed on the simulator alone.
+  # The flat key is what every connector type inherits when its own block says
+  # nothing, so its false is what the stand-in reads. The epics block is pinned
+  # by name so a per-type `true` in the deployment's profile cannot lift the
+  # live machine's ceiling. Only a literal `true` arms a type, and a per-type
+  # value never falls back to the flat key.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
+  # Full split-pane terminal + workspace layout for the write-armed operator.
+  # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
+  # than left to the server default, for the same reason writes_enabled is.
+  web.ui_mode: expert

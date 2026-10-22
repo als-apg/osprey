@@ -7,7 +7,7 @@ facility-specific source vocabulary:
 
 * the ``control-operator`` output-style (the behaviorally load-bearing carrier,
   rendered into ``settings.json`` ``outputStyle``), and
-* both orchestrator personas — ``CLAUDE.md`` (control) and its ARIEL variant.
+* both orchestrator renders — ``CLAUDE.md`` (control) and its ARIEL variant.
 
 This is the deterministic, CI-enforced guard for the change (SC1/SC2/SC7): no
 API key. The verify-first behavior itself is exercised by the agentic preset
@@ -86,8 +86,11 @@ def control_project(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def ariel_project(tmp_path_factory) -> Path:
-    return _build_preset("ariel-standalone", tmp_path_factory.mktemp("ariel"))
+def ariel_project(control_project: Path) -> Path:
+    """The control-assistant build's logbook-app render, where the ARIEL render lands."""
+    render = control_project / f"{control_project.parent.name}-logbook"
+    assert render.is_dir(), f"logbook render not built: {render}"
+    return render
 
 
 @pytest.fixture(scope="module")
@@ -140,12 +143,12 @@ class TestControlOperatorOutputStyle:
         _assert_no_facility_identifier(epistemic, "the control-operator epistemic block")
 
 
-class TestPersonaParity:
-    """SC2 — both orchestrator personas carry the verify-first posture."""
+class TestRenderParity:
+    """SC2 — both orchestrator renders carry the verify-first posture."""
 
-    def test_control_persona_carries_posture(self, control_project: Path) -> None:
+    def test_control_render_carries_posture(self, control_project: Path) -> None:
         claude = (control_project / "CLAUDE.md").read_text(encoding="utf-8")
-        assert "Control System Assistant" in claude  # right persona rendered
+        assert "Control System Assistant" in claude  # right rendered
         paragraph = self._posture_region(
             claude, r"\*\*Verify first, and flag anything you can't\.\*\*", r"\n\n"
         )
@@ -154,9 +157,9 @@ class TestPersonaParity:
         assert "not an afterthought" in paragraph
         _assert_no_facility_identifier(paragraph, "the control CLAUDE.md posture paragraph")
 
-    def test_ariel_persona_carries_posture(self, ariel_project: Path) -> None:
+    def test_ariel_render_carries_posture(self, ariel_project: Path) -> None:
         claude = (ariel_project / "CLAUDE.md").read_text(encoding="utf-8")
-        assert "Logbook Research Assistant" in claude  # ARIEL persona rendered
+        assert "Logbook Research Assistant" in claude  # ARIEL rendered
         assert "Control System Assistant" not in claude
         bullet = self._posture_region(
             claude, r"- \*\*Verify first; flag anything not tool-backed\.\*\*", r"\n- \*\*"

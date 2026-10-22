@@ -329,7 +329,7 @@ class TestLoadPanelConfig:
     def test_custom_panel_disabled_is_not_served(self):
         """``enabled: false`` switches a custom panel off exactly as it does a
         builtin: the build writes it onto every block the profile does not
-        select, so a persona that inherits a url-backed block for a tab it
+        select, so a render that inherits a url-backed block for a tab it
         excluded must not get the tab."""
         with patch(
             "osprey_connectors.workspace.load_osprey_config",

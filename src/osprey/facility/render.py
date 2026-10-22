@@ -1,7 +1,7 @@
 """What a render carries from the facility file.
 
 A build makes the facility file once (``build.build_facility``) and every render
-of that build — the deployment's own, each persona's, each container image's —
+of that build — the deployment's own, each render's, each container image's —
 receives the same outputs through :func:`render_facility_outputs`, the only
 writer of them::
 

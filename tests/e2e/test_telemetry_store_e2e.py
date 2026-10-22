@@ -83,7 +83,7 @@ from osprey.deployment.telemetry_gateway import (
     trusted_on_behalf_of,
 )
 from osprey.health.core.telemetry_gateway import fed_identities
-from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+from osprey_connectors.workspace import AUDIT_DIR_RELPATH, TIERS_DIRNAME
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -1427,6 +1427,8 @@ LOCKED_IDENTITY = "e2e-locked"
 #: The roster the roster-removal case renders, then shrinks.
 ROSTER_KEPT = "alice"
 ROSTER_REMOVED = "carol"
+#: The tier a roster variant runs, written into ``tiers/`` by :func:`_render_variant`.
+ROSTER_TIER = "assistant"
 
 #: "Half a line, then this much silence": past the reader's 60 s flush.
 INCOMPLETE_SILENCE_S = 65.0
@@ -2217,8 +2219,10 @@ def _render_variant(
 ) -> dict[str, Any]:
     """Build *base* plus a roster or a declared ``bluesky``, and recreate only the gateway.
 
-    The variant's other services are never started: only the gateway's
-    Collector file depends on them, and it is all these cases read.
+    A roster runs :data:`ROSTER_TIER`, a file this variant adds to ``tiers/``
+    and :func:`_restore` removes again. The variant's other services are never
+    started: only the gateway's Collector file depends on them, and it is all
+    these cases read.
     """
     profile = yaml.safe_load(base)
     config = profile["config"]
@@ -2228,13 +2232,13 @@ def _render_variant(
         config["modules.web_terminals"] = {
             "enabled": True,
             "image_source": "registry",
-            "default_persona": "assistant",
+            "default_tier": ROSTER_TIER,
             "users": [{"name": name, "index": index} for index, name in enumerate(roster)],
             "auth": {"method": "password", "allow_insecure_http": True},
         }
-        config["modules.web_terminals.personas"] = {
-            "assistant": {"project": f"{PROJECT_NAME}-assistant"}
-        }
+        tier = stack.repo / TIERS_DIRNAME / f"{ROSTER_TIER}.yml"
+        tier.parent.mkdir(exist_ok=True)
+        tier.write_text(f"name: {PROJECT_NAME} ({ROSTER_TIER})\n", encoding="utf-8")
     if bluesky:
         config["deployed_services"] = [*config["deployed_services"], "bluesky"]
         profile["bluesky"] = {"tiled_enabled": False}
@@ -2270,6 +2274,7 @@ def _recreate_gateway(stack: Stack) -> None:
 def _restore(stack: Stack, base: str) -> None:
     """Put the module's own profile back, build it and bring the deployment up on it."""
     (stack.repo / "profile.yml").write_text(base)
+    (stack.repo / TIERS_DIRNAME / f"{ROSTER_TIER}.yml").unlink(missing_ok=True)
     _verb(stack, "build", "--skip-deps", "--skip-lifecycle")
     stack.reload()
     _verb(stack, "up", "-d")

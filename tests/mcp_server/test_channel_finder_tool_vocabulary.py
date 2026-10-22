@@ -19,7 +19,9 @@ and they lose ``RATCHET_WORD``. The same guard reads what a build renders
 for the agent: ``CLAUDE.md`` and the markdown under ``.claude/`` of every
 render root of the control-assistant preset. The words and the texts that still carry them
 live in :mod:`tests._vocabulary`, with ``PENDING_REWORDING`` holding the texts
-whose wording has not changed yet; no text carries ``RATCHET_WORD``.
+whose wording has not changed yet; no text carries ``RATCHET_WORD``. The
+rendered texts are masked per render root: the strings that root received from
+the facility definition are the facility's words, not OSPREY's, and are not judged.
 """
 
 import asyncio
@@ -34,10 +36,15 @@ from typing import Any
 import pytest
 
 from tests._vocabulary import (
+    FACILITY_CONTEXT_KEYS,
+    FACILITY_MASK,
     PENDING_REWORDING,
     PROTOCOL_WORDS,
     RATCHET_WORD,
     TextKey,
+    facility_strings,
+    mask_facility_text,
+    render_root_facility_strings,
 )
 from tests.facility.test_word_ratchet import violations
 
@@ -225,16 +232,18 @@ def agent_facing_texts(server_tools, ariel_search_descriptors) -> dict[TextKey, 
 def rendered_texts(built_control_assistant) -> dict[TextKey, str]:
     """The markdown each render root hands the agent, keyed by its path under the root.
 
-    A path rendered differently across roots carries every distinct rendering.
+    Each text is masked with the facility strings of its own render root. A path
+    rendered differently across roots carries every distinct rendering.
     """
     renderings: dict[str, set[str]] = {}
     build_dir = built_control_assistant.build_dir
     for claude_dir in sorted(build_dir.rglob(".claude")):
         root = claude_dir.parent
+        strings = render_root_facility_strings(root)
         for path in (root / "CLAUDE.md", *claude_dir.rglob("*.md")):
             if path.is_file():
                 renderings.setdefault(path.relative_to(root).as_posix(), set()).add(
-                    path.read_text(encoding="utf-8")
+                    mask_facility_text(path.read_text(encoding="utf-8"), strings)
                 )
     assert "CLAUDE.md" in renderings, f"no rendered CLAUDE.md under {build_dir}"
     return {
@@ -323,6 +332,37 @@ def test_ratchet_word_in_an_unlisted_text_is_refused():
     assert ratchet_violations(texts) == [
         "server tool description: carries the word and has no allowlist entry"
     ]
+
+
+def test_facility_string_is_masked_and_osprey_prose_is_not():
+    masked = mask_facility_text('| "storage ring" | machine |\nthe ring holds', {"storage ring"})
+    assert masked == f'| "{FACILITY_MASK}" | machine |\nthe ring holds'
+    assert ratchet_violations({("rendered", "CLAUDE.md", "text"): masked}) == [
+        "rendered CLAUDE.md text: carries the word and has no allowlist entry"
+    ]
+
+
+def test_a_bare_guarded_facility_string_is_masked():
+    assert mask_facility_text("the ring", {"ring"}) == f"the {FACILITY_MASK}"
+    assert mask_facility_text("read the PV", {"PV"}) == f"read the {FACILITY_MASK}"
+
+
+def test_masks_match_whole_words_only():
+    assert mask_facility_text("storage rings", {"storage ring"}) == "storage rings"
+
+
+def test_osprey_vocabulary_is_never_a_facility_string():
+    from osprey.facility.validate import vocabulary
+
+    aliases = [alias for row in vocabulary()["classes"] for alias in row.get("aliases", [])]
+    assert aliases, "the vocabulary table lists no alias; the guard is not reading it"
+    assert facility_strings({"aliases": aliases}).isdisjoint(aliases)
+
+
+def test_facility_context_keys_are_what_the_build_hands_templates(tmp_path):
+    from osprey.cli.templates.claude_code import config_derived_context
+
+    assert set(FACILITY_CONTEXT_KEYS) <= config_derived_context({}, tmp_path).keys()
 
 
 def test_protocol_word_in_an_unlisted_text_is_refused():

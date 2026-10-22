@@ -182,7 +182,7 @@ class TestDockerfileContent:
         """Every pip and apt install in the image mounts the shared caches.
 
         The rule is spelled once, in :mod:`tests.deployment._cache_mounts`, and
-        applied to the service recipes too, so the project, persona and service
+        applied to the service recipes too, so the project, render and service
         images building in one deploy draw on the same downloads.
         """
         assert_build_caches_mounted(
@@ -330,6 +330,28 @@ class TestDockerfileContent:
         # The wheel force-reinstall lives only in the wheel layer.
         assert "--force-reinstall" in wheel
         assert "--force-reinstall" not in deps
+
+    def test_converter_browser_is_baked_in_with_its_libraries(self, hello_project):
+        """The artifact converter's Chromium ships in the image, launchable by
+        the unprivileged agent: installed as root with its system libraries,
+        into a shared path, between the deps layer and the dev wheel."""
+        text = (hello_project / "Dockerfile").read_text()
+        bodies = [b for b in self._run_command_bodies(text) if "playwright install" in b]
+        assert len(bodies) == 1, f"expected exactly one browser RUN, got {len(bodies)}"
+        browser = bodies[0]
+        assert "--with-deps" in browser
+        assert "chromium" in browser
+
+        env = re.search(r"^ENV PLAYWRIGHT_BROWSERS_PATH=(\S+)$", text, re.MULTILINE)
+        assert env, "the browser path must be shared, not root's home cache"
+        assert not env.group(1).startswith(("/root", "/home"))
+
+        assert (
+            text.index("apt-get purge -y build-essential")
+            < env.start()
+            < text.index("playwright install")
+            < text.index("--force-reinstall")
+        )
 
     def test_deps_run_primes_pip_spec_with_dev_fallback(self, hello_project):
         """The deps RUN installs ``$OSPREY_PIP_SPEC`` and carries the dev-gated
@@ -775,7 +797,7 @@ class TestDockerignore:
         ``.env.auth`` holds the web-terminal password hashes and the sidecar's
         session-signing secrets; ``.env.users`` holds the provider secrets
         a multi-user deploy generates at the project root — the same root the
-        persona images are then built from, so an unexcluded one is baked into
+        render images are then built from, so an unexcluded one is baked into
         every agent image.
 
         Asserted by **matching** rather than by literal line, and separately
@@ -930,7 +952,7 @@ def _instructions(dockerfile_text: str) -> list[tuple[str, str]]:
 def _render_template(**context) -> str:
     """Render ``Dockerfile.j2`` directly, against a synthetic context.
 
-    The persona-conditional line depends on a context key whose real value comes
+    The render-conditional line depends on a context key whose real value comes
     from the profile's permission overrides, and no shipped preset denies the
     setup tool yet (the base floor lands with the tiered presets). Rendering the
     template itself is how both sides of the conditional can be pinned now,
@@ -1109,7 +1131,7 @@ class TestPrivilegeSplit:
 
 
 class TestSetupCapabilityConditional:
-    """`build/config.yml` is chowned only for a persona that can still edit it.
+    """`build/config.yml` is chowned only for a render that can still edit it.
 
     The tier boundary is a filesystem fact rather than a permission list: a
     readonly or readwrite render cannot write the file that says what it may do,
@@ -1126,7 +1148,7 @@ class TestSetupCapabilityConditional:
     def test_no_config_chown_without_the_capability(self):
         text = _render_template(is_setup_patch_capable=False)
         assert self._CHOWN not in text, (
-            "config.yml handed to the agent's user for a persona that cannot patch it"
+            "config.yml handed to the agent's user for a render that cannot patch it"
         )
 
     def test_config_chown_with_the_capability(self):
@@ -1203,14 +1225,14 @@ class TestSetupCapabilityConditional:
         `claude_code.permissions:` mapping, or fully nested, and all three
         render the same leaf. This helper used to read the first and the third:
         a profile that denied the setup tool through the middle one was reported
-        CAPABLE and the image chowned `build/config.yml` to a persona whose
+        CAPABLE and the image chowned `build/config.yml` to a render whose
         settings.json denies the tool. Both sides now come from
-        `personas.persona_capability_document`, so the two verdicts are the same
+        `renders.render_capability_document`, so the two verdicts are the same
         verdict.
         """
         from osprey.cli.build_cmd import _profile_setup_patch_capable
         from osprey.cli.profile_conventions import is_setup_patch_capable
-        from osprey.deployment.web_terminals.personas import persona_capability_document
+        from osprey.deployment.web_terminals.roster import render_capability_document
 
         tool = "mcp__osprey_workspace__setup_patch"
         config = {"claude_code.permissions.deny": [tool]} if key == "remove_deny" else {}
@@ -1220,7 +1242,7 @@ class TestSetupCapabilityConditional:
             def __init__(self, config):
                 self.config = config
 
-        guard_verdict = is_setup_patch_capable(persona_capability_document(config))
+        guard_verdict = is_setup_patch_capable(render_capability_document(config))
         assert _profile_setup_patch_capable(_Profile(config)) is guard_verdict is capable
 
     def test_the_floor_does_not_deny_the_setup_tool(self):
@@ -1229,7 +1251,7 @@ class TestSetupCapabilityConditional:
         The capability check reads the PROFILE's deny; it never sees the
         framework's `DENY_DEFAULTS` floor. While the floor is silent about the
         setup tool the two agree — and if the deny ever moved down into the
-        floor, every persona would read as capable and every image would chown
+        floor, every render would read as capable and every image would chown
         its config.yml to the agent.
         """
         from fnmatch import fnmatchcase
@@ -1289,7 +1311,7 @@ class TestSetupCapabilityConditional:
 @pytest.fixture(scope="module")
 def tiered_render(tmp_path_factory):
     """Render the `control-assistant` preset once — the deployment's own project
-    plus one per persona delta, all from a single `osprey build`.
+    plus one per layer, all from a single `osprey build`.
 
     Module-scoped: the tier question below is asked of five Dockerfiles out of
     the same render, and rendering per test would pay for the same build five
@@ -1304,7 +1326,7 @@ class TestTieredPresetConfigChown:
     `TestSetupCapabilityConditional` pins both sides of the template branch
     against a synthetic context; this pins that the real preset family lands one
     tier on each side. It is the end of the chain the tiered presets exist for:
-    the base preset denies `setup_patch`, `control-assistant-admin` lifts that
+    the base preset denies `setup_patch`, the `admin` tier lifts that
     deny with `remove_deny`, `_profile_setup_patch_capable` composes the two into
     the render context, and the difference comes out here as which image hands
     `build/config.yml` to the agent's user.
@@ -1321,9 +1343,9 @@ class TestTieredPresetConfigChown:
     def _dockerfile(render: pathlib.Path, project_name: str) -> str:
         """The Dockerfile of one project in the shared render.
 
-        The deployment's own project IS the render directory; each persona's
+        The deployment's own project IS the render directory; each render's
         sits beside it under the name `osprey init` wrote into the catalog,
-        `<repo>-<persona>`.
+        `<repo>-<render>`.
         """
         root = render if project_name == render.parent.name else render / project_name
         dockerfile = root / "Dockerfile"
@@ -1338,12 +1360,12 @@ class TestTieredPresetConfigChown:
         project = f"{tiered_render.parent.name}-admin"
         assert self._chown_line(project) in self._dockerfile(tiered_render, project)
 
-    @pytest.mark.parametrize("persona", ["readonly", "readwrite", "logbook", "knowledge"])
-    def test_no_other_persona_hands_over_config_yml(self, tiered_render, persona):
+    @pytest.mark.parametrize("tier", ["readonly", "readwrite", "logbook", "knowledge"])
+    def test_no_other_render_hands_over_config_yml(self, tiered_render, tier):
         """Every tier the base preset's floor still applies to renders the image
         WITHOUT the chown: it cannot rewrite the file that says what it may do,
         whatever else its permission list allows."""
-        project = f"{tiered_render.parent.name}-{persona}"
+        project = f"{tiered_render.parent.name}-{tier}"
         text = self._dockerfile(tiered_render, project)
         assert self._chown_line(project) not in text
         assert "/build/config.yml" not in "\n".join(
@@ -1361,12 +1383,12 @@ class TestTieredPresetConfigChown:
             b for _, b in _instructions(text) if "chown" in b
         )
 
-    @pytest.mark.parametrize("persona", [None, "admin", "knowledge", "readonly"])
-    def test_every_tier_hands_over_the_knowledge_bundle(self, tiered_render, persona):
+    @pytest.mark.parametrize("tier", [None, "admin", "knowledge", "readonly"])
+    def test_every_tier_hands_over_the_knowledge_bundle(self, tiered_render, tier):
         """The preset names its bundle in the facility tree, and each image
         chowns that directory to the agent's user."""
         name = tiered_render.parent.name
-        project = name if persona is None else f"{name}-{persona}"
+        project = name if tier is None else f"{name}-{tier}"
         text = self._dockerfile(tiered_render, project)
         bundle = f"/app/{project}/build/data/facility/knowledge"
         assert f"if [ -d {bundle} ]; then" in text

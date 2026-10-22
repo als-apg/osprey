@@ -53,7 +53,7 @@ def _show(repo: Path, *args: str) -> Result:
 
 
 def _set_mode(path: Path, mode: str) -> None:
-    """Set ``channel_finder_mode`` in a profile or persona delta."""
+    """Set ``channel_finder_mode`` in a profile or layer."""
     text = path.read_text(encoding="utf-8")
     lines = [line for line in text.splitlines() if not line.startswith("channel_finder_mode:")]
     path.write_text("\n".join([*lines, f"channel_finder_mode: {mode}", ""]), encoding="utf-8")
@@ -113,10 +113,10 @@ def test_the_human_output_names_the_config_it_judged_the_views_against(repo: Pat
     assert "graph          data/graph, written" in result.stdout
 
 
-def test_the_views_are_the_primary_configs_whatever_the_personas_select(repo: Path) -> None:
+def test_the_views_are_the_primary_configs_whatever_the_renders_select(repo: Path) -> None:
     _set_mode(repo / "profile.yml", "hierarchical")
-    _set_mode(repo / "personas" / "readonly.yml", "in_context")
-    _set_mode(repo / "personas" / "readwrite.yml", "middle_layer")
+    _set_mode(repo / "tiers" / "readonly.yml", "in_context")
+    _set_mode(repo / "tiers" / "readwrite.yml", "middle_layer")
 
     result = _show(repo, "--json")
 

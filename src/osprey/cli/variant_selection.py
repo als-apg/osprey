@@ -143,7 +143,7 @@ def active_variant_overlay(repo_root: Path) -> Path | None:
     Args:
         repo_root: The directory holding ``profile.yml``, ``profiles/`` and the
             settings file. A directory that is not a deployment repo (a
-            ``personas/`` directory, a preset package) simply has no setting
+            ``tiers/`` directory, a preset package) simply has no setting
             and so selects nothing.
     """
     name = read_variant_setting(repo_root)

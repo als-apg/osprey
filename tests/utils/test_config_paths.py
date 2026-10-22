@@ -70,7 +70,7 @@ def test_relative_value_in_the_build_zone_resolves_against_the_repo(tmp_path):
     it is not what the compose layer binds into containers: every bind source is
     resolved against the repo root (the pinned ``--project-directory``). A
     resolver anchored on ``build/`` had the qmd exporter writing a mirror the
-    sidecar never mounted, and persona readers opening a baked bundle while the
+    sidecar never mounted, and render readers opening a baked bundle while the
     live one was bound one directory over.
     """
     repo = tmp_path / "repo"

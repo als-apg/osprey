@@ -63,6 +63,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
 from tests._preset_data import bundle_data_root
+from tests._renders import tier_render
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 
@@ -3649,7 +3650,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 # Wheel-build memo (Task 3.1) + Dockerfile-scoped staging (Task 3.2)
 #
 # One `--dev` deploy stages the SAME wheel into many build contexts (every
-# Dockerfile-bearing service context, the project-image root, each persona
+# Dockerfile-bearing service context, the project-image root, each render
 # project), and rebuild_deployment renders the compose files twice (its own
 # prepare_compose_files + the delegated deploy_up's). The isolated-env
 # `python -m build` takes tens of seconds, so it is memoized per process:
@@ -3800,7 +3801,7 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     Drives the real service-context staging (``prepare_compose_files`` with
     dev_mode) plus two further ``_copy_local_framework_for_override`` calls
     with distinct out_dirs — the same helper the project-image build
-    (``_build_project_image``) and persona builds (``build_persona_images``)
+    (``_build_project_image``) and render builds (``build_render_images``)
     invoke against their own contexts. Every context must still receive its
     own wheel copy (the memo caches the BUILD, not the copy).
     """
@@ -3810,21 +3811,21 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     _copy_service_templates(tmp_path)
 
     project_image_ctx = tmp_path / "project-image-ctx"
-    persona_ctx = tmp_path / "persona-ctx"
+    render_ctx = tmp_path / "render-ctx"
     project_image_ctx.mkdir()
-    persona_ctx.mkdir()
+    render_ctx.mkdir()
 
     monkeypatch.chdir(tmp_path)
     prepare_compose_files(str(config_path), dev_mode=True)
     assert _copy_local_framework_for_override(str(project_image_ctx)) is True
-    assert _copy_local_framework_for_override(str(persona_ctx)) is True
+    assert _copy_local_framework_for_override(str(render_ctx)) is True
 
     assert len(spy_wheel_build) == 1 + len(WORKSPACE_MEMBERS), (
         f"the wheel build subprocess must run exactly once per distribution "
         f"(framework + each workspace member), ran {len(spy_wheel_build)}x"
     )
     service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
-    for ctx in (service_ctx, project_image_ctx, persona_ctx):
+    for ctx in (service_ctx, project_image_ctx, render_ctx):
         staged = sorted(w.name for w in ctx.glob("*.whl"))
         assert staged == _EXPECTED_STAGED_WHEELS, (
             f"expected every wheel staged into {ctx}, found {staged}"
@@ -9340,22 +9341,22 @@ def _web_terminal_services(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _persona_backed_roster() -> dict[str, Any]:
-    """The reference roster with each user behind a persona of its own.
+def _render_backed_roster() -> dict[str, Any]:
+    """The reference roster with each user behind a render of its own.
 
-    Two personas built from two different projects read their agent-data root at
+    Two renders built from two different projects read their agent-data root at
     two different in-container paths, which is the case a hardcoded mount target
     gets wrong for one of them.
     """
     config = copy.deepcopy(EXAMPLE_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    web_terminals["personas"] = {
-        "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
-        "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
+    web_terminals["renders"] = {
+        "operator": tier_render("operator", "dls-operator", project_path="../dls-operator"),
+        "physicist": tier_render("physicist", "dls-physicist", project_path="../dls-physicist"),
     }
     web_terminals["users"] = [
-        {"name": "alice", "index": 0, "persona": "operator"},
-        {"name": "bob", "index": 1, "persona": "physicist"},
+        {"name": "alice", "index": 0, "tier": "operator"},
+        {"name": "bob", "index": 1, "tier": "physicist"},
     ]
     return config
 
@@ -9393,7 +9394,7 @@ class TestTerminalControlContextBind:
         Read back rather than spelled, because the whole point of the bind's
         target is that it follows that directory — the one the process inside
         actually resolves its agent-data root to. A literal here would pin the
-        reference config's path and pass for a persona that reads its root
+        reference config's path and pass for a render that reads its root
         somewhere else entirely.
         """
         mounts = [
@@ -9443,17 +9444,17 @@ class TestTerminalControlContextBind:
 
             assert declared == [f"OSPREY_CONTROL_CONTEXT_DIR={target}"], (name, declared)
 
-    def test_control_context_dir_follows_each_personas_own_agent_data_root(self) -> None:
-        """Two personas, two in-container roots, two targets — derived, not fixed.
+    def test_control_context_dir_follows_each_renders_own_agent_data_root(self) -> None:
+        """Two renders, two in-container roots, two targets — derived, not fixed.
 
-        A persona-backed roster separates a derived target from a hardcoded one:
+        A render-backed roster separates a derived target from a hardcoded one:
         each container resolves its agent-data root under its OWN project
         directory, so one literal path would mount the record directory where
         only one of the two writes.
         """
         targets = {
             name: self._control_mounts(service)[0].split(":")[1]
-            for name, service in _web_terminal_services(_persona_backed_roster()).items()
+            for name, service in _web_terminal_services(_render_backed_roster()).items()
         }
 
         assert targets == {
@@ -9974,8 +9975,10 @@ def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
                         "enabled": True,
                         "auth": {"method": auth_method, "allow_insecure_http": True},
                         "users": [{"name": "alice", "index": 0}],
-                        "default_persona": "assistant",
-                        "personas": {"assistant": {"project": "derived-fixture-assistant"}},
+                        "default_tier": "assistant",
+                        "renders": {
+                            "assistant": tier_render("assistant", "derived-fixture-assistant")
+                        },
                     }
                 },
             },

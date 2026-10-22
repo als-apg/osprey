@@ -855,8 +855,8 @@ def _served_models(
     if not isinstance(models, list):
         raise ValueError(
             f"api.providers.{provider_name}.models must be a list of the model ids "
-            f"the gateway serves, got {type(models).__name__}. `osprey profile expand "
-            f"--providers` refreshes a copied catalog to the packaged entries."
+            f"the gateway serves, got {type(models).__name__}. `osprey init "
+            f"--revalidate` refreshes a copied catalog to the packaged entries."
         )
     default = entry.get("default_model")
     if default is None and provider_name == "anthropic":

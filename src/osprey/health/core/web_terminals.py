@@ -44,9 +44,9 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 
-from osprey.deployment.web_terminals.personas import normalize_users
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
 from osprey.deployment.web_terminals.render import _auth_tls_context
+from osprey.deployment.web_terminals.roster import normalize_users
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port, resolve_port_base
 

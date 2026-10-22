@@ -498,7 +498,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # `modules.web_terminals.enabled: false` scopes this deploy back to the VA +
     # bridge substrate: the control-assistant preset now ships the multi-user
     # web-terminal stack on by default, so an unqualified deploy would also
-    # render both persona projects, build two web images, and start nginx/web
+    # render both render projects, build two web images, and start nginx/web
     # containers -- none of which this substrate-equivalence proof exercises
     # (that topology is covered by test_control_assistant_demo.py).
     # `_orm_stack.VA_ARCHIVER_CI_KNOBS` shrinks the archive the preset declares

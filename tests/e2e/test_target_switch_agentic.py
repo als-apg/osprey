@@ -20,7 +20,7 @@ settled on the wire rather than taken on trust:
 
 The fixture below builds that world once per module and the tests spend it.
 What it is NOT is an ``osprey up`` deployment: no bluesky bridge, no tiled, no
-mongo, no web terminals, no persona renders. Those are trimmed in the overlay
+mongo, no web terminals, no renders. Those are trimmed in the overlay
 rather than merely left unused, because a registered-but-unreachable backend
 turns a curious agent's exploration into a connection failure that reads, in a
 transcript, exactly like a bug in the thing under test.
@@ -101,6 +101,7 @@ from osprey_connectors.control_context import (
     read_record,
     write_json_atomic,
 )
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.e2e._facility_select import repo_view
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs
@@ -466,8 +467,8 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
         ARIEL is deployed. The three bluesky skills are plain markdown shipped
         verbatim, naming tools the bluesky trim removes.
     ``modules.web_terminals.enabled: false``
-        The shipped persona-delta off-switch. Without it the preset emits three
-        persona deltas and ``osprey build`` renders FOUR projects, quadrupling
+        The shipped layer off-switch. Without it the preset emits three
+        layers and ``osprey build`` renders FOUR projects, quadrupling
         fixture setup and littering ``build/`` with sibling trees — and the
         control-target state file this module's scenarios read is rooted at the
         base render alone.
@@ -949,13 +950,13 @@ def approval_prompts_for_tool(
 # ---------------------------------------------------------------------------
 
 
-def test_the_build_renders_one_project_and_no_personas(
+def test_the_build_renders_one_project_and_no_renders(
     switch_deployment: SwitchDeployment,
 ) -> None:
     """One render, not four.
 
-    The control-assistant preset declares three persona deltas, and a build that
-    honours them emits a sibling project tree per persona. This module's overlay
+    The control-assistant preset declares three layers, and a build that
+    honours them emits a sibling project tree per render. This module's overlay
     turns web terminals off precisely to prevent that: the scenarios read the
     control-target state file under the BASE render, and a build littered with
     sibling renders makes "which state file" a question with several answers.
@@ -963,9 +964,9 @@ def test_the_build_renders_one_project_and_no_personas(
     repo = switch_deployment.repo
     render = switch_deployment.render
 
-    assert not (repo / "personas").exists(), (
-        f"osprey init wrote a personas/ directory at {repo / 'personas'} — the overlay's "
-        "modules.web_terminals.enabled: false no longer suppresses the persona deltas"
+    assert not (repo / TIERS_DIRNAME).exists(), (
+        f"osprey init wrote a {TIERS_DIRNAME}/ directory at {repo / TIERS_DIRNAME} — the overlay's "
+        "modules.web_terminals.enabled: false no longer suppresses the layers"
     )
     siblings = sorted(
         p.name for p in render.iterdir() if p.is_dir() and (p / "config.yml").is_file()

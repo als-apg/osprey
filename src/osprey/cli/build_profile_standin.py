@@ -73,11 +73,11 @@ PROBE_CHANNEL_KEY = f"{_STANDIN_PREFIX}.probe_channel"
 #: set, one list so they cannot drift apart.
 #:
 #: Matched LEAF by leaf, never by prefix. A prefix over the stand-in's block
-#: would refuse a persona's own
+#: would refuse a render's own
 #: ``control_system.connector.live_standin.writes_enabled``, which says
 #: something the build has no opinion about: *where* the stand-in is and *what
 #: proves it reachable* are these keys; whether a given login may write to it is
-#: the persona's to state, exactly as it is for the ``epics`` block beside it.
+#: the render's to state, exactly as it is for the ``epics`` block beside it.
 LIVE_STANDIN_DERIVED_KEYS: tuple[str, ...] = (
     f"{_STANDIN_PREFIX}.gateways.read_only.address",
     f"{_STANDIN_PREFIX}.gateways.read_only.port",
@@ -98,7 +98,7 @@ def live_standin_config_overrides(
 
     Applied on the ordinary config-override path beside the ``deploy`` and
     ``va_archiver`` blocks, rather than by the VA injector, for the reason the
-    archiver's keys are: an *attached* render — every web-terminal persona —
+    archiver's keys are: an *attached* render — every web-terminal render —
     scaffolds no services and never reaches an injector, yet its session can be
     pointed at the same ``standin`` target as the deployment it attaches to and
     must be told the same address.

@@ -52,6 +52,12 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/cli/init_cmd.py", "_replacing_source_zone"): (
         "moves existing entries to a stash and back"
     ),
+    ("src/osprey/cli/init_revalidate.py", "_git_move"): (
+        "moves an existing file where git does not track it"
+    ),
+    ("src/osprey/cli/init_revalidate.py", "_move_retired_layer_dir"): (
+        "moves an existing layer directory or its files where git does not track them"
+    ),
     ("src/osprey/cli/scaffold_cmd.py", "claim_into_profile"): "moves an existing tree",
     ("src/osprey/deployment/container_lifecycle.py", "_migrate_legacy_curve_dir"): (
         "relocates a directory"

@@ -78,8 +78,8 @@ __all__ = [
 STORAGE_KEY = "osprey-theme"
 
 #: The ``<html>`` attribute the server stamps on a multi-user mount, naming the
-#: persona a page is served for. localStorage is origin-scoped, not
-#: path-scoped, so on such a deployment (every persona under ``/u/<user>/`` on
+#: render a page is served for. localStorage is origin-scoped, not
+#: path-scoped, so on such a deployment (every render under ``/u/<user>/`` on
 #: one origin) the bare :data:`STORAGE_KEY` is a single shared slot and the last
 #: picker decides what everybody else boots into. When the attribute is present,
 #: theme-boot.js reads ``osprey-theme--<scope>`` instead — and never falls back
@@ -399,13 +399,13 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     concrete valid id) — a URL carries a single value, never the
     structured pair.
 
-    Both storage rungs are read under a PER-PERSONA key when the server
+    Both storage rungs are read under a PER-RENDER key when the server
     stamped :data:`SCOPE_ATTRIBUTE` on ``<html>``: ``osprey-theme--<scope>``
     rather than the bare ``osprey-theme``, with no fallback to the bare key
     when the scoped one is missing. localStorage is origin-scoped, so on a
-    multi-user mount the bare key is one slot shared by every persona and
+    multi-user mount the bare key is one slot shared by every render and
     falling back to it would hand the last writer's theme to everyone who has
-    not yet picked — the exact cross-persona bug the scoping closes. A scoped
+    not yet picked — the exact cross-render bug the scoping closes. A scoped
     page with no scoped value simply has no stored preference, and resolution
     falls through to the server attribute and then to ``'auto'``. With the
     attribute absent (single-user serving, where nothing is stamped) both rungs
@@ -475,7 +475,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 // literals for the same reason: this script must not import anything.
 //
 // Storage rungs, scoped: localStorage is origin-scoped, so on a multi-user
-// deployment (every persona served from one origin under `/u/<user>/`) a bare
+// deployment (every render served from one origin under `/u/<user>/`) a bare
 // key is a single shared slot and the last picker decides what everyone else
 // boots into. When the server stamps data-osprey-storage-scope on <html>, the
 // storage rungs read `osprey-theme--<scope>` instead — and do NOT fall back to
@@ -537,7 +537,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   // Inline mirror of storage-scope.js's `scopedStorageKey()`. An empty
   // attribute value counts as unscoped: the server omits the attribute rather
   // than rendering `=""`, so this only guards against a key ending in a bare
-  // "--" that would belong to no persona.
+  // "--" that would belong to no render.
   function storageKey() {{
     try {{
       const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);

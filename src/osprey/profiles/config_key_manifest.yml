@@ -31,6 +31,12 @@
 #                       real anchored evidence. See the note below.
 #   data-map: true      The key's leaves are user-extensible data, not a fixed
 #                       schema — the guard checks shape, not membership.
+#   deployment-data: true
+#                       This deployment's own selection; a preset's value is an
+#                       example, never a default, so no filler writes it.
+#                       `data-map: true` implies it. The filler reads `config:`
+#                       only, so top-level profile blocks such as `dispatch:`
+#                       are never filled.
 #   forward-declared    Written by the templates, read by nothing today, and
 #                       deliberately so (documented hidden-key stanzas).
 #
@@ -177,7 +183,7 @@ keys:
     note: >-
       Hidden key, commented in the framework template and unset in the four
       presets. Both halves of air-gapped operation, deliberately under one
-      key: `osprey up` passes it to the project, persona and sidecar image
+      key: `osprey up` passes it to the project, render and sidecar image
       builds as `OSPREY_OFFLINE=1`, which makes each image run `osprey vendor
       fetch`, and the running interfaces read it again through
       `vendor.is_offline` to decide whether to serve those bundles instead of
@@ -214,7 +220,7 @@ keys:
       Hidden key, commented in the framework template and unset in the four
       presets. Path on the DEPLOY HOST to the PEM bundle of a proxy that
       re-signs TLS. `osprey up` stages a copy into the build context of each
-      image it builds from a shipped recipe — the project image, each persona
+      image it builds from a shipped recipe — the project image, each render
       image and the login sidecar (`container_lifecycle.site_image_build_args`)
       — and passes its staged name as the `OSPREY_SITE_CA` build arg, because a
       Dockerfile COPY cannot reach outside its context. Same two layers as the
@@ -228,7 +234,7 @@ keys:
     note: >-
       Hidden key, commented in the framework template and unset in the four
       presets. The hosts pip reaches without going through the proxy, passed
-      to the project, persona and sidecar image builds as the `PIP_NO_PROXY`
+      to the project, render and sidecar image builds as the `PIP_NO_PROXY`
       build arg those recipes declare. PIP_NO_PROXY overrides it in the
       environment.
     default: ''
@@ -322,8 +328,8 @@ keys:
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
   services.postgresql.username: {covered-by: services.postgresql, default: ariel}
   services.postgresql.port_host: {evidence: 'port_host', default: derived, default_note: the layout's postgres slot at this deployment's port base}
-  # The qmd semantic-search sidecar, shipped LIVE in the ariel-standalone and
-  # control-assistant templates (it backs the default-on `hybrid` search mode
+  # The qmd semantic-search sidecar, shipped LIVE in the control-assistant
+  # template (it backs the default-on `hybrid` search mode
   # and ranked OKF search). Every regex below anchors on qmd_service.py and
   # matches exactly one file, so deleting the resolver fails the guard rather
   # than rotting quietly.
@@ -405,8 +411,8 @@ keys:
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.
 
-  # The graph store, shipped LIVE in the ariel-standalone and control-assistant
-  # templates (block and `deployed_services` entry always emitted together — a
+  # The graph store, shipped LIVE in the control-assistant
+  # template (block and `deployed_services` entry always emitted together — a
   # deployed graphdb without a block is refused pre-compose). Every regex below
   # — except `path`, which cites the generic compose-generator read shared with
   # its three neighbours, and the two query bounds at the end of the block —
@@ -901,6 +907,18 @@ keys:
   services.dispatch_worker.network: {evidence: '\bdw\.network\b', default: bridge}
   services.dispatch_worker.bind_env: {covered-by: services.dispatch_worker, default: n/a}
   services.dispatch_worker.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.dispatch_worker\)', default: []}
+  services.dispatch_worker.tier:
+    evidence: 'worker_config\["tier"\] = dispatch\.tier'
+    note: >-
+      The tier the dispatch workers run, by name — a file in `tiers/`. Written
+      by the dispatch injector from the profile's `dispatch.tier`, and only
+      when that is set; never an image string. control-assistant sets
+      `dispatch.tier`, so its deploying render carries the key. A tier that lifts a base deny
+      or enables `web.config_panel.enabled` /
+      `web.scaffold_gallery.write_enabled` is refused at build, because a
+      headless run has no approver. Unset means the workers run the
+      deployment's own render.
+    default: null
   services.mongodb: {evidence: 'hostenv\.passthrough\(services\.mongodb\)', default: null}
   services.mongodb.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/mongodb"}
   services.mongodb.port_host: {evidence: 'PortSlot\("mongo", 801, "stores", "services\.mongodb\.port_host"\)', default: derived, default_note: the layout's mongo slot at this deployment's port base}
@@ -961,10 +979,8 @@ keys:
   approval.tools:
     covered-by: approval
     note: >-
-      Absent from channel-finder-standalone by design — that deployment runs
-      no control system, and each of the four tools its servers do govern
-      (setup_patch and the three panel-rail verbs) is covered by
-      default_policy. See governed_sets.
+      A deployment may ship no approval.tools block at all; every tool its
+      servers govern then falls to default_policy. See governed_sets.
     default: {}
   # A tool's policy follows what the tool does, not which deployment serves it, so every
   # preset that lists a tool lists it at one policy; an unlisted tool falls to default_policy.
@@ -992,9 +1008,11 @@ keys:
   approval.tools.archiver_read: {same-value: true, evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.execute: {same-value: true, covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
   approval.tools.setup_patch: {same-value: true, evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.entry_create: {same-value: true, evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
+  # The logbook write pair is stated by control-assistant and by the `logbook`
+  # app, and parity compares root presets only, so neither carries a same-value
+  # mark: with one root stating it, the mark would compare nothing.
+  approval.tools.entry_create: {evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.entry_publish:
-    same-value: true
     evidence: 'entry_publish'
     note: >-
       The second half of the logbook write: entry_create drafts, entry_publish
@@ -1002,7 +1020,7 @@ keys:
       approval hook, so both belong here.
     default: derived
     default_note: falls through to approval.default_policy
-  # The panel-rail verbs. Spelled in exactly the three presets that ship an
+  # The panel-rail verbs. Spelled in both root presets, each of which ships an
   # approval table for a workspace tool; `covered-by` rather than `evidence`
   # because the reader is the same approval table `execute` is read from, and a
   # bare literal would pin the tool name instead of the policy key.
@@ -1023,9 +1041,8 @@ keys:
     all-templates: true
     evidence: 'cfg\.get\("hooks", \{\}\)\.get\("debug"\)'
     note: >-
-      Present in all four presets, with deliberately different values: live
-      true in control-assistant / ariel-standalone / channel-finder-standalone,
-      live false in hello-world. It is a posture-floor key, so every preset has
+      Present in both presets, with deliberately different values: live
+      true in control-assistant, live false in hello-world. It is a posture-floor key, so every preset has
       to state it either way — which is what makes it parity-required now,
       where under the templates it was a per-template divergence.
     default: required
@@ -1342,17 +1359,14 @@ keys:
       reason: which attribute answers is a facility fact.
     default: ''
   control_system.connector.virtual_accelerator.writes_enabled:
-    rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
     note: >-
-      Per-connector-type override of `control_system.writes_enabled`. The
-      presets that carry a virtual_accelerator block write it commented, so no
-      preset's resolved config carries it and `rendered` stays false;
-      the shipped presets `control-assistant-readwrite` and
-      `control-assistant-admin` (true) and `control-assistant-readonly`,
-      `control-assistant-knowledge` and `control-assistant-logbook` (false) DO
-      write it into a project's real
-      config.yml when applied, so an audit of a built deployment will find it.
+      Per-connector-type override of `control_system.writes_enabled`. The root
+      presets that carry a virtual_accelerator block write it commented; every
+      bundled app pins it false, and the app composer pins it false on every
+      app render whatever the app file says, which is what renders it. The
+      bundled tiers write it too — true in `readwrite` and `admin`, false in
+      `readonly` — so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
       inheriting. The reader is `type_writes_enabled` in
@@ -1364,15 +1378,14 @@ keys:
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.epics.writes_enabled:
-    rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
     note: >-
       Same key, same tri-state semantics and the same single reader for the
-      epics block, likewise written commented in `control-assistant` so no
-      preset's resolved config carries it. Arming writes against a live machine is a facility
-      decision that cannot ship pre-made, so no shipped preset ever sets this
-      one true; the control-assistant tiers that pin it write it false into an
-      applied project's config.yml, which is the one way a build produces it.
+      epics block, likewise written commented in `control-assistant`; every
+      bundled app pins it false, and the app composer pins it on every app
+      render, which is what renders it. Arming writes against a live machine is
+      a facility decision that cannot ship pre-made, so no shipped preset, tier
+      or app ever sets this one true; the bundled tiers write it false.
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.doocs.writes_enabled:
@@ -1882,7 +1895,7 @@ keys:
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
       deliberately differs (10 providers in project/control_assistant/
-      hello_world, a 6-provider subset in the two standalone bundles). The
+      hello_world; a deployment may list a subset). The
       guard checks SHAPE per provider (base_url present, default_model
       present and in the models list, models a non-empty list of ids), never
       membership. A provider that names no default_model and lists no models
@@ -1951,6 +1964,8 @@ keys:
   claude_code.servers.bluesky.enabled: {covered-by: claude_code.servers.bluesky, default: derived, default_note: the bluesky server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.health: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.health.enabled: {covered-by: claude_code.servers.health, default: derived, default_note: the health server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.graph: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.graph.enabled: {covered-by: claude_code.servers.graph, default: derived, default_note: the graph server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.phoebus: {covered-by: claude_code.servers, rendered: false, default: n/a}
   claude_code.servers.phoebus.enabled: {covered-by: claude_code.servers.phoebus, rendered: false, default: derived, default_note: the phoebus server's FRAMEWORK_SERVERS default_enabled}
   claude_code.permissions:
@@ -1958,7 +1973,7 @@ keys:
     note: >-
       The facility's own additions to the settings.json permissions layer,
       merged with the framework's DENY_DEFAULTS by settings.json.j2. Only
-      control-assistant ships one; it is the tier floor every persona inherits.
+      control-assistant ships one; it is the floor every tier inherits.
     default: {}
   claude_code.permissions.deny: {covered-by: claude_code.permissions, default: []}
   claude_code.agents: {evidence: 'resolve_agents', default: {}}
@@ -2097,15 +2112,6 @@ keys:
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
-  ariel.demo_narrative:
-    evidence: 'DEMO_NARRATIVE_KEY = "demo_narrative"'
-    note: >-
-      `all` or a list of scenario names whose logbook entries, read from the
-      built simulator view with the pictures they attach, `osprey up` seeds into
-      an empty logbook in place of the active set's, and `osprey ariel
-      quickstart` seeds and enhances. A directory value is refused. Live in
-      ariel-standalone as `all`.
-    default: null
   ariel.ingestion:
     rendered: false
     covered-by: ariel
@@ -2157,8 +2163,8 @@ keys:
       Whether the ARIEL panel embedded in the web terminal offers its Search
       view and opens on it. Off by default: embedded, the agent searches the
       logbook, so the panel opens on Browse and redirects a `#search` hash
-      there. The standalone page always offers Search. Commented in the two
-      presets that ship an `ariel:` block; parsed by ARIELConfig.from_dict and
+      there. The standalone page always offers Search. Commented in the
+      preset that ships an `ariel:` block; parsed by ARIELConfig.from_dict and
       reported to the page as `embedded_search` in GET /api/capabilities. A
       value that is not a boolean is refused at config parse.
     default: false
@@ -2811,6 +2817,15 @@ keys:
 
   # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
+  web.ui_mode:
+    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("ui_mode", DEFAULT_UI_MODE\)'
+    note: >-
+      The web terminal's layout: `expert`, the full split-pane workspace, or
+      `simple`, the pared-down operator layout. Display only. Every bundled app
+      states `expert`, because each opens on a panel; the bundled tiers state it
+      per access level. A value that is not one of the two warns and falls back
+      to the default.
+    default: expert
   web.theme:
     evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-
@@ -2838,11 +2853,9 @@ keys:
     note: >-
       Whether the title bar offers the control-target picker (the chip and its
       switching popover). Display only: it grants and removes no access. Set
-      false by every shipped preset that reaches no machine (no control-system
-      tool server and no JUPYTER panel): ariel-standalone and
-      channel-finder-standalone, which render it, and the
-      control-assistant-logbook and control-assistant-knowledge personas.
-      Commented in control-assistant and hello-world. A value that is not a
+      false by every bundled app — none reaches the machine (no control-system
+      tool server and no JUPYTER panel). Commented in control-assistant and
+      hello-world. A value that is not a
       boolean, or a file that cannot be read, keeps the default.
     default: true
   web.file_watch_reconcile_interval_s:
@@ -2931,9 +2944,8 @@ keys:
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
       entry dies with that reader rather than outliving it. Rendered from the
-      root presets that carry a `web:` block — control-assistant,
-      ariel-standalone and channel-finder-standalone; hello-world has none, so
-      this is deliberately not all-templates.
+      root presets that carry a `web:` block — control-assistant; hello-world
+      has none, so this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
     evidence: '(?:get_config_value|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
@@ -2944,8 +2956,8 @@ keys:
       are what the agent's permission surface is rendered from, so a
       client-only gate would be undone by typing the route's URL. Shipped
       true — the panel every single-user deployment has always had — and
-      pinned false by the multi-user persona presets that are not the admin
-      tier. The default is spelled in the evidence because it is the posture
+      pinned false by control-assistant, so every tier but `admin`, which
+      lifts it, inherits false. The default is spelled in the evidence because it is the posture
       for a key the file does not mention; a config file that exists but
       cannot be read closes the gate instead.
     default: true
@@ -2955,9 +2967,9 @@ keys:
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
       entry dies with that reader rather than outliving it. Rendered from the
-      root presets that carry a `web:` block — control-assistant,
-      ariel-standalone and channel-finder-standalone; hello-world has none, so
-      this is deliberately not all-templates, same as `web.config_panel`.
+      root presets that carry a `web:` block — control-assistant; hello-world
+      has none, so this is deliberately not all-templates, same as
+      `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
     evidence: 'get_config_value\(\s*"web\.scaffold_gallery\.write_enabled",\s*True'
@@ -2969,8 +2981,8 @@ keys:
       content, which the agent loads at PROJECT scope, so a client-only gate
       would be undone by curl — the same cosmetic-gate failure `ui_mode:
       simple` was. Shipped true — the gallery every single-user deployment has
-      always had — and pinned false by the multi-user persona presets that are
-      not the admin tier. The default is spelled in the evidence because it is
+      always had — and pinned false by control-assistant, so every tier but `admin`, which
+      lifts it, inherits false. The default is spelled in the evidence because it is
       the posture for a key the file does not mention; a config file that
       exists but cannot be read closes the gate instead. The `\s*` between the
       call's parts is load-bearing for the same reason `web.docs_url` carries
@@ -3020,7 +3032,7 @@ keys:
     # Documented in every template that carries a `web:` block as a commented
     # example, never rendered as a live key: the shipped destination is the
     # OSPREY project, and a facility that redirects feedback writes the block
-    # by hand. Rendering it live would force `osprey profile expand` on every
+    # by hand. Rendering it live would force `osprey init --revalidate` on every
     # already-deployed profile to clear a drift report.
     rendered: false
     evidence: 'get_config_value\("web\.feedback\.owner", None\)'
@@ -3177,7 +3189,7 @@ keys:
     default: false
 
   # ── Multi-user web terminals ────────────────────────────────────────
-  # The roster, its personas and the landing page. Preset-side throughout
+  # The roster, its tiers and apps, and the landing page. Preset-side throughout
   # (only control-assistant ships a block), and read by
   # deployment/web_terminals/ rather than by anything in a container.
   deploy: {evidence: 'as_dict\(root\.get\("deploy"\)\)', default: {}}
@@ -3196,18 +3208,29 @@ keys:
     evidence: 'as_dict\(as_dict\(config\.get\("modules"\)\)\.get\("web_terminals"\)\)'
     note: >-
       Anchored because every leaf below terminates here: the whole block is
-      unpacked by one read in each consumer (render, lint, lifecycle, personas).
+      unpacked by one read in each consumer (render, lint, lifecycle, roster).
     default: {}
   modules.web_terminals.enabled: {covered-by: modules.web_terminals, default: false}
   modules.web_terminals.image_source:
     evidence: 'web_terminals\.get\("image_source"\) == "local"'
     default: registry
-  modules.web_terminals.default_persona:
-    covered-by: modules.web_terminals
+  modules.web_terminals.default_tier:
+    deployment-data: true
+    evidence: 'default_tier = web_terminals\.get\("default_tier"\)'
+    note: >-
+      The tier of every person on the roster who names none — a file in
+      `tiers/`, by name.
     default: no-fallback
     default_note: >-
-      resolve_personas refuses an enabled web_terminals block with no
-      default_persona (lint web_terminals.requires_catalog)
+      resolve_cards refuses an enabled web_terminals block whose renders
+      catalog has no default_tier naming one of its tiers
+  modules.web_terminals.shared:
+    deployment-data: true
+    evidence: 'shared = subtree\.get\("shared"\)'
+    note: >-
+      The apps every person on the roster opens from a shared landing card, by
+      name — each a file in `apps/`. Absent, the landing page shows people only.
+    default: []
   modules.web_terminals.auth: {evidence: 'as_dict\(web_terminals\.get\("auth"\)\)', default: {}}
   modules.web_terminals.auth.method:
     evidence: 'method if isinstance\(method, str\) and method else "token"'
@@ -3285,8 +3308,9 @@ keys:
     evidence: 'footer = landing_cfg\.get\("footer"\)'
     default: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
   modules.web_terminals.landing.groups:
-    evidence: 'groups_raw = \[\{"type": "users"\}\]'
-    default: [{type: users}]
+    deployment-data: true
+    evidence: 'groups_raw = list\(_DEFAULT_LANDING_GROUPS\)'
+    default: [{type: users}, {type: apps}]
   modules.web_terminals.landing.groups.names:
     rendered: false
     evidence: 'entry\.get\("names"\) == "hidden"'
@@ -3296,19 +3320,20 @@ keys:
       it unless auth.method is password or oidc. The dotted path elides the
       list index, which no rendered config carries, so no source renders it.
     default: shown
-  modules.web_terminals.personas:
+  modules.web_terminals.renders:
+    rendered: false
     data-map: true
-    evidence: 'web_terminals\.get\("personas"\)'
+    evidence: 'renders_raw = web_terminals\.get\("renders"\)'
     note: >-
-      The persona catalog. Persona NAMES are the deployment's own, so this is a
-      data map exactly as api.providers is: the guard checks that the catalog is
-      read, never which tiers a facility declares. Each entry's leaves
-      (`project`, `project_path`, `build_profile`, `landing_group`) are read by
-      personas.resolve_personas from the entry it was handed.
-    default: no-fallback
+      The render catalog, written by the build into the root render: one entry
+      per file in `tiers/` and `apps/`, keyed by that file's name, each with its
+      `kind`, `project` and `project_path`. Render NAMES are the deployment's
+      own, so this is a data map exactly as api.providers is. No preset spells
+      it, so no union source carries it.
+    default: derived
     default_note: >-
-      resolve_personas refuses an enabled web_terminals block with no personas
-      catalog (lint web_terminals.requires_catalog)
+      written by the build from tiers/ and apps/; a local-mode start with no
+      renders catalog is refused
   modules.web_terminals.reader_port:
     rendered: false
     evidence: '"modules\.web_terminals\.reader_port"'
@@ -3324,11 +3349,18 @@ keys:
       Verbatim override of the readers' origin, the mirror of
       `external_origin`. Required beside it, on the same host.
     default: null
+  modules.web_terminals.authorization.roles:
+    rendered: false
+    deployment-data: true
+    evidence: 'as_dict\(as_dict\(web_terminals\.get\("authorization"\)\)\.get\("roles"\)\)'
+    note: Role name → the tier that role gets; the facility's own.
+    default: {}
   modules.web_terminals.users:
+    deployment-data: true
     evidence: 'normalize_users\(web_terminals\.get\("users"\)\)'
     note: >-
       The roster, as a LIST — one entry per terminal. A list has no dotted paths
-      below it, so the per-entry keys (`name`, `index`, `persona`,
+      below it, so the per-entry keys (`name`, `index`, `tier`,
       `display_name`, `control_identity`) never enter the union and carry no
       entries here; they are normalized by one function, which is what the
       evidence anchors on.
@@ -3485,7 +3517,7 @@ deleted:
 - channel_finder.channel_name_generation.llm_model.provider
 - channel_finder.channel_name_generation.llm_model.model_id
 - channel_finder.channel_name_generation.llm_model.max_tokens
-  # Container names and persona projects come from the project name; the
+  # Container names and render projects come from the project name; the
   # knowledge graph's identifiers come from the facility file's identity code.
 - facility.prefix
   # The noise a simulated reading carries belongs to the simulator view the
@@ -3499,6 +3531,13 @@ deleted:
   # A derived key born and retired on one unreleased branch; no orphan_sites
   # row, because the back-test baseline never held a site of it.
 - approval.hook_wired
+  # The roster's retired spellings. A person's access level is a tier and a
+  # shared card is an app: `default_tier` and `shared` are authored, and the
+  # render catalog is the build's `renders`. A profile that still spells either
+  # key is rewritten to the new spelling before validation, so no render
+  # carries one.
+- modules.web_terminals.personas  # retired-spelling
+- modules.web_terminals.default_persona  # retired-spelling
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the keys above whose COMMENTED example in a
@@ -3519,8 +3558,8 @@ deleted:
 deleted_commented_examples:
   ariel.database.uri: >-
     The ARIEL DSN is derived from `services.postgresql.*`. An explicit uri still
-    WINS, which is exactly what the commented line in ariel-standalone and
-    control-assistant shows: how to point ARIEL at a Postgres the deployment
+    WINS, which is exactly what the commented line in control-assistant
+    shows: how to point ARIEL at a Postgres the deployment
     does not run.
 
 # ---------------------------------------------------------------------------
@@ -3568,7 +3607,7 @@ orphan_sites:
   - root: src/osprey/deployment/web_terminals
     regex: 'facility\.prefix'
     back_test: {base_matches: 3, branch_matches: 0}
-    why: the web-terminal lint and persona readers of the key, and their docstrings.
+    why: the web-terminal lint and roster readers of the key, and their docstrings.
   approval.tools.channel_limits:
   - root: src/osprey/templates
     regex: '^\s+channel_limits:\s'
@@ -3857,17 +3896,21 @@ render_contexts:
     StrictUndefined fails on project_root and the panel machinery, so
     ChainableUndefined is required for one context to serve every matrix cell.
   what_the_union_is: >-
-    Two sources, because a rendered config now has two authors. The FRAMEWORK
-    TEMPLATE writes what the build derives — the project layout, the port
-    layout, api.providers from providers.yml, and the keys a profile FIELD
-    decides — and is rendered once per matrix cell below. Each PRESET's
-    resolved `config:` block is the other half, and it is read through the real
-    resolver (resolve_build_profile + _expand_dotted) rather than parsed out of
-    the file, so personas, `extends:` and every legal dotted/nested spelling are
-    resolved the way a build resolves them. layout_port_fill is applied to each
-    preset for the same reason the build applies it: a preset deliberately
-    spells no host port, and without the fill every `services.*` port key would
-    read as manifest rot.
+    Three sources, because a rendered config has two authors and an app render
+    is composed from both. The FRAMEWORK TEMPLATE writes what the build derives
+    — the project layout, the port layout, api.providers from providers.yml,
+    and the keys a profile FIELD decides — and is rendered once per matrix cell
+    below. Each ROOT PRESET's resolved `config:` block is the operator's half,
+    and it is read through the real resolver (resolve_build_profile +
+    _expand_dotted) rather than parsed out of the file, so `extends:` and every
+    legal dotted/nested spelling are resolved the way a build resolves them.
+    Each APP is composed over `host` through the resolver's app branch — the
+    host's facts with the app's `config:` over them and every write switch
+    pinned off — and enters the union under its own name. layout_port_fill is
+    applied to each preset and app for the same reason the build applies it: a
+    preset deliberately spells no host port, and without the fill every
+    `services.*` port key would read as manifest rot. The deploying render's
+    service injectors are a fourth, narrower source, taken per root preset.
   base:
     project_name: demo
     project_root: /tmp/demo
@@ -3896,16 +3939,24 @@ render_contexts:
   framework_template: src/osprey/templates/project/config.yml.j2
   presets:
   - src/osprey/profiles/presets/hello-world.yml
-  - src/osprey/profiles/presets/ariel-standalone.yml
-  - src/osprey/profiles/presets/channel-finder-standalone.yml
   - src/osprey/profiles/presets/control-assistant.yml
+  apps:
+  - src/osprey/profiles/presets/apps/*.yml
+  host: src/osprey/profiles/presets/control-assistant.yml
   note_presets: >-
-    The four ROOT presets. The persona presets (control-assistant-*.yml) extend
-    control-assistant and are deliberately absent: they are deltas, so every key
-    they carry is either inherited from the root — already in the union — or a
-    persona-scoped override of one, and listing them would make `all-templates`
-    parity a claim about deltas instead of about the four documents an operator
-    starts from.
+    The two ROOT presets, the documents an operator starts from. Parity
+    (`all-templates`, `same-value`) is a claim about these alone. The bundled
+    tiers (`tiers/*.yml`) are deliberately absent: a tier is a delta over its
+    root, so every key it carries is either inherited from the root — already
+    in the union — or a tier-scoped override of one.
+  note_apps: >-
+    Every bundled app, composed over `host` (which must be one of `presets`)
+    exactly as `osprey build` composes `apps/<name>.yml` beside a profile that
+    extends the host. An app is a complete agent definition, not a delta, so a
+    key only an app states — a server switch the host leaves at its default,
+    the title-bar picker, the per-type write pins — has its writer here. The
+    apps are union sources and governed-set subjects; they are never parity
+    subjects.
   # Guard self-test: one key from inside each conditional branch must appear in
   # the union, otherwise the matrix has silently stopped covering that branch.
   # Re-mapped when the app templates were deleted — the branches these name are
@@ -3926,7 +3977,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 399
+  expected_union_size: 392
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
@@ -3939,8 +3990,8 @@ render_contexts:
     amount arithmetic on the previous figure cannot predict.
 
 # ---------------------------------------------------------------------------
-# governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no
-# test protects. The guard must build each preset's config, run
+# governed_sets — ADDENDUM 2. Shipped comments make EXHAUSTIVE claims about what
+# an app may do that no test protects. The guard must build each app's config, run
 # osprey.registry.mcp.resolve_servers, collect every tool whose PreToolUse
 # matcher runs osprey_approval.py, and assert set equality with the enumeration
 # below. A future default-enabled server carrying an approval hook then turns
@@ -3949,9 +4000,10 @@ render_contexts:
 governed_sets:
   method:
     description: >-
-      Build the preset's config the way `osprey build` does — the framework
-      template rendered from the preset's own FIELDS, with its resolved
-      `config:` block merged over the top — then pass the `claude_code` section
+      Build the preset's or app's config the way `osprey build` does — the
+      framework template rendered from its own FIELDS (for an app, the composed
+      profile: the host's fields except the ones the app file owns), with its
+      resolved `config:` block merged over the top — then pass the `claude_code` section
       to resolve_servers with a ctx carrying channel_finder_pipeline when the
       config has a channel_finder section. For every ENABLED server, walk
       hooks_pre; a rule counts when any of its hooks' `command` contains
@@ -3968,15 +4020,19 @@ governed_sets:
       finding.
     approval_hook_marker: osprey_approval.py
   claims:
-    ariel-standalone:
-      preset: src/osprey/profiles/presets/ariel-standalone.yml
-      comment_claim: 'here ARIEL `entry_create` and `entry_publish`, workspace `setup_patch`, `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`, and facility-knowledge `draft_concept`'
+    # Each claim is an app composed over render_contexts.host, measured from the
+    # render a build of `apps/<name>.yml` writes. The workspace server runs in
+    # every app, so setup_patch and the three panel-rail verbs are governed in
+    # each; setup_patch is also on every app render's deny list.
+    logbook:
+      preset: src/osprey/profiles/presets/apps/logbook.yml
+      comment_claim: "Creating a logbook entry is this agent's only write of any kind, and it is approval-gated like every other write. Publishing is the half that reaches the facility's logbook, so it is gated too."
       exhaustive: true
       tools: [entry_create, entry_publish, setup_patch, add_panel_to_rail,
-              remove_panel_from_rail, register_panel, draft_concept]
-    channel-finder-standalone:
-      preset: src/osprey/profiles/presets/channel-finder-standalone.yml
-      comment_claim: 'in this deployment that is the workspace `setup_patch` tool plus the three panel-rail verbs `add_panel_to_rail`, `remove_panel_from_rail` and `register_panel`'
+              remove_panel_from_rail, register_panel]
+    channel-finder:
+      preset: src/osprey/profiles/presets/apps/channel-finder.yml
+      comment_claim: "It cannot read a channel's value, move hardware, run Python, or search the logbook."
       exhaustive: true
       tools: [setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel]
   reference_counts:
@@ -4013,15 +4069,12 @@ governed_sets:
     falls to default_policy: always.
   rail_tools_note: >-
     add_panel_to_rail, remove_panel_from_rail and register_panel are governed
-    wherever the workspace server runs, which is every preset. Three presets —
-    ariel-standalone, hello-world and control-assistant, whose six `extends`
-    children inherit the lines — spell `always` for each of them, so the
-    shipped policy is explicit there. channel-finder-standalone deliberately
-    ships no approval.tools block at all, so its rail verbs fall to
-    default_policy: always, the same fail-closed route draft_concept and
-    control_target_set take. Same outcome, stated in a different place: do not
-    "fix" the missing keys, and do not read their absence as the rail being
-    ungated.
+    wherever the workspace server runs, which is every preset. Both presets —
+    hello-world and control-assistant, whose six `extends` children inherit
+    the lines — spell `always` for each of them, so the shipped policy is
+    explicit there. A deployment that ships no approval.tools block at all
+    still gates its rail verbs: they fall to default_policy: always, the same
+    fail-closed route draft_concept and control_target_set take.
 
 # ---------------------------------------------------------------------------
 # kept_readers — code that legitimately still mentions a DELETED key. These are

@@ -318,14 +318,6 @@ def test_absent_build_mechanics_get_no_commented_template(preset: str) -> None:
         assert field not in commented, f"{preset}: {field} got a commented template"
 
 
-def test_build_mechanics_carried_by_a_preset_survive_emission() -> None:
-    """`claude_md_template` is a real preset choice on three bundled presets —
-    dropping it would silently swap the deployment's CLAUDE.md persona."""
-    parsed = yaml.safe_load(_emit("ariel-standalone"))
-
-    assert parsed["claude_md_template"] == "CLAUDE.ariel.md.j2"
-
-
 # ---------------------------------------------------------------------------
 # (d) the loader's key set cannot drift from the partition
 # ---------------------------------------------------------------------------
@@ -544,7 +536,7 @@ def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))
-@pytest.mark.parametrize("preset", ("control-assistant", "channel-finder-standalone"))
+@pytest.mark.parametrize("preset", ("control-assistant",))
 def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> None:
     """Prose about the channel finder must hold whatever paradigm is selected.
 

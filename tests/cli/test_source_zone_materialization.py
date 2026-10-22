@@ -2,7 +2,7 @@
 
 The materializer that turns a bundled preset into an editable deployment repo:
 an explicit standalone ``profile.yml`` at the repo root, the bundle's data tree
-copied verbatim beside it, the persona deltas, the trigger config, the per-user
+copied verbatim beside it, the layers, the trigger config, the per-user
 context slots, and the secret channel. These are the properties of what gets
 WRITTEN, asserted per preset — including the parity checks that prove nothing is
 lost on the way from a bundled preset to a repo a facility can edit and build.
@@ -26,8 +26,10 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
+from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 
 @pytest.fixture
@@ -142,18 +144,45 @@ def test_preset_name_is_normalized(runner: CliRunner, tmp_path: Path) -> None:
     assert "control-assistant" in (target / "profile.yml").read_text(encoding="utf-8")
 
 
-def test_extends_chain_preset_materializes_flat(runner: CliRunner, tmp_path: Path) -> None:
+def test_extends_chain_preset_materializes_flat(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A preset that itself uses ``extends`` emits flat: base content plus child
-    overrides, each with their own file's comments."""
+    overrides, each with their own file's comments.
+
+    No bundled deployment preset extends another, so the chain is a child preset
+    placed beside a copy of the bundled ones.
+    """
+    from osprey.cli import build_profile_presets
+
+    presets = tmp_path / "presets"
+    shutil.copytree(
+        build_profile_presets._presets_dir(),
+        presets,
+        ignore=shutil.ignore_patterns("__pycache__", "*.py"),
+    )
+    (presets / "ro-child.yml").write_text(
+        "extends: control-assistant\n"
+        "# The child's own comment, carried onto its override.\n"
+        "deploy_services: false\n"
+        "config:\n"
+        "  control_system.writes_enabled: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
     target = tmp_path / "ro-facility"
 
-    assert _new(runner, target, "control-assistant-readonly").exit_code == 0
+    result = _new(runner, target, "ro-child")
+    assert result.exit_code == 0, result.output
 
     text = (target / "profile.yml").read_text()
     assert not any(line.startswith("extends:") for line in text.splitlines()), text
     assert "deploy_services: false" in text
     assert "control_system.writes_enabled: false" in text
-    assert "preset: control-assistant-readonly" in text
+    assert "preset: ro-child" in text
+    # Base content, with the base file's comments.
+    assert "Which model answers" in text
+    assert "# The child's own comment, carried onto its override." in text
 
 
 def test_preset_comments_survive(runner: CliRunner, tmp_path: Path) -> None:
@@ -219,20 +248,22 @@ def test_emitted_triggers_reference_resolves_inside_the_profile(
     assert named.is_file()
 
 
-def test_persona_deltas_do_not_restate_the_triggers_reference(
+def test_layer_deltas_do_not_restate_the_triggers_reference(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The host owns ``triggers.yml`` for the whole stack. A persona delta
+    """The host owns ``triggers.yml`` for the whole stack. A layer
     carries only its own keys, so it neither repeats the dispatch block nor
     re-anchors the path — the implicit merge resolves it against the host."""
     target = tmp_path / "my-facility"
 
     assert _new(runner, target, "control-assistant").exit_code == 0
 
-    for persona_file in sorted((target / "personas").glob("*.yml")):
-        parsed = yaml.safe_load(persona_file.read_text())
-        assert "dispatch" not in parsed, persona_file.name
-        assert not (target / "personas" / "triggers.yml").exists()
+    layers = layer_files(target)
+    assert layers, "control-assistant should emit tier and app files"
+    for _kind, layer_file in layers:
+        parsed = yaml.safe_load(layer_file.read_text())
+        assert "dispatch" not in parsed, layer_file.name
+        assert not (layer_file.parent / "triggers.yml").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +273,7 @@ def test_persona_deltas_do_not_restate_the_triggers_reference(
 
 def _roster_names(preset: str) -> list[str]:
     from osprey.cli.build_profile_emit import effective_web_terminals
-    from osprey.deployment.web_terminals.personas import normalize_users
+    from osprey.deployment.web_terminals.roster import normalize_users
 
     resolved, _dir = resolve_build_profile(None, preset)
     web_terminals = effective_web_terminals(resolved.config)
@@ -286,7 +317,7 @@ def test_context_baseline_is_materialized_from_the_bundle(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """The control-assistant bundle ships its own baseline text (it describes
-    that family's personas), and the profile starts from a byte-identical
+    that family's renders), and the profile starts from a byte-identical
     copy — visible and editable where the operator works."""
     from osprey.cli.templates.manager import TemplateManager
 
@@ -440,9 +471,9 @@ def test_a_gateway_added_to_the_catalog_is_referenced(
     }
 
 
-def test_persona_deltas_contribute_their_own_providers() -> None:
-    """A persona delta anchors its secrets at the profile root, so it reads the
-    SAME `.env` — a persona that switches provider needs its key in there too."""
+def test_layer_deltas_contribute_their_own_providers() -> None:
+    """A layer anchors its secrets at the profile root, so it reads the
+    SAME `.env` — a render that switches provider needs its key in there too."""
     from osprey.cli.build_profile_model import BuildProfile
     from osprey.cli.profile_cmd import _referenced_providers
 
@@ -455,7 +486,7 @@ def test_persona_deltas_contribute_their_own_providers() -> None:
     assert _referenced_providers(host, {}, ("house-gateway",)) == {"anthropic", "house-gateway"}
 
 
-def test_a_malformed_persona_delta_is_reported_before_anything_is_written(
+def test_a_malformed_layer_delta_is_reported_before_anything_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One parse validates the emitted deltas and feeds every later reader, so a
@@ -464,9 +495,7 @@ def test_a_malformed_persona_delta_is_reported_before_anything_is_written(
     import osprey.cli.build_profile_emit as emit_mod
     from osprey.cli.profile_cmd import _materialize_profile_directory
 
-    monkeypatch.setattr(
-        emit_mod, "emit_persona_delta_yaml", lambda **kwargs: "provider: [unclosed\n"
-    )
+    monkeypatch.setattr(emit_mod, "emit_layer_delta_yaml", lambda **kwargs: "provider: [unclosed\n")
     target = tmp_path / "my-facility"
 
     with pytest.raises(BuildProfileError, match="is not valid YAML"):
@@ -852,14 +881,16 @@ def test_header_carries_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> N
             assert len(line) <= 80
 
 
-def test_persona_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
+def test_render_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "p-facility"
     assert _new(runner, target, "control-assistant").exit_code == 0
 
-    persona_files = sorted((target / "personas").glob("*.yml"))
-    assert persona_files, "control-assistant should emit persona siblings"
-    for persona_file in persona_files:
-        assert "edit profile -> rebuild -> redeploy" not in persona_file.read_text(encoding="utf-8")
+    layers = layer_files(target)
+    assert {kind for kind, _path in layers} == {ProfileKind.TIER, ProfileKind.APP}, (
+        "control-assistant should emit tier and app files"
+    )
+    for _kind, layer_file in layers:
+        assert "edit profile -> rebuild -> redeploy" not in layer_file.read_text(encoding="utf-8")
 
 
 def test_existing_target_error_suggests_force(runner: CliRunner, tmp_path: Path) -> None:
@@ -939,7 +970,7 @@ def test_force_with_a_rejected_layer_leaves_the_whole_zone_untouched(
 ) -> None:
     """The same property for the directory entries, and for a rejected ``--set``.
 
-    ``profile.yml`` is one file; ``data/`` and ``personas/`` are trees that a
+    ``profile.yml`` is one file; ``data/`` and ``tiers/`` are trees that a
     replacement has to move whole. A facility's edits live in all of them, so
     the guarantee is asserted over every entry a re-materialization owns.
     """
@@ -1323,23 +1354,23 @@ def _applied_config(scratch: Path, config: dict) -> dict:
     return yaml.safe_load(scratch.read_text(encoding="utf-8"))
 
 
-#: The persona-catalog fields materialization rewrites, and therefore the exact
+#: The render-catalog fields materialization rewrites, and therefore the exact
 #: set that cannot match the preset's. All three are repo-dependent: a shipped
 #: preset cannot know the deployment's name, so it spells the shape and the
 #: materializer supplies the value.
-_REWRITTEN_PERSONA_FIELDS = ("build_profile", "project", "project_path")
+_REWRITTEN_RENDER_FIELDS = ("build_profile", "project", "project_path")
 
 
-def _take_persona_rewrites(applied: dict) -> dict[str, dict[str, str]]:
-    """Remove and return the persona catalog fields materialization rewrites.
+def _take_render_rewrites(applied: dict) -> dict[str, dict[str, str]]:
+    """Remove and return the render catalog fields materialization rewrites.
 
-    Lifted out here so the REST of the catalog — the ports, the default persona,
+    Lifted out here so the REST of the catalog — the ports, the default tier,
     every other key — is still compared strictly against the preset, and so the
     rewrite itself can be asserted rather than merely tolerated.
     """
     modules = applied.get("modules")
     web_terminals = modules.get("web_terminals") if isinstance(modules, dict) else None
-    catalog = web_terminals.get("personas") if isinstance(web_terminals, dict) else None
+    catalog = web_terminals.get("renders") if isinstance(web_terminals, dict) else None
     if not isinstance(catalog, dict):
         return {}
     taken: dict[str, dict[str, str]] = {}
@@ -1347,7 +1378,7 @@ def _take_persona_rewrites(applied: dict) -> dict[str, dict[str, str]]:
         if not isinstance(entry, dict):
             continue
         taken[name] = {
-            field: entry.pop(field) for field in _REWRITTEN_PERSONA_FIELDS if field in entry
+            field: entry.pop(field) for field in _REWRITTEN_RENDER_FIELDS if field in entry
         }
     return taken
 
@@ -1385,13 +1416,13 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     ``config`` is compared by what it writes rather than key-for-key: emission
     collapses a key pair like ``modules.web_terminals`` +
     ``modules.web_terminals.enabled`` into one key, which is a different dict
-    spelling of the same config.yml. Its persona ``build_profile`` values and
+    spelling of the same config.yml. Its render ``build_profile`` values and
     ``dispatch.triggers`` are compared separately, against the rewrites the verb
     is specified to perform.
     """
     import dataclasses
 
-    from osprey.cli.build_profile_emit import emits_persona_profiles
+    from osprey.cli.build_profile_emit import emits_layer_profiles
     from osprey.cli.build_profile_merge import compute_preset_hash
     from osprey.cli.build_profile_schema import DEFAULT_DEVIATION_MARKER
 
@@ -1428,17 +1459,17 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
 
     new_config = _applied_config(tmp_path / "new.yml", d_new.pop("config"))
     preset_config = _applied_config(tmp_path / "preset.yml", d_preset.pop("config"))
-    new_personas = _take_persona_rewrites(new_config)
-    preset_personas = _take_persona_rewrites(preset_config)
+    new_renders = _take_render_rewrites(new_config)
+    preset_renders = _take_render_rewrites(preset_config)
     assert new_config == preset_config
     # Rewritten to this repo's own deltas and build zone for a profile that
     # deploys the stack; untouched for one that only inherits the catalog with
     # the module off. An entry that names a build_profile spells no
-    # `project`/`project_path`: the persona's profile is where those come from.
-    rewrites = emits_persona_profiles(from_preset.config)
-    assert new_personas == {
-        name: ({"build_profile": f"personas/{name}.yml"} if rewrites else value)
-        for name, value in preset_personas.items()
+    # `project`/`project_path`: the render's profile is where those come from.
+    rewrites = emits_layer_profiles(from_preset.config)
+    assert new_renders == {
+        name: ({"build_profile": f"{TIERS_DIRNAME}/{name}.yml"} if rewrites else value)
+        for name, value in preset_renders.items()
     }
     assert d_new == d_preset
 

@@ -18,6 +18,7 @@ import yaml
 from tests._vocabulary import RATCHET_WORD
 
 from osprey.cli.templates.manager import TemplateManager
+from osprey_connectors.workspace import APPS_DIRNAME
 
 SKILL = "claude_code/claude/skills/pyaml-tools/SKILL.md.j2"
 PROMPT = "claude_code/CLAUDE.md.j2"
@@ -124,12 +125,14 @@ def test_the_prompt_section_follows_the_view_and_the_python_server():
     assert section not in _prompt(True, set())
 
 
-def test_the_control_room_preset_installs_the_skill_and_sandboxless_personas_drop_it():
+def test_the_control_room_preset_installs_the_skill_and_sandboxless_renders_drop_it():
     base = yaml.safe_load((PRESETS / "control-assistant.yml").read_text(encoding="utf-8"))
     assert "pyaml-tools" in base["skills"]
-    for persona in ("control-assistant-knowledge", "control-assistant-logbook"):
-        preset = yaml.safe_load((PRESETS / f"{persona}.yml").read_text(encoding="utf-8"))
-        assert "pyaml-tools" in preset["exclude"]["skills"], persona
+    # An app's lists are its whole selection, so a sandboxless app drops the
+    # skill by not listing it.
+    for app in ("channel-finder", "knowledge", "logbook"):
+        preset = yaml.safe_load((PRESETS / APPS_DIRNAME / f"{app}.yml").read_text(encoding="utf-8"))
+        assert "pyaml-tools" not in preset["skills"], app
 
 
 def test_the_model_section_names_what_has_no_solve(rendered: str):

@@ -394,6 +394,133 @@ describe('drag from the rail (onDragStart / onDragEnd)', () => {
   });
 });
 
+describe('reorder along the rail (onReorder)', () => {
+  const ROW = [
+    { id: 'terminal', label: 'SESSION' },
+    ...PANELS, // artifacts, ariel, channel-finder
+  ];
+  /** @type {HTMLElement} */
+  let rail;
+  /** @type {[string, string | null][]} */
+  let moves;
+  beforeEach(() => {
+    rail = freshRail();
+    moves = [];
+    createRail(rail, ROW, {
+      onDragStart: () => true,
+      onReorder: (id, before) => moves.push([id, before]),
+      reorderable: (id) => id !== 'terminal',
+    });
+    // happy-dom has no layout: stack the entries 40px apart on both axes.
+    ROW.forEach(({ id }, i) => {
+      const entry = /** @type {HTMLElement} */ (getEntry(rail, id));
+      entry.getBoundingClientRect = () =>
+        /** @type {DOMRect} */ ({ top: i * 40, height: 40, left: i * 40, width: 40 });
+    });
+  });
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-rail-position');
+  });
+
+  /** @param {string} type @param {number} at  pointer position on the rail's axis */
+  function pointerEvent(type, at) {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(ev, { clientX: at, clientY: at, dataTransfer: { dropEffect: '' } });
+    return ev;
+  }
+
+  /** Start dragging `id`'s entry. @param {string} id */
+  function grab(id) {
+    /** @type {HTMLElement} */ (getEntry(rail, id)).dispatchEvent(
+      Object.assign(new Event('dragstart', { bubbles: true, cancelable: true }), {
+        dataTransfer: { setData() {} },
+      })
+    );
+  }
+
+  /** The ids carrying the insertion line. */
+  function marked() {
+    return [...rail.querySelectorAll('.drop-before, .drop-after')].map((el) => [
+      el.getAttribute('data-panel-id'),
+      el.classList.contains('drop-before') ? 'before' : 'after',
+    ]);
+  }
+
+  test('dropping above an entry moves the dragged one above it', () => {
+    grab('channel-finder');
+    const over = pointerEvent('dragover', 50); // upper half of ARTIFACTS (40–80)
+    rail.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+    expect(marked()).toEqual([['artifacts', 'before']]);
+
+    rail.dispatchEvent(pointerEvent('drop', 50));
+    expect(moves).toEqual([['channel-finder', 'artifacts']]);
+    expect(marked()).toEqual([]);
+  });
+
+  test('dropping past the last entry moves the dragged one to the foot', () => {
+    grab('artifacts');
+    rail.dispatchEvent(pointerEvent('dragover', 150));
+    expect(marked()).toEqual([['channel-finder', 'after']]);
+    rail.dispatchEvent(pointerEvent('drop', 150));
+    expect(moves).toEqual([['artifacts', null]]);
+  });
+
+  test('a fixed entry is never a target: above SESSION still lands below it', () => {
+    grab('ariel');
+    rail.dispatchEvent(pointerEvent('dragover', 5));
+    expect(marked()).toEqual([['artifacts', 'before']]);
+    rail.dispatchEvent(pointerEvent('drop', 5));
+    expect(moves).toEqual([['ariel', 'artifacts']]);
+  });
+
+  test('a drop that leaves the entry where it is reports no move', () => {
+    grab('ariel');
+    rail.dispatchEvent(pointerEvent('dragover', 85)); // just below ariel's own top
+    expect(marked()).toEqual([]);
+    rail.dispatchEvent(pointerEvent('drop', 85));
+    expect(moves).toEqual([]);
+  });
+
+  test('a fixed entry cannot be dragged along the rail', () => {
+    grab('terminal');
+    const over = pointerEvent('dragover', 150);
+    rail.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(false);
+    rail.dispatchEvent(pointerEvent('drop', 150));
+    expect(moves).toEqual([]);
+  });
+
+  test('a drag that did not start on the rail is left alone', () => {
+    const over = pointerEvent('dragover', 50);
+    rail.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(false);
+    rail.dispatchEvent(pointerEvent('drop', 50));
+    expect(moves).toEqual([]);
+  });
+
+  test('the top rail reorders along x', () => {
+    document.documentElement.setAttribute('data-rail-position', 'top');
+    const entry = /** @type {HTMLElement} */ (getEntry(rail, 'artifacts'));
+    entry.getBoundingClientRect = () =>
+      /** @type {DOMRect} */ ({ top: 0, height: 40, left: 40, width: 40 });
+    grab('channel-finder');
+    const ev = pointerEvent('drop', 0);
+    Object.assign(ev, { clientX: 50, clientY: 999 });
+    rail.dispatchEvent(ev);
+    expect(moves).toEqual([['channel-finder', 'artifacts']]);
+  });
+
+  test('dragend clears the insertion line', () => {
+    grab('channel-finder');
+    rail.dispatchEvent(pointerEvent('dragover', 50));
+    /** @type {HTMLElement} */ (getEntry(rail, 'channel-finder')).dispatchEvent(
+      new Event('dragend', { bubbles: true })
+    );
+    expect(marked()).toEqual([]);
+  });
+});
+
 describe('addEntry (non-destructive)', () => {
   /** @type {HTMLElement} */
   let rail;

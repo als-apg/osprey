@@ -17,8 +17,8 @@ each boundary are one link away wherever they matter.
    - The two questions that decide a tier
    - What the three tiers the ``control-assistant`` preset ships can and
      cannot do, login by login
-   - That a tier is nothing more than a persona file — and what that means
-     when you rename one or add one
+   - That a tier is nothing more than a small file under ``tiers/`` — and
+     what that means when you rename one or add one
    - Where the boundary is actually enforced, and the two places it is a
      matter of trust rather than enforcement
 
@@ -72,7 +72,7 @@ Put the two side by side and the tiers name themselves:
 
 The preset ships the three named cells, and no tier armed on the live machine:
 arming one is the facility's own edit. The empty cells are not forbidden by
-anything in OSPREY — a persona could be written for any of them — the preset
+anything in OSPREY — a tier file could be written for any of them — the preset
 simply does not ship one.
 
 .. _multi-user-tiers:
@@ -80,9 +80,9 @@ simply does not ship one.
 The three tiers the preset ships
 ================================
 
-Each tier is a self-contained OSPREY project with its **own** permissions,
-because permissions are a property of a project's ``config.yml`` — the tiers
-are genuinely different agents, not one agent with a UI toggle.
+Each tier renders a self-contained OSPREY project with its **own**
+permissions, because permissions are a property of a project's ``config.yml``
+— one agent, built once per access level, not one terminal with a UI toggle.
 
 .. list-table::
    :header-rows: 1
@@ -114,11 +114,8 @@ are genuinely different agents, not one agent with a UI toggle.
        surfaces
      - Full ``expert`` workspace with the EVENTS and BLUESKY panels, plus
        the Config panel
-   * - **ariel**
-     - No control system behind it at all, so there is no write posture to
-       compare
-     - No — it inherits the same floor as the operator tiers
-     - The standalone logbook terminal, opening on its ARIEL panel
+
+.. _multi-user-tiers-posture:
 
 Read the write column one row at a time rather than as a single statement
 about the deployment. The posture is a property of the **session**, not of the
@@ -128,12 +125,12 @@ postures out of one deployment.
 
 Only the read-only login is built without the EVENTS and BLUESKY panels. The
 base profile declares neither, and the two write-capable deltas,
-``personas/readwrite.yml`` and ``personas/admin.yml``, each add both:
+``tiers/readwrite.yml`` and ``tiers/admin.yml``, each add both:
 queueing a plan and watching its results belong on a card that can arm a
 write. The admin card is the read-write operator desk plus deployment editing.
 
-**The default stays on the safe side.** ``default_persona`` is ``readonly``,
-so a roster entry added in a hurry with no ``persona`` of its own gets the
+**The default stays on the safe side.** ``default_tier`` is ``readonly``,
+so a roster entry added in a hurry with no ``tier`` of its own gets the
 read-only tier.
 
 .. dropdown:: The exact tool names
@@ -218,50 +215,56 @@ read-only tier.
         - refused
         - refused
 
-   The ``ariel`` persona is not in the table because it has no control system
-   to gate: its deployment-editing floor is the same as the operator tiers'.
+   The apps — ``logbook``, ``knowledge`` and ``channel-finder`` — are not in
+   the table: every app render is read-only on the machine and closed to
+   deployment editing, whatever the host sets.
 
-A tier is a persona file
-========================
+A tier is a file under ``tiers/``
+=================================
 
-There is no ``tier:`` setting anywhere. A tier is what a **persona** turns out
-to be once it is built.
+A tier is an access level of the deployment's own agent, written as a small
+file.
 
 .. raw:: html
    :file: ../../../_diagrams/tier-render.html
 
-Each file under ``personas/`` holds only that persona's **differences** from
+Each file under ``tiers/`` holds only that tier's **differences** from
 ``profile.yml``. The base profile carries the floor — the three
-deployment-editing surfaces switched off — and a persona sets what it needs on
+deployment-editing surfaces switched off — and a tier adds what it needs on
 top: ``readonly.yml`` turns control-system writes off, ``readwrite.yml`` arms
-them on the simulator alone, ``admin.yml`` does the same and lifts the floor. ``osprey build``
-merges each delta over the base and renders it into its own project, and
+them on the simulator alone, ``admin.yml`` does the same and lifts the floor.
+A tier adds lists by name and its config keys win; it never subtracts and never
+carries a deployment fact such as services, data or ports. ``osprey build``
+lays each tier over the base and renders it into its own project, and
 ``osprey up`` builds one container image from each. Every arrow in the drawing
 is a build step, never a runtime lookup: the web server never asks *who is
 this user and what tier are they?* Identity lives in the roster and the login
 wall; capability lives in the render.
 
-So the two words name two things. A **persona** is the mechanism: a named
-configuration any number of roster entries can share, so ten operators who
-need the same setup point at one file. A **tier** is what the preset's three
-control personas *mean*. OSPREY itself enforces those two switches with
-some care; the names ``readonly``, ``readwrite`` and ``admin``, and the fact
-that there are three of them, belong to the preset. Rename a persona and
-nothing in the framework notices; add a fourth and it inherits the floor and
-the read-only default until its file says otherwise. :doc:`Build Profiles
-<../../build-profiles>` covers what a persona file may contain and how the floor
-is written so that a delta can lift it.
+Any number of roster entries can share a tier, so ten operators who need the
+same setup point at one file. OSPREY enforces the two switches with some care;
+the names ``readonly``, ``readwrite`` and ``admin``, and the fact that there
+are three of them, belong to the preset. Rename a tier and nothing in the
+framework notices; add a fourth and it inherits
+the floor until its file says otherwise. :doc:`Build Profiles
+<../../build-profiles>` covers what a tier file may contain and how the floor
+is written so that a tier can lift it.
 
-A roster entry can also name a **role** instead of a persona, and let the role
-carry the mapping — ``operator: {persona: readwrite}`` written once, rather than
-a persona pinned on every entry. That changes nothing about that mechanism:
-a role resolves to a persona before anything is built, so which persona a card
-runs and which container it opens are the same either way. What the role adds is that
+An **app** is different: a second, complete agent under ``apps/``, opened from
+a shared card by everyone on the roster and read-only on the machine by
+construction. The tiers decide what the deployment's own agent may do; the
+apps sit beside it.
+
+A roster entry can also name a **role** instead of a tier, and let the role
+carry the mapping — ``operator: {tier: readwrite}`` written once, rather than
+a tier pinned on every entry. A role resolves to a tier before anything is
+built, so which tier a card runs and which container it opens are the same
+either way. What the role adds is that
 it survives the login: it travels with the session, reaches the terminal as
 identity headers, is shown beside the user's name in the terminal's session
 menu — together with where it came from, the roster entry or the identity
 provider's claim — and is named on the login record in the audit trail. A
-session that signed in before this was added goes on showing the role on its
+session that signed in before its role was set goes on showing the role on its
 own, without its origin, until the person logs in again. Where a facility runs
 single sign-on, the provider's own groups can be what decides it — see
 :ref:`Let single sign-on pick the tier <multi-user-role-from-sso>`.
@@ -269,7 +272,7 @@ single sign-on, the provider's own groups can be what decides it — see
 What makes it hold
 ==================
 
-The persona file is the *input*. What a session actually meets when it tries
+The tier file is the *input*. What a session actually meets when it tries
 to do more than its tier allows is three layers, and the one that ultimately
 holds is file ownership, not a permission list.
 
@@ -279,7 +282,7 @@ holds is file ownership, not a permission list.
 **Layer 1** is what makes the readonly tier certain. A tier armed on **no**
 target does not merely tell the agent not to write; it renders the framework
 servers' write-gated tools into a deny list that the agent runtime checks
-before any OSPREY code runs, and no persona setting can subtract from that
+before any OSPREY code runs, and no tier setting can subtract from that
 list. Tools a project adds under ``control_system.write_tools`` are not in that
 list in any render — they are refused by the writes-check hook, which is
 Layer 2.
@@ -413,39 +416,41 @@ The one capability it would be worst to leave open — editing the deployment �
 is guarded by the commands themselves, not only by the preset's choices.
 ``osprey profile validate`` and ``osprey build`` refuse a shared card — one
 whose ``access:`` admits anybody but the card's own login — that resolves to
-a persona holding either deployment-editing
-surface, and refuse a privileged ``default_persona`` in a deployment that
+a tier holding any deployment-editing
+surface, and refuse a privileged ``default_tier`` in a deployment that
 draws a tier split at all; ``osprey up`` asks the same question of the render
-before it starts anything. Each refusal names the user, or the persona, and
+before it starts anything. Each refusal names the user, or the tier, and
 the remedy.
 
 .. dropdown:: Exactly what ``validate``, ``build`` and ``up`` refuse
    :icon: shield-check
 
    ``osprey profile validate`` and ``osprey build`` refuse any shared card
-   that resolves to a persona holding either deployment-editing surface — the
-   agent's ``setup_patch`` tool or the web Config panel — naming the user.
+   that resolves to a tier holding any of the three deployment-editing
+   surfaces — the agent's ``setup_patch`` tool, the web Config panel or the
+   scaffold gallery's editors — naming the user.
    Shared means the card's ``access:`` admits anybody but its own login,
    whether that is ``any``, one ``domain:`` or a single ``user:``; the
    question the rule asks is how far the card reaches, not which words say
    so. That refusal does not ask whether your
-   profile drew a tier split: a profile that floors neither surface hands both
-   of them to every persona it has, so a shared card there is the most exposed
+   profile drew a tier split: a profile that floors none of them hands every
+   one to every tier it has, so a shared card there is the most exposed
    version of this rather than an exempt one. The remedy is the card's own
    key — ``access: own``, or dropping the key — or pointing the entry at a
-   persona that holds neither surface.
+   tier that holds none of them. An app card never reaches this rule: the
+   build closes all three surfaces on every app, whatever the host sets.
 
-   A privileged ``default_persona`` is refused too, in a deployment that draws
+   A privileged ``default_tier`` is refused too, in a deployment that draws
    a privilege split at all — one whose profile floors those surfaces and lets
-   a single persona lift them, which is what this preset ships. On a floorless
+   a single tier lift them, which is what this preset ships. On a floorless
    profile that rule has no unprivileged tier to send the default to, so it
    stays quiet there and the entries actually exposed are the ones named. A
-   persona named by either check that the command cannot read at all — a
-   ``build_profile`` pointing outside ``personas/``, say, or an entry with no
-   ``build_profile`` whose ``project_path`` holds no ``config.yml`` — is refused rather
-   than taken to hold nothing, naming the persona, the value it was given and
+   tier named by either check that the command cannot read at all — a name
+   with no file under ``tiers/``, say, or a render whose ``project_path``
+   holds no ``config.yml`` — is refused rather
+   than taken to hold nothing, naming the tier, the value it was given and
    the remedy — plus the path it tried, where the value resolved to one; where
-   the unreadable persona is a shared card's, that refusal too stands whatever
+   the unreadable tier is a shared card's, that refusal too stands whatever
    the profile floors, so long as the deployment has a login wall for the card
    to be shared behind.
 
@@ -461,19 +466,19 @@ the remedy.
 
    ``osprey scaffold web-terminals lint`` asks the same questions of what was
    last *rendered*, and so does the render step itself. A shared privileged
-   card is an error there too. A persona whose project has not been rendered
+   card is an error there too. A tier whose project has not been rendered
    yet is refused the same way where a shared card resolves to it, with
    ``osprey build`` as the remedy — or ``access: own`` for the card — while
    on an own card it stays the plain warning it always was. A deployment that
-   pulls its images from a registry has no persona render to read at all, so
+   pulls its images from a registry has no tier render to read at all, so
    there only a shared card is refused;
    its inherited default is judged where the deltas live, by ``osprey
-   validate`` and ``osprey build``. A privileged ``default_persona`` in a
+   validate`` and ``osprey build``. A privileged ``default_tier`` in a
    render is advisory, because the entries it actually exposes are named by
    the rule that does block.
 
    ``osprey up`` asks the door question once more before it starts anything.
-   A stack whose render shares a privileged card, or one whose persona cannot
+   A stack whose render shares a privileged card, or one whose tier cannot
    be read there, does not come up — the refusal arrives with
    the other start-time problems, so one attempt reports them all — and the
    two advisories are printed beside it. Nothing else the lint finds stops a
@@ -497,5 +502,5 @@ Related pages
 - :ref:`The control-target chip <web-terminal-session-posture>` — how an
   operator takes writes away from one control target for their own session,
   and can never gain more than the tier permits.
-- :doc:`../../build-profiles` — personas: what a delta file may contain, and how
-  the floor is written so that one persona can lift it.
+- :doc:`../../build-profiles` — tiers and apps: what a tier file may contain,
+  and how the floor is written so that one tier can lift it.

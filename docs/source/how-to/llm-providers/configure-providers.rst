@@ -236,8 +236,8 @@ and one line in ``profile.yml`` naming it:
 The catalog is the one home for these facts, so a ``config: api.providers.*``
 key in ``profile.yml`` is refused, naming ``providers.yml`` as the place to put
 it; and a ``provider:`` the catalog does not declare is refused with the list of
-names it does declare. ``osprey profile expand --providers`` refreshes the
-entries OSPREY ships and keeps yours.
+names it does declare. ``osprey init --revalidate`` refreshes the entries
+OSPREY ships and keeps yours.
 
 ``osprey build`` renders the profile and the catalog into ``build/config.yml``,
 which every build wipes and re-renders; edit the two source files, never the

@@ -168,7 +168,6 @@ RETIRED: tuple[str, ...] = (
     "scripts/va/pyat_model_demo.py",
     "scripts/va/run_va.sh",
     "sourceSectionId",
-    "src/osprey/templates/apps/channel_finder_standalone/data/channel_databases/hierarchical.json",
     "src/osprey/templates/apps/control_assistant/data/channel_databases/examples",
     "src/osprey/templates/apps/control_assistant/data/lattice/als_u_ar.mat",
     "src/osprey/templates/apps/control_assistant/data/mml",

@@ -26,6 +26,7 @@ import pytest
 
 from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 
 def _write(path: Path, text: str) -> Path:
@@ -164,24 +165,24 @@ def test_added_profile_key_is_named(repo):
     assert "model" in report.changed_keys
 
 
-def test_persona_delta_edit_names_the_delta(repo):
+def test_layer_delta_edit_names_the_delta(repo):
     """The refusal must name the file the operator edited.
 
     Every file input a profile points at once folded into a single digest
-    labelled ``data/``, so editing ``personas/readonly.yml`` refused with
+    labelled ``data/``, so editing ``tiers/readonly.yml`` refused with
     "Changed: data/" — a directory the operator had not touched, and one this
     repo need not even have.
     """
-    _write(repo / "personas" / "readonly.yml", "name: readonly\n")
+    _write(repo / TIERS_DIRNAME / "readonly.yml", "name: readonly\n")
     _write_manifest(repo)
 
-    _write(repo / "personas" / "readonly.yml", "name: readonly\nmodel: claude-haiku-4-5\n")
+    _write(repo / TIERS_DIRNAME / "readonly.yml", "name: readonly\nmodel: claude-haiku-4-5\n")
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
-    assert report.changed_keys == ("personas/readonly.yml",)
-    assert "personas/readonly.yml" in report.message
+    assert report.changed_keys == (f"{TIERS_DIRNAME}/readonly.yml",)
+    assert f"{TIERS_DIRNAME}/readonly.yml" in report.message
     assert "data/" not in report.message
 
 
@@ -372,20 +373,20 @@ def test_empty_repo_reads_as_no_build(tmp_path):
 
 def test_version_skew_warns_but_never_refuses(repo):
     """A patch bump must not stop an operator starting the stack they have."""
-    _write_manifest(repo, osprey_version="1999.1.1")
+    _write_manifest(repo, osprey_version="2099.1.1")
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.CLEAN
     assert not report.refuses
     assert report.version_skew is not None
-    assert report.version_skew.stamped == "1999.1.1"
+    assert report.version_skew.stamped == "2099.1.1"
     assert "osprey build" in report.version_skew.message
 
 
 def test_version_skew_reported_alongside_drift(repo):
     """The two signals are independent; drift must not swallow the skew line."""
-    _write_manifest(repo, osprey_version="1999.1.1")
+    _write_manifest(repo, osprey_version="2099.1.1")
     _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
 
     report = staleness.check_drift(repo)

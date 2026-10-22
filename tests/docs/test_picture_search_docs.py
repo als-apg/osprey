@@ -37,7 +37,7 @@ _INDEX = _DOCS / "how-to" / "ariel" / "index.rst"
 _INGESTION = _DOCS / "how-to" / "ariel" / "data-ingestion.rst"
 _CONTRACT = _DOCS / "reference" / "contracts" / "ariel.rst"
 _PROFILES = _REPO_ROOT / "src" / "osprey" / "profiles"
-_PRESETS = ("control-assistant", "ariel-standalone")
+_PRESETS = ("control-assistant",)
 
 
 def _text(path: Path) -> str:
@@ -198,12 +198,12 @@ def test_llama_cpp_stanza_equals_the_packaged_entry() -> None:
     assert stanzas[0] == {"providers": {"llama-cpp": packaged}}
 
 
-def test_profile_expand_named_only_with_its_side_effects() -> None:
+def test_revalidate_named_only_with_its_side_effects() -> None:
     flat = _flat(_text(_GUIDE))
     assert (
-        "``osprey profile expand --providers`` also writes it, with side effects: it fills "
-        "in every key the profile leaves to its preset and stamps provenance, which turns "
-        "on the strict preset-drift check"
+        "``osprey init --revalidate`` also writes it, with side effects: it fills in every "
+        "key the profile leaves to its preset and stamps provenance, which turns on the "
+        "strict preset-drift check"
     ) in flat
 
 
@@ -218,8 +218,8 @@ def test_upgrade_note_profile_keys_sentence() -> None:
     assert (
         "An existing deployment's ``profile.yml`` is explicit and does not gain the new "
         "keys; ``osprey validate`` lists them as drift. Add the lines shown below, or run "
-        "``osprey profile expand`` (it writes every lacking leaf, with the same side-effect "
-        "caveat as ``--providers`` below); until then ``image_caption`` and "
+        "``osprey init --revalidate`` (it writes every lacking leaf, with the side effects "
+        "named below); until then ``image_caption`` and "
         "``image_embedding`` keep their code defaults (off) and the view tool its default (on)."
     ) in _upgrade_notes()
 

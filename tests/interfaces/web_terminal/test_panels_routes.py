@@ -486,3 +486,52 @@ def test_negative_index_is_rejected():
     assert resp.status_code == 422
     assert app.state.visible_panels == ["ariel"]
     app.state.broadcaster.broadcast.assert_not_called()
+
+
+# ---- Rail order (an operator dragging an entry along the rail) ---- #
+
+
+@pytest.mark.parametrize(
+    ("before", "expected"),
+    [
+        pytest.param("ariel", ["grafana", "ariel", "lattice"], id="to-the-head"),
+        pytest.param("lattice", ["ariel", "grafana", "lattice"], id="to-the-middle"),
+        pytest.param(None, ["ariel", "lattice", "grafana"], id="to-the-foot"),
+    ],
+)
+def test_rail_order_moves_a_member_and_echoes_the_whole_order(before, expected):
+    """Every client converges on the same order from the one frame, and a reload
+    reads it back."""
+    app = _make_focus_app(visible=["ariel", "grafana", "lattice"])
+    with TestClient(app) as client:
+        resp = client.post("/api/rail-order", json={"panel": "grafana", "before": before})
+        body = client.get("/api/panels").json()
+    assert resp.status_code == 200
+    assert body["visible"] == expected
+    assert _frames(app) == [{"type": "rail_order", "order": expected}]
+
+
+def test_rail_order_without_explicit_membership_treats_enabled_as_the_rail():
+    app = _make_focus_app(visible=None)
+    with TestClient(app) as client:
+        resp = client.post("/api/rail-order", json={"panel": "lattice", "before": "ariel"})
+    assert resp.status_code == 200
+    assert app.state.visible_panels == ["lattice", "ariel"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"panel": "nope", "before": None}, id="unknown-panel"),
+        pytest.param({"panel": "grafana", "before": None}, id="panel-off-the-rail"),
+        pytest.param({"panel": "ariel", "before": "grafana"}, id="before-off-the-rail"),
+        pytest.param({"panel": "ariel", "before": "ariel"}, id="before-itself"),
+    ],
+)
+def test_rail_order_refuses_a_move_it_cannot_place(body):
+    app = _make_focus_app(visible=["ariel", "lattice"])
+    with TestClient(app) as client:
+        resp = client.post("/api/rail-order", json=body)
+    assert resp.status_code == 422
+    assert app.state.visible_panels == ["ariel", "lattice"]
+    app.state.broadcaster.broadcast.assert_not_called()

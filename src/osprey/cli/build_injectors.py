@@ -636,12 +636,14 @@ def _inject_dispatch(
             the project's facility identity instead.
 
     Raises:
-        BuildProfileError: If the configured triggers file cannot be resolved.
+        BuildProfileError: If the configured triggers file cannot be resolved,
+            or ``dispatch.tier`` names a tier the workers may not run
+            (:func:`~osprey.cli.build_profile_schema.dispatch_tier_errors`).
     """
     from ruamel.yaml import YAML
 
     from osprey.cli.build_profile_presets import resolve_triggers_path
-    from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE
+    from osprey.cli.build_profile_schema import DEFAULT_NETWORK_MODE, dispatch_tier_errors
 
     # The default is spelled twice on purpose (here and on ``DispatchConfig``):
     # every read site of a build knob says what an omitted knob means, so this
@@ -649,6 +651,16 @@ def _inject_dispatch(
     # DispatchConfig that never went through the profile loader.
     network = dispatch.network or DEFAULT_NETWORK_MODE
     on_host_network = network == "host"
+
+    # 0. Refuse a tier a headless run may not hold, before anything is written.
+    # The deployment's own render is what the tier inherits, so a flag the tier
+    # does not spell is judged on the value already in config.yml.
+    config_path = project_path / "config.yml"
+    if dispatch.tier is not None:
+        base_config = load_config_document(config_path) if config_path.exists() else None
+        tier_errors = dispatch_tier_errors(dispatch.tier, profile_dir, base_config)
+        if tier_errors:
+            raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tier_errors))
 
     # 1. Resolve + copy triggers file (profile-relative path or bundled triggers name).
     source = resolve_triggers_path(profile_dir, dispatch.triggers)
@@ -722,7 +734,6 @@ def _inject_dispatch(
         _refresh_service_dir(src_dir, dest_dir, name, owned)
 
     # 3. Write config.yml entries + register in deployed_services.
-    config_path = project_path / "config.yml"
     if not config_path.exists():
         logger.warning("config.yml not found. Skipping the dispatch config registration.")
         return
@@ -766,6 +777,11 @@ def _inject_dispatch(
     if declared_env:
         dispatcher_config["env"] = list(declared_env)
         worker_config["env"] = list(declared_env)
+    # The tier the workers run, by name: the image it maps to is resolved where
+    # every other render's image is, never spelled here. Written only when set,
+    # so an unset dispatch.tier leaves config.yml as it was.
+    if dispatch.tier is not None:
+        worker_config["tier"] = dispatch.tier
     if on_host_network:
         # One profile knob, both halves: the compose templates read the mode off
         # their own service block, so the single ``dispatch.network`` value is
@@ -794,9 +810,9 @@ def _inject_dispatch(
     # Derive the whole web.panels.events entry from dispatcher_port so the port
     # is a single source of truth — url, the `/dashboard` path, the tab's label
     # and the `/health` endpoint the tab health-gates on. Written here, in the
-    # deployment's own render, because every web-terminal persona built beside
+    # deployment's own render, because every web-terminal render built beside
     # it is TOLD this entry from this render (osprey.deployment.reach): a key
-    # left out here is a key no persona ever sees. Filled only where the
+    # left out here is a key no render ever sees. Filled only where the
     # profile has not already set an explicit value via a config override
     # (merged earlier in the build); explicit overrides take precedence, and
     # an explicit ``url`` leaves the whole entry alone.
@@ -1405,7 +1421,7 @@ def _inject_bluesky(
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
-        "terminals receive it only for personas entitled to it; the rest are "
+        "terminals receive it only for renders entitled to it; the rest are "
         "refused with launch_token_required and hand arming to the operator."
     )
     logger.debug(

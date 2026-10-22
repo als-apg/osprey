@@ -206,10 +206,10 @@ def terminal_identities(config: Mapping[str, Any] | None) -> list[str]:
     web_terminals = ((config or {}).get("modules") or {}).get("web_terminals") or {}
     if not (isinstance(web_terminals, Mapping) and web_terminals.get("enabled")):
         return []
-    from osprey.deployment.web_terminals.personas import resolve_personas
+    from osprey.deployment.web_terminals.roster import resolve_cards
 
     registry = (config or {}).get("registry") or {}
-    entries = resolve_personas(dict(web_terminals), registry, strict=False)
+    entries = resolve_cards(dict(web_terminals), registry, strict=False)
     return [entry["name"] for entry in entries]
 
 

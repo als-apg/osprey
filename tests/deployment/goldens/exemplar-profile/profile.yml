@@ -2,7 +2,7 @@
 #
 # Made from the bundled `control-assistant` preset, then trimmed by hand: the
 # artifact lists are shorter than the preset's and the roster names two users
-# against two persona deltas in personas/. So this is not that preset's plain
+# at two tiers in tiers/, with no shared apps. So this is not that preset's plain
 # materialization, and it carries no `provenance:` block — there is no emission
 # for `osprey validate` to hold it against.
 #
@@ -13,7 +13,7 @@
 # The repository is the deployment. One directory, four zones:
 #
 #   SOURCE   tracked, yours to edit — profile.yml, providers.yml, data/,
-#            personas/, web-terminal-context/, services/, the CI files
+#            tiers/, web-terminal-context/, services/, the CI files
 #   SECRETS  .env — git-ignored, durable: provider keys you set, plus the
 #            service tokens `osprey up` mints
 #   OUTPUT   build/ — git-ignored, 100% disposable. Every `osprey build`
@@ -38,13 +38,13 @@
 #   osprey up -d      (both from the repo root)
 
 name: Demo Facility
-# Names the compose project, volumes, images, persona renders; not the folder.
+# Names the compose project, volumes, images, tier renders; not the folder.
 project_name: demo-facility
 
 # Default LLM provider and model. Override here, or with `osprey set`, which
-# writes the value into this profile. Every persona project is rendered from a
-# delta over this same profile, so they pick the change up from the file rather
-# than from a replayed command line.
+# writes the value into this profile. Every tier is rendered from this same
+# profile with its tier file laid over it, so they pick the change up from the
+# file rather than from a replayed command line.
 provider: anthropic
 # model: claude-sonnet-5   # a model id the provider serves; omitted, the provider's
 #                          # default_model from providers.yml answers
@@ -216,17 +216,9 @@ config:
   # for you. Saying it in both places is rejected: they are free to disagree,
   # and the disagreement decides whether the host builds images or pulls them.
   #
-  # Each persona's `project` and `project_path` are not written here: `osprey
-  # build` derives them from `project_name` (`demo-facility-readonly` under
-  # `build/`) and writes them into the rendered config, which is how the render
-  # lands exactly where the catalog mounts it.
-  #
-  # The `build_profile` values below are PRESET names, and are consumed only
-  # here, at materialization: `osprey init` renders each one into a delta at
-  # `personas/<name>.yml` beside the emitted profile and rewrites this catalog
-  # to point at that file. `osprey build` reads the deltas themselves and
-  # accepts nothing else — a persona is built from a delta over this profile,
-  # never from a preset of its own.
+  # Each tier's render lands at `build/demo-facility-<tier>`: `osprey build`
+  # derives the path from `project_name` and from the file name in tiers/, and
+  # writes it into the rendered config. Nothing about a render is written here.
   modules.web_terminals:
     enabled: true
     # No port is named here, and that is the point: every one this deployment
@@ -239,24 +231,19 @@ config:
     # prevent collisions. Set `nginx_port` or a `*_base_port` here only to lift
     # one family out of its slot; to move the whole deployment — every port
     # below except the soft-IOC's Channel Access 5064 — set `port_base`.
-    default_persona: readonly   # roster entries with no persona resolve here
+    default_tier: readonly   # roster entries with no tier resolve here
     users:
-      # One web terminal per entry. `index` pins the user's port offsets (each
+      # One web terminal per person. `index` pins the user's port offsets (each
       # family above + index), so removing an entry never shifts another user's
-      # ports; `persona` names a catalog entry below. A bare string
-      # (`- alice`) is also accepted: it takes its list position as index and
-      # falls back to `default_persona`.
+      # ports; `tier` names a file in tiers/. A bare string (`- alice`) is also
+      # accepted: it takes its list position as index and falls back to
+      # `default_tier`.
       - name: alice
         index: 0
-        persona: readonly
+        tier: readonly
       - name: bob
         index: 1
-        persona: readwrite
-    personas:
-      readonly:
-        build_profile: personas/readonly.yml
-      readwrite:
-        build_profile: personas/readwrite.yml
+        tier: readwrite
 
 # ── Environment variables ────────────────────────────────────────────────────
 # The one channel for deploy-scoped variables: the pipeline and the emitted
@@ -276,7 +263,7 @@ config:
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
   # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # simulator, which cannot move a magnet; the read-only tier pins it off.
   # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
@@ -324,8 +311,7 @@ config:
   control_system.connector.virtual_accelerator.timeout_s: 5.0
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-readwrite` and `control-assistant-admin` personas write
-  # this key.
+  # `readwrite` and `admin` tiers write this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
   # control_system.connector.virtual_accelerator.serving: served
@@ -597,7 +583,7 @@ config:
   # ── Tier floor ─────────────────────────────────────────────────────────────
   # The privileges every tier built from this preset starts WITHOUT. Each key
   # here is off at the bottom and lifted back on by exactly the tier that is
-  # meant to have it, so a new persona inherits the restricted posture by
+  # meant to have it, so a new tier inherits the restricted posture by
   # default and a privilege is something a profile has to ask for by name.
 
   # The agent's own deployment-editing tool. It rewrites this repo's profile
@@ -857,7 +843,7 @@ deploy:
     user: osprey
     project_path: /opt/demo-facility
   # The deploy host builds its own web-terminal images from the rendered
-  # persona projects; only the facility's own service image comes from the
+  # tier renders; only the facility's own service image comes from the
   # registry. The single home for this fact — the build writes it into the
   # rendered config's `modules.web_terminals.image_source`.
   image_source: local

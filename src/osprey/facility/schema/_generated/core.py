@@ -465,6 +465,22 @@ class SignalRoleEnum(str, Enum):
     """
     Measured tuner position.
     """
+    gap_setpoint = "gap_setpoint"
+    """
+    Commanded magnetic gap of an insertion device.
+    """
+    gap_readback = "gap_readback"
+    """
+    Measured magnetic gap of an insertion device.
+    """
+    offset_setpoint = "offset_setpoint"
+    """
+    Commanded longitudinal offset (phase) of an insertion device's magnet rows.
+    """
+    offset_readback = "offset_readback"
+    """
+    Measured longitudinal offset (phase) of an insertion device's magnet rows.
+    """
     temperature_readback = "temperature_readback"
     """
     Measured temperature.

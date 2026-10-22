@@ -1,5 +1,5 @@
 /**
- * Unit tests for theme-boot.js's per-persona scoping of the storage rungs.
+ * Unit tests for theme-boot.js's per-user scoping of the storage rungs.
  *
  * The full ladder (?theme= > stored {family,mode} JSON > legacy bare token >
  * server data-theme > 'auto') is pinned in
@@ -8,9 +8,9 @@
  *
  *   - a scoped page reads `osprey-theme--<scope>`
  *   - a scoped page NEVER falls back to the bare `osprey-theme`, in either
- *     storage format — that shared origin-wide slot is the cross-persona bug
+ *     storage format — that shared origin-wide slot is the cross-user bug
  *     the scoping exists to escape, and consulting it would hand the last
- *     writer's theme to every persona who has not yet picked one
+ *     writer's theme to every user who has not yet picked one
  *   - with no attribute, the bare key is honoured exactly as before, legacy
  *     bare token included
  *
@@ -70,7 +70,7 @@ describe('theme-boot.js storage scoping', () => {
     stubOSPreference(true);
   });
 
-  describe('a polluted legacy key does not leak across personas', () => {
+  describe('a polluted legacy key does not leak across users', () => {
     test("bob boots his server theme, not the shared slot's retro", () => {
       // The origin-wide slot whoever picked last wrote.
       store(LEGACY_KEY, { family: 'retro', mode: 'dark' });
@@ -138,7 +138,7 @@ describe('theme-boot.js storage scoping', () => {
       expect(currentTheme()).toBe('high-contrast-light');
     });
 
-    test("carol's key is not bob's — one persona's pick leaves the other alone", () => {
+    test("carol's key is not bob's — one user's pick leaves the other alone", () => {
       store(`${LEGACY_KEY}--bob`, { family: 'retro', mode: 'dark' });
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');
       document.documentElement.setAttribute('data-theme', 'light');

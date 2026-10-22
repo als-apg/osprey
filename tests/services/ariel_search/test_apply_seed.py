@@ -272,29 +272,28 @@ def test_reapply_replaces_pictures_rather_than_piling_them_up(tmp_path, database
     assert len(items) == len(rows) == 1
 
 
-def test_a_demo_narrative_seeds_every_scenario_with_its_pictures(tmp_path, database_url):
-    """The standalone path: no simulation, every scenario's story, viewable pictures."""
-    from osprey.services.ariel_search.cli_operations import run_migrate
+def test_a_deploy_seeds_the_active_narrative_with_its_pictures(tmp_path, database_url):
+    """The deploy's path: the active scenarios' story, viewable pictures, written
+    only into an empty logbook."""
+    from osprey.services.ariel_search.cli_operations import execute_purge, run_migrate
     from osprey.simulation.apply import seed_active_logbook
 
-    scenarios = TEMPLATE_FACILITY / "scenarios"
-    write_scenarios_view(tmp_path, facility_scenarios(scenarios), files=scenarios)
-    ariel = {"database": {"uri": database_url}, "demo_narrative": "all"}
-    config = {"ariel": ariel}
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    asyncio.run(run_migrate(ariel))
-    from osprey.services.ariel_search.cli_operations import execute_purge
-
+    project = _make_project(tmp_path, database_url)
+    apply_scenarios(project, ["rf-thermal"], now=T0)
+    config = yaml.safe_load((project / "config.yml").read_text())
+    ariel = config["ariel"]
     asyncio.run(execute_purge(ariel, embeddings_only=False))
+    asyncio.run(run_migrate(ariel))
 
-    seeded = seed_active_logbook(config, tmp_path, ariel)
+    seeded = seed_active_logbook(config, project, ariel)
 
-    assert seeded == 33
-    assert len(asyncio.run(_fetch(database_url))) == 33
-    for entry_id in ("DEMO-011", "DEMO-027", "DEMO-031"):
+    # nominal's 29 ambient entries plus rf-thermal's three-entry incident arc.
+    assert seeded == 32
+    assert len(asyncio.run(_fetch(database_url))) == 32
+    for entry_id in ("DEMO-011", "DEMO-027"):
         items, rows, renditions = asyncio.run(_pictures(database_url, entry_id))
         assert len(items) == len(rows) == 1, entry_id
         assert rows[0]["copy_status"] == "copied"
         assert renditions[0] is not None
     # A second deploy finds the logbook full and adds nothing.
-    assert seed_active_logbook(config, tmp_path, ariel) == 0
+    assert seed_active_logbook(config, project, ariel) == 0

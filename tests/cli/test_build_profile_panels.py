@@ -2,9 +2,9 @@
 
 A render's tab strip is read from ``web.panels.<id>`` alone, so the profile's
 ``web_panels:`` selection has to reach every block there — including the
-blocks a persona *inherits* through ``config:`` for a panel it excluded, and
+blocks a render *inherits* through ``config:`` for a panel it excluded, and
 the blocks an injector writes into a deploying render for a tab only its
-personas select. ``panel_selection_overrides`` is that projection;
+renders select. ``panel_selection_overrides`` is that projection;
 ``panel_selection_errors`` refuses an authored ``enabled`` that contradicts
 the selection; ``panel_id_errors`` refuses an id no request for that panel
 could be routed with; ``panel_spec_enabled`` is the one predicate every reader
@@ -61,7 +61,7 @@ def test_every_block_is_told_whether_it_is_selected() -> None:
     """Selected → ``enabled: true``; every other block → ``enabled: false``.
 
     The inherited ``lattice`` label and the url-backed ``events`` /
-    ``beam-viewer`` blocks are exactly the residue a persona that excludes
+    ``beam-viewer`` blocks are exactly the residue a render that excludes
     those tabs keeps carrying — and, before the projection, exactly the tabs
     it kept showing.
     """

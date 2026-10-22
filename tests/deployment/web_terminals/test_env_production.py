@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals import env_production
+from osprey.deployment.web_terminals.roster import served_renders
 
 # ---------------------------------------------------------------------------
 # ensure_env_production -- module-conditional subset generator for local-mode
@@ -68,7 +69,7 @@ _FULL_CONFIG = {
 # credentials (CI, registry, external-project pulls) and the fixed-name tokens
 # OSPREY's own deployed services authenticate to each other with. This
 # exclusion list is the security spec for the generator, so a service token
-# that is granted per-persona elsewhere belongs here too: BLUESKY_LAUNCH_TOKEN
+# that is granted per-render elsewhere belongs here too: BLUESKY_LAUNCH_TOKEN
 # reaches its entitled containers through the per-user compose `environment:`
 # block, and the whole point of that placement is that this rosterwide file
 # never carries it.
@@ -294,12 +295,12 @@ def test_env_production_local_mode_defaults_when_image_source_absent_is_registry
 # ---------------------------------------------------------------------------
 # ensure_env_production -- claude_code provider auth-secret coverage. The
 # generator must ship the auth secret of every claude_code.provider a web
-# container will actually authenticate with (each referenced persona
+# container will actually authenticate with (each referenced render
 # project's), and must fail loudly -- not generate a dead file -- when one is missing.
 # ---------------------------------------------------------------------------
 
 
-def _write_persona_project(tmp_path, name, provider):
+def _write_render_project(tmp_path, name, provider):
     project_dir = tmp_path / name
     project_dir.mkdir()
     (project_dir / "config.yml").write_text(
@@ -308,17 +309,18 @@ def _write_persona_project(tmp_path, name, provider):
     return name  # catalog project_path, relative to the deploy project root
 
 
-def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
-    """A local-mode deploy config whose catalog references rendered persona
-    projects, one per ``{persona_name: provider}`` entry."""
+def _render_config(tmp_path, renders: dict[str, str]) -> dict:
+    """A local-mode deploy config whose ``renders`` projection references
+    rendered tier projects, one per ``{tier_name: provider}`` entry."""
     catalog = {
-        persona: {
-            "project": f"{persona}-proj",
-            "project_path": _write_persona_project(tmp_path, f"{persona}-proj", provider),
+        render: {
+            "kind": "tier",
+            "project": f"{render}-proj",
+            "project_path": _write_render_project(tmp_path, f"{render}-proj", provider),
         }
-        for persona, provider in personas.items()
+        for render, provider in renders.items()
     }
-    first = next(iter(personas))
+    first = next(iter(renders))
     return {
         "facility": {},
         "system": {"timezone": "UTC"},
@@ -326,45 +328,43 @@ def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": first,
-                "personas": catalog,
-                "users": [
-                    {"name": "alice", "index": 0, "persona": persona} for persona in personas
-                ],
+                "default_tier": first,
+                "renders": catalog,
+                "users": [{"name": "alice", "index": 0, "tier": render} for render in renders],
             },
         },
     }
 
 
-def test_env_production_copies_each_persona_projects_claude_code_secret(tmp_path):
-    """Persona catalog: every referenced persona project's own provider secret
+def test_env_production_copies_each_render_projects_claude_code_secret(tmp_path):
+    """Render catalog: every referenced render project's own provider secret
     ships, even when the deploy config's provider differs."""
     _write_dotenv(
         tmp_path / ".env",
         {
-            "ALS_APG_API_KEY": "persona-secret",
+            "ALS_APG_API_KEY": "render-secret",
             "ALS_APG_BASE_URL": "https://gw.test/v1",
             "CBORG_API_KEY": "deploy-secret",
         },
     )
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
     config["claude_code"] = {"provider": "cborg"}
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
     )
 
-    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    assert generated["ALS_APG_API_KEY"] == "render-secret"
     # The deploy config's own provider secret is copied too (extra, not required).
     assert generated["CBORG_API_KEY"] == "deploy-secret"
 
 
-def test_env_production_missing_persona_claude_code_secret_raises_actionably(tmp_path):
-    """A referenced persona's provider secret absent from .env must raise --
-    naming the var, the provider, and the persona -- never generate a file
+def test_env_production_missing_render_claude_code_secret_raises_actionably(tmp_path):
+    """A referenced render's provider secret absent from .env must raise --
+    naming the var, the provider, and the render -- never generate a file
     that produces healthy-looking, unauthenticated terminals."""
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with pytest.raises(RuntimeError, match=r"ALS_APG_API_KEY.*\.env") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
@@ -375,21 +375,21 @@ def test_env_production_missing_persona_claude_code_secret_raises_actionably(tmp
 
 
 def test_env_production_deploy_configs_own_secret_is_not_required(tmp_path):
-    """The per-user containers run persona projects, so the deploy config's
+    """The per-user containers run render projects, so the deploy config's
     own provider secret is copy-if-present but its absence must NOT fail the
     deploy."""
     _write_dotenv(
         tmp_path / ".env",
-        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+        {"ALS_APG_API_KEY": "render-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
     )
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
     config["claude_code"] = {"provider": "anthropic"}  # ANTHROPIC_API_KEY not in .env
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
     )
 
-    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    assert generated["ALS_APG_API_KEY"] == "render-secret"
     assert "ANTHROPIC_API_KEY" not in generated
 
 
@@ -466,16 +466,16 @@ def test_env_production_keyless_provider_secret_copied_when_present(tmp_path):
     assert generated["OLLAMA_API_KEY"] == "proxy-secret"
 
 
-def test_env_production_keyless_persona_provider_secret_not_required(tmp_path):
-    """A persona project running a keyless provider must not block the deploy
+def test_env_production_keyless_render_provider_secret_not_required(tmp_path):
+    """A render project running a keyless provider must not block the deploy
     when the derived var is absent from the chain, while a co-deployed
-    key-requiring persona's secret stays required."""
+    key-requiring render's secret stays required."""
     _write_dotenv(
         tmp_path / ".env",
-        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+        {"ALS_APG_API_KEY": "render-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
     )
-    config = _persona_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
-    # The keyless persona derives OLLAMA_API_KEY only when its own config
+    config = _render_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
+    # The keyless render derives OLLAMA_API_KEY only when its own config
     # declares the provider under api.providers -- same rule as the resolver.
     (tmp_path / "local-proj" / "config.yml").write_text(
         "project_name: local-proj\n"
@@ -488,7 +488,7 @@ def test_env_production_keyless_persona_provider_secret_not_required(tmp_path):
         env_production.ensure_env_production(config, tmp_path)
     )
 
-    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    assert generated["ALS_APG_API_KEY"] == "render-secret"
     assert "OLLAMA_API_KEY" not in generated
 
 
@@ -529,14 +529,14 @@ def a_gateway_that_ships_no_endpoint(monkeypatch):
     return _GATEWAY_WITHOUT_ENDPOINT
 
 
-def _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL}", provider="als-apg"):
-    """A persona catalog whose single persona runs ``provider`` through a gateway.
+def _gateway_render_config(tmp_path, base_url="${ALS_APG_BASE_URL}", provider="als-apg"):
+    """A render catalog whose single render runs ``provider`` through a gateway.
 
-    The persona's rendered ``config.yml`` carries the provider catalog the real
+    The render's rendered ``config.yml`` carries the provider catalog the real
     render ships, so the endpoint reaches the resolver the same way it does in
     a deployed container.
     """
-    config = _persona_config(tmp_path, {"operator": provider})
+    config = _render_config(tmp_path, {"operator": provider})
     (tmp_path / "operator-proj" / "config.yml").write_text(
         "project_name: operator-proj\n"
         "api:\n"
@@ -550,13 +550,13 @@ def _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL}", provider="
 
 
 def test_env_production_copies_the_gateway_endpoint_its_provider_needs(tmp_path):
-    """The persona's config names its endpoint by variable, so the container
+    """The render's config names its endpoint by variable, so the container
     resolves no endpoint at all unless that variable crosses into .env.users."""
     _write_dotenv(
         tmp_path / ".env",
-        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+        {"ALS_APG_API_KEY": "render-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
     )
-    config = _gateway_persona_config(tmp_path)
+    config = _gateway_render_config(tmp_path)
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
@@ -572,12 +572,12 @@ def test_env_production_endpoint_variable_is_read_off_the_provider_catalog(tmp_p
     _write_dotenv(
         tmp_path / ".env",
         {
-            "ALS_APG_API_KEY": "persona-secret",
+            "ALS_APG_API_KEY": "render-secret",
             "SITE_GATEWAY_URL": "https://site.test/v1",
             "ALS_APG_BASE_URL": "https://unused.test/v1",
         },
     )
-    config = _gateway_persona_config(tmp_path, base_url="${SITE_GATEWAY_URL}")
+    config = _gateway_render_config(tmp_path, base_url="${SITE_GATEWAY_URL}")
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
@@ -611,8 +611,8 @@ def test_env_production_missing_gateway_endpoint_refuses_the_deploy(
     """Absent from the whole chain, the endpoint is a container that exits at
     startup and restarts forever -- refused here, naming the variable."""
     gateway = a_gateway_that_ships_no_endpoint
-    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "persona-secret"})
-    config = _gateway_persona_config(
+    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "render-secret"})
+    config = _gateway_render_config(
         tmp_path, base_url=f"${{{_GATEWAY_WITHOUT_ENDPOINT_VAR}}}", provider=gateway
     )
 
@@ -627,8 +627,8 @@ def test_env_production_missing_gateway_endpoint_refuses_the_deploy(
 def test_env_production_a_literal_endpoint_asks_nothing_of_the_chain(tmp_path):
     """A config that names the URL outright resolves it inside the container
     with no variable at all, so nothing is required and nothing is copied."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
-    config = _gateway_persona_config(tmp_path, base_url="https://literal.test/v1")
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "render-secret"})
+    config = _gateway_render_config(tmp_path, base_url="https://literal.test/v1")
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
@@ -641,8 +641,8 @@ def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path)
     """A reference carrying its own fallback resolves on its own, so its
     absence from the chain is no refusal -- it is copied when set, as a
     redirect."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
-    config = _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL:-https://fb.test/v1}")
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "render-secret"})
+    config = _gateway_render_config(tmp_path, base_url="${ALS_APG_BASE_URL:-https://fb.test/v1}")
 
     generated = env_production.parse_dotenv_file(
         env_production.ensure_env_production(config, tmp_path)
@@ -654,7 +654,7 @@ def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path)
 def test_env_production_endpoint_of_the_deploys_own_provider_is_copied_not_required(
     tmp_path, a_gateway_that_ships_no_endpoint
 ):
-    """The per-user containers run persona projects, so the deploy config's own
+    """The per-user containers run render projects, so the deploy config's own
     provider endpoint answers for no container: copied when set, never
     required."""
     gateway = a_gateway_that_ships_no_endpoint
@@ -719,11 +719,11 @@ def test_env_production_a_generated_file_without_the_endpoint_is_re_rendered(tmp
     reach their gateway."""
     _write_dotenv(
         tmp_path / ".env",
-        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+        {"ALS_APG_API_KEY": "render-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
     )
-    config = _gateway_persona_config(tmp_path)
+    config = _gateway_render_config(tmp_path)
     stale = env_production.render_env_users(
-        {"ALS_APG_API_KEY": "persona-secret", "TZ": "UTC"},
+        {"ALS_APG_API_KEY": "render-secret", "TZ": "UTC"},
     )
     (tmp_path / ".env.users").write_text(stale, encoding="utf-8")
 
@@ -749,13 +749,13 @@ def _existing_users_file_without_the_endpoint(tmp_path, *, generated: bool):
     On the synthetic provider, since only a provider that ships no endpoint of
     its own can leave a chain with nothing to resolve.
     """
-    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "persona-secret"})
-    config = _gateway_persona_config(
+    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "render-secret"})
+    config = _gateway_render_config(
         tmp_path,
         base_url=f"${{{_GATEWAY_WITHOUT_ENDPOINT_VAR}}}",
         provider=_GATEWAY_WITHOUT_ENDPOINT,
     )
-    values = {_GATEWAY_WITHOUT_ENDPOINT_KEY: "persona-secret", "TZ": "UTC"}
+    values = {_GATEWAY_WITHOUT_ENDPOINT_KEY: "render-secret", "TZ": "UTC"}
     if generated:
         text = env_production.render_env_users(values)
     else:
@@ -771,7 +771,7 @@ def test_env_production_existing_file_is_refused_when_the_chain_lacks_a_required
     """An existing file is no reason to skip the question a fresh render asks:
     the endpoint is required, the chain does not set it, and the deploy is
     refused with the same sentence -- naming the variable, its provider and
-    the persona -- whoever rendered the file. The file is left alone."""
+    the render -- whoever rendered the file. The file is left alone."""
     config, text = _existing_users_file_without_the_endpoint(tmp_path, generated=generated)
 
     with pytest.raises(RuntimeError, match=_GATEWAY_WITHOUT_ENDPOINT_VAR) as excinfo:
@@ -780,7 +780,7 @@ def test_env_production_existing_file_is_refused_when_the_chain_lacks_a_required
     message = str(excinfo.value)
     assert a_gateway_that_ships_no_endpoint in message
     assert "operator" in message
-    assert "persona-secret" not in message
+    assert "render-secret" not in message
     assert (tmp_path / ".env.users").read_text(encoding="utf-8") == text
 
 
@@ -789,11 +789,11 @@ def test_env_production_existing_file_with_the_endpoint_in_the_chain_is_not_refu
     (OSPREY's) or kept (an operator's), never refused for this."""
     _write_dotenv(
         tmp_path / ".env",
-        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+        {"ALS_APG_API_KEY": "render-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
     )
-    config = _gateway_persona_config(tmp_path)
+    config = _gateway_render_config(tmp_path)
     (tmp_path / ".env.users").write_text(
-        "ALS_APG_API_KEY=persona-secret\nALS_APG_BASE_URL=https://gw.test/v1\nTZ=UTC\n",
+        "ALS_APG_API_KEY=render-secret\nALS_APG_BASE_URL=https://gw.test/v1\nTZ=UTC\n",
         encoding="utf-8",
     )
 
@@ -814,14 +814,14 @@ def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(t
 
     problems = [problem for problem, _remedy in blocking]
     assert any(_GATEWAY_WITHOUT_ENDPOINT_VAR in problem for problem in problems), problems
-    assert all("persona-secret" not in problem for problem in problems)
+    assert all("render-secret" not in problem for problem in problems)
 
 
 def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
     """The never-clobber rule keeps a stale pre-provider-change file in
     service; the deploy must at least say so, naming the missing var."""
     (tmp_path / ".env.users").write_text("TZ=UTC\n", encoding="utf-8")
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with caplog.at_level("WARNING"):
         result = env_production.ensure_env_production(config, tmp_path)
@@ -833,7 +833,7 @@ def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, 
 
 def test_env_production_existing_file_with_credential_does_not_warn(tmp_path, caplog):
     (tmp_path / ".env.users").write_text("ALS_APG_API_KEY=ok\n", encoding="utf-8")
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with caplog.at_level("WARNING"):
         env_production.ensure_env_production(config, tmp_path)
@@ -860,13 +860,13 @@ def test_env_production_keyless_only_existing_file_does_not_warn(tmp_path, caplo
     assert "none of the LLM credential" not in caplog.text
 
 
-def test_env_production_key_requiring_persona_still_warns_without_naming_keyless(tmp_path, caplog):
-    """A co-deployed key-requiring persona keeps the advisory alive -- and its
+def test_env_production_key_requiring_render_still_warns_without_naming_keyless(tmp_path, caplog):
+    """A co-deployed key-requiring render keeps the advisory alive -- and its
     warning names only the credential that can actually fail, never the
-    keyless persona's derived var."""
+    keyless render's derived var."""
     (tmp_path / ".env.users").write_text("TZ=UTC\n", encoding="utf-8")
-    config = _persona_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
-    # Same rule as the resolver: the keyless persona derives OLLAMA_API_KEY
+    config = _render_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
+    # Same rule as the resolver: the keyless render derives OLLAMA_API_KEY
     # only when its own config declares the provider under api.providers.
     (tmp_path / "local-proj" / "config.yml").write_text(
         "project_name: local-proj\n"
@@ -890,7 +890,7 @@ def test_env_production_missing_secret_present_in_shell_env_names_the_fix(tmp_pa
     them to discover the .env-only rule by archaeology."""
     monkeypatch.setenv("ALS_APG_API_KEY", "exported-in-shell")
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
@@ -927,7 +927,7 @@ def test_env_production_missing_secret_hint_names_only_the_repo_env(tmp_path, mo
     )
     monkeypatch.setenv("ALS_APG_API_KEY", "exported-in-shell")
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
@@ -940,13 +940,13 @@ def test_env_production_missing_secret_hint_names_only_the_repo_env(tmp_path, mo
 
 
 def test_env_production_missing_secret_absent_everywhere_has_no_shell_hint(tmp_path, monkeypatch):
-    """Every variable the persona needs is cleared from the ambient shell, the
+    """Every variable the render needs is cleared from the ambient shell, the
     gateway endpoint included: an ambient export of any of them earns the
     shell hint, which is exactly what this asserts against."""
     monkeypatch.delenv("ALS_APG_API_KEY", raising=False)
     monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with pytest.raises(RuntimeError) as excinfo:
         env_production.ensure_env_production(config, tmp_path)
@@ -956,10 +956,10 @@ def test_env_production_missing_secret_absent_everywhere_has_no_shell_hint(tmp_p
 
 def test_env_production_never_carries_the_dispatcher_token(tmp_path):
     """The tier boundary, pinned. One `.env.production` is handed to EVERY per-user
-    container, so a dispatcher bearer here would reach read-only personas too --
+    container, so a dispatcher bearer here would reach read-only renders too --
     and that credential can fire triggers. The EVENTS panel is wired through the
     PER-USER compose `environment:` block instead (see
-    `render_web_terminals(dispatcher_personas=...)`); this asserts the shared file
+    `render_web_terminals(dispatcher_renders=...)`); this asserts the shared file
     stays clean even when the operator's .env is full of service tokens."""
     # Arrange
     _write_dotenv(
@@ -973,7 +973,7 @@ def test_env_production_never_carries_the_dispatcher_token(tmp_path):
             "GRAPHDB_PASSWORD": "rewrite-the-graph",
         },
     )
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     # Act
     generated = env_production.parse_dotenv_file(
@@ -987,10 +987,10 @@ def test_env_production_never_carries_the_dispatcher_token(tmp_path):
         "DISPATCH_WORKER_TOKEN",
         "BLUESKY_LAUNCH_TOKEN",
         # The graphdb store's only credential, and a write-capable one. It is
-        # granted per-persona through the compose `environment:` block for a
+        # granted per-render through the compose `environment:` block for a
         # different reason than the tier boundary -- the read-only tier is meant
         # to have it -- but it stays out of this rosterwide file all the same,
-        # which would otherwise hand it to personas configuring no graph store.
+        # which would otherwise hand it to renders configuring no graph store.
         "GRAPHDB_PASSWORD",
     ):
         assert service_token not in generated
@@ -1066,7 +1066,7 @@ def test_env_production_required_auth_secret_in_shared_half_does_not_raise(tmp_p
         {"ALS_APG_API_KEY": "shared-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
     )
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     result = env_production.ensure_env_production(config, tmp_path)
 
@@ -1079,7 +1079,7 @@ def test_env_production_missing_from_the_whole_chain_still_raises(tmp_path):
     .env, since the shared half is committed and holds no secrets."""
     _write_dotenv(tmp_path / ".env.shared", {"SOMETHING_SHARED": "y"})
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _render_config(tmp_path, {"operator": "als-apg"})
 
     with pytest.raises(RuntimeError, match="ALS_APG_API_KEY") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
@@ -1111,7 +1111,7 @@ def test_env_production_quotes_a_value_that_would_not_survive_a_re_read(tmp_path
 # ---------------------------------------------------------------------------
 # Telemetry-block references. A bare reference is a credential the env chain
 # must carry; `.env.users` never carries it, because one file is handed to
-# every persona alike.
+# every render alike.
 # ---------------------------------------------------------------------------
 
 
@@ -1133,8 +1133,8 @@ def test_env_reference_tells_the_two_reference_forms_from_a_literal(value, expec
     assert env_production._env_reference(value) == expected
 
 
-def _catalog_config(project_path, persona="operator", deployed_services=()):
-    """A local-mode deploy config whose roster runs one catalogued persona."""
+def _catalog_config(project_path, render="operator", deployed_services=()):
+    """A local-mode deploy config whose roster runs one catalogued render."""
     return {
         "deployed_services": list(deployed_services),
         "facility": {},
@@ -1143,16 +1143,18 @@ def _catalog_config(project_path, persona="operator", deployed_services=()):
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": persona,
-                "personas": {persona: {"project": project_path, "project_path": project_path}},
-                "users": [{"name": "alice", "index": 0, "persona": persona}],
+                "default_tier": render,
+                "renders": {
+                    render: {"kind": "tier", "project": project_path, "project_path": project_path}
+                },
+                "users": [{"name": "alice", "index": 0, "tier": render}],
             },
         },
     }
 
 
-def _write_block_persona(tmp_path, block, name="operator-proj"):
-    """Write a rendered persona project whose ``claude_code.telemetry`` is ``block``."""
+def _write_block_render(tmp_path, block, name="operator-proj"):
+    """Write a rendered render project whose ``claude_code.telemetry`` is ``block``."""
     project_dir = tmp_path / name
     project_dir.mkdir()
     (project_dir / "config.yml").write_text(
@@ -1176,7 +1178,7 @@ def test_telemetry_switched_off_does_not_refuse_the_deploy(tmp_path):
     """
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
     block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     assert env_production.users_env_generation_problem(config, tmp_path) is None
 
@@ -1185,7 +1187,7 @@ def test_telemetry_switched_off_still_refuses_an_ordinary_missing_secret(tmp_pat
     """The switch silences the telemetry reference, not the whole gate."""
     _write_dotenv(tmp_path / ".env", {"UNRELATED": "x"})
     block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     problem = env_production.users_env_generation_problem(config, tmp_path)
 
@@ -1197,7 +1199,7 @@ def test_telemetry_switched_off_still_refuses_an_ordinary_missing_secret(tmp_pat
 def test_an_absent_telemetry_switch_reads_as_off(tmp_path):
     """Absent is OFF, matching `build_telemetry_env`'s own `get("enabled")`."""
     block = {"backend": "generic", "endpoint": "${COLLECTOR_URL}"}
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
@@ -1206,7 +1208,7 @@ def test_a_users_file_never_draws_a_telemetry_advisory(tmp_path, caplog):
     """An existing file is asked only about LLM credentials, never about telemetry."""
     (tmp_path / ".env.users").write_text("ANTHROPIC_API_KEY=ok\n", encoding="utf-8")
     block = _collector_block(resource_attributes={"tenant": "${TENANT_NAME:-site}"})
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     with caplog.at_level("WARNING"):
         env_production.ensure_env_production(config, tmp_path)
@@ -1215,53 +1217,65 @@ def test_a_users_file_never_draws_a_telemetry_advisory(tmp_path, caplog):
 
 
 # ---------------------------------------------------------------------------
-# Role-bound personas are provisioned like pinned ones (Task 4.2 wiring)
+# Role-bound renders are provisioned like pinned ones (Task 4.2 wiring)
 # ---------------------------------------------------------------------------
 
 
-def _role_bound_config(role_persona: str) -> dict:
-    """A roster whose sole entry reaches its persona through a role."""
+def _role_bound_config(role_tier: str) -> dict:
+    """A roster whose sole entry reaches its render through a role."""
     return {
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "default_persona": "cli",
-                "personas": {
-                    "cli": {"project": "cli"},
-                    role_persona: {"project": role_persona},
+                "default_tier": "cli",
+                "renders": {
+                    "cli": {"kind": "tier", "project": "cli"},
+                    role_tier: {"kind": "tier", "project": role_tier},
                 },
                 "users": [{"name": "alice", "index": 0, "role": "expert"}],
-                "authorization": {"roles": {"expert": {"persona": role_persona}}},
+                "authorization": {"roles": {"expert": {"tier": role_tier}}},
             }
         }
     }
 
 
-def test_referenced_persona_names_resolves_a_role_bound_persona() -> None:
-    """Per-persona env provisioning reads the roster through the same
-    `effective_persona` helper the render binds with, so a role-only roster gets
-    the credentials its personas are entitled to instead of the default's."""
+def test_served_renders_resolves_a_role_bound_render() -> None:
+    """Per-render env provisioning reads the served set through the same
+    `effective_tier` helper the render binds with, so a role-only roster gets
+    the credentials its renders are entitled to instead of the default's."""
     # Arrange
     config = _role_bound_config("physicist")
 
     # Act
-    names = env_production._referenced_persona_names(config)
+    served = served_renders(config, strict=True)
 
-    # Assert: the default still counts, and the role's persona joins it.
-    assert names == ["cli", "physicist"]
+    # Assert: the default still counts, and the role's render joins it.
+    assert sorted(served) == ["cli", "physicist"]
+    assert all(render is not None for render in served.values())
 
 
-def test_referenced_persona_names_refuses_an_undeclared_role() -> None:
-    """Provisioning is a BINDING surface — it decides which persona is handed
+def test_served_renders_refuses_an_undeclared_role() -> None:
+    """Provisioning is a BINDING surface — it decides which render is handed
     which credential — so it fails closed rather than quietly provisioning the
-    default persona's secrets for an entry the operator bound elsewhere."""
+    default tier's secrets for an entry the operator bound elsewhere."""
     # Arrange
     config = _role_bound_config("physicist")
     config["modules"]["web_terminals"]["users"][0]["role"] = "admin"
 
     # Act / Assert
     with pytest.raises(ValueError, match="admin"):
-        env_production._referenced_persona_names(config)
+        served_renders(config, strict=True)
+
+
+def test_provisioning_refuses_an_undeclared_role(tmp_path) -> None:
+    """The env walk itself takes the strict read: an undeclared role stops it."""
+    # Arrange
+    config = _role_bound_config("physicist")
+    config["modules"]["web_terminals"]["users"][0]["role"] = "admin"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="admin"):
+        env_production._readable_render_configs(config, tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1294,19 +1308,19 @@ def _collector_block(**overrides):
 def test_a_bare_reference_is_a_requirement(tmp_path, attributes):
     """A bare reference is required whichever shape the value takes."""
     block = _collector_block(resource_attributes=attributes)
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     reported = env_production._telemetry_credential_requirements(config, tmp_path)
 
     assert list(reported) == ["OTLP_TOKEN"]
     assert reported["OTLP_TOKEN"].startswith("claude_code.telemetry.resource_attributes")
-    assert reported["OTLP_TOKEN"].endswith("(persona 'operator')")
+    assert reported["OTLP_TOKEN"].endswith("(render 'operator')")
 
 
 def test_a_reference_with_its_own_default_asks_nothing(tmp_path):
     """A reference that names its own fallback resolves on its own."""
     block = _collector_block(endpoint="${COLLECTOR_URL:-https://collector.example.org:4318}")
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
@@ -1314,7 +1328,7 @@ def test_a_reference_with_its_own_default_asks_nothing(tmp_path):
 def test_a_switched_off_collector_block_is_asked_for_nothing(tmp_path):
     """The master switch gates the whole-block walk."""
     block = _collector_block(endpoint="${COLLECTOR_URL}", enabled=False)
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
@@ -1324,11 +1338,11 @@ def test_a_reference_anywhere_in_the_block_is_read(tmp_path):
     block = _collector_block(
         endpoint="${COLLECTOR_URL}", resource_attributes=["site=${SITE_LABEL}"]
     )
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {
-        "COLLECTOR_URL": "claude_code.telemetry.endpoint (persona 'operator')",
-        "SITE_LABEL": "claude_code.telemetry.resource_attributes[0] (persona 'operator')",
+        "COLLECTOR_URL": "claude_code.telemetry.endpoint (render 'operator')",
+        "SITE_LABEL": "claude_code.telemetry.resource_attributes[0] (render 'operator')",
     }
 
 
@@ -1345,7 +1359,7 @@ def test_a_gateway_login_in_the_chain_never_reaches_the_users_file(tmp_path):
     )
     block = {"enabled": True, "backend": "gateway"}
     config = _catalog_config(
-        _write_block_persona(tmp_path, block),
+        _write_block_render(tmp_path, block),
         deployed_services=("telemetry_store", "telemetry_gateway"),
     )
 
@@ -1363,7 +1377,7 @@ def test_a_block_secret_in_the_chain_never_reaches_the_users_file(tmp_path):
         tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_TOKEN": "c0llect0r-t0ken"}
     )
     block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     result = env_production.ensure_env_production(config, tmp_path)
 
@@ -1377,14 +1391,14 @@ def test_an_unset_block_secret_refuses_the_deploy_by_name(tmp_path, monkeypatch)
     monkeypatch.delenv("OTLP_TOKEN", raising=False)
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
     block = _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     with pytest.raises(RuntimeError, match="OTLP_TOKEN") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
 
     message = str(excinfo.value)
     assert (
-        "claude_code.telemetry.resource_attributes.collector.key (persona 'operator') "
+        "claude_code.telemetry.resource_attributes.collector.key (render 'operator') "
         "needs OTLP_TOKEN"
     ) in message
     assert "handled as a credential" in message
@@ -1392,8 +1406,8 @@ def test_an_unset_block_secret_refuses_the_deploy_by_name(tmp_path, monkeypatch)
 
 
 def test_the_deploy_config_block_is_walked_too(tmp_path):
-    """The deploy config's own telemetry block answers as a persona's does."""
-    config = _catalog_config(_write_block_persona(tmp_path, {"enabled": False}))
+    """The deploy config's own telemetry block answers as a render's does."""
+    config = _catalog_config(_write_block_render(tmp_path, {"enabled": False}))
     config["claude_code"] = {
         "telemetry": _collector_block(resource_attributes={"collector.key": "${OTLP_TOKEN}"})
     }
@@ -1409,7 +1423,7 @@ def test_a_block_secret_and_a_collector_token_each_get_their_own_note(tmp_path, 
     monkeypatch.delenv("RELAY_KEY", raising=False)
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
     block = _token_block(resource_attributes={"relay.key": "${RELAY_KEY}"})
-    config = _catalog_config(_write_block_persona(tmp_path, block))
+    config = _catalog_config(_write_block_render(tmp_path, block))
 
     problem = env_production.users_env_generation_problem(config, tmp_path)
 
@@ -1461,9 +1475,9 @@ def test_telemetry_delivered_vars_refuses_a_value_in_place_of_a_name():
     assert "abc.def-123" not in str(excinfo.value)
 
 
-def test_personas_needing_telemetry_vars_maps_each_persona_to_its_list(tmp_path):
-    """Each persona answers with its own names; one exporting nothing is absent."""
-    config = _persona_config(
+def test_renders_needing_telemetry_vars_maps_each_render_to_its_list(tmp_path):
+    """Each render answers with its own names; one exporting nothing is absent."""
+    config = _render_config(
         tmp_path, {"ops": "anthropic", "physics": "anthropic", "viewer": "anthropic"}
     )
     blocks = {
@@ -1476,14 +1490,14 @@ def test_personas_needing_telemetry_vars_maps_each_persona_to_its_list(tmp_path)
         },
         "viewer": {**_COLLECTOR_TELEMETRY, "enabled": False},
     }
-    for persona, block in blocks.items():
-        config_yml = tmp_path / f"{persona}-proj" / "config.yml"
+    for render, block in blocks.items():
+        config_yml = tmp_path / f"{render}-proj" / "config.yml"
         config_yml.write_text(
-            yaml.safe_dump({"project_name": f"{persona}-proj", **_telemetry_config(block)}),
+            yaml.safe_dump({"project_name": f"{render}-proj", **_telemetry_config(block)}),
             encoding="utf-8",
         )
 
-    assert env_production.personas_needing_telemetry_vars(config, tmp_path) == {
+    assert env_production.renders_needing_telemetry_vars(config, tmp_path) == {
         "ops": ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME"),
         "physics": ("PHYSICS_COLLECTOR_TOKEN",),
     }
@@ -1505,13 +1519,13 @@ def test_a_collector_token_missing_from_the_chain_refuses_the_deploy(tmp_path, m
     """The refusal names the variable and the key that names it."""
     monkeypatch.delenv("OTLP_COLLECTOR_TOKEN", raising=False)
     _write_dotenv(tmp_path / ".env", {"ANTHROPIC_API_KEY": "cc-secret"})
-    config = _catalog_config(_write_block_persona(tmp_path, _token_block()))
+    config = _catalog_config(_write_block_render(tmp_path, _token_block()))
 
     with pytest.raises(RuntimeError, match="OTLP_COLLECTOR_TOKEN") as excinfo:
         env_production.ensure_env_production(config, tmp_path)
 
     message = str(excinfo.value)
-    assert "claude_code.telemetry.auth.token_env (persona 'operator')" in message
+    assert "claude_code.telemetry.auth.token_env (render 'operator')" in message
     assert "telemetry collector's bearer token" in message
     assert "never through .env.users" in message
     assert not (tmp_path / env_production.USERS_ENV_FILENAME).exists()
@@ -1523,7 +1537,7 @@ def test_a_collector_token_in_the_chain_is_not_copied_into_env_users(tmp_path):
         tmp_path / ".env",
         {"ANTHROPIC_API_KEY": "cc-secret", "OTLP_COLLECTOR_TOKEN": "c0llect0r-t0ken"},
     )
-    config = _catalog_config(_write_block_persona(tmp_path, _token_block()))
+    config = _catalog_config(_write_block_render(tmp_path, _token_block()))
 
     result = env_production.ensure_env_production(config, tmp_path)
 
@@ -1532,9 +1546,9 @@ def test_a_collector_token_in_the_chain_is_not_copied_into_env_users(tmp_path):
     assert "c0llect0r-t0ken" not in raw_text
 
 
-def test_a_persona_with_telemetry_off_is_asked_for_no_collector_token(tmp_path):
+def test_a_render_with_telemetry_off_is_asked_for_no_collector_token(tmp_path):
     """A block the builder discards presents no token."""
-    config = _catalog_config(_write_block_persona(tmp_path, _token_block(enabled=False)))
+    config = _catalog_config(_write_block_render(tmp_path, _token_block(enabled=False)))
 
     gap = env_production._required_vars_missing_from_chain(config, tmp_path)
 

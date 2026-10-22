@@ -16,7 +16,7 @@
  * invalid value at any rung is ignored and resolution falls through to the
  * next:
  *   1. the `?mode=` URL query param
- *   2. localStorage['osprey-ui-mode'], per-persona scoped — see below
+ *   2. localStorage['osprey-ui-mode'], per-render scoped — see below
  *   3. the data-ui-mode attribute the server already rendered on <html>
  *      (web_terminal stamps it from config; artifacts renders none, so this
  *      rung is simply absent there and resolution falls through to 4)
@@ -26,7 +26,7 @@
  * (data-ui-mode) are independent.
  *
  * Storage rung, scoped: localStorage is origin-scoped, so on a multi-user
- * deployment (every persona served from one origin under `/u/<user>/`) a bare
+ * deployment (every render served from one origin under `/u/<user>/`) a bare
  * key is a single shared slot and the last picker decides what everyone else
  * boots into. When the server stamps data-osprey-storage-scope on <html>, rung
  * 2 reads `osprey-ui-mode--<scope>` instead — and does NOT fall back to the
@@ -64,7 +64,7 @@
   // Inline mirror of storage-scope.js's `scopedStorageKey()`. An empty
   // attribute value counts as unscoped: the server omits the attribute rather
   // than rendering `=""`, so this only guards against a key ending in a bare
-  // "--" that would belong to no persona.
+  // "--" that would belong to no render.
   function storageKey() {
     try {
       const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);

@@ -312,7 +312,7 @@ def roster_persons(config: Mapping[str, Any] | None) -> list[str]:
     A shared card is no one person: a sign-in as the card is governed by the
     card's own roster entry, so it gets no view user of its own.
     """
-    from osprey.deployment.web_terminals.personas import entry_is_shared
+    from osprey.deployment.web_terminals.roster import entry_is_shared
 
     users: Any = config
     for key in ("modules", "web_terminals", "users"):

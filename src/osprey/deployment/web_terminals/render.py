@@ -12,6 +12,7 @@ from __future__ import annotations
 import posixpath
 import re
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
@@ -55,25 +56,28 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.personas import (
-    REGISTRY_MODE_MISSING_URL,
-    SUPPORTED_MCP_TOPOLOGY,
-    USERNAME_CHARSET_RE,
-    access_wire_value,
-    as_dict,
-    configured_registry_url,
-    control_identity_problems,
-    effective_image_source,
-    entry_is_shared,
-    resolve_access_principals,
-    resolve_personas,
-    roster_role_by_name,
-)
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
     base_ports_from_config,
     resolve_nginx_port,
+)
+from osprey.deployment.web_terminals.roster import (
+    REGISTRY_MODE_MISSING_URL,
+    SUPPORTED_MCP_TOPOLOGY,
+    USERNAME_CHARSET_RE,
+    access_wire_value,
+    as_dict,
+    authored_people,
+    configured_registry_url,
+    control_identity_problems,
+    effective_image_source,
+    entry_is_shared,
+    is_app_entry,
+    resolve_access_principals,
+    resolve_cards,
+    resolve_image_tag,
+    roster_role_by_name,
 )
 from osprey.docs_links import PERIMETER_LIMITS_URL
 
@@ -89,6 +93,7 @@ from osprey.services.auth_sidecar.roster_env import (
     READERS_VAR,
     ROLE_HISTORY_VAR_PREFIX,
     ROSTER_HISTORY_VAR_PREFIX,
+    ROSTER_LABEL_VAR_PREFIX,
     env_var_suffix,
     env_var_suffix_collisions,
 )
@@ -209,7 +214,7 @@ AUTH_SIDECAR_AUDIT_IDENTITY = "sidecar"
 #: The sidecar image's working directory (its Dockerfile's ``WORKDIR /app``),
 #: and so the root its audit subdirectory hangs under. It runs no OSPREY project
 #: — it is a single uvicorn app, with no ``container_project_dir`` to anchor on
-#: like a persona has — but its records still live at ``var/audit/<identity>``
+#: like a render has — but its records still live at ``var/audit/<identity>``
 #: under its own root, so one shape describes every writer in the deployment.
 _AUTH_SIDECAR_CONTAINER_ROOT = "/app"
 
@@ -271,7 +276,7 @@ _SECRET_TEMPLATE_SUFFIX = ".conf.template"
 
 #: What a roster name may look like once it is a FILENAME and an nginx
 #: ``include`` argument. Wider than
-#: :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`, which
+#: :data:`~osprey.deployment.web_terminals.roster.USERNAME_CHARSET_RE`, which
 #: the deploy path now applies in every auth method (the terminal-secret mint
 #: runs whatever ``auth.method`` says, and ``_validate_usernames`` gates it), so
 #: on that path this rule is the looser of two and never the one that refuses.
@@ -634,8 +639,8 @@ def _container_bundle_dir(config: Any, container_project_dir: str) -> str | None
     which in-container is *container_project_dir*. A literal here would be a
     second spelling of that key, free to drift.
 
-    Per-service rather than one shared path, because personas differ: two
-    personas built from different projects have different
+    Per-service rather than one shared path, because renders differ: two
+    renders built from different projects have different
     ``container_project_dir`` values, so the same configured
     ``data/facility/knowledge`` resolves to two different in-container paths and
     a single hardcoded target would mount the bundle where only one of them
@@ -645,11 +650,11 @@ def _container_bundle_dir(config: Any, container_project_dir: str) -> str | None
     in Python rather than as a template concatenation.
 
     Known limit, shared with its sibling: the path is read from the DEPLOY
-    config, not from each persona's own ``config.yml``. A persona that relocates
+    config, not from each render's own ``config.yml``. A render that relocates
     its bundle relative to what the deploy config declares would have the
-    directory bound at the deploy's path while its readers look at the persona's
+    directory bound at the deploy's path while its readers look at the render's
     — visible as an empty bundle, not as silent data loss, since nothing writes
-    to an unmounted target here. Reading it per persona would mean this function
+    to an unmounted target here. Reading it per render would mean this function
     touching disk, which :func:`render_web_terminals` is contractually forbidden
     from doing.
 
@@ -681,7 +686,7 @@ def _container_mirror_dir(config: Any, container_project_dir: str) -> str | None
     ``settings`` winning over the module block exactly as the exporter merges
     them. Absolute values are not re-anchored, as for the bundle. Same known
     limit as its sibling: the path is read from the DEPLOY config, not each
-    persona's own, and the lint reports a persona that relocated it.
+    render's own, and the lint reports a render that relocated it.
 
     :return: The in-container mount target, or ``None`` when the deployment
         writes no mirror at all.
@@ -701,11 +706,11 @@ def _container_audit_dir(container_project_dir: str, identity: str) -> str:
     """Where *identity* writes its audit records INSIDE its container.
 
     The mount target half of the audit bind, and the value the service's
-    ``OSPREY_AUDIT_DIR`` carries. Anchored on the persona's own
+    ``OSPREY_AUDIT_DIR`` carries. Anchored on the render's own
     ``container_project_dir`` for the same reason
     :func:`_container_bundle_dir` is: the writer inside resolves its audit root
     as ``<repo root>/var/audit``, and in-container that repo root is this
-    persona's project directory — two personas built from different projects
+    render's project directory — two renders built from different projects
     read it at two different paths, so one hardcoded target would mount the
     directory where only one of them writes.
 
@@ -789,50 +794,51 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
 
 def _launch_token_env_vars(
     entry: dict[str, Any],
-    launch_token_personas: dict[str, set[str]] | None,
+    launch_token_renders: dict[str, set[str]] | None,
 ) -> list[str]:
     """The launch-token variable names ONE roster entry is handed, in render order.
 
-    Entitlement is decided per persona AND per lane, because each plan lane is a
+    Entitlement is decided per render AND per lane, because each plan lane is a
     whole bridge stack armed by its own token and a deployment can arm writes on
     its virtual-accelerator lane while its live lane stays read-only. Handing an
-    entitled persona every rendered lane's token would let a launch approved
+    entitled render every rendered lane's token would let a launch approved
     against one machine be replayed against the other.
 
     :param entry: One resolved roster entry.
-    :param launch_token_personas: ``{lane: personas}`` — see
+    :param launch_token_renders: ``{lane: renders}`` — see
         :func:`render_web_terminals`.
     :return: ``<PREFIX>_LAUNCH_TOKEN`` for each lane this entry may arm, empty
         when it may arm none.
     """
-    persona = entry.get("persona")
-    entitled_by_lane = launch_token_personas or {}
+    render = entry.get("render")
+    entitled_by_lane = launch_token_renders or {}
     return [
         f"{lane_env_prefix(lane)}_LAUNCH_TOKEN"
         for lane in LANE_KEYS
-        if persona in entitled_by_lane.get(lane, set())
+        if render in entitled_by_lane.get(lane, set())
     ]
 
 
 def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
-    dispatcher_personas: set[str] | None = None,
-    ariel_personas: set[str] | None = None,
-    launch_token_personas: dict[str, set[str]] | None = None,
-    graphdb_personas: set[str] | None = None,
-    facility_bundle_personas: set[str] | None = None,
+    dispatcher_renders: set[str] | None = None,
+    ariel_renders: set[str] | None = None,
+    launch_token_renders: dict[str, set[str]] | None = None,
+    graphdb_renders: set[str] | None = None,
+    facility_bundle_renders: set[str] | None = None,
     facility_bundle_gid: int | None = None,
-    ariel_mirror_personas: set[str] | None = None,
+    ariel_mirror_renders: set[str] | None = None,
     ariel_mirror_gid: int | None = None,
-    archiver_credential_personas: dict[str, tuple[str, ...]] | None = None,
-    archiver_ca_bundle_personas: dict[str, tuple[str, ...]] | None = None,
-    telemetry_vars_personas: dict[str, tuple[str, ...]] | None = None,
-    phoebus_handle_personas: set[str] | None = None,
+    archiver_credential_renders: dict[str, tuple[str, ...]] | None = None,
+    archiver_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
+    telemetry_vars_renders: dict[str, tuple[str, ...]] | None = None,
+    phoebus_handle_renders: set[str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
     proxy_env_names: tuple[str, ...] = (),
     facility_name: str = "",
     telemetry_cred_digests: dict[str, str] | None = None,
+    app_titles: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
 
@@ -854,10 +860,10 @@ def render_web_terminals(
             harmless, because every ``osprey up`` re-renders through the
             artifacts seam with a current digest before its ``up``, so a
             label-less render can never reach a running stack stale.
-        dispatcher_personas: Persona names whose project declares the EVENTS
+        dispatcher_renders: Render names whose project declares the EVENTS
             panel, and whose users therefore need the event dispatcher's bearer
             token. Resolved from disk by
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_dispatcher_token`
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_dispatcher_token`
             and passed in for the same reason ``auth_env_digest`` is: this
             function reads no filesystem. Each such user gets
             ``EVENT_DISPATCHER_TOKEN`` in its OWN ``environment:`` block,
@@ -865,15 +871,15 @@ def render_web_terminals(
             into this rendered artifact, and never into the shared
             ``.env.users``, which every user's container reads (see
             :func:`osprey.deployment.web_terminals.env_production._build_env_production_subset`).
-            That split IS the tier boundary: a read-only persona must not hold a
+            That split IS the tier boundary: a read-only render must not hold a
             credential that can fire triggers. ``None`` (the default, and the
             ``osprey scaffold web-terminals render`` path, which has no project
             root to resolve against) emits no token line at all.
-        ariel_personas: Persona names whose project configures ARIEL, and whose
+        ariel_renders: Render names whose project configures ARIEL, and whose
             users therefore need the Postgres password ``osprey up`` minted into
             the deploy ``.env`` (see
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_ariel_password`).
-            Same placement and same reason as ``dispatcher_personas``: both ARIEL
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_ariel_password`).
+            Same placement and same reason as ``dispatcher_renders``: both ARIEL
             consumers inside the container — the panel's server and the ``ariel``
             MCP server — resolve their DSN through
             :func:`osprey.services.ariel_search.config.resolve_ariel_dsn`, which
@@ -881,27 +887,27 @@ def render_web_terminals(
             back to the shipped default, so a container that never receives it
             authenticates with the wrong password against a Postgres initialized
             with the minted one. ``None`` emits no line.
-        launch_token_personas: ``{lane: persona names}`` — which personas are
+        launch_token_renders: ``{lane: render names}`` — which renders are
             entitled to arm a queue start on which plan lane, resolved from disk
             by
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_launch_token_by_lane`.
-            Same placement and same reason as ``dispatcher_personas`` — see that
-            argument for why a per-persona credential belongs in the per-user
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_launch_token_by_lane`.
+            Same placement and same reason as ``dispatcher_renders`` — see that
+            argument for why a per-render credential belongs in the per-user
             ``environment:`` block and never in the shared ``.env.users``.
             Keyed by lane because each lane is a whole bridge stack armed by its
             own ``<PREFIX>_LAUNCH_TOKEN``: a deployment whose baseline is a live
-            machine arms its virtual-accelerator lane alone, and a persona
+            machine arms its virtual-accelerator lane alone, and a render
             entitled there must not also hold the live lane's token. The tier
             boundary bites hardest here: the token is what lets the ``bluesky``
             MCP server arm a queue start without a second confirmation, so a
-            read-only persona holding it would be able to move hardware. A lane
-            no persona may arm is absent from the map (an empty set grants the
+            read-only render holding it would be able to move hardware. A lane
+            no render may arm is absent from the map (an empty set grants the
             same nothing). ``None`` emits no line for any user.
-        graphdb_personas: Persona names whose project configures a graph store,
+        graphdb_renders: Render names whose project configures a graph store,
             and whose users therefore need the Neo4j password ``osprey up``
             minted into the deploy ``.env`` (see
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_graphdb_password`).
-            Same placement and same reason as ``dispatcher_personas``: the
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_graphdb_password`).
+            Same placement and same reason as ``dispatcher_renders``: the
             consumer is the ``graph`` MCP server inside the container, which
             resolves what to dial and with which password through
             :func:`osprey.deployment.graphdb_service.resolve_graphdb_connection`
@@ -909,18 +915,18 @@ def render_web_terminals(
             falls back to the shipped default, so a container that never
             receives it authenticates with the wrong password against a store
             initialized with the minted one, and every graph query fails on
-            auth. Unlike ``launch_token_personas`` this set is not a tier
+            auth. Unlike ``launch_token_renders`` this set is not a tier
             boundary: Neo4j has one write-capable account, and read-only-ness is
             enforced by that server's read transactions rather than by which
-            persona holds the credential. ``None`` emits no line.
-        facility_bundle_personas: Persona names whose project names a
+            render holds the credential. ``None`` emits no line.
+        facility_bundle_renders: Render names whose project names a
             ``facility_knowledge.bundle_path``, and whose container therefore
             gets the deployment's knowledge bundle bind-mounted (see
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_facility_bundle`).
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_facility_bundle`).
             Resolved from disk and passed in for the same reason the credential
             sets are. Unlike them this grants a MOUNT rather than a secret, so it
             is not a tier boundary: the bundle is the same corpus every entitled
-            persona reads, and the tier that matters for it is decided by what
+            render reads, and the tier that matters for it is decided by what
             the agent inside is allowed to write. ``None`` emits no mount for
             any user.
         facility_bundle_gid: Group id of the bundle directory on the host,
@@ -942,12 +948,12 @@ def render_web_terminals(
             directory does not exist yet, or a platform with no gids) emits no
             ``group_add``, which is the honest render rather than a guessed
             group.
-        ariel_mirror_personas: Persona names whose project runs an ARIEL qmd
+        ariel_mirror_renders: Render names whose project runs an ARIEL qmd
             export that writes a mirror, and whose container therefore gets the
             deployment's mirror directory bind-mounted at the path its own
             exporter writes (see
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_ariel_mirror`).
-            Same placement and same reason as ``facility_bundle_personas``:
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_ariel_mirror`).
+            Same placement and same reason as ``facility_bundle_renders``:
             a mount, not a secret, resolved from disk and passed in. Without it
             an entry enhanced inside that container is written into the
             container's writable layer — never indexed by the sidecar, gone at
@@ -955,11 +961,11 @@ def render_web_terminals(
         ariel_mirror_gid: Group id of the mirror directory on the host, for
             the same ``group_add:`` reason as ``facility_bundle_gid``. ``None``
             emits no group for it.
-        archiver_credential_personas: ``{persona_name: (env_var_name, ...)}``
-            for the personas whose archiver connector authenticates, resolved
+        archiver_credential_renders: ``{render_name: (env_var_name, ...)}``
+            for the renders whose archiver connector authenticates, resolved
             from disk by
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_credentials`.
-            Same placement and same reason as ``dispatcher_personas``; a map
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_archiver_credentials`.
+            Same placement and same reason as ``dispatcher_renders``; a map
             rather than a set because the connector reads the variables its own
             block names under ``auth:`` (``auth.token_env``, or
             ``auth.password_env``), and each becomes one line in the user's
@@ -969,31 +975,31 @@ def render_web_terminals(
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole
             deploy ``.env``. ``None`` emits no line.
-        archiver_ca_bundle_personas: ``{persona_name: (ca_path,)}`` for the
-            personas whose archiver block names a host CA file under
+        archiver_ca_bundle_renders: ``{render_name: (ca_path,)}`` for the
+            renders whose archiver block names a host CA file under
             ``tls.ca_bundle``, resolved from disk by
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_archiver_ca_bundles`.
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_archiver_ca_bundles`.
             Each file is bind-mounted read-only at the same path into the
             user's container, so the key names one file on the host and in the
             container. ``None`` emits no mount.
-        telemetry_vars_personas: ``{persona_name: names}`` for the personas
+        telemetry_vars_renders: ``{render_name: names}`` for the renders
             whose telemetry block needs variables no fixed route delivers,
             resolved from disk by
-            :func:`osprey.deployment.web_terminals.env_production.personas_needing_telemetry_vars`.
-            Same placement and same reason as ``archiver_credential_personas``:
-            the names are the persona's own (the collector's bearer token that
+            :func:`osprey.deployment.web_terminals.env_production.renders_needing_telemetry_vars`.
+            Same placement and same reason as ``archiver_credential_renders``:
+            the names are the render's own (the collector's bearer token that
             ``claude_code.telemetry.auth.token_env`` names, and every variable
             the block references), and each becomes one ``${VAR:-}`` line in
             the user's ``environment:`` block. Without it the agent refuses to
             start on an unset token, and a defaulted reference silently takes
             its default. ``None`` emits no line.
-        phoebus_handle_personas: Persona names whose project runs a Phoebus
+        phoebus_handle_renders: Render names whose project runs a Phoebus
             MCP server and does not set ``phoebus.require_handle: false`` (see
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_phoebus_handles`).
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_phoebus_handles`).
             Every terminal of this stack reaches the same Phoebus product over
             host networking, so the implicit ``"active"`` display resolves
             another user's focus. Resolved from disk and passed in for the
-            same reason as ``dispatcher_personas``. ``None`` emits no line.
+            same reason as ``dispatcher_renders``. ``None`` emits no line.
         terminal_secrets: ``{username: operator secret}`` as provisioned into
             the deploy ``.env``, resolved from disk and passed in for the same
             reason ``auth_env_digest`` is. Supplying it adds one
@@ -1032,6 +1038,12 @@ def render_web_terminals(
             emitted as that terminal's
             :data:`~osprey.deployment.telemetry_credentials.DIGEST_LABEL` label
             for the reason ``auth_env_digest`` is. ``None`` emits no label.
+        app_titles: Each shared app's title, ``{app name: name:}`` off the
+            repo's ``apps/*.yml``
+            (:func:`osprey.deployment.web_terminals.roster.app_titles_in`),
+            passed in because this function reads no file. It titles the app's
+            landing card, browser tab and sidecar chooser label alike; an app
+            it leaves out is titled by its name.
 
     Returns:
         Mapping of output-relative-path to rendered content: the three artifacts
@@ -1059,8 +1071,8 @@ def render_web_terminals(
             incoherent (unknown ``auth.method``, ``tls.enabled`` without a
             cert/key pair, or authentication over cleartext HTTP without
             ``auth.allow_insecure_http``), if
-            a roster entry's persona reference can't be resolved (see
-            :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
+            a roster entry's render reference can't be resolved (see
+            :func:`osprey.deployment.web_terminals.roster.resolve_cards`'s
             ``strict`` contract — render always resolves strictly), or if
             ``modules.web_terminals.mcp.topology`` is set to anything other than
             ``per_container_stdio`` (see :func:`_check_mcp_topology`), or if
@@ -1090,9 +1102,11 @@ def render_web_terminals(
     ):
         raise ValueError(REGISTRY_MODE_MISSING_URL)
 
-    resolved_users = resolve_personas(web_terminals, registry, strict=True)
-    # The other half of what a roster `role:` says. `resolve_personas` above
-    # consumed it into each entry's persona (which image, which project); this
+    resolved_users = resolve_cards(
+        web_terminals, registry, strict=True, project_name=project_name, app_titles=app_titles
+    )
+    # The other half of what a roster `role:` says. `resolve_cards` above
+    # consumed it into each entry's render (which image, which project); this
     # is the role NAME, which the auth sidecar carries on that user's password
     # session as the privilege the login was granted. Two readings of one key,
     # kept apart on purpose — see `roster_role_by_name`.
@@ -1105,7 +1119,7 @@ def render_web_terminals(
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
-        launch_token_env_vars = _launch_token_env_vars(entry, launch_token_personas)
+        launch_token_env_vars = _launch_token_env_vars(entry, launch_token_renders)
         # Bound once because two keys below are anchored on it — the volume's
         # own mount target and the control-context directory nested inside it.
         # Resolving it twice would let one anchor be changed without the other.
@@ -1163,7 +1177,7 @@ def render_web_terminals(
                     container_agent_data_dir, entry["name"]
                 ),
                 # Optional per-user window/tab title -> OSPREY_WEB_APP_NAME. None
-                # (the common case: resolve_personas omits the key unless a
+                # (the common case: resolve_cards omits the key unless a
                 # non-empty string was set) leaves the template's `{% if
                 # svc.display_name %}` guard false, so no env line is emitted and
                 # the app falls back to config web.app_name.
@@ -1201,10 +1215,10 @@ def render_web_terminals(
                 # resolves "" — no privileges — for that user.
                 #
                 # Read off the ROSTER rather than off `entry`, because the
-                # resolved entry deliberately carries no role: `resolve_personas`
-                # turns `role:` into a persona and stops there, which is what
+                # resolved entry deliberately carries no role: `resolve_cards`
+                # turns `role:` into a render and stops there, which is what
                 # keeps a role-only roster resolving field for field like the
-                # `persona:`-pinned roster it stands for.
+                # `tier:`-pinned roster it stands for.
                 "role": roster_roles.get(entry["name"]),
                 # Whether this entry is a shared card: whether its `access`
                 # admits anyone beyond the one user it belongs to — the whole
@@ -1262,6 +1276,14 @@ def render_web_terminals(
                 # table, kept clear of the deployment-wide OSPREY_AUTH_*
                 # knobs a short username could otherwise collide with.
                 "access_env": f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix(entry['name'])}",
+                # The title the sidecar's chooser lists this card under ->
+                # OSPREY_AUTH_ROSTER_LABEL_<SUFFIX>. Only a shared app card
+                # carries one (the app's `name:`, which is also its tab title
+                # above); a person's card is listed under its roster name, so
+                # it emits no line. The name is resolved here through the
+                # prefix both ends import from roster_env.
+                "card_label": entry.get("display_name") if is_app_entry(entry) else None,
+                "label_env": f"{ROSTER_LABEL_VAR_PREFIX}{env_var_suffix(entry['name'])}",
                 # The env-var NAME this user's operator secret travels in — the
                 # credential nginx injects as a request header and the app
                 # authenticates every request against. A name, never a value:
@@ -1297,42 +1319,42 @@ def render_web_terminals(
                     for family, env_var in PANEL_ENV_VARS.items()
                 ],
                 # Whether this user's container gets the event dispatcher's
-                # bearer (see the `dispatcher_personas` arg).
-                "wants_dispatcher": entry["persona"] in (dispatcher_personas or set()),
+                # bearer (see the `dispatcher_renders` arg).
+                "wants_dispatcher": entry["render"] in (dispatcher_renders or set()),
                 # Whether this user's container gets the ARIEL Postgres password
-                # (see the `ariel_personas` arg).
-                "wants_ariel_db": entry["persona"] in (ariel_personas or set()),
+                # (see the `ariel_renders` arg).
+                "wants_ariel_db": entry["render"] in (ariel_renders or set()),
                 # Which plan lanes' launch tokens this user's container gets
-                # (see the `launch_token_personas` arg), and whether it gets any
+                # (see the `launch_token_renders` arg), and whether it gets any
                 # at all. Both derived from the one list, so the template's gate
                 # cannot disagree with what it would emit inside it.
                 "wants_launch_token": bool(launch_token_env_vars),
                 "launch_token_env_vars": launch_token_env_vars,
                 # Whether this user's container gets the graph store's Neo4j
-                # password (see the `graphdb_personas` arg).
-                "wants_graphdb": entry["persona"] in (graphdb_personas or set()),
+                # password (see the `graphdb_renders` arg).
+                "wants_graphdb": entry["render"] in (graphdb_renders or set()),
                 # The NAMES of the variables this user's archiver connector
-                # authenticates with (see the `archiver_credential_personas`
+                # authenticates with (see the `archiver_credential_renders`
                 # arg), or an empty tuple for no grant.
-                "archiver_credential_envs": (archiver_credential_personas or {}).get(
-                    entry["persona"], ()
+                "archiver_credential_envs": (archiver_credential_renders or {}).get(
+                    entry["render"], ()
                 ),
                 # The host CA files this user's archiver block names under
-                # `tls.ca_bundle` (see the `archiver_ca_bundle_personas` arg),
+                # `tls.ca_bundle` (see the `archiver_ca_bundle_renders` arg),
                 # each mounted read-only at the same path, or () for none.
-                "ca_bundle_mounts": (archiver_ca_bundle_personas or {}).get(entry["persona"], ()),
+                "ca_bundle_mounts": (archiver_ca_bundle_renders or {}).get(entry["render"], ()),
                 # The NAMES of the variables this user's telemetry block needs
-                # (see the `telemetry_vars_personas` arg), or () for none.
-                "telemetry_vars": (telemetry_vars_personas or {}).get(entry["persona"], ()),
+                # (see the `telemetry_vars_renders` arg), or () for none.
+                "telemetry_vars": (telemetry_vars_renders or {}).get(entry["render"], ()),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
                 # deployment configures no bundle. One key rather than a
-                # boolean + a shared path: personas differ in
+                # boolean + a shared path: renders differ in
                 # container_project_dir, so the target is per service and the
                 # template must not be able to emit a mount without one.
                 "container_bundle_dir": (
                     _container_bundle_dir(root, entry["container_project_dir"])
-                    if entry["persona"] in (facility_bundle_personas or set())
+                    if entry["render"] in (facility_bundle_renders or set())
                     else None
                 ),
                 # Where the deployment's ARIEL qmd mirror mounts inside THIS
@@ -1342,14 +1364,14 @@ def render_web_terminals(
                 # cannot emit the mount without a target.
                 "container_mirror_dir": (
                     _container_mirror_dir(root, entry["container_project_dir"])
-                    if entry["persona"] in (ariel_mirror_personas or set())
+                    if entry["render"] in (ariel_mirror_renders or set())
                     else None
                 ),
                 # Whether this user's container carries PHOEBUS_REQUIRE_HANDLE=1,
                 # which makes the Phoebus MCP server refuse the implicit
                 # "active" display. Not a credential: a switch the Phoebus MCP
                 # server reads from the environment it inherits.
-                "phoebus_require_handle": entry["persona"] in (phoebus_handle_personas or set()),
+                "phoebus_require_handle": entry["render"] in (phoebus_handle_renders or set()),
             }
         )
 
@@ -1392,7 +1414,7 @@ def render_web_terminals(
     _check_roster_audit_identities(services)
     _check_roster_env_var_collisions(services, auth_tls_ctx)
     _check_roster_control_identities(
-        web_terminals.get("users"), claim=auth_tls_ctx["auth_oidc_claim"] or ""
+        authored_people(web_terminals), claim=auth_tls_ctx["auth_oidc_claim"] or ""
     )
     # Parsed on every render, authenticated or not: `roles:` binds privileges
     # through the roster in every posture, and an incoherent stanza must stop
@@ -1449,7 +1471,7 @@ def render_web_terminals(
 
     # The bundle's host path AS CONFIGURED. Read here rather than inside the
     # per-service loop: every entitled user mounts the same one directory, and
-    # only the target differs per persona.
+    # only the target differs per render.
     raw_bundle_path = as_dict(root.get("facility_knowledge")).get("bundle_path")
     bundle_path = raw_bundle_path.strip() if isinstance(raw_bundle_path, str) else ""
     mirror_path = configured_ariel_mirror_path(root)
@@ -1657,6 +1679,9 @@ def render_web_terminals(
         # of them has to contend for the same lock.
         "guarded_run_source": repo_relative_mount_source(guarded_run_relpath()),
         **auth_tls_ctx,
+        # After the spread: the sidecar's image depends on registry.url and the
+        # project name, which the auth stanza alone does not carry.
+        "auth_image": resolve_auth_image(web_terminals, registry, project_name),
     }
 
     from osprey.interfaces.common_middleware import URL_MOUNT_ROOT
@@ -1909,8 +1934,7 @@ def history_carriers(config: Any) -> list[str]:
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
     lines = [f"{HISTORY_ORIGIN_VAR}={reader_origin(config).origin}"]
 
-    users = web_terminals.get("users")
-    for user in users if isinstance(users, list) else []:
+    for user in authored_people(web_terminals):
         name = user if isinstance(user, str) else as_dict(user).get("name")
         if not isinstance(name, str) or not name:
             continue
@@ -2405,7 +2429,7 @@ def _landing_url(
 
 
 def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str]) -> dict[str, Any]:
-    """Build one auto-populated ``users``-group landing card from a resolved roster entry.
+    """Build one ``users``-group landing card from a resolved person entry.
 
     Every card carries ``token_login``, the auth posture this user's terminal is
     entered under: ``True`` when the way in is that user's ``?token=`` URL,
@@ -2414,40 +2438,75 @@ def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str])
     every card has an answer to — an absent key would read as "no posture"
     rather than "signs in".
 
-    A ``sublabel`` key carries the persona name; the badge is present unless
-    the persona and roster names are the same word. The badge exists to say
-    which tier a login belongs to, and a card reading ``ariel`` above a pill
-    reading ``ARIEL`` says nothing the label did not — the common shape for a
-    single-tenant service persona, where the roster entry and the persona are
-    named after the same thing. Compared case-insensitively because the badge is
-    rendered uppercase, so ``Ariel``/``ariel`` would look duplicated too. Two
-    different personas sharing a section still each show their own badge, which
-    is the case the badge is actually for.
+    A ``sublabel`` key carries the tier name; the badge is present unless the
+    tier and roster names are the same word. The badge exists to say which tier
+    a login belongs to, so a card whose label already says it would only repeat
+    itself. Compared case-insensitively because the badge is rendered
+    uppercase, so ``Ops``/``ops`` would look duplicated too.
 
     Args:
-        resolved_user: One :func:`osprey.deployment.web_terminals.personas.resolve_personas`
-            entry (``name`` and ``persona`` are read).
+        resolved_user: One :func:`osprey.deployment.web_terminals.roster.resolve_cards`
+            entry (``name`` and ``render`` are read).
         token_login_names: The roster names
             :func:`osprey.deployment.deploy_summary.token_login_users` returned for
             this deployment, membership in which is this card's ``token_login``.
 
     Returns:
-        ``{"label", "url", "token_login"}``, plus ``"sublabel"`` (the persona
-        name) when ``persona`` is a non-empty string that differs from the
-        user's own name.
+        ``{"label", "login_name", "url", "token_login"}``, plus ``"sublabel"``
+        (the tier name) when ``render`` is a non-empty string that differs from
+        the user's own name. ``login_name`` is the roster name the landing
+        page's ``osprey users login-url`` hint names.
     """
     from osprey.interfaces.common_middleware import url_mount_prefix
 
     name = resolved_user["name"]
     card: dict[str, Any] = {
         "label": name,
+        "login_name": name,
         "url": f"{url_mount_prefix(name)}/",
         "token_login": name in token_login_names,
     }
-    persona = resolved_user.get("persona")
-    if isinstance(persona, str) and persona and persona.casefold() != name.casefold():
-        card["sublabel"] = persona
+    render = resolved_user.get("render")
+    if isinstance(render, str) and render and render.casefold() != name.casefold():
+        card["sublabel"] = render
     return card
+
+
+def _app_card(app_entry: dict[str, Any], token_login_names: frozenset[str]) -> dict[str, Any]:
+    """Build one ``apps``-group landing card from a resolved shared app entry.
+
+    The card is titled by the app's ``name:`` — the entry's ``display_name``,
+    which is also the card's browser-tab title and its sidecar chooser label —
+    and falls back to the app name when the app carries no title. It links to
+    the app's ``/u/<name>/`` mount like a person's card and carries the same
+    ``token_login`` posture, but no ``sublabel``: an app is not a tier, and no
+    ``login_name``: ``osprey users login-url`` addresses people, so the landing
+    page prints no login-url hint under an app card.
+
+    Args:
+        app_entry: A resolved roster entry for which
+            :func:`~osprey.deployment.web_terminals.roster.is_app_entry` holds.
+        token_login_names: As for :func:`_user_card`.
+
+    Returns:
+        ``{"label", "url", "token_login"}``.
+    """
+    from osprey.interfaces.common_middleware import url_mount_prefix
+
+    name = app_entry["name"]
+    title = app_entry.get("display_name")
+    return {
+        "label": title if isinstance(title, str) and title else name,
+        "url": f"{url_mount_prefix(name)}/",
+        "token_login": name in token_login_names,
+    }
+
+
+_APPS_LABEL = "Apps"
+"""Default heading of a ``{type: apps}`` landing group."""
+
+_DEFAULT_LANDING_GROUPS: tuple[dict[str, str], ...] = ({"type": "users"}, {"type": "apps"})
+"""The ``landing.groups`` a deployment that sets none renders: people, then apps."""
 
 
 def _build_groups(
@@ -2461,148 +2520,144 @@ def _build_groups(
     plain dicts with a ``label`` and an ``items`` key, since landing.html.j2
     uses bracket subscript (``group["items"]``) throughout.
 
-    ``{type: "users"}`` auto-populates one card per configured user, using the
-    relative ``/u/<user>/`` path that nginx.conf.j2 (bind-nginx-reverse-proxy)
-    reverse-proxies to that user's loopback upstream — so, unlike ``landing_url``,
-    no deploy-host needs baking into the landing cards themselves. When a user
-    resolves to a persona (:func:`resolve_personas` returns a non-``None``
-    ``persona``), that card also carries an optional ``sublabel`` holding the
-    persona name, shown as a secondary badge on the card (see :func:`_user_card`
-    for when it is omitted). Every user card also carries ``token_login`` (see :func:`_user_card`),
-    the auth posture that user's terminal is entered under.
-    ``{type: "links", label, links}`` passes ``links`` straight through as
-    ``items`` (link cards carry neither a ``sublabel`` nor a posture). Unrecognized/malformed
-    group entries are dropped rather than raising: lint is the authoritative
-    gate on schema well-formedness, this is just the render-time adapter.
+    Groups render in the order the operator lists them. Three types exist:
 
-    **One ``users`` entry can expand to more than one section.** A roster is not
-    always a list of people: a deployment may also run a standalone service
-    behind its own login — an ARIEL logbook terminal beside the operators, say.
-    Those belong under their own heading rather than mixed in with the staff, so
-    a persona may declare ``landing_group: <heading>`` in the catalog
-    (:func:`resolve_personas` carries it onto each of its users). Users carrying
-    one are lifted out of the default section into a section of that name,
-    emitted after it in first-appearance roster order, and marked
-    ``variant: "tray"`` — the cue landing.html.j2 renders as an accent-edged
-    panel, so the page reads as people on top, services below. Everything else
-    about those users is untouched; this is presentation only.
+    * ``{type: users}`` — one card per person on the roster (see
+      :func:`_user_groups`), headed ``label`` or ``"Terminals"``.
+    * ``{type: apps}`` — one card per ``shared:`` app, in ``shared:`` order,
+      titled by the app's ``name:`` (see :func:`_app_card`), headed ``label``
+      or ``"Apps"`` and marked ``variant: "tray"``, the cue landing.html.j2
+      renders as an accent-edged panel so the page reads as people, then
+      services.
+    * ``{type: links, label, links}`` — ``links`` passed straight through as
+      ``items`` (link cards carry neither a ``sublabel`` nor a posture).
 
-    ``{type: "users"}`` also takes an optional ``label`` overriding the default
-    ``"Terminals"`` heading on the section that keeps the ungrouped users, so a
-    deployment that splits its roster can name both halves. Sections other than
-    the default never carry ``variant``, so a config that declares no
-    ``landing_group`` anywhere renders the default section alone.
-
-    ``names: hidden`` on a ``{type: "users"}`` entry replaces its default
-    section's cards with one sign-in item, so the page carries no roster name.
-    Tray sections lifted out of the same entry, and ``links`` entries, render
-    as they otherwise would. Any other value, including an absent key, renders
-    the cards; lint refuses a value that is neither ``shown`` nor ``hidden``.
+    An omitted or empty ``landing.groups`` renders ``[{type: users}, {type:
+    apps}]``. Every group is emitted even when it has no cards; the template's
+    empty-items rule is the one place that decides whether a heading appears,
+    so a deployment without ``shared:`` shows no Apps heading. Unrecognized or
+    malformed group entries are dropped rather than raising: lint is the
+    authoritative gate on schema well-formedness, this is just the render-time
+    adapter.
 
     Args:
         landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
             section (only ``groups`` is read).
-        resolved_users: :func:`osprey.deployment.web_terminals.personas.resolve_personas`
-            output, in roster order — each entry's ``name`` becomes the card label
-            and ``/u/<name>/`` url, its ``persona`` (when not ``None``) the
-            optional ``sublabel``, and its ``landing_group`` (when present) the
-            section it is lifted into.
+        resolved_users: :func:`osprey.deployment.web_terminals.roster.resolve_cards`
+            output, in roster order: the people, then the shared app entries.
         token_login_names: The roster names
             :func:`osprey.deployment.deploy_summary.token_login_users` returned for
-            this deployment, threaded down onto each user card as ``token_login``.
-            ``links`` groups get no posture — a link is not a terminal — so this
-            reaches ``users`` groups only.
+            this deployment, threaded down onto each person and app card as
+            ``token_login``. ``links`` groups get no posture — a link is not a
+            terminal.
         sign_in_url: The site-relative path of the card-less sign-in route, the
             href of the one item a ``names: hidden`` users section carries.
+
+    Returns:
+        ``[{label, items, variant?}, ...]`` in operator order.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
-        groups_raw = [{"type": "users"}]  # schema default when `landing.groups` is omitted
+        groups_raw = list(_DEFAULT_LANDING_GROUPS)
 
+    people = [entry for entry in resolved_users if not is_app_entry(entry)]
+    apps = [entry for entry in resolved_users if is_app_entry(entry)]
     groups: list[dict[str, Any]] = []
     for entry in groups_raw:
         entry = as_dict(entry)
         group_type = entry.get("type")
+        label = entry.get("label")
         if group_type == "users":
-            names_hidden = entry.get("names") == "hidden"
-            groups.extend(
+            groups.append(
                 _user_groups(
-                    resolved_users,
-                    entry.get("label"),
+                    people,
+                    label,
                     token_login_names,
-                    names_hidden=names_hidden,
+                    names_hidden=entry.get("names") == "hidden",
                     sign_in_url=sign_in_url,
                 )
+            )
+        elif group_type == "apps":
+            groups.append(
+                {
+                    "label": label if isinstance(label, str) and label else _APPS_LABEL,
+                    "items": [_app_card(app, token_login_names) for app in apps],
+                    "variant": "tray",
+                }
             )
         elif group_type == "links":
             links = entry.get("links")
             items = [as_dict(link) for link in links] if isinstance(links, list) else []
-            groups.append({"label": entry.get("label") or "", "items": items})
+            groups.append({"label": label or "", "items": items})
     return groups
 
 
 def _user_groups(
-    resolved_users: list[dict[str, Any]],
+    people: list[dict[str, Any]],
     default_label: Any,
     token_login_names: frozenset[str],
     *,
     names_hidden: bool,
     sign_in_url: str,
-) -> list[dict[str, Any]]:
-    """Split one ``{type: "users"}`` entry into its default section plus a tray
-    section per distinct persona ``landing_group``.
+) -> dict[str, Any]:
+    """Build the one section a ``{type: "users"}`` entry renders.
 
-    The default section is emitted FIRST and always — even empty, so
-    landing.html.j2's own empty-items suppression stays the single rule that
-    decides whether a heading appears, rather than this function second-guessing
-    it. Tray sections follow in the order their group name is first seen walking
-    the roster, so the page order is the roster's order and an operator can
-    predict it from the config alone.
+    The section is emitted always — even empty, so landing.html.j2's own
+    empty-items suppression stays the single rule that decides whether a
+    heading appears.
 
     Args:
-        resolved_users: :func:`resolve_personas` output, in roster order.
-        default_label: The ``{type: "users"}`` entry's own ``label``, used as the
-            heading for the ungrouped users. Anything that is not a non-empty
-            string falls back to ``"Terminals"``.
+        people: The person entries of :func:`resolve_cards` output, in
+            roster order; shared app entries are the ``apps`` group's.
+        default_label: The ``{type: "users"}`` entry's own ``label``. Anything
+            that is not a non-empty string falls back to ``"Terminals"``.
         token_login_names: Passed straight to :func:`_user_card`, which turns
-            membership into that card's ``token_login``. Sectioning is
-            presentation; the posture is the same wherever a user's card lands.
-        names_hidden: When true and the default section has at least one card,
-            its cards are replaced by the single item
-            ``{label, url: sign_in_url, sign_in: True}``. An empty default section
-            stays empty, so no button appears that hides nobody. Trays are
-            untouched either way.
+            membership into that card's ``token_login``.
+        names_hidden: When true and the section has at least one card, its
+            cards are replaced by the single item
+            ``{label, url: sign_in_url, sign_in: True}``. An empty section stays
+            empty, so no button appears that hides nobody.
         sign_in_url: The href of that sign-in item.
 
     Returns:
-        ``[{label, items}, {label, items, variant: "tray"}, ...]``; under
-        ``names_hidden`` the first section's ``items`` is the one sign-in item.
+        ``{label, items}``; under ``names_hidden`` ``items`` is the one sign-in
+        item.
     """
     label = default_label if isinstance(default_label, str) and default_label else "Terminals"
-    default_items: list[dict[str, Any]] = []
-    # dict, not defaultdict+sorted: insertion order IS first-appearance order,
-    # which is the ordering guarantee this function documents.
-    trays: dict[str, list[dict[str, Any]]] = {}
-    for user in resolved_users:
-        group = user.get("landing_group")
-        card = _user_card(user, token_login_names)
-        if isinstance(group, str) and group:
-            trays.setdefault(group, []).append(card)
-        else:
-            default_items.append(card)
-    if names_hidden and default_items:
-        default_items = [{"label": _SIGN_IN_LABEL, "url": sign_in_url, "sign_in": True}]
-
-    groups: list[dict[str, Any]] = [{"label": label, "items": default_items}]
-    groups.extend(
-        {"label": name, "items": items, "variant": "tray"} for name, items in trays.items()
-    )
-    return groups
+    items = [_user_card(person, token_login_names) for person in people]
+    if names_hidden and items:
+        items = [{"label": _SIGN_IN_LABEL, "url": sign_in_url, "sign_in": True}]
+    return {"label": label, "items": items}
 
 
 def _tls_enabled(web_terminals: dict[str, Any]) -> bool:
     """``modules.web_terminals.tls.enabled``, parsed."""
     return bool(as_dict(web_terminals.get("tls")).get("enabled", False))
+
+
+def resolve_auth_image(
+    web_terminals: dict[str, Any], registry_cfg: Any, project_name: str
+) -> str | None:
+    """The image the auth sidecar's compose service runs, or ``None`` for the local tag.
+
+    An explicit ``auth.image`` wins in either image source: the deployment
+    pinned an external sidecar. Otherwise registry mode names the sidecar like
+    every other image the deployment pushes, under ``registry.url`` and the
+    tag :func:`resolve_image_tag` resolves, as ``<project>-auth`` -- the local
+    tag's name, so both sources call the sidecar the same thing. Local mode,
+    and registry mode with no ``registry.url`` (which the render refuses),
+    return ``None``, and the compose template falls back to
+    ``<project>-auth:local``.
+    """
+    pinned = as_dict(web_terminals.get("auth")).get("image")
+    if pinned:
+        return str(pinned)
+    if effective_image_source(web_terminals) == "local":
+        return None
+    registry_url = configured_registry_url(registry_cfg)
+    if not registry_url:
+        return None
+    return f"{registry_url}/{project_name}-auth:{resolve_image_tag(web_terminals)}"
 
 
 def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None) -> dict[str, Any]:
@@ -2670,8 +2725,8 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         ``sidecar_active``/``inject_secret``/``walled``/``token_exchange``/``open_perimeter``
         described above, ``auth_port``
         (int, the sidecar's listen port), ``auth_session_lifetime`` (int
-        seconds), ``auth_allow_insecure_http`` (bool), ``auth_image`` (str or
-        ``None`` — required only in registry image-source mode),
+        seconds), ``auth_allow_insecure_http`` (bool), ``auth_image`` (the explicit ``auth.image``
+        or ``None``; :func:`resolve_auth_image` adds the registry default),
         ``auth_oidc_issuer`` (str or ``None``),
         ``auth_oidc_client_id_env``/``auth_oidc_client_secret_env`` (the env-var
         *names* the sidecar reads its OIDC client credentials from — never the
@@ -2859,19 +2914,19 @@ def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     role-aware consumer reads.
 
     This is the single place ``modules.web_terminals.authorization`` is parsed,
-    exactly as :func:`_auth_tls_context` is for ``auth``/``tls``: persona
+    exactly as :func:`_auth_tls_context` is for ``auth``/``tls``: render
     resolution, the auth sidecar's claim-to-role step and the lint rules all read
     the keys returned here rather than the raw stanza, so there is one definition
     of what an ``authorization`` block means. **This function resolves
-    nothing** — it derives two static tables; which persona a roster entry ends
+    nothing** — it derives two static tables; which render a roster entry ends
     up with, and which role a login is granted, belong to their own consumers.
 
     The stanza has two halves, both optional::
 
         authorization:
           roles:
-            operator: {persona: operator}
-            expert:   {persona: physicist}
+            operator: {tier: operator}
+            expert:   {tier: physicist}
           claims:
             claim: groups
             map:
@@ -2880,8 +2935,8 @@ def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
 
     ``roles`` is the static half and applies in every auth posture: a roster
     entry's ``role:`` (carried through by
-    :func:`~osprey.deployment.web_terminals.personas.normalize_users`) names one
-    of these, and the role names the catalog persona that entry runs as.
+    :func:`~osprey.deployment.web_terminals.roster.normalize_users`) names one
+    of these, and the role names the catalog render that entry runs as.
     ``claims`` is the OIDC half: it names the ID-token claim carrying group
     membership and maps that claim's VALUES onto the same role names.
 
@@ -2898,8 +2953,8 @@ def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     would bind a privilege SILENTLY WRONG rather than merely render an odd
     artifact:
 
-    * **A role that names no persona.** Every entry carrying that role would
-      fall back to the deployment's default persona — a different privilege set
+    * **A role that names no render.** Every entry carrying that role would
+      fall back to the deployment's default tier — a different privilege set
       than the operator wrote, with nothing said about the substitution.
     * **A claim map entry that cannot name a declared role** (an undeclared
       name, or a key/value of a type no login can ever match). The mapping is
@@ -2909,8 +2964,8 @@ def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
 
     What deliberately does NOT raise here: role-name charset and ``$``-bearing
     values are lint's (``web_terminals.invalid_role_charset``,
-    ``web_terminals.authorization_unsafe_value``), and a role naming a persona
-    that is not in the catalog is reported by lint's existing unknown-persona
+    ``web_terminals.authorization_unsafe_value``), and a role naming a render
+    that is not in the catalog is reported by lint's existing unknown-render
     rule once the role resolves to one.
 
     Args:
@@ -2921,8 +2976,8 @@ def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
         A dict with three keys, all present whether or not the stanza is:
 
         ``authorization_roles``
-            ``{role name: persona name}``, in declaration order; empty when no
-            roles are declared. THE table the shared persona helper reads.
+            ``{role name: render name}``, in declaration order; empty when no
+            roles are declared. THE table the shared render helper reads.
         ``authorization_claim``
             The ID-token claim name carrying group membership, or ``None`` when
             the deployment maps no claim.
@@ -2946,25 +3001,25 @@ def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     claims_raw = as_dict(authorization.get("claims"))
 
     roles: dict[str, str] = {}
-    personaless: list[str] = []
+    renderless: list[str] = []
     for role_name, entry in roles_raw.items():
         if not isinstance(role_name, str):
             # Unreferenceable rather than wrong: a roster `role:` and a claim
             # value are both strings, so nothing can ever name this key. Lint
             # reports it; parsing it would only invent a role no one can use.
             continue
-        persona = as_dict(entry).get("persona")
-        if isinstance(persona, str) and persona.strip():
-            roles[role_name] = persona
+        tier = as_dict(entry).get("tier")
+        if isinstance(tier, str) and tier.strip():
+            roles[role_name] = tier
         else:
-            personaless.append(role_name)
-    if personaless:
+            renderless.append(role_name)
+    if renderless:
         raise ValueError(
             "modules.web_terminals.authorization.roles "
-            f"{', '.join(repr(name) for name in personaless)} name no persona; each "
-            "role is written as `<role>: {persona: <persona>}`. Such a role is not "
+            f"{', '.join(repr(name) for name in renderless)} name no render; each "
+            "role is written as `<role>: {tier: <render>}`. Such a role is not "
             "inert — every roster entry carrying it would fall back to the "
-            "deployment's default persona, which is a different privilege set than "
+            "deployment's default tier, which is a different privilege set than "
             "the one written here"
         )
 
@@ -3204,7 +3259,7 @@ def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
       ``alice`` beside ``Alice`` is two terminals sharing one subdirectory on a
       case-insensitive host filesystem, each able to rewrite the other's trail.
       The charset is the same
-      :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE` the
+      :data:`~osprey.deployment.web_terminals.roster.USERNAME_CHARSET_RE` the
       provisioning seam (``compose_generator.audit_identity_dir``) refuses an
       identity by, so the renderer and the provisioner agree about every name
       rather than one skipping what the other emits.
@@ -3271,7 +3326,7 @@ def _check_roster_control_identities(raw_users: Any, *, claim: str = "") -> None
 
     ``control_identity`` is the account name the control system sees a card's
     writes arrive under. The rules are
-    :func:`~osprey.deployment.web_terminals.personas.control_identity_problems`'s,
+    :func:`~osprey.deployment.web_terminals.roster.control_identity_problems`'s,
     the same builder lint reports its errors from, so render refuses exactly
     what lint calls an error: a value the container would refuse to apply, a
     value on a shared card, and one value carried by two different people.

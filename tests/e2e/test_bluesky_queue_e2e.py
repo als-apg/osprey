@@ -711,7 +711,7 @@ def _profile_edits() -> dict[str, Any]:
     """Host hygiene and CI sizing ONLY -- never ``control_system.type``.
 
     ``dispatch: null`` drops the event-dispatcher stack (Node + Claude CLI
-    image) and ``modules.web_terminals.enabled: false`` drops the per-persona
+    image) and ``modules.web_terminals.enabled: false`` drops the per-render
     web-terminal stack: neither is touched by this proof and both are slow to
     build (same convention as ``_orm_stack.profile_edits``). The preset's
     ``services:`` block holds the record archive, which runs the same project
@@ -1279,7 +1279,7 @@ def test_3_start_requires_the_launch_token() -> None:
 # ---------------------------------------------------------------------------
 # Stage 3's other start: the one the MCP queue TOOL issues.
 #
-# The queue tools run inside the MCP server a persona's web terminal hosts,
+# The queue tools run inside the MCP server a render's web terminal hosts,
 # and this module deploys no web terminals (`_profile_edits`), so the tool is
 # driven in-process here against the deployed bridge. That still leaves the
 # half no mock can stand in for on the far side of a socket: the bytes the

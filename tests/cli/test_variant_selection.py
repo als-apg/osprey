@@ -45,6 +45,7 @@ from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState, check_drift, profile_fingerprint
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.cli._lifecycle_build import stub_build
 
 
@@ -410,18 +411,16 @@ class TestBuildIntegration:
         """``profiles/`` is SOURCE material, so no build warns about it."""
         assert unknown_root_entries(variant_repo) == []
 
-    def test_a_variant_reaches_the_persona_renders_too(
-        self, runner: CliRunner, variant_repo: Path
-    ) -> None:
-        """A persona ships in the same stack, so it is built for the same host."""
-        personas = sorted((variant_repo / "personas").glob("*.yml"))
-        if not personas:
-            pytest.skip("the exemplar repo carries no persona deltas")
+    def test_a_variant_reaches_the_renders_too(self, runner: CliRunner, variant_repo: Path) -> None:
+        """A render ships in the same stack, so it is built for the same host."""
+        renders = sorted((variant_repo / TIERS_DIRNAME).glob("*.yml"))
+        if not renders:
+            pytest.skip("the exemplar repo carries no layers")
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
         assert _build(runner, variant_repo).exit_code == 0
 
-        rendered = variant_repo / "build" / f"{variant_repo.name}-{personas[0].stem}"
+        rendered = variant_repo / "build" / f"{variant_repo.name}-{renders[0].stem}"
         config = yaml.safe_load((rendered / "config.yml").read_text(encoding="utf-8"))
         assert config["system"]["timezone"] == "America/Los_Angeles"
 
@@ -449,7 +448,7 @@ class TestActiveOverlay:
         assert active_variant_overlay(repo) is None
 
     def test_a_directory_that_is_not_a_repo_selects_nothing(self, tmp_path: Path) -> None:
-        assert active_variant_overlay(tmp_path / "personas") is None
+        assert active_variant_overlay(tmp_path / TIERS_DIRNAME) is None
 
 
 class TestFingerprintFollowsTheVariant:
@@ -714,18 +713,18 @@ class TestValidateHonorsTheVariant:
         assert "sets access 'any'" in merged.output
         assert "'alice'" in merged.output
 
-    def test_a_persona_delta_has_no_variant(self, runner: CliRunner, lifecycle_repo: Path) -> None:
+    def test_a_layer_delta_has_no_variant(self, runner: CliRunner, lifecycle_repo: Path) -> None:
         """A delta named directly is a file, not a deployment — nothing overlays it."""
-        personas = sorted((lifecycle_repo / "personas").glob("*.yml"))
-        if not personas:
-            pytest.skip("the exemplar repo carries no persona deltas")
+        renders = sorted((lifecycle_repo / TIERS_DIRNAME).glob("*.yml"))
+        if not renders:
+            pytest.skip("the exemplar repo carries no layers")
         _write_variant(lifecycle_repo, "teststand", "name: demo-teststand\n")
         write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
         previous = Path.cwd()
         os.chdir(lifecycle_repo)
         try:
-            result = runner.invoke(validate, [str(personas[0])])
+            result = runner.invoke(validate, [str(renders[0])])
         finally:
             os.chdir(previous)
 

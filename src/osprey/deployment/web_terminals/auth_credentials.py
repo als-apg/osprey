@@ -64,7 +64,7 @@ from osprey.deployment.service_tokens import (
 # shared with the lint rule that reports the same violation at scaffold time and
 # with render's fail-closed gate. Restating the pattern here would let the
 # deploy-time gate and the other two drift apart.
-from osprey.deployment.web_terminals.personas import (
+from osprey.deployment.web_terminals.roster import (
     USERNAME_CHARSET_RE,
 )
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
@@ -986,7 +986,7 @@ def ensure_terminal_secrets(
     Args:
         project_root: Directory holding the deploy ``.env``.
         usernames: Roster usernames — ``entry["name"]`` for each
-            :func:`~osprey.deployment.web_terminals.personas.normalize_users`
+            :func:`~osprey.deployment.web_terminals.roster.normalize_users`
             entry. The WHOLE roster, shared cards included: a card opened with
             somebody else's credential is still a terminal needing a front
             door. Order is preserved; a name repeated verbatim is processed once.

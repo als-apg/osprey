@@ -545,14 +545,14 @@ async def entry_create(
         except ToolError:
             raise
         except Exception as exc:
-            logger.warning("Artifact resolution failed (non-fatal for draft): %s", exc)
-            # For draft mode, store IDs for deferred resolution
-            if not draft:
-                return make_error(
-                    "internal_error",
-                    f"Failed to resolve artifacts: {exc}",
-                    ["Check MCP server logs for details."],
-                )
+            # Refused in both modes: a draft written without the artifact would
+            # reach the logbook without it once a human submits it.
+            logger.warning("Artifact resolution failed: %s", exc)
+            return make_error(
+                "internal_error",
+                f"Failed to resolve artifacts: {exc}",
+                ["Check MCP server logs for details."],
+            )
 
     # Merge artifact-resolved paths with explicit file_paths (used by both modes)
     all_file_paths = list(file_paths or []) + artifact_paths

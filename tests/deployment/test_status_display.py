@@ -414,14 +414,14 @@ services:
     assert f"127.0.0.1:{ports['postgres']}" in output
 
 
-def test_the_endpoints_section_resolves_personas_against_the_live_checkout(tmp_path, monkeypatch):
+def test_the_endpoints_section_resolves_renders_against_the_live_checkout(tmp_path, monkeypatch):
     """Status hands ``endpoint_entries`` the repo it is reporting on.
 
-    The panel rows are narrowed per persona by reading each persona's rendered
+    The panel rows are narrowed per render by reading each render's rendered
     project, and a checkout that was moved or copied records a ``project_root``
     pointing at the OTHER copy — which would narrow this deployment's bands
     against somebody else's roster. The compose files in the same call are
-    already anchored on the live root; the persona lookup has to be too.
+    already anchored on the live root; the render lookup has to be too.
     """
     from osprey.deployment import deploy_summary
 

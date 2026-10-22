@@ -42,7 +42,12 @@ from osprey_connectors.logger import get_logger
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
     from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
-    from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
+    from osprey.services.ariel_search.models import (
+        AttachmentInfo,
+        EnhancedLogbookEntry,
+        EntryAttachment,
+        FacilityEntryCreateResult,
+    )
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -1006,19 +1011,20 @@ async def _publish_or_local(
     facility_request: Any,
     *,
     local_metadata: dict[str, Any],
-) -> tuple[str, str, str, str]:
+    attachments: list[EntryAttachment] | None = None,
+) -> FacilityEntryCreateResult:
     """Publish an entry via the facility adapter, or save local-only if read-only.
 
-    Returns ``(entry_id, source_system, sync_status, message)`` for the text
-    entry. Only ``NotImplementedError`` (the adapter genuinely cannot write)
-    falls back to a direct local DB insert — this is the legitimate use of the
-    fallback. ``AuthenticationRequiredError`` (credentials needed) and
-    ``IngestionError`` (the publish attempt failed) propagate to the caller so
-    nothing is silently saved.
+    Only ``NotImplementedError`` (the adapter genuinely cannot write) falls back
+    to a direct local DB insert — this is the legitimate use of the fallback.
+    ``AuthenticationRequiredError`` (credentials needed) and ``IngestionError``
+    (the publish attempt failed) propagate to the caller so nothing is silently
+    saved.
 
     Both the service's optimistic copy and the local-only insert store
     ``local_metadata``; the insert sets ``sync_status`` last, so no submitted
-    value overrides it.
+    value overrides it. The files go with the entry: through the service on a
+    publish, into ARIEL's own store on a local-only save.
 
     Args:
         service: The ARIEL search service.
@@ -1026,16 +1032,14 @@ async def _publish_or_local(
             its ``author``, ``subject`` and ``details`` also build the local copy.
         local_metadata: Metadata of ARIEL's own copy, as resolved by
             ``resolve_entry_write``. Copied, never mutated.
+        attachments: The entry's validated files.
     """
-    from osprey.services.ariel_search.models import SyncStatus
+    from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 
+    files = attachments or []
     try:
-        result = await service.create_entry(facility_request, local_metadata=local_metadata)
-        return (
-            result.entry_id,
-            result.source_system,
-            result.sync_status.value,
-            result.message,
+        return await service.create_entry(
+            facility_request, local_metadata=local_metadata, attachments=files
         )
     except NotImplementedError:
         logger.warning("Facility adapter does not support writes, falling back to direct DB insert")
@@ -1058,12 +1062,14 @@ async def _publish_or_local(
         }
 
         await service.repository.upsert_entry(entry)
+        attachment_count = await _store_and_link_attachments(service, entry_id, files)
 
-        return (
-            entry_id,
-            "ARIEL Web",
-            SyncStatus.LOCAL_ONLY.value,
-            f"Entry {entry_id} created (saved locally, not published to external logbook)",
+        return FacilityEntryCreateResult(
+            entry_id=entry_id,
+            source_system="ARIEL Web",
+            sync_status=SyncStatus.LOCAL_ONLY,
+            message=f"Entry {entry_id} created (saved locally, not published to external logbook)",
+            attachment_count=attachment_count,
         )
 
 
@@ -1110,7 +1116,7 @@ async def create_entry(
     )
 
     try:
-        entry_id, source_system, sync_status, message = await _publish_or_local(
+        result = await _publish_or_local(
             service, facility_request, local_metadata=resolved.local_metadata
         )
     except AuthenticationRequiredError as e:
@@ -1121,10 +1127,10 @@ async def create_entry(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
     return EntryCreateResponse(
-        entry_id=entry_id,
-        message=message,
-        sync_status=sync_status,
-        source_system=source_system,
+        entry_id=result.entry_id,
+        message=result.message,
+        sync_status=result.sync_status.value,
+        source_system=result.source_system,
     )
 
 
@@ -1255,14 +1261,13 @@ async def attachment_to_workspace_artifact(request: Request, attachment_id: str)
 async def _store_and_link_attachments(
     service: ARIELSearchService,
     entry_id: str,
-    staged: list[tuple[str, str | None, bytes]],
+    staged: list[EntryAttachment],
 ) -> int:
-    """Persist staged ``(filename, mime_type, data)`` files and link them on the entry.
+    """Persist the files of a local-only entry and link them on the entry.
 
     Files are stored in ARIEL's own attachment store and referenced on the entry
-    record. The adapter write contract carries no attachments, so they are never
-    pushed to an external logbook — they live in ARIEL only. Each picture is
-    stored with its rendition, so it is viewable as soon as the request returns.
+    record; no external logbook is involved. Each picture is stored with its
+    rendition, so it is viewable as soon as the request returns.
 
     Returns:
         The number of attachments stored.
@@ -1270,14 +1275,14 @@ async def _store_and_link_attachments(
     from osprey.services.ariel_search.attachments import store_native_attachment
 
     attachment_infos: list[AttachmentInfo] = []
-    for filename, mime_type, data in staged:
+    for attachment in staged:
         attachment_infos.append(
             await store_native_attachment(
                 service.repository,
                 entry_id,
-                filename=filename,
-                declared_mime=mime_type,
-                data=data,
+                filename=attachment.filename,
+                declared_mime=attachment.mime_type,
+                data=attachment.data,
             )
         )
 
@@ -1306,13 +1311,14 @@ async def create_entry_with_attachments(
 ) -> EntryCreateResponse | JSONResponse:
     """Create a new logbook entry with file attachments via multipart form.
 
-    The text body is published through the facility adapter with the same
-    semantics as ``POST /entries`` — a logbook that requires credentials returns
-    401, a genuine publish failure returns 502, and a read-only adapter falls
-    back to a local-only save. Attachments are then stored in ARIEL. Because the
-    adapter write contract carries no attachments, they are never published to an
-    external logbook; when the text body does publish externally, the response
-    says so explicitly rather than silently dropping the files.
+    The entry is published through the facility adapter with the same semantics
+    as ``POST /entries`` — a logbook that requires credentials returns 401, a
+    genuine publish failure returns 502, and a read-only adapter falls back to a
+    local-only save. An adapter that declares ``supports_attachments`` publishes
+    the files with the entry; a failed file fails the submit with 502, and the
+    detail warns that the entry may already exist without all of its files. For
+    any other adapter the files are stored in ARIEL only, and when the text
+    publishes externally the response says so rather than silently dropping them.
     """
     service = _require_service(request)
 
@@ -1325,14 +1331,18 @@ async def create_entry_with_attachments(
         AuthenticationRequiredError,
         IngestionError,
     )
-    from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+    from osprey.services.ariel_search.models import (
+        EntryAttachment,
+        FacilityEntryCreateRequest,
+        SyncStatus,
+    )
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     parsed_metadata = _parse_metadata_form(metadata)
 
     # Read and validate files up front — before any publish — so a rejected file
     # can never leave a half-published entry behind.
-    staged: list[tuple[str, str | None, bytes]] = []
+    staged: list[EntryAttachment] = []
     for upload_file in files:
         if not upload_file.filename:
             continue
@@ -1346,8 +1356,7 @@ async def create_entry_with_attachments(
         declared = upload_file.content_type
         if not declared or declared == OCTET_STREAM:
             declared = guess_mime_type(upload_file.filename)
-        mime_type = declared
-        staged.append((upload_file.filename, mime_type, data))
+        staged.append(EntryAttachment(upload_file.filename, declared, data))
 
     resolved = await _resolve_create_fields(
         service, parsed_metadata, logbook=logbook, shift=shift, tags=tag_list
@@ -1367,10 +1376,10 @@ async def create_entry_with_attachments(
         metadata=resolved.adapter_metadata,
     )
 
-    # Publish the text body (or save local-only for a read-only adapter).
+    # Publish the entry with its files (or save local-only for a read-only adapter).
     try:
-        entry_id, source_system, sync_status, message = await _publish_or_local(
-            service, facility_request, local_metadata=resolved.local_metadata
+        result = await _publish_or_local(
+            service, facility_request, local_metadata=resolved.local_metadata, attachments=staged
         )
     except AuthenticationRequiredError as e:
         return _auth_required_response(e)
@@ -1379,23 +1388,23 @@ async def create_entry_with_attachments(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    # Store attachments in ARIEL and link them on the entry.
-    attachment_count = await _store_and_link_attachments(service, entry_id, staged)
-
-    # If the text published externally, be explicit that the files did not —
-    # the adapter write contract carries no attachments.
-    if attachment_count and sync_status != "local_only":
+    message = result.message
+    count = result.attachment_count
+    if count and result.attachments_published:
+        message = f"{message}. {count} attachment(s) published to {result.source_system}."
+    elif count and result.sync_status is not SyncStatus.LOCAL_ONLY:
+        # The text published externally and the files did not: say so.
         message = (
-            f"{message}. {attachment_count} attachment(s) saved to ARIEL only; "
+            f"{message}. {count} attachment(s) saved to ARIEL only; "
             "attachments are not published to the external logbook."
         )
 
     return EntryCreateResponse(
-        entry_id=entry_id,
+        entry_id=result.entry_id,
         message=message,
-        sync_status=sync_status,
-        source_system=source_system,
-        attachment_count=attachment_count,
+        sync_status=result.sync_status.value,
+        source_system=result.source_system,
+        attachment_count=count,
     )
 
 

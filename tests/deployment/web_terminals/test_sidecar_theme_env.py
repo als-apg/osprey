@@ -17,6 +17,7 @@ import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.services.auth_sidecar.app import ENV_WEB_APP_NAME, ENV_WEB_THEME, AuthSettings
+from tests._renders import tier_render
 
 
 def _config(*, theme: str | None = None) -> dict:
@@ -30,8 +31,8 @@ def _config(*, theme: str | None = None) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "users": ["alice", "bob"],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
                 # The render refuses any auth method over cleartext otherwise;
                 # that gate has its own coverage and is not this file's subject.
                 "auth": {"method": "password", "allow_insecure_http": True},

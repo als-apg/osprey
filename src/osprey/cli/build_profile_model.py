@@ -99,7 +99,7 @@ _QMD_CONFIG_PREFIX = f"services.{QMD_SERVICE_NAME}"
 """Dotted-key spelling of the qmd sidecar's block on a profile's ``config:`` surface."""
 
 _CHANNEL_FINDER_SERVER_ENABLED_KEY = "claude_code.servers.channel-finder.enabled"
-"""The switch a persona flips to take the channel finder out of its render."""
+"""The switch a render flips to take the channel finder out of its render."""
 
 _HYBRID_SEARCH_BLOCK_KEY = "ariel.search_modules.hybrid"
 """The ARIEL search module the qmd sidecar answers; ``None`` here removes it."""
@@ -287,41 +287,32 @@ def project_name_errors(project_name: Any) -> list[str]:
     return []
 
 
-def persona_render_key_errors(config: Any) -> list[str]:
-    """Refuse a persona catalog entry that spells the render the build derives.
+def render_key_errors(config: Any) -> list[str]:
+    """Refuse a profile that spells the render projection the build derives.
 
-    A catalog entry with a ``build_profile`` is a persona ``osprey build``
-    renders from a delta, and the build names that render from the top-level
-    ``project_name:`` (:func:`~osprey.deployment.web_terminals.persona_naming.
-    persona_project`) and writes its ``project`` / ``project_path`` into
-    ``build/config.yml``. A profile spelling of either is a second home for one
-    fact. An entry without ``build_profile`` points at a render the build does
-    not make, so its ``project_path`` is the operator's to state.
+    ``modules.web_terminals.renders`` is the build's account of every tier and
+    app it renders — each entry's ``kind``, ``project`` and ``project_path``
+    derived from the file's location and the top-level ``project_name:``
+    (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
+    its ``extra_mounts``, ``seed_base`` and ``image`` read from the file's top
+    level. A profile spelling of any of it is a second home for one fact.
 
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
 
     Returns:
-        One error per offending entry, naming its keys; empty when none.
+        One error naming the key when the profile spells it; empty otherwise.
     """
     modules = _expand_dotted(config).get("modules")
     web_terminals = modules.get("web_terminals") if isinstance(modules, dict) else None
-    personas = web_terminals.get("personas") if isinstance(web_terminals, dict) else None
-    if not isinstance(personas, dict):
+    if not isinstance(web_terminals, dict) or "renders" not in web_terminals:
         return []
-    errors: list[str] = []
-    for persona, entry in personas.items():
-        if not isinstance(entry, dict) or not entry.get("build_profile"):
-            continue
-        spelled = [key for key in ("project", "project_path") if key in entry]
-        if not spelled:
-            continue
-        named = ", ".join(f"modules.web_terminals.personas.{persona}.{key}" for key in spelled)
-        errors.append(
-            f"config: {named} {'is' if len(spelled) == 1 else 'are'} rendered by the build; "
-            f"the build derives them from project_name. Delete these lines from profile.yml."
-        )
-    return errors
+    return [
+        "config: modules.web_terminals.renders is written by the build, which derives "
+        "every entry from the files in tiers/ and apps/ and from project_name; set "
+        "extra_mounts, seed_base or image at the top of the tier or app file instead. "
+        "Delete modules.web_terminals.renders from profile.yml."
+    ]
 
 
 # VALID_CHANNEL_FINDER_MODES is imported from the build-time kernel
@@ -338,8 +329,8 @@ class BuildProfile:
     """The deployment's own name (``project_name:``), tracked in the profile.
 
     Every host-visible name derives from it: the compose project, the volume
-    prefix, the ``<project>:local`` image tags, and each persona render
-    ``build/<project_name>-<persona>``. Distinct from :attr:`name`, which is a
+    prefix, the ``<project>:local`` image tags, and each render
+    ``build/<project_name>-<render>``. Distinct from :attr:`name`, which is a
     display label, and from the checkout's folder name, which ``osprey init``
     reads once to propose a value. :meth:`validate` holds it to the spelling
     compose itself would use. ``None`` only for a document no repo holds — a
@@ -348,7 +339,7 @@ class BuildProfile:
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
     profile directory (``data`` for a materialized profile, ``../data`` for a
-    sibling persona profile that shares its parent's tree; may therefore
+    sibling render profile that shares its parent's tree; may therefore
     resolve above the profile dir). The build copies this tree and no other:
     it is the whole source of the project's ``data/``, with no packaged
     fallback behind it, so :meth:`validate` requires it of every profile file.
@@ -420,8 +411,8 @@ class BuildProfile:
     """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
-    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
-    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). This is the
+    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate render
+    (e.g. "CLAUDE.logbook.md.j2" for the logbook-research bundle). This is the
     one channel for the rendered CLAUDE.md: the project copy is build-owned, so
     the ``project/`` mirror rejects a hand-written one.
     """
@@ -858,12 +849,12 @@ class BuildProfile:
     def _runs_the_channel_finder(self) -> bool:
         """Whether this profile keeps the channel-finder MCP server switched on.
 
-        A persona narrows the deployment it is rendered from by switching
+        A tier or app narrows the deployment it is rendered from by switching
         servers off in its ``config:`` overlay, and one of them takes the whole
         channel finder — server, tools and subagent — out of that render. Such a
-        persona still inherits ``channel_finder_mode`` from the profile it
-        extends, because the mode belongs to the deployment rather than to the
-        login; it simply has no channel finder for the mode to configure.
+        layer still inherits ``channel_finder_mode`` from the root profile,
+        because the mode belongs to the deployment rather than to the login; it
+        simply has no channel finder for the mode to configure.
 
         Only an explicit ``false`` counts. The key is absent from every profile
         that keeps the server, so absence reads as on.
@@ -1230,15 +1221,15 @@ class BuildProfile:
         """
         # Imported here rather than at module scope: build_profile_emit would
         # close an import cycle, and the render stack pulls in the registry and
-        # the persona layer, which a profile parse that never asks about ports
+        # the tier layer, which a profile parse that never asks about ports
         # should not pay for.
-        from osprey.deployment.web_terminals.personas import normalize_users
         from osprey.deployment.web_terminals.ports import (
             allocate_ports,
             base_ports_from_config,
             resolve_nginx_port,
         )
         from osprey.deployment.web_terminals.render import _auth_tls_context
+        from osprey.deployment.web_terminals.roster import normalize_users
 
         from .build_profile_emit import effective_web_terminals
 
@@ -1407,9 +1398,9 @@ class BuildProfile:
         # one fact, and the render wins silently, so the second spelling is
         # refused here naming the field that supplies it.
         errors.extend(derived_key_errors(self.config))
-        # The persona catalog's render coordinates, which the build derives
+        # The render catalog's render coordinates, which the build derives
         # from `project_name` for every entry it renders from a delta.
-        errors.extend(persona_render_key_errors(self.config))
+        errors.extend(render_key_errors(self.config))
         # And the one derived branch whose source is a sibling FILE rather than
         # a field or the build's own layout.
         errors.extend(provider_catalog_key_errors(self.config))
@@ -1435,7 +1426,7 @@ class BuildProfile:
         # none of its tools. Named here instead, on every configuration path.
         #
         # Skipped for a profile that switches the channel-finder server off — a
-        # persona rendered as a logbook terminal, say. It inherits the mode from
+        # rendered as a logbook terminal, say. It inherits the mode from
         # the deployment it narrows, because the mode is the deployment's, but
         # it ships no channel finder for the mode to leave toolless. Requiring a
         # store there would make every graph deployment configure one for a
@@ -1465,7 +1456,7 @@ class BuildProfile:
         # fails, by design, with "no qmd sidecar is configured". Named here
         # instead, on every configuration path, because where it would surface
         # otherwise is the worst place for it: inside a per-user web-terminal
-        # container, on the first logbook question, for a persona whose render
+        # container, on the first logbook question, for a render whose render
         # emptied `services:` on purpose.
         #
         # Skipped for a profile that switches the module off, whichever way it
@@ -1484,7 +1475,7 @@ class BuildProfile:
                 f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
 
-        # The data tree may legitimately sit above the profile dir (persona
+        # The data tree may legitimately sit above the profile dir (render
         # profiles share their parent's tree via ``data: ../data``), so only
         # existence and shape are checked, never containment.
         #
@@ -1495,7 +1486,7 @@ class BuildProfile:
         # resolved out of the packaged presets directory and has no profile
         # directory to anchor a tree against (``--preset`` refuses ``data:``
         # outright), and it is ``osprey init`` that materializes the tree and
-        # writes the key into the profile it emits. A persona delta needs no
+        # writes the key into the profile it emits. A layer needs no
         # exemption: it resolves over the ``profile.yml`` it lives under, and
         # inherits that file's ``data:`` before this runs.
         if self.data is None:

@@ -7,11 +7,11 @@ full from the SOURCE zone (``profile.yml`` at the repo root and the trees it
 names). Nothing durable lives there, so it is wiped and re-rendered whole every
 time; ``rm -rf build/`` loses nothing.
 
-A repo with a ``personas/`` directory renders more than one project: the
-deployment's own, plus ``build/<project_name>-<persona>/`` for every delta in there
-(:func:`_render_persona_projects`). That is the whole of when a persona project
+A repo with a ``tiers/`` directory renders more than one project: the
+deployment's own, plus ``build/<project_name>-<render>/`` for every delta in there
+(:func:`_render_projects`). That is the whole of when a render project
 is written — no start verb renders one — so ``build/`` is a complete account of
-what a deploy will run, personas included.
+what a deploy will run, renders included.
 
 The render is atomic. It lands in ``build/.tmp/`` and is swapped in by rename
 only once every step has succeeded, so a build that fails — or is killed
@@ -116,6 +116,7 @@ if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
 
     from .build_profile_model import BuildProfile
+    from .profile_root import ProfileKind
 
 logger = get_logger("build")
 
@@ -324,7 +325,7 @@ def _profile_project_name(project_name: str | None, repo_root: Path) -> str:
     proposed = _normalize_compose_name(repo_root.name) or "my-deployment"
     raise BuildProfileError(
         f"{PROFILE_FILENAME} states no project_name. It names this deployment's compose "
-        f"project, volumes, images and persona renders on every host. Add this line at the "
+        f"project, volumes, images and renders on every host. Add this line at the "
         f"top level of {PROFILE_FILENAME}, beside `name:`:\n\n"
         f"    project_name: {proposed}\n\n"
         f"That is the name this checkout has been deploying under, so existing volumes keep "
@@ -543,7 +544,7 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
     Args:
         zones: The render's paths.
         renders: Every render root this build produced, the staged tree
-            included. A persona project is rendered by the same three producers
+            included. A render project is rendered by the same three producers
             and so grows the same directories one level deeper; passing the
             roots rather than walking the tree keeps the rule "each render's own
             top-level runtime state" rather than "anything anywhere that looks
@@ -633,11 +634,11 @@ def _stamp_repo_manifest(
     :func:`osprey.deployment.staleness.check_drift` name which part of
     ``profile.yml`` moved when it refuses to start a stale build. Deliberately
     not a second hash mechanism — nothing decides drift by reading these — which
-    is exactly why a persona render does not get them: the drift gate reads one
-    manifest per repo, the deployment's, and the persona deltas are already
+    is exactly why a render does not get them: the drift gate reads one
+    manifest per repo, the deployment's, and the layers are already
     folded into ITS fingerprint
     (:func:`~osprey.cli.build_profile_merge._fold_profile_material`). A second
-    set of digests under each persona would be a fingerprint nothing consults.
+    set of digests under each render would be a fingerprint nothing consults.
 
     Args:
         render_dir: The rendered project whose manifest is rewritten. For the
@@ -1168,8 +1169,8 @@ def _render_compose_files(
     Compose files are rendered in the same pass as everything else, because they
     are derived from the same ``config.yml``: emitting them a verb later would
     leave ``build/`` an incomplete description of the deployment. After the
-    persona renders, because they read them: the bluesky_web sidecar's compose
-    lists the secret of every user whose persona's rendered ``config.yml``
+    renders, because they read them: the bluesky_web sidecar's compose
+    lists the secret of every user whose render's rendered ``config.yml``
     shows the BLUESKY tab, and what this pass writes is what ``osprey up``
     starts.
 
@@ -1231,16 +1232,16 @@ def _render_compose_files(
         # from ``build/`` once the swap lands. Derived from the config path it
         # would come out empty, and every path spelled against it would resolve
         # one directory too high at deploy time.
-        # ``persona_root`` for the same reason again: the persona renders this
+        # ``layer_root`` for the same reason again: the renders this
         # build has already written sit in the staged tree, and the catalog's
-        # ``project_path`` (``build/<project_name>-<persona>``) names where they will
-        # be once the swap lands — the previous build's personas until then.
+        # ``project_path`` (``build/<project_name>-<render>``) names where they will
+        # be once the swap lands — the previous build's renders until then.
         config, compose_files = prepare_compose_files(
             str(zones.stage / "config.yml"),
             dev_mode=dev_mode,
             output_root=".",
             deployed_config_dir=BUILD_DIR_NAME,
-            persona_root=str(zones.stage),
+            layer_root=str(zones.stage),
         )
         # Read back inside the chdir: every path involved — the rendered files,
         # the service directories the config names — is spelled relative to the
@@ -1324,8 +1325,8 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
 class _SharedRenderInputs(NamedTuple):
     """What every project one ``osprey build`` renders has in common.
 
-    A repo with personas renders several projects — the deployment's own and one
-    per delta — and the whole point of a persona is that it differs from its host
+    A repo with tier and app files renders several projects — the deployment's own and one
+    per delta — and the whole point of a render is that it differs from its host
     in the profile and in NOTHING ELSE. Everything that is a property of the
     build rather than of the profile therefore lives here and is passed to each
     render unchanged: the same repo root, the same interpreter, the same
@@ -1355,7 +1356,7 @@ class _SharedRenderInputs(NamedTuple):
 
     Deriving one parses the whole Turtle corpus with rdflib, which is seconds on
     a real facility, and every render pass of one build stages the same corpus:
-    the deployment's own project, each persona delta, each container image copy.
+    the deployment's own project, each layer, each container image copy.
     The first pass that needs an index builds it; every later pass whose corpus
     hashes the same copies the file it wrote.
 
@@ -1381,7 +1382,7 @@ class _SharedRenderInputs(NamedTuple):
 
     Every render pass resolves the same provider, so an alias running the main
     model, or a configured id the provider does not list, is one fact about the
-    build rather than one per render. A persona that moves the provider says
+    build rather than one per render. A render that moves the provider says
     something different, so it still gets its own line.
     """
 
@@ -1402,9 +1403,9 @@ class _SharedRenderInputs(NamedTuple):
     The host-variant overlay (:mod:`~osprey.cli.variant_selection`), or empty
     when this host builds the tracked profile. It belongs here for the same
     reason ``--runtime-root`` does: it is a property of the build, not of a
-    profile, so the deployment's render and each persona's must see the same
-    one. A variant that reached only the deployment would leave every persona
-    project — and every persona image — rendered for a different host than the
+    profile, so the deployment's render and each render's must see the same
+    one. A variant that reached only the deployment would leave every render
+    project — and every render image — rendered for a different host than the
     stack they ship in.
     """
 
@@ -1681,11 +1682,11 @@ def _template_host_config(
     as for a deploying profile: an attached profile inherits the blocks they
     read (``dispatch:``, ``bluesky_web:``, …) from the deployment profile it
     extends, and what they derive — the EVENTS and BLUESKY tab entries above
-    all — is what a persona beside a real host is told from that host's render.
+    all — is what a render beside a real host is told from that host's render.
 
     The overlay carries the layout's ports for the service blocks the profile
     deploys without naming one, exactly as the deploying build's own overlay
-    does, so a persona is told the ports its host actually publishes and not
+    does, so a render is told the ports its host actually publishes and not
     the layout default of a base its host has moved off.
 
     Rendered into a scratch directory the build zone never sees — it is a
@@ -1933,42 +1934,42 @@ def _render_project(
     template, the profile's config overrides, its services, its convention
     artifacts, the facility file and its views, the MCP servers, the build
     manifest, and the Claude Code artifacts regenerated over the lot. A
-    deployment's own project and a persona's go through it identically — same
-    steps, same order, same inputs bar the profile — because a persona that
+    deployment's own project and a render's go through it identically — same
+    steps, same order, same inputs bar the profile — because a render that
     differed from its host in any of them would be a different deployment
     wearing its name.
 
-    What is NOT here is what a persona does not get, and each is deliberate:
+    What is NOT here is what a render does not get, and each is deliberate:
 
-    * **the venv** — one per repo, at ``build/.venv``. A persona project is a
+    * **the venv** — one per repo, at ``build/.venv``. A render project is a
       container image build context, and the image installs its own
       dependencies from ``OSPREY_PIP_SPEC``;
     * **the compose files** — the deployment's compose describes the whole
-      stack, personas included. A persona project is never deployed on its own;
+      stack, renders included. A render project is never deployed on its own;
     * **the lifecycle phases** — ``pre_build``/``post_build``/``validate`` are
       the profile's own shell commands, and a delta inherits them from the root.
-      Running them once per persona would run the same commands three times over
+      Running them once per render would run the same commands three times over
       for one build.
 
     Args:
         shared: What this render has in common with every other in this build.
-        resolved: The ``LoadedProfile`` for this project — for a persona, the
+        resolved: The ``LoadedProfile`` for this project — for a render, the
             delta already merged over the root profile, with the root as its
             profile directory.
         profile_path: The profile FILE this render came from, recorded in the
-            manifest. The delta itself for a persona, so a rendered project can
+            manifest. The delta itself for a render, so a rendered project can
             always name the source it is derived from.
         project_name: The rendered project's name and directory leaf.
         output_dir: The directory the render lands under.
         deployment: Whether this is the deployment's own project rather than a
-            persona's. Gates the two things only it gets: the drift check's
+            render's. Gates the two things only it gets: the drift check's
             per-key manifest digests, and the provider-credential report (an
             account of the repo's one ``.env``, identical for every render).
         progress: Where the per-step progress lines go — ``logger.info`` for
-            the deployment, ``logger.debug`` for a persona, whose steps are
-            summarized in one line by :func:`_render_persona_projects`.
+            the deployment, ``logger.debug`` for a render, whose steps are
+            summarized in one line by :func:`_render_projects`.
         extra_known: Repo-root entry names to exempt from the unknown-entry
-            warning on top of the profile's own, so a persona render does not
+            warning on top of the profile's own, so a render does not
             repeat a warning the deployment's render already made.
         injected_out: A list to record this render's injected service names in,
             for a caller that reports them. Passed rather than returned because
@@ -1994,7 +1995,7 @@ def _render_project(
         missing_posture_errors,
     )
     from .build_profile_archiver import va_archiver_config_overrides
-    from .build_profile_deploy import deploy_config_overrides
+    from .build_profile_deploy import deploy_config_overrides, profile_dispatch_tier
     from .build_profile_health import health_config_overrides
     from .build_profile_panels import apply_panel_selection, panel_selection_overrides
     from .build_profile_ports import layout_port_fill
@@ -2049,8 +2050,8 @@ def _render_project(
     # `api.providers`, rendered verbatim from the catalog beside `profile.yml`.
     # It is a file rather than a profile field because it is a list of
     # endpoints, not a facility decision, and it is read here rather than
-    # carried in `shared` because a persona render reads the same repo root:
-    # a persona talks to its deployment's gateways, so the two render one
+    # carried in `shared` because a render reads the same repo root:
+    # a render talks to its deployment's gateways, so the two render one
     # catalog. A `config:` spelling of the same key is refused in
     # `BuildProfile.validate`, so this is the only writer of the block.
     context["provider_catalog"] = load_provider_catalog(repo_root).entries
@@ -2107,7 +2108,7 @@ def _render_project(
         # is the deployment's whole secret store, it is mounted from the repo root,
         # and a build neither reads nor rewrites it — copying it into the disposable
         # zone would put the facility's keys somewhere a `rm -rf build/` is
-        # documented to make safe. A persona render is inside that same zone and is
+        # documented to make safe. A render is inside that same zone and is
         # a container build context on top of it, so it gets no `.env` either; its
         # container is handed one at run time through compose.
         manager.create_project(
@@ -2155,19 +2156,25 @@ def _render_project(
         # the two ever name one key. The `modules.web_terminals` entry is
         # REFUSE-IF-CONTRADICTED: a spelling that agrees with it is accepted, and
         # health_url_key_errors refuses any other value at validation, so the
-        # overwrite never silently replaces a different value. The persona
-        # catalog's `project`/`project_path` are DERIVED for every entry with a
-        # `build_profile` (validation refuses a profile spelling of either), and
-        # empty for a render that stands up no persona stack of its own — a
-        # persona's render — so no render derives personas-of-a-persona.
-        from osprey.deployment.web_terminals.persona_naming import derived_persona_catalog
+        # overwrite never silently replaces a different value. The render
+        # projection `modules.web_terminals.renders` is DERIVED from this repo's
+        # tier and app files (validation refuses a profile spelling of it). The
+        # deployment projects it when it stands up web terminals or runs its
+        # dispatch workers at a tier; a tier's or app's render stands up neither,
+        # so no render projects renders-of-a-render.
+        from osprey.deployment.web_terminals.render_naming import derived_renders
 
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
             "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
             "modules.web_terminals": health_config_overrides(build_profile.config),
             "graphdb": graphdb_corpus_fill(build_profile.config),
-            "project_name": derived_persona_catalog(build_profile.config, project_name),
+            "project_name": derived_renders(
+                build_profile.config,
+                project_name,
+                repo_root,
+                dispatch_tier=profile_dispatch_tier(build_profile) if deployment else None,
+            ),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
@@ -2214,9 +2221,23 @@ def _render_project(
                 # with the profile's own `config:` laid over them, and the layout's
                 # ports filled in for the service blocks it names — is what the
                 # host says.
+                #
+                # `dispatch.tier` is judged against the deployment's own base,
+                # never a tier-merged one: the deployment's render, the first of
+                # every build, took this reading of the root profile and judged
+                # the tier there. A tier's or app's render takes it with the
+                # tier cleared, or the tier's own posture (admin's Config panel)
+                # would be read as the base the dispatch tier inherits.
+                host_profile = build_profile
+                if not deployment and build_profile.dispatch is not None:
+                    from dataclasses import replace
+
+                    host_profile = replace(
+                        build_profile, dispatch=replace(build_profile.dispatch, tier=None)
+                    )
                 host_config = _template_host_config(
                     shared,
-                    build_profile,
+                    host_profile,
                     project_name=project_name,
                     render_dir=render_dir,
                     profile_dir=repo_root,
@@ -2263,9 +2284,9 @@ def _render_project(
         # The selection, projected. The tab strip is read from `web.panels` alone,
         # and by now every block this render will carry is there: the template's
         # own for a selected builtin, the profile's `config:` facts about a custom
-        # panel, the facts a persona inherits for a tab it excluded, the blocks the
-        # injectors just wrote for a tab only a persona selects. Each is told
-        # whether THIS render shows it — the facts stay (a persona cannot subtract
+        # panel, the facts a render inherits for a tab it excluded, the blocks the
+        # injectors just wrote for a tab only a render selects. Each is told
+        # whether THIS render shows it — the facts stay (a render cannot subtract
         # `config:`, and the Reach Contract copies addresses from the host's
         # render); only `enabled` moves, and it says one thing: selected here.
         projected_tabs = panel_selection_overrides(
@@ -2317,7 +2338,7 @@ def _render_project(
         _resolve_rendered_container_runtime(render_dir, progress)
         # And who host launches send and record as, recorded once so the two
         # agree whichever account later runs them. The deployment's render
-        # only: a persona's runs in a container the compose file names.
+        # only: a render's runs in a container the compose file names.
         if deployment:
             _record_host_identity(render_dir, _rendered_config(render_dir))
 
@@ -2396,7 +2417,7 @@ def _render_project(
         "default_model": build_profile.model,
         # Absolute, and on every build: for the deployment this is the profile
         # the drift check re-hashes to decide whether `build/` still describes
-        # the source; for a persona it is the delta the render came from.
+        # the source; for a render it is the delta the render came from.
         "profile_path_abs": str(profile_path),
     }
     if build_profile.channel_finder_mode is not None:
@@ -2539,110 +2560,151 @@ def _warn_facility_build(warnings: Iterable[FacilityBuildWarning]) -> None:
         output.warn_fact(logger, warning.summary, None, warning.remedy)
 
 
-def _persona_deltas(repo_root: Path) -> list[Path]:
-    """Every persona delta a build of *repo_root* renders a project for.
+def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
+    """Every layer file a build of *repo_root* renders a project for.
 
-    The direct children of ``personas/`` that are files and are not dot-prefixed,
-    sorted by name — deliberately the same enumeration as the drift
-    fingerprint's
-    (:func:`~osprey.cli.build_profile_merge._fold_profile_material`), and for the
-    same reason it uses: root discovery reads a file as a delta only when its
-    parent directory IS ``personas/``
-    (:func:`~osprey.cli.profile_root.resolve_profile_root`), so a nested tree is
-    not build input.
+    :func:`~osprey.cli.profile_root.layer_files` — the direct children of
+    ``tiers/``, ``apps/`` and the retired layer directory — which is the same listing the
+    content-hash fold (:func:`~osprey.cli.build_profile_merge._fold_profile_material`)
+    and the staleness digests read. The build and the fingerprint have to agree
+    exactly: a file the fingerprint covers but the render skips would make an
+    edit to it refuse the next start with nothing to re-render; a file the
+    render picks up but the fingerprint misses would let an edit to it ship
+    silently.
 
-    The two enumerations have to agree exactly. A file the fingerprint covers but
-    the render skips would make an edit to it refuse the next start with nothing
-    to re-render; a file the render picks up but the fingerprint misses would let
-    an edit to it ship silently. That is also why there is no suffix filter here:
-    ``personas/`` holds deltas and nothing else, so a file in there that will not
-    parse as a profile is a mistake the build should name rather than walk past.
-
-    Returns an empty list when there is no ``personas/`` directory, which is what
-    keeps a repo without personas rendering exactly what it rendered before.
+    Returns an empty list when there is no layer directory, which is what keeps
+    a repo without layers rendering exactly what it rendered before.
 
     Raises:
-        BuildProfileError: When a delta does not anchor back at *repo_root* —
-            see the containment check below.
+        BuildProfileError: When a layer does not anchor back at *repo_root*
+            (see the containment check below), or two layer files share a
+            name, which would render two projects into one directory.
     """
-    from .profile_root import PERSONA_DIRNAME, resolve_profile_root
+    from .profile_root import layer_files, resolve_profile_root
 
-    persona_dir = repo_root / PERSONA_DIRNAME
-    if not persona_dir.is_dir():
-        return []
-    deltas = sorted(
-        (
-            entry
-            for entry in persona_dir.iterdir()
-            if entry.is_file() and not entry.name.startswith(".")
-        ),
-        key=lambda entry: entry.name,
-    )
+    layers = layer_files(repo_root)
 
-    # The property the rest of this rests on: a file found under `personas/`
-    # must be read AS a delta over THIS repo's profile. The enumeration above is
-    # lexical and cannot see a symlink; root discovery resolves one. So a delta
-    # symlinked in from elsewhere, or a symlinked `personas/` directory, would
+    # The property the rest of this rests on: a file found in a layer directory
+    # must be read AS a layer over THIS repo's profile. The enumeration is
+    # lexical and cannot see a symlink; root discovery resolves one. So a layer
+    # symlinked in from elsewhere, or a symlinked layer directory, would
     # otherwise be read as a standalone profile — rendering a hollow project
-    # with none of this repo's data tree, conventions or secrets — or as a delta
+    # with none of this repo's data tree, conventions or secrets — or as a layer
     # over a different facility's profile, and either way reporting nothing. The
-    # drift fingerprint folds the same files without resolving them, so a build
-    # that walked past this would also be stamping a hash over material it never
+    # fingerprint folds the same files without resolving them, so a build that
+    # walked past this would also be stamping a hash over material it never
     # rendered from.
-    for delta in deltas:
-        anchored_root, is_delta = resolve_profile_root(delta)
-        if not is_delta or anchored_root != repo_root:
+    seen: dict[str, Path] = {}
+    for _kind, layer in layers:
+        anchored_root, anchored_kind = resolve_profile_root(layer)
+        if not anchored_kind.is_layer or anchored_root != repo_root:
             landed = (
-                f"a delta over the profile at {anchored_root}"
-                if is_delta
+                f"a layer over the profile at {anchored_root}"
+                if anchored_kind.is_layer
                 else f"a standalone profile at {anchored_root}"
             )
             raise BuildProfileError(
-                f"{delta} resolves to {landed}, not a delta over this repo's own "
-                f"{PROFILE_FILENAME} at {repo_root}. A symlinked delta, or a symlinked "
-                f"{PERSONA_DIRNAME}/ directory, does this: the persona would be built "
-                "without this deployment's data tree, conventions and secrets, or over "
-                f"somebody else's. Keep every delta a real file inside {persona_dir}."
+                f"{layer} resolves to {landed}, not a layer over this repo's own "
+                f"{PROFILE_FILENAME} at {repo_root}. A symlinked layer file, or a "
+                f"symlinked {layer.parent.name}/ directory, does this: it would be "
+                "built without this deployment's data tree, conventions and secrets, "
+                f"or over somebody else's. Keep every layer a real file inside "
+                f"{layer.parent}."
             )
-    return deltas
+        twin = seen.setdefault(layer.stem, layer)
+        if twin != layer:
+            raise BuildProfileError(
+                f"{twin} and {layer} share the name {layer.stem!r}, and a layer's "
+                "project is named by its file, so both would render into one "
+                "directory. Keep one of them: rename the other, or delete it."
+            )
+    return layers
 
 
-def _render_persona_projects(
-    shared: _SharedRenderInputs, zones: _RenderZones, project_name: str
-) -> list[Path]:
-    """Render ``build/<project_name>-<persona>/`` for every delta in ``personas/``.
+def _layer_render(
+    shared: _SharedRenderInputs,
+    kind: ProfileKind,
+    layer: Path,
+    *,
+    project_name: str,
+    host_profile: BuildProfile,
+) -> tuple[str, Any]:
+    """The rendered project name and the resolved profile for one tier or app file.
 
-    Personas are rendered HERE, by the build, and nowhere else. No start verb
-    renders one: ``build/`` is the complete account of what a deploy will run,
-    and a persona project appearing at ``osprey up`` would have made that false
-    exactly when it mattered — an operator whose delta changed would have had a
-    fresh persona beside a stale deployment, from a start that re-rendered half
-    the stack.
+    The one place a layer file is turned into what its render is made from, so
+    the host-side render and the image copy of it cannot disagree about either.
 
-    Into the STAGED tree, so persona projects transit the atomic swap with
-    everything else (:func:`_swap_in_render`): a persona whose delta will not
-    resolve fails the whole build and leaves the previous ``build/`` — every
-    project in it — exactly as it was. Never a half-written set.
+    The name is :func:`~osprey.deployment.web_terminals.render_naming.render_project`'s
+    for the file's kind, the same call the render projection
+    (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
+    makes when it writes ``modules.web_terminals.renders.<name>`` into the
+    deployment's config, which is how the deploy finds this render.
 
-    The naming is :func:`~osprey.deployment.web_terminals.persona_naming.persona_project`'s,
-    the same call that writes every catalog entry's ``project`` and
-    ``project_path`` into the deployment's rendered config (see
-    :func:`_render_project`), which is how the deploy finds the render this
-    produced. Every delta is rendered whether the
-    catalog names it or not — the catalog decides which personas are *deployed*,
-    ``personas/`` decides which exist — so a delta added before its catalog entry
-    is already built when the entry lands.
+    A tier is the deployment's own agent at one access level, so its render
+    records the deployment's preset: the packaged trees it copies and the preset
+    its manifest is stamped with are the deployment's. The tier file's own
+    ``provenance:`` block says which bundled tier it was materialized from, which
+    is a fact about that file for ``osprey validate`` and not a preset the build
+    could copy anything from. An app keeps what its resolution gives it: the
+    composer already carries the deployment's provenance.
 
     Returns:
-        The persona render directories, for the runtime-state prune.
+        ``(project, resolved)``: the render's project name and its
+        ``LoadedProfile``.
     """
-    from osprey.deployment.web_terminals.persona_naming import persona_project
+    from dataclasses import replace
+
+    from osprey.deployment.web_terminals.render_naming import (
+        RENDER_KIND_APP,
+        RENDER_KIND_TIER,
+        render_project,
+    )
 
     from .build_profile import resolve_build_document
+    from .profile_root import ProfileKind
+
+    render_kind = RENDER_KIND_APP if kind is ProfileKind.APP else RENDER_KIND_TIER
+    project, _ = render_project(project_name, layer.stem, kind=render_kind)
+    resolved = resolve_build_document(layer, None, shared.profile_overlays)
+    if kind is not ProfileKind.APP:
+        profile = replace(resolved.profile, provenance=host_profile.provenance)
+        # Not a dataclass field, so `replace` does not carry it: set it here.
+        profile.inherited_preset = host_profile.inherited_preset
+        resolved = replace(resolved, profile=profile)
+    return project, resolved
+
+
+def _render_projects(
+    shared: _SharedRenderInputs,
+    zones: _RenderZones,
+    project_name: str,
+    *,
+    host_profile: BuildProfile,
+) -> list[Path]:
+    """Render ``build/<project_name>-<name>/`` for every file in ``tiers/`` and ``apps/``.
+
+    Tiers and apps are rendered HERE, by the build, and nowhere else. No start
+    verb renders one: ``build/`` is the complete account of what a deploy will
+    run, and a render appearing at ``osprey up`` would make that false exactly
+    when it mattered: an operator whose tier file changed would get a fresh tier
+    beside a stale deployment, from a start that re-rendered half the stack.
+
+    Into the STAGED tree, so these projects transit the atomic swap with
+    everything else (:func:`_swap_in_render`): a tier or app that will not
+    resolve fails the whole build and leaves the previous ``build/`` exactly as
+    it was. Never a half-written set.
+
+    Every file is rendered whether the roster references it or not: the roster
+    decides which renders are *deployed*, ``tiers/`` and ``apps/`` decide which
+    exist. See :func:`_layer_render` for how each one is named and resolved.
+
+    Returns:
+        The render directories, for the runtime-state prune.
+    """
     from .profile_conventions import unknown_root_entries
 
-    deltas = _persona_deltas(shared.repo_root)
-    if not deltas:
+    layers = _layer_files(shared.repo_root)
+    if not layers:
         return []
 
     # Already warned about once, by the deployment's own render. The entries are
@@ -2651,15 +2713,17 @@ def _render_persona_projects(
     already_warned = unknown_root_entries(shared.repo_root)
 
     rendered: list[Path] = []
-    for delta in deltas:
-        persona_name, _ = persona_project(project_name, delta.stem)
-        logger.debug("  Rendering persona %r → %s/", delta.stem, persona_name)
+    for kind, layer in layers:
+        project, resolved = _layer_render(
+            shared, kind, layer, project_name=project_name, host_profile=host_profile
+        )
+        logger.debug("  Rendering %s %r → %s/", kind.value, layer.stem, project)
         rendered.append(
             _render_project(
                 shared,
-                resolve_build_document(delta, None, shared.profile_overlays),
-                profile_path=delta,
-                project_name=persona_name,
+                resolved,
+                profile_path=layer,
+                project_name=project,
                 output_dir=zones.stage,
                 deployment=False,
                 progress=logger.debug,
@@ -2683,7 +2747,7 @@ def _stage_source_zone(repo_root: Path, image_root: Path) -> None:
       it from the source beside the render
       (:func:`~osprey.cli.build_profile_merge._fold_profile_material` covers the
       ``data:`` tree, every convention directory, ``triggers.yml`` and every
-      persona delta), and a container carrying the profile alone reports its own
+      layer), and a container carrying the profile alone reports its own
       untouched build as DRIFTED, naming files nobody edited.
 
     Copied by EXCLUSION rather than by naming what to take: everything at the
@@ -2873,7 +2937,7 @@ def _prune_ignored_entries(image_root: Path, patterns: Sequence[str]) -> None:
     the context — and :func:`_relocate_container_manifest` does, stamping the
     profile hash that ``osprey status`` and the drift gate re-check inside the
     container. The hash folds the profile's file inputs (``data/``, the
-    convention directories, ``personas/``), and those patterns are ``**/``-
+    convention directories, ``tiers/``), and those patterns are ``**/``-
     anchored, so a stray ``data/ingest.log`` or a ``__pycache__/`` under a
     convention directory would be folded into the stamp here and then be missing
     from the image there. The container would recompute a different hash and
@@ -2920,19 +2984,19 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
       render came from, recorded as the building host's absolute path. Rewritten
       to paths inside the container, which is where those files actually are: the
       source zone travels with the render, so both the root profile and the
-      persona deltas ARE in the image. These are the last host strings in the
+      layers ARE in the image. These are the last host strings in the
       tree; with them gone, "no path in an image names the build machine" is a
       property that can be asserted in one line.
 
       The two are rewritten to DIFFERENT files, on purpose.
       ``profile_path`` keeps naming the file this render came from — the
-      persona delta for a persona image — because that is its job: provenance.
+      layer for a render image — because that is its job: provenance.
       ``profile_path_abs`` is not provenance; it is the input
       :func:`~osprey.deployment.staleness.staleness_reasons` hashes and compares
       against ``creation.preset_hash``, so it must name the same file the stamp
       below is computed from — the repo's own ``profile.yml``. Pointed at the
       delta it would hash the delta against a root-profile stamp and every
-      persona container would print "profile has changed" on an untouched build:
+      render container would print "profile has changed" on an untouched build:
       a false drift report from the advisory while
       :func:`~osprey.deployment.staleness.check_drift`, which reads the profile
       off the repo root, correctly says CLEAN. Advisory and gate now agree by
@@ -2940,13 +3004,13 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
     * ``creation.preset_hash`` — the fingerprint
       :func:`osprey.deployment.staleness.check_drift` holds ``build/`` against.
       For the deployment's own image this is already right (same profile, same
-      fold) and the rewrite is a no-op. For a PERSONA's image it is not: that
-      render came from ``personas/<name>.yml`` merged over the root, while the
+      fold) and the rewrite is a no-op. For a RENDER's image it is not: that
+      render came from ``tiers/<name>.yml`` merged over the root, while the
       ``profile.yml`` at the root of the repo the image carries is the root
       profile — so an operator running ``osprey status`` in that container would
       be told its own untouched build had drifted. Re-stamped from the profile
       the container actually holds, which is the profile that produced this
-      whole tree; the persona delta is folded into that fingerprint too.
+      whole tree; the layer is folded into that fingerprint too.
 
     Skipped quietly if the manifest or the fingerprint cannot be read: a build
     that has rendered a complete tree must not fail on its commentary.
@@ -3014,7 +3078,7 @@ def _render_container_project(
     else: a container copy that fails to render fails the whole build and leaves
     the previous ``build/`` — every project in it — exactly as it was.
 
-    What it deliberately does NOT get, beyond what a persona render skips:
+    What it deliberately does NOT get, beyond what a render skips:
 
     * **the venv and the dependency install** — an image builds its own
       environment from ``OSPREY_PIP_SPEC``, and a venv recording the host's
@@ -3028,7 +3092,7 @@ def _render_container_project(
       the profile's own shell commands and ran once for this build already.
 
     :param deployment: Whether this is the deployment's own image rather than a
-        persona's — see :func:`_render_project`'s parameter of the same name.
+        render's — see :func:`_render_project`'s parameter of the same name.
     :returns: The container repo root, ready to be a build context.
     """
     from .profile_conventions import unknown_root_entries
@@ -3074,38 +3138,35 @@ def _render_container_projects(
     profile_path: Path,
     project_name: str,
 ) -> list[Path]:
-    """Every image context this build produces — the deployment's and each persona's.
+    """Every image context this build produces: the deployment's, and each tier's and app's.
 
     One rule, applied as many times as this repo has images to build: an image's
     build context is ``build/.image/<the image's project name>/``, and it is a
     deployment repo rendered against the ``/app/<project name>`` path that image
-    will see itself at. The deployment gets one; every delta under ``personas/``
-    gets one, because a persona is deployed as its own image and needs the same
-    things the deployment's does.
+    will see itself at. The deployment gets one; every file under ``tiers/`` and
+    ``apps/`` gets one, because each is deployed as its own image and needs the
+    same things the deployment's does.
 
-    A persona's needs are in fact sharper. Its render is the ONLY place its
-    ``config:`` deltas exist — ``control_system.writes_enabled`` among them —
-    and a persona image built from the deployment's render would come up with
-    the deployment's config and none of that persona's, which is the difference
-    between a read-only terminal and one that writes to hardware. The persona's
-    ``.mcp.json`` names ``/app/<project_name>-<persona>/build/config.yml``, so
-    its servers read ITS config, and only its own image carries that file.
+    A tier's or app's needs are in fact sharper. Its render is the ONLY place
+    its ``config:`` exists (``control_system.writes_enabled`` among it), and an
+    image built from the deployment's render would come up with the
+    deployment's config and none of its own, which is the difference between a
+    read-only terminal and one that writes to hardware. Its ``.mcp.json`` names
+    ``/app/<project_name>-<name>/build/config.yml``, so its servers read ITS
+    config, and only its own image carries that file.
 
-    The host-side persona renders at ``build/<project_name>-<persona>/`` are untouched
-    and stay FLAT: the credential sweep
+    The host-side renders at ``build/<project_name>-<name>/`` are untouched and
+    stay FLAT: the credential sweep
     (:func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`),
     the render check
-    (:func:`osprey.deployment.web_terminals.persona_images._check_existing_render`)
+    (:func:`osprey.deployment.web_terminals.render_images._check_existing_render`)
     and the lint rule all read ``config.yml`` at that render's root, and the
-    catalog's ``project_path`` is an externally-pinned contract. Personas get a
-    container copy in addition, exactly as the deployment does — not instead.
+    projection's ``project_path`` names it. Each gets a container copy in
+    addition, exactly as the deployment does, not instead. Named and resolved
+    by :func:`_layer_render`, the same call the host-side render makes.
 
     :returns: The image context roots, in build order.
     """
-    from osprey.deployment.web_terminals.persona_naming import persona_project
-
-    from .build_profile import resolve_build_document
-
     contexts = [
         _render_container_project(
             shared,
@@ -3116,14 +3177,17 @@ def _render_container_projects(
             deployment=True,
         )
     ]
-    for delta in _persona_deltas(shared.repo_root):
+    for kind, layer in _layer_files(shared.repo_root):
+        project, layer_resolved = _layer_render(
+            shared, kind, layer, project_name=project_name, host_profile=resolved.profile
+        )
         contexts.append(
             _render_container_project(
                 shared,
-                resolve_build_document(delta, None, shared.profile_overlays),
+                layer_resolved,
                 zones,
-                profile_path=delta,
-                project_name=persona_project(project_name, delta.stem)[0],
+                profile_path=layer,
+                project_name=project,
                 deployment=False,
             )
         )
@@ -3147,8 +3211,8 @@ def _build_repo(
 
     What it renders is the whole OUTPUT zone in one pass — the project (config,
     Claude Code artifacts, data tree, service templates, injected services), the
-    compose files that deploy it, and one project per persona delta
-    (:func:`_render_persona_projects`). It lands in
+    compose files that deploy it, and one project per layer
+    (:func:`_render_projects`). It lands in
     ``build/.tmp`` and replaces ``build/`` only once every step below has
     succeeded; see :func:`_swap_in_render`.
 
@@ -3156,7 +3220,7 @@ def _build_repo(
     ``.env.variant`` at the repo root may name an overlay under ``profiles/``
     (:func:`~osprey.cli.variant_selection.resolve_variant_selection`); when it
     does, that overlay is merged over ``profile.yml`` as a profile layer before
-    resolution, for the deployment and for every persona alike. One repo, one
+    resolution, for the deployment and for every render alike. One repo, one
     tracked profile, and as many host renders as the repo has variants.
 
     Args:
@@ -3173,7 +3237,7 @@ def _build_repo(
             the images run this checkout instead of the pinned release.
 
     Raises:
-        click.Abort: On any failure, a persona delta that will not resolve
+        click.Abort: On any failure, a layer that will not resolve
             included. ``build/`` is left as it was found.
         click.UsageError: When no deployment repo encloses the search path.
     """
@@ -3185,6 +3249,7 @@ def _build_repo(
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
         limits_block_errors,
+        profile_dispatch_tier,
     )
     from .build_profile_timezone import system_timezone_errors, system_timezone_reminders
     from .phase_reporter import current_reporter
@@ -3227,7 +3292,7 @@ def _build_repo(
 
         # Which profile this HOST builds, decided before anything is resolved.
         # The overlay is an inheritance layer: it merges over `profile.yml` by
-        # the same deep merge a persona delta uses, ahead of `extends:`
+        # the same deep merge a layer uses, ahead of `extends:`
         # resolution, and anchors at the repo root — so the render reads the
         # merged result and every profile-relative path still points at this
         # repo. A future
@@ -3240,7 +3305,7 @@ def _build_repo(
         build_profile = resolved.profile
 
         # The deployment's name is the profile's: every host-visible name — the
-        # compose project, volumes, image tags, each persona render — derives
+        # compose project, volumes, image tags, each render — derives
         # from it, so a clone under any folder name deploys as the same thing,
         # and a host overlay renames the instance. Validation already held a
         # stated value to compose's spelling.
@@ -3254,12 +3319,17 @@ def _build_repo(
         # this build is about to render (the `config:` block plus what the
         # `deploy:` block contributes to it).
         # `repo_root`, not the working directory: a catalog entry's
-        # `build_profile: personas/<name>.yml` is named relative to the profile.
+        # `build_profile: tiers/<name>.yml` is named relative to the profile.
         # Without it, `osprey build` from a subdirectory or through `--repo`
-        # read no persona delta at all and passed a roster the gate exists to
+        # read no layer at all and passed a roster the gate exists to
         # refuse.
+        dispatch_tier = profile_dispatch_tier(build_profile)
         web_errors = deploy_aware_config_errors(
-            build_profile.deploy, build_profile.config, profile_root=repo_root, project_name=name
+            build_profile.deploy,
+            build_profile.config,
+            profile_root=repo_root,
+            project_name=name,
+            dispatch_tier=dispatch_tier,
         )
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
@@ -3275,7 +3345,11 @@ def _build_repo(
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
         web_warnings = deploy_aware_config_warnings(
-            build_profile.deploy, build_profile.config, profile_root=repo_root, project_name=name
+            build_profile.deploy,
+            build_profile.config,
+            profile_root=repo_root,
+            project_name=name,
+            dispatch_tier=dispatch_tier,
         )
         # An authored `web.bar_items` entry the served default will not carry:
         # the server filters a panel-gated item whose panel this profile does
@@ -3455,7 +3529,7 @@ def _build_repo(
         )
 
         # One reported phase over every render pass this build makes — the
-        # deployment, the compose files, one per persona delta, one per image
+        # deployment, the compose files, one per layer, one per image
         # copy. They are six passes over the same profile producing one build/,
         # and reported one by one they read as six builds. Each pass gets a step
         # line naming what it produced instead.
@@ -3476,7 +3550,7 @@ def _build_repo(
                 progress=logger.debug,
                 injected_out=injected,
             )
-            # Every render after this one — each persona's, and each image
+            # Every render after this one — each render's, and each image
             # copy's — is told about the deployment's services from the render
             # just written (see _SharedRenderInputs.host_config). A profile
             # that is itself attached hosts nothing and projects nothing.
@@ -3507,16 +3581,16 @@ def _build_repo(
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")
 
-            # Personas BEFORE the compose files: the services render reads the
-            # personas' rendered config.yml files for its per-persona grants
-            # (the bluesky_web sidecar's roster secrets), and the start verbs
-            # are as-built — a grant this pass misses reaches no container.
-            persona_renders = _render_persona_projects(shared, zones, name)
-            if persona_renders:
-                phase.step(f"{len(persona_renders)} persona render(s)")
+            # Tiers and apps BEFORE the compose files: the services render reads
+            # their rendered config.yml files for its per-render grants (the
+            # bluesky_web sidecar's roster secrets), and the start verbs are
+            # as-built — a grant this pass misses reaches no container.
+            renders = _render_projects(shared, zones, name, host_profile=build_profile)
+            if renders:
+                phase.step(f"{len(renders)} render(s)")
 
             # The telemetry credential files, before the compose files that
-            # name them as `env_file`: every sender's login (the persona
+            # name them as `env_file`: every sender's login (the render
             # renders above settled the roster) and every service account's.
             # At the real repo root, never in the staged tree — they are
             # durable secrets, and `build/` is disposable. Not under
@@ -3529,7 +3603,7 @@ def _build_repo(
             phase.step("compose files")
 
             # The copies the images are built from — the deployment's and one per
-            # persona — each rendered against the path its container sees itself at
+            # render — each rendered against the path its container sees itself at
             # rather than the host's. Skipped under an explicit --runtime-root: that
             # build is ALREADY aimed at a runtime elsewhere, and rendering a second
             # relocation inside it would be guessing which of the two the operator
@@ -3576,7 +3650,7 @@ def _build_repo(
             zones,
             renders=[
                 zones.stage,
-                *persona_renders,
+                *renders,
                 *(image_root / BUILD_DIR_NAME for image_root in image_renders),
             ],
         )
@@ -3693,9 +3767,9 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     """Whether *build_profile*'s render leaves the setup capability in place.
 
     :func:`~osprey.cli.profile_conventions.is_setup_patch_capable` answers this
-    for a rendered persona config; this reaches the same answer one step
+    for a rendered render config; this reaches the same answer one step
     earlier, from the ``config:`` overrides that config is about to be written
-    from. The composition — deny minus ``remove_deny``, because a persona tier
+    from. The composition — deny minus ``remove_deny``, because a render tier
     that lifts an inherited deny is capable — is NOT repeated here: the
     overrides are assembled into the ``config.yml``-shaped document the
     predicate reads and it does the subtraction, so there is one composition
@@ -3709,9 +3783,9 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     used to read the first and the third; the middle one renders and was read as
     nothing, so a profile that denied the setup tool through
     ``claude_code.permissions: {deny: [...]}`` was reported capable and the
-    Dockerfile chowned ``build/config.yml`` to a persona whose ``settings.json``
+    Dockerfile chowned ``build/config.yml`` to a render whose ``settings.json``
     denies the tool. Rather than adding the third reader,
-    :func:`~osprey.deployment.web_terminals.personas.persona_capability_document`
+    :func:`~osprey.deployment.web_terminals.roster.render_capability_document`
     — the guard belt's reader, which already tries every split point — assembles
     the document, so exactly one spelling reader exists in the codebase and the
     container's verdict cannot disagree with the guard's about what a profile
@@ -3733,12 +3807,12 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     Returns:
         ``True`` when nothing the profile denies takes the setup tool away.
     """
-    from osprey.deployment.web_terminals.personas import persona_capability_document
+    from osprey.deployment.web_terminals.roster import render_capability_document
 
     from .profile_conventions import is_setup_patch_capable
 
     overrides = build_profile.config if isinstance(build_profile.config, dict) else {}
-    return is_setup_patch_capable(persona_capability_document(overrides))
+    return is_setup_patch_capable(render_capability_document(overrides))
 
 
 def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
@@ -3983,7 +4057,7 @@ def _repo_render_context(
 
     ``port_base`` is the third, and it is resolved here because this is the
     one place that holds both the profile and every render made from it: the
-    project render, the persona renders and the reading of what the app
+    project render, the renders and the reading of what the app
     template deploys at its defaults all take their ports from this value.
 
     ``ariel_server_on`` is the flag the framework template gates its two
@@ -4000,7 +4074,7 @@ def _repo_render_context(
         "dependencies": project_deps,
         "pip_dependency_args": " ".join(shlex.quote(d) for d in project_deps),
         # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
-        # the agent's user: a persona that can still reach the setup tool needs
+        # the agent's user: a render that can still reach the setup tool needs
         # the file that tool edits to be writable, and every other tier must
         # leave it root-owned. Composed here the way settings.json renders it —
         # the profile's own deny minus its `remove_deny`, which is how a tier
@@ -4107,7 +4181,7 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
     index from, which it writes to ``data/channel_databases/graph.duckdb`` in
     the same tree. An attached render stages that ``data/`` tree like any
     other, and its build and its containers read both files from it, so the key
-    is as true for the persona as for its host. Which keys those
+    is as true for the render as for its host. Which keys those
     are is the Reach Contract's declaration
     (:attr:`osprey.deployment.reach.ReachContract.render_local`), read here
     through :func:`osprey.deployment.reach.render_local_keys`, and they are

@@ -503,7 +503,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
     before the copy, so for all three the manifest can only ever remove. Skills
     are plain ``.md`` files copied whenever the manifest names them, so a
     manifest built from anything other than the caller's own selection decides
-    the skill set on its own — which is how a persona that drops a skill by name
+    the skill set on its own — which is how a render that drops a skill by name
     still ended up shipping it.
 
     Pins a selection strictly smaller than the ``control_assistant`` bundle's,
@@ -815,9 +815,9 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
 # (which hook layer sees the call). A server present in one and absent from
 # another is a build that renders without complaint and misbehaves at runtime.
 #
-# The two app templates that ship no ``services.graphdb`` block are the negative
-# half: ``hello_world`` below, and ``channel_finder_standalone`` in
-# ``tests/cli/test_graph_agent_surface.py``, which owns the renders this
+# The negative half is a render with no ``services.graphdb`` block:
+# ``hello_world`` below, and a control_assistant render with its store removed
+# in ``tests/cli/test_graph_agent_surface.py``, which owns the renders this
 # module's single control_assistant fixture does not provide.
 # ---------------------------------------------------------------------------
 
@@ -1561,16 +1561,16 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
 # ---------------------------------------------------------------------------
 
 #: The agent's deployment-editing tool. The ``control-assistant`` base denies it
-#: for every tier built on it; ``control-assistant-admin`` is the one profile
-#: that subtracts the deny back off with ``permissions.remove_deny``.
+#: for every tier built on it; the ``admin`` tier is the one layer that
+#: subtracts the deny back off with ``permissions.remove_deny``.
 SETUP_PATCH_TOOL = "mcp__osprey_workspace__setup_patch"
 
 
-def _render_preset_project(tmp_path_factory, preset: str) -> Path:
-    """A project rendered the way a real build of ``preset`` renders one.
+def _render_profile_project(tmp_path_factory, profile_path: Path, label: str) -> Path:
+    """A project rendered the way a real build of ``profile_path`` renders one.
 
     The module's other fixtures build straight from a ``data_bundle``, which is
-    the template layer alone — a preset's ``config:`` block never reaches them.
+    the template layer alone — a profile's ``config:`` block never reaches them.
     That layer is exactly what the tier floor lives in, so pinning it needs the
     second half of the pipeline as well: apply the resolved ``config:``
     overrides to the project's config.yml (through ``config_update_fields``,
@@ -1580,19 +1580,20 @@ def _render_preset_project(tmp_path_factory, preset: str) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.cli.build_profile_presets import preset_data_bundle
     from osprey.utils.config_writer import config_update_fields
+    from tests.fixtures.lifecycle_repo import EXEMPLAR_PRESET
 
-    profile, _profile_dir = resolve_build_profile(None, preset=preset)
+    profile, _profile_dir = resolve_build_profile(profile_path, preset=None)
+    # The bundle is a fact about the preset the deployment was materialized
+    # from, not a key on the resolved profile.
+    bundle = preset_data_bundle(EXEMPLAR_PRESET)
     manager = TemplateManager()
     project = _create_project(
         manager,
-        project_name=f"{preset}-floor",
+        project_name=f"{label}-floor",
         output_dir=tmp_path_factory.mktemp("floor_build"),
-        # The bundle is a fact about the preset, not a key on the resolved
-        # profile: it is read back from the preset chain, the way the build
-        # reads it.
-        data_bundle=preset_data_bundle(preset),
+        data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root(preset_data_bundle(preset)),
+        data_root=bundle_data_root(bundle),
     )
     config_update_fields(project / "config.yml", profile.config)
     manager.regenerate_claude_code(project)
@@ -1601,15 +1602,20 @@ def _render_preset_project(tmp_path_factory, preset: str) -> Path:
 
 @pytest.fixture(scope="module")
 def tier_floor_projects(tmp_path_factory) -> dict[str, Path]:
-    """The base and admin renders, built once for the whole module.
+    """The base and admin-tier renders of one deployment, built once per module.
 
     Both halves of the floor contract need a real render — the base to show the
     privilege is gone, the admin tier to show it comes back — and neither is
-    readable off the profile alone.
+    readable off the profile alone. Both come from the exemplar deployment
+    materialized from ``control-assistant``: its ``profile.yml`` and the
+    ``tiers/admin.yml`` that resolves over it.
     """
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+    repo = build_exemplar_repo(tmp_path_factory.mktemp("floor_repo") / "repo")
     return {
-        name: _render_preset_project(tmp_path_factory, name)
-        for name in ("control-assistant", "control-assistant-admin")
+        "base": _render_profile_project(tmp_path_factory, repo / "profile.yml", "base"),
+        "admin": _render_profile_project(tmp_path_factory, repo / "tiers" / "admin.yml", "admin"),
     }
 
 
@@ -1626,9 +1632,7 @@ def test_tier_floor_denies_setup_patch_in_the_base_render(tier_floor_projects):
     the path, and deny outranks ask, so both are asserted together: a render
     that lost the deny would still look supervised and would in fact be open.
     """
-    settings = json.loads(
-        (tier_floor_projects["control-assistant"] / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((tier_floor_projects["base"] / ".claude" / "settings.json").read_text())
     permissions = settings["permissions"]
     assert SETUP_PATCH_TOOL in permissions["deny"]
     assert SETUP_PATCH_TOOL in permissions["ask"]
@@ -1648,9 +1652,7 @@ def test_admin_render_lifts_the_setup_patch_deny(tier_floor_projects):
     that family pins a real ``osprey init`` + ``osprey build``; this one pins
     the ``regenerate_claude_code`` half of the pipeline this module owns.
     """
-    settings = json.loads(
-        (tier_floor_projects["control-assistant-admin"] / ".claude" / "settings.json").read_text()
-    )
+    settings = json.loads((tier_floor_projects["admin"] / ".claude" / "settings.json").read_text())
     permissions = settings["permissions"]
     assert SETUP_PATCH_TOOL not in permissions["deny"]
     assert SETUP_PATCH_TOOL in permissions["ask"]
@@ -1668,11 +1670,11 @@ def test_tier_floor_web_keys_render_into_config(tier_floor_projects):
     family pins a real ``osprey init`` + ``osprey build``; this one pins the
     ``config_update_fields`` half of the pipeline this module owns.
     """
-    base_web = _rendered_config(tier_floor_projects["control-assistant"])["web"]
+    base_web = _rendered_config(tier_floor_projects["base"])["web"]
     assert base_web["config_panel"]["enabled"] is False
     assert base_web["scaffold_gallery"]["write_enabled"] is False
 
-    admin_web = _rendered_config(tier_floor_projects["control-assistant-admin"])["web"]
+    admin_web = _rendered_config(tier_floor_projects["admin"])["web"]
     assert admin_web["config_panel"]["enabled"] is True
     assert admin_web["scaffold_gallery"]["write_enabled"] is True
 

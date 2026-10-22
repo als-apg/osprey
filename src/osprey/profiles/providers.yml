@@ -42,7 +42,7 @@
 # Add your own gateway by appending an entry; the keys above are the whole
 # contract. A copy of this file beside profile.yml replaces the packaged
 # catalog outright — it is not merged — so an entry deleted here is gone.
-# `osprey profile expand --providers` refreshes the packaged entries.
+# `osprey init --revalidate` refreshes the packaged entries.
 #
 # API keys are read from the project .env at runtime, never stored here.
 

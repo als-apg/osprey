@@ -45,7 +45,7 @@ from osprey.facility import FACILITY_FILE
 from osprey.facility.views.channel_finder import hierarchical_document, middle_layer_families
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from tests._preset_data import bundle_data_root
-from tests._vocabulary import PROTOCOL_WORDS
+from tests._vocabulary import PROTOCOL_WORDS, facility_strings, mask_facility_text
 
 
 def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> Path:
@@ -512,6 +512,9 @@ def test_no_partial_names_a_protocol_word(built_control_assistant, partial, fact
         TemplateManager()
         .jinja_env.get_template(partial)
         .render(facility_facts=facts, middle_layer_families=_middle_layer_families(facility))
+    )
+    rendered = mask_facility_text(
+        rendered, facility_strings(facts, _middle_layer_families(facility))
     )
 
     assert PROTOCOL_WORDS.search(rendered) is None, (

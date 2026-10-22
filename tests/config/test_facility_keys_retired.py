@@ -73,7 +73,7 @@ def test_no_preset_spells_a_retired_key(preset: Path) -> None:
         assert key not in text, f"{preset.name} still spells {key}"
 
 
-@pytest.mark.parametrize("app", ["control_assistant", "channel_finder_standalone"])
+@pytest.mark.parametrize("app", ["control_assistant"])
 def test_no_app_ships_a_packaged_ontology_table(app: str) -> None:
     """Nothing reads a configured ontology table, so no app template ships one."""
     data = REPO_ROOT / "src" / "osprey" / "templates" / "apps" / app / "data"

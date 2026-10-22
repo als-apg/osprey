@@ -1,41 +1,164 @@
 """Profile-root discovery — the anchor every profile-relative path resolves against.
 
-A positional profile file is one of two things: a facility's own profile, or a
-persona *delta* living in that profile's ``personas/`` directory. The two
-anchor differently — a delta's ``data:``, convention dirs, ``.env`` and hash
-material all belong to the profile root one level up, never to ``personas/``
-itself — so the distinction has to be made once, in one place, rather than
-re-derived by each consumer.
+A positional profile file is one of three kinds, and its location alone says
+which: a deployment's own **root** profile, a **tier** in ``tiers/`` beside that
+profile's ``profile.yml``, or an **app** in ``apps/`` beside it. Tiers and apps
+are layers: their ``data:``, convention dirs, ``.env`` and hash material all
+belong to the profile root one level up, never to the layer's own directory, so
+the distinction is made once, here, rather than re-derived by each consumer.
+The package ships tier and app presets the same way, in ``presets/tiers/`` and
+``presets/apps/`` beside the deployment presets; those anchor at the presets
+directory, which holds no ``profile.yml``.
 
 The trigger is deliberately narrow: the file's parent directory is named
-``personas`` **and** a ``profile.yml`` sits beside that directory. One level,
-no upward walk. A walk would quietly capture unrelated files (a profile passed
-from a scratch directory that happens to sit under a ``personas`` ancestor) and
-anchor them somewhere the caller never named; the narrow predicate leaves every
-other path — including the bare temp-file profiles tests build — standalone,
-with its own parent as root and no further requirements.
+``tiers`` or ``apps`` **and** a ``profile.yml`` sits beside that directory. One
+level, no upward walk. A walk would quietly capture unrelated files (a profile
+passed from a scratch directory that happens to sit under a ``tiers`` ancestor)
+and anchor them somewhere the caller never named; the narrow predicate leaves
+every other path — including the bare temp-file profiles tests build —
+standalone, with its own parent as root and no further requirements.
 
-A file inside ``personas/`` whose root is missing is an error rather than a
-standalone build: it is a delta, so building it alone would silently produce a
-profile missing everything the root was meant to supply.
+A file inside a layer directory whose root is missing is an error rather than a
+standalone build: it is a layer, so building it alone would silently produce a
+profile missing everything the root was meant to supply. A stem present in both
+``tiers/`` and ``apps/`` is refused: the name is the render's name, and one name
+cannot be both an access level of the deployment's agent and a separate app.
+
+The retired layer directory is read as ``tiers/`` for one release, with a single
+warning naming the rewrite.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIR_KINDS,
+    LAYER_DIRNAMES,
+    PROFILE_FILENAME,
+    RETIRED_LAYER_DIRS,
+    TIERS_DIRNAME,
+)
 
-#: Directory name that marks a profile file as a persona delta.
-PERSONA_DIRNAME = "personas"
-
-#: Filename of the root profile a persona delta merges over.
-ROOT_PROFILE_FILENAME = "profile.yml"
+_LOGGER = logging.getLogger(__name__)
 
 
-def resolve_profile_root(profile_path: Path) -> tuple[Path, bool]:
+class ProfileKind(StrEnum):
+    """What a profile file is, decided by where it sits.
+
+    Truthy exactly when the kind is a layer that still has to be merged over a
+    root profile, so ``if kind:`` reads as "is this a layer?".
+    """
+
+    ROOT = "root"
+    TIER = "tier"
+    APP = "app"
+
+    @property
+    def is_layer(self) -> bool:
+        """Whether a file of this kind is merged over the root profile."""
+        return self is not ProfileKind.ROOT
+
+    def __bool__(self) -> bool:
+        return self.is_layer
+
+
+#: Layer directory name -> the kind its files resolve as. Built from the
+#: layout names in ``osprey_connectors.workspace``; a kind word there that
+#: :class:`ProfileKind` does not know fails here, at import.
+_LAYER_KINDS: dict[str, ProfileKind] = {
+    **{d: ProfileKind(word) for d, word in LAYER_DIR_KINDS.items()},
+    **{d: ProfileKind(LAYER_DIR_KINDS[live]) for d, live in RETIRED_LAYER_DIRS.items()},
+}
+
+
+def layer_files(root_dir: Path) -> list[tuple[ProfileKind, Path]]:
+    """Every layer file a profile root carries, as ``(kind, path)``.
+
+    The direct children of ``tiers/``, ``apps/`` and the retired layer directory (in that
+    order) that are files and are not dot-prefixed, sorted by name within each
+    directory. Exactly the files :func:`resolve_profile_root` reads as layers —
+    a file is a layer only when its parent directory IS a layer directory — so
+    a tree nested below one is not build input. No suffix filter: a layer
+    directory holds layers and nothing else, so a file in one that will not
+    parse is a mistake the build names rather than walks past.
+
+    Every listing that has to agree about the layer set uses this: the build
+    loop that renders one project per layer, the content-hash fold, and the
+    staleness fingerprint's per-file digests. A file one of them saw and
+    another missed would either ship an edit silently or refuse a start with
+    nothing to re-render.
+
+    Purely lexical: it neither resolves symlinks nor checks that a file anchors
+    back at *root_dir* — the build loop does that before rendering.
+
+    Returns:
+        An empty list when *root_dir* has no layer directory.
+    """
+    found: list[tuple[ProfileKind, Path]] = []
+    for dirname in LAYER_DIRNAMES:
+        layer_dir = root_dir / dirname
+        if not layer_dir.is_dir():
+            continue
+        kind = _LAYER_KINDS[dirname]
+        found.extend(
+            (kind, entry)
+            for entry in sorted(layer_dir.iterdir(), key=lambda entry: entry.name)
+            if entry.is_file() and not entry.name.startswith(".")
+        )
+    return found
+
+
+#: ``tiers/`` files already warned about in this process, so a build that
+#: resolves the same file several times prints the deprecation line once.
+_WARNED_LAYER_FILES: set[Path] = set()
+
+
+def _is_bundled_preset_dir(path: Path) -> bool:
+    # Imported here: the presets module sits above this one in the import graph.
+    from osprey.cli.build_profile_presets import is_bundled_preset_dir
+
+    return is_bundled_preset_dir(path)
+
+
+def _refuse_stem_in_two_kinds(path: Path, root_dir: Path, kind: ProfileKind) -> None:
+    """Raise when *path*'s stem also names a layer file of the other kind."""
+    other_dirs = [d for d in LAYER_DIRNAMES if _LAYER_KINDS[d] is not kind]
+    for other in other_dirs:
+        twin = root_dir / other / path.name
+        if twin.is_file():
+            raise BuildProfileError(
+                f"{path} and {twin} share the name {path.stem!r}. That name is both a "
+                f"tier and an app, and a render is named by its file, so neither can be "
+                f"built. Rename one of them, or delete the one this deployment does not "
+                f"use: a tier in '{TIERS_DIRNAME}/' is an access level of the "
+                f"deployment's own agent, an app in '{APPS_DIRNAME}/' is a separate agent "
+                "the deployment offers."
+            )
+
+
+def _warn_layer_file(path: Path, root_dir: Path) -> None:
+    if path in _WARNED_LAYER_FILES:
+        return
+    _WARNED_LAYER_FILES.add(path)
+    successor = RETIRED_LAYER_DIRS[path.parent.name]
+    _LOGGER.warning(
+        "%s is read as the tier %s; the '%s/' directory is deprecated and will be "
+        "refused in the next release. To move every file into '%s/', run "
+        "`osprey init --revalidate`",
+        path,
+        root_dir / successor / path.name,
+        path.parent.name,
+        successor,
+    )
+
+
+def resolve_profile_root(profile_path: Path) -> tuple[Path, ProfileKind]:
     """Resolve the profile root a profile file's relative paths anchor at.
 
     Args:
@@ -43,34 +166,45 @@ def resolve_profile_root(profile_path: Path) -> tuple[Path, bool]:
             callers report a missing file themselves, with their own wording.
 
     Returns:
-        ``(root_dir, is_persona_delta)``. ``root_dir`` is the absolute directory
-        that ``data:``, convention dirs, ``.env`` and hash material resolve
-        against: the profile root for a persona delta, the file's own parent
-        otherwise. ``is_persona_delta`` tells callers whether the file's content
-        is a delta that still has to be merged over the root profile.
+        ``(root_dir, kind)``. ``root_dir`` is the absolute directory that
+        ``data:``, convention dirs, ``.env`` and hash material resolve against:
+        the profile root for a tier or app, the bundled presets directory for a
+        tier or app preset, the file's own parent otherwise. ``kind`` is
+        :attr:`ProfileKind.TIER` or :attr:`ProfileKind.APP` for a layer that
+        still has to be merged over a root profile, :attr:`ProfileKind.ROOT`
+        otherwise.
 
     Raises:
-        BuildProfileError: If the file sits in a ``personas/`` directory with no
-            ``profile.yml`` beside it.
+        BuildProfileError: If the file sits in ``tiers/``, ``apps/`` or a
+            retired layer directory with no ``profile.yml`` beside it, or its
+            stem names both a tier and an app.
     """
     path = Path(profile_path).resolve()
     parent = path.parent
+    kind = _LAYER_KINDS.get(parent.name)
 
-    if parent.name != PERSONA_DIRNAME:
-        return parent, False
+    if kind is None:
+        return parent, ProfileKind.ROOT
 
     root_dir = parent.parent
-    root_profile = root_dir / ROOT_PROFILE_FILENAME
+    if parent.name not in RETIRED_LAYER_DIRS and _is_bundled_preset_dir(root_dir):
+        return root_dir, kind
+
+    root_profile = root_dir / PROFILE_FILENAME
     if not root_profile.is_file():
         raise BuildProfileError(
-            f"Persona profile {path} sits in a '{PERSONA_DIRNAME}/' directory but its "
-            f"profile root is missing: expected {root_profile}. A persona file holds "
-            "only a delta over the profile it belongs to, so it cannot be built on its "
-            f"own — move it beside its {ROOT_PROFILE_FILENAME}, or move it out of a "
-            f"'{PERSONA_DIRNAME}/' directory to build it as a standalone profile."
+            f"{kind.value.capitalize()} profile {path} sits in a '{parent.name}/' "
+            f"directory but its profile root is missing: expected {root_profile}. A "
+            f"{kind.value} file holds only what it adds to the profile it belongs to, so "
+            f"it cannot be built on its own — move it beside its {PROFILE_FILENAME}, "
+            f"or move it out of a '{parent.name}/' directory to build it as a standalone "
+            "profile."
         )
 
-    return root_dir, True
+    _refuse_stem_in_two_kinds(path, root_dir, kind)
+    if parent.name in RETIRED_LAYER_DIRS:
+        _warn_layer_file(path, root_dir)
+    return root_dir, kind
 
 
 class ProjectProfileProblem(Enum):
@@ -89,7 +223,7 @@ class ProjectProfileProblem(Enum):
     #: The manifest names a profile file that is not there any more.
     PROFILE_FILE_MISSING = "profile_file_missing"
 
-    #: A persona delta whose root profile is gone; see :func:`resolve_profile_root`.
+    #: A tier or app whose root profile is gone; see :func:`resolve_profile_root`.
     ROOT_UNRESOLVABLE = "root_unresolvable"
 
 
@@ -109,8 +243,8 @@ class ProjectProfile:
     #: The resolved profile root; ``None`` whenever ``problem`` is set.
     root: Path | None = None
 
-    #: Whether ``profile_path`` is a persona delta anchored one level up.
-    is_persona_delta: bool = False
+    #: What ``profile_path`` is; a tier or app anchors one level up.
+    kind: ProfileKind = ProfileKind.ROOT
 
     #: Set when no root resolved; ``None`` on success.
     problem: ProjectProfileProblem | None = None
@@ -121,10 +255,15 @@ class ProjectProfile:
     root_error: BuildProfileError | None = None
 
     @property
+    def is_layer(self) -> bool:
+        """Whether ``profile_path`` is a layer (tier or app) over the root."""
+        return self.kind.is_layer
+
+    @property
     def env_path(self) -> Path | None:
         """The ``.env`` that owns this project's secrets, or ``None``.
 
-        The ``.env`` sits at the profile *root*: a persona delta shares the root
+        The ``.env`` sits at the profile *root*: a tier or app shares the root
         profile's secrets rather than keeping its own beside itself.
         """
         return None if self.root is None else self.root / ".env"
@@ -137,15 +276,15 @@ def resolve_project_profile(project_dir: Path, *, require_profile_file: bool) ->
     from a *project* rather than a profile file, following
     ``build_args.profile_path_abs`` — the path ``osprey build`` actually
     resolved — and then anchoring it the way the build does, so a project built
-    from a persona delta reports the root one level above ``personas/`` rather
-    than the delta's own directory.
+    from a tier or app reports the root one level above ``tiers/`` or ``apps/``
+    rather than the layer's own directory.
 
     Callers ask the same question for different reasons, and the one thing they
     genuinely disagree on is whether the recorded profile file still has to be
     *there*, which ``require_profile_file`` makes explicit:
 
     * ``True`` for a caller acting on the profile — moving an artifact into it,
-      reading a persona delta out of it. A directory that no longer holds a
+      reading a tier or app out of it. A directory that no longer holds a
       profile would otherwise be reported as the root and every file under it
       as individually missing: one problem told as several, none of them the
       real one.
@@ -176,7 +315,7 @@ def resolve_project_profile(project_dir: Path, *, require_profile_file: bool) ->
         )
 
     try:
-        root_dir, is_delta = resolve_profile_root(profile_path)
+        root_dir, kind = resolve_profile_root(profile_path)
     except BuildProfileError as exc:
         return ProjectProfile(
             profile_path=profile_path,
@@ -184,4 +323,4 @@ def resolve_project_profile(project_dir: Path, *, require_profile_file: bool) ->
             root_error=exc,
         )
 
-    return ProjectProfile(profile_path=profile_path, root=root_dir, is_persona_delta=is_delta)
+    return ProjectProfile(profile_path=profile_path, root=root_dir, kind=kind)

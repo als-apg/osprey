@@ -63,8 +63,9 @@ refused as busy while the plan runs, and is a no-op re-arm once it has
 finished. So the floor takes an add the bridge reports armed as the launch,
 and an unarmed add only with a successful start after it. A floor satisfied
 by an unarmed add alone would pass a run in which no measurement was ever
-taken, which is the one thing this module exists to detect. ``get_run_data``
-closes it, and closes it on the RIGHT run: the add's own result names the run id
+taken, which is the one thing this module exists to detect. Reading the run
+back — its rows (``get_run_data``) or the plan's figure of them
+(``get_run_figure``) — closes it, and closes it on the RIGHT run: the add's own result names the run id
 the bridge assigned, and the read is required to ask for that id. Every live
 test shares one deploy, so an earlier test's run stays readable — without that
 binding, a run that read the PREVIOUS measurement back would look identical to
@@ -191,6 +192,7 @@ SET_DRAFT = bluesky_tool_names.matcher(bluesky_tool_names.SET_DRAFT)
 QUEUE_ADD = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD)
 QUEUE_START = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START)
 GET_RUN_DATA = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_DATA)
+GET_RUN_FIGURE = bluesky_tool_names.matcher(bluesky_tool_names.GET_RUN_FIGURE)
 WRITE_PLAN = bluesky_tool_names.matcher(bluesky_tool_names.WRITE_PLAN)
 VALIDATE_PLAN = bluesky_tool_names.matcher(bluesky_tool_names.VALIDATE_PLAN)
 STOP_RUN = bluesky_tool_names.matcher(bluesky_tool_names.STOP_RUN)
@@ -524,8 +526,14 @@ def _launch_index(traces: list[ToolTrace], add_idx: int) -> int | None:
     return _first_successful_after(traces, add_idx, QUEUE_START)
 
 
+#: The two calls that read a run back: its rows (``get_run_data``) and the
+#: plan's figure of those rows (``get_run_figure``). Both take the run id as a
+#: required argument, so either can be bound to the run an add launched.
+RUN_READS = (GET_RUN_DATA, GET_RUN_FIGURE)
+
+
 def _reads_run(run_id: str) -> Callable[[ToolTrace], bool]:
-    """Predicate: a ``get_run_data`` call that reads ``run_id``.
+    """Predicate: a run read (see :data:`RUN_READS`) that asks for ``run_id``.
 
     A factory rather than an inline lambda so the id is bound at call time,
     not looked up from the enclosing loop when the predicate finally runs.
@@ -533,26 +541,40 @@ def _reads_run(run_id: str) -> Callable[[ToolTrace], bool]:
     return lambda trace: trace.input.get("run_id") == run_id
 
 
+def _first_read_of_run(traces: list[ToolTrace], after: int, run_id: str | None) -> int | None:
+    """Index of the first successful read of ``run_id`` beyond ``after``, by
+    either call in :data:`RUN_READS`, or ``None``. A ``run_id`` of ``None``
+    accepts a read of any run — the graceful degrade described in
+    :func:`find_satisfying_chain`."""
+    matches = None if run_id is None else _reads_run(run_id)
+    reads = [
+        index
+        for name in RUN_READS
+        if (index := _first_successful_after(traces, after, name, matches=matches)) is not None
+    ]
+    return min(reads, default=None)
+
+
 def find_satisfying_chain(
     traces: list[ToolTrace], predicate: PlanClassPredicate
 ) -> tuple[int, int, int] | None:
     """Locate a stage → launch → read chain that satisfies ``predicate``.
 
-    Returns the ``(queue_add, launch, get_run_data)`` trace indices of the
+    Returns the ``(queue_add, launch, run read)`` trace indices of the
     first satisfying chain, or ``None`` if there is none. Satisfying means: a
     SUCCESSFUL ``queue_add`` whose accumulated draft state passes ``predicate``,
     launched — the add's own index when the bridge reported the add armed,
     else a later successful ``queue_start`` (see :func:`_launch_index`) —
-    followed later by a successful ``get_run_data`` OF THE RUN THAT ADD
-    LAUNCHED.
+    followed later by a successful read (see :data:`RUN_READS`) OF THE RUN
+    THAT ADD LAUNCHED.
 
     That last binding is what keeps the read honest across tests. Both live
     tests share one module deploy, so from the second one onward an EARLIER
     test's run is still readable — and an agent that queued a plan, started
     it, and then read the previous run's data back would satisfy an unbound
     floor while reporting a measurement it never took. The add's own result
-    carries the ``run_id`` the bridge assigned, and ``get_run_data`` takes
-    that id as a required argument, so the two can simply be required to
+    carries the ``run_id`` the bridge assigned, and both reads take that id as
+    a required argument, so the two can simply be required to
     agree.
 
     The binding degrades rather than breaks: when the add's result carries no
@@ -576,13 +598,7 @@ def find_satisfying_chain(
         launch_idx = _launch_index(traces, add_idx)
         if launch_idx is None:
             continue
-        run_id = _launched_run_id(trace)
-        read_idx = _first_successful_after(
-            traces,
-            launch_idx,
-            GET_RUN_DATA,
-            matches=None if run_id is None else _reads_run(run_id),
-        )
+        read_idx = _first_read_of_run(traces, launch_idx, _launched_run_id(trace))
         if read_idx is None:
             continue
         return add_idx, launch_idx, read_idx
@@ -619,9 +635,10 @@ def assert_scan_executed(
         if t.name == QUEUE_ADD
     ]
     read_calls = [
-        f"{'REFUSED' if t.is_error else 'ok'} run_id={t.input.get('run_id')!r}"
+        f"{'REFUSED' if t.is_error else 'ok'} {t.name.rsplit('__', 1)[-1]} "
+        f"run_id={t.input.get('run_id')!r}"
         for t in traces
-        if t.name == GET_RUN_DATA
+        if t.name in RUN_READS
     ]
     raise AssertionError(
         f"no {plan_class} plan was staged, launched, and read back. The floor "
@@ -629,12 +646,13 @@ def assert_scan_executed(
         f"the {plan_class} contract, then the launch — the add itself where the "
         "bridge answered armed=True, else a successful queue_start after it (an "
         "item waiting in a stopped queue is not a measurement) — then a successful "
-        "get_run_data OF THE RUN THAT ADD LAUNCHED (reading an earlier run "
+        "read of the data or figure (get_run_data or get_run_figure) OF THE RUN "
+        "THAT ADD LAUNCHED (reading an earlier run "
         "back is not this measurement — compare 'launched' below against the "
         "run_id each read asked for).\n"
         f"  set_draft calls: {draft_calls or '(none)'}\n"
         f"  queue_add calls, with the draft state each saw: {add_states or '(none)'}\n"
-        f"  get_run_data calls, with the run each read: {read_calls or '(none)'}\n"
+        f"  run reads, with the run each asked for: {read_calls or '(none)'}\n"
         # A silent bluesky MCP outage and free-choice agent drift produce the
         # same bare failure; the server status + full call list tell them apart.
         f"  MCP server status: {result.mcp_server_status}\n"
@@ -758,8 +776,8 @@ def find_authored_run_chain(
     AUTHORED (a successful ``write_plan`` of that name) and then VALIDATED
     with a pass (a successful, passing ``validate_plan`` of that name, after
     the authoring), launched (an armed add, or a successful ``queue_start``
-    after it) and followed by a successful ``get_run_data`` of the run the
-    add launched — the same tail binding, and
+    after it) and followed by a successful read (see :data:`RUN_READS`) of
+    the run the add launched — the same tail binding, and
     the same graceful run-id degradation, as :func:`find_satisfying_chain`.
 
     The name binding is the class check here: a run of ``orm`` or
@@ -795,13 +813,7 @@ def find_authored_run_chain(
         if launch_idx is None:
             continue
         run_id = _launched_run_id(trace)
-        read_idx = _first_successful_after(
-            traces,
-            launch_idx,
-            GET_RUN_DATA,
-            matches=None if run_id is None else _reads_run(run_id),
-        )
-        if read_idx is None:
+        if _first_read_of_run(traces, launch_idx, run_id) is None:
             continue
         return add_idx, run_id, staged
     return None
@@ -845,7 +857,7 @@ def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None
         "invalidates an earlier pass), then a successful queue_add staging "
         "exactly that plan, the launch (the add itself where the bridge answered "
         "armed=True, else a successful queue_start after it), and a successful "
-        "get_run_data of the run that add launched. A run of a registered "
+        "read of the data or figure of the run that add launched. A run of a registered "
         "plan cannot satisfy this floor — authoring is the capability under "
         "test.\n"
         f"  write_plan calls: {authored or '(none)'}\n"
@@ -1563,6 +1575,16 @@ def _read(*, is_error: bool = False, data: str = _ORM_RUN_DATA, run_id: str = "r
     )
 
 
+def _figure(*, is_error: bool = False, run_id: str = "run-1") -> ToolTrace:
+    """A ``get_run_figure`` trace of ``run_id`` — the other way a run is read back."""
+    return ToolTrace(
+        name=GET_RUN_FIGURE,
+        input={"run_id": run_id},
+        result='{"code": "no_such_run"}' if is_error else '{"partial": false, "panels": []}',
+        is_error=is_error,
+    )
+
+
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
     "readbacks": ["bpm_01", "bpm_17", "bpm_23"],
@@ -1785,6 +1807,48 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
         _read(run_id="run-1"),
     ]
     assert _floor_passes(unparseable_add_result)
+
+
+@pytest.mark.harness_benchmark
+def test_floor_takes_the_plan_figure_as_reading_the_run_back() -> None:
+    """``get_run_figure`` reads the run back as surely as ``get_run_data``.
+
+    The figure is the run's recorded data, drawn by the plan's own view (or the
+    bridge's default view of every column), so an agent that reads its result
+    there has read the measurement. The same run binding holds: a figure of an
+    earlier run is not this measurement.
+    """
+    figure_of_launched = [
+        _draft(patch=_ORM_ARGS),
+        _add(run_id="run-7"),
+        _start(),
+        _figure(run_id="run-7"),
+    ]
+    assert _floor_passes(figure_of_launched)
+
+    figure_of_an_older_run = [
+        _draft(patch=_ORM_ARGS),
+        _add(run_id="run-7"),
+        _start(),
+        _figure(run_id="run-1"),
+    ]
+    assert not _floor_passes(figure_of_an_older_run)
+
+    figure_before_the_launch = [
+        _draft(patch=_ORM_ARGS),
+        _add(run_id="run-7"),
+        _figure(run_id="run-7"),
+        _start(),
+    ]
+    assert not _floor_passes(figure_before_the_launch)
+
+    refused_figure = [
+        _draft(patch=_ORM_ARGS),
+        _add(run_id="run-7"),
+        _start(),
+        _figure(run_id="run-7", is_error=True),
+    ]
+    assert not _floor_passes(refused_figure)
 
 
 # A ``queue_add`` result captured verbatim off a live deployed stack, with the
@@ -2322,6 +2386,16 @@ def test_authored_floor_accepts_the_healthy_chain() -> None:
     assert plan_name == _HYST_PLAN_NAME
     result = SDKWorkflowResult(tool_traces=_authored_loop_trace())
     assert assert_authored_scan_executed(result) == ("run-1", _HYST_PLAN_NAME)
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_takes_the_plan_figure_as_reading_the_run_back() -> None:
+    """The authored floor closes on a figure read of the launched run, and on
+    no other run's, exactly as the registered-plan floor does."""
+    figure_read = [*_authored_loop_trace()[:-1], _figure(run_id="run-1")]
+    assert find_authored_run_chain(figure_read) is not None
+    older_figure = [*_authored_loop_trace()[:-1], _figure(run_id="run-0")]
+    assert find_authored_run_chain(older_figure) is None
 
 
 @pytest.mark.harness_benchmark

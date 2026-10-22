@@ -494,7 +494,7 @@ def snapshot_targets(render_dir: Path) -> list[Path]:
     """Every rendered graph-querying agent file under *render_dir*.
 
     Three places, all of them renders of this one deployment: the render's own
-    ``.claude/agents/``; one directory level down, where attached persona
+    ``.claude/agents/``; one directory level down, where attached render
     renders (the operator terminals sharing this deployment's store) keep
     theirs; and the container-path copies ``osprey build`` stages as each
     image's build context (:func:`osprey_connectors.workspace.container_image_context`),
@@ -551,7 +551,7 @@ def describe_patched(patched: Sequence[Path]) -> str:
     """A bake result as humans count it: distinct prompts × renders, not files.
 
     The raw file count multiplies the handful of agent prompts by every render
-    of the deployment (the render itself, attached personas, image build
+    of the deployment (the render itself, attached renders, image build
     contexts — :func:`snapshot_targets`), so "16 agent prompt(s)" reads as
     sixteen distinct agents when it is two prompts in eight places.
     """

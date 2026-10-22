@@ -9,7 +9,7 @@ What is read is narrow on purpose: the value of ``control_system.type`` /
 ``archiver.type`` plus the comment block directly above it — the prose that
 introduces the key and lists its alternatives. Inside that block every
 double-quoted lower_snake token is a type name; elsewhere in the file a quoted
-token is as likely to be an approval policy or a persona id.
+token is as likely to be an approval policy or a render id.
 
 Four rules. The third keeps a partial list honest; the fourth keeps the
 complete one from being a list of names with nothing behind them:
@@ -46,7 +46,7 @@ from osprey_connectors.types import (
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 
 #: The four documents an operator starts from.
-ROOT_PRESETS = ("control-assistant", "hello-world", "ariel-standalone", "channel-finder-standalone")
+ROOT_PRESETS = ("control-assistant", "hello-world")
 
 #: The preset that enumerates the alternatives, and is therefore held to the
 #: complete list. The other three describe only the one type they set.

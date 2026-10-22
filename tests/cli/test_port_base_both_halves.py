@@ -530,8 +530,20 @@ class TestThePanelsMove:
             if name.startswith("web-")
         ]
         assert terminals, "the exemplar must render at least one web terminal"
-        roster = dotted_render.config["modules"]["web_terminals"]["users"]
-        index_of = {entry["name"]: int(entry["index"]) for entry in roster}
+        from osprey.deployment.web_terminals.roster import roster_entries
+
+        # Every terminal's slot: a person's own ``index``, and each shared app
+        # the slot derived from its position in ``shared:``.
+        web_terminals = dotted_render.config["modules"]["web_terminals"]
+        index_of = {
+            entry["name"]: int(entry["index"])
+            for entry in roster_entries(web_terminals, strict=True)
+        }
+        assert {e["name"] for e in web_terminals["users"]} <= set(index_of)
+        from osprey.port_layout import INDEX_MAX
+
+        for position, app in enumerate(web_terminals.get("shared") or []):
+            assert index_of[app] == INDEX_MAX - position, app
 
         offences: list[str] = []
         for name, body in terminals:

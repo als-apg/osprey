@@ -134,7 +134,7 @@ class TestCapabilities:
     async def test_no_write_enabled_field(self):
         """The field was a constant `True` that no consumer read.
 
-        It described nothing: the shipped knowledge persona denies
+        It described nothing: the shipped knowledge render denies
         `draft_concept` outright, so on that deployment the manifest said writes
         were enabled while every write was refused.
         """

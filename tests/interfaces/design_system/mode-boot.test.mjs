@@ -17,7 +17,7 @@
  * (configured globally in vitest.config.js):
  *   npx vitest run tests/interfaces/design_system/mode-boot.test.mjs
  *
- * The per-persona scoping of the storage rung is pinned separately, in
+ * The per-user scoping of the storage rung is pinned separately, in
  * ./js/mode-boot-scope.test.mjs.
  */
 

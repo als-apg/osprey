@@ -67,6 +67,8 @@ from osprey.deployment.reset import (
     reset_deployment,
     strip_env_blocks,
 )
+from osprey_connectors.workspace import TIERS_DIRNAME
+from tests._renders import tier_render
 
 PROJECT = "als-exemplar"
 OTHER_IDENTITY = "0123456789ab"
@@ -192,7 +194,7 @@ def repo(tmp_path: Path) -> Path:
     root = tmp_path / PROJECT
     (root / "build").mkdir(parents=True)
     (root / "data").mkdir()
-    (root / "personas").mkdir()
+    (root / TIERS_DIRNAME).mkdir()
     (root / "var" / "agent_data" / "memory").mkdir(parents=True)
     (root / "var" / "audit").mkdir(parents=True)
     (root / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
@@ -1330,7 +1332,7 @@ def test_the_source_zone_is_untouched(repo):
 
     assert (repo / "profile.yml").read_text(encoding="utf-8") == "preset: control-assistant\n"
     assert (repo / "data" / "channels.json").is_file()
-    assert (repo / "personas").is_dir()
+    assert (repo / TIERS_DIRNAME).is_dir()
 
 
 @pytest.mark.usefixtures("no_down")
@@ -1479,7 +1481,7 @@ def test_a_missing_image_tag_is_not_an_error_and_not_in_the_plan(repo):
 
 
 def _with_web_terminals(repo: Path) -> None:
-    """Give the build a web-terminal roster with a local-mode persona catalog."""
+    """Give the build a web-terminal roster with a local-mode render catalog."""
     import yaml
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
@@ -1490,44 +1492,46 @@ def _with_web_terminals(repo: Path) -> None:
         "web_terminals": {
             "enabled": True,
             "image_source": "local",
-            "users": [{"name": "alice", "index": 0, "persona": "control-room"}],
-            "personas": {"control-room": {"project": "acc-control", "project_path": "/x"}},
+            "users": [{"name": "alice", "index": 0, "tier": "control-room"}],
+            "renders": {
+                "control-room": tier_render("control-room", "acc-control", project_path="/x")
+            },
         }
     }
     (repo / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
 @pytest.mark.usefixtures("no_down")
-def test_a_web_terminal_personas_local_image_is_a_candidate(repo):
-    """Reset absorbs ``deploy nuke``, whose image half is the persona tags."""
+def test_a_web_terminal_renders_local_image_is_a_candidate(repo):
+    """Reset absorbs ``deploy nuke``, whose image half is the render tags."""
     _with_web_terminals(repo)
-    persona_tag = "acc-control:local"
+    render_tag = "acc-control:local"
     fake = FakeRuntime(
         images={
             f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
-            persona_tag: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
+            render_tag: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT},
         }
     )
     run_reset(repo, fake)
 
-    assert sorted(fake.removed_names()) == sorted([f"{PROJECT}:local", persona_tag])
+    assert sorted(fake.removed_names()) == sorted([f"{PROJECT}:local", render_tag])
 
 
 @pytest.mark.usefixtures("no_down")
-def test_a_persona_image_belonging_to_another_deployment_survives(repo):
+def test_a_render_image_belonging_to_another_deployment_survives(repo):
     """Image tags are host-global, so the project label is checked tag by tag."""
     _with_web_terminals(repo)
-    persona_tag = "acc-control:local"
-    fake = FakeRuntime(images={persona_tag: {reset_mod.OSPREY_PROJECT_LABEL: "someone-else"}})
+    render_tag = "acc-control:local"
+    fake = FakeRuntime(images={render_tag: {reset_mod.OSPREY_PROJECT_LABEL: "someone-else"}})
     run_reset(repo, fake)
 
     assert fake.removals == []
-    assert persona_tag in fake.images
+    assert render_tag in fake.images
 
 
 @pytest.mark.usefixtures("no_down")
 def test_an_unreadable_roster_leaves_the_project_image_removable(repo):
-    """A broken persona catalog degrades reset's image half; it never blocks the reset."""
+    """A broken render catalog degrades reset's image half; it never blocks the reset."""
     import yaml
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
@@ -1673,17 +1677,17 @@ def test_an_unreadable_config_degrades_to_the_project_name_and_the_axes(repo, mo
 
 
 def _roster_of(monkeypatch, *images: str) -> None:
-    """Make the roster resolve to exactly *images*, whatever the persona rules say.
+    """Make the roster resolve to exactly *images*, whatever the render rules say.
 
-    The persona naming rules produce ``:local`` images and only ``:local``
+    The render naming rules produce ``:local`` images and only ``:local``
     images, so the filter's other half — an image the AXES named — cannot be
     reached through them. Substituting the roster is what puts that half under
-    test without asserting a persona shape the code does not produce.
+    test without asserting a render shape the code does not produce.
     """
-    from osprey.deployment.web_terminals import personas as personas_mod
+    from osprey.deployment.web_terminals import roster as renders_mod
 
     roster = [{"name": f"u{index}", "image": image} for index, image in enumerate(images)]
-    monkeypatch.setattr(personas_mod, "resolve_personas", lambda *args, **kwargs: roster)
+    monkeypatch.setattr(renders_mod, "resolve_cards", lambda *args, **kwargs: roster)
 
 
 def test_a_roster_image_the_axes_named_is_a_candidate(repo, monkeypatch):
@@ -1713,13 +1717,13 @@ def test_a_pulled_upstream_image_sharing_the_axis_tag_is_not_a_candidate(repo, m
 
 
 def test_a_local_roster_image_stays_a_candidate_under_a_set_axis(repo, monkeypatch):
-    """``:local`` is the persona convention and the axes do not move it."""
+    """``:local`` is the render convention and the axes do not move it."""
     _with_web_terminals(repo)
     _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
-    persona_tag = "acc-control:local"
-    _roster_of(monkeypatch, persona_tag)
+    render_tag = "acc-control:local"
+    _roster_of(monkeypatch, render_tag)
 
-    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, persona_tag]
+    assert reset_mod._candidate_image_tags(repo, PROJECT) == [_AXIS_IMAGE, render_tag]
 
 
 # ---------------------------------------------------------------------------

@@ -230,7 +230,7 @@ modules:
       allow_insecure_http: true
       method: password
       session_lifetime: 43200
-    default_persona: readonly
+    default_tier: readonly
     enabled: true
     image_source: local
     landing:
@@ -239,54 +239,52 @@ modules:
       groups:
       - label: Users
         type: users
+      - label: Apps
+        type: apps
       notices:
       - data/landing/working-safely.md
-    personas:
+    renders:
       admin:
-        build_profile: personas/admin.yml
+        kind: tier
         project: osprey-freeze-admin
         project_path: build/osprey-freeze-admin
+      channel-finder:
+        kind: app
+        project: osprey-freeze-channel-finder
+        project_path: build/osprey-freeze-channel-finder
       knowledge:
-        build_profile: personas/knowledge.yml
-        landing_group: Standalone deployments
+        kind: app
         project: osprey-freeze-knowledge
         project_path: build/osprey-freeze-knowledge
       logbook:
-        build_profile: personas/logbook.yml
-        landing_group: Standalone deployments
+        kind: app
         project: osprey-freeze-logbook
         project_path: build/osprey-freeze-logbook
       readonly:
-        build_profile: personas/readonly.yml
+        kind: tier
         project: osprey-freeze-readonly
         project_path: build/osprey-freeze-readonly
       readwrite:
-        build_profile: personas/readwrite.yml
+        kind: tier
         project: osprey-freeze-readwrite
         project_path: build/osprey-freeze-readwrite
+    shared:
+    - logbook
+    - knowledge
+    - channel-finder
     users:
     - display_name: Control Room (Alice)
       index: 0
       name: alice
-      persona: readwrite
+      tier: readwrite
     - display_name: Read-Only View (Bob)
       index: 1
       name: bob
-      persona: readonly
-    - access: any
-      display_name: Logbook Research
-      index: 2
-      name: logbook
-      persona: logbook
-    - access: any
-      display_name: Facility Knowledge
-      index: 4
-      name: knowledge
-      persona: knowledge
+      tier: readonly
     - display_name: Deployment Admin (Carol)
-      index: 3
+      index: 2
       name: carol
-      persona: admin
+      tier: admin
 project_name: osprey-freeze
 scaffold:
   user_owned:
@@ -310,6 +308,7 @@ services:
     max_turns: 25
     network: host
     path: ./services/dispatch_worker
+    tier: readonly
     timeout_sec: 300
     worker_count: 1
     worker_port_base: 10011

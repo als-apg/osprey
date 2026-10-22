@@ -7,7 +7,7 @@ build`` is where the derivation happens: once per build, on the host, shared by
 every render pass.
 
 So there are five outcomes and all five are pinned here: a render ships an index
-built from ITS corpus; a build with personas parses the corpus once and every
+built from ITS corpus; a build with renders parses the corpus once and every
 render carries the same file; a corpus that is configured but not staged is a
 fact and no file; and a corpus that is not valid Turtle -- or not text at all --
 is a warning and no file, with the build still succeeding. Each of those five
@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.services.channel_finder.graph_index import corpora
 
 #: Where a render's index goes: the fixed path under the render.
@@ -56,7 +57,7 @@ def _graph_repo(
     root: Path,
     *,
     corpus: str | None,
-    personas: tuple[str, ...] = (),
+    tiers: tuple[str, ...] = (),
     mode: str = "graph",
 ) -> Path:
     """A graph-mode deployment repo with its OWN corpus.
@@ -92,9 +93,9 @@ def _graph_repo(
         "  hooks.debug: false\n"
         f"  services.graphdb.ttl_path: {_CORPUS_RELATIVE}\n"
     )
-    for persona in personas:
-        (root / "personas").mkdir(exist_ok=True)
-        (root / "personas" / f"{persona}.yml").write_text(f"name: {persona}\n")
+    for tier in tiers:
+        (root / TIERS_DIRNAME).mkdir(exist_ok=True)
+        (root / TIERS_DIRNAME / f"{tier}.yml").write_text(f"name: {tier}\n")
     return root
 
 
@@ -110,7 +111,7 @@ def _build(repo: Path):
 
 
 def _indexes(build_dir: Path) -> list[Path]:
-    """Every ``graph.duckdb`` this build wrote: the deployment's, then each persona's."""
+    """Every ``graph.duckdb`` this build wrote: the deployment's, then each render's."""
     own = build_dir / _INDEX_RELATIVE
     return ([own] if own.is_file() else []) + sorted(build_dir.glob(f"*/{_INDEX_RELATIVE}"))
 
@@ -205,14 +206,14 @@ def test_a_render_with_a_graph_store_ships_the_index_in_any_mode(tmp_path: Path)
 
 
 @pytest.mark.real_graph_index
-def test_a_persona_build_parses_the_corpus_once_and_ships_one_file(
+def test_a_render_build_parses_the_corpus_once_and_ships_one_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two personas, three renders, ONE parse.
+    """Two renders, three renders, ONE parse.
 
     Deriving an index is an rdflib parse of the whole corpus, seconds on a real
     facility, and every render pass of one build stages the same corpus. The
-    memo is what makes a persona build cost the same as a plain one, so both
+    memo is what makes a render build cost the same as a plain one, so both
     halves are pinned: the builder ran once, and every render still carries the
     file rather than the first one keeping it to itself.
     """
@@ -228,16 +229,16 @@ def test_a_persona_build_parses_the_corpus_once_and_ships_one_file(
     monkeypatch.setattr(graph_index, "build_graph_index", counted)
 
     repo = _graph_repo(
-        tmp_path / "graph-personas",
+        tmp_path / "graph-renders",
         corpus=corpora.SUBCLASS_CHAIN,
-        personas=("reader", "writer"),
+        tiers=("reader", "writer"),
     )
 
     result = _build(repo)
 
     assert result.exit_code == 0, result.output
     written = _indexes(repo / "build")
-    # A deployment and two personas: exactly three renders, exactly three files.
+    # A deployment and two tiers: exactly three renders, exactly three files.
     assert len(written) == 3, f"a render carries no index: {written}"
     assert len(calls) == 1, f"the corpus was parsed {len(calls)} times: {calls}"
     first = written[0].read_bytes()

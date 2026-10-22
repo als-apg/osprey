@@ -28,7 +28,7 @@ from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA
-from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME, TIERS_DIRNAME
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -52,6 +52,9 @@ SCENARIO_FILES = (
 LIMITS = "data/channel_limits.json"
 FACTS = ("data/facility_facts.json", "data/facility_facts.md")
 BLUESKY = "data/bluesky_devices.yml"
+#: The hierarchical channel index, written only into a render that selects the
+#: hierarchical channel-finder pipeline.
+CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
 GRAPH = "data/graph/facility.ttl"
 PYAML = (
     "data/pyaml/BTS/configuration.yaml",
@@ -78,7 +81,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
 ) -> None:
     assert built_control_assistant.outputs
     for outputs in built_control_assistant.outputs:
-        assert sorted(set(outputs.files) - {BLUESKY}) == sorted(
+        assert sorted(set(outputs.files) - {BLUESKY, CHANNEL_INDEX}) == sorted(
             [
                 FACILITY_FILE,
                 ADDRESSES,
@@ -96,8 +99,15 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 *PYAML,
             ]
         )
-    # The deployment's render runs a Bluesky lane; a persona without one has no view.
+    # The deployment's render runs a Bluesky lane; a render without one has no view.
     assert BLUESKY in built_control_assistant.outputs[0].files
+    # Only the channel-finder app's render selects the hierarchical pipeline,
+    # once in its own render and once in its image.
+    assert [
+        outputs.render_dir.name
+        for outputs in built_control_assistant.outputs
+        if CHANNEL_INDEX in outputs.files
+    ] == ["demo-channel-finder"] * 2
 
 
 def test_addresses_are_the_facility_file_channels_and_the_served_status(
@@ -162,7 +172,7 @@ def test_render_writes_are_sorted_and_deterministic(
         ).read_bytes()
 
 
-def test_two_in_process_personas_differing_only_in_the_key_render_different_lists(
+def test_two_in_process_renders_differing_only_in_the_key_render_different_lists(
     tmp_path: Path, built_control_assistant: BuiltProject
 ) -> None:
     from osprey.cli.build_profile_archiver import _expand_dotted
@@ -175,15 +185,15 @@ def test_two_in_process_personas_differing_only_in_the_key_render_different_list
         "  control_system.connector.virtual_accelerator.serving: in_process\n"
         "  simulation.models: null\n"
     )
-    (repo / "personas").mkdir()
+    (repo / TIERS_DIRNAME).mkdir()
     for name, models in (("physics", "[SR]"), ("plain", "[texture]")):
-        (repo / "personas" / f"{name}.yml").write_text(
+        (repo / TIERS_DIRNAME / f"{name}.yml").write_text(
             f"name: {name}\nconfig:\n  simulation.models: {models}\n"
         )
 
     rendered = {}
     for name in ("physics", "plain"):
-        document = load_profile_document(repo / "personas" / f"{name}.yml")
+        document = load_profile_document(repo / TIERS_DIRNAME / f"{name}.yml")
         config = _expand_dotted(document.profile.config)
         assert config["control_system"]["type"] == "virtual_accelerator"
         render_dir = _render(tmp_path, built_control_assistant, config, name)

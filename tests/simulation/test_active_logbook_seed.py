@@ -316,85 +316,6 @@ def test_seed_active_logbook_is_a_no_op_without_a_simulator_view(tmp_path, monke
     assert seen["seeded"] is None
 
 
-def _narrative_project(tmp_path: Path, narrative: object = "all") -> tuple[dict, Path]:
-    """A project with no simulation whose simulator view lists the example scenarios."""
-    scenarios = TEMPLATE_FACILITY / "scenarios"
-    write_scenarios_view(tmp_path, facility_scenarios(scenarios), files=scenarios)
-    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": narrative}}
-    (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
-    return config, tmp_path
-
-
-def test_a_project_without_a_simulation_seeds_its_demo_narrative(tmp_path, monkeypatch):
-    """Every scenario the view lists, nominal first, pictures handed over."""
-    config, project = _narrative_project(tmp_path)
-    seen = _stub_ariel(monkeypatch, existing=0)
-
-    seeded = seed_active_logbook(config, project, config["ariel"])
-
-    ids = [entry["entry_id"] for entry in seen["seeded"]]
-    assert seeded == len(ids) == 29 + 3 + 1
-    assert ids[:29] == NOMINAL_IDS
-    assert ids[29:] == ["DEMO-031", "DEMO-026", "DEMO-027", "DEMO-028"]  # bpm-polarity, rf-thermal
-    assert sorted(seen["pictures"]) == ["DEMO-011", "DEMO-027", "DEMO-031"]
-    assert seen["mirrored"] == 1
-
-
-def test_a_demo_narrative_is_never_seeded_over_existing_entries(tmp_path, monkeypatch):
-    config, project = _narrative_project(tmp_path)
-    seen = _stub_ariel(monkeypatch, existing=4)
-
-    assert seed_active_logbook(config, project, config["ariel"]) == 0
-    assert seen["seeded"] is None
-
-
-def test_a_demo_narrative_of_named_scenarios_seeds_those_nominal_first(tmp_path, monkeypatch):
-    config, project = _narrative_project(tmp_path, ["rf-thermal", "nominal"])
-    seen = _stub_ariel(monkeypatch, existing=0)
-
-    assert seed_active_logbook(config, project, config["ariel"]) == 32
-
-    ids = [entry["entry_id"] for entry in seen["seeded"]]
-    assert ids == [*NOMINAL_IDS, "DEMO-026", "DEMO-027", "DEMO-028"]
-
-
-def test_a_demo_narrative_beats_an_active_nominal(tmp_path, monkeypatch):
-    """A set demo narrative is what the deploy seeds, whatever set is active."""
-    project = _make_project(tmp_path)
-    _activate(project, monkeypatch, ["nominal", "rf-thermal"])
-    config = yaml.safe_load((project / "config.yml").read_text())
-    ariel = {**ARIEL_CONFIG, "demo_narrative": ["bpm-polarity"]}
-    seen = _stub_ariel(monkeypatch, existing=0)
-
-    assert seed_active_logbook(config, project, ariel) == 1
-    assert [entry["entry_id"] for entry in seen["seeded"]] == ["DEMO-031"]
-
-
-def test_a_demo_narrative_naming_an_unknown_scenario_is_refused(tmp_path):
-    from osprey.simulation.apply import demo_narrative_logbook
-
-    config, project = _narrative_project(tmp_path, ["nominal", "no-such-story"])
-
-    with pytest.raises(ValueError, match="'no-such-story'"):
-        demo_narrative_logbook(config["ariel"], project)
-
-
-def test_a_demo_narrative_naming_a_directory_is_refused_naming_the_form(tmp_path):
-    from osprey.simulation.apply import demo_narrative_logbook
-
-    config, project = _narrative_project(tmp_path, "data/logbook_seed")
-
-    with pytest.raises(ValueError, match="'all' or a list of scenario names"):
-        demo_narrative_logbook(config["ariel"], project)
-
-
-def test_a_demo_narrative_without_a_project_is_refused_naming_the_view() -> None:
-    from osprey.simulation.apply import demo_narrative_logbook
-
-    with pytest.raises(ValueError, match="simulator view"):
-        demo_narrative_logbook({"demo_narrative": "all"}, None)
-
-
 def _state_file(project: Path) -> Path:
     from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
     from osprey_connectors.workspace import resolve_simulation_state_dir
@@ -531,8 +452,8 @@ _PNG_1X1 = (
 )
 
 
-def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
-    """A demo narrative of one entry carrying a plot spec and a shipped picture."""
+def _plot_spec_project(tmp_path: Path, monkeypatch) -> tuple[dict, Path]:
+    """An active scenario of one entry carrying a plot spec and a shipped picture."""
     files = tmp_path / "facility-scenarios"
     bundle = files / "drift"
     (bundle / "plots").mkdir(parents=True)
@@ -554,8 +475,9 @@ def _plot_spec_project(tmp_path: Path) -> tuple[dict, Path]:
         "attachments": [{"plot": "plots/orbit_rms.json"}, {"path": "plots/shipped.png"}],
     }
     write_scenarios_view(tmp_path, {"drift": {"logbook": [entry]}}, files=files)
-    config = {"ariel": {**ARIEL_CONFIG, "demo_narrative": "all"}}
+    config = {"ariel": ARIEL_CONFIG}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
+    _activate(tmp_path, monkeypatch, ["drift"])
     return config, tmp_path
 
 
@@ -567,7 +489,7 @@ def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeyp
     from osprey.facility.views.simulator import SCENARIOS_DIR
     from osprey.simulation.plots import render_plot_spec
 
-    config, project = _plot_spec_project(tmp_path)
+    config, project = _plot_spec_project(tmp_path, monkeypatch)
     seen = _stub_ariel(monkeypatch, existing=0)
 
     assert seed_active_logbook(config, project, config["ariel"]) == 1
@@ -612,7 +534,9 @@ def _refusing_qmd_mirror(monkeypatch) -> list[str]:
 
 def test_an_unusable_vocabulary_leaves_the_qmd_mirror_to_the_sync_service(tmp_path, monkeypatch):
     """The seed succeeds; the mirror waits, and the warning names the remedy."""
-    config, project = _narrative_project(tmp_path)
+    project = _make_project(tmp_path)
+    _activate(project, monkeypatch, ["rf-thermal"])
+    config = yaml.safe_load((project / "config.yml").read_text())
     seen = _stub_ariel(monkeypatch, existing=0)
     warnings = _refusing_qmd_mirror(monkeypatch)
 

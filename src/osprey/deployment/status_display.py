@@ -842,7 +842,7 @@ def _print_endpoints_section(config, compose_files, repo_root=None):
 
     *repo_root* is the LIVE checkout, and it is passed for the same reason
     :func:`_absolute_compose_files` anchors the compose files on it: the panel
-    rows are narrowed against each persona's rendered project, and a checkout
+    rows are narrowed against each render's rendered project, and a checkout
     that was moved or copied records a ``project_root`` pointing at the other
     copy. ``None`` leaves ``endpoint_entries`` on that recorded key, which is
     the right answer for a caller with no root to offer.

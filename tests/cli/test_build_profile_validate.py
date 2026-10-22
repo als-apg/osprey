@@ -827,9 +827,9 @@ def test_non_graph_modes_need_no_graph_store(tmp_path: Path) -> None:
 def test_graph_mode_skips_the_store_rule_when_the_channel_finder_is_off(
     tmp_path: Path,
 ) -> None:
-    """A persona with no channel finder inherits the mode but not the rule.
+    """A render with no channel finder inherits the mode but not the rule.
 
-    The logbook persona of a graph deployment switches the channel-finder server
+    The logbook render of a graph deployment switches the channel-finder server
     off and still inherits ``channel_finder_mode: graph`` from the profile it
     narrows — the mode belongs to the deployment. With no channel finder in that
     render there is no toolless agent to prevent, so the store is not required.
@@ -854,7 +854,7 @@ def test_graph_mode_still_needs_a_store_when_the_channel_finder_is_on(
 ) -> None:
     """The carve-out is an explicit ``false``, not any mention of the key.
 
-    A persona that leaves the channel finder on — or spells the switch ``true``
+    A render that leaves the channel finder on — or spells the switch ``true``
     — is exactly the render the rule protects, so a profile that spells no
     ``services.graphdb`` block is still refused.
     """

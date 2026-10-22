@@ -6,8 +6,8 @@ page: ``names: hidden`` on a ``type: users`` section replaces the section's name
 cards with one sign-in button that opens the card-less sign-in route. The names
 must be absent from the file, not hidden by a stylesheet.
 
-Everything else about the page keeps its meaning: tray sections lifted out of
-the same entry and ``links`` sections render unaffected, and a config that sets
+Everything else about the page keeps its meaning: the shared apps' tray and
+``links`` sections render unaffected, and a config that sets
 ``names: shown`` or leaves it out renders byte-identically to one without the
 key.
 """
@@ -23,12 +23,11 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.services.auth_sidecar.routes.entry import ENTRY_PATH
 
 from .test_golden_render import EXAMPLE_CONFIG
+from .test_landing_groups import APPS, PEOPLE
+from .test_landing_groups import _config as _apps_config
 from .test_render import (
-    _OPERATOR_CATALOG,
-    _OPERATOR_ROSTER,
     _body,
     _config,
-    _roster_config,
     _sections,
 )
 
@@ -89,12 +88,10 @@ def test_sign_in_button_opens_the_card_less_sign_in_route() -> None:
     assert href == ENTRY_PATH
 
 
-def test_hidden_names_leave_tray_sections_as_they_are() -> None:
-    """A persona's ``landing_group`` tray still renders its service card."""
+def test_hidden_names_leave_the_apps_tray_as_it_is() -> None:
+    """The shared apps' tray still renders its cards beside a hidden roster."""
     # Arrange
-    config = _walled(
-        _roster_config(_OPERATOR_ROSTER, _OPERATOR_CATALOG, [{"type": "users", "names": "hidden"}])
-    )
+    config = _apps_config([{"type": "users", "names": "hidden"}, {"type": "apps"}])
 
     # Act
     landing_html = _landing(config)
@@ -103,13 +100,13 @@ def test_hidden_names_leave_tray_sections_as_they_are() -> None:
     # Assert
     assert _sections(landing_html) == [
         ("landing-group", "Terminals"),
-        ("landing-group landing-tray", "Standalone deployments"),
+        ("landing-group landing-tray", "Apps"),
     ]
-    assert '<span class="landing-card-label">ariel</span>' in _section(
-        landing_html, "Standalone deployments"
-    )
-    assert "alice" not in body
-    assert "bob" not in body
+    apps = _section(landing_html, "Apps")
+    for app in APPS:
+        assert f'<span class="landing-card-label">{app}</span>' in apps
+    for person in PEOPLE:
+        assert person not in body
 
 
 def test_hidden_names_leave_links_sections_as_they_are() -> None:
@@ -132,20 +129,18 @@ def test_hidden_names_leave_links_sections_as_they_are() -> None:
     assert "Elog" in hidden_links
 
 
-def test_hidden_names_with_every_user_in_a_tray_render_no_button() -> None:
-    """A button that hides nobody is never shown; the empty default section renders nothing."""
+def test_hidden_names_with_no_people_render_no_button() -> None:
+    """A button that hides nobody is never shown; the empty users section renders nothing."""
     # Arrange
-    roster = [{"name": "ariel", "index": 0, "persona": "ariel"}]
-    config = _walled(
-        _roster_config(roster, _OPERATOR_CATALOG, [{"type": "users", "names": "hidden"}])
-    )
+    config = _apps_config([{"type": "users", "names": "hidden"}, {"type": "apps"}])
+    config["modules"]["web_terminals"]["users"] = []
 
     # Act
     landing_html = _landing(config)
 
     # Assert
     assert "landing-sign-in" not in _body(landing_html)
-    assert _sections(landing_html) == [("landing-group landing-tray", "Standalone deployments")]
+    assert _sections(landing_html) == [("landing-group landing-tray", "Apps")]
 
 
 def _with_names(config: dict, names: str | None) -> dict:

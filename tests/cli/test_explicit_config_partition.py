@@ -26,10 +26,11 @@ preset admits), the keys of the frozen root render are partitioned into:
     and names no corpus: :func:`~osprey.cli.build_injectors.graphdb_corpus_fill`
     supplies the graph view the build writes.
 ``W``
-    Keys the build or ``osprey init`` writes that no preset states: the MCP
-    health address a render serving web terminals pins, the bundled record
-    archive's compose directory, and each persona-catalog
-    entry's project name and directory.
+    Keys the build writes that no preset states: the MCP health address a
+    render serving web terminals pins, the bundled record archive's compose
+    directory, and the render projection — each tier's and app's ``kind``,
+    project name and project directory, derived from the files in ``tiers/``
+    and ``apps/``.
 ``B``
     Keys a profile SECTION other than ``config:`` stands for — the ``bluesky:``
     bridge and its panel, the ``va_archiver:`` store and recorder, the
@@ -61,11 +62,22 @@ import yaml
 
 from osprey.cli.build_injectors import graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
+from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_health import MCP_URL_KEY
-from osprey.cli.build_profile_merge import _resolve_extends
+from osprey.cli.build_profile_merge import _attach, _resolve_extends, render_document
 from osprey.cli.build_profile_ports import layout_port_fill
-from osprey.cli.build_profile_presets import _load_preset_raw
+from osprey.cli.build_profile_presets import (
+    _layer_presets_dir,
+    _load_preset_raw,
+    layer_preset_kind,
+)
 from osprey.cli.derived_keys import is_derived_key
+from osprey.cli.profile_root import ProfileKind
+from osprey.deployment.web_terminals.render_naming import (
+    RENDER_KIND_APP,
+    RENDER_KIND_TIER,
+    RENDERS_KEY,
+)
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
 
@@ -80,23 +92,25 @@ _PORT_LEAF = re.compile(r"^services\.[^.]+\.(port|port_host|http_port_host)$")
 _PROVIDERS_KEY = "api.providers"
 
 #: Keys whose rendered VALUE is legitimately not the preset's: the build
-#: resolves ``auto`` to the runtime it used, the injectors append every service
-#: a profile section deploys, and ``osprey init`` repoints the persona catalog
-#: at the sibling profiles it writes.
+#: resolves ``auto`` to the runtime it used, and the injectors append every
+#: service a profile section deploys.
 _VALUE_REWRITTEN_BY_BUILD = ("container_runtime", "deployed_services")
-#: The three persona-catalog leaves ``osprey init`` repoints at the repo's own
-#: name and its ``personas/`` directory. Every other leaf under the catalog
-#: (``landing_group``) is compared like any preset value.
-_VALUE_REWRITTEN_BY_INIT_PATTERN = re.compile(
-    r"^modules\.web_terminals\.personas\.[^.]+\.(project|project_path|build_profile)$"
+#: The render projection's leaves, ``modules.web_terminals.renders.<name>.*``:
+#: the build writes one entry per file in ``tiers/`` and ``apps/``
+#: (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`),
+#: its ``kind`` from the file's directory and its ``project`` and
+#: ``project_path`` from the deployment's ``project_name`` and the file's stem.
+#: No profile may spell any of it
+#: (:func:`~osprey.cli.build_profile_model.render_key_errors`).
+_RENDER_PROJECTION_PATTERN = re.compile(
+    rf"^{re.escape(RENDERS_KEY)}\.(?P<name>[^.]+)\.(kind|project|project_path)$"
 )
-#: Keys the build or ``osprey init`` writes that no preset states: the MCP
-#: health address a render serving web terminals pins
-#: (:mod:`osprey.cli.build_profile_health`), the compose directory of the
-#: record archive the build bundles, and the project name and directory
-#: ``osprey init`` gives each persona-catalog entry from its ``build_profile``.
+#: Keys the build writes that no preset states: the MCP health address a
+#: render serving web terminals pins (:mod:`osprey.cli.build_profile_health`),
+#: the compose directory of the record archive the build bundles, and the
+#: render projection (:data:`_RENDER_PROJECTION_PATTERN`).
 _WRITTEN_BY_BUILD_PATTERN = re.compile(
-    rf"^({re.escape(MCP_URL_KEY)}|services\.archive\.path|modules\.web_terminals\.personas\.[^.]+\.(project|project_path))$"
+    rf"^({re.escape(MCP_URL_KEY)}|services\.archive\.path)$|{_RENDER_PROJECTION_PATTERN.pattern}"
 )
 
 
@@ -131,6 +145,21 @@ def _preset_document(preset: str) -> dict[str, Any]:
     """The preset as the build reads it: ``extends`` resolved, ``exclude`` applied."""
     raw, path = _load_preset_raw(preset)
     return _resolve_extends(dict(raw), path)
+
+
+def _layer_document(preset: str, stem: str, kind: ProfileKind) -> dict[str, Any]:
+    """The document a bundled tier or app renders from over *preset*, as the build composes it.
+
+    The build's own composer (:func:`~osprey.cli.build_profile_merge.render_document`,
+    then the attachment facts): a tier is merged over the deployment, an app is
+    composed from the deployment's facts and its complete app file.
+    """
+    path = _layer_presets_dir(kind) / f"{stem}.yml"
+    layer = _read_profile_document(path)
+    assert isinstance(layer, dict), path
+    return _attach(
+        render_document(kind, _preset_document(preset), layer, f"{path.parent.name}/{path.name}")
+    )
 
 
 def _config_leaves(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -206,9 +235,9 @@ def _carried_block_switches(render: Mapping[str, Any], config: Mapping[str, Any]
 
     The build tells every ``web.panels`` block the render ends up with whether
     this render shows it (``build_profile_panels.panel_selection_overrides``),
-    so a block a persona inherits for a tab it does not select is written
+    so a block a render inherits for a tab it does not select is written
     ``enabled: false`` beside the inherited fact. That switch belongs to the
-    fact's block, not to the persona's selection.
+    fact's block, not to the render's selection.
     """
     switches: set[str] = set()
     for key in render:
@@ -311,8 +340,6 @@ def test_preset_values_reach_the_render_unchanged(
     for key, value in config.items():
         if key not in render:
             continue
-        if _VALUE_REWRITTEN_BY_INIT_PATTERN.match(key):
-            continue
         if key == "container_runtime":
             assert value == "auto"
             assert render[key] in {"docker", "podman"}
@@ -351,30 +378,53 @@ def test_provider_catalog_covers_the_render(
     assert rendered_names == set(load_provider_catalog(tmp_path).entries), directory
 
 
-def _persona_cells() -> list[tuple[str, str, str]]:
-    """``(persona preset, root preset, directory)`` for every frozen persona render."""
+def _render_cells() -> list[tuple[str, str, str]]:
+    """``(render stem, root preset, directory)`` for every frozen tier or app render."""
     out = []
     for preset, _mode, directory in _cells():
         for path in sorted((FIXTURE_ROOT / directory).glob("*.yml")):
             if path.stem != "root":
-                out.append((f"{preset}-{path.stem}", preset, directory))
+                out.append((path.stem, preset, directory))
     return out
 
 
-@pytest.mark.parametrize(("persona", "preset", "directory"), _persona_cells())
-def test_persona_render_stays_inside_the_partition(
-    persona: str, preset: str, directory: str
-) -> None:
-    """An attached persona render carries no key outside its own preset's sources.
+#: The bundled layer kind each render-projection ``kind`` names.
+_LAYER_KINDS = {RENDER_KIND_TIER: ProfileKind.TIER, RENDER_KIND_APP: ProfileKind.APP}
 
-    A persona is a delta over the root preset, built attached: it renders no
-    services of its own and has the host's ports projected in (the Reach
-    Contract), so the check is containment, not equality — every rendered key
-    is the persona's ``config:``, derived, a provider, a projected port, or a
-    section's.
+
+@pytest.mark.parametrize(("_preset", "_mode", "directory"), _cells())
+def test_render_projection_names_every_frozen_render(
+    _preset: str, _mode: str | None, directory: str
+) -> None:
+    """The root's render projection lists exactly the renders frozen beside it."""
+    projected = {
+        match["name"]
+        for key in _render(directory)
+        if (match := _RENDER_PROJECTION_PATTERN.match(key))
+    }
+    frozen = {stem for stem, _, cell in _render_cells() if cell == directory}
+    assert projected == frozen, directory
+
+
+@pytest.mark.parametrize(("stem", "preset", "directory"), _render_cells())
+def test_render_stays_inside_the_partition(stem: str, preset: str, directory: str) -> None:
+    """An attached render carries no key outside its own sources.
+
+    A tier is the bundled ``tiers/<stem>.yml`` merged over the root preset; an
+    app is composed from the root preset's facts and the bundled
+    ``apps/<stem>.yml``. Either is built attached: it renders no services of
+    its own and has the host's ports projected in (the Reach Contract), so the
+    check is containment, not equality — every rendered key is the render's
+    ``config:``, derived, a provider, a projected port, or a section's.
     """
-    render = _render(directory, persona.removeprefix(f"{preset}-"))
-    document = _preset_document(persona)
+    projected_kind = _render(directory)[f"{RENDERS_KEY}.{stem}.kind"]
+    kind = layer_preset_kind(stem)
+    assert kind is not None, f"{directory}/{stem}: no bundled tier or app {stem!r}"
+    assert _LAYER_KINDS[projected_kind] is kind, (
+        f"{directory}/{stem}: projected as {projected_kind!r}, bundled as {kind.value!r}"
+    )
+    render = _render(directory, stem)
+    document = _layer_document(preset, stem, kind)
     config = _config_leaves(document)
     block_prefixes = _block_derived_prefixes(document)
     panel_switches = _panel_switches(document) | _carried_block_switches(render, config)
@@ -394,4 +444,4 @@ def test_persona_render_stays_inside_the_partition(
             or key in config
         )
     ]
-    assert not unclaimed, f"{directory}/{persona}: {unclaimed}"
+    assert not unclaimed, f"{directory}/{stem}: {unclaimed}"

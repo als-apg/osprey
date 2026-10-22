@@ -13,11 +13,11 @@ frontend JS nor persists ``localStorage`` across navigations:
     client's stored PTY session id, THEN navigates to the configured landing
     origin;
   * returning to the terminal origin does NOT resume the prior warm PTY —
-    this persona's stored pointer stays empty across the round trip and the
+    this render's stored pointer stays empty across the round trip and the
     client opens a brand-new WebSocket (no ``mode=resume``, no stale
     ``session_id``) rather than reconnecting to the old session. This is M2:
     logout is a real station reset, not just a client-side navigation.
-  * the pointer is the PER-PERSONA key. On a multi-user mount every ``/u/<user>/``
+  * the pointer is the PER-RENDER key. On a multi-user mount every ``/u/<user>/``
     shares one origin and so one ``localStorage``; the server stamps
     ``data-osprey-storage-scope`` on ``<html>`` and terminal.js reads, writes
     and clears ``osprey-pty-session--<user>`` (design_system/storage-scope.js),
@@ -213,11 +213,11 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
 
         # --- Represent an established (warm) PTY session (see module docstring) ---
         # Seed the key the client actually reads: derived from the scope the
-        # server stamped for this persona, exactly as storage-scope.js derives it.
+        # server stamped for this render, exactly as storage-scope.js derives it.
         scope = page.evaluate(
             "() => document.documentElement.getAttribute('data-osprey-storage-scope')"
         )
-        assert scope == user, f"multi-user page must be stamped with its persona, got {scope!r}"
+        assert scope == user, f"multi-user page must be stamped with its render, got {scope!r}"
         session_key = f"osprey-pty-session--{scope}"
         page.evaluate("([k, id]) => localStorage.setItem(k, id)", [session_key, stored_id])
         captured = page.evaluate("(k) => localStorage.getItem(k)", session_key)

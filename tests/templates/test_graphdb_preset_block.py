@@ -47,7 +47,7 @@ from osprey.deployment.graphdb_service import (
 from osprey.port_layout import DEFAULT_PORT_BASE
 
 #: Every preset that ships the graph store. Both carry the identical block.
-PRESETS = ["control-assistant", "ariel-standalone"]
+PRESETS = ["control-assistant"]
 
 #: The block's exact key set as rendered. Equality rather than membership, so a
 #: stray `password:` — the one key that must never appear — fails the test.

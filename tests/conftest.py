@@ -1633,9 +1633,15 @@ def pytest_configure(config):
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_sessionfinish(session, exitstatus):
-    """Remove the run's temporary root once the session's own teardown is done."""
-    _run_temp.release(session.config, exitstatus)
+def pytest_sessionfinish(session):
+    """End the session: relay a worker's e2e refusal, then release the run's temporary root.
+
+    The relay comes first because it decides the run's final exit status (a
+    refused run ends as a usage error), and the release reads that status: the
+    ``failed`` retention policy keeps the root of a run that did not pass.
+    """
+    _relay_e2e_refusal(session)
+    _run_temp.release(session.config, session.exitstatus)
 
 
 def pytest_terminal_summary(terminalreporter, config):
@@ -1713,6 +1719,62 @@ def pytest_xdist_make_scheduler(config, log):
     if config.getoption("dist", None) != "loadgroup":
         return None
     return FileOrGroupScheduling(config, log)
+
+
+# ===================================================================
+# The controller's half of the e2e provider refusal
+# ===================================================================
+#
+# ``tests/e2e/conftest.py`` refuses a run that names no provider and selects an
+# e2e test needing one. Under xdist that judgement runs in the workers, and a
+# worker cannot end the session cleanly: pytest reports its collection finished
+# even when the judging hook raised, the controller hands it tests, and the
+# worker's early exit then surfaces as xdist's ``INTERNALERROR`` about a crashed
+# item, with the refusal lost. So a worker hands its refusal to the controller
+# instead, and the controller prints it.
+#
+# The controller's half lives here, not beside the refusal: the controller
+# collects nothing, so it loads only the conftests on the path to each
+# argument. ``tests/e2e/conftest.py`` is one of them only when an argument lies
+# inside ``tests/e2e``; a whole-suite run names ``tests`` and loads this file
+# alone.
+
+#: ``workerinput`` flag the controller sets when it relays a worker's refusal.
+E2E_REFUSAL_RELAY_KEY = "osprey_e2e_refusal_relay"
+#: ``workeroutput`` key a worker hands its refusal to the controller under.
+E2E_REFUSAL_KEY = "osprey_e2e_refusal"
+#: The refusals the controller collected from its workers.
+_E2E_REFUSALS = pytest.StashKey[list[str]]()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node):
+    """Tell each xdist worker that this controller prints its refusal."""
+    node.workerinput[E2E_REFUSAL_RELAY_KEY] = True
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node):
+    """Collect the refusal a worker handed over."""
+    message = getattr(node, "workeroutput", {}).get(E2E_REFUSAL_KEY)
+    if message:
+        node.config.stash.setdefault(_E2E_REFUSALS, []).append(message)
+
+
+def _relay_e2e_refusal(session) -> None:
+    """Print a relayed refusal and end the session as a usage error.
+
+    Called from ``pytest_sessionfinish`` above, before the run's temporary root
+    is released. Every worker collects the same selection, so every refusal is
+    identical and the first one is printed.
+    """
+    refusals = session.config.stash.get(_E2E_REFUSALS, [])
+    if not refusals:
+        return
+    sys.stdout.flush()
+    sys.stderr.write(f"ERROR: {refusals[0]}\n")
+    sys.stderr.flush()
+    session.exitstatus = pytest.ExitCode.USAGE_ERROR
 
 
 # ===================================================================

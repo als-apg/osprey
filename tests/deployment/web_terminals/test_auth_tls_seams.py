@@ -40,6 +40,7 @@ import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import default_port
+from tests._renders import tier_render
 
 _BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
 
@@ -73,8 +74,8 @@ def _config(users: list[str]) -> dict:
                 "ariel_base_port": _BASE_PORTS["ariel"],
                 "lattice_base_port": _BASE_PORTS["lattice"],
                 "users": users,
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "demo-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "demo-assistant")},
             }
         },
     }

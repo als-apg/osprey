@@ -11,7 +11,7 @@ keys some other layer spells beneath it, instead of losing to them by key order.
 
 Two things reach a profile, and they mean different things:
 
-* **Inheritance** — ``extends:``, a persona delta over the profile beside it, a
+* **Inheritance** — ``extends:``, a layer over the profile beside it, a
   host-variant overlay over ``profile.yml``. A layer is a *difference*: it adds
   to what it inherits, string lists union, and taking something away is an
   explicit verb (``exclude:``, ``remove_deny``). That merge lives in
@@ -137,17 +137,17 @@ def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
 
 # The model-selection shorthand keys a user can override via `--set`, whose
 # explicit use is recorded in the project manifest (extract_build_args). A
-# persona inherits them the same way it inherits everything else — `osprey set`
-# writes the override INTO profile.yml, and every delta in `personas/` merges
-# over that profile — so one repo-level override retints every persona the next
+# render inherits them the same way it inherits everything else — `osprey set`
+# writes the override INTO profile.yml, and every delta in `tiers/` merges
+# over that profile — so one repo-level override retints every render the next
 # build renders, with nothing replayed from a build invocation.
 MODEL_SELECTION_OVERRIDE_KEYS = ("provider", "model", "channel_finder_mode")
 
 # Every top-level shorthand whose explicit ``--set`` use is forwarded that way.
 # `connector` joins the model-selection keys because it shapes the whole stack
 # in the same sense: which control system a project talks to is a property of
-# the deployment, not of one persona, so it belongs in profile.yml where every
-# persona delta inherits it rather than in any one persona's own file.
+# the deployment, not of one render, so it belongs in profile.yml where every
+# layer inherits it rather than in any one render's own file.
 SHORTHAND_OVERRIDE_KEYS = (
     *MODEL_SELECTION_OVERRIDE_KEYS,
     CONNECTOR_PROFILE_KEY,
@@ -161,7 +161,7 @@ def explicit_model_override_keys(set_pairs: tuple[str, ...]) -> list[str]:
     Only top-level shorthand keys count (``--set provider=x``,
     ``--set connector=epics``); a dotted path into ``config:`` addresses the
     rendered config directly and carries no whole-stack intent, so it is never
-    forwarded to persona renders.
+    forwarded to renders.
 
     Returns the matching keys in :data:`SHORTHAND_OVERRIDE_KEYS` order.
     """
@@ -430,7 +430,7 @@ def resolve_build_profile(
         ``(profile, profile_dir)``. ``profile_dir`` is the profile ROOT — where
         every profile-relative path anchors, and what
         :meth:`BuildProfile.validate` resolves overlay/services lookups
-        against. For a persona delta that is the directory above ``personas/``,
+        against. For a layer that is the directory above ``tiers/``,
         never the delta's own parent; for preset mode it is the bundled
         ``profiles/presets/`` package directory.
 
@@ -479,10 +479,10 @@ def resolve_build_document(
     if profile_path is None and preset is None:
         raise BuildProfileError("Either a profile path or --preset is required.")
 
-    # A preset is one file in a shared package directory: it is never a persona
+    # A preset is one file in a shared package directory: it is never a render
     # delta and carries no convention material to exclude (compute_preset_hash
     # folds none either, for the same reason).
-    is_persona_delta = False
+    is_layer = False
     excluded_artifacts: frozenset[str] = frozenset()
     # Which bundled preset the resolved document came through — the one thing
     # that still says which packaged data bundle its tree is from, now that the
@@ -526,17 +526,17 @@ def resolve_build_document(
                 raw = _deep_merge(raw, overlay)
         # Resolution goes through the one call that decides what a profile file
         # *means* — the same one the loader and the content hash make. A file
-        # under `personas/` is a delta merged over the `profile.yml` beside it
+        # under `tiers/` is a delta merged over the `profile.yml` beside it
         # and anchors at that root; resolving `extends` here instead, against
         # the file's own parent, would build a hollow project from the delta
-        # alone and read its data tree from `personas/`.
+        # alone and read its data tree from `tiers/`.
         document = resolve_profile_document(raw, profile_path.resolve())
         raw, profile_dir = document.raw, document.root_dir
-        is_persona_delta = document.is_persona_delta
+        is_layer = document.is_layer
         excluded_artifacts = document.excluded_artifacts
         inherited_preset = document.inherited_preset
         # The command line's edits go onto the fully resolved document — the
-        # file, its variant overlay, an extends parent, a persona base, all
+        # file, its variant overlay, an extends parent, a render base, all
         # merged — because only here does the whole picture an edit outranks
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
@@ -547,7 +547,7 @@ def resolve_build_document(
     return LoadedProfile(
         profile=profile,
         profile_dir=profile_dir,
-        is_persona_delta=is_persona_delta,
+        is_layer=is_layer,
         excluded_artifacts=excluded_artifacts,
     )
 
@@ -620,7 +620,7 @@ def write_back_cli_overrides(
     are removed first.
 
     Args:
-        profile_path: The ``profile.yml`` (or persona delta) being edited.
+        profile_path: The ``profile.yml`` (or layer) being edited.
         set_pairs: The ``osprey set`` pairs.
 
     Returns:

@@ -357,7 +357,7 @@ def test_a_dotted_custom_type_with_no_block_of_its_own_inherits():
 def test_the_posture_does_not_read_the_environment(monkeypatch: pytest.MonkeyPatch):
     """A read-only run is the caller's AND, not this resolver's business.
 
-    The resolver reports what the config describes so that a lint, a persona and
+    The resolver reports what the config describes so that a lint, a render and
     a connector agree about it; the process-level refusal is applied on top by
     whoever is about to write.
     """

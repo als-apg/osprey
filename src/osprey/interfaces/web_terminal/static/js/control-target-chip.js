@@ -85,7 +85,7 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  * @property {string|null} reason  the switch tool's own refusal code when not
  * @property {string|null} reason_detail  the eligibility verdict's operator
  *   sentence for that code — the popover's tooltip, never its row text
- * @property {boolean} ceiling_writes  what the persona render permits
+ * @property {boolean} ceiling_writes  what the render permits
  * @property {'writes'|'sandbox'} posture  the deployment's recorded narrowing
  * @property {boolean} effective  the whole rule the connector applies
  * @property {{state: string, role: string|null, probed_at: string|null,

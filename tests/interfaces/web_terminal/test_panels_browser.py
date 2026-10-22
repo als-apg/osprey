@@ -1017,6 +1017,75 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
         page.close()
 
 
+_RAIL_REORDER_JS = """(args) => {
+    const [panelId, beforeId] = args;
+    const rail = document.querySelector('nav.panel-rail');
+    const entry = rail.querySelector(`[data-panel-id="${panelId}"]`);
+    const target = rail.querySelector(`[data-panel-id="${beforeId}"]`).getBoundingClientRect();
+    const dt = new DataTransfer();
+    const at = { bubbles: true, cancelable: true, dataTransfer: dt,
+                 clientX: target.left + 2, clientY: target.top + 2 };
+    entry.dispatchEvent(new DragEvent('dragstart',
+        { bubbles: true, cancelable: true, dataTransfer: dt }));
+    rail.dispatchEvent(new DragEvent('dragover', at));
+    const marked = rail.querySelector('.drop-before')?.getAttribute('data-panel-id');
+    rail.dispatchEvent(new DragEvent('drop', at));
+    entry.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+    return marked;
+}"""
+
+
+def _rail_order(page: Page) -> list[str]:
+    return page.eval_on_selector_all(
+        "nav.panel-rail .panel-rail-button", "els => els.map(e => e.dataset.panelId)"
+    )
+
+
+def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
+    tmp_path, chromium_browser
+):
+    """Dropping a rail entry on the rail itself moves it there.
+
+    The order is the server's, so a second client follows the move and a
+    reload draws the same rail; SESSION stays at the head throughout.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        other = _open_page(chromium_browser, base_url)
+        before = ["terminal", "artifacts", "data-viz"]
+        expect(page.locator('nav.panel-rail [data-panel-id="data-viz"]')).to_have_count(1)
+        assert _rail_order(page) == before
+
+        marked = page.evaluate(_RAIL_REORDER_JS, ["data-viz", "artifacts"])
+        assert marked == "artifacts"
+
+        after = ["terminal", "data-viz", "artifacts"]
+        for client in (page, other):
+            client.wait_for_function(
+                """(want) => JSON.stringify([...document.querySelectorAll(
+                    'nav.panel-rail .panel-rail-button')].map(e => e.dataset.panelId))
+                    === JSON.stringify(want)""",
+                arg=after,
+                timeout=5_000,
+            )
+        # The drop opened no tile: the rail gesture is not the workspace one.
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0)
+
+        page.reload()
+        expect(page.locator('nav.panel-rail [data-panel-id="data-viz"]')).to_have_count(1)
+        assert _rail_order(page) == after
+
+        other.close()
+        page.close()
+
+
 def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_browser):
     """A server-originated panel_focus re-activates an already-docked panel silently.
 

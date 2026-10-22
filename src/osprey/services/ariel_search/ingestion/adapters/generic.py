@@ -6,6 +6,9 @@ without custom APIs. Supports both reading and writing to local JSON files.
 
 import fcntl
 import json
+import mimetypes
+import re
+import shutil
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -81,6 +84,11 @@ class GenericJSONAdapter(FacilityAdapter):
         """No-auth logbook: a local JSON file publishes without credentials."""
         return False
 
+    @property
+    def supports_attachments(self) -> bool:
+        """A local file source keeps an entry's files beside its JSON file."""
+        return self.supports_write
+
     async def fetch_entries(
         self,
         since: datetime | None = None,
@@ -125,6 +133,12 @@ class GenericJSONAdapter(FacilityAdapter):
     async def create_entry(self, request: "FacilityEntryCreateRequest") -> str:
         """Create an entry in the local JSON file.
 
+        Each file in ``request.attachment_paths`` is copied under
+        ``attachments/<entry id>/`` beside the JSON file and listed on the entry
+        by its relative path, which ingestion reads back like any other file
+        source attachment. Every file is copied before the entry is written, so
+        a file that cannot be copied leaves no entry behind.
+
         Args:
             request: Entry creation request.
 
@@ -142,6 +156,7 @@ class GenericJSONAdapter(FacilityAdapter):
 
         entry_id = f"local-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
+        attachments = self._copy_attachments(entry_id, request.attachment_paths)
 
         entry_data: dict[str, Any] = {
             "id": entry_id,
@@ -150,17 +165,65 @@ class GenericJSONAdapter(FacilityAdapter):
             "title": request.subject,
             "text": request.details,
             "tags": request.tags,
-            "attachments": [],
+            "attachments": attachments,
             "metadata": request.metadata,
         }
 
         if request.logbook:
             entry_data["books"] = [request.logbook]
 
-        self._append_entry(entry_data)
+        try:
+            self._append_entry(entry_data)
+        except IngestionError:
+            self._remove_attachments(entry_id)
+            raise
 
         logger.info(f"Created local JSON entry {entry_id}")
         return entry_id
+
+    def _attachments_dir(self, entry_id: str) -> Path:
+        """Return the directory an entry's files are kept in."""
+        return Path(self.source_url).parent / "attachments" / entry_id
+
+    def _copy_attachments(self, entry_id: str, paths: list[str]) -> list[dict[str, Any]]:
+        """Copy an entry's files beside the JSON file and return their attachment items.
+
+        A stored name keeps only letters, digits, ``.``, ``-`` and ``_`` and is
+        prefixed with the file's position, so two files of one name stay apart
+        and the relative path stays fetchable; the item keeps the original name.
+
+        Raises:
+            IngestionError: If a file cannot be read or copied; the files
+                already copied for the entry are removed.
+        """
+        if not paths:
+            return []
+        directory = self._attachments_dir(entry_id)
+        items: list[dict[str, Any]] = []
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            for index, source in enumerate(paths):
+                name = Path(source).name
+                stored = f"{index}-{re.sub(r'[^A-Za-z0-9._-]', '_', name)}"
+                shutil.copyfile(source, directory / stored)
+                items.append(
+                    {
+                        "url": f"attachments/{entry_id}/{stored}",
+                        "type": mimetypes.guess_type(name)[0],
+                        "filename": name,
+                    }
+                )
+        except OSError as e:
+            self._remove_attachments(entry_id)
+            raise IngestionError(
+                f"Failed to store attachment {Path(e.filename or '').name or e}: {e.strerror or e}",
+                source_system=self.source_system_name,
+            ) from e
+        return items
+
+    def _remove_attachments(self, entry_id: str) -> None:
+        """Remove the files kept for an entry that was not written."""
+        shutil.rmtree(self._attachments_dir(entry_id), ignore_errors=True)
 
     def _append_entry(self, entry_data: dict[str, Any]) -> None:
         """Append an entry to the local JSON file with file locking.
@@ -229,7 +292,7 @@ class GenericJSONAdapter(FacilityAdapter):
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
         """Convert generic JSON entry to EnhancedLogbookEntry."""
         # Facility zone, not UTC: a relative ``{days_ago, time}`` spec resolves its
-        # time-of-day in this anchor's zone, so seeded demo narrative lands at the
+        # time-of-day in this anchor's zone, so a seeded scenario narrative lands at the
         # documented facility-local clock time (matching the telemetry it
         # accompanies). Absolute timestamps ignore ``now`` (see _resolve_timestamp).
         now = datetime.now(get_facility_timezone())

@@ -179,6 +179,30 @@ A logbook that files entries by book, shift day or run can ask the author for th
 
 The checks are about shape: type, options, required, range, and the choices the adapter lists. Whether a value makes sense for the facility is the adapter's and the logbook's business. The HTTP endpoints, error codes and tool arguments are in :doc:`/reference/contracts/ariel`.
 
+Entry Attachments
+~~~~~~~~~~~~~~~~~
+
+By default an entry's files stay in ARIEL: the text reaches the facility logbook, and the submit response says the files were saved to ARIEL only. An adapter whose logbook takes files declares ``supports_attachments = True``. Its ``create_entry`` then receives each file as a local path in ``request.attachment_paths``, valid only while the call runs, and must publish every one of them before it returns.
+
+.. code-block:: python
+
+   class MyLogbookAdapter(FacilityAdapter):
+       @property
+       def supports_attachments(self):
+           return True
+
+       async def create_entry(self, request):
+           entry_id = await self._post_entry(request)          # your logbook's call
+           for path in request.attachment_paths:
+               await self._post_file(entry_id, path)           # raise on failure
+           return entry_id
+
+**A file that fails fails the submit.** Raise ``IngestionError``, or ``AttachmentPublishError`` once the entry exists. The operator gets an error saying the entry may already be in the logbook without all of its files; ARIEL keeps nothing of it.
+
+**The facility's copy wins.** ARIEL shows its own copy of each published file at once. When the facility's record is read back with its attachment list, that list replaces ARIEL's copies, which are deleted. Republishing an ARIEL entry with ``entry_publish`` sends its stored files the same way.
+
+The ``generic_json`` adapter takes files when its source is a local file: it keeps them under ``attachments/`` beside the JSON file.
+
 
 .. _`Enhancement Pipeline`:
 

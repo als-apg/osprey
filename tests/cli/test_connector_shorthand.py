@@ -291,7 +291,7 @@ def test_invalid_set_value_is_rejected_when_the_edit_is_parsed() -> None:
         cli_edit_layer(("connector=epcis",))
 
 
-# ── forwarding to persona renders ────────────────────────────────────────────
+# ── forwarding to renders ────────────────────────────────────────────
 
 
 def test_explicit_set_connector_is_reported_for_forwarding() -> None:

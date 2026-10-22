@@ -39,7 +39,7 @@ provider: anthropic
 # addresses have one source. `osprey set channel_finder_mode=...` also
 # accepts hierarchical, in_context or middle_layer, each reading the
 # channel-finder view the build writes under data/channel_finder/ instead;
-# every persona inherits the mode.
+# every tier inherits the mode, and each app sets its own.
 channel_finder_mode: graph
 
 # ── What the agent can do ────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ rules:
 skills:
   - diagnose        # Run a structured fault-diagnosis workflow
   # setup-mode is left out on purpose: it can edit config.yml and .mcp.json,
-  # which is admin work. The `control-assistant-admin` persona adds it back,
+  # which is admin work. The `admin` tier in tiers/ adds it back,
   # which is where an admin-facing profile of your own should start too.
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
@@ -105,7 +105,7 @@ web_panels:
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
-  # The events and bluesky panels are declared by the write-armed personas
+  # The events and bluesky panels are added by the write-armed tiers
   # (readwrite and admin) instead, so the read-only login is built without them.
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
@@ -228,7 +228,7 @@ config:
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
   # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # simulator, which cannot move a magnet; the read-only tier pins it off.
   # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
@@ -276,8 +276,7 @@ config:
   control_system.connector.virtual_accelerator.timeout_s: 5.0
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-readwrite` and `control-assistant-admin` personas write
-  # this key.
+  # `readwrite` and `admin` tiers in tiers/ write this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
   # control_system.connector.virtual_accelerator.serving: served
@@ -738,7 +737,7 @@ config:
   # ── Tier floor ─────────────────────────────────────────────────────────────
   # The privileges every tier built from this preset starts WITHOUT. Each key
   # here is off at the bottom and lifted back on by exactly the tier that is
-  # meant to have it, so a new persona inherits the restricted posture by
+  # meant to have it, so a new tier inherits the restricted posture by
   # default and a privilege is something a profile has to ask for by name.
   #
   # The agent's own deployment-editing tool. It rewrites this repo's profile
@@ -985,7 +984,7 @@ config:
   # overrides it per user.
   # web.tour: once
   # Whether the title bar offers the control-target picker. `false` only for
-  # a persona that reaches no machine.
+  # an app that reaches no machine.
   # web.control_target_picker: true
   # Target of the Documentation button. Point it at a locally hosted copy of
   # the docs when the control room has no route to the public site. Commented
@@ -1104,7 +1103,7 @@ config:
     # To override one port rather than move the block, name it here:
     #   nginx_port: 18000         # the landing page everyone opens first
     #   web_base_port: 18100      # first per-user web-terminal port
-    default_persona: readonly   # used for any user below with no persona
+    default_tier: readonly   # used for any user below with no tier
     # Every terminal below asks for a login (user alice: password alice, and
     # so on — set in this repo's .env; rotate with `osprey users passwd`).
     auth:
@@ -1140,10 +1139,10 @@ config:
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.
     #   authorization:
-    #     roles: {operator: {persona: readwrite}, viewer: {persona: readonly}}
+    #     roles: {operator: {tier: readwrite}, viewer: {tier: readonly}}
     #     claims: {claim: groups, map: {ca-operators: operator, ca-viewers: viewer}}
-    # How the landing page is laid out. Omit this whole block and you get one
-    # section holding every entry below, headed "Terminals".
+    # How the landing page is laid out. Omit this whole block and you get the
+    # people below first and the shared apps after them, headed "Apps".
     landing:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
@@ -1157,75 +1156,46 @@ config:
       # The line under everything. Set to "" for no footer.
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
-        # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `logbook` and `knowledge` below) moves into a
-        # section of its own, drawn as an accent-edged panel underneath it.
-        # So the page reads people first, services after.
+        # `users` renders the people on the roster below, one card each.
         - type: users
           label: Users
           # `names: hidden` swaps the name cards in this section for one "Log in
           # to your terminal" button, so the page lists nobody. It needs the
           # login wall above (auth.method password or oidc).
           # names: shown
+        # `apps` renders one card per entry in `shared:` below, titled by the
+        # app's own `name:` in apps/. Everyone on the roster opens them.
+        - type: apps
+          label: Apps
     users:
-      # One web terminal per entry. `index` pins that user's ports, `persona`
-      # picks their permissions from the list below, and `display_name` becomes
-      # the browser tab title, which is how you tell the terminals apart.
+      # One web terminal per person. `index` pins that user's ports, `tier`
+      # names their access level in tiers/, and `display_name` becomes the
+      # browser tab title, which is how you tell the terminals apart.
       - name: alice
         index: 0
-        persona: readwrite
+        tier: readwrite
         display_name: "Control Room (Alice)"
       - name: bob
         index: 1
-        persona: readonly
+        tier: readonly
         display_name: "Read-Only View (Bob)"
-      # Not a person: a second product running beside them. Same machinery as
-      # any other entry — its own container, ports and volumes — but what is
-      # behind the card is the ARIEL logbook assistant, not a control terminal.
-      - name: logbook
-        index: 2
-        persona: logbook
-        display_name: "Logbook Research"
-        # A shared card: everyone on this roster opens it with their own
-        # password. It has no password of its own, so none is set in .env.
-        access: any
-      # The second product beside them: the facility knowledge layer — the
-      # knowledge graph, the graph channel finder and the knowledge bundle —
-      # read-only, with no control system behind it. Shared like the card
-      # above. Index 4 rather than 3 so carol's ports below stay where they
-      # were; the page follows roster order, so it sits with its sibling.
-      - name: knowledge
-        index: 4
-        persona: knowledge
-        display_name: "Facility Knowledge"
-        access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
       # tool. Behind the login wall like every other person on this page: an
       # admin card without one would hand deployment edits to anyone who opens
-      # it. Last in the roster so the operator cards stay where they are.
+      # it.
       - name: carol
-        index: 3
-        persona: admin
+        index: 2
+        tier: admin
         display_name: "Deployment Admin (Carol)"
-    personas:
-      # `osprey build` builds one of these per file in personas/, into build/.
-      # `osprey up` builds nothing: if one is missing it stops and says so.
-      readonly:
-        build_profile: control-assistant-readonly
-      readwrite:
-        build_profile: control-assistant-readwrite
-      admin:
-        build_profile: control-assistant-admin
-      logbook:
-        build_profile: control-assistant-logbook
-        # Puts this persona's users under their own landing-page heading
-        # instead of in with the people. Presentation only — it changes
-        # nothing about the container, its ports, or what it can do.
-        landing_group: Standalone deployments
-      knowledge:
-        build_profile: control-assistant-knowledge
-        landing_group: Standalone deployments
+    # Apps everyone above may open, each defined in apps/<name>.yml: a second
+    # agent beside this deployment's own, on this deployment's services. Each
+    # gets its own container and a port slot counted down from the top of the
+    # user block, in this order; no password of its own, so none is set in .env.
+    shared:
+      - logbook          # Logbook Research: search and synthesise the logbook
+      - knowledge        # Facility Knowledge: how the machine is built
+      - channel-finder   # Channel Finder: channel addresses from the hierarchy
 
   # ── Health checks ──────────────────────────────────────────────────────────
   # `osprey health` warns when the disk holding this deployment has less than
@@ -1294,6 +1264,9 @@ dispatch:
   workspace_mode: isolated
   max_concurrent_runs: 2
   max_queue_depth: 50
+  # The tier a dispatched job runs at. A job has nobody to approve a write, so
+  # the workers run read-only; remove the line to run the deployment's own posture.
+  tier: readonly
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Passwords for the webhook service above. They have no defaults on purpose:

@@ -14,7 +14,7 @@ key set and ``live_standin`` typing.
 
 Also pins the reading of a collection key that is present but empty. YAML gives
 ``web_panels:`` with nothing under it the value ``None``, where its author means
-the empty selection — so the parser flattens the two spellings, and the persona
+the empty selection — so the parser flattens the two spellings, and the render
 merge sees the same flattening, which keeps an emptied list from subtracting the
 root profile's own selection.
 
@@ -32,6 +32,7 @@ import pytest
 
 from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 # ── mcp_servers: ─────────────────────────────────────────────────────────────
 
@@ -396,36 +397,36 @@ def _facility_data_tree(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir(exist_ok=True)
 
 
-def _write_persona_repo(root: Path, delta_body: str) -> Path:
-    """Write a profile root selecting one panel, plus a persona delta under it."""
+def _write_render_repo(root: Path, delta_body: str) -> Path:
+    """Write a profile root selecting one panel, plus a layer under it."""
     root.mkdir(parents=True, exist_ok=True)
     (root / "data").mkdir(exist_ok=True)
     (root / "profile.yml").write_text(
         "name: hello\ndata: data\nweb_panels:\n  - ariel\n",
         encoding="utf-8",
     )
-    (root / "personas").mkdir()
-    delta = root / "personas" / "readwrite.yml"
+    (root / TIERS_DIRNAME).mkdir()
+    delta = root / TIERS_DIRNAME / "readwrite.yml"
     delta.write_text(f"name: hello-readwrite\n{delta_body}", encoding="utf-8")
     return delta
 
 
-def test_empty_web_panels_in_a_persona_delta_loads(tmp_path: Path) -> None:
+def test_empty_web_panels_in_a_layer_delta_loads(tmp_path: Path) -> None:
     """An emptied ``web_panels:`` in a delta loads instead of crashing the build."""
-    delta = _write_persona_repo(tmp_path, "web_panels:\n")
+    delta = _write_render_repo(tmp_path, "web_panels:\n")
     assert load_profile(delta).web_panels == ["ariel"]
 
 
 def test_emptied_and_bracketed_web_panels_agree_in_a_delta(tmp_path: Path) -> None:
-    """Both empty spellings mean the same thing to the persona merge.
+    """Both empty spellings mean the same thing to the render merge.
 
     A delta cannot subtract from the root's selection by writing a shorter list
     — list merging is a union, and ``exclude:`` is the subtraction. So an
     emptied ``web_panels:`` must resolve exactly as ``web_panels: []`` does,
     rather than becoming the one spelling that silently wipes the root's tabs.
     """
-    emptied = load_profile(_write_persona_repo(tmp_path / "a", "web_panels:\n"))
-    bracketed = load_profile(_write_persona_repo(tmp_path / "b", "web_panels: []\n"))
+    emptied = load_profile(_write_render_repo(tmp_path / "a", "web_panels:\n"))
+    bracketed = load_profile(_write_render_repo(tmp_path / "b", "web_panels: []\n"))
     assert emptied.web_panels == bracketed.web_panels
 
 

@@ -13,7 +13,7 @@ in :data:`REPO_FREE_COMMANDS` rather than deciding case by case.
 
 :mod:`osprey.cli.profile_root` is not one of those contracts and is not
 replaced by this one. It answers a different question — given a profile FILE
-that was named explicitly, is it a facility profile or a persona delta, and
+that was named explicitly, is it a facility profile or a layer, and
 which directory do its relative paths anchor at — which no amount of repo
 discovery decides.
 
@@ -33,7 +33,7 @@ import click
 
 #: The marker that makes a directory a deployment repo root. It sits at the
 #: repo root rather than one level down: the root is the deployment, and
-#: everything beside the manifest — ``data/``, ``personas/``, the CI files —
+#: everything beside the manifest — ``data/``, ``tiers/``, the CI files —
 #: is content the manifest refers to.
 PROFILE_FILENAME = "profile.yml"
 

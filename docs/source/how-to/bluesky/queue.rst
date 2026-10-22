@@ -183,9 +183,9 @@ quirks worth knowing:
    refuse per call instead, with ``writes_disabled``, naming the lane's machine.
 
    In a deployed control room the agent holds the launch token only where the
-   deployment grants it, and it is granted **per lane**: to a persona whose
+   deployment grants it, and it is granted **per lane**: to a tier whose
    config arms writes for the machine that lane drives and that also runs the
-   bluesky MCP server. A persona can hold the simulator lane's token and none
+   bluesky MCP server. A tier can hold the simulator lane's token and none
    for the live one. Where it is granted, the agent's
    ``queue_start`` arms the queue itself, and your approval of that tool call
    is the arming decision. Where it is not, ``queue_start`` is refused with

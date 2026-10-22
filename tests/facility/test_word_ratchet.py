@@ -11,6 +11,14 @@ The engine words (``ENGINE_WORDS``) are a second, permanent token: a file
 outside ``ENGINE_ZONES`` that names a pyAT attribute or the ``axis`` key is
 classifying a binding by the engine's words rather than by the ``role`` and
 ``plane`` the simulator view states.
+
+The roster's retired word (``RETIRED_ROSTER_WORD``) is a third token, scanned
+over every tracked file by content and by path. Only the code that reads the old
+spelling, the frozen previous-release repo and the released notes keep it
+(``RETIRED_ROSTER_READERS``); ``RETIRED_ROSTER_INTERIM`` names the trees a later
+task still rewords, each row deleted by that task. A data line that must spell
+the old key carries ``RETIRED_SPELLING_MARKER``. An allowlist row that stops
+matching anything fails, so the list only shrinks.
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ from pathlib import Path
 
 import pytest
 
-from tests._vocabulary import ENGINE_WORDS, RATCHET_WORD
+from tests._vocabulary import ENGINE_WORDS, RATCHET_WORD, RETIRED_ROSTER_WORD
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -236,3 +244,129 @@ def test_a_planted_engine_word_under_the_connectors_is_flagged(tmp_path: Path) -
 
 def test_engine_words_survive_only_in_their_zones() -> None:
     assert engine_word_hits(REPO_ROOT) == []
+
+
+# --- the roster's retired word ----------------------------------------------------
+
+#: Where the retired word stays for good, each with why.
+RETIRED_ROSTER_READERS: dict[str, str] = {
+    "src/osprey/cli/build_profile_document.py": (
+        "the retired-key rewrite, the one parse point that reads the old spelling"
+    ),
+    "tests/cli/test_retired_roster_keys.py": "the retired-key rewrite's own test",
+    "tests/fixtures/previous_release_repo/**": "the frozen repo of the previous release",
+    "CHANGELOG.md": "released notes describe what shipped then",
+}
+
+#: Trees a later task still rewords; that task deletes its row.
+RETIRED_ROSTER_INTERIM: dict[str, str] = {}
+
+#: A line carrying this is not reported: a data line that must spell the old key.
+RETIRED_SPELLING_MARKER = "retired-spelling"
+
+#: The word, spelled without spelling it, for the tests below.
+_WORD = "per" + "sona"
+
+
+def retired_roster_hits(
+    root: Path,
+    allowed: Mapping[str, str] = {**RETIRED_ROSTER_READERS, **RETIRED_ROSTER_INTERIM},
+) -> list[str]:
+    """Every tracked ``path:line`` and ``path (name)`` naming the retired word.
+
+    Content lines carrying ``RETIRED_SPELLING_MARKER`` and paths under an
+    ``allowed`` glob are not reported.
+    """
+    excludes = [f":(exclude,glob){glob}" for glob in allowed]
+    result = subprocess.run(
+        ["git", "grep", "-I", "-n", "-P", "-e", RETIRED_ROSTER_WORD, "--", ".", *excludes],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 1), result.stderr
+    hits = [
+        ":".join(line.split(":", 2)[:2])
+        for line in result.stdout.splitlines()
+        if line and RETIRED_SPELLING_MARKER not in line.split(":", 2)[2]
+    ]
+    paths = subprocess.run(
+        ["git", "ls-files", "--", ".", *excludes],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    hits += [f"{path} (name)" for path in paths if re.search(RETIRED_ROSTER_WORD, path)]
+    return sorted(hits)
+
+
+def _hit_path(hit: str) -> str:
+    return hit.removesuffix(" (name)") if hit.endswith(" (name)") else hit.rsplit(":", 1)[0]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _WORD,
+        f"{_WORD}s",
+        f"default_{_WORD}",
+        f"test_{_WORD}_permissions",
+        f"effective{_WORD.capitalize()}",
+        f"{_WORD.capitalize()}Card",
+        f"per-{_WORD}",
+        _WORD.upper(),
+    ],
+)
+def test_retired_roster_word_finds_the_word(text: str) -> None:
+    assert re.search(RETIRED_ROSTER_WORD, text) is not None
+
+
+@pytest.mark.parametrize(
+    "text", ["personal", "Personal", "PERSONAL", "personality", "impersonate", "personally"]
+)
+def test_retired_roster_word_leaves_other_words(text: str) -> None:
+    assert re.search(RETIRED_ROSTER_WORD, text) is None
+
+
+def test_a_planted_retired_word_is_flagged(tmp_path: Path) -> None:
+    root = _planted_repo(
+        tmp_path,
+        {
+            "packages/osprey-connectors/src/planted.py": f"KIND = '{_WORD}'\n",
+            ".github/workflows/ci.yml": f"# one {_WORD} image\n",
+            "tests/interfaces/planted.test.mjs": f"// a per-{_WORD} key\n",
+            f"{_WORD}s/x.yml": "kind: tier\n",
+            "src/marked.py": f"KEY = '{_WORD}s'  # {RETIRED_SPELLING_MARKER}\n",
+            "CHANGELOG.md": f"- the {_WORD} catalog\n",
+            "src/clean.py": "PERSONAL = 'personal personality'\n",
+        },
+    )
+
+    assert retired_roster_hits(root) == [
+        ".github/workflows/ci.yml:1",
+        "packages/osprey-connectors/src/planted.py:1",
+        f"{_WORD}s/x.yml (name)",
+        "tests/interfaces/planted.test.mjs:1",
+    ]
+
+
+def test_no_tracked_file_names_the_retired_word() -> None:
+    assert retired_roster_hits(REPO_ROOT) == []
+
+
+def test_every_retired_word_allowlist_entry_still_matches() -> None:
+    hit_paths = {_hit_path(hit) for hit in retired_roster_hits(REPO_ROOT, allowed={})}
+    stale = []
+    for glob in {**RETIRED_ROSTER_READERS, **RETIRED_ROSTER_INTERIM}:
+        covered = subprocess.run(
+            ["git", "ls-files", "--", f":(glob){glob}"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if not hit_paths.intersection(covered):
+            stale.append(glob)
+    assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"

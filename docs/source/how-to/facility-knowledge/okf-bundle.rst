@@ -152,7 +152,7 @@ Working with a Bundle
       .. _shared-bundle-multi-user:
 
       **One bundle, many terminals.** In a multi-user deployment every web
-      terminal whose persona configures ``facility_knowledge.bundle_path`` gets
+      terminal whose tier or app configures ``facility_knowledge.bundle_path`` gets
       the *deployment's* bundle bind-mounted, read-write. There is one directory,
       not a copy per user: a concept drafted in one terminal is the same file the
       next terminal opens, and the same file the search sidecar indexes.
@@ -160,7 +160,7 @@ Working with a Bundle
       Two consequences are worth knowing before you debug either of them.
 
       *The mounted bundle hides the one baked into the image.* Each build copies
-      the profile's ``data/`` tree into the persona image, so the image ships a
+      the profile's ``data/`` tree into the terminal image, so the image ships a
       bundle of its own — and the mount covers it. That is intended: the bundle is
       operational knowledge that changes between image builds. Edit the
       deployment's bundle to change what a running terminal sees; edit the

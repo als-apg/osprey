@@ -241,7 +241,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             resolved against the files it ships, and the facts are read from
             its ``data/facility_facts.json``.
     """
-    from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+    from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey_connectors.types import connector_transport
@@ -300,9 +300,9 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # Gate for the `event_dispatcher` MCP server, read the same way
         # `graphdb_configured` is (a plain truthiness test, merged before
         # resolve_servers runs). The predicate is deliberately the one that
-        # grants the dispatcher bearer itself — the per-persona credential in
+        # grants the dispatcher bearer itself — the per-render credential in
         # the web-terminals render and the single-user host both call it — so a
-        # persona cannot end up holding the entry without the credential behind
+        # render cannot end up holding the entry without the credential behind
         # it, or the credential with no entry to spend it on. The panel
         # declaration IS that entitlement; there is no separate key.
         "event_dispatcher_wired": config_needs_dispatcher_token(config),
@@ -1150,13 +1150,13 @@ def is_user_owned(rel_path: str, ctx: dict) -> bool:
     write would not raise: it would quietly hand a user-owned artifact back to
     regen.
 
-    ``CLAUDE.md`` is owned under the canonical name of the persona the
-    deployment renders, never under another persona's name.
+    ``CLAUDE.md`` is owned under the canonical name of the render the
+    deployment renders, never under another render's name.
 
     Args:
         rel_path: Relative path from project root (e.g. ".claude/rules/safety.md")
         ctx: Template context. Must contain ``user_owned``; ``claude_md_template``
-            picks which persona's name owns ``CLAUDE.md`` (default persona when
+            picks which render's name owns ``CLAUDE.md`` (default tier when
             absent).
     """
     user_owned = ctx.get("user_owned", [])
@@ -1625,7 +1625,7 @@ def _build_declared_hook_rules(config: dict, project_dir: Path) -> dict[str, lis
     Shipping a hook through the ``hooks/`` channel copies it into
     ``.claude/hooks/``; it does not make Claude Code run it. ``claude_code.hooks``
     is the declaration that does — a config key, so it resolves through the same
-    pipeline as ``claude_code.servers`` and ``claude_code.permissions``: persona
+    pipeline as ``claude_code.servers`` and ``claude_code.permissions``: render
     deltas can override it and the resolved profile is the single source. It is
     read back from the built project's ``config.yml``, which is why every
     ``osprey build`` re-derives the wiring instead of finding it frozen in the
@@ -1773,10 +1773,10 @@ def _vet_declared_hook(
         raise BuildProfileError(
             f"claude_code.hooks.{event} declares {name!r}, which the resolved "
             "profile does not ship. Either add it to the profile's hooks/ "
-            f"directory, or — if a persona excludes 'hooks/{name}' — unwire it "
-            "in that same delta by adding this line to the persona's `config:`:"
+            f"directory, or — if a render excludes 'hooks/{name}' — unwire it "
+            "in that same delta by adding this line to the render's `config:`:"
             f"\n    claude_code.hooks.{event}: null\n"
-            "Use `null`, not `[]`: persona lists merge additively with the "
+            "Use `null`, not `[]`: render lists merge additively with the "
             "profile's, so an empty list adds nothing and leaves the wiring in "
             "place. `claude_code.hooks: {}` unwires every event at once."
         )
@@ -2054,7 +2054,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     # _profile_setup_patch_capable) — it never sees this floor. That parity
     # holds only while the setup tool is denied by profiles and not by
     # DENY_DEFAULTS, so moving the deny down into the floor would leave every
-    # persona reading as capable and hand every image's config.yml to the
+    # render reading as capable and hand every image's config.yml to the
     # agent. Checked here rather than trusted: this is the one place that knows
     # the floor's contents at build time.
     if any(fnmatchcase(SETUP_PATCH_TOOL, entry) for entry in DENY_DEFAULTS):
@@ -2194,11 +2194,11 @@ def create_claude_code_integration(
 
     # 2. Render CLAUDE.md template -> CLAUDE.md
     # The catalog resolves CLAUDE.md to the profile's `claude_md_template:`
-    # persona, and an unknown one is refused there by name.
+    # render, and an unknown one is refused there by name.
     instructions = BuildArtifactCatalog.default(
         claude_md_template=ctx.get("claude_md_template") or DEFAULT_CLAUDE_MD_TEMPLATE
     ).get_by_output("CLAUDE.md")
-    assert instructions is not None, "the default catalog always carries a CLAUDE.md persona"
+    assert instructions is not None, "the default catalog always carries a CLAUDE.md render"
     if not is_user_owned("CLAUDE.md", ctx):
         render_template(
             jinja_env,

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from osprey.cli.build_profile_load import _parse_profile
-from osprey.cli.build_profile_merge import merge_persona_delta
+from osprey.cli.build_profile_merge import merge_layer_delta
 from osprey.cli.build_profile_resolve import apply_cli_edits
 from osprey.facility.errors import FacilityBuildError
 
@@ -76,11 +76,11 @@ def test_per_type_keys_are_named_in_sorted_type_order() -> None:
     assert _refusal({"config": config}) == _line(PER_TYPE)
 
 
-def test_a_persona_delta_stating_the_key_is_refused_when_merged() -> None:
+def test_a_layer_delta_stating_the_key_is_refused_when_merged() -> None:
     root = {"config": {"control_system.limits_checking.enabled": True}}
-    delta = {"config": {WIDE: "data/persona_limits.json"}}
+    delta = {"config": {WIDE: "data/render_limits.json"}}
 
-    assert _refusal(merge_persona_delta(root, delta)) == _line(WIDE)
+    assert _refusal(merge_layer_delta(root, delta)) == _line(WIDE)
 
 
 def test_a_set_edit_stating_the_key_is_refused() -> None:

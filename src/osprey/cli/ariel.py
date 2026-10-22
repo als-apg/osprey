@@ -73,13 +73,19 @@ def _config_dir() -> Path | None:
     same config finds the same vocabulary file. Delegates to the framework rule
     rather than restating it.
 
+    The config this run loaded answers first, so a vocabulary named in the
+    render of the enclosing repo resolves the same from the repo root as from
+    any directory inside it.
+
     Returns:
         The config's parent directory, or None when it cannot be determined, in
         which case the shared resolver falls back to its own rule.
     """
     from osprey.utils.config_paths import resolve_config_dir
+    from osprey_connectors.config import default_config_path
 
-    return resolve_config_dir()
+    loaded = default_config_path()
+    return Path(loaded).parent if loaded else resolve_config_dir()
 
 
 def _report_vocabulary(vocabulary: dict | None) -> None:
@@ -510,13 +516,40 @@ def _qmd_resync_pre_step(config_dict: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _anchor_project_config(ctx: click.Context) -> None:
+    """Answer this command's config lookups from the deployment it is typed in.
+
+    Every verb here reads its config through unqualified lookups, which know
+    only ``CONFIG_FILE`` and a ``config.yml`` in the working directory. A
+    deployment repo keeps its render at ``build/config.yml`` and its operator
+    stands at the repo root or inside it, so the render is resolved the way
+    every other host verb resolves it
+    (:func:`osprey.cli.project_utils.resolve_config_path`) and anchored for
+    the life of the command.
+
+    No environment variable takes part: one naming another deployment must
+    not change which deployment the command typed here acts on. With no config
+    to find, nothing is anchored: a verb that needs none (``vocab-check PATH``,
+    ``--help``) still runs, and one that needs one reports it missing.
+    """
+    from osprey_connectors.config import config_anchored_at
+
+    from .project_utils import resolve_config_path
+
+    config_path = Path(resolve_config_path())
+    if config_path.is_file():
+        ctx.with_resource(config_anchored_at(config_path))
+
+
 @click.group("ariel")
-def ariel_group() -> None:
+@click.pass_context
+def ariel_group(ctx: click.Context) -> None:
     """ARIEL search service commands.
 
     Commands for managing the ARIEL (Agentic Retrieval Interface for
     Electronic Logbooks) search service.
     """
+    _anchor_project_config(ctx)
 
 
 # ---------------------------------------------------------------------------

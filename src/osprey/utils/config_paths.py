@@ -21,7 +21,7 @@ bind source resolves against (every invocation is pinned with
 only anchor under which the directory a process WRITES is the directory a
 container is handed to read. Anchored on the render, the qmd exporter wrote
 ``build/var/ariel_mirror`` while the sidecar indexed ``var/ariel_mirror`` — an
-empty tree — and a persona's readers opened the image's baked bundle at
+empty tree — and a render's readers opened the image's baked bundle at
 ``build/data/...`` while the deployment's live bundle was mounted at
 ``data/...`` one directory over. Same rule as
 :func:`osprey_connectors.workspace.resolve_project_root` and every other

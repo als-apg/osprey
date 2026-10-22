@@ -113,8 +113,8 @@ def test_the_cli_renders_the_aggregate_through_the_shared_refusal_shape(capsys):
 # ---------------------------------------------------------------------------
 
 
-def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
-    """Write a persona project under *root*; return its relative project_path.
+def _render_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
+    """Write a render project under *root*; return its relative project_path.
 
     The bluesky server is spelled out because it is opt-in in the registry: a
     project that omits the key runs no server, holds no launch token, and so
@@ -142,9 +142,9 @@ def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) 
 def _three_problem_config(root: Path) -> dict:
     """One deployment carrying one of each collectable problem.
 
-    Two personas, because the render problem and the shell/token conflict
-    cannot both be true of the same one: a persona with no render contributes
-    nothing to the launch-token set, so the conflict needs a persona whose
+    Two renders, because the render problem and the shell/token conflict
+    cannot both be true of the same one: a render with no render contributes
+    nothing to the launch-token set, so the conflict needs a render whose
     render is there and wrong.
     """
     return {
@@ -161,19 +161,24 @@ def _three_problem_config(root: Path) -> dict:
                 # `token` — today's default posture, and what this fixture has always
                 # meant: no login wall, each terminal reached through its own magic
                 # link. `none` now means OPEN, which carries a collectable problem of
-                # its own (personas that can still reach the host network), and this
+                # its own (renders that can still reach the host network), and this
                 # deployment is about the other three.
                 "auth": {"method": "token"},
-                "default_persona": "readwrite",
+                "default_tier": "readwrite",
                 "users": [
-                    {"name": "alice", "index": 0, "persona": "unrendered"},
-                    {"name": "bob", "index": 1, "persona": "readwrite"},
+                    {"name": "alice", "index": 0, "tier": "unrendered"},
+                    {"name": "bob", "index": 1, "tier": "readwrite"},
                 ],
-                "personas": {
-                    "unrendered": {"project": "unrendered", "project_path": "build/nowhere"},
+                "renders": {
+                    "unrendered": {
+                        "kind": "tier",
+                        "project": "unrendered",
+                        "project_path": "build/nowhere",
+                    },
                     "readwrite": {
+                        "kind": "tier",
                         "project": "rw",
-                        "project_path": _persona_project(
+                        "project_path": _render_project(
                             root, "readwrite", writes=True, denies_bash=False
                         ),
                     },
@@ -211,23 +216,24 @@ def test_a_clean_deployment_collects_nothing(tmp_path, monkeypatch):
     """The negative control: the same shape with each problem fixed collects
     nothing, so the pass cannot be green by refusing everything.
 
-    The render probe is inert here — a complete persona render is a fixture in
-    its own right and `test_persona_images.py` owns that question. What this
+    The render probe is inert here — a complete render is a fixture in
+    its own right and `test_render_images.py` owns that question. What this
     asserts is that the two probes reading files the fixture DOES write both
     answer "no problem" when the files are right."""
     monkeypatch.setattr(
-        provision, "verify_persona_renders", lambda config, resolved_users, repo_root=None: None
+        provision, "verify_renders", lambda config, resolved_users, repo_root=None: None
     )
     (tmp_path / ".env").write_text("OBS_ENDPOINT=set\n", encoding="utf-8")
     config = _three_problem_config(tmp_path)
     web_terminals = config["modules"]["web_terminals"]
-    # One persona, rendered, denying the shell.
-    web_terminals["default_persona"] = "safe"
-    web_terminals["users"] = [{"name": "bob", "index": 0, "persona": "safe"}]
-    web_terminals["personas"] = {
+    # One render, rendered, denying the shell.
+    web_terminals["default_tier"] = "safe"
+    web_terminals["users"] = [{"name": "bob", "index": 0, "tier": "safe"}]
+    web_terminals["renders"] = {
         "safe": {
+            "kind": "tier",
             "project": "safe",
-            "project_path": _persona_project(tmp_path, "safe", writes=True, denies_bash=True),
+            "project_path": _render_project(tmp_path, "safe", writes=True, denies_bash=True),
         }
     }
 
@@ -703,10 +709,10 @@ def stubbed_start(monkeypatch):
         "run",
         lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0),
     )
-    # The persona-render probe has its own suite; kept inert so these tests are
+    # The render-render probe has its own suite; kept inert so these tests are
     # about placement rather than about any repo's rendered state.
     monkeypatch.setattr(
-        provision, "verify_persona_renders", lambda config, resolved_users, repo_root=None: None
+        provision, "verify_renders", lambda config, resolved_users, repo_root=None: None
     )
     monkeypatch.setattr(
         container_lifecycle, "_compose_provider", lambda config: ComposeProvider.DOCKER_V2
@@ -726,8 +732,10 @@ def _mint_dependent_config() -> dict:
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "default_persona": "ops",
-                "personas": {"ops": {"project": "ops-app", "project_path": "build/ops-app"}},
+                "default_tier": "ops",
+                "renders": {
+                    "ops": {"kind": "tier", "project": "ops-app", "project_path": "build/ops-app"}
+                },
             }
         },
     }
@@ -854,7 +862,7 @@ def test_a_required_name_nothing_provides_refuses_before_the_build(
 
 
 def _shared_card_config(root: Path) -> dict:
-    """A rendered deployment sharing a privileged persona's card with the roster.
+    """A rendered deployment sharing a privileged tier's card with the roster.
 
     The base floors both surfaces and the `admin` render lifts neither key back
     -- which is what a render that predates the floor looks like, and what a
@@ -884,14 +892,22 @@ def _shared_card_config(root: Path) -> dict:
                 "enabled": True,
                 "image_source": "local",
                 "auth": {"method": "password"},
-                "default_persona": "readonly",
+                "default_tier": "readonly",
                 "users": [
-                    {"name": "bob", "index": 0, "persona": "readonly"},
-                    {"name": "carol", "index": 1, "persona": "admin", "access": "any"},
+                    {"name": "bob", "index": 0, "tier": "readonly"},
+                    {"name": "carol", "index": 1, "tier": "admin", "access": "any"},
                 ],
-                "personas": {
-                    "readonly": {"project": "readonly-app", "project_path": "build/readonly-app"},
-                    "admin": {"project": "admin-app", "project_path": "build/admin-app"},
+                "renders": {
+                    "readonly": {
+                        "kind": "tier",
+                        "project": "readonly-app",
+                        "project_path": "build/readonly-app",
+                    },
+                    "admin": {
+                        "kind": "tier",
+                        "project": "admin-app",
+                        "project_path": "build/admin-app",
+                    },
                 },
             }
         },
@@ -925,7 +941,7 @@ def test_the_same_deployment_with_an_own_card_starts(tmp_path, stubbed_start, mo
     assert stubbed_start == ["build_image"]
 
 
-def test_a_privileged_default_persona_is_printed_and_the_start_proceeds(
+def test_a_privileged_default_tier_is_printed_and_the_start_proceeds(
     tmp_path, stubbed_start, monkeypatch, capsys
 ):
     """The advisory half. It is a real exposure and it is said out loud, but
@@ -934,21 +950,21 @@ def test_a_privileged_default_persona_is_printed_and_the_start_proceeds(
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
     config = _shared_card_config(tmp_path)
     del config["modules"]["web_terminals"]["users"][1]["access"]
-    config["modules"]["web_terminals"]["default_persona"] = "admin"
+    config["modules"]["web_terminals"]["default_tier"] = "admin"
 
     container_lifecycle._start_stack(config, [], tmp_path, detached=True)
 
     assert stubbed_start == ["build_image"]
-    assert "default_persona" in capsys.readouterr().err
+    assert "default_tier" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
 # The open-mode egress refusal, as the collect-all pass reports it
 # ---------------------------------------------------------------------------
 # The pass ASKS the gate's predicate rather than raising on it, so its finding is
-# built from the same per-persona answer the gate would have raised with. Asking
+# built from the same per-render answer the gate would have raised with. Asking
 # only for the offender NAMES would report every deployment against the whole
-# four-entry egress set -- and the operator whose persona lifted exactly one of
+# four-entry egress set -- and the operator whose render lifted exactly one of
 # them would go looking for four.
 
 
@@ -978,7 +994,7 @@ def test_the_collect_all_preflight_reports_the_open_mode_refusal(
 
 def _open_mode_terminal_config(root: Path, *, lift: str) -> dict:
     """The rendered deployment above, opened up, with *lift* missing from one
-    persona's shipped deny list and every other persona clean."""
+    render's shipped deny list and every other render clean."""
     from osprey.agent_runner.tool_names import DENY_DEFAULTS
 
     config = _shared_card_config(root)

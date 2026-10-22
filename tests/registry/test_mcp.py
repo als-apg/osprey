@@ -18,6 +18,7 @@ from osprey.registry.mcp import (
     writes_check_matchers,
 )
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._renders import tier_render
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1453,8 +1454,8 @@ class TestTemplateRendering:
                 "web_terminals": {
                     "enabled": True,
                     "users": ["alice"],
-                    "default_persona": "assistant",
-                    "personas": {"assistant": {"project": "dls-assistant"}},
+                    "default_tier": "assistant",
+                    "renders": {"assistant": tier_render("assistant", "dls-assistant")},
                 }
             },
             # Same shape as the project-level config exercised above — present
@@ -1753,7 +1754,7 @@ class TestMixedReadWriteTools:
 
 
 def _events_panel_config() -> dict:
-    """A config that declares the EVENTS panel, as a terminal persona does."""
+    """A config that declares the EVENTS panel, as a terminal render does."""
     return {"web": {"panels": {"events": {}}}}
 
 
@@ -1814,15 +1815,15 @@ class TestEventDispatcherServer:
     def test_wiring_key_follows_the_panel_declaration(self, tmp_path):
         """``event_dispatcher_wired`` IS the dispatcher-token predicate.
 
-        The per-persona bearer in the web-terminals render and the single-user
+        The per-render bearer in the web-terminals render and the single-user
         host both grant the dispatcher token from
         ``config_needs_dispatcher_token``. Deriving the render key from any
-        second reading of the config would let a persona be handed the entry
+        second reading of the config would let a render be handed the entry
         without the credential behind it, or the credential with no entry to
         spend it on.
         """
         from osprey.cli.templates.claude_code import config_derived_context
-        from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+        from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
 
         with_panel = _events_panel_config()
         assert config_derived_context(with_panel, tmp_path)["event_dispatcher_wired"] is True
@@ -1834,7 +1835,7 @@ class TestEventDispatcherServer:
             ] == config_needs_dispatcher_token(config)
 
     def test_render_carries_the_entry_with_no_env_block(self, tmp_path):
-        """End to end: a persona that declares the panel renders the entry exactly.
+        """End to end: a render that declares the panel renders the entry exactly.
 
         A URL entry has nowhere to put ``env`` — a remote server never sees it —
         so the rendered block is ``{type, url, headers}`` and nothing else.
@@ -1864,12 +1865,12 @@ class TestEventDispatcherServer:
         The registry spells the url and the bearer header as literals — the
         modules that own those pieces are either far heavier than this registry
         (the interfaces package, loaded on every render) or import the registry
-        themselves (personas), so importing them there is not on offer. What is
+        themselves (renders), so importing them there is not on offer. What is
         on offer is failing HERE the moment one of them moves: a renamed env
         var or a relocated MCP path would otherwise leave the agent dialing a
         404 with an empty bearer, and nothing else would notice.
         """
-        from osprey.deployment.web_terminals.personas import EVENTS_PANEL_ID
+        from osprey.deployment.web_terminals.roster import EVENTS_PANEL_ID
         from osprey.dispatch import DISPATCHER_MCP_PATH
         from osprey.interfaces.common_middleware import WEB_PORT_ENV
         from osprey.interfaces.web_auth import PANEL_TOKEN_ENV

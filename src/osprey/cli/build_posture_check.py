@@ -37,7 +37,7 @@ surface reads is not a posture at all:
 The gate runs over the *rendered* config, beside
 :func:`~osprey.cli.build_cmd._incomplete_limits_errors` and for the same
 reason: what a deployment runs is the render, so a key an injector wrote, a
-persona inherited, or a preset's ``config:`` block spelled is read here the
+render inherited, or a preset's ``config:`` block spelled is read here the
 same way an operator's own line is. Each refusal names the dotted key and the
 file to add it to.
 
@@ -208,9 +208,9 @@ def missing_posture_errors(rendered: Mapping[str, Any], selected_hooks: Iterable
     Args:
         rendered: The rendered ``config.yml``, read after the injectors — the
             config a deployment actually loads, so a key a preset's ``config:``
-            block, a persona's delta or an injector supplied counts as stated.
+            block, a render's delta or an injector supplied counts as stated.
         selected_hooks: The resolved profile's ``hooks:`` list. Passed rather
-            than re-derived: the build has already merged the persona's
+            than re-derived: the build has already merged the render's
             selection into it, and a second derivation could disagree with the
             hooks the render installs.
 

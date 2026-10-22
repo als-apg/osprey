@@ -77,11 +77,11 @@ LONE_SCRIPTS: tuple[LoneScript, ...] = (
 )
 
 
-#: The one output path several artifacts render, one per persona. Which of them
+#: The one output path several artifacts render, one per render. Which of them
 #: a deployment renders is the profile's ``claude_md_template:``.
 INSTRUCTIONS_OUTPUT = "CLAUDE.md"
 
-#: The persona a deployment renders when its profile names none.
+#: The render a deployment renders when its profile names none.
 DEFAULT_CLAUDE_MD_TEMPLATE = "CLAUDE.md.j2"
 
 
@@ -93,25 +93,25 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="claude-md",
             template_path="CLAUDE.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (control-system persona)",
+            description="CLAUDE.md project instructions (control-system render)",
         ),
         BuildArtifact(
-            canonical_name="claude-md-ariel",
-            template_path="CLAUDE.ariel.md.j2",
+            canonical_name="claude-md-logbook",
+            template_path="CLAUDE.logbook.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (ARIEL logbook research persona)",
+            description="CLAUDE.md project instructions (logbook research app)",
         ),
         BuildArtifact(
             canonical_name="claude-md-knowledge",
             template_path="CLAUDE.knowledge.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (facility knowledge persona)",
+            description="CLAUDE.md project instructions (facility knowledge app)",
         ),
         BuildArtifact(
             canonical_name="claude-md-channel-finder",
             template_path="CLAUDE.channel-finder.md.j2",
             output_path="CLAUDE.md",
-            description="CLAUDE.md project instructions (channel-finder assistant persona)",
+            description="CLAUDE.md project instructions (channel-finder app)",
         ),
         BuildArtifact(
             canonical_name="mcp-json",
@@ -591,7 +591,7 @@ class BuildArtifactCatalog:
         artifact = catalog.get("agents/channel-finder")
         for name in catalog.all_names():
             print(name)
-        BuildArtifactCatalog.default(claude_md_template="CLAUDE.ariel.md.j2")
+        BuildArtifactCatalog.default(claude_md_template="CLAUDE.logbook.md.j2")
     """
 
     def __init__(
@@ -605,12 +605,12 @@ class BuildArtifactCatalog:
         self._lone_scripts: dict[str, LoneScript] = {s.name: s for s in lone_scripts}
         self._claude_md_template = claude_md_template
         # An output path has exactly one artifact, except CLAUDE.md, which has one
-        # per persona and resolves to the persona the catalog was built for.
+        # per render and resolves to the render the catalog was built for.
         self._by_output: dict[str, BuildArtifact] = {}
-        personas: list[BuildArtifact] = []
+        renders: list[BuildArtifact] = []
         for a in artifacts:
             if a.output_path == INSTRUCTIONS_OUTPUT:
-                personas.append(a)
+                renders.append(a)
                 continue
             existing = self._by_output.get(a.output_path)
             if existing is not None:
@@ -619,13 +619,13 @@ class BuildArtifactCatalog:
                     f"both render '{a.output_path}'; an output path has one artifact"
                 )
             self._by_output[a.output_path] = a
-        if personas:
-            chosen = next((a for a in personas if a.template_path == claude_md_template), None)
+        if renders:
+            chosen = next((a for a in renders if a.template_path == claude_md_template), None)
             if chosen is None:
-                known = ", ".join(sorted(a.template_path for a in personas))
+                known = ", ".join(sorted(a.template_path for a in renders))
                 raise ValueError(
                     f"claude_md_template '{claude_md_template}' is not a bundled "
-                    f"CLAUDE.md persona; name one of: {known}"
+                    f"CLAUDE.md render; name one of: {known}"
                 )
             self._by_output[INSTRUCTIONS_OUTPUT] = chosen
         for a in artifacts:
@@ -663,7 +663,7 @@ class BuildArtifactCatalog:
         """Create a catalog populated with the default artifact list.
 
         Args:
-            claude_md_template: The persona template ``CLAUDE.md`` resolves to,
+            claude_md_template: The render template ``CLAUDE.md`` resolves to,
                 as the profile's ``claude_md_template:`` names it.
         """
         return cls(
@@ -674,7 +674,7 @@ class BuildArtifactCatalog:
 
     @property
     def claude_md_template(self) -> str:
-        """The persona this catalog resolves ``CLAUDE.md`` to."""
+        """The render this catalog resolves ``CLAUDE.md`` to."""
         return self._claude_md_template
 
     def get(self, name: str) -> BuildArtifact | None:
@@ -684,7 +684,7 @@ class BuildArtifactCatalog:
     def get_by_output(self, output_path: str) -> BuildArtifact | None:
         """Look up an artifact by its output path (relative to project root).
 
-        For ``CLAUDE.md`` the answer is the persona this catalog was built for.
+        For ``CLAUDE.md`` the answer is the render this catalog was built for.
         """
         return self._by_output.get(output_path)
 

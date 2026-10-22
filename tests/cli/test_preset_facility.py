@@ -19,8 +19,15 @@ import yaml
 from osprey.cli import build_profile_presets
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
 from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
-from osprey.cli.build_profile_presets import PRESET_FACILITY_KEY, list_presets, preset_facility
-from osprey.cli.profile_cmd import _preset_data, _preset_data_names
+from osprey.cli.build_profile_presets import (
+    PRESET_FACILITY_KEY,
+    _read_preset_document,
+    list_apps,
+    list_presets,
+    list_tiers,
+    preset_facility,
+)
+from osprey.cli.profile_cmd import _preset_data
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.preset_data import compose_preset_data
 from osprey_connectors.errors import BuildProfileError
@@ -56,10 +63,9 @@ def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     [
         ("control-assistant", "example"),
         ("control_assistant", "example"),
-        ("control-assistant-readonly", "example"),
         ("hello-world", "hello_world"),
-        ("ariel-standalone", "example"),
-        ("channel-finder-standalone", "example"),
+        ("tiers/readonly", None),
+        ("apps/logbook", None),
         (None, None),
         ("no-such-preset", None),
     ],
@@ -75,6 +81,20 @@ def test_every_facility_a_shipped_preset_names_is_shipped() -> None:
 
     assert named == {"example", "hello_world"}
     assert all((FACILITIES / name).is_dir() for name in named)
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [f"tiers/{name}" for name in list_tiers()] + [f"apps/{name}" for name in list_apps()],
+)
+def test_no_shipped_tier_or_app_names_a_facility(layer: str) -> None:
+    """The facility is the deployment's, named once on the root preset.
+
+    A tier or app renders on the data bundle of the root it rides on, so a
+    ``facility:`` of its own would name a bundle nothing composes.
+    """
+    assert PRESET_FACILITY_KEY not in _read_preset_document(layer)[0]
+    assert preset_facility(layer) is None
 
 
 def test_the_resolver_follows_extends(fake_presets: Path) -> None:
@@ -211,16 +231,3 @@ def test_an_absent_facility_is_a_packaging_fault(tmp_path: Path) -> None:
 
     with pytest.raises(BuildProfileError, match="reinstall"):
         compose_preset_data(root, "app", "no_such_facility")
-
-
-# ---------------------------------------------------------------------------
-# Personas share the host's one data tree
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "persona",
-    [preset for preset in list_presets() if preset.startswith("control-assistant-")],
-)
-def test_every_persona_preset_composes_the_host_s_data(persona: str) -> None:
-    assert _preset_data_names(persona) == _preset_data_names("control-assistant")

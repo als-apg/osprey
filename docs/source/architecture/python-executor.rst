@@ -453,7 +453,7 @@ Three locations are protected:
   build or, worse, survives as a rendered setting nobody wrote.
 - **The profile sources** --- what the build reads to produce that render:
   ``profile.yml`` (with ``triggers.yml``, ``ci-extra.yml`` and
-  ``osprey.service`` beside it), the ``personas/``,
+  ``osprey.service`` beside it), the ``tiers/``, ``apps/``,
   ``profiles/``, ``data/`` and ``scripts/`` directories, the convention
   directories (``rules/``, ``skills/``, ``agents/``, ``commands/``,
   ``output-styles/``, ``hooks/``, ``web-terminal-context/``, ``mcp_servers/``,
@@ -462,7 +462,7 @@ Three locations are protected:
   run that could rewrite it could erase the evidence of its own refusal.
 
 A protected entry that does not exist yet is protected all the same: in a repo
-with no ``personas/`` directory, creating one is exactly the write to refuse.
+with no ``apps/`` directory, creating one is exactly the write to refuse.
 
 This boundary is about *zones* — whole trees, wherever inside them a path lands.
 A companion boundary, :ref:`the protected set <config-protected-set>`, closes

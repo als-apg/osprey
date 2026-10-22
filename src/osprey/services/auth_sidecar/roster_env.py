@@ -2,8 +2,8 @@
 
 This is the one definition of the suffix a web-terminal roster username is
 keyed by in ``OSPREY_AUTH_PW_HASH_<SUFFIX>``, ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>``,
-``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>``, ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`` and
-``OSPREY_TERMINAL_SECRET_<SUFFIX>``, and the history carriers below. The deployment layer mints under these
+``OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>``, ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``,
+``OSPREY_AUTH_ROSTER_LABEL_<SUFFIX>`` and ``OSPREY_TERMINAL_SECRET_<SUFFIX>``, and the history carriers below. The deployment layer mints under these
 names (credential provisioning, render, lint, lifecycle) and the auth sidecar
 reads them, so both import the mapping from here. It also defines the
 stored-hash stem those names start with, for the same reason: both ends import
@@ -22,6 +22,15 @@ PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
 """Stem of a roster user's stored password hash, completed by :func:`env_var_suffix`.
 
 The one definition the credential writer, the sidecar and lint share.
+"""
+
+
+ROSTER_LABEL_VAR_PREFIX = "OSPREY_AUTH_ROSTER_LABEL_"
+"""Stem of a card's title, completed by :func:`env_var_suffix` of the card name.
+
+Only a shared app card carries one: its title is the app's ``name:``. A card
+without the line is shown under its roster name, which is what a person's card
+always is.
 """
 
 
@@ -95,7 +104,7 @@ def env_var_suffix_collisions(usernames: Iterable[str]) -> dict[str, list[str]]:
 
     Args:
         usernames: Roster usernames — typically ``entry["name"]`` for each
-            :func:`~osprey.deployment.web_terminals.personas.normalize_users`
+            :func:`~osprey.deployment.web_terminals.roster.normalize_users`
             entry. Non-string items are ignored, matching the roster readers'
             drop-don't-raise convention.
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -82,6 +83,7 @@ class ExampleState:
 
     Attributes:
         supports_write: Whether the adapter writes entries.
+        supports_attachments: Whether the adapter takes an entry's files.
         options_mode: ``ok`` answers from ``options_table``; ``fail`` raises
             :class:`IngestionError`; ``hang`` never returns.
         declare_logbook: Whether a ``logbook`` select is declared after the
@@ -89,14 +91,18 @@ class ExampleState:
         options_table: The ``scan`` choices, keyed by the ``day`` value the
             options call receives; a day absent from the table has no choices.
         created: Every request ``create_entry`` was given, in order.
+        received_files: The files each ``create_entry`` call could read from its
+            ``attachment_paths``, by base name, in call order.
         options_calls: Every options call as ``(name, values)``, in order.
     """
 
     supports_write: bool = True
+    supports_attachments: bool = False
     options_mode: str = OPTIONS_OK
     declare_logbook: bool = False
     options_table: dict[Any, list[dict[str, str]]] = field(default_factory=dict)
     created: list[FacilityEntryCreateRequest] = field(default_factory=list)
+    received_files: list[dict[str, bytes]] = field(default_factory=list)
     options_calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 
 
@@ -165,6 +171,10 @@ class ExampleEntryFieldsAdapter(FacilityAdapter):
     def requires_write_auth(self) -> bool:
         return False
 
+    @property
+    def supports_attachments(self) -> bool:
+        return self.state.supports_attachments
+
     async def fetch_entries(
         self,
         since: Any = None,  # noqa: ARG002 - facility adapter contract; the example has no upstream to read
@@ -178,6 +188,9 @@ class ExampleEntryFieldsAdapter(FacilityAdapter):
         if not self.state.supports_write:
             raise NotImplementedError(f"{EXAMPLE_SOURCE_SYSTEM} adapter does not write entries")
         self.state.created.append(request)
+        self.state.received_files.append(
+            {Path(path).name: Path(path).read_bytes() for path in request.attachment_paths}
+        )
         return f"example-{len(self.state.created)}"
 
     def get_entry_field_descriptors(self) -> list[ParameterDescriptor]:

@@ -1,6 +1,6 @@
 """What an attached render is told about the services its host deploys.
 
-A web-terminal persona is an attached project: it scaffolds no services, so
+A web-terminal render is an attached project: it scaffolds no services, so
 the injectors that write ``services.<name>`` blocks never run for it — yet its
 in-container clients resolve their endpoints from exactly those blocks, and
 bottom out in a compiled-in default (or refuse at first use) when a block is
@@ -108,7 +108,7 @@ def test_every_live_consumer_is_told_its_hosts_fact():
 
 def test_a_two_lane_host_projects_both_lanes_port_and_target():
     """``bluesky.second_lane`` renders a second bridge and stamps ``target`` on
-    both lane blocks; a persona told only lane 1's port would be a single-lane
+    both lane blocks; a render told only lane 1's port would be a single-lane
     render whose session, switched to the other machine, is refused rather
     than routed. Port AND target: the lane resolver picks the active lane by
     matching each lane's declared target against the session's."""
@@ -131,7 +131,7 @@ def test_a_two_lane_host_projects_both_lanes_port_and_target():
 
 
 def test_a_single_lane_host_projects_no_lane_target():
-    """``target`` is written only on a two-lane deploy; a single-lane persona
+    """``target`` is written only on a two-lane deploy; a single-lane render
     stays byte-for-byte the pre-lane render, which is that resolver's
     single-lane answer."""
     projected = project_attached_overrides(HOST, ALL_ON)
@@ -139,7 +139,7 @@ def test_a_single_lane_host_projects_no_lane_target():
     assert not any("bluesky_va" in key or "bluesky_live" in key for key in projected)
 
 
-def test_a_persona_with_the_bluesky_server_off_is_told_no_lane():
+def test_a_render_with_the_bluesky_server_off_is_told_no_lane():
     host = copy.deepcopy(HOST)
     host["services"]["bluesky_va"] = {"port": 18190, "target": "va"}
     off = copy.deepcopy(ALL_ON)
@@ -218,7 +218,7 @@ def test_the_build_entry_point_is_the_registrys_projection():
 def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
     """The attached render and the deploying render must name each fact under
     one spelling, or a client following the deploying spelling reads nothing
-    in a persona. Pinned against the deploy preflight's own remedy table."""
+    in a render. Pinned against the deploy preflight's own remedy table."""
     from osprey.deployment.host_ports import _SERVICE_REMEDY_KEYS
 
     projected = {p.key for c in REACH_CONTRACTS.values() for p in c.projected}
@@ -269,9 +269,9 @@ def test_a_spelling_that_contradicts_the_projection_is_refused(config):
     ids=["dotted", "nested-under-prefix"],
 )
 def test_a_spelling_that_agrees_is_the_same_fact(config):
-    """A persona profile inherits the hosting profile's ``config:`` dotted
+    """A render profile inherits the hosting profile's ``config:`` dotted
     keys, so a host that moved its bridge port there spells it in every
-    persona's merged config — as the host's own value. Refusing that would
+    render's merged config — as the host's own value. Refusing that would
     refuse every moved port; the spelling and the projection agree."""
     assert reach_override_errors(config, {"services.bluesky.port": 18090}) == []
 

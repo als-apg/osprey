@@ -615,6 +615,47 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
     assert "not found" in data["error_message"]
 
 
+async def test_entry_create_draft_refuses_an_artifact_that_cannot_be_converted(
+    tmp_path, monkeypatch
+):
+    """A draft whose artifact fails to convert is refused, never written without it."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    from osprey.stores.artifact_store import ArtifactStore
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    art = store.save_file(
+        file_content=b"<html><body>plot</body></html>",
+        filename="plot.html",
+        artifact_type="html",
+        title="Plot",
+        mime_type="text/html",
+        tool_source="test",
+    )
+
+    with (
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
+        patch(
+            "osprey.agent_runner.artifact_resolve.resolve_artifact_path",
+            side_effect=RuntimeError("browser launch failed: libglib-2.0.so.0"),
+        ),
+    ):
+        fn = _get_entry_create()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(
+                subject="Test",
+                details="Plot that cannot convert",
+                artifact_ids=[art.id],
+                draft=True,
+            )
+
+    assert "libglib-2.0.so.0" in _exc_ctx["envelope"]["error_message"]
+    assert not drafts_dir.exists() or not any(drafts_dir.iterdir())
+
+
 async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     """Draft mode with artifact_ids stores attachment_paths in draft JSON."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod

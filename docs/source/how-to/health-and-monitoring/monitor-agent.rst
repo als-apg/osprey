@@ -272,7 +272,7 @@ under this backend stops the build.
    - **On the host** (``osprey web`` / ``osprey chat`` on your machine), at the
      address the gateway publishes: ``deployment.bind_address`` (loopback for a
      wildcard bind) and ``services.telemetry_gateway.port``.
-   - **Inside a host-networked container** (every web-terminal persona
+   - **Inside a host-networked container** (every web-terminal
      container, a dispatch worker on the host network), at that same published
      address. The container's compose file declares it as
      ``OSPREY_OTEL_GATEWAY_HOST`` and ``OSPREY_OTEL_GATEWAY_PORT``.

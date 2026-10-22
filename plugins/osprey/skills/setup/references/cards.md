@@ -52,9 +52,10 @@ Header line, then one box per group in this order, then the question.
  │ custom     <list, each `custom (shadows <name>)` where it shadows>   │
  │ models     main <id> · pinned <agent> <id> · … | none pinned         │
  └──────────────────────────────────────────────────────────────────────┘
- ┌ WEB ── <n> panels · <n> users · <n> personas · auth <method> ────────┐
+ ┌ WEB ── <n> panels · <n> users · <n> tiers · <n> apps · auth <method> ┐
  │ panels     <native list> · configured: <list>                        │
- │ personas   <list>                                                    │
+ │ tiers      <list> · default <tier>                                   │
+ │ apps       <list under shared:>                                      │
  │ mcp        osprey-native ×<n> · own: <keys>                          │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ DATA ── <mode> finder ───────────────────────────────────────────────┐
@@ -257,7 +258,7 @@ what an adopted area lands; `leaves` lists what a `later` or `never` area leaves
  FEATURES — what the reference example offers, decided per area
 
  ┌ LOGBOOK ── adopt ── <reason from DISCOVER> ──────────────────────────┐
- │ brings     ARIEL service + postgres · logbook agent · logbook persona│
+ │ brings     ARIEL service + postgres · logbook agent · logbook app    │
  │            ingest via <adapter> (<native | Generic JSON + candidate>)│
  └──────────────────────────────────────────────────────────────────────┘
  ┌ KNOWLEDGE ── adopt ── <reason> ──────────────────────────────────────┐

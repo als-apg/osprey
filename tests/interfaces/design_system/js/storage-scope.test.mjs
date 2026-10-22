@@ -30,7 +30,7 @@ describe('storage-scope.js', () => {
     test('treats an empty attribute value as unscoped', () => {
       // The server omits the attribute rather than rendering `=""`, so this is
       // defensive: an empty scope would otherwise mint `<base>--`, a slot
-      // belonging to no persona.
+      // belonging to no user.
       document.documentElement.setAttribute(SCOPE_ATTR, '');
       expect(storageScope()).toBeNull();
     });
@@ -51,7 +51,7 @@ describe('storage-scope.js', () => {
       expect(scopedStorageKey('osprey-ui-mode')).toBe('osprey-ui-mode');
     });
 
-    test('two personas on one origin get two distinct keys', () => {
+    test('two users on one origin get two distinct keys', () => {
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
       const bob = scopedStorageKey('osprey-ui-mode');
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');

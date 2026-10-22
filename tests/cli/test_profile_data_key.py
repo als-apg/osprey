@@ -1,8 +1,8 @@
 """Tests for the profile-carried ``data:`` tree and its preset-mode rejection.
 
 ``data: <dir>`` names the facility data tree a profile carries, anchored on the
-profile *root* — which for a persona delta under ``personas/`` is the directory
-holding the root ``profile.yml``, not the delta's own parent, so personas share
+profile *root* — which for a layer under tiers/ is the directory
+holding the root ``profile.yml``, not the delta's own parent, so renders share
 the root's tree without spelling a traversal. It is meaningless for ``--preset``
 builds, which have no profile directory to anchor against.
 """
@@ -22,9 +22,9 @@ from osprey.cli.build_profile import (
     load_profile,
     resolve_build_profile,
 )
-from osprey.cli.profile_root import resolve_profile_root
-from osprey.facility.errors import FacilityBuildError
+from osprey.cli.profile_root import ProfileKind, resolve_profile_root
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.workspace import TIERS_DIRNAME
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
@@ -60,37 +60,42 @@ def test_data_directory_beside_the_profile_validates(tmp_path: Path) -> None:
     assert load_profile(profile).data == "data"
 
 
-def test_persona_data_anchors_at_the_profile_root(tmp_path: Path) -> None:
-    """The persona layout: a delta under ``personas/`` inheriting the root's tree."""
+def test_render_data_anchors_at_the_profile_root(tmp_path: Path) -> None:
+    """The render layout: a tier under ``tiers/`` inheriting the root's tree."""
     (tmp_path / "data").mkdir()
     _write_yaml(tmp_path / "profile.yml", {"name": "root", "data": "data"})
-    profile = _write_yaml(tmp_path / "personas" / "alice.yml", {"name": "alice"})
+    profile = _write_yaml(tmp_path / "tiers" / "alice.yml", {"name": "alice"})
 
     loaded = load_profile(profile)
 
     assert loaded.data == "data"
-    root_dir, is_persona_delta = resolve_profile_root(profile)
-    assert is_persona_delta is True
+    root_dir, kind = resolve_profile_root(profile)
+    assert kind is ProfileKind.TIER
     assert loaded.resolved_data_root(root_dir) == (tmp_path / "data").resolve()
 
 
-def test_a_persona_delta_naming_data_is_profile_invalid(tmp_path: Path) -> None:
-    """Every persona shares the root's facility tree, so a delta may not name one."""
+def test_a_layer_delta_naming_data_is_profile_invalid(tmp_path: Path) -> None:
+    """Every render shares the root's facility tree, so a tier may not name one.
+
+    ``data`` is outside a tier's key set, so the refusal names the file and
+    the key and says where the key is legal.
+    """
     (tmp_path / "data").mkdir()
     _write_yaml(tmp_path / "profile.yml", {"name": "root", "data": "data"})
-    profile = _write_yaml(tmp_path / "personas" / "alice.yml", {"name": "alice", "data": "data"})
+    profile = _write_yaml(tmp_path / "tiers" / "alice.yml", {"name": "alice", "data": "data"})
 
-    with pytest.raises(FacilityBuildError) as excinfo:
+    with pytest.raises(BuildProfileError) as excinfo:
         load_profile(profile)
 
-    assert excinfo.value.kind == "profile-invalid"
-    assert excinfo.value.record_id == "personas/alice.yml"
+    message = str(excinfo.value)
+    assert "Unknown tier key(s) in tiers/alice.yml: 'data'" in message
+    assert "legal only in the deployment's profile.yml" in message
 
 
-def test_persona_file_without_a_profile_root_is_rejected(tmp_path: Path) -> None:
-    """A ``personas/`` file with no root cannot anchor, so it never loads."""
+def test_layer_file_without_a_profile_root_is_rejected(tmp_path: Path) -> None:
+    """A tiers/ file with no root cannot anchor, so it never loads."""
     (tmp_path / "data").mkdir()
-    profile = _write_yaml(tmp_path / "personas" / "alice.yml", {"name": "alice", "data": "data"})
+    profile = _write_yaml(tmp_path / TIERS_DIRNAME / "alice.yml", {"name": "alice", "data": "data"})
 
     with pytest.raises(BuildProfileError, match="profile root is missing"):
         load_profile(profile)

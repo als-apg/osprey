@@ -147,7 +147,7 @@ services:
       # see the roster grant just below.
       OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
 {%- if bluesky_panel_secret_env_vars | default([]) %}
-      # THE ROSTER GRANT. Every web-terminal user whose persona shows the
+      # THE ROSTER GRANT. Every web-terminal user whose tier shows the
       # BLUESKY tab proxies it here with the operator secret THEIR container
       # holds (under the fixed OSPREY_TERMINAL_SECRET name, interpolated from
       # their own OSPREY_TERMINAL_SECRET_<SUFFIX> in the deploy .env). Listing
@@ -156,7 +156,7 @@ services:
       # container is ever handed that secret, and a user purged from the
       # roster is refused here from the next `osprey build` on (the start
       # verbs are as-built and re-render nothing). Only the entitled users
-      # are listed (compose_generator resolves them from the personas'
+      # are listed (compose_generator resolves them from the renders'
       # rendered configs, which the build renders first); the others cannot
       # reach this sidecar and get no key to it. The flag is what makes
       # web_auth ACCEPT the roster

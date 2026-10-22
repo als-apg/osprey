@@ -68,10 +68,11 @@ modules:
     users:
       - alice
       - bob
-    # Every terminal runs a persona's project at /app/<project>. The stub image
-    # is built elsewhere (Dockerfile.web_terminal_stub), so the default persona
+    # Every terminal runs its tier's project at /app/<project>. The stub image
+    # is built elsewhere (Dockerfile.web_terminal_stub), so the default tier
     # states the project that image bakes in.
-    default_persona: assistant
-    personas:
+    default_tier: assistant
+    renders:
       assistant:
+        kind: tier
         project: osprey-e2e-mus-p3-assistant

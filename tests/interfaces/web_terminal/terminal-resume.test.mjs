@@ -168,15 +168,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('per-persona pointer scope', () => {
+describe('per-user pointer scope', () => {
   // On a multi-user mount every `/u/<user>/` shares one origin, so the bare
-  // key is a slot any persona may have written. The server stamps the persona
-  // on <html>; auto-resume must read only that persona's key — a stale id in
+  // key is a slot any user may have written. The server stamps the user
+  // on <html>; auto-resume must read only that user's key — a stale id in
   // the shared slot would attach this terminal to a PTY that is not theirs.
   // (The write and clear halves are pinned in session-pointer.test.mjs.)
   const SCOPE_ATTR = 'data-osprey-storage-scope';
 
-  test("a bare id left by another persona does not become bob's auto-resume", () => {
+  test("a bare id left by another user does not become bob's auto-resume", () => {
     localStorage.setItem(STORAGE_KEY, 'someone-elses-session');
     document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
 

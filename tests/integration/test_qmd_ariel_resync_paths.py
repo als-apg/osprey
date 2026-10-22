@@ -54,6 +54,7 @@ from typing import Any
 import pytest
 
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
+from osprey.services.ariel_search.models import EntryAttachment
 from tests.integration._qmd_ariel_support import open_migrated_repository, qmd_ariel_config_dict
 
 pytestmark = [
@@ -216,7 +217,7 @@ class TestWebLocalEntryPath:
         service.repository = lane.repository
         service.create_entry = AsyncMock(side_effect=NotImplementedError("adapter is read-only"))
 
-        entry_id, source_system, sync_status, _message = await _publish_or_local(
+        result = await _publish_or_local(
             service,
             FacilityEntryCreateRequest(
                 subject="Vacuum trip", details="Sector 7 gauge spiked.", author="Grace Hopper"
@@ -224,8 +225,9 @@ class TestWebLocalEntryPath:
             local_metadata={},
         )
 
-        assert source_system == "ARIEL Web"
-        assert sync_status == "local_only"
+        entry_id = result.entry_id
+        assert result.source_system == "ARIEL Web"
+        assert result.sync_status.value == "local_only"
         assert lane.mirrored_ids() == set(), "the fallback upsert must bypass the enhancers"
 
         result = await lane.resync()
@@ -254,7 +256,7 @@ class TestAttachmentReUpsertPath:
         linked = await _store_and_link_attachments(
             _ServiceStub(lane.repository),
             "attach-0001",
-            [("trace.png", "image/png", b"\x89PNG\r\n\x1a\n fake")],
+            [EntryAttachment("trace.png", "image/png", b"\x89PNG\r\n\x1a\n fake")],
         )
 
         assert linked == 1
@@ -297,7 +299,7 @@ class TestAttachmentReUpsertPath:
         await _store_and_link_attachments(
             _ServiceStub(lane.repository),
             "attach-0002",
-            [("trace.png", "image/png", b"\x89PNG\r\n\x1a\n fake")],
+            [EntryAttachment("trace.png", "image/png", b"\x89PNG\r\n\x1a\n fake")],
         )
         result = await lane.resync()
 
@@ -340,7 +342,9 @@ class TestNativeAttachmentCopyRows:
         png = _real_png()
 
         linked = await _store_and_link_attachments(
-            _ServiceStub(lane.repository), "native-0001", [("beam.png", "image/png", png)]
+            _ServiceStub(lane.repository),
+            "native-0001",
+            [EntryAttachment("beam.png", "image/png", png)],
         )
 
         assert linked == 1
@@ -368,7 +372,7 @@ class TestNativeAttachmentCopyRows:
         await _store_and_link_attachments(
             _ServiceStub(lane.repository),
             "native-0002",
-            [("beam.png", "image/png", _real_png())],
+            [EntryAttachment("beam.png", "image/png", _real_png())],
         )
 
         (copy_row,) = await lane.repository.get_copy_rows("native-0002")
@@ -384,7 +388,9 @@ class TestNativeAttachmentCopyRows:
         pdf = b"%PDF-1.4\n%fake pdf body\n%%EOF\n"
 
         await _store_and_link_attachments(
-            _ServiceStub(lane.repository), "native-0003", [("r.pdf", "application/pdf", pdf)]
+            _ServiceStub(lane.repository),
+            "native-0003",
+            [EntryAttachment("r.pdf", "application/pdf", pdf)],
         )
 
         (copy_row,) = await lane.repository.get_copy_rows("native-0003")
@@ -413,7 +419,9 @@ class TestNativeAttachmentCopyRows:
         png = _real_png()
 
         linked = await _store_and_link_attachments(
-            _ServiceStub(lane.repository), "native-0004", [("beam.png", "image/png", png)]
+            _ServiceStub(lane.repository),
+            "native-0004",
+            [EntryAttachment("beam.png", "image/png", png)],
         )
 
         assert linked == 1

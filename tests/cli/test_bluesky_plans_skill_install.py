@@ -195,14 +195,14 @@ class TestBlueskyPlansPresetWiring:
         )
         assert "bluesky-plans" in profile["skills"]
 
-    def test_ariel_preset_excludes_the_skill(self):
-        """The ARIEL preset ships without the Bluesky server, so it drops the
-        routing skill explicitly rather than inheriting it."""
-        profile = yaml.safe_load(
-            (PRESETS_DIR / "control-assistant-logbook.yml").read_text(encoding="utf-8")
-        )
-        assert "bluesky-plans" in profile["exclude"]["skills"]
-        assert "bluesky-plans" not in profile.get("skills", [])
+    def test_logbook_app_leaves_the_skill_out(self):
+        """The logbook app ships without the Bluesky server, so its own skill
+        list leaves the routing skill out: an app's lists are its whole
+        selection, never a union with the host's, and an app has no
+        ``exclude:`` to subtract with."""
+        profile = yaml.safe_load((PRESETS_DIR / "apps" / "logbook.yml").read_text(encoding="utf-8"))
+        assert "bluesky-plans" not in (profile.get("skills") or [])
+        assert "exclude" not in profile
 
 
 class TestBlueskyPlansManifestWiring:

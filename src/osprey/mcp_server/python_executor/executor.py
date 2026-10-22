@@ -51,6 +51,7 @@ from osprey.stores.artifact_manifest import (
 from osprey_connectors import posture_store
 from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
 from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.workspace import LAYER_DIRNAMES
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -72,7 +73,7 @@ _PERIMETER_OPEN_VALUE = "open"
 
 #: The profile SOURCE zone, as repo-root-relative entries: ``profile.yml`` and
 #: everything a build reads to produce a project — the convention directories
-#: (``rules/``, ``skills/``, ``personas/``, the ``project/`` verbatim mirror,
+#: (``rules/``, ``skills/``, ``tiers/``, the ``project/`` verbatim mirror,
 #: ...) plus the source files that sit beside them. Executed code may not write
 #: into any of it, in any execution mode: rewriting the profile is how a run
 #: changes what the *next* run is allowed to do, which is a different boundary
@@ -83,12 +84,12 @@ _PERIMETER_OPEN_VALUE = "open"
 #: (``_SOURCE_ZONE_ENTRIES`` and ``CONVENTION_SOURCES``). That module lives
 #: under ``osprey.cli``, and importing it would execute ``osprey/cli/__init__``
 #: — the whole Click command group — inside the MCP server on every execution.
-#: The runtime layers deliberately do not import ``cli`` (see the zone-name
-#: constants in :mod:`osprey_connectors.workspace`, which exist for exactly this
-#: reason). The copy is pinned to the original by
-#: ``tests/services/python_executor/test_runtime_guard.py``, so a convention
-#: directory added there and not here fails a test rather than quietly leaving
-#: a writable hole.
+#: The runtime layers deliberately do not import ``cli``: the zone and layout
+#: names live in :mod:`osprey_connectors.workspace` for exactly this reason,
+#: and the layer directories below are read from there. The copy is pinned to
+#: the original by ``tests/services/python_executor/test_runtime_guard.py``, so
+#: a convention directory added there and not here fails a test rather than
+#: quietly leaving a writable hole.
 PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     # Source files at the repo root.
     "profile.yml",
@@ -100,7 +101,8 @@ PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
     "osprey.service",
     # Source directories at the repo root.
     "data",
-    "personas",
+    # The tier and app files laid over the profile, by location.
+    *LAYER_DIRNAMES,
     "profiles",
     "scripts",
     # Convention directories, in CONVENTION_DIRS order.
@@ -368,7 +370,7 @@ def resolve_protected_roots(
       erase the evidence of its own refusal.
 
     Entries that do not exist yet are included on purpose: a repo without a
-    ``personas/`` directory is one where creating it is exactly the write to
+    ``tiers/`` directory is one where creating it is exactly the write to
     refuse.
 
     ``.env`` is not in this set because the secrets zone is refused on the read

@@ -158,7 +158,7 @@ with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
 - Framework version: `build/.osprey-manifest.json` `creation.osprey_version`, or `?` when
   the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
 - Agent model pins: every `claude_code.agent_models.<agent>` key in `profile.yml`'s
-  `config:` block and in each `personas/*.yml`, plus the `model:` line of each
+  `config:` block and in each `tiers/*.yml` and `apps/*.yml`, plus the `model:` line of each
   `agents/<name>.md`. `osprey profile card --json` does not carry them. They are the
   AGENT box's `models` line.
 - **Reference-facility material is recognized here.** A file whose content still
@@ -288,14 +288,14 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
   record from it, and every file `osprey facility import mml` writes under
   `data/facility/imported/mml/` is `built`.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
-- Personas and users: emit all, then prune. One ordering, one home:
+- Tiers, apps and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.
 - Triggers: never pulled; `dispatch.triggers` names a bundled set or a repo path.
 - ARIEL vocabulary and lattice: skeleton or facility file only, then recorded for curation.
 
 ### 4. CLOSE
 
-**Ledger gate first, mechanical.** Walk `data/`, `personas/`, `web-terminal-context/`,
+**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `web-terminal-context/`,
 `mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
 the LEDGER GATE panel from `references/cards.md`. Wrap-up is blocked while any path has
 no row, or any row reads `reference facility`. Each blocking row is resolved with the

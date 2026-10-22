@@ -32,7 +32,6 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import resolve_relative_timestamp
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
-    DEFAULT_SCENARIO,
     composed_set,
     read_active_state,
     resolve_active_scenarios,
@@ -52,14 +51,6 @@ if TYPE_CHECKING:
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
-
-#: The ``ariel:`` key naming the scenarios whose logbook stories a deploy seeds
-#: into an empty logbook in place of the active set's: ``all``, or a list of
-#: scenario names.
-DEMO_NARRATIVE_KEY = "demo_narrative"
-
-#: The :data:`DEMO_NARRATIVE_KEY` value naming every scenario the simulator view lists.
-DEMO_NARRATIVE_ALL = "all"
 
 _T = TypeVar("_T")
 
@@ -515,90 +506,6 @@ async def _export_qmd_mirror(ariel_config: dict) -> None:
         )
 
 
-def demo_narrative_scenarios(
-    ariel_config: Mapping[str, Any], project_dir: Path | None
-) -> list[str]:
-    """The scenarios ``ariel.demo_narrative`` names, in the order they are seeded.
-
-    The key is ``all`` (every scenario the simulator view lists) or a list of
-    scenario names; ``nominal`` comes first and the rest follow by name.
-
-    Args:
-        ariel_config: The ``ariel:`` config section.
-        project_dir: The built project whose simulator view is read: a
-            deployment repo root or the render itself.
-
-    Returns:
-        The names, or ``[]`` when the key is unset.
-
-    Raises:
-        ValueError: If the value is neither ``all`` nor a list of scenario
-            names, names a scenario the view does not list, no project
-            directory is given, or the project carries no simulator view.
-    """
-    return _demo_narrative(ariel_config, project_dir)[1]
-
-
-def demo_narrative_logbook(
-    ariel_config: Mapping[str, Any], project_dir: Path | None
-) -> list[ScenarioLogEntry]:
-    """The logbook entries of the scenarios ``ariel.demo_narrative`` names.
-
-    The entries are the ``logbook`` blocks of those scenarios in the built
-    simulator view, in :func:`demo_narrative_scenarios` order; their pictures
-    resolve against the view's copies under ``scenarios/<name>/``.
-
-    Args:
-        ariel_config: The ``ariel:`` config section.
-        project_dir: The built project whose simulator view is read: a
-            deployment repo root or the render itself.
-
-    Returns:
-        The entries, or ``[]`` when the key is unset.
-
-    Raises:
-        ValueError: As :func:`demo_narrative_scenarios` raises.
-    """
-    return _view_logbook(*_demo_narrative(ariel_config, project_dir))
-
-
-def _demo_narrative(
-    ariel_config: Mapping[str, Any], project_dir: Path | None
-) -> tuple[dict[str, dict[str, Any]], list[str], Path]:
-    """The view's scenarios, the names ``ariel.demo_narrative`` selects, the view's files.
-
-    The arguments of :func:`_view_logbook`; see :func:`demo_narrative_scenarios`.
-    No scenarios and no names when the key is unset.
-    """
-    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
-
-    raw = ariel_config.get(DEMO_NARRATIVE_KEY)
-    if not raw:
-        return {}, [], Path()
-    if raw != DEMO_NARRATIVE_ALL and not (
-        isinstance(raw, list) and all(isinstance(name, str) and name for name in raw)
-    ):
-        raise ValueError(
-            f"ariel.{DEMO_NARRATIVE_KEY} is {DEMO_NARRATIVE_ALL!r} or a list of scenario "
-            f"names, got {raw!r}"
-        )
-    if project_dir is None:
-        raise ValueError(
-            f"ariel.{DEMO_NARRATIVE_KEY} reads a built project's simulator view, "
-            "and no project directory was given"
-        )
-    scenarios = require_view_scenarios(project_dir)
-    names = list(scenarios) if raw == DEMO_NARRATIVE_ALL else list(dict.fromkeys(raw))
-    unknown = [name for name in names if name not in scenarios]
-    if unknown:
-        raise ValueError(
-            f"ariel.{DEMO_NARRATIVE_KEY} names {', '.join(map(repr, unknown))}, which the "
-            f"simulator view does not list; it lists {', '.join(sorted(scenarios))}"
-        )
-    order = sorted(names, key=lambda name: (name != DEFAULT_SCENARIO, name))
-    return scenarios, order, SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
-
-
 async def seed_narrative_if_empty(
     ariel_config: dict, logbook: Sequence[ScenarioLogEntry], anchor: datetime
 ) -> int:
@@ -632,9 +539,8 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
 
     The counterpart of :func:`seed_archiver` for the other half of a simulated
     world: a deployment whose archive is full while its logbook is empty documents
-    a machine nobody can read about. A project whose ``ariel.demo_narrative``
-    names scenarios narrates those (:func:`demo_narrative_logbook`); any other
-    narrates its active scenarios. Called by the deploy,
+    a machine nobody can read about, so the deploy narrates its active
+    scenarios (:func:`active_logbook_entries`). Called by the deploy,
     which is why it is strictly additive where :func:`apply_scenarios`' own
     seeding purges first — an operator asking for a scenario is asking for that
     narrative and no other, but a deploy is asking for the stack to come up and
@@ -654,8 +560,6 @@ def seed_active_logbook(config: dict, project_dir: Path, ariel_config: dict) -> 
         when the logbook already holds entries.
     """
     logbook, anchor = _active_narrative(config, project_dir)
-    if ariel_config.get(DEMO_NARRATIVE_KEY):
-        logbook = demo_narrative_logbook(ariel_config, project_dir)
     if not logbook:
         return 0
     return _run_coro(lambda: seed_narrative_if_empty(ariel_config, logbook, anchor))

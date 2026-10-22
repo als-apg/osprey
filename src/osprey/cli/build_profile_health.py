@@ -41,10 +41,13 @@ def serves_web_terminals(config: Any) -> bool:
     """Whether the render of ``config`` serves web terminals.
 
     True when the effective ``modules.web_terminals`` subtree is enabled (the
-    deployment stands up the web stack), or when it carries a non-empty
-    ``personas`` catalog. The second arm is how a persona render answers yes:
-    a persona render inherits its host's whole catalog with the module
-    switched off, and a persona render is only ever a terminal image.
+    deployment stands up the web stack), and true for every render the
+    deployment's ``renders`` projection lists — a tier's or an app's. Such a
+    render is the deployment's config with the module switched off, and it is
+    only ever a terminal image, so two things in that subtree answer yes: a
+    non-empty ``renders`` projection (a config that carries it), and the
+    ``default_tier`` every web-terminal roster names, which a tier or app
+    render inherits from its deployment with the rest of the roster.
 
     Args:
         config: The profile's merged ``config:`` block.
@@ -68,8 +71,11 @@ def serves_web_terminals(config: Any) -> bool:
     web_terminals = effective_web_terminals(on_path)
     if web_terminals.get("enabled"):
         return True
-    personas = web_terminals.get("personas")
-    return isinstance(personas, Mapping) and bool(personas)
+    renders = web_terminals.get("renders")
+    if isinstance(renders, Mapping) and renders:
+        return True
+    default_tier = web_terminals.get("default_tier")
+    return isinstance(default_tier, str) and bool(default_tier)
 
 
 def health_config_overrides(config: Any) -> dict[str, str]:

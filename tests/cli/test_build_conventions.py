@@ -320,7 +320,7 @@ def test_roster_users_get_their_context_copied(profile_dir: Path, project_path: 
 
 
 def test_empty_roster_skips_per_user_context(profile_dir: Path, project_path: Path):
-    """A persona build disables web terminals, so it resolves no roster at all."""
+    """A render build disables web terminals, so it resolves no roster at all."""
     _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
 
     applied = _apply_conventions(profile_dir, project_path, [])

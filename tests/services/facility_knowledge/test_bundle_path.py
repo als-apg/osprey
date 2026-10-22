@@ -12,8 +12,8 @@ from pathlib import Path
 
 import yaml
 
-from osprey.deployment.web_terminals.personas import config_needs_facility_bundle
 from osprey.deployment.web_terminals.render import _container_bundle_dir
+from osprey.deployment.web_terminals.roster import config_needs_facility_bundle
 from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
 from tests._preset_data import bundle_data_root
 

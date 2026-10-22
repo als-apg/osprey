@@ -508,7 +508,7 @@ export class OspreyDrawer extends HTMLElement {
     this._splitter = initSplitter({
       handle,
       pane: this,
-      // Per-persona on a multi-user mount: the drawer lives in the shell page,
+      // Per-render on a multi-user mount: the drawer lives in the shell page,
       // which shares one origin (and one localStorage) across every user.
       storageKey: scopedStorageKey(DRAWER_WIDTH_STORAGE_KEY),
       axis: 'x',

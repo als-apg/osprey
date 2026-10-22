@@ -185,7 +185,7 @@ TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 #: resolved. :func:`is_exempt_path` refuses a dot-segment on the same grounds.
 #:
 #: Not the same question as
-#: :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`, which
+#: :data:`~osprey.deployment.web_terminals.roster.USERNAME_CHARSET_RE`, which
 #: is stricter and gates the roster at render time — that one asks which names a
 #: deployment can keep apart (one audit directory each, one nginx location
 #: each), this one asks which names this process can spell. A rendered
@@ -215,7 +215,7 @@ def url_mount_prefix(user: str) -> str:
     ``user`` is spliced unescaped, so callers pass a name that has already
     cleared :data:`MOUNT_SEGMENT_RE` (as :func:`compute_url_prefix` checks) or
     the roster's
-    :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`. The
+    :data:`~osprey.deployment.web_terminals.roster.USERNAME_CHARSET_RE`. The
     helper validates nothing, because each caller already refuses a bad name
     with its own message.
 

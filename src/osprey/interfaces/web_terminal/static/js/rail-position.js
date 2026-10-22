@@ -20,8 +20,8 @@
  *     itself is served by GET /api/panels (app.FAMILY_RAIL_DEFAULTS), so
  *     this module holds no opinion about which family implies which rail.
  *
- * The pin is per persona. localStorage is origin-scoped, so on a multi-user
- * mount one bare key would be a single shared slot: the last persona to flip
+ * The pin is per render. localStorage is origin-scoped, so on a multi-user
+ * mount one bare key would be a single shared slot: the last render to flip
  * the rail would pin it for everyone. Both ends here go through
  * `scopedStorageKey()`, resolved per call so the key always reflects the
  * document actually being served. This module is the WRITER half of a pair —

@@ -222,7 +222,7 @@ def _validate_models(path: Path, name: str, entry: dict[str, Any]) -> None:
         shape = type(models).__name__ if models is not None else "nothing"
         raise BuildProfileError(
             f"{where}.models` must be a non-empty list of the model ids the gateway "
-            f"serves, got {shape}. `osprey profile expand --providers` refreshes a "
+            f"serves, got {shape}. `osprey init --revalidate` refreshes a "
             f"copied catalog to the packaged entries."
         )
     default = entry.get("default_model")

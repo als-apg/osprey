@@ -120,8 +120,8 @@ def load_template_manifest(
     # Resolved through the profile resolver, not read as raw YAML: a preset
     # that says `extends: control-assistant` declares only its DELTA, so
     # reading its file alone answers with a fraction of what it selects —
-    # the persona presets would report no skills, or web_panels with no
-    # agents. Resolving is also what applies `exclude:`, so a persona that
+    # the tier presets would report no skills, or web_panels with no
+    # agents. Resolving is also what applies `exclude:`, so a render that
     # subtracts an artifact is reported without it.
     artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
     try:
@@ -545,8 +545,8 @@ def generate_manifest(
         creation_block["preset_hash"] = preset_hash
 
     # Preserve the CLAUDE.md template choice so a later `osprey build` can
-    # re-render against the same persona (e.g. CLAUDE.ariel.md.j2 for the
-    # ARIEL standalone preset). Default is the control-system persona.
+    # re-render against the same render (e.g. CLAUDE.logbook.md.j2 for the
+    # logbook app). Default is the control-system render.
     claude_md_template = context.get("claude_md_template")
     if claude_md_template and claude_md_template != DEFAULT_CLAUDE_MD_TEMPLATE:
         creation_block["claude_md_template"] = claude_md_template
@@ -619,19 +619,19 @@ def load_project_manifest(project_dir: Path) -> dict[str, Any] | None:
 
 
 def recorded_claude_md_template(manifest: dict[str, Any] | None) -> str:
-    """Return the ``CLAUDE.md`` persona a built project's manifest records.
+    """Return the ``CLAUDE.md`` render a built project's manifest records.
 
     Reads what :func:`generate_manifest` writes: ``creation.claude_md_template``.
-    The default persona is recorded by leaving the key out, so a missing
+    The default tier is recorded by leaving the key out, so a missing
     manifest, a missing or malformed ``creation`` block, or an absent or empty
-    key all mean the default persona.
+    key all mean the default tier.
 
     Args:
         manifest: A parsed project manifest, as :func:`load_project_manifest`
             returns it, or ``None``.
 
     Returns:
-        The persona template name, e.g. ``"CLAUDE.ariel.md.j2"``.
+        The render template name, e.g. ``"CLAUDE.logbook.md.j2"``.
     """
     if manifest is None:
         return DEFAULT_CLAUDE_MD_TEMPLATE

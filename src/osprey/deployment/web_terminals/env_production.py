@@ -18,10 +18,10 @@ import yaml
 from osprey.build.claude_code_telemetry import telemetry_auth_token_env
 from osprey.cli.output import report_fact
 from osprey.deployment.errors import ComposeInterpolationError
-from osprey.deployment.web_terminals.personas import (
+from osprey.deployment.web_terminals.roster import (
+    ServedRender,
     effective_image_source,
-    effective_persona,
-    resolve_authorization_roles,
+    served_renders,
 )
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
@@ -282,7 +282,7 @@ def telemetry_delivered_vars(cfg: dict) -> tuple[str, ...]:
 
     The collector's bearer token first (the variable
     ``claude_code.telemetry.auth.token_env`` names), then every variable the
-    telemetry block references, in walk order, each once. A persona's
+    telemetry block references, in walk order, each once. A render's
     ``config.yml`` keeps those references verbatim and the loader resolves them
     inside the container, so a variable that never reaches the container leaves
     a bare reference unresolved and a defaulted one silently on its default.
@@ -307,90 +307,37 @@ def telemetry_delivered_vars(cfg: dict) -> tuple[str, ...]:
     return tuple(names)
 
 
-def personas_needing_telemetry_vars(
+def renders_needing_telemetry_vars(
     config: dict, project_root: str | Path
 ) -> dict[str, tuple[str, ...]]:
-    """``{persona_name: names}`` for every persona whose terminal needs telemetry variables.
+    """``{render_name: names}`` for every render whose terminal needs telemetry variables.
 
-    The referenced personas are walked as :func:`_telemetry_references` walks
-    them; a persona whose project cannot be read contributes nothing, and one
+    The referenced renders are walked as :func:`_telemetry_references` walks
+    them; a render whose project cannot be read contributes nothing, and one
     whose :func:`telemetry_delivered_vars` is empty is left out.
 
     :param config: Raw deploy config.
-    :param project_root: Project root the persona projects resolve against.
+    :param project_root: Project root the render projects resolve against.
     :return: The map the web-terminal render emits per-user lines from.
     """
     needing: dict[str, tuple[str, ...]] = {}
-    for persona_name, persona_config in _readable_persona_configs(config, Path(project_root)):
-        names = telemetry_delivered_vars(persona_config)
+    for render_name, render_config in _readable_render_configs(config, Path(project_root)):
+        names = telemetry_delivered_vars(render_config)
         if names:
-            needing[persona_name] = names
+            needing[render_name] = names
     return needing
 
 
-def _referenced_persona_names(config: dict) -> list[str]:
-    """Every persona name this roster runs: the default plus each user's own.
-
-    "Each user's own" is
-    :func:`~osprey.deployment.web_terminals.personas.effective_persona`'s answer
-    — the entry's ``role:`` binding or its ``persona:`` pin — so a role-bound
-    persona is provisioned exactly as a pinned one is, out of the same table the
-    render binds from.
-
-    Sorted, so everything derived from the roster reports in a stable order.
-    Names are taken as written; whether the catalog knows one is a separate
-    question (see :func:`_referenced_persona_entries`).
-
-    Raises:
-        ValueError: For an ``authorization`` stanza that does not parse, or a
-            roster entry whose binding does not resolve. This is a binding
-            surface — it decides which persona is handed which credential — so
-            it fails closed rather than provisioning the default persona's
-            secrets for an entry the operator bound elsewhere.
-    """
-    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    roles = resolve_authorization_roles(web_terminals)
-    referenced: set[str] = set()
-    default_persona = web_terminals.get("default_persona")
-    if isinstance(default_persona, str) and default_persona:
-        referenced.add(default_persona)
-    users = web_terminals.get("users")
-    for user in users if isinstance(users, list) else []:
-        # `default_persona=None`: added above on its own terms, so this asks
-        # only what the entry itself names.
-        persona = effective_persona(user, roles, None)
-        if persona:
-            referenced.add(persona)
-    return sorted(referenced)
-
-
-def _referenced_persona_entries(config: dict) -> list[tuple[str, dict]]:
-    """``(persona_name, catalog entry)`` for every persona this roster runs.
-
-    Referenced names resolved against ``modules.web_terminals.personas``; a
-    name with no catalog entry contributes nothing here.
-    """
-    catalog = ((config.get("modules") or {}).get("web_terminals") or {}).get("personas")
-    catalog = catalog if isinstance(catalog, dict) else {}
-    entries: list[tuple[str, dict]] = []
-    for persona_name in _referenced_persona_names(config):
-        entry = catalog.get(persona_name)
-        if isinstance(entry, dict):
-            entries.append((persona_name, entry))
-    return entries
-
-
-def _persona_config_yml(project_root: Path, entry: dict) -> Path | None:
-    """Where a catalog entry's rendered ``config.yml`` would be.
+def _render_config_yml(project_root: Path, render: ServedRender) -> Path | None:
+    """Where a served render's rendered ``config.yml`` would be.
 
     Path join: an absolute ``project_path`` stands on its own; a relative one
     resolves against the deploy project root, same as every other cwd-relative
     assumption on this path. An entry naming no project has no config to read.
     """
-    project_path_raw = entry.get("project_path")
-    if not isinstance(project_path_raw, str) or not project_path_raw:
+    if render.project_path is None:
         return None
-    return Path(project_root, project_path_raw) / "config.yml"
+    return Path(project_root, render.project_path) / "config.yml"
 
 
 def _load_config_yml(path: Path) -> dict | None:
@@ -403,22 +350,26 @@ def _load_config_yml(path: Path) -> dict | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def _readable_persona_configs(config: dict, project_root: Path) -> list[tuple[str, dict]]:
-    """``(persona_name, loaded config.yml)`` for every persona this roster runs.
+def _readable_render_configs(config: dict, project_root: Path) -> list[tuple[str, dict]]:
+    """``(render_name, loaded config.yml)`` for every render this roster runs.
 
-    A persona whose project names no ``config.yml``, or one that cannot be read
+    A render whose project names no ``config.yml``, or one that cannot be read
     as a mapping, is skipped silently: :func:`_claude_code_auth_secret_vars`
     warns about the same unreadable project already, and saying it again per
     deploy would read as a separate problem.
     """
     configs: list[tuple[str, dict]] = []
-    for persona_name, entry in _referenced_persona_entries(config):
-        config_yml = _persona_config_yml(project_root, entry)
+    # Strict: this is a binding surface, so a role that does not resolve raises
+    # rather than provisioning a render the operator did not bind.
+    for render_name, render in sorted(served_renders(config, strict=True).items()):
+        if render is None:
+            continue  # a name the projection does not list; lint reports it
+        config_yml = _render_config_yml(project_root, render)
         if config_yml is None or not config_yml.is_file():
             continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is not None:
-            configs.append((persona_name, persona_config))
+        render_config = _load_config_yml(config_yml)
+        if render_config is not None:
+            configs.append((render_name, render_config))
     return configs
 
 
@@ -428,16 +379,16 @@ def _telemetry_references(
     """Every env-var reference in the telemetry block of every config in play.
 
     The whole block is read — endpoint, auth, resource attributes — so a credential cannot hide under a key this module does not
-    name. The deploy config and each referenced persona project's rendered
+    name. The deploy config and each referenced render project's rendered
     ``config.yml`` are read the same way :func:`_claude_code_auth_secret_vars`
-    reads them, since a per-user container runs its persona's project and it is
+    reads them, since a per-user container runs its render's project and it is
     that project's telemetry block which decides what the agent inside presents
     to the observability backend.
 
     :param enabled_only: When true, skip a config whose telemetry master switch
-        is off. Each config answers for itself, since a roster can mix a persona
+        is off. Each config answers for itself, since a roster can mix a render
         that exports with one that does not.
-    :return: Persona configs first, then the deploy config, each in walk order.
+    :return: Render configs first, then the deploy config, each in walk order.
     """
     references: list[_TelemetryReference] = []
 
@@ -454,8 +405,8 @@ def _telemetry_references(
                 )
             )
 
-    for persona_name, persona_config in _readable_persona_configs(config, project_root):
-        _record(persona_config, f"(persona {persona_name!r})")
+    for render_name, render_config in _readable_render_configs(config, project_root):
+        _record(render_config, f"(render {render_name!r})")
 
     _record(config, "(deploy config)")
     return references
@@ -477,7 +428,7 @@ def _telemetry_credential_requirements(config: dict, project_root: Path) -> dict
 
     The result feeds the missing-variable gate ONLY. It must never reach
     :func:`_build_env_production_subset`: ``.env.users`` is handed to every
-    persona alike, so a credential copied there would reach every terminal,
+    render alike, so a credential copied there would reach every terminal,
     read-only ones included.
 
     A config whose telemetry master switch is OFF is not asked for anything
@@ -497,7 +448,7 @@ def _telemetry_token_requirements(config: dict, project_root: Path) -> dict[str,
     """``{var: origin}`` for the collector bearer tokens the configs in play name.
 
     Read from ``claude_code.telemetry.auth.token_env`` of each referenced
-    persona's rendered ``config.yml`` and of the deploy config, walked as
+    render's rendered ``config.yml`` and of the deploy config, walked as
     :func:`_telemetry_references` walks them; a config whose telemetry is off
     names none. The token reaches every exporting terminal through its own
     compose environment, so the chain must carry it; it is never copied into
@@ -515,8 +466,8 @@ def _telemetry_token_requirements(config: dict, project_root: Path) -> dict[str,
         if token_env is not None:
             required.setdefault(token_env, f"claude_code.telemetry.auth.token_env {source}")
 
-    for persona_name, persona_config in _readable_persona_configs(config, project_root):
-        _record(persona_config, f"(persona {persona_name!r})")
+    for render_name, render_config in _readable_render_configs(config, project_root):
+        _record(render_config, f"(render {render_name!r})")
 
     _record(config, "(deploy config)")
     return required
@@ -527,7 +478,7 @@ def _telemetry_secret_requirements(
 ) -> dict[str, _TelemetryReference]:
     """``{var: reference}`` behind :func:`_telemetry_credential_requirements`.
 
-    The first reference to a variable wins, persona configs before the deploy
+    The first reference to a variable wins, render configs before the deploy
     config.
     """
     required: dict[str, _TelemetryReference] = {}
@@ -562,7 +513,7 @@ def _claude_code_auth_secret_vars(
 
     This is the web-terminal counterpart of the launch-time secret injection
     in :mod:`osprey.agent_runner.provider_env`: a per-user web container runs
-    its persona project's agent, which authenticates via the provider named in
+    its render project's agent, which authenticates via the provider named in
     that project's ``claude_code.provider`` — and the *only* env its container
     sees is ``docker-compose.web.yml``'s ``env_file: .env.users``. A
     generated ``.env.users`` that misses the provider's secret var
@@ -573,9 +524,9 @@ def _claude_code_auth_secret_vars(
     source description for error messages):
 
     - **required** — vars some deployed web container actually authenticates
-      with: each referenced persona project's provider.
+      with: each referenced render project's provider.
     - **extra** — vars worth *copying* when present but not worth failing
-      over: the deploy config's own provider (per-user containers run persona
+      over: the deploy config's own provider (per-user containers run render
       projects, not the deploy project), and any provider whose models-registry adapter declares
       ``requires_api_key = False`` (ollama, vllm, ds4 — local servers with
       no auth). A keyless provider's var still ships when the chain sets it
@@ -588,10 +539,10 @@ def _claude_code_auth_secret_vars(
     leave those vars out of "credentials this deploy expects" without
     re-deriving which providers are keyless.
 
-    Referenced personas whose ``project_path`` isn't rendered or readable yet
+    Referenced renders whose ``project_path`` isn't rendered or readable yet
     contribute nothing — a broken catalog entry is lint's / strict
-    ``resolve_personas``'s error to report, and
-    :func:`verify_persona_renders` REFUSES a deploy whose persona projects are
+    ``resolve_cards``'s error to report, and
+    :func:`verify_renders` REFUSES a deploy whose render projects are
     missing *before* :func:`ensure_env_production` runs, so on every deploy path
     that reaches generation the rendered configs are on disk. A provider name known
     neither to the provider registry nor to the config's own
@@ -619,39 +570,46 @@ def _claude_code_auth_secret_vars(
             api_providers = None
         return provider, provider_auth_secret_env(provider, api_providers)
 
-    entries = _referenced_persona_entries(config)
+    # Every render this deployment serves (every card's render, default_tier,
+    # every role's tier, the dispatch tier), strictly: this decides which
+    # render is handed which credential, so an unparseable `authorization` or
+    # an unresolvable roster binding raises rather than provisioning the
+    # default tier's secret for an entry the operator bound elsewhere.
+    served = served_renders(config, strict=True)
 
     required: dict[str, str] = {}
     extra: dict[str, str] = {}
     keyless: set[str] = set()
 
-    for persona_name, entry in entries:
-        config_yml = _persona_config_yml(project_root, entry)
+    for render_name, render in sorted(served.items()):
+        if render is None:
+            continue  # a name the projection does not list; lint reports it
+        config_yml = _render_config_yml(project_root, render)
         if config_yml is None:
             continue
         if not config_yml.is_file():
-            # Said out loud rather than skipped: a persona whose project cannot
+            # Said out loud rather than skipped: a render whose project cannot
             # be found contributes no auth secret, so its terminals come up
             # healthy and fail authentication on the first prompt — the exact
             # failure this function exists to prevent. Silence here reads as
-            # "that persona needs nothing", which is a claim we cannot make.
+            # "that render needs nothing", which is a claim we cannot make.
             logger.warning(
-                "Persona %r: no config.yml at %s, so its provider's auth secret "
+                "Render %r: no config.yml at %s, so its provider's auth secret "
                 "cannot be determined and will not be included in .env.users. "
-                "Terminals running this persona may fail authentication.",
-                persona_name,
+                "Terminals running this render may fail authentication.",
+                render_name,
                 config_yml,
             )
             continue
-        persona_config = _load_config_yml(config_yml)
-        if persona_config is None:
+        render_config = _load_config_yml(config_yml)
+        if render_config is None:
             continue
-        resolved = _provider_var(persona_config)
+        resolved = _provider_var(render_config)
         if resolved is None:
             continue
         provider, var = resolved
         if var and var not in required:
-            origin = f"claude_code.provider {provider!r} (persona {persona_name!r})"
+            origin = f"claude_code.provider {provider!r} (render {render_name!r})"
             if _provider_is_keyless(provider):
                 extra.setdefault(var, origin)
                 keyless.add(var)
@@ -689,7 +647,7 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
     URL — a literal endpoint resolves on its own, and so does a reference
     carrying its own ``:-default``.
 
-    :param cfg: One project's raw config — the deploy's, or a persona's.
+    :param cfg: One project's raw config — the deploy's, or a render's.
     :param provider: The provider name that config names.
     :return: ``(var, required)``, or ``None`` when no variable names this
         provider's endpoint at all.
@@ -754,12 +712,12 @@ def _provider_endpoint_vars(
 
     Returns two ``{var: origin}`` dicts, mirroring the auth-secret split:
 
-    - **required** — a referenced persona's agent provider that will resolve
+    - **required** — a referenced render's agent provider that will resolve
       no endpoint without the variable. Absent from the chain, the deploy is
       refused rather than generated.
     - **extra** — worth copying when present, never worth failing over: a
       redirect variable for a provider that already has an endpoint, the deploy
-      config's own provider (per-user containers run persona projects, not the
+      config's own provider (per-user containers run render projects, not the
       deploy project), and every ``llm.provider`` endpoint. The llm provider backs services inside the
       container one call at a time rather than deciding whether the container
       starts, which is the same reason ``llm.api_key_env_var`` is copied but
@@ -790,10 +748,10 @@ def _provider_endpoint_vars(
             else:
                 extra.setdefault(var, origin)
 
-    for persona_name, persona_config in _readable_persona_configs(config, project_root):
-        _record(persona_config, f"(persona {persona_name!r})", enforce=True)
+    for render_name, render_config in _readable_render_configs(config, project_root):
+        _record(render_config, f"(render {render_name!r})", enforce=True)
 
-    # Per-user containers run persona projects, so the deploy config's own
+    # Per-user containers run render projects, so the deploy config's own
     # provider answers for no container and its endpoint is copy-if-present —
     # the same rule the auth secrets follow.
     _record(config, "(deploy config)", enforce=False)
@@ -821,7 +779,7 @@ def _build_env_production_subset(
     - ``llm.api_key_env_var`` — the LLM provider key, unconditional.
     - ``claude_code_secret_vars`` — the auth-secret vars resolved by
       :func:`_claude_code_auth_secret_vars` (the ``claude_code.provider``
-      of the deploy config and of every referenced persona project), passed
+      of the deploy config and of every referenced render project), passed
       in by :func:`ensure_env_production`. Same chain-presence rule as
       every other entry; whether an *absent* var is an error is
       :func:`ensure_env_production`'s call, not this function's.
@@ -846,7 +804,7 @@ def _build_env_production_subset(
     No telemetry variable is here. A bare reference in a telemetry block is
     reported by :func:`_telemetry_credential_requirements` rather than
     satisfied, and the gateway login reaches each sending container through its
-    own credential file, never through a file every persona reads.
+    own credential file, never through a file every render reads.
 
     NEVER included, by construction (this function never reads them at all):
     build-time credentials — the CI provider token, the container-registry
@@ -862,14 +820,14 @@ def _build_env_production_subset(
     The reason the SERVICE tokens are excluded is narrower, and it is about this
     file rather than about the tokens: ``.env.users`` is a single file
     handed to EVERY per-user container alike. It cannot say "alice but not bob",
-    so anything placed here is granted to every persona in the roster —
+    so anything placed here is granted to every render in the roster —
     including read-only ones, whose entire purpose is not to hold write-capable
     credentials. A per-user entitlement therefore has to be expressed somewhere
     that can distinguish users, and that is the per-user ``environment:`` block
     in ``docker-compose.web.yml``. See
     :func:`osprey.deployment.web_terminals.render.render_web_terminals`, whose
-    ``dispatcher_personas``, ``ariel_personas``, ``launch_token_personas``,
-    ``graphdb_personas`` and ``archiver_credential_personas`` arguments each carry
+    ``dispatcher_renders``, ``ariel_renders``, ``launch_token_renders``,
+    ``graphdb_renders`` and ``archiver_credential_renders`` arguments each carry
     the subset of the roster entitled to one credential —
     ``EVENT_DISPATCHER_TOKEN``, ``ARIEL_DB_PASSWORD``, ``BLUESKY_LAUNCH_TOKEN``,
     ``GRAPHDB_PASSWORD`` and the variables the selected archiver block names
@@ -885,28 +843,28 @@ def _build_env_production_subset(
     service token is granted *rosterwide from here*. Note what that buys and
     what it does not: a container that receives one of these tokens shares its
     process namespace with the agent, which can read it, so every grant is a
-    deliberate per-persona decision and never a default.
+    deliberate per-render decision and never a default.
 
     ``BLUESKY_LAUNCH_TOKEN`` is the sharpest case, because it arms a queue start
     — an agent that holds it can put hardware in motion. Its entitlement
     predicate,
-    :func:`osprey.deployment.web_terminals.personas.config_needs_launch_token`,
+    :func:`osprey.deployment.web_terminals.roster.config_needs_launch_token`,
     requires BOTH ``control_system.writes_enabled: true`` AND an enabled
-    ``bluesky`` MCP server in that persona's own rendered config. A read-only
-    persona is spelled ``writes_enabled: false``, so it cannot satisfy that pair
+    ``bluesky`` MCP server in that render's own rendered config. A read-only
+    render is spelled ``writes_enabled: false``, so it cannot satisfy that pair
     and can never be handed the token. That guarantee exists only because the
-    grant is per-persona; a copy of the token in this file would hand it to
-    exactly the personas the predicate is there to exclude.
+    grant is per-render; a copy of the token in this file would hand it to
+    exactly the renders the predicate is there to exclude.
 
     ``GRAPHDB_PASSWORD`` is the opposite case, and it is here for the same
     structural reason rather than the tier one. Neo4j has a single, write-capable
     account, so its predicate,
-    :func:`osprey.deployment.web_terminals.personas.config_needs_graphdb_password`,
+    :func:`osprey.deployment.web_terminals.roster.config_needs_graphdb_password`,
     deliberately does NOT read ``writes_enabled``: the read-only tier is meant to
     search the graph, and read-only-ness is enforced by the ``graph`` MCP
-    server's read transactions rather than by which persona holds the password.
+    server's read transactions rather than by which render holds the password.
     It still stays out of this file, because a rosterwide copy would grant it to
-    personas that configure no graph store at all.
+    renders that configure no graph store at all.
 
     This is the security spec for this function: a var absent from the
     enumerated list above can never appear in the returned dict, regardless of
@@ -961,7 +919,7 @@ class _MissingRequiredVars:
 
     Attributes:
         missing: ``{var: origin}``, origin being a human-readable description
-            of the config key and the persona asking for it.
+            of the config key and the render asking for it.
         endpoints: The subset of ``missing`` naming a gateway endpoint — a
             provider that resolves no URL without it, so the container exits
             during startup and compose restarts it forever.
@@ -994,11 +952,11 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
     :func:`ensure_env_production`) — though :func:`_required_vars_refusal`
     reads it for a presence check behind its shell hint.
 
-    Pure: parses the env chain and each referenced persona's rendered
+    Pure: parses the env chain and each referenced render's rendered
     ``config.yml``, and writes nothing.
 
     :param config: Raw deploy config.
-    :param project_root: Project root the chain and the persona projects are
+    :param project_root: Project root the chain and the render projects are
         resolved against.
     :return: The gap, classified by what each absence costs.
     """
@@ -1011,7 +969,7 @@ def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _Miss
     # that this file is not allowed to carry, so they join the gate and nothing
     # else. Keeping them out of the {**required, **extra} pair handed to
     # _build_env_production_subset is what stops a telemetry secret from
-    # being written into a file every persona reads.
+    # being written into a file every render reads.
     telemetry_refs = _telemetry_secret_requirements(config, project_root)
     telemetry_vars = {var: ref.origin for var, ref in telemetry_refs.items()}
     # Reported, never copied, for the same reason: compose hands the collector's
@@ -1113,7 +1071,7 @@ def _required_vars_refusal(
         telemetry_note = (
             f" Note: {telemetry_names} {telemetry_verb} referenced from the telemetry block "
             "with no default of its own, so it is handled as a credential. One "
-            ".env.users is handed to every persona alike, so this file never "
+            ".env.users is handed to every render alike, so this file never "
             "carries it; the env chain is still where it belongs, but a web "
             "terminal will not receive it from here."
         )
@@ -1175,7 +1133,7 @@ def users_env_required_problem(config: dict, project_root: str | Path) -> str | 
     * No env-chain file. There is nothing to require anything OF, which is its
       own refusal with its own remedy and not this one.
 
-    Pure: parses the env chain and each referenced persona's rendered
+    Pure: parses the env chain and each referenced render's rendered
     ``config.yml``, and writes nothing anywhere. The ambient environment is
     read only for the presence check behind the shell hint — never for a value,
     and never as a source.
@@ -1184,7 +1142,7 @@ def users_env_required_problem(config: dict, project_root: str | Path) -> str | 
     :param project_root: Project root; ``.env.users`` and the env-chain files
         are resolved relative to it.
     :return: The refusal sentence, or ``None`` when the chain sets everything
-        required. It names each missing variable, the provider and persona
+        required. It names each missing variable, the provider and render
         asking for it, what the absence costs and how to resolve it — never a
         value.
     """
@@ -1287,7 +1245,7 @@ def _provider_secret_vars(config: dict, project_root: Path) -> set[str]:
 
     The secret of each provider the registry or the built-in Claude Code table
     knows, plus each ``api.providers`` entry of the deploy config and of every
-    referenced persona's rendered config. A variable in this set that a fresh
+    referenced render's rendered config. A variable in this set that a fresh
     render no longer writes is the line an earlier render wrote for a provider
     since switched away from — the one kind of extra line in an OSPREY-rendered
     ``.env.users`` that is not an operator's edit. A custom provider removed
@@ -1301,7 +1259,7 @@ def _provider_secret_vars(config: dict, project_root: Path) -> set[str]:
     api_providers: dict = {}
     for cfg in (
         config,
-        *(loaded for _name, loaded in _readable_persona_configs(config, project_root)),
+        *(loaded for _name, loaded in _readable_render_configs(config, project_root)),
     ):
         declared = (cfg.get("api") or {}).get("providers")
         if isinstance(declared, dict):
@@ -1389,7 +1347,7 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
     and lacks none of the credentials the terminals authenticate with
     (whatever else it carries is theirs).
 
-    Pure: reads the chain, the file and each referenced persona's rendered
+    Pure: reads the chain, the file and each referenced render's rendered
     ``config.yml``; writes nothing. Values never leave it except inside the
     returned render.
 
@@ -1726,7 +1684,7 @@ def _warn_if_env_production_lacks_credentials(
 
     All-or-nothing on purpose: a file carrying ANY of the provider secrets in
     play is a file someone is maintaining, and naming the rest of them would
-    fire on every deploy that authenticates a subset of its personas another
+    fire on every deploy that authenticates a subset of its renders another
     way. Keyless providers' vars are not in play at all: an ollama-only deploy
     has no credential to miss, so it never triggers this warning.
     """

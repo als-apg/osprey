@@ -52,6 +52,7 @@ from osprey.services.python_executor.execution.wrapper import (
     READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
 )
+from osprey_connectors.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
 
 _GUARD_BANNER = "OSPREY filesystem guard"
 
@@ -69,7 +70,7 @@ class _Project:
     build: Path
     agent_data: Path
     audit: Path
-    personas: Path
+    renders: Path
     execution_folder: Path
     source_file: Path
 
@@ -129,15 +130,15 @@ def project(tmp_path: Path) -> _Project:
     build = root / "build"
     agent_data = root / "var" / "agent_data"
     audit = root / "var" / "audit"
-    personas = root / "personas"
+    renders = root / TIERS_DIRNAME
     execution_folder = agent_data / "data" / "python_executions" / "run_0001"
 
-    for directory in (build, agent_data, audit, personas, execution_folder):
+    for directory in (build, agent_data, audit, renders, execution_folder):
         directory.mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text("project: demo\n", encoding="utf-8")
 
     # One pre-existing victim per zone, for the delete/overwrite forms.
-    for zone in (build, agent_data, personas, audit):
+    for zone in (build, agent_data, renders, audit):
         (zone / "victim.txt").write_text("original\n", encoding="utf-8")
 
     # Copy source lives outside the repo entirely: a copy's *source* is a read
@@ -150,7 +151,7 @@ def project(tmp_path: Path) -> _Project:
         build=build,
         agent_data=agent_data,
         audit=audit,
-        personas=personas,
+        renders=renders,
         execution_folder=execution_folder,
         source_file=source_file,
     )
@@ -237,9 +238,9 @@ def test_profile_yml_write_is_refused_in_readwrite(project: _Project):
     assert out.startswith("REFUSED:"), out
 
 
-def test_persona_write_is_refused(project: _Project):
-    """Personas are the posture itself — a run that rewrites one re-grants it."""
-    out = project.probe(f"open({str(project.personas / 'operator.md')!r}, 'w').close()")
+def test_render_write_is_refused(project: _Project):
+    """Renders are the posture itself — a run that rewrites one re-grants it."""
+    out = project.probe(f"open({str(project.renders / 'operator.md')!r}, 'w').close()")
     assert out.startswith("REFUSED:"), out
 
 
@@ -517,7 +518,8 @@ def test_protected_roots_cover_render_zone_sources_and_ledger(project: _Project)
         project.root / "build",
         project.root / "var" / "audit",
         project.root / "profile.yml",
-        project.root / "personas",
+        project.root / TIERS_DIRNAME,
+        *(project.root / retired for retired in RETIRED_LAYER_DIRS),
         project.root / "project",
         project.root / "skills",
     ):
@@ -561,3 +563,22 @@ def test_profile_source_entries_match_the_convention_table():
     canonical = set(CONVENTION_SOURCES) | set(_SOURCE_ZONE_ENTRIES)
     assert set(PROFILE_SOURCE_ENTRIES) == canonical
     assert len(PROFILE_SOURCE_ENTRIES) == len(set(PROFILE_SOURCE_ENTRIES))
+
+
+def test_executor_loads_no_cli_module():
+    """The executor runs inside the MCP server and must not load ``osprey.cli``.
+
+    Importing any ``osprey.cli`` module executes the package's ``__init__`` —
+    the whole Click command group — on the runtime path. Checked in a fresh
+    interpreter, since this test process has long since imported the CLI.
+    """
+    probe = (
+        "import sys\n"
+        "import osprey.mcp_server.python_executor.executor\n"
+        "print('\\n'.join(sorted(m for m in sys.modules if m.startswith('osprey.cli'))))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == []

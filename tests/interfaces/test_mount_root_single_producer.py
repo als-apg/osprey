@@ -37,7 +37,7 @@ def test_the_login_url_and_the_landing_card_derive_from_the_mount_root(monkeypat
     assert (
         terminal_login_url(config, "alice", "s/t") == "https://ops.example.org/m/alice/?token=s%2Ft"
     )
-    assert _user_card({"name": "alice", "persona": None}, frozenset())["url"] == "/m/alice/"
+    assert _user_card({"name": "alice", "tier": None}, frozenset())["url"] == "/m/alice/"
 
 
 def test_the_sidecars_default_return_to_derives_from_the_root(monkeypatch):

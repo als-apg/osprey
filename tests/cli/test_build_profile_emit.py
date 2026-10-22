@@ -3,16 +3,17 @@
 Covers what the emitted TEXT is, at the level of the emitter itself — the
 ``osprey init`` command that drives it, and everything it writes around
 the text, is pinned by ``test_init_verb.py`` and
-``test_persona_profile_emission.py``.
+``test_layer_emission.py``.
 
-A persona file is a pure delta (FR-10): the persona preset's own layer, minus
-the ``extends:`` key, retitled. Nothing is added and nothing else is subtracted,
-because the file is merged over the ``profile.yml`` it sits beside and any extra
-key here would be a second, divergent copy of a host setting.
+A tier or app file is the bundled layer materialized explicitly: the bundled
+file's own keys and comments, under a header saying what the file is, with a
+``provenance:`` block naming what it was made from. Nothing else is added and
+nothing is subtracted, and no ``extends:`` or other pointer into the package is
+written, because the repo is the whole source of what a deployment runs.
 
-A host ``profile.yml`` additionally carries ``provenance:`` (FR-6) — the source
-preset and its content hash, as data a later build can read rather than as a
-comment it would have to parse.
+A host ``profile.yml`` carries ``provenance:`` too (FR-6) — the source preset
+and its content hash, as data a later build can read rather than as a comment
+it would have to parse.
 """
 
 from __future__ import annotations
@@ -20,51 +21,65 @@ from __future__ import annotations
 import pytest
 import yaml
 
+from osprey.cli import build_profile_emit
 from osprey.cli.build_profile import list_presets, resolve_build_profile
-from osprey.cli.build_profile_emit import emit_persona_delta_yaml, emit_standalone_profile_yaml
+from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
 from osprey.cli.build_profile_merge import compute_preset_hash
-from osprey.cli.build_profile_presets import _load_preset_raw
+from osprey.cli.build_profile_presets import _load_preset_raw, list_apps, list_tiers
 from osprey_connectors.errors import BuildProfileError
 
-# A bundled persona preset and the host preset it extends.
-PERSONA_PRESET = "control-assistant-readonly"
+# A bundled tier and the host preset whose deployments carry it.
+RENDER_PRESET = "tiers/readonly"
 HOST_PRESET = "control-assistant"
 
-PERSONA_PRESETS = (
-    "control-assistant-readonly",
-    "control-assistant-readwrite",
+#: Every bundled layer, kind-qualified the way the emitter names it.
+RENDER_PRESETS = tuple(f"tiers/{name}" for name in list_tiers()) + tuple(
+    f"apps/{name}" for name in list_apps()
 )
 
 
-def _delta(preset: str = PERSONA_PRESET, name: str = "My Profile (readonly)") -> dict:
-    text = emit_persona_delta_yaml(
+def _delta(preset: str = RENDER_PRESET, name: str = "My Profile") -> dict:
+    kind, _sep, stem = preset.partition("/")
+    text = emit_layer_delta_yaml(
         preset_name=preset,
         profile_name=name,
-        profile_filename=f"my-profile/personas/{preset}.yml",
+        profile_filename=f"my-profile/{kind}/{stem}.yml",
     )
     return yaml.safe_load(text)
 
 
-@pytest.mark.parametrize("preset", PERSONA_PRESETS)
+def test_the_bundled_layers_are_listed() -> None:
+    """Guards the parametrizations below against running over nothing."""
+    assert "tiers/readonly" in RENDER_PRESETS
+    assert "tiers/readwrite" in RENDER_PRESETS
+    assert any(preset.startswith("apps/") for preset in RENDER_PRESETS)
+
+
+@pytest.mark.parametrize("preset", RENDER_PRESETS)
 def test_delta_content_is_the_preset_layer_minus_extends(preset: str) -> None:
-    """The one contract: emitted keys == the preset's own raw layer, with
-    ``extends`` gone and ``name`` retitled. A key that appeared here without
-    being in the preset would be a host setting frozen into the persona."""
+    """The one contract: emitted keys == the bundled file's own raw layer plus
+    its provenance, a tier's ``name`` retitled after the deployment and an
+    app's kept. A key that appeared here without being in the bundled file
+    would be a host setting frozen into the layer."""
+    kind, _sep, stem = preset.partition("/")
     raw, _path = _load_preset_raw(preset)
-    expected = {key: value for key, value in raw.items() if key != "extends"}
-    expected["name"] = "Retitled"
+    expected = dict(raw)
+    if kind == "tiers":
+        expected["name"] = f"Retitled ({stem})"
+    expected["provenance"] = {"preset": stem, "preset_hash": compute_preset_hash(preset)}
 
     assert _delta(preset, "Retitled") == expected
 
 
-@pytest.mark.parametrize("preset", PERSONA_PRESETS)
+@pytest.mark.parametrize("preset", RENDER_PRESETS)
 def test_delta_carries_no_extends(preset: str) -> None:
-    """Position IS the inheritance — a written ``extends:`` inside
-    ``personas/`` is rejected at build time, so emitting one would be a bug."""
-    text = emit_persona_delta_yaml(
+    """Position IS the inheritance — an ``extends:`` in a tier or app file is
+    rejected at build time, so emitting one would be a bug."""
+    kind, _sep, stem = preset.partition("/")
+    text = emit_layer_delta_yaml(
         preset_name=preset,
-        profile_name="Persona",
-        profile_filename="my-profile/personas/p.yml",
+        profile_name="Render",
+        profile_filename=f"my-profile/{kind}/{stem}.yml",
     )
 
     assert "extends" not in _delta(preset)
@@ -73,7 +88,7 @@ def test_delta_carries_no_extends(preset: str) -> None:
 
 def test_delta_does_not_re_anchor_profile_relative_paths() -> None:
     """``data:``, the trigger config, and the convention dirs all anchor at the
-    host profile's directory, so a delta that named them itself would fight the
+    host profile's directory, so a tier that named them itself would fight the
     merge rather than help it."""
     parsed = _delta()
 
@@ -82,12 +97,12 @@ def test_delta_does_not_re_anchor_profile_relative_paths() -> None:
 
 
 def test_delta_keeps_the_preset_comments() -> None:
-    """The persona presets explain each override they make; that prose is the
-    reason the delta reuses the preset's text instead of re-dumping the dict."""
-    text = emit_persona_delta_yaml(
-        preset_name=PERSONA_PRESET,
-        profile_name="Persona",
-        profile_filename="my-profile/personas/readonly.yml",
+    """The bundled tiers explain each override they make; that prose is the
+    reason the emitter reuses the bundled text instead of re-dumping the dict."""
+    text = emit_layer_delta_yaml(
+        preset_name=RENDER_PRESET,
+        profile_name="Render",
+        profile_filename="my-profile/tiers/readonly.yml",
     )
 
     unwrapped = _unwrapped_comments(text)
@@ -111,27 +126,64 @@ def _unwrapped_comments(text: str, *, header_only: bool = False) -> str:
 
 
 def test_header_explains_the_implicit_merge_and_names_the_source() -> None:
-    text = emit_persona_delta_yaml(
-        preset_name=PERSONA_PRESET,
-        profile_name="Persona",
-        profile_filename="my-profile/personas/readonly.yml",
+    text = emit_layer_delta_yaml(
+        preset_name=RENDER_PRESET,
+        profile_name="Render",
+        profile_filename="my-profile/tiers/readonly.yml",
     )
+    header = _unwrapped_comments(text, header_only=True)
 
-    assert "settings for one web login" in text
-    assert "Only the differences from profile.yml belong here" in _unwrapped_comments(text)
-    assert "merges this file over that one" in _unwrapped_comments(text)
-    assert "preset content hash: sha256:" in text
-    assert "osprey validate my-profile/personas/readonly.yml" in text
+    assert "Render (readonly) — one access level of this deployment's agent" in header
+    assert "A tier adds to profile.yml and never subtracts from it" in header
+    assert "the build lays this file over that one" in header
+    assert "Made from the bundled `readonly` tier" in header
+    assert f"content hash: {compute_preset_hash(RENDER_PRESET)}" in header
+    assert "osprey validate my-profile/tiers/readonly.yml" in header
+
+
+def test_app_header_says_the_app_is_a_whole_definition() -> None:
+    """An app brings its own lists and borrows only the host's services, so its
+    header says so instead of describing a delta."""
+    text = emit_layer_delta_yaml(
+        preset_name="apps/knowledge",
+        profile_name="Render",
+        profile_filename="my-profile/apps/knowledge.yml",
+    )
+    header = _unwrapped_comments(text, header_only=True)
+
+    assert "an app this deployment offers on a shared card" in header
+    assert "nothing is inherited from profile.yml's lists or subtracted from them" in header
+    assert "Made from the bundled `knowledge` app" in header
+    assert "osprey validate my-profile/apps/knowledge.yml" in header
 
 
 def test_preset_without_extends_cannot_be_emitted_as_a_delta() -> None:
-    """A preset that is not written against a base has no delta to emit —
-    dropping its ``extends`` would silently discard the base it assumes."""
-    with pytest.raises(BuildProfileError, match="declares no extends chain"):
-        emit_persona_delta_yaml(
+    """Only a bundled tier or app is a layer: a deployment preset is the
+    ``profile.yml`` itself, and is refused by name rather than emitted as a
+    file laid over another one."""
+    with pytest.raises(BuildProfileError, match="names no tier or app"):
+        emit_layer_delta_yaml(
             preset_name=HOST_PRESET,
-            profile_name="Persona",
-            profile_filename="my-profile/personas/p.yml",
+            profile_name="Render",
+            profile_filename="my-profile/tiers/p.yml",
+        )
+
+
+def test_a_bundled_layer_declaring_extends_is_refused(monkeypatch) -> None:
+    """A layer materialized with a parent it does not carry would be neither the
+    bundled definition nor explicit, so a bundled file naming one is refused."""
+    raw, path = _load_preset_raw(RENDER_PRESET)
+    monkeypatch.setattr(
+        build_profile_emit,
+        "_load_preset_raw",
+        lambda _name: ({**raw, "extends": HOST_PRESET}, path),
+    )
+
+    with pytest.raises(BuildProfileError, match="declares extends"):
+        emit_layer_delta_yaml(
+            preset_name=RENDER_PRESET,
+            profile_name="Render",
+            profile_filename="my-profile/tiers/readonly.yml",
         )
 
 
@@ -182,9 +234,13 @@ def test_provenance_agrees_with_the_header_prose() -> None:
     assert f"preset content hash: {provenance['preset_hash']}" in header
 
 
-@pytest.mark.parametrize("preset", PERSONA_PRESETS)
-def test_persona_deltas_carry_no_provenance_key(preset: str) -> None:
-    """A delta is the preset's layer and nothing else, so its provenance stays
-    in the header prose — a key here would be merged into the host's resolved
-    profile and overwrite the host's own record."""
-    assert "provenance" not in _delta(preset)
+@pytest.mark.parametrize("preset", RENDER_PRESETS)
+def test_layer_files_carry_their_provenance_block(preset: str) -> None:
+    """A tier or app file records what it was made from as data, exactly as
+    ``profile.yml`` does, so ``osprey validate`` can compare it against the
+    installed layer and report drift."""
+    _kind, _sep, stem = preset.partition("/")
+    provenance = _delta(preset)["provenance"]
+
+    assert provenance == {"preset": stem, "preset_hash": compute_preset_hash(preset)}
+    assert provenance["preset_hash"].startswith("sha256:")

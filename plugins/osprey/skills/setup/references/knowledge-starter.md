@@ -1,7 +1,7 @@
 # Knowledge starter
 
 Rules for the facility material a deployment starts with: the OKF knowledge
-bundle, the graph corpus, facility records, write limits, personas — and the
+bundle, the graph corpus, facility records, write limits, tiers and apps — and the
 ledger row each one gets.
 
 ## The rule
@@ -309,31 +309,41 @@ the build renders from it. Its ledger row starts as `reference facility` and the
 CLOSE gate blocks on it until the records are emptied or replaced
 (`references/map.md`, base demo material).
 
-## 6. Personas and users
+## 6. Tiers, apps and users
 
 **This is the one home for the ordering. Emit all, then prune.**
 
-`osprey scaffold personas --from control-assistant` emits the catalog's five
-personas in order: readonly, readwrite, admin, logbook, knowledge. It has no
-selection flag, so every deployment starts with all five and prunes down.
+A tier is an access level of the deployment's own agent, one file in `tiers/`; a
+roster entry picks one with `tier:`, and `default_tier` covers any entry that does
+not. An app is a second, complete agent beside the deployment's own, one file in
+`apps/`, opened from a shared landing card by everyone on the roster; the roster
+lists it by name under `shared:`.
+
+`osprey scaffold tiers --from control-assistant` writes every tier that preset's
+roster names, and `osprey scaffold apps --from control-assistant` writes every app
+its `shared:` list names. Neither has a selection flag, so every deployment starts
+with all of them and prunes down.
 
 Then delete the ones this deployment has no role for:
 
-- **The user named roles.** Keep those, plus whichever role `default_persona`
-  names — a deployment whose `default_persona` has no persona file is stranded.
-- **The user named none** ("not sure" is the common answer). Keep only the role
-  `default_persona` names, plus `knowledge` when the KNOWLEDGE area is adopted,
-  since that card is what opens the bundle. Delete the rest.
-- **A role nothing serves.** `logbook` opens the `ariel` panel, so it goes on
-  any base with no ARIEL service block, whatever the user named, and returns
-  with the LOGBOOK area's feature port. The web-terminal recipe in
-  `references/map.md` step 4 has this case.
+- **The user named roles.** Keep the tiers those roles map to, plus whichever tier
+  `default_tier` names — a deployment whose `default_tier` has no tier file is
+  stranded.
+- **The user named none** ("not sure" is the common answer). Keep only the tier
+  `default_tier` names. Keep the app that opens the knowledge bundle when the
+  KNOWLEDGE area is adopted, since its card is what opens the bundle. Delete the
+  rest.
+- **An app nothing serves.** An app whose `default_panel` needs a service this base
+  does not declare goes, whatever the user named, and returns with its area's
+  feature port. The web-terminal recipe in `references/map.md` step 4 has this case.
 
-Deleting a persona is four deletions that go together: `personas/<name>.yml`,
-its dotted `modules.web_terminals.personas.<name>.*` catalog keys, its roster
-entry under `modules.web_terminals.users`, and `web-terminal-context/<name>/`
-once a build has seeded it. Leave one behind and the next build either fails on
-the missing file or warns about context for a user not on the roster.
+Deleting a tier is three deletions that go together: `tiers/<name>.yml`, every
+roster entry under `modules.web_terminals.users` (and every
+`authorization.roles.<role>.tier`) that names it, and those users'
+`web-terminal-context/<user>/` once a build has seeded it. Deleting an app is
+`apps/<name>.yml`, its name under `modules.web_terminals.shared`, and its seeded
+context directory. Leave one behind and the next build either fails on the missing
+file or warns about context for a name not on the roster.
 
 The demo logins are removed, not renamed. In
 `src/osprey/profiles/presets/control-assistant.yml` they are the roster entries
@@ -362,7 +372,7 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `web-terminal-context/base.md` | opens by naming the demo product |
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |
 | `.env` keys `OSPREY_AUTH_PW_ALICE`, `_BOB`, `_CAROL` | demo passwords |
-| `personas/*.yml` that no roster entry names | orphaned persona files |
+| `tiers/*.yml` no roster entry or `default_tier` names, `apps/*.yml` not under `shared:` | orphaned tier and app files |
 | `data/facility/limits.yaml` still holding hello-world's demo records | the base's own emitted demo records, §5 |
 | `web-terminal-context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
 

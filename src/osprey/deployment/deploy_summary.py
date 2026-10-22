@@ -25,13 +25,13 @@ next slot along.
 Reserved is not served
 ----------------------
 The panel bands are the exception the block's own arithmetic creates: every
-roster user is allocated a port in every family whether or not the persona
+roster user is allocated a port in every family whether or not the render
 they run ever starts that server. Listing the whole roster beside every band —
-and listing a band no persona serves at all — told an operator that people
+and listing a band no render serves at all — told an operator that people
 answer at addresses nothing listens on. So each band names only the users whose
 rendered project declares that panel, a family nobody serves gets no row, and
-one closing note says which bands the block still reserves. Where the personas
-cannot be read the wide, pre-persona reading comes back: it is the honest
+one closing note says which bands the block still reserves. Where the renders
+cannot be read the wide, pre-render reading comes back: it is the honest
 answer when nothing on disk says otherwise, and this module never fails a
 deploy that otherwise succeeded.
 """
@@ -431,7 +431,7 @@ _ROSTER_NAMES_SHOWN = 4
 #: :data:`~osprey.deployment.web_terminals.ports.FAMILY_BASE_FIELDS` names it.
 #: The one family with no companion server behind it and no panel id to declare:
 #: every roster user has a terminal, which is what having a roster entry MEANS,
-#: so no persona's ``web.panels`` can add or remove it.
+#: so no render's ``web.panels`` can add or remove it.
 _TERMINAL_FAMILY = "web"
 
 #: The service column of the one row that reports the bands nothing serves.
@@ -461,7 +461,7 @@ def _roster(config: dict) -> list[tuple[str, int]]:
     Returns:
         The roster, or an empty list when the module is off.
     """
-    from osprey.deployment.web_terminals.personas import normalize_users
+    from osprey.deployment.web_terminals.roster import roster_entries
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if not web_terminals.get("enabled"):
@@ -471,7 +471,7 @@ def _roster(config: dict) -> list[tuple[str, int]]:
         # Lenient: this walk reads a roster it never writes back, and an
         # unreadable `access` on one entry must not raise out of an advisory
         # summary. The entry drops; `osprey up`'s lint reports the value.
-        for entry in normalize_users(web_terminals.get("users"), strict=False)
+        for entry in roster_entries(web_terminals, strict=False)
     ]
     roster = [(name, index) for name, index in entries if isinstance(index, int)]
     return roster or [("", 0)]
@@ -510,7 +510,7 @@ def _families_a_project_serves(project_config: object) -> set[str]:
     own ``port_family`` rather than through a table kept here.
 
     Args:
-        project_config: A persona's parsed rendered ``config.yml``. Anything
+        project_config: A render's parsed rendered ``config.yml``. Anything
             that is not a mapping reads as a project declaring no panels.
 
     Returns:
@@ -542,7 +542,7 @@ def _families_a_project_serves(project_config: object) -> set[str]:
 def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str, set[str]] | None:
     """Which port families each roster user actually serves, or ``None``.
 
-    The narrowing behind :func:`_panel_entries`: a user's persona names a
+    The narrowing behind :func:`_panel_entries`: a user's render names a
     rendered project, and that project's ``web.panels`` says which companion
     servers its container starts. Every user is allocated a port in every
     family regardless — the allocator reserves the whole block whatever the
@@ -550,15 +550,15 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
     every band and tells an operator that people answer where they do not.
 
     ALL OR NOTHING, deliberately. ``None`` means "nothing on disk answers this
-    question", and the caller then reports the wide, pre-persona bands. A
-    partial answer would be worse than either: a user whose persona could not
+    question", and the caller then reports the wide, pre-render bands. A
+    partial answer would be worse than either: a user whose render could not
     be resolved would silently vanish from every band he might be on, which
     reads as "he serves nothing" rather than as "nothing here knows".
 
     Advisory at every step, like everything else this module derives — an
-    unbuilt persona project, a catalog entry with no ``project_path``, an
+    unbuilt render, a ``renders`` entry with no ``project_path``, an
     ``authorization`` stanza that does not parse, a roster entry
-    :func:`~osprey.deployment.web_terminals.personas.normalize_users` cannot
+    :func:`~osprey.deployment.web_terminals.roster.normalize_users` cannot
     place — each degrades to ``None`` rather than failing the summary that a
     successful deploy ends with. Nothing here raises: two of this module's
     three entry points call it without a guard, and a summary that crashes
@@ -566,7 +566,7 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
 
     Args:
         config: Loaded configuration dictionary.
-        project_root: The deployment repo, against which a catalog entry's
+        project_root: The deployment repo, against which a ``renders`` entry's
             ``project_path`` resolves. ``None`` falls back to the rendered
             config's own ``project_root``, which is the only anchor
             ``osprey status`` has — it is handed a config and compose files and
@@ -576,10 +576,11 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
         ``{user: families}`` covering the whole roster, or ``None`` when any
         part of the roster cannot be placed.
     """
-    from osprey.deployment.web_terminals.personas import (
-        effective_persona,
+    from osprey.deployment.web_terminals.roster import (
+        authored_people,
+        effective_tier,
         freeze_user_indices,
-        rendered_persona_configs,
+        rendered_configs,
         resolve_authorization_roles,
     )
 
@@ -587,15 +588,15 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
     if not root:
         return None
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    users = web_terminals.get("users")
-    if not isinstance(users, list) or not users:
+    users = authored_people(web_terminals)
+    if not users:
         return None
 
     # ONE reader of this roster's shape, shared with `_roster`.
     # `freeze_user_indices` IS `normalize_users`' output with the keys the
     # author wrote re-attached, which is what this walk needs and the bare
     # normalizer cannot give it: `normalize_users` carries `role` through but
-    # drops `persona:`, and `effective_persona` reads both. Walking the raw
+    # drops `tier:`, and `effective_tier` reads both. Walking the raw
     # list here instead would be a second spelling of "what a roster entry
     # looks like" — one that could drift from the normalizer, and did: an
     # entry the normalizer drops but a raw `.get("name")` chokes on (`- 42`)
@@ -607,27 +608,27 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
         # caller writes the roster back to config.yml. This one only reads, and
         # this module raises nothing: degrade to the same all-or-nothing None
         # an unplaceable entry already gives.
-        logger.debug(f"Panel bands not narrowed to their personas: {exc}")
+        logger.debug(f"Panel bands not narrowed to their renders: {exc}")
         return None
     if len(entries) != len(users):
         # Some entry the file declares could not be placed at all. The roster
         # this walk can describe is then not the roster that was written, and
         # the all-or-nothing rule above says so rather than narrowing around
         # the gap.
-        logger.debug("Panel bands not narrowed to their personas: unplaceable roster entry")
+        logger.debug("Panel bands not narrowed to their renders: unplaceable roster entry")
         return None
 
     try:
         roles = resolve_authorization_roles(web_terminals)
         serves = {
-            persona: _families_a_project_serves(project_config)
-            for persona, project_config in rendered_persona_configs(config, root).items()
+            render: _families_a_project_serves(project_config)
+            for render, project_config in rendered_configs(config, root).items()
         }
     except Exception as exc:
-        logger.debug(f"Panel bands not narrowed to their personas: {exc}")
+        logger.debug(f"Panel bands not narrowed to their renders: {exc}")
         return None
 
-    default_persona = web_terminals.get("default_persona")
+    default_tier = web_terminals.get("default_tier")
     by_user: dict[str, set[str]] = {}
     for entry in entries:
         name = entry["name"]
@@ -637,12 +638,12 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
             # whose panels those are.
             return None
         try:
-            persona = effective_persona(entry, roles, default_persona, strict=False)
+            render = effective_tier(entry, roles, default_tier, strict=False)
         except Exception as exc:
-            logger.debug(f"Panel bands not narrowed to their personas: {exc}")
+            logger.debug(f"Panel bands not narrowed to their renders: {exc}")
             return None
-        if persona not in serves:
-            # No persona (a roster the render refuses), or one whose project
+        if render not in serves:
+            # No render (a roster the render refuses), or one whose project
             # is unset, unrendered or unreadable. Either way nothing
             # says what this user serves, and a guess is not an answer.
             return None
@@ -650,7 +651,7 @@ def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str
             # Two entries under one name (lint refuses it; reachable past
             # --no-lint) cannot be placed on their bands as written.
             return None
-        by_user[name] = serves[persona]
+        by_user[name] = serves[render]
     return by_user
 
 
@@ -671,11 +672,11 @@ def _panel_entries(
     contribute twenty-eight rows to a list whose whole point is to show the
     shape of the block at a glance.
 
-    But only the users who SERVE it, wherever the personas can be read
+    But only the users who SERVE it, wherever the renders can be read
     (:func:`_families_by_user`). A band's address is a thing to open, and the
-    names beside it are the claim about who answers there; a persona that never
+    names beside it are the claim about who answers there; a render that never
     starts the LATTICE server has a port reserved in that band and nothing
-    listening on it. A family no persona serves gets no row at all, because a
+    listening on it. A family no render serves gets no row at all, because a
     row hedged with "reserved" would still carry the address that does not
     answer — the same claim in smaller type. What the whole tier owes instead is
     one closing note naming those bands, so a reader who counts six families
@@ -683,7 +684,7 @@ def _panel_entries(
 
     Args:
         config: Loaded configuration dictionary.
-        project_root: The deployment repo, for resolving the persona projects;
+        project_root: The deployment repo, for resolving the render projects;
             see :func:`_families_by_user`.
 
     Returns:
@@ -780,7 +781,7 @@ def endpoint_entries(
         config: Loaded configuration dictionary.
         compose_files: Rendered compose file paths, spelled absolutely or
             resolvable from the working directory — they are opened here.
-        project_root: The deployment repo, for resolving the persona projects
+        project_root: The deployment repo, for resolving the render projects
             that say which panel bands each roster user actually serves
             (:func:`_families_by_user`). Optional because the caller that has
             it (:func:`as_built_endpoint_entries`) and the caller that does not
@@ -1030,7 +1031,7 @@ def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str, str
     Compose paths come back relative to the repo root and are anchored on it
     here, because :func:`endpoint_entries` opens them itself.
 
-    The repo is handed down as the persona root too, rather than left to the
+    The repo is handed down as the render root too, rather than left to the
     ``project_root`` the rendered config declares: this caller was POINTED at a
     deployment, and a build that ran somewhere else — a repo copied to another
     host, a checkout moved — wrote a path belonging to a machine this one is
@@ -1197,8 +1198,8 @@ def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
         SeededLoginsReport,
         seeded_logins_report,
     )
-    from osprey.deployment.web_terminals.personas import entry_is_shared, normalize_users
     from osprey.deployment.web_terminals.render import _auth_tls_context
+    from osprey.deployment.web_terminals.roster import entry_is_shared, roster_entries
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if not web_terminals.get("enabled"):
@@ -1210,7 +1211,7 @@ def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
         # Lenient for the same reason as every other roster read here: the
         # closing card prints after a deploy that already succeeded. A dropped
         # entry also never reaches `entry_is_shared`, which would raise on it.
-        for entry in normalize_users(web_terminals.get("users"), strict=False)
+        for entry in roster_entries(web_terminals, strict=False)
         if not entry_is_shared(entry)
     ]
     return seeded_logins_report(root, names)
@@ -1237,15 +1238,15 @@ def token_login_users(config: dict) -> list[str]:
     Returns names, never URLs. The URL carries a live credential; the closing
     card is not a place to put one.
     """
-    from osprey.deployment.web_terminals.personas import normalize_users
     from osprey.deployment.web_terminals.render import _auth_tls_context
+    from osprey.deployment.web_terminals.roster import roster_entries
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if not web_terminals.get("enabled"):
         return []
     if _auth_tls_context(web_terminals)["inject_secret"]:
         return []
-    return [entry["name"] for entry in normalize_users(web_terminals.get("users"), strict=False)]
+    return [entry["name"] for entry in roster_entries(web_terminals, strict=False)]
 
 
 def _shared_cards(config: dict) -> list[str]:
@@ -1261,8 +1262,8 @@ def _shared_cards(config: dict) -> list[str]:
     about how the entry is reached, so naming it would be noise. Names, never
     URLs, for the same reason :func:`token_login_users` gives.
     """
-    from osprey.deployment.web_terminals.personas import entry_is_shared, normalize_users
     from osprey.deployment.web_terminals.render import _auth_tls_context
+    from osprey.deployment.web_terminals.roster import entry_is_shared, roster_entries
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if not web_terminals.get("enabled"):
@@ -1271,7 +1272,7 @@ def _shared_cards(config: dict) -> list[str]:
         return []
     return [
         entry["name"]
-        for entry in normalize_users(web_terminals.get("users"), strict=False)
+        for entry in roster_entries(web_terminals, strict=False)
         if entry_is_shared(entry)
     ]
 

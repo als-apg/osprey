@@ -277,14 +277,14 @@ def test_python_execute_still_removed_from_ask_when_writes_off(tmp_path):
 
 
 def test_python_execute_regranted_via_allow_for_requiring_agent_when_writes_off(tmp_path):
-    """A writes-off persona keeps a python-requiring agent's compute path.
+    """A writes-off render keeps a python-requiring agent's compute path.
 
     ``mcp__python__execute`` is pulled from ``ask`` under writes-off (the kill
     switch that stops a read-write execute from reaching the ``can_use_tool``
     prompt), but the pyat-specialist agent hard-requires it. It must therefore
     be re-granted via ``allow`` — reachable by the agent, off the approval-prompt
     path, still hook-guarded against write-access kernels. This is the readonly
-    persona case where an inherited compute agent meets writes-off.
+    render case where an inherited compute agent meets writes-off.
     """
     ctx = _build_ctx(tmp_path, writes_enabled=False)
     assert any(a["name"] == "pyat-specialist" and a["enabled"] for a in ctx["agents"]), (

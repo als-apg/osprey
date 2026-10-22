@@ -27,8 +27,8 @@ def test_catalog_covers_the_six_profile_list_keys() -> None:
 
 
 def test_menu_offers_unselected_panels() -> None:
-    # ariel-standalone selects only ariel; every other built-in panel is offered.
-    text = _emit("ariel-standalone")
+    # hello-world selects no panel; every built-in panel is offered.
+    text = _emit("hello-world")
     for panel in ("channel-finder", "jupyter", "lattice", "okf", "system-health"):
         assert f"# - {panel}" in text
 

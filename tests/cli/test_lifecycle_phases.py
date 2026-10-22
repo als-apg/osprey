@@ -368,9 +368,7 @@ class TestBuildPhases:
 
         monkeypatch.setattr(build_cmd, "_render_project", _render)
         monkeypatch.setattr(build_cmd, "_render_compose_files", lambda *a, **k: {})
-        monkeypatch.setattr(
-            build_cmd, "_render_persona_projects", lambda *a, **k: [tmp_path / "readonly"]
-        )
+        monkeypatch.setattr(build_cmd, "_render_projects", lambda *a, **k: [tmp_path / "readonly"])
         monkeypatch.setattr(
             build_cmd, "_render_container_projects", lambda *a, **k: [tmp_path / "image"]
         )
@@ -397,9 +395,9 @@ class TestBuildPhases:
             # Named once, from the deployment's render — the other five passes
             # inject the same set and say nothing about it.
             "· services injected: event dispatch",
-            # Personas before the compose files: the services render reads the
-            # personas' rendered configs for its per-persona grants.
-            "· 1 persona render(s)",
+            # Renders before the compose files: the services render reads the
+            # renders' rendered configs for its per-render grants.
+            "· 1 render(s)",
             "· compose files",
             "· 1 image build context(s)",
         ]

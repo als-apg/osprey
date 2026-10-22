@@ -29,6 +29,7 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
+from tests._renders import tier_render
 
 #: A deployment that spells no port at all: the module is on, there is a roster,
 #: and every port in it — nginx's included — comes from the layout.
@@ -40,8 +41,8 @@ _NO_PORTS_CONFIG: dict[str, Any] = {
         "web_terminals": {
             "enabled": True,
             "users": ["alice", "bob"],
-            "default_persona": "assistant",
-            "personas": {"assistant": {"project": "demo-assistant"}},
+            "default_tier": "assistant",
+            "renders": {"assistant": tier_render("assistant", "demo-assistant")},
         }
     },
 }

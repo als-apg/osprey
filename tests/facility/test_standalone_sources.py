@@ -1,13 +1,12 @@
 """The committed facility trees the presets show.
 
-The bundled example facility is the one tree every demo preset shows, the
-standalone presets included. Hello-world's facility is hand-authored and holds
+The bundled example facility is the tree the control-assistant preset shows.
+Hello-world's facility is hand-authored and holds
 the channels its tutorial names.
 """
 
 from __future__ import annotations
 
-import json
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
 CONTROL_ASSISTANT = FACILITIES / "example"
 HELLO_WORLD = FACILITIES / "hello_world"
-CF_STANDALONE_ADDRESSES = REPO_ROOT / "tests/facility/golden/cf_standalone_addresses.json"
 
 #: The addresses the hello-world tutorial names.
 HELLO_WORLD_ADDRESSES = [
@@ -36,12 +34,6 @@ def built_control_assistant_facility() -> dict[str, Any]:
     """The control-assistant tree's facility file."""
     document: dict[str, Any] = build_facility(CONTROL_ASSISTANT, project_name="ca")
     return document
-
-
-def test_channel_finder_standalone_keeps_every_address_it_served() -> None:
-    served = json.loads(CF_STANDALONE_ADDRESSES.read_text(encoding="utf-8"))["addresses"]
-    channels = read_yaml((CONTROL_ASSISTANT / "records/channels.yaml").read_text(encoding="utf-8"))
-    assert set(served) <= {channel["id"] for channel in channels}
 
 
 def test_paired_readbacks_start_at_their_setpoint_value() -> None:

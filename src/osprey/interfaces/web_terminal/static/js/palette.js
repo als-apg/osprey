@@ -77,7 +77,7 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 const GROUP_ORDER = /** @type {const} */ (['Settings', 'Panels', 'Layouts', 'Actions']);
 
 /** localStorage key base + cap for the most-recently-executed item keys. The
- *  list is per persona: localStorage is origin-scoped, so on a multi-user mount
+ *  list is per render: localStorage is origin-scoped, so on a multi-user mount
  *  a bare key would show every operator whatever the last one ran. Resolved
  *  through scopedStorageKey() at each use — see storage-scope.js. */
 const RECENT_STORAGE_KEY_BASE = 'osprey-palette-recent-v1'; // gitleaks:allow - a localStorage key name, not a secret

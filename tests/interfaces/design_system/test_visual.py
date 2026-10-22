@@ -164,16 +164,16 @@ def _create_dispatch_dashboard_app() -> FastAPI:
 # render_web_terminals() and served by nginx, with no app route behind it.
 # Stand one up the same way the dispatch dashboard does — a minimal real app
 # serving the genuine render output — so the baseline exercises the real
-# deploy render path, not a hand-built HTML fixture. Two users with distinct
-# personas (alice->operator, bob->physicist) so both persona sublabels appear,
-# plus the two shared standalone cards the control-assistant preset ships
-# (logbook research and facility knowledge), whose personas declare a
-# ``landing_group`` — so the baseline also covers the labelled users section
-# and the standalone-deployments tray (accent-edged panel, badges suppressed
-# because roster name == persona name).
+# deploy render path, not a hand-built HTML fixture. Two users on distinct
+# tiers (alice->operator, bob->physicist) so both tier sublabels appear, plus
+# the three shared apps the control-assistant preset ships (logbook research,
+# facility knowledge and channel finder), titled by their app files' ``name:``
+# — so the baseline also covers the labelled users section and the apps tray
+# (accent-edged panel, no badges on app cards).
 # ---------------------------------------------------------------------------
 
 _MULTI_USER_LANDING_CONFIG = {
+    "project_name": "demo",
     "facility": {"name": "Demo Control Room", "prefix": "demo"},
     "registry": {"url": "registry.example.org/demo"},
     "deploy": {"fqdn": "demo.example.org"},
@@ -184,47 +184,45 @@ _MULTI_USER_LANDING_CONFIG = {
             "artifact_base_port": 8200,
             "ariel_base_port": 8300,
             "lattice_base_port": 8400,
-            "default_persona": "operator",
-            "landing": {"groups": [{"type": "users", "label": "Users"}]},
-            "personas": {
-                "operator": {"project": "demo-operator"},
-                "physicist": {"project": "demo-physicist"},
-                "logbook": {
-                    "project": "demo-logbook",
-                    "landing_group": "Standalone deployments",
-                },
-                "knowledge": {
-                    "project": "demo-knowledge",
-                    "landing_group": "Standalone deployments",
-                },
+            "default_tier": "operator",
+            "landing": {"groups": [{"type": "users", "label": "Users"}, {"type": "apps"}]},
+            "renders": {
+                name: {
+                    "kind": kind,
+                    "project": f"demo-{name}",
+                    "project_path": f"build/demo-{name}",
+                }
+                for name, kind in (
+                    ("operator", "tier"),
+                    ("physicist", "tier"),
+                    ("logbook", "app"),
+                    ("knowledge", "app"),
+                    ("channel-finder", "app"),
+                )
             },
             "users": [
-                {"name": "alice", "index": 0, "persona": "operator"},
-                {"name": "bob", "index": 1, "persona": "physicist"},
-                {
-                    "name": "logbook",
-                    "index": 2,
-                    "persona": "logbook",
-                    "display_name": "Logbook Research",
-                    "access": "any",
-                },
-                {
-                    "name": "knowledge",
-                    "index": 3,
-                    "persona": "knowledge",
-                    "display_name": "Facility Knowledge",
-                    "access": "any",
-                },
+                {"name": "alice", "index": 0, "tier": "operator"},
+                {"name": "bob", "index": 1, "tier": "physicist"},
             ],
+            "shared": ["logbook", "knowledge", "channel-finder"],
         }
     },
+}
+
+#: Each shared app's title, as the deploy reads it off ``apps/<name>.yml``.
+_MULTI_USER_LANDING_APP_TITLES = {
+    "logbook": "Logbook Research",
+    "knowledge": "Facility Knowledge",
+    "channel-finder": "Channel Finder",
 }
 
 
 def _create_multi_user_landing_app() -> FastAPI:
     from osprey.deployment.web_terminals.render import render_web_terminals
 
-    landing_html = render_web_terminals(_MULTI_USER_LANDING_CONFIG)["nginx/landing.html"]
+    landing_html = render_web_terminals(
+        _MULTI_USER_LANDING_CONFIG, app_titles=_MULTI_USER_LANDING_APP_TITLES
+    )["nginx/landing.html"]
 
     app = FastAPI()
 
@@ -610,10 +608,10 @@ def test_visual_multi_user_landing(tmp_path, chromium_browser, theme, pytestconf
         page = chromium_browser.new_page(viewport=VIEWPORT, color_scheme=theme)
         try:
             page.goto(base_url, wait_until="domcontentloaded", timeout=15_000)
-            # Both persona-badged user cards must be present before the shot, so
+            # Both render-badged user cards must be present before the shot, so
             # the baseline is guaranteed to show the operator/physicist sublabels
-            # (the standalone cards' are suppressed: roster name == persona name), and the
-            # standalone-deployments tray must be on screen so every baseline
+            # (the app cards' are suppressed: roster name == render name), and the
+            # apps tray must be on screen so every baseline
             # shows the grouped layout, not just the flat roster.
             expect(page.locator(".landing-card-sublabel")).to_have_count(2, timeout=10_000)
             expect(page.locator(".landing-tray")).to_have_count(1, timeout=10_000)

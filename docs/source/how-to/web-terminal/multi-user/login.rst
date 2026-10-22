@@ -34,10 +34,10 @@ ask the authentication service. The terminal behind it always checks a
 credential of its own; the postures differ only in who supplies it.
 
 The snippets on this page show only the keys their section is about; the
-deployment also carries the ``personas`` catalog and ``default_persona`` from
-the multi-user page (see the worked example in
-:ref:`multi-user-registry-images`), and ``persona: readwrite`` / ``readonly``
-name entries of that catalog.
+deployment also carries ``default_tier`` and the rest of the roster from the
+multi-user page (see the worked example in
+:ref:`multi-user-registry-images`), and ``tier: readwrite`` / ``readonly``
+name files under ``tiers/``.
 
 Choose a method
 ===============
@@ -74,12 +74,12 @@ inside the deployment can reach nginx back:
 .. raw:: html
    :file: ../../../_diagrams/open-mode-egress.html
 
-``osprey up`` refuses to start an open deployment unless every persona's
+``osprey up`` refuses to start an open deployment unless every render's
 ``.claude/settings.json`` denies ``Bash``, ``Monitor``, ``WebFetch``,
 ``WebSearch`` and ``mcp__plugin_*`` (``osprey scaffold web-terminals
 lint`` reports the same, as ``web_terminals.open_mode_egress``). All of them
-are in OSPREY's deny defaults, so a refusal means a persona lifted one — put it
-back in that persona's ``config:`` block and rebuild. The python executor's
+are in OSPREY's deny defaults, so a refusal means a tier or app lifted one —
+put it back in that file's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.
 
@@ -173,9 +173,9 @@ anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
 set it — see :ref:`reference-ports`),
 ``auth.session_lifetime`` in whole seconds (default ``43200``),
 ``auth.throttle`` (see :ref:`multi-user-login-throttle`), and
-``auth.image``, required with ``image_source: registry`` — a published build of
-OSPREY's login service; :ref:`multi-user-login-service-contract` says what it
-answers.
+``auth.image``, a published build of OSPREY's login service that replaces the
+default image (``<registry.url>/<project_name>-auth:<tag>`` in registry mode);
+:ref:`multi-user-login-service-contract` says what it answers.
 
 .. dropdown:: Where ``auth.session_lifetime`` applies
    :icon: gear
@@ -233,7 +233,7 @@ broker keeps the proof in a signed token that the login service checks itself.
 Let single sign-on pick the tier
 ================================
 
-Instead of pinning a persona on every roster entry, name roles once and let
+Instead of pinning a tier on every roster entry, name roles once and let
 the provider's groups choose:
 
 .. code-block:: yaml
@@ -242,8 +242,8 @@ the provider's groups choose:
      web_terminals:
        authorization:
          roles:
-           operator: {persona: readwrite}
-           viewer: {persona: readonly}
+           operator: {tier: readwrite}
+           viewer: {tier: readonly}
          claims:
            claim: groups          # the ID-token claim holding group membership
            map:
@@ -252,10 +252,10 @@ the provider's groups choose:
        users:
          - name: alice
            index: 0
-           role: operator         # in place of `persona: readwrite`
+           role: operator         # in place of `tier: readwrite`
            oidc_subject: "8f4c1e02-..."
 
-A roster entry carries ``role:`` or ``persona:``, never both. The rules:
+A roster entry carries ``role:`` or ``tier:``, never both. The rules:
 
 - Every value of the claim is matched, in any order. No mapped role → refused
   (``unmapped_role_claim``).
@@ -265,7 +265,7 @@ A roster entry carries ``role:`` or ``persona:``, never both. The rules:
   for any one of them, and the login record lists the mapped roles in
   ``detail`` (``mapped_roles=…``). Fix whichever of roster or provider has
   drifted.
-- On a card whose entry names a ``persona:`` instead, the token's role is
+- On a card whose entry names a ``tier:`` instead, the token's role is
   carried, so it must map to exactly one role; several → refused
   (``ambiguous_role_claim``).
 - A role is resolved at login and travels inside the session — together with
@@ -292,9 +292,9 @@ The site-CA block in ``.env.shared`` does not do this — a CA path in the chain
 names a file that image does not carry. See :ref:`deployment-env-chain` for
 what the chain delivers to which container.
 
-This applies to the image OSPREY builds. In registry mode
-(``modules.web_terminals.auth.image``) the login service runs a published image
-the facility built itself, so its trust store is that build's business.
+This applies to the image OSPREY builds. In registry mode the login service
+runs a published image the facility built itself, so its trust store is that
+build's business.
 
 .. _multi-user-login-service-contract:
 
@@ -304,7 +304,7 @@ What the login service answers
 In both image modes the stack starts the login service with a fixed command,
 ``uvicorn osprey.services.auth_sidecar.app:create_app --factory``, bound to the
 loopback address on ``auth.port``, and probes it with the image's own
-``python``. An ``auth.image`` is therefore a build of OSPREY's login service
+``python``. A registry-mode login image is therefore a build of OSPREY's login service
 from the same release as the terminals, published by the facility's CI. It is
 not a place for a login service of the site's own. What follows is what nginx
 and the terminals rely on, and what a build has to keep answering across an
@@ -395,7 +395,7 @@ other set is written as a list.
        ``method: oidc`` and ``claim: email``.
 
 A card whose set is anything but ``[self]`` is a **shared card**: one
-terminal, one persona, one audit directory, opened by more than one person.
+terminal, one tier, one audit directory, opened by more than one person.
 Here is one shared with the whole roster:
 
 .. code-block:: yaml
@@ -417,15 +417,15 @@ Here is one shared with the whole roster:
        users:
          - name: alice
            index: 0
-           persona: readwrite
+           tier: readwrite
            oidc_subject: "8f4c1e02-..."
          - name: bob
            index: 1
-           persona: readonly
+           tier: readonly
            oidc_subject: "41ab97d0-..."
          - name: ops-desk
            index: 2
-           persona: readonly
+           tier: readonly
            access: any                # any roster login opens this card
 
 And here are two cards that nobody needs a roster entry to open — one shared
@@ -445,17 +445,17 @@ with a whole single sign-on domain, one with two named people:
        users:
          - name: ops-desk
            index: 2
-           persona: readonly
+           tier: readonly
            access: [domain:example.org]
          - name: controls
            index: 3
-           persona: readwrite
+           tier: readwrite
            access: [user:ada@example.org, user:bo@example.org]
 
-The ``control-assistant`` preset ships its two standalone cards this way —
-``logbook`` and ``knowledge``, each ``access: any`` under ``password`` — so
-the logbook research and facility knowledge terminals are opened with any
-roster login's own password and carry no credential of their own.
+The apps are shared cards by construction. The ``control-assistant`` preset
+lists three under ``shared:`` — ``logbook``, ``knowledge`` and
+``channel-finder`` — and any roster login opens them with its own password;
+they carry no credential of their own.
 
 Who can open it is answered one principal at a time. ``roster`` admits
 anyone this deployment can authenticate: under ``password`` that is every roster entry
@@ -532,7 +532,7 @@ These rosters are refused by ``osprey scaffold web-terminals lint`` and the
 build verbs that run it:
 
 - **A deployment-editing card cannot be shared**
-  (``web_terminals.shared_card_privileged``). A persona holding the setup
+  (``web_terminals.shared_card_privileged``). A tier holding the setup
   tool or the Config panel was lifted for named people behind their own
   cards; any set wider than ``[self]`` would hand it to people it was never
   lifted for.
@@ -720,7 +720,7 @@ Lint also warns, without refusing the build:
   show that one person holds them.
 - **A live writer without a name**
   (``web_terminals.live_writer_without_control_identity``): an owner-only card
-  behind a login wall with no ``control_identity``, whose persona arms writes
+  behind a login wall with no ``control_identity``, whose tier arms writes
   on a live control-system target. Its writes would arrive as ``osprey``.
   Cards writing only to a target other than ``live`` --- the simulator
   (``va``, served from its container or in process) or the stand-in --- never

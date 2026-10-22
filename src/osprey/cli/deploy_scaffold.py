@@ -399,7 +399,7 @@ def _load_profile(profile_file: Path, *, command: str) -> tuple[dict[str, Any], 
     """Read the profile a scaffolding verb renders from.
 
     Resolved the same way a build resolves it — aliases normalized, ``extends:``
-    followed, a persona delta anchored at its root — so a file is rendered from
+    followed, a layer anchored at its root — so a file is rendered from
     what the profile *means* rather than from what one file happens to say.
 
     The profile is not otherwise validated: ``osprey validate`` is that check,

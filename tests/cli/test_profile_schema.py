@@ -279,18 +279,20 @@ def test_servicedef_osprey_prefix_skips_filesystem_check(tmp_path: Path) -> None
         missing.validate(tmp_path)
 
 
-def test_control_assistant_readwrite_persona_ships_events_panel() -> None:
+def test_control_assistant_readwrite_render_ships_events_panel(tmp_path) -> None:
     """The control-assistant family exposes the event-dispatcher dashboard as
-    an ``events`` web panel on its write-capable tier: the readwrite persona
+    an ``events`` web panel on its write-capable tier: the readwrite tier
     declares the panel id and nothing else — its URL is projected into the
-    persona's render from the hosting deployment's own, where the dispatch
-    injector derived it (``osprey.deployment.reach``), so no preset carries a
-    second copy the injector could drift from. The base preset carries
-    neither the id nor a URL."""
-    presets_dir = bp._presets_dir()
-    profile, _dir = bp.resolve_build_profile(None, preset="control-assistant-readwrite")
+    render from the hosting deployment's own, where the dispatch injector
+    derived it (``osprey.deployment.reach``), so no preset carries a second
+    copy the injector could drift from. The base preset carries neither the
+    id nor a URL."""
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
-    profile.validate(presets_dir)  # raises BuildProfileError on any issue
+    repo = build_exemplar_repo(tmp_path / "repo")
+    profile, profile_dir = bp.resolve_build_profile(repo / "tiers" / "readwrite.yml", None)
+
+    profile.validate(profile_dir)  # raises BuildProfileError on any issue
 
     assert "events" in profile.web_panels
     assert "web.panels.events.url" not in profile.config

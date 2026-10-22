@@ -34,6 +34,7 @@ from osprey.cli.users_cmd import users
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
+from tests._renders import tier_render
 
 #: Every verb the group ships, mapped to the exact set of option spellings it
 #: accepts. Pinned as a whole rather than flag-by-flag: a verb must carry the
@@ -61,8 +62,8 @@ def _config(users_list, *, project_name="demo-project"):
             "web_terminals": {
                 "enabled": True,
                 "users": users_list,
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": f"{project_name}-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", f"{project_name}-assistant")},
             }
         },
     }
@@ -98,22 +99,22 @@ def cli_runner():
 
 #: A profile that spells the roster the way the presets do: ONE literal dotted
 #: key holding the whole ``modules.web_terminals`` subtree, with the roster
-#: nested inside it and each entry carrying its persona.
+#: nested inside it and each entry carrying its render.
 PROFILE_WITH_ROSTER = textwrap.dedent(
     """
     preset: control-assistant
     config:
       modules.web_terminals:
         enabled: true
-        default_persona: readonly
+        default_tier: readonly
         # Who gets a web terminal. `index` pins each user's ports.
         users:
           - name: alice
             index: 0
-            persona: readonly
+            tier: readonly
           - name: bob
             index: 1
-            persona: readwrite
+            tier: readwrite
     """
 )
 
@@ -672,13 +673,13 @@ class TestProfileRosterWrite:
         roster = rendered["modules.web_terminals"]["users"]
         assert [entry["name"] for entry in roster] == ["bob"]
 
-    def test_survivors_keep_their_persona(self, cli_runner, tmp_path, monkeypatch):
+    def test_survivors_keep_their_tier(self, cli_runner, tmp_path, monkeypatch):
         """The trap this fix must not fall into.
 
         ``normalize_users`` — what the engine writes into the rendered config —
-        keeps only name/index plus three optional fields and drops ``persona``.
+        keeps only name/index plus three optional fields and drops ``tier``.
         Writing its output back into the profile would silently re-assign every
-        surviving user to ``default_persona``.
+        surviving user to ``default_tier``.
         """
         repo_root = _make_repo(tmp_path, profile=PROFILE_WITH_ROSTER)
         monkeypatch.chdir(repo_root)
@@ -688,7 +689,7 @@ class TestProfileRosterWrite:
             cli_runner.invoke(users, ["remove", "alice"])
 
         (bob,) = self._profile_roster(repo_root)
-        assert bob["persona"] == "readwrite", "a removal must not re-assign a survivor's persona"
+        assert bob["tier"] == "readwrite", "a removal must not re-assign a survivor's tier"
 
     def test_no_second_roster_key_is_added_beside_the_first(
         self, cli_runner, tmp_path, monkeypatch
@@ -1128,20 +1129,21 @@ class TestUsersEnv:
         mode = stat.S_IMODE((repo_root / "out.env").stat().st_mode)
         assert mode == 0o600
 
-    def test_a_persona_whose_project_is_missing_is_named_not_skipped(
+    def test_a_render_whose_project_is_missing_is_named_not_skipped(
         self, cli_runner, tmp_path, monkeypatch, caplog
     ):
-        """Silence would read as "that persona needs no secret" — a claim we can't make.
+        """Silence would read as "that render needs no secret" — a claim we can't make.
 
-        A persona whose project cannot be found contributes no auth secret, so
+        A render whose project cannot be found contributes no auth secret, so
         its terminals come up healthy and fail authentication on the first
         prompt. The render still proceeds (seeing the gap is the point), but it
-        says which persona and which path.
+        says which render and which path.
         """
         config = yaml.safe_load(USERS_ENV_CONFIG)
-        config["modules"]["web_terminals"]["users"] = [{"name": "alice", "persona": "readonly"}]
-        config["modules"]["web_terminals"]["personas"] = {
-            "readonly": {"project": "ca-readonly", "project_path": "../ca-readonly"}
+        config["modules"]["web_terminals"]["users"] = [{"name": "alice", "tier": "readonly"}]
+        config["modules"]["web_terminals"]["default_tier"] = "readonly"
+        config["modules"]["web_terminals"]["renders"] = {
+            "readonly": {"kind": "tier", "project": "ca-readonly", "project_path": "../ca-readonly"}
         }
         repo_root = _make_repo(tmp_path, config)
         (repo_root / ".env").write_text("CBORG_API_KEY=llm-secret\n", encoding="utf-8")

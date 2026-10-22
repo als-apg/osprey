@@ -312,7 +312,7 @@ def _served_context_length() -> int:
 class TestServedInputLimit:
     """The presets' input limit is the served window, and the cut fits it."""
 
-    @pytest.mark.parametrize("preset", ["control-assistant", "ariel-standalone"])
+    @pytest.mark.parametrize("preset", ["control-assistant"])
     async def test_preset_limit_is_the_served_window(self, preset):
         """A preset states the window the server reports, never a remembered number."""
         import importlib.resources

@@ -238,18 +238,18 @@ for a plan that is not.
 ## Starting a Bluesky Queue
 
 Starting a queue moves accelerator hardware. Arming a start needs the lane's
-launch token, which a persona is granted per lane: only when its config arms
+launch token, which a render is granted per lane: only when its config arms
 writes for the machine that lane drives **and** runs the `bluesky` MCP server.
 Write posture is per connector type — `control_system.writes_enabled` is what a
 type inherits, and a `control_system.connector.<type>.writes_enabled` block
 answers for that type instead — so a deployment armed for the simulator alone
 holds a token for the simulator's lane and none for the live one. A read-only
-persona never holds one at all.
+tier never holds one at all.
 
 Where it is granted, one approval is the whole gate: approving `queue_start` in
 chat starts the queue. There is no second confirmation step anywhere else.
 
-A deploy refuses to grant this token to a persona whose settings permit `Bash`.
+A deploy refuses to grant this token to a render whose settings permit `Bash`.
 The approval gates the `queue_start` tool, not a shell — an agent with a shell
 could read the token out of its own environment and arm a queue with no approval
 at all.

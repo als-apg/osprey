@@ -6,7 +6,7 @@ repository that is the deployment: one directory, four zones.
     als-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  triggers.yml  README.md
-    ├── data/  personas/  web-terminal-context/
+    ├── data/  tiers/  apps/  web-terminal-context/
     ├── .gitignore  .env.example  .env.shared  ci-extra.yml
     ├── .gitlab-ci.yml  scripts/verify.sh   (with deploy coordinates)
     │  ═ SECRETS — ignored, durable ══════════════════
@@ -43,7 +43,7 @@ from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
-from osprey_connectors.workspace import STATE_ZONE_DIRS
+from osprey_connectors.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
 
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR, convention_for
@@ -225,7 +225,7 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `personas/` | yes | yes |
+| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
 | The agent's memory and audit log | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/audit/` | no | yes |
@@ -366,14 +366,14 @@ config:
 
 ### Mounting an extra directory into a web terminal
 
-Deployments that give people their own web terminals mount per persona, under
-`config:`. Each entry is a container volume string of two or three non-empty
-parts, `source:target` or `source:target:mode`:
+Deployments that give people their own web terminals mount per tier, in that
+tier's file under `tiers/`. Each entry is a container volume string of two or
+three non-empty parts, `source:target` or `source:target:mode`:
 
 ```yaml
-config:
-  modules.web_terminals.personas.operator.extra_mounts:
-    - /opt/facility/data:/data:ro
+# tiers/readwrite.yml
+extra_mounts:
+  - /opt/facility/data:/data:ro
 ```
 
 Every key named here is written up in full at https://als-apg.github.io/osprey/.
@@ -588,7 +588,7 @@ _PRESERVED_PROSE = ", ".join(PRESERVED_BY_FORCE)
 _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
-    "which replaces profile.yml, data/, personas/, triggers.yml, "
+    "which replaces profile.yml, data/, tiers/, apps/, triggers.yml, "
     "web-terminal-context/, and .env.example, losing any edit to them. In "
     "providers.yml the entries OSPREY ships are reset to the packaged values "
     "(your edits to them are lost) and the ones you added are kept. To start "
@@ -875,7 +875,7 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
 
     ``--force`` replaces the source zone, and the replacement only comes into
     existence INSIDE this block: the preset resolves there, the ``--set``
-    edits apply there, the persona deltas are emitted there, and the profile
+    edits apply there, the layers are emitted there, and the profile
     that was written is validated there — the last of those after files are on
     disk. So the old zone is moved rather than removed. The block returns and
     the holding directory goes; it raises and every entry goes back exactly as
@@ -1252,7 +1252,7 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     "--force",
     is_flag=True,
     help="Re-materialize the source zone of an existing deployment repo, "
-    "discarding edits to profile.yml, data/, personas/, triggers.yml, "
+    "discarding edits to profile.yml, data/, tiers/, apps/, triggers.yml, "
     "web-terminal-context/, and .env.example. In providers.yml the entries "
     "OSPREY ships are reset to the packaged values (your edits to them are "
     f"lost) and the ones you added are kept. Never touches: {_PRESERVED_PROSE}.",
@@ -1275,6 +1275,14 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     "profile.yml) and outlives the directory — so re-creating under a used "
     f"name inherits its stores. Discards their data. Never touches: {_PRESERVED_PROSE}.",
 )
+@click.option(
+    "--revalidate",
+    is_flag=True,
+    help="Bring an existing deployment repo to this OSPREY in place — the current "
+    "profile vocabulary, every config key the profile leaves to its preset, the "
+    "provider entries OSPREY ships — and print the diff. Only on a repo that holds "
+    "profile.yml; with --preset, fills from that preset; not with --force or --reset.",
+)
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
 @click.option("-d", "--detach", "detached", is_flag=True, help="With --up: run in the background.")
 @click.option("--dev", is_flag=True, help="With --up: start in development mode.")
@@ -1288,6 +1296,7 @@ def init(
     force: bool,
     no_git: bool,
     reset: bool,
+    revalidate: bool,
     start: bool,
     detached: bool,
     dev: bool,
@@ -1304,7 +1313,7 @@ def init(
 
     \b
       profile.yml     the manifest; everything the preset configures, explicit
-      data/ personas/ triggers.yml  the material it names — yours to edit
+      data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
       .env            provider keys, seeded from your shell where it has them
       build/          rendered by `osprey build`; gitignored, 100% disposable
       var/            agent memory and audit log; gitignored, durable
@@ -1318,12 +1327,33 @@ def init(
       $ osprey init --list-presets
       $ osprey init als-assistant --preset control-assistant
       $ osprey init demo --preset control-assistant --up -d --dev
+      $ osprey init als-assistant --revalidate
     """
+    if revalidate:
+        _revalidate(
+            directory,
+            preset=preset,
+            conflicts={
+                "--force": force,
+                "--reset": reset,
+                "--set": bool(set_pairs),
+                "--up": start,
+                "-d/--detach": detached,
+                "--dev": dev,
+                "--no-git": no_git,
+            },
+        )
+        return
     if preset is None:
         raise click.UsageError(
             "Missing --preset. A deployment starts from a bundled preset — run "
             "`osprey init --list-presets` to see them."
         )
+    from .build_profile_presets import layer_preset_refusal
+
+    layer_refusal = layer_preset_refusal(preset)
+    if layer_refusal is not None:
+        raise click.UsageError(layer_refusal)
     if (detached or dev) and not start:
         raise click.UsageError(
             "-d/--dev only mean something with --up, which is what starts the deployment."
@@ -1490,6 +1520,61 @@ def init(
         # deployment that is now running rather than three. An ATTACHED
         # `init --up` never arrives — compose replaced this process.
         print_summary_card(target, "running" if start else "created")
+
+
+def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[str, bool]) -> None:
+    """``osprey init --revalidate``: bring an existing repo up to date and print the diff.
+
+    It edits a repo that exists, so every flag that makes or remakes one is
+    refused with it rather than silently ignored. ``--preset`` is the one it
+    takes: the preset the profile is filled from.
+    """
+    named = [flag for flag, given in conflicts.items() if given]
+    if named:
+        raise click.UsageError(
+            f"--revalidate rewrites an existing repo in place and cannot be combined "
+            f"with {', '.join(named)}."
+        )
+    target = Path(directory).resolve() if directory is not None else Path.cwd().resolve()
+    if not (target / "profile.yml").is_file():
+        raise click.UsageError(
+            f"--revalidate rewrites an existing deployment repo, and {target} holds no "
+            f"profile.yml. To create one, run `osprey init <dir> --preset <name>`."
+        )
+    from .init_revalidate import revalidate_repo
+
+    try:
+        result = revalidate_repo(target, preset=preset)
+    except BuildProfileError as e:
+        raise click.UsageError(str(e)) from e
+    if not result.changed:
+        output.report(f"{target}: already current; nothing to rewrite.")
+    else:
+        click.echo(result.diff, nl=False)
+        output.report(
+            f"Rewrote {len(result.changed)} file(s) in {target}. Review the diff and commit."
+        )
+    if result.filled:
+        output.report(f"Filled {len(result.filled)} key(s) from preset '{result.preset}':")
+        for key in result.filled:
+            output.note(key)
+    for key, reason in result.skipped.items():
+        output.note(f"Left for you: {key}: {reason}")
+    if result.providers_kept:
+        output.note(f"Kept your own provider entries: {', '.join(result.providers_kept)}")
+    if result.drift_refusals:
+        output.report(
+            f"⚠ profile.yml names preset '{result.preset}', so `osprey validate` compares "
+            f"the two: it differs in {result.drift_refusals} place(s) no marker claims."
+        )
+        output.note(
+            f"Claim one with a `# {result.deviation_marker}: <why>` comment above its line, "
+            f"or in the key's name. `osprey validate --drift=warn` reports them without refusing."
+        )
+    if result.manual_steps:
+        output.report("Left for you to do by hand:")
+        for step in result.manual_steps:
+            output.note(step)
 
 
 def _reset_project_name(target: Path) -> str:
@@ -1791,18 +1876,33 @@ def _report(
     # those files describe consists of. It stays on screen through everything a
     # chained `--up` does, which is the point — the composition is what someone
     # reads while the containers pull.
-    print_profile_card(materialized.resolved, materialized.persona_deltas)
+    print_profile_card(materialized.resolved, materialized.layer_deltas)
+
+
+#: What a layer directory's row in :func:`_entry_list` says its files are, by
+#: the kind word the directory's files are read as.
+_LAYER_ENTRY_NOTES: dict[str, str] = {
+    "tier": "access levels of your assistant",
+    "app": "separate assistants on offer",
+}
 
 
 def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
     """The entries someone edits, one line each, with what the entry is for."""
-    personas = sorted(path.stem for path in (target / "personas").glob("*.yml"))
+    from .profile_root import layer_files
+
+    by_dir: dict[str, list[str]] = {}
+    for _kind, layer in layer_files(target):
+        by_dir.setdefault(layer.parent.name, []).append(layer.stem)
     rows: list[tuple[str, str]] = [
         ("profile.yml", "your assistant's settings; edit this"),
         ("data/", "channel lists and facility docs; edit these"),
     ]
-    if personas:
-        rows.append(("personas/", f"one per web login: {', '.join(personas)}"))
+    rows += [
+        (f"{dirname}/", f"{_LAYER_ENTRY_NOTES[kind]}: {', '.join(by_dir[dirname])}")
+        for dirname, kind in LAYER_DIR_KINDS.items()
+        if dirname in by_dir
+    ]
     rows += [
         (".env", _env_note(target, materialized)),
         (ENV_SHARED_FILENAME, "settings shared by every host; your .env wins"),

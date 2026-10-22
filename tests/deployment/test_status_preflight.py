@@ -177,7 +177,7 @@ def test_status_truncates_a_long_preflight_reason_to_keep_the_table_shape(
     tmp_path, runtime_calls, rendered
 ):
     """A findings line is arbitrarily long; the Container column is not."""
-    finding = "the roster names a persona that the rendered compose file does not declare anywhere"
+    finding = "the roster names a render that the rendered compose file does not declare anywhere"
     _write_marker(tmp_path, "alice", (_STARTED_AT + timedelta(seconds=5)).isoformat(), [finding])
 
     _run_status(tmp_path, runtime_calls, [_ps_container("demo-project-web-alice", "restarting")])

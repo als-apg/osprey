@@ -5,7 +5,7 @@ There is one control context per login identity, so every answer here is that
 login's: which target it is standing on, at which generation, who owns the
 record, what each running controls server has actually bound, what is executing
 right now, and one row per configured target carrying that machine's identity,
-its reachability, the persona's ceiling, the operator's narrowing, the effective
+its reachability, the render's ceiling, the operator's narrowing, the effective
 answer the connector will apply and whether a switch is offered.
 
 Four properties shape every test below.
@@ -21,7 +21,7 @@ Four properties shape every test below.
 * **Ceiling, posture and effective are three separate columns.** The ceiling is
   the deployment's, the posture is the operator's, and the effective answer is
   the rule the connector applies. Collapsing them would leave the popover unable
-  to say whether a locked toggle is the persona's doing or the operator's.
+  to say whether a locked toggle is the render's doing or the operator's.
 * **The fleet is published, not collapsed.** A switch has landed when every live
   server reports the generation it was asked for, so the rows say which server
   is where instead of offering one verdict that could not name a stuck pid.

@@ -32,6 +32,8 @@ PAIRINGS = {
     ("rf_hv_setpoint", "rf_hv_readback"),
     ("temperature_setpoint", "temperature_readback"),
     ("tuner_position_setpoint", "tuner_position_readback"),
+    ("gap_setpoint", "gap_readback"),
+    ("offset_setpoint", "offset_readback"),
     ("voltage_setpoint", "voltage_readback"),
     ("lamp_command", "lamp_status"),
     ("power_on_command", "power_on_status"),

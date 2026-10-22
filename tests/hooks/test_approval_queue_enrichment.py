@@ -44,13 +44,14 @@ from __future__ import annotations
 
 import http.server
 import json
+import shlex
 import socket
 import threading
 import time
 from contextlib import contextmanager
 
 from osprey import bluesky_tool_names as bsky
-from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.registry import mcp as mcp_registry
 from tests._control_context_fixtures import pin_identity, state_dir_under
 
 SCAN_HOOK_CONFIG = {
@@ -159,19 +160,16 @@ def _queue_config(make_config):
     )
 
 
-def _rendered_budget(tool: str) -> int:
-    """The ``--budget`` the render hands the approval hook for ``tool``.
+def _rendered_hook_args(tool: str) -> list[str]:
+    """The arguments the render gives the approval hook on bluesky *tool*.
 
-    The hook runs here with the budget the render hands it for this tool; the
-    registry is the one source of that number.
+    The arming pair's prompt is the pre-flight, so the render launches the hook
+    with the budget that pre-flight needs; launching it bare would run every
+    trajectory under the harness default, which no rendered arming tool gets.
     """
-    rule = next(
-        rule
-        for rule in FRAMEWORK_SERVERS["bluesky"].hooks_pre
-        if rule.matcher == bsky.matcher(tool)
-    )
-    hook = next(hook for hook in rule.hooks if "osprey_approval.py" in hook.command)
-    return hook.timeout
+    if tool not in bsky.ARMING_TOOLS:
+        return []
+    return shlex.split(mcp_registry._APPROVAL_PREFLIGHT.command)[2:]
 
 
 def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
@@ -182,7 +180,7 @@ def _run_queue_add(hook_runner, config, tmp_path, draft_revision):
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
-        hook_args=("--budget", str(_rendered_budget("queue_add"))),
+        args=_rendered_hook_args("queue_add"),
     )
 
 
@@ -194,7 +192,7 @@ def _run_queue_tool(hook_runner, config, tmp_path, tool, tool_input=None):
         config_path=config,
         cwd=tmp_path,
         hook_config=SCAN_HOOK_CONFIG,
-        hook_args=("--budget", str(_rendered_budget(tool))),
+        args=_rendered_hook_args(tool),
     )
 
 

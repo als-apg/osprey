@@ -201,7 +201,7 @@ def safety_project_mixed_render(tmp_path_factory):
     ``control_system.writes_enabled: false`` keeps the live target read-only and
     ``control_system.connector.virtual_accelerator.writes_enabled: true`` arms
     the simulator — two of the three posture keys the shipped
-    ``control-assistant-readwrite`` preset spells. The render is made
+    ``readwrite`` tier spells. The render is made
     switch-capable the way the switch lifecycle tests do it:
     ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,

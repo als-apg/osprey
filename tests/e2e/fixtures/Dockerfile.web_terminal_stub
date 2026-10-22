@@ -10,7 +10,7 @@
 # mount-point directories the per-user compose service declares volumes onto.
 #
 # The paths below are the directory of the project the fixture's catalog
-# names for its default persona (/app/osprey-e2e-mus-p3-assistant/...) — see
+# names for its default tier's render (/app/osprey-e2e-mus-p3-assistant/...) — see
 # multi_user_config.yml. If that project ever changes, these paths must change
 # with it.
 #

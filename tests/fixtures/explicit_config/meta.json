@@ -1,60 +1,29 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "241443d5dac64d337c95e9e45ca5e5d0a49c620d",
-  "baseline_sha": "241443d5dac64d337c95e9e45ca5e5d0a49c620d",
+  "baseline_commit": "eacf075a4d29caf0bef7d0060c0af5cc5ca2620f",
+  "baseline_sha": "eacf075a4d29caf0bef7d0060c0af5cc5ca2620f",
   "cells": [
     "hello-world/unset",
     "control-assistant/in_context",
     "control-assistant/hierarchical",
     "control-assistant/middle_layer",
-    "control-assistant/graph",
-    "ariel-standalone/unset",
-    "channel-finder-standalone/in_context",
-    "channel-finder-standalone/hierarchical",
-    "channel-finder-standalone/middle_layer",
-    "channel-finder-standalone/graph"
+    "control-assistant/graph"
   ],
   "completeness": {
-    "ariel-standalone/unset": {
-      "build_configs_checked": 7,
-      "documents": [
-        "root.yml"
-      ],
-      "personas": []
-    },
-    "channel-finder-standalone/hierarchical": {
-      "build_configs_checked": 2,
-      "documents": [
-        "root.yml"
-      ],
-      "personas": []
-    },
-    "channel-finder-standalone/in_context": {
-      "build_configs_checked": 2,
-      "documents": [
-        "root.yml"
-      ],
-      "personas": []
-    },
-    "channel-finder-standalone/middle_layer": {
-      "build_configs_checked": 2,
-      "documents": [
-        "root.yml"
-      ],
-      "personas": []
-    },
     "control-assistant/graph": {
-      "build_configs_checked": 25,
+      "build_configs_checked": 26,
       "documents": [
         "admin.yml",
+        "channel-finder.yml",
         "knowledge.yml",
         "logbook.yml",
         "readonly.yml",
         "readwrite.yml",
         "root.yml"
       ],
-      "personas": [
+      "renders": [
         "admin",
+        "channel-finder",
         "knowledge",
         "logbook",
         "readonly",
@@ -62,17 +31,19 @@
       ]
     },
     "control-assistant/hierarchical": {
-      "build_configs_checked": 25,
+      "build_configs_checked": 26,
       "documents": [
         "admin.yml",
+        "channel-finder.yml",
         "knowledge.yml",
         "logbook.yml",
         "readonly.yml",
         "readwrite.yml",
         "root.yml"
       ],
-      "personas": [
+      "renders": [
         "admin",
+        "channel-finder",
         "knowledge",
         "logbook",
         "readonly",
@@ -80,17 +51,19 @@
       ]
     },
     "control-assistant/in_context": {
-      "build_configs_checked": 25,
+      "build_configs_checked": 26,
       "documents": [
         "admin.yml",
+        "channel-finder.yml",
         "knowledge.yml",
         "logbook.yml",
         "readonly.yml",
         "readwrite.yml",
         "root.yml"
       ],
-      "personas": [
+      "renders": [
         "admin",
+        "channel-finder",
         "knowledge",
         "logbook",
         "readonly",
@@ -98,17 +71,19 @@
       ]
     },
     "control-assistant/middle_layer": {
-      "build_configs_checked": 25,
+      "build_configs_checked": 26,
       "documents": [
         "admin.yml",
+        "channel-finder.yml",
         "knowledge.yml",
         "logbook.yml",
         "readonly.yml",
         "readwrite.yml",
         "root.yml"
       ],
-      "personas": [
+      "renders": [
         "admin",
+        "channel-finder",
         "knowledge",
         "logbook",
         "readonly",
@@ -120,10 +95,10 @@
       "documents": [
         "root.yml"
       ],
-      "personas": []
+      "renders": []
     }
   },
-  "external_source": true,
+  "external_source": false,
   "masked_keys": {
     "replaced": {
       "api.providers": "sorted list of provider names, in place of the catalog mapping"

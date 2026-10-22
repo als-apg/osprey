@@ -703,14 +703,14 @@ def test_live_beside_a_standin_nobody_records_is_eligible() -> None:
     assert _eligibility(config, LIVE).eligible is True
 
 
-def test_a_persona_session_is_refused_live_on_the_projected_recorder_fact() -> None:
+def test_a_render_session_is_refused_live_on_the_projected_recorder_fact() -> None:
     """The multi-user half of the same gate, and it has to answer identically.
 
-    A web-terminal persona is an attached render: it lists no services, so the
+    A web-terminal render is an attached render: it lists no services, so the
     host's `deployed_services` spelling of "we record" never reaches it. The
     build projects the recorder's own block instead (the `archiver_recorder`
-    Reach Contract), and the persona reads the very store the fact is about —
-    so a session behind a persona is refused the live machine exactly as a
+    Reach Contract), and the render reads the very store the fact is about —
+    so a session behind a render is refused the live machine exactly as a
     single-user session on the same deployment is.
     """
     config = _standin_config(control_system_type=STANDIN_TYPE, recorder=False, ack=True)
@@ -723,7 +723,7 @@ def test_a_persona_session_is_refused_live_on_the_projected_recorder_fact() -> N
     assert verdict.reason == te.REASON_ARCHIVE_BELONGS_TO_STANDIN
     assert "archiver_recorder" in verdict.detail
     # ... and the same render with nothing projected keeps `live` open, so it is
-    # the fact that decides and not the persona shape.
+    # the fact that decides and not the render shape.
     del config["services"]["archiver_recorder"]
     assert _eligibility(config, LIVE).eligible is True
 
@@ -820,7 +820,7 @@ def test_the_roster_on_a_standin_baseline(
 
 
 def test_the_roster_reports_a_repointed_standin_block_as_not_deployed() -> None:
-    """The gateway a persona or an operator moved is the roster's answer, not a
+    """The gateway a render or an operator moved is the roster's answer, not a
     silently absent row."""
     block = _standin_block(
         gateways={"read_only": {"address": "gw.example.org", "port": STANDIN_PORT}}

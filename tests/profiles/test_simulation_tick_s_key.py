@@ -13,7 +13,7 @@ from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey_connectors.simulation import DEFAULT_TICK_S, resolve_tick_s
 
 #: The four shipped presets every all-templates key must appear in.
-_PRESETS = ("hello-world", "ariel-standalone", "channel-finder-standalone", "control-assistant")
+_PRESETS = ("hello-world", "control-assistant")
 
 
 def test_a_render_without_the_key_resolves_the_default() -> None:

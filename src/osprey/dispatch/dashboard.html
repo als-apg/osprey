@@ -1421,7 +1421,7 @@ function renderRunList() {
       // at the deployment fact rather than repeating navigation advice the
       // operator has manifestly already followed.
       el('span', { textContent: 'Not authorised to read the dispatcher.' }),
-      el('span', { className: 'empty-hint', textContent: 'This terminal has no EVENT_DISPATCHER_TOKEN \u2014 its persona must declare the EVENTS panel, and `osprey up` must have minted the token into the deployment\u2019s .env.' }),
+      el('span', { className: 'empty-hint', textContent: 'This terminal has no EVENT_DISPATCHER_TOKEN \u2014 its tier or app must declare the EVENTS panel, and `osprey up` must have minted the token into the deployment\u2019s .env.' }),
     ] : [
       el('span', { textContent: 'This panel needs a token when opened directly.' }),
       el('span', { className: 'empty-hint', textContent: 'Open it from the terminal\u2019s EVENTS tab, which supplies one for you.' }),

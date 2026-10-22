@@ -28,7 +28,6 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Sequence
 from itertools import count
 from pathlib import Path
 
@@ -397,7 +396,7 @@ def hook_runner(tmp_path, _throwaway_repo):
         tool_response=None,
         hook_input_extra=None,
         hook_config=None,
-        hook_args: Sequence[str] = (),
+        args=(),
     ):
         hook_script = HOOKS_DIR / hook_name
         project_dir = _hook_project_dir(_throwaway_repo, cwd)
@@ -418,7 +417,7 @@ def hook_runner(tmp_path, _throwaway_repo):
         env = _curated_env(config_path, hook_config_path, cwd, _throwaway_repo)
 
         result = subprocess.run(
-            [sys.executable, str(hook_script), *hook_args],
+            [sys.executable, str(hook_script), *args],
             input=stdin_data,
             capture_output=True,
             text=True,
@@ -465,7 +464,6 @@ def hook_runner_raw(tmp_path, _throwaway_repo):
         hook_input_extra=None,
         stdin_override=None,
         hook_config=None,
-        hook_args: Sequence[str] = (),
     ):
         hook_script = HOOKS_DIR / hook_name
         project_dir = _hook_project_dir(_throwaway_repo, cwd)
@@ -491,7 +489,7 @@ def hook_runner_raw(tmp_path, _throwaway_repo):
         env = _curated_env(config_path, hook_config_path, cwd, _throwaway_repo)
 
         result = subprocess.run(
-            [sys.executable, str(hook_script), *hook_args],
+            [sys.executable, str(hook_script)],
             input=stdin_data,
             capture_output=True,
             text=True,

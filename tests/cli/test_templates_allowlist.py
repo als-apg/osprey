@@ -20,6 +20,4 @@ def test_templates_apps_matches_allowlist():
     assert on_disk == {
         "hello_world",
         "control_assistant",
-        "ariel_standalone",
-        "channel_finder_standalone",
     }

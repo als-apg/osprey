@@ -30,6 +30,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.port_layout import default_port
 from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+from tests._renders import tier_render
 
 READER_ORIGIN = "http://dls-deploy.dls.example.org:10002"
 
@@ -47,8 +48,8 @@ def _config(method: str = "password", **root: Any) -> dict[str, Any]:
                 "enabled": True,
                 "auth": {"method": method, "allow_insecure_http": True},
                 "users": [{"name": "alice", "index": 0}],
-                "default_persona": "assistant",
-                "personas": {"assistant": {"project": "dls_controls-assistant"}},
+                "default_tier": "assistant",
+                "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
             }
         },
         **root,
