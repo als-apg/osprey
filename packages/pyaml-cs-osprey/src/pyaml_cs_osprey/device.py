@@ -79,8 +79,9 @@ def _wait_settled(demands: Mapping[str, float]) -> None:
         OspreyWriteFailed: A readback did not come within its bound in time; names
             the setpoint, and the reason names its readback, the demand, the bound
             and the last reading.
-        OspreyReadFailed: A readback could not be read, or answered no value; names
-            the readback.
+        OspreyReadFailed: A readback that cannot be reached, is not a channel, or
+            times out, or one that answered no value; names the readback. A lost
+            connector propagates as its own error.
 
         Refusals (``FileNotFoundError`` for a missing config or facility file,
         ``ValueError`` for an address that is no setpoint) and a control-target
