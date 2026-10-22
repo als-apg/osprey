@@ -31,7 +31,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -99,7 +99,7 @@ def _channel_write_patches(mock_connector):
             return_value=mock_connector,
         ),
         patch(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     )
@@ -114,7 +114,7 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
     )
 
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
 
     # Spec'd, so the mock carries exactly the entry points the real validator
     # does: the tool asks for the checks a caller that has not yet resolved a
@@ -132,7 +132,7 @@ async def test_channel_write_limits_violation_no_emit(tmp_path, monkeypatch):
 
     with (
         patch(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=mock_validator,
         ),
         patch(f"{_CW_MOD}.notify_agent_activity_async") as notify,

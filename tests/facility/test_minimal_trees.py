@@ -342,7 +342,7 @@ def _writes_enabled(key: str, default: Any = None) -> Any:
 
 
 async def _served(project: BuiltProject) -> Any:
-    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from tests.facility.served_tree import in_process_config
 
     connector = VAInProcessConnector()
@@ -397,7 +397,7 @@ async def test_als_shaped_namespace_round_trip(
         if c["address"] in pairs
     } == {SR_SETPOINT: (True, [0.0, 20.0]), BTS_SETPOINT: (True, [-1.0, 1.0])}
 
-    from osprey_connectors.control_system.base import WriteOutcome
+    from osprey_connectors.control_system._base import WriteOutcome
 
     collapsed = "SR04U_GDS1PS_AC00"
     monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)

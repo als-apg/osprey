@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.artifacts.app import create_app
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
-from osprey_connectors.control_system.base import ChannelMetadata, ChannelValue
+from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 ADDRESS = "CAM:1:IMAGE"

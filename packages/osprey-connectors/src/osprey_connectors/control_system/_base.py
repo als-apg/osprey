@@ -53,7 +53,7 @@ class ChannelMetadata:
     ``display_low`` / ``display_high`` are the range the control system suggests
     for DISPLAYING this channel (EPICS LOPR/HOPR and their equivalents). They are
     deliberately NOT named ``min_value`` / ``max_value``: those belong to
-    :class:`~osprey_connectors.control_system.limits_validator.ChannelLimitsConfig`
+    :class:`~osprey_connectors.control_system.ChannelLimitsConfig`
     and are the bounds OSPREY refuses to write past. Only the latter is enforced —
     a value inside the display range can still be refused, and a connector that
     reports no display range constrains nothing.
@@ -68,7 +68,7 @@ class ChannelMetadata:
     one, and an index outside it resolves to nothing.
 
     ``enum_labels`` is a ``list`` rather than a tuple because that is what
-    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc.frames`
+    survives the connector-host IPC seam: :mod:`osprey_connectors.ipc._frames`
     encodes sequences as JSON arrays and decodes them as lists, so a tuple set
     here would compare unequal to the same field read through a proxy.
     """
@@ -993,7 +993,7 @@ class ControlSystemConnector(ABC):
             return False
         return _deployment_writes_enabled(self._connector_type)
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """This connector's own way to read a channel's present value.
 
         Handed to :meth:`LimitsValidator.validate` so the ``max_step`` check

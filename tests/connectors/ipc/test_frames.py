@@ -16,14 +16,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
-from osprey_connectors.ipc import exceptions, frames
+from osprey_connectors.ipc import _exceptions as exceptions
+from osprey_connectors.ipc import _frames as frames
 
 TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
 

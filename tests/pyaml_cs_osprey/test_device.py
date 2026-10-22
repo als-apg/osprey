@@ -13,7 +13,7 @@ from pyaml.control.deviceaccess import DeviceAccess
 
 import osprey.runtime
 from osprey.runtime.guarded_run import OspreyWriteRefused as RuntimeOspreyWriteRefused
-from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
+from osprey_connectors.control_system._limits_validator import ChannelLimitsConfig
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteFailedError,

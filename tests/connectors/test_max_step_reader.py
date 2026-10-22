@@ -18,23 +18,27 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.epics_connector import EPICSConnector
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._limits_validator import (
     DEFAULT_STEP_READ_TIMEOUT_SECONDS,
     ChannelLimitsConfig,
     LimitsValidator,
     step_read_timeout_seconds,
 )
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.connectors._epics_fakes import FakeChannel, ca_connector, ca_reading
 from tests.facility.served_tree import in_process_config, served_tree
 
-_DOOCS_LIMITS_PATCH = "osprey_connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_DOOCS_TZ_PATCH = "osprey_connectors.control_system.doocs_connector.get_facility_timezone"
-_TANGO_LIMITS_PATCH = "osprey_connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey_connectors.control_system.tango_connector.get_facility_timezone"
+_DOOCS_LIMITS_PATCH = (
+    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+)
+_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = (
+    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+)
+_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 CURRENT = 10.0
 
@@ -71,7 +75,7 @@ async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
 
-    assert connector._current_value_reader()("SIM:CHANNEL:SP") == CURRENT
+    assert connector.current_value_reader()("SIM:CHANNEL:SP") == CURRENT
 
     await connector.disconnect()
 
@@ -84,7 +88,7 @@ def _ca_connector_holding(value) -> EPICSConnector:
 def test_the_epics_connector_reads_with_the_client_it_connected_with():
     connector = _ca_connector_holding(CURRENT)
 
-    assert connector._current_value_reader()("SR:CH") == CURRENT
+    assert connector.current_value_reader()("SR:CH") == CURRENT
     assert [c[:2] for c in connector._aioca.calls] == [("caget", "SR:CH")]
 
 
@@ -98,7 +102,7 @@ def test_the_epics_connector_refuses_to_read_a_pva_routed_address():
     connector = _ca_connector_holding(CURRENT)
     connector._pva_channel_globs = ["PVA:*"]
 
-    assert connector._current_value_reader()("PVA:IMAGE") is None
+    assert connector.current_value_reader()("PVA:IMAGE") is None
     assert connector._aioca.calls == []
 
 
@@ -115,12 +119,12 @@ async def test_the_doocs_connector_reads_with_doocs4py():
         patch(_DOOCS_LIMITS_PATCH, return_value=None),
         patch(_DOOCS_TZ_PATCH, return_value=UTC),
     ):
-        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
 
-        assert conn._current_value_reader()("FAC/DEV/LOC/PROP") == CURRENT
+        assert conn.current_value_reader()("FAC/DEV/LOC/PROP") == CURRENT
         doocs4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
 
         await conn.disconnect()
@@ -142,12 +146,12 @@ async def test_the_tango_connector_reads_with_its_device_proxy():
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
     ):
-        from osprey_connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
 
-        assert conn._current_value_reader()("sr/power_supply/ps01/Current") == CURRENT
+        assert conn.current_value_reader()("sr/power_supply/ps01/Current") == CURRENT
         proxy.read_attribute.assert_called_once_with("Current")
 
         await conn.disconnect()
@@ -253,7 +257,7 @@ def test_the_epics_connector_reads_with_the_budget_its_block_declares() -> None:
     connector = _ca_connector_holding(CURRENT)
     connector._step_read_timeout = step_read_timeout_seconds({"step_read_timeout_s": 0.5})
 
-    connector._current_value_reader()("SR:CH")
+    connector.current_value_reader()("SR:CH")
 
     assert connector._aioca.calls[-1][2]["timeout"] == 0.5
 

@@ -1,6 +1,6 @@
 """The connector-host pool, driving real child processes.
 
-Every child here is a real ``python -m osprey_connectors.ipc.host`` process
+Every child here is a real ``python -m osprey_connectors.ipc._host`` process
 serving a mock connector, loaded by dotted path from
 ``tests/connectors/ipc/_pool_connectors.py`` so that each test can pick the one
 misbehaviour it needs: a hanging channel, a failing ``connect()``, a
@@ -26,11 +26,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelNotFoundError
-from osprey_connectors.ipc import pool as pool_module
-from osprey_connectors.ipc.host import START_PHASES
-from osprey_connectors.ipc.pool import (
+from osprey_connectors.ipc import _pool as pool_module
+from osprey_connectors.ipc._host import START_PHASES
+from osprey_connectors.ipc._pool import (
     ConnectorHostError,
     ConnectorHostLostError,
     ConnectorHostPool,
@@ -786,7 +786,7 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
     script = textwrap.dedent(
         f"""
         import asyncio, sys
-        from osprey_connectors.ipc.pool import ConnectorHostPool
+        from osprey_connectors.ipc._pool import ConnectorHostPool
 
         async def main():
             pool = ConnectorHostPool({_section(SLOW)!r}, start_timeout_s={CHILD_START_TIMEOUT_S!r})

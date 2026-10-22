@@ -31,6 +31,7 @@ DEFAULT_BOOL_OPTIONS = ("FALSE", "TRUE")
 WAVEFORM = "waveform"
 
 __all__ = [
+    "WAVEFORM",
     "DEFAULT_BOOL_OPTIONS",
     "DEFAULT_VALUE_TYPE",
     "GATED_TYPES",

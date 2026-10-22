@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     aggregate_long_frame,
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.va_in_process_connector import (
+from osprey_connectors.control_system._va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     simulation_state_dir,
     simulator_view_dir,

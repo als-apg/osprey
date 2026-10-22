@@ -21,8 +21,8 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import base as connector_base
-from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system import _base as connector_base
+from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.types import (
     EPICS,

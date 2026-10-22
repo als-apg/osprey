@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
 
 

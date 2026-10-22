@@ -84,10 +84,10 @@ The launch handshake
 --------------------
 ``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods.
 They travel over
-:meth:`~osprey_connectors.ipc.proxy.ConnectorHostProxy.supervisor_request`, the
-same supervisor surface :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`
+:meth:`~osprey_connectors.ipc.ConnectorHostProxy.supervisor_request`, the
+same supervisor surface :class:`~osprey_connectors.ipc.ConnectorHostPool`
 launches its children through. A child that fails to launch is torn down with
-:func:`~osprey_connectors.ipc.launch.kill_host`, and its proxy never reaches a
+:func:`~osprey_connectors.ipc.kill_host`, and its proxy never reaches a
 :class:`_Child`, so nothing can call it.
 
 Attributing a killed child's outstanding requests
@@ -95,7 +95,7 @@ Attributing a killed child's outstanding requests
 When the drain deadline expires, the requests still in flight on child A have
 to fail, and they have to say *why*. The proxy fails them with whatever ended
 its read stream, so this module hands it a reader wrapper
-(:class:`~osprey_connectors.ipc.launch.AttributedReader`) that can be told the retirement reason before the
+(:class:`~osprey_connectors.ipc.AttributedReader`) that can be told the retirement reason before the
 kill; the resulting :class:`ConnectionError` then names the switch rather than
 an anonymous end-of-pipe.
 """
@@ -121,33 +121,29 @@ from osprey.mcp_server.control_system.target_eligibility import (
     endpoint_is_live_standin,
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
-from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.ipc.launch import (
-    AttributedReader,
-    host_env,
-    kill_host,
-    spawn_host,
-    stop_host,
-)
-from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
-from osprey_connectors.ipc.proxy import (
-    ChildUnresponsiveError,
-    ConnectorHostProxy,
-    raised_by_child,
-)
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.control_system import is_readonly_run
+from osprey_connectors.ipc import (
+    DEFAULT_CALL_DEADLINE_S,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
+    AttributedReader,
+    ChildUnresponsiveError,
+    ConnectorHostProxy,
     Endpoint,
     TargetDerivation,
     Verification,
     connector_block,
     derive_endpoints,
+    host_env,
+    kill_host,
+    raised_by_child,
+    spawn_host,
+    stop_host,
     verify_host_report,
 )
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
 from osprey_connectors.types import (
-    _SIMULATED_TYPES,
+    SIMULATED_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
@@ -180,7 +176,7 @@ __all__ = [
 # is the defense-in-depth half of that one rule, and a rule spelled in two
 # places is a rule its two halves can come to disagree about.
 #
-# ``_SIMULATED_TYPES`` names the connector types that serve a machine nobody
+# ``SIMULATED_TYPES`` names the connector types that serve a machine nobody
 # has to be careful around. It labels the state file's per-target display
 # metadata, and a type added to the connector package but forgotten in a local
 # copy would put "Real machine" on a simulator's row.
@@ -575,7 +571,7 @@ def target_display_metadata(
             # asked: a stand-in is a real-machine posture, so every strict
             # limit, approval prompt and banner hardware gets, it gets. Only
             # the name on the label moves.
-            "real_machine": ceiling.connector_type not in _SIMULATED_TYPES,
+            "real_machine": ceiling.connector_type not in SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
         }
     return metadata

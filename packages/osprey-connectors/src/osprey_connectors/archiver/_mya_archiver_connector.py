@@ -59,6 +59,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     Processing,
     aggregate_long_frame,
@@ -67,7 +68,6 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger

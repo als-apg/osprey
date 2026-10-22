@@ -9,12 +9,12 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.types import WRITES_ENABLED_KEY
 from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector
 

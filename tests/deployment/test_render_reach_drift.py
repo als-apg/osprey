@@ -137,7 +137,7 @@ def _dial_port_va(layer_dir: Path, render_cfg: dict, monkeypatch) -> int:
     render's own rendered connector block and the render's own rendered
     ``config.yml`` as the ambient config (``CONFIG_FILE``).
     """
-    from osprey_connectors.control_system.va_connector import fill_gateway_ports
+    from osprey_connectors.control_system._va_connector import fill_gateway_ports
     from osprey_connectors.workspace import reset_config_cache
 
     monkeypatch.setenv("CONFIG_FILE", str(layer_dir / "config.yml"))

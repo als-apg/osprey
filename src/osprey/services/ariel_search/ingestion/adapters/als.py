@@ -103,6 +103,7 @@ _HREF = re.compile(r"""href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.IGNOR
 _TRAILING_SPACE = re.compile(r"[ \t]+\n")
 _BLANK_RUN = re.compile(r"\n{3,}")
 _MAX_DECODE_PASSES = 3
+_ECHOED_PASSWORD = re.compile(r"<password\b[^>]*>.*?(?:</password>|$)", re.IGNORECASE | re.DOTALL)
 # The logbook's escaping: a backslash run before a quote mark, or a doubled backslash.
 _BACKSLASH_ESCAPE = re.compile(r"""\\+(['"])|\\{2,}""")
 
@@ -470,6 +471,9 @@ class ALSLogbookAdapter(FacilityAdapter):
                 source_system=self.source_system_name,
             )
 
+        if request.logbook:
+            await self._check_logbook(write_cfg.write_url, request.logbook)  # type: ignore[arg-type]
+
         xml_payload = self._build_xml_payload(
             author=auth_user,
             password=auth_password,
@@ -529,18 +533,125 @@ class ALSLogbookAdapter(FacilityAdapter):
 
         return ET.tostring(root, encoding="unicode")
 
-    async def _post_entry(self, write_url: str, xml_payload: str) -> str:
-        """POST the XML payload to the ALS olog RPC endpoint.
+    async def _check_logbook(self, write_url: str, logbook: str) -> None:
+        """Refuse a logbook the olog does not have, before anything is posted.
+
+        The olog files an entry whose logbooks are all unknown in Operations and
+        only says so in a ``<warning>``, so a misspelled logbook would publish
+        to the wrong readers. ``op=logbooks`` lists the valid names. When the
+        list cannot be read the check is skipped and the post goes ahead: the
+        server still drops the unknown name and warns.
 
         Args:
             write_url: The olog RPC write URL.
-            xml_payload: XML body to POST.
+            logbook: The requested logbook name.
+
+        Raises:
+            IngestionError: If the olog lists its logbooks and ``logbook`` is
+                not one of them.
+        """
+        connector = self._create_connector()
+        timeout = aiohttp.ClientTimeout(total=self.request_timeout)
+        try:
+            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+                async with session.get(
+                    write_url, params={"op": "logbooks"}, ssl=self._ssl_context()
+                ) as response:
+                    response.raise_for_status()
+                    listed = json.loads(await response.text())
+        except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError) as e:
+            logger.debug(f"Could not list olog logbooks, skipping the check: {e}")
+            return
+
+        if not isinstance(listed, list):
+            logger.debug("olog logbook list is not a list, skipping the check")
+            return
+        names = [item["name"] for item in listed if isinstance(item, dict) and "name" in item]
+        if names and logbook not in names:
+            raise IngestionError(
+                f"The olog has no logbook {logbook!r}; it has: {', '.join(names)}",
+                source_system=self.source_system_name,
+            )
+
+    def _read_post_response(self, status: int, body: str) -> str:
+        """Return the entry ID from an olog RPC POST response, or raise.
+
+        The olog answers 200 with the entry echoed back carrying its ``<id>``.
+        A post that logged nothing answers 401 when the credentials were
+        refused and 400 otherwise, with ``<msg>``/``<error>`` elements saying
+        why. Olog releases before 3.4.032 answer 200 even then, so the messages
+        decide as well as the status.
+
+        Args:
+            status: The HTTP status.
+            body: The response body.
+
+        Returns:
+            The facility-assigned entry ID.
+
+        Raises:
+            AuthenticationRequiredError: If the olog refused the credentials.
+            IngestionError: If the olog logged nothing, or answered without an ID.
+        """
+        try:
+            root: ET.Element | None = ET.fromstring(body)
+        except ET.ParseError:
+            root = None
+
+        messages: list[str] = []
+        if root is not None:
+            id_elem = root.find(".//id")
+            if id_elem is not None and id_elem.text and id_elem.text.strip():
+                entry_id = id_elem.text.strip()
+                for warning in root.iter("warning"):
+                    if warning.text:
+                        logger.warning(f"ALS olog entry {entry_id}: {warning.text.strip()}")
+                return entry_id
+            messages = [
+                el.text.strip()
+                for el in root.iter()
+                if el.tag in ("msg", "error") and el.text and el.text.strip()
+            ]
+
+        if status == 401 or any(m.startswith("Authentication failed") for m in messages):
+            raise AuthenticationRequiredError(
+                "OLOG did not accept the username or password. "
+                + (" ".join(messages) or "Please check your credentials."),
+                source_system=self.source_system_name,
+            )
+        # Olog releases before 3.4.032 echo the password back, so the body is
+        # masked before any of it can reach an error message.
+        excerpt = _ECHOED_PASSWORD.sub("<password>***</password>", body).strip()[:500]
+        detail = "; ".join(messages) or excerpt or "empty response"
+        if status >= 400 or messages:
+            raise IngestionError(
+                f"ALS olog write failed with HTTP {status}: {detail}",
+                source_system=self.source_system_name,
+            )
+        raise IngestionError(
+            "ALS olog answered without an entry ID; the entry may have been created, "
+            f"so check the logbook before resubmitting. Response: {detail}",
+            source_system=self.source_system_name,
+        )
+
+    async def _post_entry(self, write_url: str, xml_payload: str) -> str:
+        """POST the XML payload to the ALS olog RPC endpoint.
+
+        The XML goes in the ``xml`` form field. The olog URL-decodes a raw XML
+        body before parsing it, which turns every ``+`` in the text into a space
+        and decodes any ``%xx``; a form field arrives as written.
+
+        Args:
+            write_url: The olog RPC write URL.
+            xml_payload: The entry XML.
 
         Returns:
             Entry ID from the response.
 
         Raises:
-            IngestionError: If the POST fails after retries.
+            AuthenticationRequiredError: If the olog refused the credentials.
+            IngestionError: If the olog rejected the entry, or the POST fails
+                after retries.
         """
         connector = self._create_connector()
         ssl_context = self._ssl_context()
@@ -556,35 +667,11 @@ class ALSLogbookAdapter(FacilityAdapter):
                 try:
                     async with session.post(
                         write_url,
-                        data=xml_payload,
-                        headers={"Content-Type": "application/xml"},
+                        data={"xml": xml_payload},
                         ssl=ssl_context,
                     ) as response:
-                        if response.status >= 400:
-                            body = await response.text()
-                            raise IngestionError(
-                                f"ALS olog write failed with HTTP {response.status}: {body}",
-                                source_system=self.source_system_name,
-                            )
-
-                        response_text = await response.text()
-
-                        # Parse entry ID from olog response
-                        try:
-                            resp_root = ET.fromstring(response_text)
-                            entry_id_elem = resp_root.find(".//id")
-                            if entry_id_elem is not None and entry_id_elem.text:
-                                return entry_id_elem.text
-                            # Fallback: look for entry_id attribute or text
-                            entry_id_attr = resp_root.get("id")
-                            if entry_id_attr:
-                                return entry_id_attr
-                        except ET.ParseError:
-                            pass
-
-                        # If we can't parse an ID but got a success response,
-                        # use the response text as a fallback
-                        return response_text.strip() or f"als-{datetime.now(UTC).timestamp():.0f}"
+                        body = await response.text()
+                        return self._read_post_response(response.status, body)
 
                 except IngestionError:
                     raise

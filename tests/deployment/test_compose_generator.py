@@ -6712,7 +6712,7 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
     container port — which is what `archiver_read` inside the worker connects
     to. The Docker-level proof of the same claim rides the archiver-world e2e.
     """
-    from osprey_connectors.archiver.mongodb_archiver_connector import address_overrides
+    from osprey_connectors.archiver._mongodb_archiver_connector import address_overrides
 
     rendered = _render_worker_template(
         env_present=True, deployed_services=["dispatch_worker", "mongodb"]

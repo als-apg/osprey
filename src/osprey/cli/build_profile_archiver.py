@@ -38,7 +38,7 @@ from typing import Any
 from osprey.port_layout import default_port
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, _invents_history, pairing_in_profile
+from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
 from osprey_connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
@@ -526,7 +526,7 @@ def _invented_history_type(config: Any) -> str:
     rendered = _expand_dotted(config).get(_CONTROL_SYSTEM_SECTION)
     section = rendered if isinstance(rendered, dict) else {}
     for value in stated:
-        if _invents_history({**section, _TYPE_LEAF: value}):
+        if invents_history({**section, _TYPE_LEAF: value}):
             resolved: str = resolve_control_system_type({_TYPE_LEAF: value})
             return resolved
 

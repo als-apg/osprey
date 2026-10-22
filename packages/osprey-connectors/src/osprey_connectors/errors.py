@@ -15,7 +15,23 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from osprey_connectors.control_system.base import WriteOutcome
+    from osprey_connectors.control_system._base import WriteOutcome
+
+
+__all__ = [
+    "BuildProfileError",
+    "ChannelLimitsViolationError",
+    "ChannelNotFoundError",
+    "ChannelReadFailedError",
+    "ChannelWriteBlockedError",
+    "ChannelWriteFailedError",
+    "ClientLibraryRefusedError",
+    "ConfigurationError",
+    "NOT_A_CHANNEL",
+    "RAW_CLIENT_WRITE_MARKER",
+    "RegistryError",
+    "raw_client_write_message",
+]
 
 
 class ChannelLimitsViolationError(Exception):

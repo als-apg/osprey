@@ -58,7 +58,7 @@ Control Target:
     A notebook kernel is the one process that outlives a switch, so it is the
     one exception to "one process, one stamp": its ``pre_run_cell`` rewrites the
     stamp from the deployment's record before every cell. Every kernel takes its
-    connector from a :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`, so
+    connector from a :class:`~osprey_connectors.ipc.ConnectorHostPool`, so
     each stamp is served by a connector-host child of its own: a moved stamp
     stops the child in hand and selects a fresh one, and the kernel never holds
     a control-system client itself. A cell the kernel could route nowhere at all is refused by
@@ -81,7 +81,7 @@ from osprey.runtime.guarded_run import (
     LOCK_FILE_NAME,
     guarded_run_dir,
 )
-from osprey_connectors.control_system.base import values_match
+from osprey_connectors.control_system import values_match
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 
@@ -90,9 +90,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from osprey_connectors.control_context import ControlContext
-    from osprey_connectors.control_system.base import ControlSystemConnector
-    from osprey_connectors.control_system.limits_validator import (
+    from osprey_connectors.control_system import (
         ChannelLimitsConfig,
+        ControlSystemConnector,
         LimitsValidator,
     )
     from osprey_connectors.settle import Landing
@@ -263,7 +263,7 @@ def _route_connector_through_pool() -> None:
 
     The pooled connector is driven from one event loop for the life of the
     process, and :data:`_limits_validator` is never set where this is called,
-    so the connector's own ``_current_value_reader`` is never asked of the
+    so the connector's own ``current_value_reader`` is never asked of the
     pooled handle: the child's reference monitor checks every write itself.
     """
     global _pool_routing
@@ -303,7 +303,7 @@ async def _pooled_connector_locked(target: str | None) -> Any:
 
     section = _control_system_section()
     if _connector_pool is None:
-        from osprey_connectors.ipc.pool import ConnectorHostPool
+        from osprey_connectors.ipc import ConnectorHostPool
         from osprey_connectors.workspace import resolve_config_path
 
         options: dict[str, Any] = (
@@ -728,7 +728,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     # every max_step channel before the connector that CAN measure it is reached.
     if _limits_validator is not None:
         _limits_validator.validate(
-            channel_address, value, read_current=connector._current_value_reader()
+            channel_address, value, read_current=connector.current_value_reader()
         )  # Raises ChannelLimitsViolationError
 
     # write_channel_checked is the reference monitor's denial contract: it raises
@@ -830,7 +830,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         # Validate every value before any of them is sent, with the same
         # connector-supplied reader the single-channel path uses.
         if _limits_validator is not None:
-            read_current = connector._current_value_reader()
+            read_current = connector.current_value_reader()
             for channel_address, value in channel_values.items():
                 _limits_validator.validate(channel_address, value, read_current=read_current)
 

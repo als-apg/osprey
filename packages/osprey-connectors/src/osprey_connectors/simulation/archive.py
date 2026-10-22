@@ -66,7 +66,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import pulse
@@ -92,6 +92,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = get_logger("archive")
 
 __all__ = [
+    "DATE_FIELD",
+    "DEFAULT_CHUNK_SIZE",
+    "DEFAULT_WORKERS",
+    "EXPIRE_FIELD",
     "MANIFEST_ID",
     "SEED_SCHEMA_VERSION",
     "ArchiveComposite",
@@ -927,7 +931,7 @@ def waveform_document(
 
     The keys mirror a scalar snapshot document, so the same field naming and the
     same TTL index serve both: ``date`` is the sample instant, the channel's
-    :func:`~osprey_connectors.archiver.field_names.field_name` holds the trace,
+    :func:`~osprey_connectors.archiver.field_name` holds the trace,
     and ``expireAt`` is the document's own deadline.
 
     The trace is stored as plain doubles: a ``list[float]`` with one entry per

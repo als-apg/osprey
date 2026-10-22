@@ -10,8 +10,8 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     SwitchError,
     _launch_request,
 )
-from osprey_connectors.ipc.launch import AttributedReader
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc._launch import AttributedReader
+from osprey_connectors.ipc._proxy import ConnectorHostProxy
 
 #: Reads the start of the request, closes its output stream, then exits a moment
 #: later without answering: the supervisor sees end-of-stream before the exit.
@@ -22,7 +22,7 @@ _DIES_ON_REQUEST = (
 #: Reads one whole request, answers it with an error frame, then exits.
 _REFUSES_ON_REQUEST = (
     "import sys\n"
-    "from osprey_connectors.ipc import frames\n"
+    "from osprey_connectors.ipc import _frames as frames\n"
     "reader = frames.FrameReader()\n"
     "decoded = []\n"
     "while not decoded:\n"

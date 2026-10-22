@@ -131,7 +131,7 @@ def _writable_setpoint(channel: Channel) -> bool:
 
 def _plant_journal(state_dir: Path) -> Path:
     """Write the journal the mock connector would have written; return its path."""
-    from osprey_connectors.control_system.va_in_process_connector import active_set_sha256
+    from osprey_connectors.control_system._va_in_process_connector import active_set_sha256
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
 
     active = resolve_active_scenarios(read_active_state(state_dir)[0])
@@ -330,7 +330,7 @@ def test_every_setpoint_holds_its_wiring_default_after_three_ticks(
 async def test_the_in_process_connector_replays_the_planted_journal(
     project: e2e_conftest.VaProject, ports: dict[str, int]
 ) -> None:
-    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
     del ports  # the containers read the journal first, and the mock may rewrite it
     connector = VAInProcessConnector()

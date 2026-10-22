@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelWriteBlockedError
-from osprey_connectors.ipc.pool import ConnectorHostPool
+from osprey_connectors.ipc._pool import ConnectorHostPool
 from tests.connectors.ipc._soft_ioc import SoftIOC
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

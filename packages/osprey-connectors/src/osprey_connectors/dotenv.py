@@ -16,6 +16,33 @@ from pathlib import Path
 
 from osprey_connectors.safety_file import atomic_replace
 
+__all__ = [
+    "DEPLOY_MINTED_BANNER",
+    "ENV_AUTH_BANNER",
+    "ENV_CHAIN_APPLIED_ENV",
+    "ENV_CHAIN_FILENAMES",
+    "ENV_LOCAL_BANNER",
+    "ENV_LOCAL_FILENAME",
+    "ENV_MERGED_BANNER",
+    "ENV_SHARED_FILENAME",
+    "ENV_USERS_BANNER",
+    "EnvConflict",
+    "ProfileEnvAppendResult",
+    "append_profile_env",
+    "atomic_write",
+    "chain_files",
+    "compose_unsafe_vars",
+    "compose_unsafe_vars_in_chain",
+    "dotenv_line_var",
+    "env_file_lock",
+    "env_lock_path",
+    "format_env_line",
+    "merge_chain",
+    "parse_dotenv_file",
+    "parse_dotenv_text",
+    "write_env_merged",
+]
+
 
 def parse_dotenv_file(path: Path) -> dict[str, str]:
     """Parse a ``.env`` file into a dict of environment variables.
@@ -115,7 +142,7 @@ DEPLOY_MINTED_BANNER = "# ── Minted by deploy ──"
 
 #: Permission bits a ``.env`` this module creates is born with (and tightened
 #: to on every rewrite): the profile ``.env`` holds facility secrets.
-ENV_FILE_MODE = 0o600
+_ENV_FILE_MODE = 0o600
 
 #: The committed, non-secret defaults half of the env chain, at the repo root.
 ENV_SHARED_FILENAME = ".env.shared"
@@ -390,14 +417,14 @@ def _append_profile_env_locked(
 
 
 def atomic_write(path: Path, text: str) -> None:
-    """Replace ``path`` whole with ``text``, at :data:`ENV_FILE_MODE`.
+    """Replace ``path`` whole with ``text``, at :data:`_ENV_FILE_MODE`.
 
     Every writer of a ``.env`` this package owns goes through here. These files
     are rewritten whole, so a crash mid-write would truncate an operator's
-    secrets. The result is always :data:`ENV_FILE_MODE` — a ``.env`` holds
+    secrets. The result is always :data:`_ENV_FILE_MODE` — a ``.env`` holds
     facility secrets whether it is being created or refreshed.
     """
-    atomic_replace(path, text.encode("utf-8"), mode=ENV_FILE_MODE)
+    atomic_replace(path, text.encode("utf-8"), mode=_ENV_FILE_MODE)
 
 
 def format_env_line(key: str, value: str) -> str:
@@ -480,7 +507,7 @@ def write_env_merged(repo_root: Path, dest: Path) -> Path:
     precedence. Values are rendered through :func:`format_env_line` (so a
     quoted or space-carrying value survives whatever parser reads the result)
     and the file is written through :func:`atomic_write`, which lands it whole
-    and at :data:`ENV_FILE_MODE` (``0600``) — the merged file inherits the
+    and at :data:`_ENV_FILE_MODE` (``0600``) — the merged file inherits the
     local half's secrets, so it inherits its permissions too.
 
     The file is a machine artifact carrying :data:`ENV_MERGED_BANNER`, is

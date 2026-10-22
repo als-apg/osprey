@@ -311,7 +311,7 @@ def test_osprey_layer_imports_and_client_frameworks_are_refused():
 
     for name in (
         "osprey.runtime",
-        "osprey_connectors.ipc.pool",
+        "osprey_connectors.ipc._pool",
         "osprey.registry",
         "osprey.services.bluesky_bridge.devices.connector",
         "osprey.jupyter_kernel",
@@ -344,7 +344,7 @@ def test_osprey_layer_imports_and_client_frameworks_are_refused():
     lines = result.stdout.splitlines()
     for name in (
         "osprey.runtime",
-        "osprey_connectors.ipc.pool",
+        "osprey_connectors.ipc._pool",
         "osprey.registry",
         "osprey.services.bluesky_bridge.devices.connector",
         "osprey.jupyter_kernel",

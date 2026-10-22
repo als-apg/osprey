@@ -20,7 +20,7 @@ can say *why* rather than merely *no*.
 
 **VERIFICATION** is answered after the connector-host child has connected, by
 comparing what the child says it did against what
-:func:`~osprey_connectors.ipc.verification.derive_endpoints` derived it should
+:func:`~osprey_connectors.ipc.derive_endpoints` derived it should
 do. It is positive and role-aware: not "nothing looked wrong" but "the child
 configured exactly this host, this port, this mode, for exactly the role the
 derivation selected". A mismatch names the field, the expected value and the
@@ -33,12 +33,12 @@ somewhere the config never described — the failure mode where every layer
 reports success and the tool calls land on the wrong machine.
 
 Both are computed from the same inputs the connector itself uses. The
-derivation and the verification live in :mod:`osprey_connectors.ipc.verification`,
+derivation and the verification live in :mod:`osprey_connectors.ipc`,
 shared with the library's
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool`: it restates
+:class:`~osprey_connectors.ipc.ConnectorHostPool`: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the target's own write posture and
-:func:`~osprey_connectors.control_system.base.is_readonly_run`, and the
+:func:`~osprey_connectors.control_system.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it, so this
 module and the process it describes cannot disagree about where a target lands,
 which port it lands on, or whether it may be written to once there.
@@ -91,7 +91,7 @@ the deployment's control-context record (read through
 child reads it on every write and on its own gateway selection, so a parent
 that derived the *configured* posture would derive ``write_access`` for a
 target the child has just connected to on ``read_only`` — and
-:func:`~osprey_connectors.ipc.verification.verify_child_report`, doing its
+:func:`~osprey_connectors.ipc.verify_child_report`, doing its
 job, would abort the switch on a
 disagreement that is nobody's misconfiguration.
 
@@ -114,22 +114,22 @@ from typing import Any
 from osprey.audit.posture import posture_session
 from osprey_connectors import posture_store
 from osprey_connectors.config import unresolved_placeholders
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.honesty import (
     VA_MOCK_ARCHIVER_WHY,
-    _invents_history,
-    _target_section,
+    invents_history,
     pairing_for_target,
+    target_section,
 )
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc import (
     Endpoint,
     TargetDerivation,
-    _config_writes_enabled,
-    _section,
-    _sub,
+    config_section,
+    config_writes_enabled,
     connector_block,
     derive_endpoints,
     live_collision,
+    subsection,
 )
 from osprey_connectors.standin import (
     ARCHIVER_RECORDER_SERVICE,
@@ -283,7 +283,7 @@ def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> b
     """
     if writes_enabled is not None:
         return bool(writes_enabled)
-    return effective_writes_for_target(_section(config, "control_system"), target)
+    return effective_writes_for_target(config_section(config, "control_system"), target)
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +361,7 @@ def _selected_role_missing(
     connector_type = derivation.connector_type
     block_key = f"control_system.connector.{connector_type}"
     raw_block = connector_block(config, connector_type)
-    gateways = _sub(raw_block if isinstance(raw_block, dict) else {}, "gateways")
+    gateways = subsection(raw_block if isinstance(raw_block, dict) else {}, "gateways")
     return Eligibility(
         False,
         REASON_SELECTED_ROLE_MISSING,
@@ -417,7 +417,7 @@ def _acknowledged(config: Any) -> bool:
     string, so any comparison against a known default would be a test the config
     cannot actually answer.
     """
-    switch = _sub(_section(config, "control_system"), "target_switch")
+    switch = subsection(config_section(config, "control_system"), "target_switch")
     return _is_set(switch.get(ACK_LEAF))
 
 
@@ -522,7 +522,7 @@ def evaluate_eligibility(
         return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
 
     connector_type = derivation.connector_type
-    control_system_section = _section(config, "control_system")
+    control_system_section = config_section(config, "control_system")
     block_key = f"control_system.connector.{connector_type}"
     raw_block = connector_block(config, connector_type)
 
@@ -575,7 +575,7 @@ def evaluate_eligibility(
                 "— what it cannot do is move a session onto it.",
             )
 
-        if not _sub(raw_block, "gateways"):
+        if not subsection(raw_block, "gateways"):
             return Eligibility(
                 False,
                 REASON_GATEWAYS_MISSING,
@@ -629,7 +629,7 @@ def evaluate_eligibility(
             f"'{block_key}.gateways' at its own server.",
         )
 
-    if _invents_history(_target_section(control_system_section, connector_type)):
+    if invents_history(target_section(control_system_section, connector_type)):
         pairing = pairing_for_target(config, target)
         if pairing.is_invented_history:
             return Eligibility(
@@ -1261,7 +1261,7 @@ def evaluate_switch(
     # ``readonly_run`` is pinned false rather than read again: rung 1 already
     # answered that question, and a second read could disagree with the first.
     resolved_writes = (
-        _config_writes_enabled(config, wanted) if writes_enabled is None else bool(writes_enabled)
+        config_writes_enabled(config, wanted) if writes_enabled is None else bool(writes_enabled)
     )
     availability = target_availability(
         config,

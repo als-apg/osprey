@@ -46,7 +46,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,

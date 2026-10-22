@@ -12,9 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.va_in_process_connector import (
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._va_in_process_connector import (
     NO_VIEW_MESSAGE,
     VAInProcessConnector,
 )
@@ -296,7 +296,7 @@ class TestVAInProcessConnector:
     @staticmethod
     def _fault(view, channel_faults):
         """Activate one scenario holding ``channel_faults`` on the rendered ``view``."""
-        from osprey_connectors.control_system.va_in_process_connector import (
+        from osprey_connectors.control_system._va_in_process_connector import (
             simulation_state_dir,
         )
 
@@ -431,7 +431,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_subscription_fires_for_coupled_channel_without_seed_noise(self, tmp_path):
         """A channel an active scenario couples fires on every tick, with no seed motion."""
-        from osprey_connectors.control_system.va_in_process_connector import (
+        from osprey_connectors.control_system._va_in_process_connector import (
             simulation_state_dir,
         )
 
@@ -460,7 +460,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_a_stilled_reading_fires_no_subscription(self, tmp_path):
         """A reading the active scenarios still fires no tick, though its seed declares noise."""
-        from osprey_connectors.control_system.va_in_process_connector import (
+        from osprey_connectors.control_system._va_in_process_connector import (
             simulation_state_dir,
         )
 
@@ -885,7 +885,7 @@ class TestMockArchiverReproducibility:
         script = textwrap.dedent("""
             import asyncio, json, sys
             from datetime import datetime
-            from osprey_connectors.archiver.mock_archiver_connector import (
+            from osprey_connectors.archiver._mock_archiver_connector import (
                 MockArchiverConnector,
             )
 

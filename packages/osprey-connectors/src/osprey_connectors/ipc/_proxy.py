@@ -14,7 +14,7 @@ Why this is not a ``ControlSystemConnector`` subclass
 ----------------------------------------------------
 It is a duck type with *exactly* the base class's signatures, not a subclass,
 and deliberately so.
-:class:`~osprey_connectors.control_system.base.ControlSystemConnector` uses
+:class:`~osprey_connectors.control_system.ControlSystemConnector` uses
 ``__init_subclass__`` to wrap every subclass's ``write_channel`` /
 ``write_multiple_channels`` in the ``writes_enabled`` pre-check. That guard
 belongs *at the connector*, and the connector is in the child: the child
@@ -37,7 +37,7 @@ lie about the surface.
 the base class's own function, bound here unchanged: it only composes
 ``write_channel`` — which crosses to the child, where the ``writes_enabled``
 guard and the limits checks run — with
-:func:`~osprey_connectors.control_system.base.raise_for_write_result`, which
+:func:`~osprey_connectors.control_system.raise_for_write_result`, which
 reads the result the child already decided. Running that composition in the
 parent keeps every refusal decision in the child while letting a
 ``ChannelWriteFailedError`` reach the caller typed; raised in the child, that
@@ -85,15 +85,17 @@ import contextlib
 import logging
 from typing import Any, TypeVar
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
 )
-from osprey_connectors.ipc import frames
+from osprey_connectors.ipc import _frames as frames
 
 __all__ = ["CHILD", "ChildUnresponsiveError", "ConnectorHostProxy", "raised_by_child"]
 
+# Named for the public namespace, not this private module, so a logging config
+# keyed on the name keeps matching whatever the module is called.
 logger = logging.getLogger("osprey_connectors.ipc.proxy")
 
 #: How the child is named in every failure message it causes. Operators read

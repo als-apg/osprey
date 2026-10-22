@@ -45,7 +45,7 @@ from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
     hash_plan_body,
     validate_plan,
 )
-from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES  # noqa: E402
+from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # A tiny, fully-contract-compliant benign plan body: one movable channel, one

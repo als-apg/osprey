@@ -577,7 +577,7 @@ async def test_the_recorders_ca_environment_is_left_as_it_stands(
     connector it samples through must not rewrite that with a gateway block
     written for the agent's side of the network."""
     from osprey.services.archiver_recorder import recorder
-    from osprey_connectors.control_system.epics_connector import EPICSConnector
+    from osprey_connectors.control_system._epics_connector import EPICSConnector
     from tests.connectors._epics_fakes import install_fake_aioca
 
     install_fake_aioca(monkeypatch)
@@ -601,7 +601,7 @@ class _StallingConnector:
         self.timeouts: list[float | None] = []
 
     async def read_channel(self, address: str, timeout: float | None = None):
-        from osprey_connectors.control_system.base import ChannelValue
+        from osprey_connectors.control_system._base import ChannelValue
 
         self.timeouts.append(timeout)
         if address in self.stalled:
@@ -1187,11 +1187,8 @@ async def _connected_reader(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The agent's archive connector, connected to the collection ``settings`` names."""
-    from osprey_connectors.archiver.mongodb_archiver_connector import (
-        HOST_OVERRIDE_ENV,
-        PORT_OVERRIDE_ENV,
-        MongoDBArchiverConnector,
-    )
+    from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
     monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
@@ -1224,7 +1221,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     The stored field is ``field_name`` of the address, so MongoDB never reads
     the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
     """
-    from osprey_connectors.archiver.field_names import field_name
+    from osprey_connectors.archiver._field_names import field_name
 
     settings, collection, password = archive_collection
     samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
@@ -1268,7 +1265,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     The sample document keeps its ``date``, ``expireAt`` and ``_id``; the seed
     manifest beside it in the collection is never read as a channel's history.
     """
-    from osprey_connectors.archiver.field_names import field_name
+    from osprey_connectors.archiver._field_names import field_name
     from osprey_connectors.simulation.archive import SeedReport, write_manifest
 
     settings, collection, password = archive_collection

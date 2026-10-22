@@ -25,6 +25,23 @@ import numpy as np
 
 from osprey_connectors.simulation import series
 
+__all__ = [
+    "AMPLITUDE_DRIFT_FRACTION",
+    "DRIFT_PERIOD_S",
+    "FALL_TAU_SAMPLES",
+    "FLAT_TOP_DROOP",
+    "FLAT_TOP_SAMPLES",
+    "MAX_TIMING_DRIFT_SAMPLES",
+    "NOISE_FRACTION",
+    "RISE_SAMPLES",
+    "RISE_START_SAMPLE",
+    "SHAPE_CONSTANT_NAMES",
+    "SHAPE_VERSION",
+    "TRACE_POINTS",
+    "shape_version",
+    "trace",
+]
+
 #: Samples per captured trace.
 TRACE_POINTS = 500
 #: Sample index (at zero timing drift) where the pulse starts to rise.

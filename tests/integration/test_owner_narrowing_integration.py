@@ -9,7 +9,7 @@ bluesky_bridge/test_runs*.py`` pins the run-record projection against literal
 manager documents. Here the whole chain runs at once and nobody stands in for
 the decision: a real plan wrapper binds the owner a queue item carried, a real
 ``RunEngine`` schedules a real device's ``set``, the REAL reference monitor in
-``osprey_connectors.control_system.base`` asks the REAL store, and the store
+``osprey_connectors.control_system._base`` asks the REAL store, and the store
 reads a real provisioned tree. What the monitor answers is then carried out to
 the two surfaces a person reads — the run record's ``error`` and the worker's
 log — rather than asserted at the seam it was decided in.
@@ -63,7 +63,7 @@ from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.queue_backend import RUN_ID_META_KEY
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,

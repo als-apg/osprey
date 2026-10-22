@@ -25,13 +25,13 @@ from typing import Any
 import pytest
 
 from osprey_connectors import factory as factory_module
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The in-process simulator by dotted path, which ``resolve_target`` returns verbatim
 #: for ``live`` — the whole real factory path with no Channel Access anywhere.
-IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 
 
 @pytest.fixture
@@ -156,7 +156,7 @@ class TestConnectorHostChild:
     @pytest.mark.usefixtures("registered_in_process")
     async def test_child_stamps_the_payload_target(self, tmp_path, monkeypatch):
         """The init payload's target, through the real ``_build_connector``."""
-        from osprey_connectors.ipc import host
+        from osprey_connectors.ipc import _host as host
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("CONFIG_FILE", raising=False)
@@ -180,7 +180,7 @@ class TestConnectorHostChild:
     @pytest.mark.usefixtures("registered_in_process")
     async def test_child_stamps_a_target_that_is_not_the_baseline(self, tmp_path, monkeypatch):
         """A child on ``va`` says ``va`` even though the section's own type is live."""
-        from osprey_connectors.ipc import host
+        from osprey_connectors.ipc import _host as host
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("CONFIG_FILE", raising=False)

@@ -1,13 +1,13 @@
 """Starting, stopping and listening to connector-host children.
 
-Every supervisor of :mod:`osprey_connectors.ipc.host` children needs the same
+Every supervisor of :mod:`osprey_connectors.ipc._host` children needs the same
 four things — how the child is launched, what environment it is handed, how it
 is put down, and how the requests still in flight on a child that was put down
 learn why — and this module is where they are spelled once. Ending the process
 itself is :mod:`osprey_connectors.process`'s, which spells it for every child a
 supervisor owns; this module wraps it with what a connector-host child's proxy
 needs around it. The controls MCP server's single-child manager and the
-library's multi-target :class:`~osprey_connectors.ipc.pool.ConnectorHostPool`
+library's multi-target :class:`~osprey_connectors.ipc.ConnectorHostPool`
 both use them.
 
 Nothing here imports a control-system client library, and nothing here sets an
@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
-from osprey_connectors.ipc.host import EPICS_ENV_PREFIXES, START_MARKS_FD_ENV
+from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES, START_MARKS_FD_ENV
 from osprey_connectors.process import terminate
 
 __all__ = [
@@ -39,7 +39,7 @@ __all__ = [
 #: The child is always this module, run with ``-m``. No arguments: everything
 #: the child needs arrives on the wire, so nothing about a deployment shows up
 #: in ``ps``.
-CHILD_MODULE = "osprey_connectors.ipc.host"
+CHILD_MODULE = "osprey_connectors.ipc._host"
 
 
 def host_env() -> dict[str, str]:
@@ -56,7 +56,7 @@ def host_env() -> dict[str, str]:
     after the scrub, and an ``EPICS_*`` line there would put back what both
     scrubs took out.
 
-    :data:`~osprey_connectors.ipc.host.START_MARKS_FD_ENV` is dropped too: a
+    :data:`~osprey_connectors.ipc._host.START_MARKS_FD_ENV` is dropped too: a
     supervisor that is itself running under one never passes on a descriptor
     number that names something else in its child.
     """
@@ -78,7 +78,7 @@ async def spawn_host(
         python: The interpreter to run the child under.
         env: The child's environment, normally :func:`host_env`.
         start_marks_fd: The write end of a pipe the child writes its start
-            marks to (see :mod:`osprey_connectors.ipc.host`), or ``None`` for
+            marks to (see :mod:`osprey_connectors.ipc._host`), or ``None`` for
             a child that writes none. The child inherits the descriptor under
             the same number; the caller closes its own copy after the spawn.
 
@@ -147,7 +147,7 @@ async def kill_host(
 
     Args:
         process: The child's ``asyncio.subprocess.Process``.
-        proxy: The :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy`
+        proxy: The :class:`~osprey_connectors.ipc.ConnectorHostProxy`
             over its pipes.
         reader: The proxy's :class:`AttributedReader`.
         reason: Why the child is put down, named on the reader before the kill
@@ -167,7 +167,7 @@ async def stop_host(process: Any, proxy: Any, *, grace_s: float) -> None:
 
     Args:
         process: The child's ``asyncio.subprocess.Process``.
-        proxy: The :class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy`
+        proxy: The :class:`~osprey_connectors.ipc.ConnectorHostProxy`
             over its pipes.
         grace_s: How long the child gets to exit after SIGTERM before SIGKILL.
     """

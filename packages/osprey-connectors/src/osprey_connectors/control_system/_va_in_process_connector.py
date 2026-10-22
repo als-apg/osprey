@@ -53,7 +53,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -309,7 +309,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         self._response_delay = config.get("response_delay_ms", 10) / 1000.0
 
-        from osprey_connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system._limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:
@@ -633,7 +633,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._sync()
         return self._reading(channel_address, held=True)
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """What the simulated control system holds, read without motion."""
         return self._held_value
 
@@ -741,7 +741,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
             try:
                 self._limits_validator.validate(
-                    channel_address, value, read_current=self._current_value_reader()
+                    channel_address, value, read_current=self.current_value_reader()
                 )
                 logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
             except ChannelLimitsViolationError:

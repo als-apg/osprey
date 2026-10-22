@@ -5,8 +5,8 @@ import logging
 import pytest
 
 from osprey_connectors import types
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
 

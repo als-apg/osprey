@@ -42,7 +42,7 @@ from .config import ChannelSet, RecorderConfigError, RecorderSettings, read_reco
 from .store import ArchiveWriter
 
 if TYPE_CHECKING:
-    from osprey_connectors.control_system.base import ControlSystemConnector
+    from osprey_connectors.control_system import ControlSystemConnector
 
 logger = logging.getLogger(__name__)
 

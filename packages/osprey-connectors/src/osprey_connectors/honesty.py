@@ -52,7 +52,7 @@ has a recorder that writes its real history, so a synthesized archive beside
 it is fiction. The simulator served in process has no recorder, so a
 synthesized archive is the only archive it can have, and the chip says
 "Simulator": that pairing claims nothing it cannot back up and is not refused.
-:func:`_invents_history` asks it through
+:func:`invents_history` asks it through
 :func:`~osprey_connectors.types.talks_to_network`, the same wire fact every
 other check reads, so the type and the ``serving`` leaf are judged together and
 never the type word alone. A control system that states no type is the
@@ -91,6 +91,16 @@ from .types import (
     talks_to_network,
 )
 
+__all__ = [
+    "ArchiverPairing",
+    "VA_MOCK_ARCHIVER_WHY",
+    "invents_history",
+    "pairing_for_target",
+    "pairing_in_profile",
+    "pairing_in_rendered_config",
+    "target_section",
+]
+
 #: Why the pairing is refused, in one sentence pair every site shares so the
 #: explanation cannot drift between them. Each site supplies its own fix.
 VA_MOCK_ARCHIVER_WHY = (
@@ -105,7 +115,7 @@ _CONTROL_SYSTEM_TYPE = "control_system.type"
 _ARCHIVER_TYPE = "archiver.type"
 
 
-def _invents_history(control_system_section: Any) -> bool:
+def invents_history(control_system_section: Any) -> bool:
     """Whether the machine *control_system_section* selects has no recorded past.
 
     A type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES` that is
@@ -122,7 +132,7 @@ def _invents_history(control_system_section: Any) -> bool:
         return True
 
 
-def _target_section(control_system_section: Any, connector_type: str) -> dict[str, Any]:
+def target_section(control_system_section: Any, connector_type: str) -> dict[str, Any]:
     """The section a target builds from: the deployment's own, with its type replaced."""
     section = control_system_section if isinstance(control_system_section, dict) else {}
     return {**section, "type": connector_type}
@@ -179,8 +189,8 @@ def pairing_in_profile(config: Any) -> ArchiverPairing:
     # would render into. When two spellings of one key both exist, either may be
     # the one that lands, so any combination inventing history is enough to
     # refuse.
-    invents_history = any(
-        _invents_history(_profile_section(type_value, serving_value))
+    any_invents_history = any(
+        invents_history(_profile_section(type_value, serving_value))
         for type_value in control_system or [_ABSENT]
         for serving_value in serving or [_ABSENT]
     )
@@ -189,7 +199,7 @@ def pairing_in_profile(config: Any) -> ArchiverPairing:
     )
 
     return ArchiverPairing(
-        is_invented_history=invents_history and is_mock,
+        is_invented_history=any_invents_history and is_mock,
         archiver_phrase=_profile_phrase(archiver),
     )
 
@@ -214,7 +224,7 @@ def pairing_in_rendered_config(config: Any) -> ArchiverPairing:
     # ``raw.get(section)``), resolved by the factory's own functions. There is no
     # second opinion to diverge from: this *is* what the deployment will build.
     control_system = _sections(config).get("control_system")
-    return _rendered_pairing(config, _invents_history(control_system))
+    return _rendered_pairing(config, invents_history(control_system))
 
 
 def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
@@ -253,8 +263,8 @@ def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
             target exists before asking whether it may be used.
     """
     control_system = _sections(config).get("control_system")
-    target_section = _target_section(control_system, resolve_target(control_system, target))
-    return _rendered_pairing(config, _invents_history(target_section))
+    section = target_section(control_system, resolve_target(control_system, target))
+    return _rendered_pairing(config, invents_history(section))
 
 
 def _sections(config: Any) -> dict[Any, Any]:
@@ -272,14 +282,14 @@ def _profile_section(type_value: Any, serving_value: Any) -> dict[str, Any]:
     return section
 
 
-def _rendered_pairing(config: Any, invents_history: bool) -> ArchiverPairing:
+def _rendered_pairing(config: Any, invented: bool) -> ArchiverPairing:
     """The verdict on a rendered config, given whether the control system to
     judge it against — the one it selects, or the one a target would select —
     has no recorded past."""
     archiver_type = resolve_archiver_type(_sections(config).get("archiver"))
 
     return ArchiverPairing(
-        is_invented_history=invents_history and archiver_type == MOCK_ARCHIVER,
+        is_invented_history=invented and archiver_type == MOCK_ARCHIVER,
         archiver_phrase=_rendered_phrase(
             _spellings(config, _ARCHIVER_TYPE, nested_only=True),
             _flat_value(config, _ARCHIVER_TYPE),

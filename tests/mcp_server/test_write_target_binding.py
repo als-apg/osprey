@@ -51,7 +51,7 @@ from osprey.mcp_server.control_system.connector_host_manager import ConnectorHos
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from tests._control_context_fixtures import (
     state_dir_under,
     write_control_context,
@@ -303,7 +303,7 @@ def _patched(connector, *, when_resolved=None):
             new=_create,
         ),
         patch(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):

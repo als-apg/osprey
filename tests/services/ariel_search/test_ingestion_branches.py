@@ -421,34 +421,92 @@ class TestALSPostEntry:
         assert context.verify_mode == ssl.CERT_NONE
 
     @pytest.mark.asyncio
-    async def test_http_error_carries_response_body(self, monkeypatch):
-        """A >=400 response puts the server's body in the error, and is not retried.
+    async def test_bad_request_carries_the_olog_message(self, monkeypatch):
+        """A 400 names the olog's own ``<error>``/``<msg>`` text, and is not retried.
 
-        The olog RPC explains rejections in the body (bad credentials, unknown
-        logbook), so discarding it would leave the operator with a bare status code.
+        The olog RPC explains a rejection in the body, so discarding it would
+        leave the operator with a bare status code.
         """
         adapter = _als_write_adapter()
         shim = _RecordingAsyncio()
         monkeypatch.setattr(als_module, "asyncio", shim)
-        session = _http_session(
-            post=_http_response(status=403, text="unknown logbook 'Operations'")
-        )
+        body = "<root>\n\t<error>Request body is not well-formed XML</error>\n</root>"
+        session = _http_session(post=_http_response(status=400, text=body))
 
         with _patched_session(adapter, session):
             with pytest.raises(IngestionError) as exc_info:
                 await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
 
-        assert "HTTP 403" in str(exc_info.value)
-        assert "unknown logbook 'Operations'" in str(exc_info.value)
+        assert "HTTP 400" in str(exc_info.value)
+        assert "Request body is not well-formed XML" in str(exc_info.value)
         assert session.post.call_count == 1
         assert shim.delays == []
 
     @pytest.mark.asyncio
+    async def test_unauthorized_asks_for_credentials_again(self, monkeypatch):
+        """A 401 raises the auth-specific error, so the operator is prompted again.
+
+        A generic IngestionError would surface as "publish failed" and never
+        reopen the credential form.
+        """
+        adapter = _als_write_adapter()
+        shim = _RecordingAsyncio()
+        monkeypatch.setattr(als_module, "asyncio", shim)
+        body = (
+            "<root>\n\t<author>operator</author>\n<msgs>\n"
+            '<msg level="error">Authentication failed.  Please resubmit.</msg>\n'
+            "</msgs>\n</root>"
+        )
+        session = _http_session(post=_http_response(status=401, text=body))
+
+        with _patched_session(adapter, session):
+            with pytest.raises(AuthenticationRequiredError) as exc_info:
+                await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
+
+        assert "Authentication failed" in str(exc_info.value)
+        assert session.post.call_count == 1
+        assert shim.delays == []
+
+    @pytest.mark.asyncio
+    async def test_pre_3_4_032_auth_failure_with_200_asks_for_credentials(self):
+        """An older olog answers a refused login with 200; the message still decides.
+
+        Before 3.4.032 every POST answered 200, and the adapter used to store the
+        error XML as the new entry's ID.
+        """
+        adapter = _als_write_adapter()
+        body = (
+            "<root><author>operator</author><password>hunter2</password><msgs>"
+            '<msg level="error">Authentication failed.  Please resubmit.</msg>'
+            "</msgs></root>"
+        )
+        session = _http_session(post=_http_response(text=body))
+
+        with _patched_session(adapter, session):
+            with pytest.raises(AuthenticationRequiredError):
+                await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
+
+    @pytest.mark.asyncio
+    async def test_pre_3_4_032_failure_with_200_is_an_error(self):
+        """A 200 that carries only ``<msgs>`` logged nothing, so it fails."""
+        adapter = _als_write_adapter()
+        body = '<root><msgs><msg level="error">Subject is required</msg></msgs></root>'
+        session = _http_session(post=_http_response(text=body))
+
+        with _patched_session(adapter, session):
+            with pytest.raises(IngestionError) as exc_info:
+                await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
+
+        assert "Subject is required" in str(exc_info.value)
+
+    @pytest.mark.asyncio
     async def test_entry_id_from_id_element(self):
-        """The nested ``<id>`` element is the primary source of the entry ID."""
+        """The ``<id>`` the olog adds to the echoed entry is the entry ID."""
         adapter = _als_write_adapter()
         session = _http_session(
-            post=_http_response(text="<response><entry><id>4242</id></entry></response>")
+            post=_http_response(
+                text="<root><author>operator</author><entry><id>4242</id></entry></root>"
+            )
         )
 
         with _patched_session(adapter, session):
@@ -457,58 +515,78 @@ class TestALSPostEntry:
         assert entry_id == "4242"
 
     @pytest.mark.asyncio
-    async def test_entry_id_from_root_attribute(self):
-        """With no ``<id>`` element, a root ``id`` attribute is the next fallback."""
+    async def test_warnings_on_a_logged_entry_are_logged(self, caplog):
+        """A ``<warning>`` (here: a dropped category) does not fail a logged entry."""
         adapter = _als_write_adapter()
-        session = _http_session(post=_http_response(text='<response id="4243" />'))
+        body = (
+            "<root><entry><id>4242</id>"
+            "<warning>Unknown category 'Beamline 7' ignored</warning></entry></root>"
+        )
+        session = _http_session(post=_http_response(text=body))
 
-        with _patched_session(adapter, session):
-            entry_id = await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            with _patched_session(adapter, session):
+                entry_id = await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
 
-        assert entry_id == "4243"
+        assert entry_id == "4242"
+        assert "Unknown category 'Beamline 7' ignored" in caplog.text
 
+    @pytest.mark.parametrize(
+        "body",
+        ["  saved ok  ", "<root><entry><id></id></entry></root>", "   "],
+        ids=["not-xml", "empty-id", "blank"],
+    )
     @pytest.mark.asyncio
-    async def test_unparseable_response_falls_back_to_response_text(self):
-        """HAZARD: a non-XML success body becomes the entry ID verbatim.
+    async def test_success_without_an_id_is_an_error(self, body):
+        """A 200 with no usable ``<id>`` raises rather than inventing an ID.
 
-        The write succeeded, so the adapter refuses to fail; the cost is that a
-        plain-text or HTML body is stored as the facility entry ID and will not
-        match anything on re-ingestion.
+        The entry may exist, so the error says to check before resubmitting;
+        storing the body or a synthetic ID would never match re-ingestion.
         """
         adapter = _als_write_adapter()
-        session = _http_session(post=_http_response(text="  saved ok  "))
-
-        with _patched_session(adapter, session):
-            entry_id = await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
-
-        assert entry_id == "saved ok"
-
-    @pytest.mark.asyncio
-    async def test_empty_id_element_falls_back_to_whole_body(self):
-        """HAZARD: an ``<id>`` element with no text yields the raw XML body as the ID.
-
-        ``find(".//id")`` matches but ``.text`` is None, so neither the element
-        nor the attribute fallback fires and the whole response becomes the ID.
-        """
-        adapter = _als_write_adapter()
-        body = "<response><id></id></response>"
         session = _http_session(post=_http_response(text=body))
 
         with _patched_session(adapter, session):
-            entry_id = await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
+            with pytest.raises(IngestionError) as exc_info:
+                await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
 
-        assert entry_id == body
+        assert "without an entry ID" in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "<root><author>operator</author><password>hunter2</password></root>",
+            "<root><password>hunter2",
+        ],
+        ids=["echoed", "truncated"],
+    )
     @pytest.mark.asyncio
-    async def test_blank_response_gets_synthetic_id(self):
-        """An empty success body yields a synthetic ``als-<epoch>`` identifier."""
+    async def test_echoed_password_never_reaches_the_error(self, body):
+        """An older olog echoes the password; the quoted body masks it."""
         adapter = _als_write_adapter()
-        session = _http_session(post=_http_response(text="   "))
+        session = _http_session(post=_http_response(text=body))
 
         with _patched_session(adapter, session):
-            entry_id = await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
+            with pytest.raises(IngestionError) as exc_info:
+                await adapter._post_entry("https://elog.als.invalid/olog", "<root/>")
 
-        assert entry_id.startswith("als-")
+        assert "hunter2" not in str(exc_info.value)
+        assert "<password>***</password>" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_xml_is_sent_as_the_xml_form_field(self):
+        """The XML rides the ``xml`` form field, never a raw body.
+
+        The olog URL-decodes a raw body, which would turn ``+`` into a space.
+        """
+        adapter = _als_write_adapter()
+        session = _http_session(post=_http_response(text="<root><entry><id>1</id></entry></root>"))
+
+        with _patched_session(adapter, session):
+            await adapter._post_entry("https://elog.als.invalid/olog", "<root>1+1</root>")
+
+        assert session.post.call_args.kwargs["data"] == {"xml": "<root>1+1</root>"}
+        assert "headers" not in session.post.call_args.kwargs
 
     @pytest.mark.asyncio
     async def test_transient_failure_retries_with_backoff(self, monkeypatch):
@@ -568,7 +646,7 @@ class TestALSCreateEntryCredentials:
                 FacilityEntryCreateRequest(subject="Subject", details="Details")
             )
 
-        payload = session.post.call_args.kwargs["data"]
+        payload = session.post.call_args.kwargs["data"]["xml"]
         assert "<author>env-operator</author>" in payload
         assert "<password>env-secret</password>" in payload
 
@@ -605,7 +683,7 @@ class TestALSCreateEntryCredentials:
                 )
             )
 
-        payload = session.post.call_args.kwargs["data"]
+        payload = session.post.call_args.kwargs["data"]["xml"]
         assert "<author>request-user</author>" in payload
 
     @pytest.mark.asyncio
@@ -623,6 +701,93 @@ class TestALSCreateEntryCredentials:
             )
 
         assert "ARIEL_WRITE_USER" in str(exc_info.value)
+
+
+_OLOG_LOGBOOKS = json.dumps(
+    [
+        {"id": "1", "name": "Operations"},
+        {"id": "2", "name": "Electronics Maintenance"},
+    ]
+)
+
+
+class TestALSLogbookCheck:
+    """A requested logbook is checked against ``op=logbooks`` before posting."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_logbook_is_refused_before_posting(self):
+        """The olog would file it in Operations, so nothing is posted.
+
+        The error names the logbooks the olog does have.
+        """
+        adapter = _als_write_adapter()
+        session = _http_session(
+            get=_http_response(text=_OLOG_LOGBOOKS),
+            post=_http_response(text="<root><entry><id>1</id></entry></root>"),
+        )
+
+        with _patched_session(adapter, session):
+            with pytest.raises(IngestionError) as exc_info:
+                await adapter.create_entry(
+                    FacilityEntryCreateRequest(subject="S", details="D", logbook="Operatons")
+                )
+
+        assert "'Operatons'" in str(exc_info.value)
+        assert "Electronics Maintenance" in str(exc_info.value)
+        assert session.post.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_known_logbook_is_posted(self):
+        """A listed logbook goes through, asked for with ``op=logbooks``."""
+        adapter = _als_write_adapter()
+        session = _http_session(
+            get=_http_response(text=_OLOG_LOGBOOKS),
+            post=_http_response(text="<root><entry><id>7</id></entry></root>"),
+        )
+
+        with _patched_session(adapter, session):
+            entry_id = await adapter.create_entry(
+                FacilityEntryCreateRequest(
+                    subject="S", details="D", logbook="Electronics Maintenance"
+                )
+            )
+
+        assert entry_id == "7"
+        assert session.get.call_args.kwargs["params"] == {"op": "logbooks"}
+        payload = session.post.call_args.kwargs["data"]["xml"]
+        assert "<logbook>Electronics Maintenance</logbook>" in payload
+
+    @pytest.mark.parametrize(
+        "get",
+        [aiohttp.ClientError("connection reset"), _http_response(text="")],
+        ids=["unreachable", "older-olog-without-the-op"],
+    )
+    @pytest.mark.asyncio
+    async def test_unreadable_list_skips_the_check(self, get):
+        """When the list cannot be read the post goes ahead; the olog still guards."""
+        adapter = _als_write_adapter()
+        session = _http_session(
+            get=get,
+            post=_http_response(text="<root><entry><id>8</id></entry></root>"),
+        )
+
+        with _patched_session(adapter, session):
+            entry_id = await adapter.create_entry(
+                FacilityEntryCreateRequest(subject="S", details="D", logbook="Operations")
+            )
+
+        assert entry_id == "8"
+
+    @pytest.mark.asyncio
+    async def test_no_logbook_skips_the_check(self):
+        """An entry without a logbook goes to the olog's default with no lookup."""
+        adapter = _als_write_adapter()
+        session = _http_session(post=_http_response(text="<root><entry><id>9</id></entry></root>"))
+
+        with _patched_session(adapter, session):
+            await adapter.create_entry(FacilityEntryCreateRequest(subject="S", details="D"))
+
+        assert not session.get.called
 
 
 # ---------------------------------------------------------------------------

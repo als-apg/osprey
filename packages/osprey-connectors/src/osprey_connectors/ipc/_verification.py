@@ -1,9 +1,9 @@
 """What a connector-host child should connect to, and whether it did.
 
-Two pure questions every supervisor of :mod:`osprey_connectors.ipc.host`
+Two pure questions every supervisor of :mod:`osprey_connectors.ipc._host`
 children asks, answered once for all of them — the controls MCP server's target
 switch and the library's multi-target
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool` alike:
+:class:`~osprey_connectors.ipc.ConnectorHostPool` alike:
 
 **Derivation** (:func:`derive_endpoints`) restates
 ``EPICSConnector.connect()``'s gateway selection *positively*, from config
@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from osprey_connectors.config import config_flag
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system._base import is_readonly_run
 from osprey_connectors.types import (
     STANDIN_TYPES,
     TARGET_LIVE,
@@ -43,6 +43,9 @@ from osprey_connectors.types import (
 )
 
 __all__ = [
+    "config_section",
+    "config_writes_enabled",
+    "subsection",
     "DEFAULT_CA_PORT",
     "DEFAULT_PVA_PORT",
     "MODE_ADDR_LIST",
@@ -143,7 +146,7 @@ class Verification:
         }
 
 
-def _section(config: Any, name: str) -> dict[str, Any]:
+def config_section(config: Any, name: str) -> dict[str, Any]:
     """One top-level section of a rendered config, or an empty mapping.
 
     Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
@@ -155,24 +158,25 @@ def _section(config: Any, name: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _sub(section: dict[str, Any], name: str) -> dict[str, Any]:
+def subsection(section: dict[str, Any], name: str) -> dict[str, Any]:
+    """One nested section of *section*, or an empty mapping when it is absent or not one."""
     value = section.get(name)
     return value if isinstance(value, dict) else {}
 
 
 def connector_block(config: Any, connector_type: str) -> Any:
     """The ``control_system.connector.<type>`` block, as written."""
-    return _sub(_section(config, "control_system"), "connector").get(connector_type)
+    return subsection(config_section(config, "control_system"), "connector").get(connector_type)
 
 
-def _config_writes_enabled(config: Any, target: str) -> bool:
+def config_writes_enabled(config: Any, target: str) -> bool:
     """Whether this config arms writes for *target*, as the connector reads it.
 
     Per connector type, through the resolver rather than off the section: the
     type *target* selects may carry its own ``writes_enabled``, and the
     deployment-wide key answers only for a type that carries none.
     """
-    return target_writes_enabled(_section(config, "control_system"), target)
+    return target_writes_enabled(config_section(config, "control_system"), target)
 
 
 def _mode(gateway: dict[str, Any], key: str) -> str:
@@ -248,7 +252,7 @@ def derive_endpoints(
             so a caller (or a test) can derive the endpoints of a posture other
             than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
-            :func:`~osprey_connectors.control_system.base.is_readonly_run`.
+            :func:`~osprey_connectors.control_system.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
             port is filled from — the file the child reads, so the port derived
             here is the port it connects to. ``None`` reads ``CONFIG_FILE``,
@@ -268,7 +272,7 @@ def derive_endpoints(
             :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_eligibility`
             is where that becomes a reason rather than an exception.
     """
-    control_system = _section(config, "control_system")
+    control_system = config_section(config, "control_system")
     connector_type = resolve_target(control_system, target)
     transport = connector_transport(control_system, connector_type)
 
@@ -284,7 +288,7 @@ def derive_endpoints(
         )
 
     if writes_enabled is None:
-        writes_enabled = _config_writes_enabled(config, target)
+        writes_enabled = config_writes_enabled(config, target)
     if readonly_run is None:
         readonly_run = is_readonly_run()
 
@@ -299,12 +303,12 @@ def derive_endpoints(
         # Imported here: the connector module is only needed for this one
         # type, and the derivation should not load a connector to answer for
         # every other one.
-        from osprey_connectors.control_system.va_connector import fill_gateway_ports
+        from osprey_connectors.control_system._va_connector import fill_gateway_ports
 
         block = fill_gateway_ports(block, config_path)
 
     block_key = f"control_system.connector.{connector_type}"
-    gateways = _sub(block, "gateways")
+    gateways = subsection(block, "gateways")
     endpoints: dict[str, Endpoint] = {}
     for role in (ROLE_READ_ONLY, ROLE_WRITE_ACCESS):
         row = _row(gateways.get(role), DEFAULT_CA_PORT, f"{block_key}.gateways.{role}")

@@ -30,7 +30,7 @@ import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc._verification import (
     DEFAULT_CA_PORT,
     DEFAULT_PVA_PORT,
     MODE_ADDR_LIST,

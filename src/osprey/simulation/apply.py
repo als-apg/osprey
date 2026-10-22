@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver import field_name
 from osprey_connectors.config import get_facility_timezone, load_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import resolve_relative_timestamp
@@ -698,7 +698,7 @@ def archiver_collection(store: dict):
     _require_pymongo()
     from pymongo import MongoClient
 
-    from osprey_connectors.archiver.mongodb_archiver_connector import mongo_client_kwargs
+    from osprey_connectors.archiver import mongo_client_kwargs
 
     client: Any = MongoClient(
         **mongo_client_kwargs(

@@ -176,6 +176,7 @@ from osprey_connectors.workspace import resolve_shared_data_root
 logger = logging.getLogger("osprey_connectors.posture_store")
 
 __all__ = [
+    "NoOwner",
     "AGENT_DATA_ROOT_ENV_VAR",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
@@ -335,7 +336,7 @@ RESERVED_OWNER_KWARG = "_osprey_owner"
 # -- owner ------------------------------------------------------------------
 
 
-class _NoOwner:
+class NoOwner:
     """The absence of an owner: one instance, compared by identity and nothing else.
 
     ``None`` cannot carry this meaning, because :func:`current_owner` already
@@ -363,8 +364,8 @@ class _NoOwner:
         return "<no owner>"
 
 
-#: The answer every owner-less path gives. See :class:`_NoOwner`.
-NO_OWNER: Final = _NoOwner()
+#: The answer every owner-less path gives. See :class:`NoOwner`.
+NO_OWNER: Final = NoOwner()
 
 #: Who the work running in this context belongs to.
 #:
@@ -385,12 +386,12 @@ NO_OWNER: Final = _NoOwner()
 #: gate rests on neither — every store verdict is decided before any offload, so
 #: the rule above holds whichever helper is used, and a gate moved behind a hop
 #: would start reading :data:`NO_OWNER` for the hops that do not copy.
-_owner_var: contextvars.ContextVar[str | _NoOwner] = contextvars.ContextVar(
+_owner_var: contextvars.ContextVar[str | NoOwner] = contextvars.ContextVar(
     "osprey_control_owner", default=NO_OWNER
 )
 
 
-def current_owner(owner: str | _NoOwner | None = None) -> str | _NoOwner:
+def current_owner(owner: str | NoOwner | None = None) -> str | NoOwner:
     """The owner a narrowing should be looked up for, by a four-rung ladder.
 
     Most specific first:
@@ -441,7 +442,7 @@ def current_owner(owner: str | _NoOwner | None = None) -> str | _NoOwner:
     return acting_identity()
 
 
-def bound_owner() -> str | _NoOwner:
+def bound_owner() -> str | NoOwner:
     """The owner :func:`bind_owner` bound for the running plan, and nothing else.
 
     Rung 2 of :func:`current_owner` alone: no caller argument, no environment
@@ -483,7 +484,7 @@ def bind_owner(kwargs: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """
     clean = {key: value for key, value in kwargs.items() if key != RESERVED_OWNER_KWARG}
     claimed = kwargs.get(RESERVED_OWNER_KWARG)
-    owner: str | _NoOwner = NO_OWNER
+    owner: str | NoOwner = NO_OWNER
     if isinstance(claimed, str) and claimed.strip():
         owner = claimed.strip()
 
@@ -703,7 +704,7 @@ def recorded_posture() -> dict[str, str]:
         # Imported here, not at module scope: ``control_context`` imports THIS
         # module for the root and the posture grammar, and the two must not
         # import each other at load time. Same reason as ``effective_writes``'s
-        # local import of ``control_system.base``.
+        # local import of ``control_system._base``.
         from osprey_connectors import control_context
 
         record = control_context.read_record()
@@ -1191,7 +1192,7 @@ class StoreVerdictDetail(NamedTuple):
     reason: str | None
 
 
-def store_verdict(target: str | None, owner: str | _NoOwner | None = None) -> StoreVerdict:
+def store_verdict(target: str | None, owner: str | NoOwner | None = None) -> StoreVerdict:
     """The recorded clause of :func:`effective_writes` — rule 3, by name alone.
 
     Exactly :func:`store_verdict_detail`'s verdict, for the callers that have
@@ -1214,7 +1215,7 @@ def store_verdict(target: str | None, owner: str | _NoOwner | None = None) -> St
 
 
 def record_verdict_detail(
-    target: str | None, owner: str | _NoOwner | None = None
+    target: str | None, owner: str | NoOwner | None = None
 ) -> StoreVerdictDetail:
     """The record clause of :func:`store_verdict_detail`, without the launch pin.
 
@@ -1297,7 +1298,7 @@ def record_verdict_detail(
 
 
 def store_verdict_detail(
-    target: str | None, owner: str | _NoOwner | None = None
+    target: str | None, owner: str | NoOwner | None = None
 ) -> StoreVerdictDetail:
     """The recorded clause of :func:`effective_writes` — rule 3, with its reason.
 
@@ -1340,7 +1341,7 @@ def store_permits(target: str | None) -> bool:
 
     Public because one caller needs this clause WITHOUT the ceiling
     :func:`effective_writes` derives: the connector's reference monitor
-    (``control_system.base``) reads a deployment ceiling keyed on the connector
+    (``control_system._base``) reads a deployment ceiling keyed on the connector
     TYPE, which is not a ceiling this module can produce from a target. It
     therefore ANDs its own ceiling with this function rather than restating the
     combining terms — the contract's rule 3 has exactly two implementations,
@@ -1400,10 +1401,10 @@ def effective_writes(
         ceiling = any_target_writes_enabled(section)
     if not ceiling:
         return False
-    # Imported here, not at module scope: ``control_system.base`` is the
+    # Imported here, not at module scope: ``control_system._base`` is the
     # reference monitor that calls back into this module, and the two must not
     # import each other at load time.
-    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.control_system._base import is_readonly_run
 
     if is_readonly_run():
         return False

@@ -583,7 +583,7 @@ def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
         OspreyRunBusy: Another run holds the target's lock.
         OSError: The lock could not be opened.
     """
-    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.control_system import is_readonly_run
 
     if is_readonly_run():
         raise OspreyWriteRefused(_READONLY_REASON)

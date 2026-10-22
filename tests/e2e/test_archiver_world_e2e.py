@@ -478,7 +478,7 @@ def _connector(world: DeployedArchiverWorld):
     surfacing it are different claims, and only the second one is what an
     operator experiences.
     """
-    from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
     store = world.store
     connector = MongoDBArchiverConnector()
@@ -669,7 +669,7 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     # Writes are fail-closed, and the guard does NOT consult the config handed to
     # the connector: `_writes_enabled` re-reads `control_system.writes_enabled`
     # from the GLOBAL config every time (see
-    # osprey_connectors.control_system.base), which resolves from CONFIG_FILE or
+    # osprey_connectors.control_system._base), which resolves from CONFIG_FILE or
     # the working directory. Pytest runs from the repo root, which has no
     # config.yml, so without this the guard fails closed and the write is
     # refused — and the test then blames the recorder for a value that was never

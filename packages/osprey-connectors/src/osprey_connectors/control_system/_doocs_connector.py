@@ -13,8 +13,9 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -22,8 +23,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import DOOCS
 
@@ -175,7 +175,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """The property's present value, read through this connector's own client.
 
         ``get_data()`` is what :meth:`_read_channel_sync` unwraps an ``EqData``
@@ -201,7 +201,7 @@ class DOOCSConnector(ControlSystemConnector):
         DOOCS has no acknowledgement of its own — ``set()`` either returns or
         raises — so a confirmed write is the value sent followed by one fresh
         read of the same property, compared with
-        :func:`~osprey_connectors.control_system.base.values_match`. DOOCS
+        :func:`~osprey_connectors.control_system.values_match`. DOOCS
         reports no enum labels and no alarm state, so the comparison gets no
         label and the alarm fields stay unset.
 
@@ -242,7 +242,7 @@ class DOOCSConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self._current_value_reader()
+                        channel_address, value, read_current=self.current_value_reader()
                     )
                     logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
                 except ChannelLimitsViolationError:

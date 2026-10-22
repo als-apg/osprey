@@ -70,7 +70,7 @@ from osprey.registry.mcp import (
     MIXED_READ_WRITE_TOOLS,
     framework_write_tools,
 )
-from osprey_connectors.control_system import base as connector_base
+from osprey_connectors.control_system import _base as connector_base
 
 _HOOKS_DIR = Path(__file__).resolve().parents[2] / "src/osprey/templates/claude_code/claude/hooks"
 #: The kill-switch hook: home of the posture-refusal reason word.

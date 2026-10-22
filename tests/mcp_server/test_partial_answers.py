@@ -25,7 +25,7 @@ from osprey.mcp_server.errors import (
     refuse_nothing_answered,
 )
 from osprey_connectors.errors import ChannelNotFoundError
-from osprey_connectors.ipc.proxy import ChildUnresponsiveError
+from osprey_connectors.ipc._proxy import ChildUnresponsiveError
 from tests.mcp_server.test_channel_read_size_rule import _read
 
 

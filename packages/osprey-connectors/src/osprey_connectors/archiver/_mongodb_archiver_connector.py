@@ -10,7 +10,6 @@ of the same shape, and every read covers both.
 
 import asyncio
 import os
-import ssl
 import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
@@ -18,6 +17,13 @@ from typing import Any
 
 import pandas as pd
 
+from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archiver._mongo_client import (
+    CA_FILE_ERRORS,
+    address_overrides,
+    mongo_client_kwargs,
+)
 from osprey_connectors.archiver._timerange import (
     Processing,
     aggregate_series,
@@ -25,8 +31,6 @@ from osprey_connectors.archiver._timerange import (
     resolve_processing,
     utc_window,
 )
-from osprey_connectors.archiver.base import ArchiverConnector, ArchiverMetadata
-from osprey_connectors.archiver.field_names import field_name
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.archive import waveform_collection
@@ -55,105 +59,6 @@ PYMONGO_INSTALL_HINT = (
     "Reinstall it with: pip install --upgrade osprey-connectors"
 )
 
-#: Environment overrides for the two connection keys whose configured value is
-#: only correct when read from the host.
-#:
-#: The contract, stated here because this is the module that opens the socket:
-#: **the config block carries the host-side truth** — where the agent, running on
-#: the host, reaches the store, which for a project deploying its own store is
-#: loopback at the published ``port_host``. Inside the compose network that
-#: address names the reading container's own loopback and reaches nothing, so a
-#: containerized consumer is given the store's network alias and container port
-#: through this pair, and **the environment wins**.
-#:
-#: That is the ordinary environment-override contract, not a container special
-#: case: set in a host shell these win there too, exactly as
-#: ``OSPREY_OTEL_GATEWAY_HOST`` does. Compose templates are simply the
-#: caller that has a reason to set them.
-#:
-#: Read by two consumers — this connector and the archiver-recorder service —
-#: through :func:`address_overrides`, so both agree on what an empty value means
-#: and on how the port is typed.
-HOST_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_HOST"
-PORT_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_PORT"
-
-
-def address_overrides() -> tuple[str | None, int | None]:
-    """The in-network store address this process was given, if it was given one.
-
-    Returns:
-        ``(host, port)``, either of which is ``None`` when the corresponding
-        variable is unset — or set to whitespace, which is treated as unset
-        rather than as an address of nothing. A caller applies whichever half it
-        got over its own configured value, and keeps its own rules about what to
-        do when neither source supplies one.
-
-    Raises:
-        ValueError: If the port override is set to something that is not an
-            integer. Silently falling back to the configured host-side port
-            would send a container to an address nothing serves, and the reason
-            would be a typo nobody is looking at.
-    """
-    host = os.environ.get(HOST_OVERRIDE_ENV, "").strip() or None
-
-    raw_port = os.environ.get(PORT_OVERRIDE_ENV, "").strip()
-    if not raw_port:
-        return host, None
-    try:
-        return host, int(raw_port)
-    except ValueError as exc:
-        raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
-
-
-def mongo_client_kwargs(
-    *,
-    url: str | None,
-    host: str | None,
-    port: int | None,
-    username: str | None,
-    password: str | None,
-    auth_source: str | None,
-    ca_bundle: str | None,
-    timeout_s: float,
-) -> dict[str, Any]:
-    """The keyword arguments for ``pymongo.MongoClient``.
-
-    Every MongoDB client OSPREY opens takes its arguments from here: the agent's
-    connector, the archive recorder and the archive rewrite. One block can
-    therefore never produce two different clients. This is the only place
-    pymongo's keyword names are spelled.
-
-    Pure: it reads no environment and does no I/O. A caller applies the address
-    overrides (:func:`address_overrides`) to ``host`` and ``port`` itself,
-    before calling, because a host-side caller must take nothing from the
-    ambient environment.
-
-    A key whose value is unset is left out rather than passed as ``None``.
-
-    Args:
-        url: A connection string; when set it is passed as ``host`` and no
-            ``port`` is passed.
-        host: The store's host, used when ``url`` is unset.
-        port: The store's port, used when ``url`` is unset.
-        username: The login user; ``password`` and ``auth_source`` go with it.
-            Without one, neither is passed.
-        password: The login secret.
-        auth_source: The database the user is defined in.
-        ca_bundle: A CA file to trust; setting it turns TLS on.
-        timeout_s: Seconds to wait for a server.
-    """
-    kwargs: dict[str, Any] = {"host": url} if url is not None else {"host": host, "port": port}
-    if username is not None:
-        kwargs["username"] = username
-        kwargs["password"] = password
-        if auth_source is not None:
-            kwargs["authSource"] = auth_source
-    if ca_bundle is not None:
-        kwargs["tlsCAFile"] = ca_bundle
-    kwargs["serverSelectionTimeoutMS"] = int(timeout_s * 1000)
-    return kwargs
-
-
 #: The url schemes a MongoDB connection string takes.
 _MONGO_SCHEMES = ("mongodb", "mongodb+srv")
 
@@ -165,8 +70,6 @@ _OPTIONS_WITH_A_KEY = {
     "serverselectiontimeoutms": "timeout_s",
 }
 
-#: Errors pymongo raises while it loads a CA file.
-CA_FILE_ERRORS = (ssl.SSLError, FileNotFoundError, IsADirectoryError, PermissionError)
 
 #: Url options that carry a secret.
 _SECRET_OPTIONS = frozenset({"tlscertificatekeyfilepassword"})

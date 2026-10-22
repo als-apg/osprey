@@ -23,8 +23,8 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.va_in_process_connector import (
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
@@ -117,7 +117,7 @@ async def test_a_second_connector_reads_what_the_first_wrote(view):
 
 def _count_reads(monkeypatch) -> list:
     """Every ``_Journal.read`` call from here on appends one item to the list."""
-    from osprey_connectors.control_system import va_in_process_connector
+    from osprey_connectors.control_system import _va_in_process_connector as va_in_process_connector
 
     reads: list = []
     read = va_in_process_connector._Journal.read
@@ -268,7 +268,7 @@ _WRITER = """
     config.get_config_value = lambda key, default=None, config_path=None: (
         True if key == "control_system.writes_enabled" else real(key, default, config_path)
     )
-    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
     async def main():
         connector = VAInProcessConnector()
@@ -311,7 +311,7 @@ async def test_a_composite_written_directly_changes_nothing_another_process_read
     direct = _subprocess(
         """
         import asyncio, sys
-        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         async def main():
             connector = VAInProcessConnector()
@@ -554,7 +554,7 @@ def test_the_journal_is_named_in_the_in_process_connector_only():
         if token.search(path.read_text(encoding="utf-8"))
     )
     assert hits == [
-        "packages/osprey-connectors/src/osprey_connectors/control_system/va_in_process_connector.py"
+        "packages/osprey-connectors/src/osprey_connectors/control_system/_va_in_process_connector.py"
     ]
 
 

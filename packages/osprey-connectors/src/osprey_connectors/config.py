@@ -46,6 +46,36 @@ if TYPE_CHECKING:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
+__all__ = [
+    "ConfigBuilder",
+    "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
+    "EXECUTION_METHOD_SUBPROCESS",
+    "RUNTIME_STATE_DIR",
+    "RUNTIME_WRITE_PATH_KEYS",
+    "config_anchored_at",
+    "config_flag",
+    "default_config_path",
+    "dotenv_shell_overrides",
+    "find_runtime_write_paths_under_data",
+    "get_agent_dir",
+    "get_config_builder",
+    "get_config_value",
+    "get_configurable",
+    "get_facility_timezone",
+    "get_framework_service_config",
+    "get_full_configuration",
+    "is_unresolved_placeholder",
+    "load_config",
+    "load_project_config",
+    "load_project_dotenv",
+    "localize_facility",
+    "mapping_or_empty",
+    "resolve_env_vars",
+    "resolve_execution_method",
+    "to_facility_iso",
+    "unresolved_placeholders",
+]
+
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
@@ -266,7 +296,7 @@ _container_method_warned = False
 
 #: Directory the build owns end to end: every file under it is rendered from the
 #: profile/preset and checksummed into the manifest.
-BUILD_OWNED_DATA_DIR = "data"
+_BUILD_OWNED_DATA_DIR = "data"
 
 #: Directory runtime state belongs in — the durable ``var/`` zone, outside the
 #: render entirely, so it survives every rebuild of ``build/``. Named in the
@@ -297,7 +327,7 @@ def find_runtime_write_paths_under_data(
         ``(config_key, configured_value)`` pairs for every offending key, in
         :data:`RUNTIME_WRITE_PATH_KEYS` order. Empty when the config is clean.
     """
-    data_root = (project_root / BUILD_OWNED_DATA_DIR).resolve()
+    data_root = (project_root / _BUILD_OWNED_DATA_DIR).resolve()
     offenders: list[tuple[str, str]] = []
 
     for key in RUNTIME_WRITE_PATH_KEYS:
@@ -695,7 +725,7 @@ class ConfigBuilder:
 
         self.raw_config, self._unexpanded_config = self._load_config()
 
-        from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+        from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 
         refuse_renamed_timeout_keys(self.raw_config)
 
@@ -724,7 +754,7 @@ class ConfigBuilder:
                 "are erased by the next 'osprey build'. Point it at '%s/' instead.",
                 key,
                 value,
-                BUILD_OWNED_DATA_DIR,
+                _BUILD_OWNED_DATA_DIR,
                 self.config_path,
                 RUNTIME_STATE_DIR,
             )
@@ -1025,7 +1055,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     return _config_cache[resolved_path]
 
 
-def _get_configurable(
+def get_configurable(
     config_path: str | None = None, set_as_default: bool = False
 ) -> dict[str, Any]:
     """Get configurable dict with automatic context detection.
@@ -1194,7 +1224,7 @@ def get_framework_service_config(
     Returns:
         Dictionary with service configuration
     """
-    configurable = _get_configurable(config_path)
+    configurable = get_configurable(config_path)
     service_configs: dict[str, Any] = configurable.get("service_configs", {})
     return mapping_or_empty(
         service_configs.get(service_name), f"services.{service_name}", config_path
@@ -1296,7 +1326,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     if not path:
         raise ValueError("Configuration path cannot be empty or None")
 
-    configurable = _get_configurable(config_path)
+    configurable = get_configurable(config_path)
 
     keys = path.split(".")
     value = configurable
@@ -1457,7 +1487,7 @@ def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
         >>> other_value = get_config_value("some.setting")
     """
     set_as_default = config_path is not None
-    return _get_configurable(config_path, set_as_default=set_as_default)
+    return get_configurable(config_path, set_as_default=set_as_default)
 
 
 # No eager _get_config() here, deliberately. Building the default config at

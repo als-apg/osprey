@@ -19,8 +19,9 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -28,8 +29,7 @@ from osprey_connectors.control_system.base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import TANGO
 
@@ -87,7 +87,7 @@ def _quality_fields(quality: Any) -> tuple[str | None, int | None]:
 
     ``None`` means "not reported" — deliberately distinct from a reported
     healthy reading (``NO_ALARM`` / severity ``0``), matching the contract on
-    :class:`~osprey_connectors.control_system.base.ChannelWriteResult`.
+    :class:`~osprey_connectors.control_system.ChannelWriteResult`.
     """
     if quality is None:
         return None, None
@@ -329,7 +329,7 @@ class TangoConnector(ControlSystemConnector):
                 f"TANGO attribute '{channel_address}' did not answer within {ceiling}s"
             ) from None
 
-    def _current_value_reader(self) -> Callable[[str], Any] | None:
+    def current_value_reader(self) -> Callable[[str], Any] | None:
         """The attribute's present value, read through this connector's own proxy."""
 
         def read_current(channel_address: str) -> Any:
@@ -351,7 +351,7 @@ class TangoConnector(ControlSystemConnector):
         A confirmed write is the value sent followed by one fresh read of the
         same attribute — every PyTango read is a device round trip, so the
         confirming read is fresh by construction — compared with
-        :func:`~osprey_connectors.control_system.base.values_match`. On a
+        :func:`~osprey_connectors.control_system.values_match`. On a
         ``DevEnum`` attribute a value written as text is compared against the
         readback's resolved label, exactly as on EPICS.
 
@@ -398,7 +398,7 @@ class TangoConnector(ControlSystemConnector):
             if self._limits_validator:
                 try:
                     self._limits_validator.validate(
-                        channel_address, value, read_current=self._current_value_reader()
+                        channel_address, value, read_current=self.current_value_reader()
                     )
                     logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
                 except ChannelLimitsViolationError:

@@ -71,7 +71,7 @@ from osprey.port_layout import layout_ports, resolve_port_base
 # read it from there.
 from osprey_connectors import dotenv, yaml_loader
 from osprey_connectors.config import ConfigBuilder, load_project_config
-from osprey_connectors.control_system.limits_validator import LIMITS_DATABASE_CONFIG_KEY
+from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
@@ -3469,7 +3469,7 @@ def simulated_target_configured(config):
     :rtype: bool
     """
     from osprey_connectors.types import (
-        _SIMULATED_TYPES,
+        SIMULATED_TYPES,
         STANDIN_TYPES,
         TARGET_STANDIN,
         TARGET_VA,
@@ -3482,7 +3482,7 @@ def simulated_target_configured(config):
         own_type = resolve_control_system_type(section)
     except (TypeError, ValueError):
         own_type = None
-    if own_type in (*_SIMULATED_TYPES, *STANDIN_TYPES):
+    if own_type in (*SIMULATED_TYPES, *STANDIN_TYPES):
         return True
     return any(target_configured(section, target) for target in (TARGET_VA, TARGET_STANDIN))
 

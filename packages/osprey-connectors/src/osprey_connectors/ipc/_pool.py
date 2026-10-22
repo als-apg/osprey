@@ -5,7 +5,7 @@ read-only view of it, and a simulator IOC serving the *same* channel names, say
 — cannot hold them in one address space: a Channel Access client reads its
 environment once, process-wide, and pins the process to one gateway for its
 lifetime. :class:`ConnectorHostPool` gives each target a
-:mod:`connector-host child <osprey_connectors.ipc.host>` of its own and hands
+:mod:`connector-host child <osprey_connectors.ipc._host>` of its own and hands
 the caller a connector-shaped object per target, so a caller can drive any
 number of targets from one process without knowing any of that.
 
@@ -58,8 +58,8 @@ target switch runs:
 
 The child's post-connect report is then verified against what this process
 derives the child should have done
-(:func:`~osprey_connectors.ipc.verification.derive_endpoints` and
-:func:`~osprey_connectors.ipc.verification.verify_host_report`, the same
+(:func:`~osprey_connectors.ipc.derive_endpoints` and
+:func:`~osprey_connectors.ipc.verify_host_report`, the same
 check the controls MCP server's target switch runs), and the report must name
 the target and connector type this process resolved. A child that fails any of
 it is stopped before the caller sees anything.
@@ -127,7 +127,7 @@ An error the
 *connector* raised in a healthy child — a :class:`ConnectionError` for a channel
 that cannot be reached, say — is passed through unchanged and leaves the child
 in place. The two are told apart by origin
-(:func:`~osprey_connectors.ipc.proxy.raised_by_child`), never by timing.
+(:func:`~osprey_connectors.ipc.raised_by_child`), never by timing.
 
 Event-loop affinity
 -------------------
@@ -171,25 +171,25 @@ from typing import Any
 
 from osprey_connectors import posture_store
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     is_readonly_run,
 )
-from osprey_connectors.ipc.host import START_PHASES
-from osprey_connectors.ipc.launch import (
+from osprey_connectors.ipc._host import START_PHASES
+from osprey_connectors.ipc._launch import (
     AttributedReader,
     host_env,
     kill_host,
     spawn_host,
     stop_host,
 )
-from osprey_connectors.ipc.proxy import (
+from osprey_connectors.ipc._proxy import (
     ChildUnresponsiveError,
     ConnectorHostProxy,
     raised_by_child,
 )
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc._verification import (
     TargetDerivation,
     connector_block,
     derive_endpoints,
@@ -200,6 +200,8 @@ from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code,
 from osprey_connectors.types import TRANSPORT_CA
 
 __all__ = [
+    "DEFAULT_CALL_DEADLINE_S",
+    "DEFAULT_PING_TIMEOUT_S",
     "READONLY",
     "ConnectorHostError",
     "ConnectorHostLostError",
@@ -210,6 +212,8 @@ __all__ = [
     "PooledConnector",
 ]
 
+# Named for the public namespace, not this private module, so a logging config
+# keyed on the name keeps matching whatever the module is called.
 logger = logging.getLogger("osprey_connectors.ipc.pool")
 
 #: The one execution mode a key may carry besides ``None``.
@@ -281,7 +285,7 @@ class ConnectorHostStartError(ConnectorHostError):
             ``"verify"`` (the report did not match the derivation).
         phases: The start marks the child had written when an ``init``-stage
             failure was raised, as ``(name, seconds after the spawn)`` in the
-            order of :data:`~osprey_connectors.ipc.host.START_PHASES`; empty for
+            order of :data:`~osprey_connectors.ipc._host.START_PHASES`; empty for
             every other stage, and for a child that wrote none.
     """
 
@@ -357,9 +361,7 @@ class _StartMarkPipe:
 def _describe_start(phases: tuple[tuple[str, float], ...]) -> str:
     """One sentence on how far a child got in starting, from the marks it wrote."""
     if not phases:
-        return (
-            "It had not finished starting its interpreter and loading osprey_connectors.ipc.host."
-        )
+        return "It had not finished starting its interpreter and loading the connector host."
     last, seconds = phases[-1]
     reached = {
         "main": f"It was up after {seconds:.1f}s and had not read its init frame.",
@@ -1047,7 +1049,7 @@ class PooledConnector:
 
     Bound to a pool key, not to a process: every call goes to the key's current
     child, starting a fresh one if the last one was lost. The call surface
-    mirrors :class:`~osprey_connectors.control_system.base.ControlSystemConnector`
+    mirrors :class:`~osprey_connectors.control_system.ControlSystemConnector`
     for the methods it offers; writes are guarded and limit-checked in the child,
     exactly as they would be in-process.
     """

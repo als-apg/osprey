@@ -19,14 +19,14 @@ from osprey.runtime import (
     ControlTargetChangedError,
 )
 from osprey.runtime.guarded_run import lock
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey_connectors.control_system.limits_validator import ChannelLimitsConfig
+from osprey_connectors.control_system._limits_validator import ChannelLimitsConfig
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelReadFailedError,

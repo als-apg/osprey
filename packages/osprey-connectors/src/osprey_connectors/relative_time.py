@@ -18,6 +18,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from datetime import time as dtime
 
+__all__ = [
+    "RelativeTimestamp",
+    "resolve_relative_timestamp",
+]
+
 
 @dataclass(frozen=True)
 class RelativeTimestamp:
