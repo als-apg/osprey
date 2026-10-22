@@ -77,8 +77,9 @@ caller hands the pool and ``config_file`` must agree.
 Failure
 -------
 Every error the pool raises of its own is a :class:`ConnectorHostError`, which
-is a :class:`ConnectionError`, so a generic connection-error handler treats it as
-"the connector is gone". Its message is the operator-facing sentence.
+is a :class:`~osprey_connectors.errors.ConnectorUnavailableError`: the
+connector is gone. Its message is the operator-facing sentence, and its
+``recovery`` names what the pool did about it.
 
 * :class:`ConnectorHostStartError` — the child could not be brought up, and
   nothing was left running: unresolved config, spawn failure, no answer to its
@@ -92,7 +93,12 @@ is a :class:`ConnectionError`, so a generic connection-error handler treats it a
   flight: it exited (``cause="exited"``), or the pool stopped it because it was
   closed or :meth:`PooledConnector.disconnect` was called
   (``cause="stopped"``). The call fails; the child is dropped; the **next**
-  call to that key brings up a fresh one.
+  call to that key brings up a fresh one. The same error, with
+  ``cause="unavailable"``, answers a call whose connector reported itself
+  unavailable (a :class:`~osprey_connectors.errors.ConnectorUnavailableError`,
+  or a bare :class:`ConnectionError` from a connector that does not say which)
+  in a child that answered: the child is discarded once and the next call
+  starts a fresh one, and ``recovery`` says so (``child_replaced``).
 * :class:`ConnectorHostUnresponsiveError` — a ``ConnectorHostLostError`` that
   is also a :class:`TimeoutError` (``cause="unresponsive"``): the child let a
   call's own ``timeout`` plus ``timeout_grace_s`` pass — or ``call_deadline_s``
@@ -112,7 +118,9 @@ and only the caller can decide whether to send it again.
 A child that misses a call's deadline but **does** answer the ping is alive and
 merely slow — a batched or confirmed write can legitimately take several of its
 call's timeouts — so it is left running, and the call raises a plain
-:class:`TimeoutError`; it may still complete in the child.
+:class:`TimeoutError`; it may still complete in the child. Its ``recovery``
+says the child was kept (``child_kept``); a child that missed the ping too is
+replaced (``child_replaced``).
 
 That has an ordering hazard for writes. The child serves each request as a task
 of its own, so a write that timed out here may still reach the machine **after
@@ -123,11 +131,13 @@ the child of any write that misses its deadline, answering or not, so nothing
 left in it can send the stale write later. The write itself still may or may
 not have landed; reads keep the ping rule either way.
 
-An error the
-*connector* raised in a healthy child — a :class:`ConnectionError` for a channel
-that cannot be reached, say — is passed through unchanged and leaves the child
-in place. The two are told apart by origin
-(:func:`~osprey_connectors.ipc.raised_by_child`), never by timing.
+A failure about one channel the *connector* raised in a healthy child — a
+:class:`~osprey_connectors.errors.ChannelUnreachableError`, say — is passed
+through unchanged and leaves the child in place, as is a connector bug
+(:class:`~osprey_connectors.errors.ConnectorInternalError`). A connection
+failure the proxy made itself (the pipe is gone) and one the child sent are
+told apart by origin (:func:`~osprey_connectors.ipc.raised_by_child`),
+never by timing.
 
 Event-loop affinity
 -------------------
@@ -176,6 +186,7 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     is_readonly_run,
 )
+from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -241,6 +252,19 @@ CAUSE_EXITED = "exited"
 CAUSE_UNRESPONSIVE = "unresponsive"
 CAUSE_STOPPED = "stopped"
 CAUSE_WRITE_TIMEOUT = "write_timeout"
+CAUSE_UNAVAILABLE = "unavailable"
+
+#: What the pool did about a failure, as the ``recovery`` record a failure carries.
+_CHILD_KEPT: dict[str, str] = {
+    "action": "child_kept",
+    "text": "The connector-host child still answers a ping, so it was kept; the call "
+    "may yet complete in it and was not retried.",
+}
+_CHILD_REPLACED: dict[str, str] = {
+    "action": "child_replaced",
+    "text": "The connector-host child was discarded; the next call starts a fresh one. "
+    "The call was not retried.",
+}
 
 #: The calls that can move the machine, as :class:`PooledConnector` names them
 #: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
@@ -255,7 +279,7 @@ _Key = tuple[str, str | None]
 # ---------------------------------------------------------------------------
 
 
-class ConnectorHostError(ConnectionError):
+class ConnectorHostError(ConnectorUnavailableError):
     """A connector-host child could not serve a call (see the module docstring).
 
     Attributes:
@@ -265,9 +289,15 @@ class ConnectorHostError(ConnectionError):
     """
 
     def __init__(
-        self, message: str, *, target: str, execution_mode: str | None, pid: int | None
+        self,
+        message: str,
+        *,
+        target: str,
+        execution_mode: str | None,
+        pid: int | None,
+        recovery: tuple[dict[str, str], ...] = (),
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, recovery=recovery)
         self.target = target
         self.execution_mode = execution_mode
         self.pid = pid
@@ -384,10 +414,12 @@ class ConnectorHostLostError(ConnectorHostError):
     Attributes:
         cause: ``"exited"`` (the child died), ``"stopped"`` (the pool was closed
             or the key disconnected), ``"unresponsive"`` (see
-            :class:`ConnectorHostUnresponsiveError`) or ``"write_timeout"``
+            :class:`ConnectorHostUnresponsiveError`), ``"write_timeout"``
             (a write on the child missed its deadline and the pool, built with
             ``kill_on_write_timeout``, killed it; see
-            :class:`ConnectorHostWriteTimeoutError`).
+            :class:`ConnectorHostWriteTimeoutError`) or ``"unavailable"`` (the
+            child's connector reported itself unavailable and the pool
+            discarded the child).
         returncode: The child's exit status once reaped, when known.
     """
 
@@ -400,8 +432,15 @@ class ConnectorHostLostError(ConnectorHostError):
         pid: int | None,
         cause: str,
         returncode: int | None,
+        recovery: tuple[dict[str, str], ...] = (),
     ) -> None:
-        super().__init__(message, target=target, execution_mode=execution_mode, pid=pid)
+        super().__init__(
+            message,
+            target=target,
+            execution_mode=execution_mode,
+            pid=pid,
+            recovery=recovery,
+        )
         self.cause = cause
         self.returncode = returncode
 
@@ -607,11 +646,13 @@ class ConnectorHostPool:
                 await self._discard(child, reason, CAUSE_WRITE_TIMEOUT)
                 raise self._lost(child, reason, CAUSE_WRITE_TIMEOUT, method) from exc
             if await self._answers_ping(child):
-                raise TimeoutError(
+                slow = TimeoutError(
                     f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
                     f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
                     "left running. The call may yet complete in the child; it was not retried."
-                ) from exc
+                )
+                slow.recovery = (dict(_CHILD_KEPT),)  # type: ignore[attr-defined]
+                raise slow from exc
             reason = (
                 f"The connector-host child (pid {child.pid}) serving {_label(key)} did not "
                 f"answer {method!r} in time, nor a ping afterwards, and was killed; the call "
@@ -621,8 +662,17 @@ class ConnectorHostPool:
             raise self._lost(child, reason, CAUSE_UNRESPONSIVE, method) from exc
         except ConnectionError as exc:
             if raised_by_child(exc):
-                # The connector's own error, sent by a child that answered.
-                raise
+                # The connector, in a child that answered, says it is gone
+                # itself: the child is discarded once, and the next call
+                # starts a fresh one. A failure about one channel is no
+                # ConnectionError and never reaches this arm.
+                reason = (
+                    f"The connector in the connector-host child (pid {child.pid}) serving "
+                    f"{_label(key)} is unavailable ({exc}); the child was discarded, the call "
+                    "was not retried, and the next call starts a fresh child."
+                )
+                await self._discard(child, reason, CAUSE_UNAVAILABLE)
+                raise self._lost(child, reason, CAUSE_UNAVAILABLE, method) from exc
             # Made by the proxy: the pipe is gone. If the pool already retired
             # this child, its cause is the true one; otherwise it exited.
             cause = child.retired or CAUSE_EXITED
@@ -669,6 +719,7 @@ class ConnectorHostPool:
             # Only a write is a write timeout: a read that was in flight on the
             # child a write timeout killed was simply lost with it.
             error_class = ConnectorHostWriteTimeoutError
+        replaced = cause in (CAUSE_UNRESPONSIVE, CAUSE_UNAVAILABLE)
         return error_class(
             detail,
             target=target,
@@ -676,6 +727,7 @@ class ConnectorHostPool:
             pid=child.pid,
             cause=cause,
             returncode=child.process.returncode,
+            recovery=(dict(_CHILD_REPLACED),) if replaced else (),
         )
 
     async def _retire_key(self, key: _Key) -> None:
