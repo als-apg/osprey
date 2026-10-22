@@ -345,3 +345,44 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     assert sorted(spec.name for spec in readables) == readbacks
     assert all(spec.name == spec.setpoint_pv for spec in settables)
     assert all(spec.name == spec.read_pv for spec in readables)
+
+
+_WRITE_PLANS_DOC = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "source"
+    / "how-to"
+    / "bluesky"
+    / "write-plans.rst"
+)
+
+
+def _documented_device_file() -> dict[str, Any]:
+    """The ``bluesky_devices.yml`` example the plan-writing guide shows."""
+    lines = _WRITE_PLANS_DOC.read_text(encoding="utf-8").splitlines()
+    start = lines.index("   # build/data/bluesky_devices.yml")
+    block: list[str] = []
+    for line in lines[start:]:
+        if line and not line.startswith("   "):
+            break
+        block.append(line[3:])
+    return yaml.safe_load("\n".join(block))
+
+
+@pytest.mark.slow
+def test_the_guide_shows_devices_as_the_demo_build_writes_them(
+    built_control_assistant: BuiltProject,
+) -> None:
+    """Every device the guide shows, and every key it shows on one, is the build's."""
+    documented = _documented_device_file()
+    built = yaml.safe_load(
+        (built_control_assistant.build_dir / "data" / BLUESKY_DEVICES_FILE).read_text()
+    )
+
+    assert documented["schema"] == built["schema"]
+    for kind in ("settables", "readables"):
+        by_name = {device["name"]: device for device in built[kind]}
+        assert documented[kind]
+        for device in documented[kind]:
+            emitted = by_name[device["name"]]
+            assert {key: emitted.get(key) for key in device} == device
