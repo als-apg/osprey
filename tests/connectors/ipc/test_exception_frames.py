@@ -13,8 +13,10 @@ import osprey_connectors.ipc
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
+    ConnectorUnavailableError,
 )
 from osprey_connectors.ipc import _exceptions as exceptions
 
@@ -29,13 +31,15 @@ def _round_trip(exc: BaseException) -> BaseException:
 # ---------------------------------------------------------------- protocol pin
 
 
-def test_registry_carries_exactly_the_six_agreed_classes():
+def test_registry_carries_exactly_the_eight_agreed_classes():
     assert set(exceptions.EXCEPTION_SPECS) == {
         "ConnectionError",
         "TimeoutError",
         "ChannelWriteBlockedError",
         "ChannelLimitsViolationError",
         "ChannelNotFoundError",
+        "ChannelUnreachableError",
+        "ConnectorUnavailableError",
         "ConnectorInternalError",
     }
     registry = exceptions.EXCEPTION_SPECS
@@ -45,6 +49,8 @@ def test_registry_carries_exactly_the_six_agreed_classes():
     assert registry["ChannelLimitsViolationError"].cls is ChannelLimitsViolationError
     assert registry["ChannelNotFoundError"].cls is ChannelNotFoundError
     assert registry["ConnectorInternalError"].cls is ConnectorInternalError
+    assert registry["ChannelUnreachableError"].cls is ChannelUnreachableError
+    assert registry["ConnectorUnavailableError"].cls is ConnectorUnavailableError
 
 
 def test_the_contract_fault_is_no_connection_error():
@@ -181,6 +187,27 @@ def test_an_unknown_channel_round_trips_as_itself():
     assert type(rebuilt) is ChannelNotFoundError
     assert rebuilt.channel_address == "X"
     assert str(rebuilt) == str(original)
+
+
+def test_an_unreachable_channel_round_trips_as_itself():
+    original = ChannelUnreachableError("SR:DEAD:IOC", message="SR:DEAD:IOC timed out")
+    rebuilt = _round_trip(original)
+
+    assert type(rebuilt) is ChannelUnreachableError
+    assert rebuilt.channel_address == "SR:DEAD:IOC"
+    assert str(rebuilt) == "SR:DEAD:IOC timed out"
+
+
+def test_connector_unavailable_round_trips():
+    # The recovery is not a wire field: the parent's supervisor decides it.
+    original = ConnectorUnavailableError(
+        "PVA client context is gone", recovery=({"action": "child_replaced", "text": "x"},)
+    )
+    rebuilt = _round_trip(original)
+
+    assert type(rebuilt) is ConnectorUnavailableError
+    assert str(rebuilt) == "PVA client context is gone"
+    assert rebuilt.recovery == ()
 
 
 def test_connection_error_round_trips():
