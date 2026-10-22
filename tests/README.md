@@ -66,13 +66,15 @@ the summary (`temporary files kept at …`). Nothing else on the host numbers or
 prunes it. Pass `--basetemp` to choose the place yourself; it is then never
 removed. Never add `--basetemp` to a launcher.
 
-A run owns its ports the same way. A server the test controls binds its own
-socket and reports the port. A port nothing may answer on is a held
-`bound_socket()`. Use `tests._ports.reserved_port()` / `reserved_ports()` only
-where the number must be known before the server starts, or the code under
-test binds it; the reservation is held until the server has stopped. Never
-bind port 0 and release it. `tests/infrastructure/test_no_released_ports.py`
-lists the files still to convert.
+A run owns its ports the same way, and a port is named by what it is. A server
+the test controls binds its own socket and reports the port. A port that is
+free and held — nothing may answer on it, or the code under test or a server
+that cannot pick its own binds it later — is a `tests._ports.reserved_port()` /
+`reserved_ports()`, or the `reserve_port` fixture; a connect to it is refused at
+once, and it is held until the test or the server has finished. A port that
+must be occupied is a `bound_socket()`. Never bind port 0 and release it.
+`tests/infrastructure/test_no_released_ports.py` lists the files still to
+convert.
 
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
@@ -481,20 +483,26 @@ import time. "It was easier" is not a reason; move it into a fixture instead.
 
 ### Ports
 
-Take ports from the shared helpers in `src/osprey/interfaces/_serving.py`:
+Take ports from `tests/_ports.py`, by what the port is:
 
 ```python
-from osprey.interfaces._serving import free_port, wait_for_port
+from osprey.interfaces._serving import run_app_server, wait_for_port
+from tests._ports import bound_socket, reserved_port
 
-port = free_port()          # an unused TCP port on 127.0.0.1
-...
-wait_for_port(port)         # block until the server accepts, or raise
+with run_app_server(app) as url:       # a FastAPI app binds port 0 and reports it
+    ...
+with reserved_port() as port:          # free and held: dead, or bound later
+    ...
+    wait_for_port(port)                # block until the server accepts, or raise
+with bound_socket() as sock:           # occupied, for a bind-conflict test
+    port = sock.getsockname()[1]
 ```
 
-Never hardcode a port number. Four workers running the same hardcoded port is a
-guaranteed intermittent failure. Some older files still carry a private
-`_free_port` copy; those are untouched debt — new and modified tests use the
-shared helpers.
+A stdlib server binds `("127.0.0.1", 0)` and the test reads
+`server.server_address[1]`. The `reserve_port` fixture hands a test as many
+reserved ports as it asks for, held until it ends. Never hardcode a port
+number: four workers on one hardcoded port is a guaranteed intermittent
+failure.
 
 ### Containers
 
@@ -562,8 +570,9 @@ Checklist for a new test area:
       the whole run (`Interrupted: 1 error during collection`), but under `-n 4`
       it degrades — exit 1, and the colliding file's tests simply never run,
       which later reads as a coverage shortfall rather than a collection failure.
-- [ ] **Reuse the shared fixtures and helpers.** `free_port()` / `wait_for_port()`
-      for ports, the existing reset seams for global state, `patch_subprocess()`
+- [ ] **Reuse the shared fixtures and helpers.** `tests._ports` (`reserved_port()`,
+      `bound_socket()`, the `reserve_port` fixture) and `wait_for_port()` for
+      ports, the existing reset seams for global state, `patch_subprocess()`
       for subprocess fakes, `isolated_home` for anything touching `$HOME`.
 - [ ] **New global state gets a public reset seam in `src/`**, plus an autouse
       fixture in the area's `conftest.py` in the house style — reset before and
