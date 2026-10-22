@@ -165,7 +165,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Terminal Auth Multi-User E2E (auth.method token + none, real persona image)",
+  "name": "Terminal Auth Multi-User E2E (auth.method token + none, real render image)",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -195,7 +195,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Notebook Panel E2E (deployed persona + a kernel that follows the terminal)",
+  "name": "Notebook Panel E2E (deployed render + a kernel that follows the terminal)",
   "status": "completed",
   "conclusion": "skipped"
  },
@@ -225,7 +225,7 @@
   "conclusion": "skipped"
  },
  {
-  "name": "Full-Chain Auth E2E (real sidecar + role-resolved persona + audit ledgers)",
+  "name": "Full-Chain Auth E2E (real sidecar + role-resolved tier render + audit ledgers)",
   "status": "completed",
   "conclusion": "skipped"
  },
