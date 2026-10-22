@@ -646,6 +646,7 @@ def _install_readonly(
     eager_targets: Rows,
     deferred_targets: Rows,
     refusal: str,
+    load_refusal: str,
 ) -> None:
     """Refuse every write entry point in the tables, and every escape route."""
     # A warm-up that raises fails the install: a gate that skipped one would
@@ -656,12 +657,17 @@ def _install_readonly(
     def _osprey_readonly_refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError(refusal)
 
-    def _osprey_refused_load(*_args: Any, **_kwargs: Any) -> Any:
-        # Every load after install refuses, through ``ctypes`` and cffi alike,
-        # so the refusal holds no loader it could hand back.
-        raise RuntimeError(refusal)
+    # Every load after install refuses, through ``ctypes`` and cffi alike, so
+    # neither refuser holds a loader it could hand back. Each is shaped like the
+    # rows it replaces, so the refusal names the library the call asked for.
+    def _osprey_refused_load(name: Any = None, *_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(load_refusal.format(library=_library_label(name)))
+
+    def _osprey_refused_ffi_load(_self: Any, name: Any = None, *_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(load_refusal.format(library=_library_label(name)))
 
     setattr(_osprey_refused_load, _LOADER_GATE_ATTR, True)
+    setattr(_osprey_refused_ffi_load, _LOADER_GATE_ATTR, True)
 
     def _osprey_gated_symbol(self: Any, name_or_ordinal: Any) -> Any:
         # ``CDLL.__getitem__``, restated rather than wrapped so the original is
@@ -681,8 +687,10 @@ def _install_readonly(
 
     def _readonly_replacement(dotted: str, attr: str, _original: Any, _owner: Any) -> Any:
         row = (dotted, attr)
-        if row in _CTYPES_LOADER_ROWS or row in _FFI_LOADER_ROWS:
+        if row in _CTYPES_LOADER_ROWS:
             return _osprey_refused_load
+        if row in _FFI_LOADER_ROWS:
+            return _osprey_refused_ffi_load
         if row == _SYMBOL_LOOKUP_ROW:
             return _osprey_gated_symbol
         return _osprey_readonly_refuse
@@ -935,10 +943,13 @@ def install(mode: str, **contract: Any) -> None:
     Every row is a ``(dotted, attrs)`` pair. Failing to patch one target prints
     a warning naming it and moves on to the next; an absent target is silent.
 
-    ``"readonly"`` takes ``eager_targets``, ``deferred_targets`` and
-    ``refusal``. *eager_targets* are resolved and refused now; *deferred_targets*
-    are refused when their module is imported (or now, when it already is). A
-    refused call raises ``RuntimeError(refusal)``.
+    ``"readonly"`` takes ``eager_targets``, ``deferred_targets``, ``refusal``
+    and ``load_refusal``. *eager_targets* are resolved and refused now;
+    *deferred_targets* are refused when their module is imported (or now, when
+    it already is). A refused call raises ``RuntimeError(refusal)``; a refused
+    shared-library load raises ``RuntimeError`` with *load_refusal* formatted
+    with ``library``, the basename the load asked for (``<process>`` for the
+    process itself).
 
     ``"armed"`` takes ``blocked_targets``, ``rpc_targets``, ``refuse_rpc``,
     ``marker``, ``rpc_refusals`` and ``ca_provider_targets``. A blocked row
