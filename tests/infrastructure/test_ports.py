@@ -19,6 +19,7 @@ from tests._ports import (
     bound_socket,
     ephemeral_range_start,
     lock_path,
+    port_reserver,
     require_ipv6_loopback,
     reserved_port,
     reserved_ports,
@@ -169,6 +170,20 @@ def test_reserved_ports_are_distinct_and_held():
         assert all(_ports.PORT_FLOOR <= port < ephemeral_range_start() for port in ports)
         assert _lockable_elsewhere(ports) == [False, False, False]
     assert _lockable_elsewhere(ports) == [True, True, True]
+
+
+def test_a_port_reserver_hands_distinct_ports_held_until_its_block_ends():
+    with port_reserver() as reserve:
+        ports = [reserve(), reserve(), reserve()]
+        assert len(set(ports)) == 3
+        assert _lockable_elsewhere(ports) == [False, False, False]
+    assert _lockable_elsewhere(ports) == [True, True, True]
+
+
+def test_the_reserve_port_fixture_holds_distinct_ports_for_the_test(reserve_port):
+    ports = [reserve_port(), reserve_port(), reserve_port()]
+    assert len(set(ports)) == 3
+    assert _lockable_elsewhere(ports) == [False, False, False]
 
 
 def test_hold_ports_keeps_the_locks_until_exit():

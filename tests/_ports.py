@@ -28,7 +28,7 @@ import random
 import socket
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, suppress
 from pathlib import Path
 
@@ -150,6 +150,17 @@ def reserved_ports(count: int) -> Iterator[list[int]]:
     all held until the block ends."""
     with ExitStack() as stack:
         yield [stack.enter_context(reserved_port()) for _ in range(count)]
+
+
+@contextmanager
+def port_reserver() -> Iterator[Callable[[], int]]:
+    """Yield a call that reserves one more :func:`reserved_port` each time.
+
+    Each call returns a port distinct from every port the call returned before,
+    and every reservation is held until the block ends.
+    """
+    with ExitStack() as held:
+        yield lambda: held.enter_context(reserved_port())
 
 
 def hold_ports(count: int) -> list[int]:
