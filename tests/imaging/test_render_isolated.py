@@ -231,13 +231,21 @@ async def test_sleeper_id_times_out_and_siblings_render(monkeypatch, tmp_path):
 
 
 async def test_the_task_clock_starts_after_the_lock(monkeypatch, tmp_path):
-    # Each task takes 0.6 s against a 1 s clock; five queued tasks take 3 s in
-    # all, so a clock started at submission would time the later ones out.
-    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, "time.sleep(0.6)\nok()"))
+    # Each task takes a tenth of the clock and the queue holds one and a half
+    # clocks of them, so a clock started at submission would time the later ones
+    # out while one started after the lock leaves each task most of its clock.
+    clock = render.RENDER_TASK_TIMEOUT_S
+    count = 15
+    monkeypatch.setattr(render, "WORKER_ARGV", _stub(tmp_path, f"time.sleep({clock / 10})\nok()"))
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     outcomes = await asyncio.gather(
-        *(render.render_isolated(bytes([i]), task_id=str(i)) for i in range(5))
+        *(render.render_isolated(bytes([i]), task_id=str(i)) for i in range(count))
     )
+    elapsed = loop.time() - started
     assert all(o.rendition is not None for o in outcomes)
+    # The queue really outlasted one clock.
+    assert elapsed > clock
 
 
 async def test_crash_on_one_id_leaves_siblings_and_next_call_rendered(monkeypatch, tmp_path):
