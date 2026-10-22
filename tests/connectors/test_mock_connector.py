@@ -18,7 +18,11 @@ from osprey_connectors.control_system._va_in_process_connector import (
     NO_VIEW_MESSAGE,
     VAInProcessConnector,
 )
-from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelWriteBlockedError,
+    ConnectorUnavailableError,
+)
 from tests.facility.served_tree import in_process_config, served_tree
 
 
@@ -61,9 +65,26 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
         assert await connector.validate_channel("A:SP") is False
-        with pytest.raises(RuntimeError) as refusal:
+        with pytest.raises(ConnectorUnavailableError) as refusal:
             await connector.write_channel("A:SP", 1.0)
         assert str(refusal.value) == "the in-process simulator is not connected"
+
+    @pytest.mark.asyncio
+    async def test_a_disconnected_in_process_simulator_is_unavailable(self, tmp_path):
+        """A read, a metadata lookup and a reset on a disconnected simulator say it is gone."""
+        connector = VAInProcessConnector()
+        await connector.connect(
+            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+        )
+        await connector.disconnect()
+
+        for call in (
+            connector.read_channel("A:SP"),
+            connector.get_metadata("A:SP"),
+            connector.reset(),
+        ):
+            with pytest.raises(ConnectorUnavailableError, match="not connected"):
+                await call
 
     @pytest.mark.asyncio
     async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):

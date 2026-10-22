@@ -61,7 +61,12 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     values_match,
 )
-from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError, RefusalReason
+from osprey_connectors.errors import (
+    NOT_A_CHANNEL,
+    ChannelNotFoundError,
+    ConnectorUnavailableError,
+    RefusalReason,
+)
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
@@ -121,7 +126,8 @@ JOURNAL_REJECTED_EVENT = "journal-rejected"
 #: The line a write the journal could not record logs, before the error.
 JOURNAL_NOT_UPDATED = "writes journal not updated"
 
-#: Why an operation on a connector that is not connected is refused.
+#: Why an operation on a connector that is not connected is refused: the one
+#: case where the in-process simulator's connector itself is gone.
 NOT_CONNECTED = "the in-process simulator is not connected"
 
 
@@ -527,10 +533,10 @@ class VAInProcessConnector(ControlSystemConnector):
         """Return the simulator to its start state and empty the journal.
 
         Raises:
-            RuntimeError: The connector is not connected.
+            ConnectorUnavailableError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError(NOT_CONNECTED)
+            raise ConnectorUnavailableError(NOT_CONNECTED)
         self._sync()
         self._composite.reset()
         self._holds_writes = False
@@ -543,10 +549,10 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelNotFoundError: ``address`` is not a channel of the facility.
-            RuntimeError: The connector is not connected.
+            ConnectorUnavailableError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError(NOT_CONNECTED)
+            raise ConnectorUnavailableError(NOT_CONNECTED)
         if address not in self._served:
             raise ChannelNotFoundError(address)
         return self._composite
@@ -712,10 +718,10 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelLimitsViolationError: If limits validation fails (when enabled)
-            RuntimeError: The connector is not connected.
+            ConnectorUnavailableError: The connector is not connected.
         """
         if self._composite is None:
-            raise RuntimeError(NOT_CONNECTED)
+            raise ConnectorUnavailableError(NOT_CONNECTED)
         if channel_address not in self._served:
             unknown = ChannelNotFoundError(channel_address)
             logger.warning(f"In-process write refused: {channel_address}: {unknown}")

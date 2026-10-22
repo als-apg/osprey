@@ -1172,7 +1172,7 @@ class ControlSystemConnector(ABC):
             config: Control system-specific configuration
 
         Raises:
-            ConnectionError: If connection cannot be established
+            ConnectorUnavailableError: If connection cannot be established
         """
         pass
 
@@ -1196,7 +1196,9 @@ class ControlSystemConnector(ABC):
             ChannelValue with current value, timestamp, and metadata
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached or did not
+                answer in time; the connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
             TimeoutError: If operation times out
             ValueError: If channel address is invalid
             ChannelNotFoundError: The address is not a channel of the facility
@@ -1227,7 +1229,9 @@ class ControlSystemConnector(ABC):
             seen to hold
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached or did not
+                answer in time; the connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
             TimeoutError: If operation times out
             ValueError: If value is invalid for this channel
             PermissionError: If write access is not allowed
@@ -1288,7 +1292,7 @@ class ControlSystemConnector(ABC):
 
         ``refused`` (policy/limits/validation) -> raises ChannelWriteBlockedError.
         ``failed`` / ``mismatch`` / ``unconfirmed`` -> raises ChannelWriteFailedError.
-        Native ConnectionError/TimeoutError from the transport -> propagate unchanged.
+        Connection failures and timeouts propagate unchanged.
         ``confirmed`` or ``unrequested`` -> returns the ChannelWriteResult.
 
         A scan device setter wraps this so any raise aborts the RunEngine, while a
@@ -1307,8 +1311,8 @@ class ControlSystemConnector(ABC):
             result = await self.write_channel(channel_address, value, **kwargs)
         except ChannelLimitsViolationError as exc:
             # A limits refusal is a REFUSAL — normalize it into the unified denial type
-            # so consumers key on one refusal signal. (ConnectionError/TimeoutError are
-            # NOT caught here, so they propagate unchanged.)
+            # so consumers key on one refusal signal. Connection failures and
+            # timeouts are not caught here, so they propagate unchanged.
             raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
         return raise_for_write_result(result)
@@ -1429,7 +1433,9 @@ class ControlSystemConnector(ABC):
             control system reports one) a display range
 
         Raises:
-            ConnectionError: If channel cannot be reached
+            ChannelUnreachableError: This channel cannot be reached; the
+                connector stays in place
+            ConnectorUnavailableError: The connector's own transport is gone
         """
         pass
 
