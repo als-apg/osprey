@@ -85,7 +85,11 @@ and the entry point sequences them.
     second teardown signals it again before the death check re-runs. Only
     then is the incoming process started, through the caller's
     :data:`SpawnCallback`, told which transcript to resume by a fresh look at
-    the transcript map and the transcripts on disk. An Expert caller is
+    the transcript map and the transcripts on disk. An Expert caller reuses
+    the key's pooled PTY only when that PTY was launched under the overlay
+    the caller would launch it with now; a mismatched one is popped, killed
+    off the loop and observed dead the same way, and the spawn is handed the
+    overlay the comparison used. An Expert caller is
     attached to the PTY (its channel token is the owner token) before the
     slot is released, so the eviction pass never sees the entry unheld. The
     phase ends in an :class:`AcquireResult`.
@@ -609,12 +613,17 @@ class SpawnRequest:
             the other surface held the key is what the new process opens.
         transcript_id: The key's current transcript per the map (*key* itself
             when it never moved), whether or not it is on disk.
+        launch_env: The launch-env overlay the door compared the key's pooled
+            PTY against, for the spawn to start the child under; ``None`` for
+            the Simple surface and for an Expert caller that states no
+            overlay. Kept out of ``repr``: it carries the panel token.
     """
 
     key: str
     surface: Surface
     resume_id: str | None
     transcript_id: str
+    launch_env: dict[str, str] | None = field(default=None, repr=False)
 
 
 SpawnCallback = Callable[[SpawnRequest], Awaitable["PtySession | OperatorSession"]]
@@ -624,7 +633,8 @@ Called by phase (c), inside its shielded task and under the key's lock, once
 the key holds nothing of the other surface. It must start the process *and*
 put it in its pool under ``request.key`` — the terminal handler through
 ``PtyRegistry.get_or_create_session`` with the resume argument built from
-``request.resume_id``, the chat route through
+``request.resume_id`` and ``extra_env=request.launch_env``, never an overlay
+of its own, the chat route through
 ``OperatorRegistry.get_or_create_chat_session(key, cwd, env,
 resume_id=request.resume_id)`` — and return the pooled session. A chat pool
 at capacity may raise ``ChatCapacityError``; phase (c) turns it into the 429
@@ -668,6 +678,11 @@ class AcquirePlan:
             registration, ``None`` on a plan not yet registered. The owner the
             phases match the record against, carried on the plan because
             phase (c) releases from a task of its own.
+        launch_env: Expert only: builds the overlay a fresh PTY under the key
+            would be launched with, from the key. Phase (c) calls it once and
+            compares the result with the pooled PTY's recorded fingerprint.
+            ``None`` states no overlay, which fingerprints as the empty
+            overlay — a PTY recorded under any overlay is then replaced.
     """
 
     key: str
@@ -682,6 +697,7 @@ class AcquirePlan:
     displaced_owner: object | None = None
     end_started: bool = False
     task: asyncio.Task[Any] | None = None
+    launch_env: Callable[[str], dict[str, str] | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -768,6 +784,7 @@ async def acquire_surface(
     spawn: SpawnCallback,
     interrupt: bool = False,
     end_started: bool = False,
+    launch_env: Callable[[str], dict[str, str] | None] | None = None,
 ) -> AcquireResult:
     """Take session key *key* for *surface* on behalf of *channel*.
 
@@ -823,9 +840,21 @@ async def acquire_surface(
             entry of the incoming surface, so a Simple caller that is merely
             taking its next turn on its own pooled chat is handed that chat
             back without a spawn.
+        launch_env: Expert only: builds, from the key, the overlay a fresh
+            PTY would be launched with now. The key's pooled PTY is reused
+            only when it was launched under that overlay; otherwise it is
+            replaced, and the spawn is handed the same overlay as
+            ``SpawnRequest.launch_env``. ``None`` states no overlay.
     """
     plan = await _phase_a(
-        app, key, surface, channel, interrupt=interrupt, spawn=spawn, end_started=end_started
+        app,
+        key,
+        surface,
+        channel,
+        interrupt=interrupt,
+        spawn=spawn,
+        end_started=end_started,
+        launch_env=launch_env,
     )
     outcome = await _phase_b(app, plan)
     return await _phase_c(app, plan, outcome)
@@ -881,6 +910,7 @@ async def _phase_a(
     interrupt: bool,
     spawn: SpawnCallback,
     end_started: bool = False,
+    launch_env: Callable[[str], dict[str, str] | None] | None = None,
 ) -> AcquirePlan:
     """Decide what acquiring *key* for *surface* means right now.
 
@@ -908,6 +938,7 @@ async def _phase_a(
                     interrupt=interrupt,
                     spawn=spawn,
                     end_started=end_started,
+                    launch_env=launch_env,
                 )
             except _Blocked as blocked:
                 reason = blocked.reason
@@ -936,6 +967,7 @@ async def _inspect_and_register(
     interrupt: bool,
     spawn: SpawnCallback,
     end_started: bool = False,
+    launch_env: Callable[[str], dict[str, str] | None] | None = None,
 ) -> AcquirePlan:
     """One look at the key. Caller holds the key's lock.
 
@@ -991,6 +1023,7 @@ async def _inspect_and_register(
             displaced_owner=registry.attached_owner(key),
             spawn=spawn,
             end_started=end_started,
+            launch_env=launch_env,
         )
         return _register(state, registry, plan)
 
@@ -1010,6 +1043,7 @@ async def _inspect_and_register(
             wait_for_idle=False,
             spawn=spawn,
             end_started=end_started,
+            launch_env=launch_env,
         )
         return _register(state, registry, plan)
 
@@ -1063,6 +1097,7 @@ async def _inspect_and_register(
         wait_for_idle=wait_for_idle,
         spawn=spawn,
         end_started=end_started,
+        launch_env=launch_env,
     )
     return _register(state, registry, plan)
 
@@ -1564,7 +1599,9 @@ async def _teardown_and_spawn(
     the outgoing entry down and confirms its death; a Simple ``reuse`` of a
     busy chat the caller interrupted cancels that turn, and of a chat that
     died discards the corpse. Filling the key is the incoming surface's own
-    pooled entry when it has one, else the caller's spawn callback. An Expert
+    pooled entry when it has one — for the Expert surface only when that
+    PTY's launch env matches the plan's overlay — else the caller's spawn
+    callback, handed that same overlay. An Expert
     caller is attached last, before the slot is released by the caller of
     this function.
     """
@@ -1589,7 +1626,10 @@ async def _teardown_and_spawn(
             await pool.terminate(key)
             logger.info("Discarded dead chat session under session %s", key)
 
+    launch_env: dict[str, str] | None = None
     if plan.surface == SURFACE_EXPERT:
+        launch_env = plan.launch_env(key) if plan.launch_env is not None else None
+        await _drop_stale_pty(state, registry, key, launch_env)
         pooled: PtySession | OperatorSession | None = registry.get_session(key)
     else:
         pooled = pool.get(key)
@@ -1598,7 +1638,7 @@ async def _teardown_and_spawn(
     if pooled is not None:
         session = pooled
     else:
-        request = await _spawn_request(app, key, plan.surface)
+        request = replace(await _spawn_request(app, key, plan.surface), launch_env=launch_env)
         resume_id = request.resume_id
         logger.info(
             "Starting the %s process for session %s (%s)",
@@ -1651,6 +1691,37 @@ async def _displace(state: HandoffState, registry: PtyRegistry, plan: AcquirePla
             )
     if owner is not None:
         registry.detach_session(plan.key, owner)
+
+
+async def _drop_stale_pty(
+    state: HandoffState,
+    registry: PtyRegistry,
+    key: str,
+    launch_env: dict[str, str] | None,
+) -> None:
+    """Pop and kill the key's pooled PTY when it was launched under another overlay.
+
+    A warm PTY is reattached only under the overlay it was launched with. A
+    mismatched one is popped, killed off the loop and observed dead before
+    anything else fills the key. A survivor goes back into the pool
+    unattached and with no recorded fingerprint (``PtyRegistry.reinsert``
+    records none), so the next acquire meets it as a mismatch again, and the
+    acquire is refused with 503.
+    """
+    stale = registry.pop_env_mismatch(key, launch_env)
+    if stale is None:
+        return
+    logger.info("Launch env changed for session %s; replacing its PTY", key)
+    await asyncio.to_thread(stale.terminate)
+    if not await _observed_dead(state, lambda: not stale.is_alive):
+        logger.warning(
+            "PTY for session %s survived its kill; refusing the %s acquire",
+            key,
+            SURFACE_EXPERT,
+        )
+        if not registry.reinsert(key, stale):
+            logger.error("PTY survivor for session %s could not be pooled again", key)
+        raise HandoffRefused.outgoing_still_running(key)
 
 
 async def _tear_down(
