@@ -30,7 +30,6 @@ import copy
 import json
 import logging
 import re
-import socket
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -92,14 +91,6 @@ VOCABULARY = (
 
 
 # --- servers -----------------------------------------------------------------------
-
-
-def _closed_url() -> str:
-    """A local URL nothing listens on: a port bound once, then released."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    return f"http://127.0.0.1:{port}"
 
 
 class OllamaStub:
@@ -422,7 +413,7 @@ def _mirror_hit(tmp_path: Path) -> tuple[str, str]:
 
 
 @pytest.fixture(autouse=True)
-def _isolated(monkeypatch, tmp_path):
+def _isolated(reserve_port, monkeypatch, tmp_path):
     """Fresh process state, ``cwd`` in ``tmp_path``, every server URL closed by default."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
     from osprey_connectors.workspace import reset_config_cache
@@ -436,8 +427,11 @@ def _isolated(monkeypatch, tmp_path):
     _local_server.reset_cache()
     monkeypatch.chdir(tmp_path)
 
-    closed = {"ollama": _closed_url(), "llama-cpp": _closed_url()}
-    fallbacks = [_closed_url(), _closed_url()]
+    closed = {
+        "ollama": f"http://127.0.0.1:{reserve_port()}",
+        "llama-cpp": f"http://127.0.0.1:{reserve_port()}",
+    }
+    fallbacks = [f"http://127.0.0.1:{reserve_port()}", f"http://127.0.0.1:{reserve_port()}"]
     # The api.providers entries point at closed ports: an env override names
     # the in-test server, and nothing ever reaches the host's own servers.
     monkeypatch.setattr(
@@ -447,8 +441,8 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(
         _local_server, "container_fallback_urls", lambda base_url, default_port: list(fallbacks)
     )
-    monkeypatch.setenv("OLLAMA_HOST", _closed_url())
-    monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url())
+    monkeypatch.setenv("OLLAMA_HOST", f"http://127.0.0.1:{reserve_port()}")
+    monkeypatch.setenv("LLAMA_CPP_HOST", f"http://127.0.0.1:{reserve_port()}")
     yield
     reset_ariel_context()
     reset_config_cache()

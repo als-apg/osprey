@@ -9,7 +9,6 @@ the one local-server cache, for adapters that resolve outside their calls.
 from __future__ import annotations
 
 import contextlib
-import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -75,12 +74,6 @@ def _cached_entries() -> list[str]:
     """The URLs the local-server cache holds right now."""
     with _local_server._cache_lock:
         return list(_local_server._cache.values())
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 class _Stub:
@@ -326,10 +319,12 @@ class TestResolveReachableBaseUrl:
         assert resolve_reachable_base_url(OllamaProviderAdapter, url) == url
         assert probes.calls == []
 
-    def test_a_refusing_localhost_falls_back_to_the_docker_host(self, probes, stubs, monkeypatch):
+    def test_a_refusing_localhost_falls_back_to_the_docker_host(
+        self, reserve_port, probes, stubs, monkeypatch
+    ):
         monkeypatch.delenv("X_HOST", raising=False)
         stub = stubs()
-        port = _free_port()
+        port = reserve_port()
         probes.docker_target = stub.url
         configured = f"http://127.0.0.1:{port}"
 
@@ -348,11 +343,11 @@ class TestResolveReachableBaseUrl:
 
         assert probes.calls == [stub.url]
 
-    def test_a_fallback_walk_is_cached(self, probes, stubs, monkeypatch):
+    def test_a_fallback_walk_is_cached(self, reserve_port, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         cls = _fallback_class()
-        configured = f"http://127.0.0.1:{_free_port()}"
+        configured = f"http://127.0.0.1:{reserve_port()}"
 
         first = resolve_reachable_base_url(cls, configured)
         walked = len(probes.calls)
@@ -361,26 +356,26 @@ class TestResolveReachableBaseUrl:
 
         assert len(probes.calls) == walked
 
-    def test_the_env_override_is_tried_first(self, probes, stubs, monkeypatch):
+    def test_the_env_override_is_tried_first(self, reserve_port, probes, stubs, monkeypatch):
         stub = stubs()
         monkeypatch.setenv("X_HOST", stub.url)
-        configured = f"http://127.0.0.1:{_free_port()}"
+        configured = f"http://127.0.0.1:{reserve_port()}"
 
         assert resolve_reachable_base_url(_fallback_class(), configured) == stub.url
         assert probes.calls == [stub.url]
 
     @pytest.mark.usefixtures("probes")
-    def test_nothing_answering_returns_the_configured_url(self, monkeypatch):
+    def test_nothing_answering_returns_the_configured_url(self, reserve_port, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
-        configured = f"http://127.0.0.1:{_free_port()}"
+        configured = f"http://127.0.0.1:{reserve_port()}"
 
         assert resolve_reachable_base_url(_fallback_class(), configured) == configured
 
-    def test_refresh_finds_a_server_that_moved(self, probes, stubs, monkeypatch):
+    def test_refresh_finds_a_server_that_moved(self, reserve_port, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         fallback = stubs()
         probes.docker_target = fallback.url
-        port = _free_port()
+        port = reserve_port()
         configured = f"http://127.0.0.1:{port}"
         cls = _fallback_class()
         assert resolve_reachable_base_url(cls, configured) == (
@@ -393,11 +388,11 @@ class TestResolveReachableBaseUrl:
 
         assert resolve_reachable_base_url(cls, configured, refresh=True) == configured
 
-    def test_a_late_walk_still_writes_the_cache(self, probes, stubs, monkeypatch):
+    def test_a_late_walk_still_writes_the_cache(self, reserve_port, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         probes.delay_s = 0.3
-        port = _free_port()
+        port = reserve_port()
         configured = f"http://127.0.0.1:{port}"
         cls = _fallback_class()
 
@@ -458,13 +453,13 @@ class TestTextEmbeddingResolution:
 
     @pytest.mark.asyncio
     async def test_a_refusing_localhost_embeds_through_the_fallback(
-        self, monkeypatch, probes, stubs
+        self, reserve_port, monkeypatch, probes, stubs
     ):
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         cls = _fallback_class()
         _register(monkeypatch, fakellama=cls)
-        port = _free_port()
+        port = reserve_port()
         module = _text_module({"name": "fakellama", "base_url": f"http://127.0.0.1:{port}"})
 
         await module.enhance({"entry_id": "e1", "raw_text": "beam"}, _tables_exist_conn())
@@ -477,12 +472,14 @@ class TestTextEmbeddingResolution:
 
     @pytest.mark.asyncio
     async def test_configure_with_no_server_succeeds_and_health_reports_unreachable(
-        self, monkeypatch
+        self, reserve_port, monkeypatch
     ):
         monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
         monkeypatch.setattr(_local_server, "probe", lambda url, path, timeout: False)
 
-        module = _text_module({"name": "llama-cpp", "base_url": f"http://127.0.0.1:{_free_port()}"})
+        module = _text_module(
+            {"name": "llama-cpp", "base_url": f"http://127.0.0.1:{reserve_port()}"}
+        )
         verdict = await module.health_check()
 
         assert verdict.reachable is False

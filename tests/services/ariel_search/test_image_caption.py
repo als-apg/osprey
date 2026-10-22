@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import math
-import socket
 import threading
 import time
 from collections.abc import Callable
@@ -1101,12 +1100,6 @@ def test_cancelled_pass_lets_asyncio_run_return_within_one_second(provider_confi
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 class StubOllama:
     """An Ollama stand-in serving ``/api/tags``, ``/v1/models``, ``/api/show`` and ``/api/chat``."""
 
@@ -1211,8 +1204,8 @@ class TestOllama:
         result = await _ollama_module(provider_configs, stub.url).health_check()
         assert (result.reachable, result.reason) == (False, "model")
 
-    async def test_nothing_answering_is_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+    async def test_nothing_answering_is_unreachable(self, reserve_port, provider_configs):
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
         result = await module.health_check()
         assert (result.reachable, result.reason) == (False, "unreachable")
 
@@ -1231,11 +1224,11 @@ class TestOllama:
         assert stub.chats == []
 
     async def test_container_fallback_serves_health_and_the_call(
-        self, provider_configs, stubs, fallbacks
+        self, reserve_port, provider_configs, stubs, fallbacks
     ):
         stub = stubs({MODEL: ["completion", "vision"]})
         fallbacks.append(stub.url)
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
 
         result = await module.health_check()
         assert result.reachable is True
@@ -1274,8 +1267,10 @@ class TestOllama:
         assert repo.entries["e2"] == e2_before
         assert repo.failed == {}
 
-    async def test_the_adapter_failed_connect_classifies_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+    async def test_the_adapter_failed_connect_classifies_unreachable(
+        self, reserve_port, provider_configs
+    ):
+        module = _ollama_module(provider_configs, f"http://localhost:{reserve_port()}")
         repo = FakeRepo()
         repo.add_entry("e1", 1)
 
@@ -1284,10 +1279,10 @@ class TestOllama:
         assert outcome == ImageEntryOutcome.unavailable("unreachable")
 
     async def test_fallback_gone_and_configured_back_recovers(
-        self, provider_configs, stubs, fallbacks, caplog
+        self, reserve_port, provider_configs, stubs, fallbacks, caplog
     ):
         caplog.set_level(logging.DEBUG)
-        configured_port = _free_port()
+        configured_port = reserve_port()
         fallback = stubs({MODEL: ["vision"]})
         fallbacks.append(fallback.url)
         module = _ollama_module(provider_configs, f"http://localhost:{configured_port}")

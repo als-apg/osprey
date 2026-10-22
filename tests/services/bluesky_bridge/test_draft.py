@@ -12,9 +12,6 @@ fixture, plus resetting the draft singleton (`draft._clear()`).
 from __future__ import annotations
 
 import json
-import socket
-import threading
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,9 +19,9 @@ from typing import Any
 
 import httpx
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
+from osprey.interfaces._serving import run_app_server
 from osprey.services.bluesky_bridge import draft, plan_loader
 from osprey.services.bluesky_bridge.app import app
 
@@ -69,23 +66,6 @@ def _read_frame(lines: Iterator[str]) -> dict[str, Any]:
     raise AssertionError("SSE stream ended before yielding a frame")
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"bridge did not become ready on port {port} within {timeout}s")
-
-
 @contextmanager
 def _live_bridge() -> Iterator[str]:
     """Run the real bridge app on a real TCP port in a background thread.
@@ -104,21 +84,12 @@ def _live_bridge() -> Iterator[str]:
     subscriber queues) lazily bind to whichever event loop first touches
     them. This is safe only because this suite's loops are used strictly
     *sequentially* — the uvicorn server thread's loop runs and fully shuts
-    down (`server.should_exit = True; t.join(...)`) before the next test's
+    down (``run_app_server`` joins its thread on exit) before the next test's
     loop starts. Overlapping access from two live loops at once would fail
     with "Future ... attached to a different loop".
     """
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    _wait_for_port(port)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
+    with run_app_server(app) as url:
+        yield url
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ real module with its vision call replaced by a fake.
 
 from __future__ import annotations
 
-import socket
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -164,12 +163,6 @@ def _captions(uri: str, entry_id: str) -> dict[str, Any]:
     return row[0] or {}
 
 
-def _closed_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
-
-
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch):
     """Fresh availability and offload state; a configured caption provider."""
@@ -310,9 +303,9 @@ class TestEnhanceImageEmbedding:
 
     @pytest.mark.parametrize("module", [EMBED, None])
     async def test_a_closed_port_prints_the_skip_reason_and_writes_no_key(
-        self, repo, scratch_database, module
+        self, reserve_port, repo, scratch_database, module
     ):
-        cfg = _config_dict(scratch_database, embed_url=_closed_url())
+        cfg = _config_dict(scratch_database, embed_url=f"http://127.0.0.1:{reserve_port()}")
         await _seed(repo, cfg, "closed-1", ["a.png"])
         lines: list[str] = []
 
