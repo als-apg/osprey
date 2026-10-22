@@ -274,69 +274,6 @@ def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
     assert "synthesizes" in details(guard)
 
 
-def test_an_exempt_commented_example_does_not_go_red():
-    """Deleted keys documented commented on purpose; see the manifest.
-
-    Each left what OSPREY SHIPS while staying live in its reader, so the
-    commented line beside that prose documents an override that works. The
-    exemption is narrow, which the second half asserts: the same key spelled
-    LIVE in a preset is still a resurrection.
-    """
-    guard = make_guard()
-    exempt = MANIFEST["deleted_commented_examples"]
-    assert exempt, "the manifest is supposed to record the deliberate exemptions"
-
-    for key in exempt:
-        assert key in MANIFEST["deleted"]
-        assert guard.commented_preset_overrides(key) == []
-
-    guard.check_deleted()
-    guard.check_deleted_commented_examples()
-    assert guard.result.ok, details(guard)
-
-
-def test_an_exemption_for_a_key_that_was_never_deleted_goes_red():
-    def exempt_a_live_key(manifest):
-        manifest["deleted_commented_examples"]["cli.theme"] = "not deleted at all"
-
-    guard = make_guard(exempt_a_live_key)
-    guard.check_deleted_commented_examples()
-    assert "resurrection" in modes(guard)
-    assert "not on the deleted list" in details(guard)
-
-
-def test_an_exemption_with_no_reason_goes_red():
-    """An exemption is only as good as the reason recorded beside it.
-
-    A blank one reads as "someone waved this through" and is the shape the next
-    retired key gets added under, so the empty arm has its own control. Both
-    spellings of blank are exercised, because the check strips before testing
-    and a whitespace-only reason is the one that would otherwise pass.
-    """
-
-    for blank in ("", "   "):
-
-        def blank_the_reason(manifest, blank=blank):
-            manifest["deleted_commented_examples"]["ariel.database.uri"] = blank
-
-        guard = make_guard(blank_the_reason)
-        guard.check_deleted_commented_examples()
-        assert "resurrection" in modes(guard), f"a reason of {blank!r} must not pass"
-        assert "gives no reason" in details(guard)
-
-
-def test_an_exemption_no_preset_uses_any_more_goes_red():
-    """An unused exemption is a hole waiting for the next retired key."""
-
-    def exempt_a_key_no_preset_documents(manifest):
-        manifest["deleted_commented_examples"]["facility_name"] = "nothing documents this"
-
-    guard = make_guard(exempt_a_key_no_preset_documents)
-    guard.check_deleted_commented_examples()
-    assert "resurrection" in modes(guard)
-    assert "is unused" in details(guard)
-
-
 def test_commented_preset_override_of_a_deleted_key_is_detected(tmp_path):
     """A retired key put back as a commented example is still put back.
 

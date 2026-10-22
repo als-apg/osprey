@@ -2156,6 +2156,17 @@ keys:
       unset, or a template that does not format, emits no `entry_url` (the
       second is logged once) and the read itself never fails.
     default: null
+  ariel.database.uri:
+    rendered: false
+    evidence: 'database\.get\("uri"\)'
+    note: >-
+      The address of a logbook database the deployment does not run. Commented
+      in control-assistant, the one root preset that ships an `ariel:` block,
+      because an external database is facility content. Read by `resolve_ariel_dsn`; set, it is used
+      verbatim and wins over the address derived from `services.postgresql`.
+    default: derived
+    default_note: >-
+      unset, the ingestion login is derived from `services.postgresql`
   ariel.database.readonly_uri:
     rendered: false
     evidence: 'database\.get\("readonly_uri"\)'
@@ -2163,8 +2174,9 @@ keys:
       The SELECT-only login the agent's SQL tool connects as, on a store the
       deployment names itself with the `uri` key. Commented in control-assistant,
       the one root preset that ships an `ariel:` block, because an external
-      database is facility content. Read by `resolve_ariel_readonly_dsn` and `sql_tool_offered`; a
-      value equal to the ingestion login is refused at config parse.
+      database is facility content. Read by `resolve_ariel_readonly_dsn` and
+      `sql_tool_offered`; a value equal to the ingestion login is refused at
+      config parse.
     default: derived
     default_note: >-
       unset, a derived store uses the `<services.postgresql.username>_ro`
@@ -3478,10 +3490,6 @@ deleted:
   # no file setting. The commented `archiver.type: mock_archiver` example stays,
   # so only the leaf is listed.
 - archiver.mock_archiver.simulation_file
-  # Ledger 24+35 — the ARIEL DSN is derived from services.postgresql. An
-  # explicit `uri` still WINS when set, and the commented external-DB override
-  # example stays, so `ariel.database` is deliberately NOT listed as deleted.
-- ariel.database.uri
   # Ledger 27 — semantic_processor takes its provider at the module level; the
   # nested provider under `model:` was a second, ignored spelling.
 - ariel.enhancement_modules.semantic_processor.model.provider
@@ -3551,29 +3559,6 @@ deleted:
   # carries one.
 - modules.web_terminals.personas  # retired-spelling
 - modules.web_terminals.default_persona  # retired-spelling
-
-# ---------------------------------------------------------------------------
-# deleted_commented_examples — the keys above whose COMMENTED example in a
-# preset is deliberate, with the reason each one is not a resurrection.
-#
-# Each was removed from what OSPREY ships, not from its reader: setting it
-# still works and still wins. Under the app templates that documentation
-# lived in a template, which the resurrection check never read for comments;
-# converting the templates into presets moved the same lines onto the surface
-# the check does read, and this section is where that move is recorded rather
-# than resolved by deleting the documentation.
-#
-# The exemption is narrow — the LIVE preset override, the rendered union and the
-# loader's synthesized defaults are still checked for these keys — and it is
-# itself checked: an entry naming a key that was never deleted, carrying no
-# reason, or outliving the preset line it was written for fails the guard.
-# ---------------------------------------------------------------------------
-deleted_commented_examples:
-  ariel.database.uri: >-
-    The ARIEL DSN is derived from `services.postgresql.*`. An explicit uri still
-    WINS, which is exactly what the commented line in control-assistant
-    shows: how to point ARIEL at a Postgres the deployment
-    does not run.
 
 # ---------------------------------------------------------------------------
 # orphan_sites — per deleted key, regexes for its removed code sites. Every
