@@ -28,7 +28,12 @@ The field lists are the protocol spec
 -------------------------------------
 :data:`CHANNEL_LIMITS_VIOLATION_FIELDS`, :data:`CHANNEL_WRITE_BLOCKED_FIELDS`
 and :data:`CHANNEL_NOT_FOUND_FIELDS` enumerate, by *attribute* name, exactly
-what crosses the boundary for the three osprey-defined classes. They are
+what crosses the boundary for the three refusal and lookup classes; a
+:class:`~osprey_connectors.errors.ChannelUnreachableError` carries its
+``channel_address`` and its text, and a
+:class:`~osprey_connectors.errors.ConnectorUnavailableError` its text alone:
+its ``recovery`` is not a wire field, because recovery is decided by the
+parent's supervisor, never by the child. The three lists are
 attribute names rather than constructor keywords because the attribute is what
 the parent's envelope rendering reads: ``ChannelLimitsViolationError`` is
 constructed with ``value=`` but stores it as ``.attempted_value``, so the spec
@@ -68,8 +73,10 @@ from typing import Any
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
+    ConnectorUnavailableError,
 )
 
 __all__ = [
@@ -118,7 +125,7 @@ class ExceptionSpec:
     actually accepts it, for the one class where the two differ.
     ``message_kwarg`` names a constructor keyword fed from the frame's
     ``message``, for a class whose text is not derivable from its fields. An
-    empty ``fields`` marks a builtin rebuilt from its message alone.
+    empty ``fields`` marks a class rebuilt from its message alone.
     """
 
     cls: type[BaseException]
@@ -127,8 +134,8 @@ class ExceptionSpec:
     message_kwarg: str | None = None
 
 
-#: The registry. Exactly six classes cross this boundary typed; everything else
-#: fails closed to :class:`~osprey_connectors.errors.ConnectorInternalError`.
+#: The registry. Exactly eight classes cross this boundary typed; everything
+#: else fails closed to :class:`~osprey_connectors.errors.ConnectorInternalError`.
 EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
     "ConnectionError": ExceptionSpec(ConnectionError),
     "TimeoutError": ExceptionSpec(TimeoutError),
@@ -146,6 +153,12 @@ EXCEPTION_SPECS: dict[str, ExceptionSpec] = {
         ChannelNotFoundError,
         fields=CHANNEL_NOT_FOUND_FIELDS,
     ),
+    "ChannelUnreachableError": ExceptionSpec(
+        ChannelUnreachableError,
+        fields=("channel_address",),
+        message_kwarg="message",
+    ),
+    "ConnectorUnavailableError": ExceptionSpec(ConnectorUnavailableError),
     "ConnectorInternalError": ExceptionSpec(
         ConnectorInternalError,
         fields=("class_tag",),
