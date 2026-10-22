@@ -34,7 +34,6 @@ import importlib.util
 import json
 import multiprocessing
 import os
-import socket
 import time
 from collections.abc import Coroutine, Iterator, Mapping
 from pathlib import Path
@@ -43,25 +42,23 @@ from typing import Any
 
 import pytest
 
-
-def _free_port() -> str:
-    """An unused loopback TCP port, as a string ready for the environment."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return str(probe.getsockname()[1])
-
+from tests._ports import hold_ports, reserved_ports
 
 # import-time required because libca latches the EPICS_CA_* environment when
 # the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Loopback only, on an ephemeral port unless the environment
-# pins one, with the server and CAS ports equal -- a search reply carries the
-# server's own port, so a server listening anywhere else hands clients a dead
-# address. The spawned server inherits the same values.
+# anywhere in the process. Loopback only, on ports reserved for the process
+# unless the environment pins them, with the server and CAS ports equal -- a
+# search reply carries the server's own port, so a server listening anywhere
+# else hands clients a dead address. The spawned server inherits the same
+# values and reserves nothing.
 os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
 os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
-os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())
+if multiprocessing.parent_process() is None:
+    for _name in ("EPICS_CA_SERVER_PORT", "EPICS_CA_REPEATER_PORT"):
+        if _name not in os.environ:
+            (_port,) = hold_ports(1)
+            os.environ[_name] = str(_port)
 os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"])
-os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -425,29 +422,30 @@ def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
     state = root / "state"
     state.mkdir()
     _activate(state, STUCK_SCENARIO)
-    env = {
-        "VA_DATA_DIR": str(root / "data"),
-        "VA_STATE_DIR": str(state),
-        "VA_INSTANCE": INSTANCE,
-        "VA_POLL_INTERVAL_S": str(TICK_S),
-        "EPICS_PVAS_SERVER_PORT": _free_port(),
-        "EPICS_PVAS_BROADCAST_PORT": _free_port(),
-        "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
-        "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
-        "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
-        "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
-    }
-    served = _Served(env)
-    try:
-        deadline = time.monotonic() + STARTUP_TIMEOUT_S
-        while _caget(LIVE_RB) is None:
-            if not served.alive():
-                pytest.fail("the entrypoint exited before it served")
-            if time.monotonic() > deadline:
-                pytest.fail("the entrypoint never served")
-        yield served
-    finally:
-        served.stop()
+    with reserved_ports(2) as (pvas_port, pvas_broadcast_port):
+        env = {
+            "VA_DATA_DIR": str(root / "data"),
+            "VA_STATE_DIR": str(state),
+            "VA_INSTANCE": INSTANCE,
+            "VA_POLL_INTERVAL_S": str(TICK_S),
+            "EPICS_PVAS_SERVER_PORT": str(pvas_port),
+            "EPICS_PVAS_BROADCAST_PORT": str(pvas_broadcast_port),
+            "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
+            "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
+            "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
+            "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
+        }
+        served = _Served(env)
+        try:
+            deadline = time.monotonic() + STARTUP_TIMEOUT_S
+            while _caget(LIVE_RB) is None:
+                if not served.alive():
+                    pytest.fail("the entrypoint exited before it served")
+                if time.monotonic() > deadline:
+                    pytest.fail("the entrypoint never served")
+            yield served
+        finally:
+            served.stop()
 
 
 def _wait_until(predicate: Any, *, timeout: float = SETTLE_TIMEOUT_S) -> Any:
