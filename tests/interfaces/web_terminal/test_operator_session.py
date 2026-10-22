@@ -478,6 +478,25 @@ class TestTurnGuardEpoch:
         assert session.in_flight is False
 
 
+class TestNoteTranscript:
+    """The session remembers which conversation its child last reported."""
+
+    def test_the_first_report_is_the_baseline(self):
+        session = OperatorSession(cwd="/tmp", session_key="key")
+        assert session.note_transcript("other") is False
+
+    def test_the_same_id_again_is_no_move(self):
+        session = OperatorSession(cwd="/tmp")
+        session.note_transcript("a")
+        assert session.note_transcript("a") is False
+
+    def test_a_new_id_is_a_move_once(self):
+        session = OperatorSession(cwd="/tmp")
+        session.note_transcript("a")
+        assert session.note_transcript("b") is True
+        assert session.note_transcript("b") is False
+
+
 # ---------------------------------------------------------------------------
 # OperatorSession.cancel() / spawn_quiesce() / last_activity
 # ---------------------------------------------------------------------------
