@@ -12,9 +12,12 @@ import contextlib
 import importlib.util
 import os
 import signal
+import subprocess
 import sys
 import time
+import types
 from pathlib import Path
+from typing import IO, Any
 
 import pytest
 
@@ -165,8 +168,36 @@ def test_a_hung_module_is_reported_as_one_error_with_a_timed_out_line(
     assert str(module) in out
 
 
+def _until_counts_reported(stdout: IO[str]) -> None:
+    """Return once the child's output file holds the counts line, without moving its offset."""
+    fd = stdout.fileno()
+    deadline = time.monotonic() + _PROMPT_S
+    while time.monotonic() < deadline:
+        text = os.pread(fd, os.fstat(fd).st_size, 0).decode(errors="replace")
+        if any(line.startswith(gate.COUNTS_SENTINEL) for line in text.splitlines()):
+            return
+        time.sleep(0.02)
+    pytest.fail(f"the module reported no counts within {_PROMPT_S} s")
+
+
+class _TimedFromCounts:
+    """A real child whose timed wait starts once it has reported its counts."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._real = subprocess.Popen(*args, **kwargs)
+        self._stdout = kwargs["stdout"]
+
+    def wait(self, timeout: float | None = None) -> int:
+        if timeout is not None:
+            _until_counts_reported(self._stdout)
+        return self._real.wait(timeout=timeout)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._real, name)
+
+
 def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     module = tmp_path / "test_hangs_after_reporting.py"
     # The hang starts after pytest has finished and the counts are printed.
@@ -175,6 +206,12 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
         f"atexit.register(time.sleep, {_HANG_S})\n\n\n"
         "def test_passes():\n    pass\n",
         encoding="utf-8",
+    )
+    # The limit is timed from the counts line, so a slow start cannot spend it.
+    monkeypatch.setattr(
+        gate,
+        "subprocess",
+        types.SimpleNamespace(Popen=_TimedFromCounts, TimeoutExpired=subprocess.TimeoutExpired),
     )
 
     counts, status = gate._run_module(str(module), 5)
