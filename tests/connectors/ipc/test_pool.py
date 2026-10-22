@@ -27,7 +27,12 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.errors import ChannelNotFoundError, ConnectorInternalError
+from osprey_connectors.errors import (
+    ChannelNotFoundError,
+    ChannelUnreachableError,
+    ConnectorInternalError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._pool import (
@@ -70,10 +75,12 @@ CHILD_START_TIMEOUT_S = 120.0
 
 
 #: Every address a child here reads or writes, each a writable setpoint. The
-#: ``SLOW:``, ``GONE:``, ``BUG:`` and ``WEDGE:`` ones misbehave before the mock serves them.
+#: ``SLOW:``, ``GONE:``, ``LOST:``, ``BUG:`` and ``WEDGE:`` ones misbehave before the mock
+#: serves them.
 SERVED = (
     "BUG:X",
     "GONE:X",
+    "LOST:X",
     "SLOW:RB",
     "SLOW:SP",
     "SLOW:SP2",
@@ -362,6 +369,7 @@ async def test_a_wedged_child_is_killed_and_replaced(pools):
     assert isinstance(caught.value, ConnectorHostLostError)
     assert caught.value.cause == "unresponsive"
     assert "nor a ping" in str(caught.value)
+    assert [record["action"] for record in caught.value.recovery] == ["child_replaced"]
     with pytest.raises(ConnectorHostUnresponsiveError) as also:
         await asyncio.wait_for(bystander, 10.0)
     assert also.value.cause == "unresponsive"
@@ -384,6 +392,7 @@ async def test_a_slow_but_alive_child_times_out_the_call_and_keeps_running(pools
 
     assert not isinstance(caught.value, ConnectorHostLostError)
     assert "still answers a ping" in str(caught.value)
+    assert [record["action"] for record in caught.value.recovery] == ["child_kept"]
     assert live.pid == pid and _alive(pid)
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
     assert len(log.read_text().splitlines()) == 1
@@ -461,17 +470,38 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     assert _alive(replacement)
 
 
-async def test_a_connection_error_from_a_healthy_child_leaves_it_in_place(pools):
+async def test_an_unreachable_channel_in_a_healthy_child_leaves_it_in_place(pools):
     pool = pools(_section(SLOW))
     live = await pool.connector("live")
     pid = live.pid
 
-    with pytest.raises(ConnectionError, match="GONE:X is unreachable") as caught:
+    with pytest.raises(ChannelUnreachableError, match="GONE:X is unreachable") as caught:
         await live.read_channel("GONE:X")
 
-    assert not isinstance(caught.value, ConnectorHostLostError)
+    assert caught.value.channel_address == "GONE:X"
+    assert not isinstance(caught.value, ConnectionError)
     assert live.pid == pid
     assert (await live.read_channel("SR:DCCT")).value is not None
+
+
+async def test_a_child_whose_connector_is_unavailable_is_replaced_once(pools):
+    pool = pools(_section(SLOW))
+    live = await pool.connector("live")
+    pid = live.pid
+
+    with pytest.raises(ConnectorHostLostError) as caught:
+        await live.read_channel("LOST:X")
+
+    lost = caught.value
+    assert isinstance(lost, ConnectorUnavailableError)
+    assert lost.cause == "unavailable"
+    assert "transport is gone" in str(lost)
+    assert [record["action"] for record in lost.recovery] == ["child_replaced"]
+    assert pool.pids() == {}
+    assert not _alive(pid)
+    # The next call starts one fresh child and is served by it.
+    assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
+    assert live.pid not in (None, pid)
 
 
 async def test_a_connector_bug_in_a_healthy_child_crosses_as_the_contract_fault_and_leaves_it_in_place(
