@@ -637,11 +637,6 @@ into the wait above.</p>
 another tab or view.</em> means another browser tab holds it, so close that tab or
 work there instead. <em>The previous agent is still shutting down.</em> is the one
 worth retrying, and the card offers <strong>Retry</strong>.</p>
-<p>Running <code class="docutils literal notranslate"><span class="pre">/clear</span></code> in the terminal starts a new conversation without starting a
-new session: the write state and the machine you are standing on carry over,
-and the chat shows the cleared conversation too. A prompt you send in the chat
-while a turn is still running waits for that turn rather than being refused,
-and goes as soon as the agent is free.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><strong>Deployments built before this release.</strong> The wait needs the
@@ -657,6 +652,34 @@ take the full five seconds to hand over.</p>
 <code class="docutils literal notranslate"><span class="pre">claude_code.cli_version</span></code> names. If the chat is refused because that version
 is not installed, the server log says which one to install; see
 <a class="reference internal" href="../../getting-started/installation.html"><span class="doc">Installation</span></a>.</p>
+<p>While a turn runs in the Simple view, the composer is disabled and <strong>Send</strong>
+becomes <strong>Stop</strong>. Send the next prompt when the agent finishes, or select
+<strong>Stop</strong> to end the turn.</p>
+<section id="clearing-a-conversation">
+<h3>Clearing a conversation<a class="headerlink" href="#clearing-a-conversation" title="Link to this heading">#</a></h3>
+<p>Run <code class="docutils literal notranslate"><span class="pre">/clear</span></code> in the terminal to start a new conversation under the same
+session. The write state and the machine you are standing on carry over, and
+the chat shows the cleared conversation too.</p>
+<p>Beneath the composer, a context meter shows how full the context window is.
+From 80 percent it suggests <code class="docutils literal notranslate"><span class="pre">/compact</span></code> or a new conversation.</p>
+</section>
+<section id="attaching-a-file">
+<h3>Attaching a file<a class="headerlink" href="#attaching-a-file" title="Link to this heading">#</a></h3>
+<p>Attach a file to a message with the paperclip button. You can also paste an
+image, or drop a file on the composer. The file is uploaded when you attach
+it. The chip shows the file name and its size. To remove a chip, select its
+<strong>x</strong> button. Type your question, then send. The chat does not send a file by
+itself. The agent opens the file with its Read tool.</p>
+<p>The chat accepts images (PNG, JPEG, GIF, WebP), PDF files, and plain-text files
+(TXT, LOG, CSV, JSON, YAML, Markdown, Python). A file can be 20 MB at most. A
+message can carry 10 files. One chat can hold 200 MB of files. A file of
+another type, or a file that is too large, is refused. The chip shows the
+reason.</p>
+<p>The agent reads an attached file from the uploads directory under the agent
+data directory. The deployment allows the agent to read that directory, so the
+read raises no approval card. A file outside it can still raise one. A file
+that you attach but never send is deleted after 24 hours.</p>
+</section>
 </section>
 <section id="the-control-target-chip">
 <span id="web-terminal-session-posture"></span><h2>The control-target chip<a class="headerlink" href="#the-control-target-chip" title="Link to this heading">#</a></h2>
@@ -1139,7 +1162,11 @@ verbs that read the results back.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-session-both-views">One session, both views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-session-both-views">One session, both views</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#clearing-a-conversation">Clearing a conversation</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#attaching-a-file">Attaching a file</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-chip">The control-target chip</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-machine-you-are-on-and-the-others">The machine you are on, and the others</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#take-writes-away-or-give-them-back">Take writes away, or give them back</a></li>
