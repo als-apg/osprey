@@ -12,7 +12,6 @@ import fcntl
 import hashlib
 import os
 import pty
-import signal
 import struct
 import subprocess
 import termios
@@ -20,7 +19,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 
 from osprey.agent_runner.clean_env import build_base_child_env
-from osprey.deployment import process_table
+from osprey.deployment import process_table, subprocess_capture
 from osprey.interfaces.web_terminal import process_tree
 from osprey_connectors.logger import get_logger
 
@@ -296,17 +295,19 @@ class PtySession:
         The descendants are ended by process group, the child's own group
         included, so a command the agent ran in a group of its own ends too;
         the server's own group never is. Blocking, and best-effort: it hangs up
-        the terminal, escalates SIGTERM to SIGKILL against the child, then does
-        the same to the started groups, waiting between steps, so it can occupy
-        the calling thread for about seven seconds for the child plus about
-        five more for started processes that ignore SIGTERM, plus up to about
+        the terminal, then stops the child's own group (SIGTERM, then SIGKILL,
+        waiting on the whole group), then does the same to the started groups,
+        so it can occupy the calling thread for about 2 s plus the group stop's
+        grace and SIGKILL wait for the child, plus about five more seconds for
+        started processes that ignore SIGTERM, plus up to about
         ``process_tree.TEARDOWN_READ_WAIT_S`` and one read of a process table
         that does not answer. A caller that must not block that long runs it
         in a worker thread. When the table stays unreadable the child is ended
         without its started groups, and a warning says they may survive.
 
-        It may also return with the child still running — the SIGKILL wait can
-        expire, which is logged and then let go. Returning is therefore not
+        The child's group is reported gone, its survivors are named, or the
+        process table is named as unreadable; the child is not waited for when
+        the group stop did not prove it gone. Returning is therefore not
         proof of death: :attr:`is_alive` is, and it is the probe anything that
         needs to *know* the child is gone must poll. What became of the started
         processes is in the log line this method writes.
@@ -343,21 +344,32 @@ class PtySession:
                 self._process.wait(timeout=2)
 
             if self._process.poll() is None:
-                # Still alive — send SIGTERM to the process group.
-                with contextlib.suppress(OSError, ProcessLookupError):
-                    os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
-                try:
-                    self._process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    # Last resort — SIGKILL.
-                    with contextlib.suppress(OSError, ProcessLookupError):
-                        os.killpg(os.getpgid(self._process.pid), signal.SIGKILL)
-                    try:
-                        self._process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
+                # The child called setsid, so its pid names its group. The stop
+                # assumes the leader is unreaped, but ``is_alive`` polls (and so
+                # can reap) it concurrently: an emptied group then reads as gone
+                # at the next look, and its id could be reused within the stop's
+                # seconds. The end state is one stop that owns the child's reap
+                # while every probe only observes the exit.
+                pgid = self._process.pid
+                still_running = subprocess_capture.stop_group(pgid, grace=3.0)
+                # The group stop is the authority on the child's own group.
+                groups = [group for group in groups if group.pgid != pgid]
+                if still_running == []:
+                    self._process.wait()
+                else:
+                    self._process.poll()
+                    if still_running is None:
                         logger.warning(
-                            "PTY process %d did not exit after SIGKILL — orphaned",
-                            self._process.pid,
+                            "PTY child %d: process table unreadable: group %d may still be running",
+                            pgid,
+                            pgid,
+                        )
+                    else:
+                        logger.warning(
+                            "PTY child %d: its process group is still running after SIGKILL: "
+                            "pids %s",
+                            pgid,
+                            " ".join(str(pid) for pid in still_running),
                         )
 
         if groups and self._process is not None:
