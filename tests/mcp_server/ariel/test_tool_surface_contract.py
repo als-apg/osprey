@@ -100,3 +100,18 @@ def test_contract_documents_the_view_switch():
     assert "ariel.attachments.view.enabled" in text
     for key in ("attachment_count", "matched_attachment_ids", "viewable"):
         assert f"``{key}``" in text
+
+
+def test_the_offer_table_is_the_registry_declaration():
+    """Each server offer predicate gates the tools one registry ctx key declares."""
+    from osprey.mcp_server.ariel import server
+
+    by_key: dict[str, set[str]] = {}
+    for tool, offer in _ARIEL.optional_tools.items():
+        by_key.setdefault(offer.key, set()).add(tool)
+
+    assert sorted(map(sorted, by_key.values())) == sorted(
+        sorted(tools) for tools, _offered in server._TOOL_OFFERS
+    )
+    assert all(offer.default for offer in _ARIEL.optional_tools.values())
+    assert not set(_ARIEL.optional_tools) & set(_ARIEL.permissions_ask)
