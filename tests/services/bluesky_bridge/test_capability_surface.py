@@ -149,9 +149,16 @@ def _capability(response: httpx.Response) -> dict[str, Any]:
         "lane",
         "lane_target",
         "lane_degraded",
+        "retryable",
     }
     assert isinstance(capability["can_execute"], bool)
     assert capability["reason"] in _ALL_REASONS
+    expected_retryable = (
+        False
+        if capability["reason"] == qb.REASON_EXECUTABLE
+        else qb.REFUSAL_REASONS[capability["reason"]].retryable
+    )
+    assert capability["retryable"] is expected_retryable
     assert isinstance(capability["detail"], str) and capability["detail"]
     # The lane identity rides on every record, refusals included: a consumer
     # looking at a "no" has to know which plan lane said it. Both are
