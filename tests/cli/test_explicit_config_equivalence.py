@@ -304,12 +304,22 @@ class Refused(NamedTuple):
     reason: str
 
 
+class Broken(NamedTuple):
+    """A cell whose build raised; recorded once and returned to every later caller.
+
+    Attributes:
+        reason: The exception's type and message.
+    """
+
+    reason: str
+
+
 class CellRenderer:
     """Builds each cell at most once per session and hands out the result.
 
     A cell is a real ``osprey init`` + ``osprey build``; a control-assistant cell
-    costs minutes. Several tests read the same cell, so the outcome — rendered or
-    refused — is cached under the cell directory.
+    costs minutes. Several tests read the same cell, so the outcome — rendered, refused
+    or broken — is cached under the cell directory.
     """
 
     def __init__(self, root: Path, build_env: Mapping[str, str]) -> None:
@@ -319,23 +329,28 @@ class CellRenderer:
         """
         self._root = root
         self._build_env = build_env
-        self._outcomes: dict[str, Rendered | Refused] = {}
+        self._outcomes: dict[str, Rendered | Refused | Broken] = {}
 
-    def attempt(self, cell: Cell) -> Rendered | Refused:
-        """Build *cell*, or return why the CLI refused it.
+    def attempt(self, cell: Cell) -> Rendered | Refused | Broken:
+        """Build *cell*, or return why the CLI refused it or the build raised.
 
         Args:
             cell: The cell to build.
 
         Returns:
-            The cached :class:`Rendered` or :class:`Refused` for this cell.
+            The cached :class:`Rendered`, :class:`Refused` or :class:`Broken` for
+            this cell.
         """
         if cell.directory not in self._outcomes:
-            self._outcomes[cell.directory] = self._build(cell)
+            try:
+                outcome: Rendered | Refused | Broken = self._build(cell)
+            except Exception as error:
+                outcome = Broken(f"{type(error).__name__}: {error}")
+            self._outcomes[cell.directory] = outcome
         return self._outcomes[cell.directory]
 
     def render(self, cell: Cell) -> Rendered:
-        """Build *cell*, failing the test if the CLI refuses it.
+        """Build *cell*, failing the test if the CLI refuses it or the build raised.
 
         Args:
             cell: The cell to build.
@@ -349,6 +364,8 @@ class CellRenderer:
                 f"{cell.directory}: osprey {outcome.stage} refused a cell the baseline "
                 f"renders.\n{outcome.reason}"
             )
+        if isinstance(outcome, Broken):
+            pytest.fail(f"{cell.directory}: the build of this cell raised.\n{outcome.reason}")
         return outcome
 
     def _build(self, cell: Cell) -> Rendered | Refused:
@@ -639,6 +656,30 @@ def test_a_list_difference_names_what_it_gained_and_lost() -> None:
     line = _describe("root", "api.providers", ["a", "b"], ["a", "c"])
     assert "gains ['c']" in line
     assert "loses ['b']" in line
+
+
+def test_a_raised_build_is_recorded_once(tmp_path: Path) -> None:
+    """A build that raised is not re-run; every caller gets the same outcome."""
+    cell = CELLS[0]
+    renderer = CellRenderer(tmp_path, {})
+    calls: list[Cell] = []
+
+    def raising_build(built: Cell) -> Rendered | Refused:
+        calls.append(built)
+        raise RuntimeError("capture incomplete")
+
+    renderer._build = raising_build  # type: ignore[method-assign]
+
+    first = renderer.attempt(cell)
+    second = renderer.attempt(cell)
+
+    assert calls == [cell]
+    assert isinstance(first, Broken)
+    assert second is first
+    assert "capture incomplete" in first.reason
+    with pytest.raises(pytest.fail.Exception, match="capture incomplete"):
+        renderer.render(cell)
+    assert calls == [cell]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
