@@ -195,7 +195,7 @@ class TestWorkspaceMembersFromSource:
 
         install_cmd = calls[1]
         members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
-        assert len(members) == 2
+        assert len(members) == 3
         assert install_cmd[-(2 + len(members)) :] == [str(root), "pyepics", *members]
 
     @pytest.mark.usefixtures("without_uv")

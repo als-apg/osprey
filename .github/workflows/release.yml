@@ -6,8 +6,9 @@ on:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
 # PAIRED PUBLISHING: every workspace member (osprey-connectors,
-# pyaml-cs-osprey) versions with the framework's own calendar stream (same
-# v-tags, same describe — see each member's pyproject.toml), so one tag builds
+# osprey-optimizer, pyaml-cs-osprey) versions with the framework's own
+# calendar stream (same v-tags, same describe — see each member's
+# pyproject.toml), so one tag builds
 # and publishes EVERY wheel, always carrying the same number. The old two-tag
 # dance (a connectors release published before the framework tag that needed
 # it, from its own osprey-connectors-v* trigger) is retired with the 0.x line
@@ -168,7 +169,7 @@ jobs:
     - name: Verify built versions match tag
       # The versions are derived from the tag rather than a literal, so this
       # checks the artifacts that are actually about to be published — every
-      # wheel, since both packages derive from the same tag. A shallow checkout
+      # wheel, since every package derives from the same tag. A shallow checkout
       # or a missing tag does not fail the build — it silently yields 0.1.devN —
       # so this gate is what catches that before it reaches PyPI.
       run: |
@@ -247,6 +248,15 @@ jobs:
         ls /tmp/sibling
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling
         osprey --version
+        # The framework's `optimizer` extra names osprey-optimizer, whose wheel
+        # the loop above staged with the other members. The base only: the
+        # `service` extra is the optimizer image's, and its pins (torch, xopt)
+        # are checked by that image's build.
+        FRAMEWORK_WHEEL=$(ls "$PWD"/dist/osprey_framework-*.whl)
+        uv venv /tmp/optimizer-check
+        uv pip install --python /tmp/optimizer-check/bin/python \
+          "osprey-framework[optimizer] @ file://$FRAMEWORK_WHEEL" --find-links /tmp/sibling
+        /tmp/optimizer-check/bin/python -c "import osprey, osprey_optimizer.models.api, osprey_optimizer.environments.spec"
 
   publish-to-pypi:
     name: Publish to PyPI

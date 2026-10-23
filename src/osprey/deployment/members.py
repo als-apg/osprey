@@ -9,4 +9,8 @@ equal to the root ``[tool.uv.workspace].members``.
 
 from __future__ import annotations
 
-WORKSPACE_MEMBERS: tuple[str, ...] = ("osprey-connectors", "pyaml-cs-osprey")
+WORKSPACE_MEMBERS: tuple[str, ...] = (
+    "osprey-connectors",
+    "osprey-optimizer",
+    "pyaml-cs-osprey",
+)

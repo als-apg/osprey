@@ -10657,6 +10657,8 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         "osprey_framework-2026.9.1.tar.gz",
         "osprey_connectors-2026.9.1-py3-none-any.whl",
         "osprey_connectors-2026.9.1.tar.gz",
+        "osprey_optimizer-2026.9.1-py3-none-any.whl",
+        "osprey_optimizer-2026.9.1.tar.gz",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1.tar.gz",
     ):
@@ -10670,6 +10672,7 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
 def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path: Path) -> None:
     assert _staged_siblings(release, tmp_path) == [
         "osprey_connectors-2026.9.1-py3-none-any.whl",
+        "osprey_optimizer-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
     ], "the release gate stages the wrong sibling set"
 
