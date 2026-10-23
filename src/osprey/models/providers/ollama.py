@@ -6,6 +6,10 @@ while preserving Ollama-specific fallback URL logic for development workflows.
 
 from typing import Any
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
+
 from osprey_connectors.logger import get_logger
 
 from . import _local_server
