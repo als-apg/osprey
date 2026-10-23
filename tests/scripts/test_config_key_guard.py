@@ -681,7 +681,7 @@ def test_manifest_defaults_column_is_complete():
 def test_manifest_self_consistency_holds_without_rendering():
     """Every manifest-only check, run together against the live manifest.
 
-    These four ask nothing of the render: they read the manifest and the
+    These ask nothing of the render: they read the manifest and the
     source tree. Running them as one test says plainly which properties survive
     independently of the render matrix.
     """
@@ -690,6 +690,7 @@ def test_manifest_self_consistency_holds_without_rendering():
     guard.check_covered_by_chains()
     guard.check_evidence()
     guard.check_evidence_vacuity()
+    guard.check_preset_counts()
     assert guard.result.ok, details(guard)
 
 
@@ -812,6 +813,37 @@ def test_note_on_a_literal_default_goes_red():
     guard.check_defaults()
     assert "default" in modes(guard)
     assert "cli.theme" in details(guard)
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Commented in the two presets that ship an `ariel:` block.",
+        "Unset in all four presets.",
+        "Present in both root presets.",
+        "the one preset whose tree ships it",
+    ],
+)
+def test_a_note_counting_presets_goes_red(note):
+    """A count of presets restates `render_contexts.presets` and goes stale."""
+
+    def count_the_presets(manifest):
+        manifest["keys"]["cli.theme"]["note"] = note
+
+    guard = make_guard(count_the_presets)
+    guard.check_preset_counts()
+    assert "preset-count" in modes(guard)
+    assert "cli.theme" in details(guard)
+
+
+@pytest.mark.parametrize("note", ["Commented in the presets.", "Present in every root preset."])
+def test_a_note_naming_the_presets_without_a_count_stays_green(note):
+    def name_the_presets(manifest):
+        manifest["keys"]["cli.theme"]["note"] = note
+
+    guard = make_guard(name_the_presets)
+    guard.check_preset_counts()
+    assert guard.result.ok, details(guard)
 
 
 def test_dangling_covered_by_chain_goes_red():
