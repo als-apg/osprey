@@ -52,7 +52,7 @@ or ``None`` when limits checking is off. Entries carry ``min_value``,
 
 def deployment_limits(target: str | None) -> Mapping[str, Any] | None:
     """The deployment's channel limits for ``target``, from its config."""
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system import LimitsValidator
 
     validator = (
         LimitsValidator.from_config(target=target)

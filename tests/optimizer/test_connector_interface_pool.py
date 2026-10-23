@@ -20,7 +20,7 @@ from osprey_optimizer.models.exceptions import WriteRefusedError
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-IN_PROCESS = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+IN_PROCESS = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 
 pytestmark = pytest.mark.timeout(120)
 
@@ -43,7 +43,6 @@ def _project(tmp_path: Path, *, writes_enabled: bool) -> Path:
         "limits_checking": {
             "enabled": True,
             "database_path": str(tmp_path / "channel_limits.json"),
-            "allow_unlisted_channels": False,
         },
         # BPM:POS:Y is served as a setpoint so the limits database, not the
         # view, is what refuses a write to it.

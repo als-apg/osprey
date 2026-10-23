@@ -42,7 +42,7 @@ class WriteRefusedError(InterfaceError):
     run loop aborts the phase loudly with the operator-facing ``reason``.
     """
 
-    def __init__(self, message: str, *, reason: str) -> None:
+    def __init__(self, message: str, *, reason: str | None) -> None:
         super().__init__(message)
         self.reason = reason
 

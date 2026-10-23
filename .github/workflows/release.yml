@@ -248,14 +248,10 @@ jobs:
         ls /tmp/sibling
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling
         osprey --version
-
-    - name: Install the framework's optimizer extra with deps from PyPI plus the paired wheels
-      # The framework's `optimizer` extra names osprey-optimizer, which this same
-      # run publishes, so its wheel joins the connectors one in the sibling
-      # directory. The base only: the `service` extra is the optimizer image's,
-      # and its pins (torch, xopt) are checked by that image's build.
-      run: |
-        cp dist/osprey_optimizer-*.whl /tmp/sibling/
+        # The framework's `optimizer` extra names osprey-optimizer, whose wheel
+        # the loop above staged with the other members. The base only: the
+        # `service` extra is the optimizer image's, and its pins (torch, xopt)
+        # are checked by that image's build.
         FRAMEWORK_WHEEL=$(ls "$PWD"/dist/osprey_framework-*.whl)
         uv venv /tmp/optimizer-check
         uv pip install --python /tmp/optimizer-check/bin/python \

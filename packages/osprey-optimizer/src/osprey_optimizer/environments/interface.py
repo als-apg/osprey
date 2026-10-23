@@ -1,7 +1,7 @@
 """The engine's sync ``InterfaceProtocol`` over OSPREY's connector-host pool.
 
 Every channel access the optimizer makes goes through
-:class:`osprey_connectors.ipc.pool.ConnectorHostPool`: one connector-host child
+:class:`osprey_connectors.ipc.ConnectorHostPool`: one connector-host child
 per ``(control target, execution mode)``, each bound to its own Channel Access
 routing. So the API process can serve several targets, and a job worker serves
 the one its job names. Every write is ``write_channel_checked(confirm=True)``,
@@ -103,7 +103,7 @@ class _PoolBridge:
 
     def __init__(self) -> None:
         from osprey_connectors.config import default_config_path, get_config_value
-        from osprey_connectors.ipc.pool import ConnectorHostPool
+        from osprey_connectors.ipc import ConnectorHostPool
 
         section = get_config_value("control_system", None)
         if not section:
