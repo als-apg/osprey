@@ -130,7 +130,7 @@ def test_setpoint_and_readback_regressors_differ_by_the_tracking_error():
 
     np.testing.assert_allclose(by_setpoint.matrix, truth, rtol=1e-12, atol=1e-12)
     np.testing.assert_allclose(by_readback.matrix, truth / 0.98, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(by_setpoint.currents[0], currents, rtol=1e-12)
+    np.testing.assert_allclose(by_setpoint.regressor_values[0], currents, rtol=1e-12)
 
 
 def test_the_fit_records_the_regressor_it_used():
@@ -183,13 +183,13 @@ def test_partial_run_fits_finished_correctors_and_traces_the_one_in_flight():
     np.testing.assert_allclose(fit.matrix, truth[:, :2], rtol=1e-9)
 
     # The in-flight corrector still yields its raw samples for a trace.
-    assert fit.currents[2].shape == (3,)
+    assert fit.regressor_values[2].shape == (3,)
     assert fit.readings[2].shape == (3, 2)
-    np.testing.assert_allclose(fit.currents[2], currents[:3])
+    np.testing.assert_allclose(fit.regressor_values[2], currents[:3])
     # ...and the finished ones carry their full sweeps.
-    assert fit.currents[0].shape == (6,)
+    assert fit.regressor_values[0].shape == (6,)
     assert fit.readings[0].shape == (6, 2)
-    np.testing.assert_allclose(fit.currents[0], currents)
+    np.testing.assert_allclose(fit.regressor_values[0], currents)
 
 
 def test_no_rows_yet_is_all_incomplete_and_an_empty_matrix():
@@ -199,7 +199,7 @@ def test_no_rows_yet_is_all_incomplete_and_an_empty_matrix():
     assert fit.complete == (False, False)
     assert fit.fitted_correctors == ()
     assert fit.matrix.shape == (1, 0)
-    assert all(current.shape == (0,) for current in fit.currents)
+    assert all(current.shape == (0,) for current in fit.regressor_values)
     assert all(reading.shape == (0, 1) for reading in fit.readings)
 
 
@@ -305,7 +305,7 @@ def test_trailing_rows_beyond_the_sweep_are_not_attributed_to_a_corrector():
 
     assert fit.complete == (True, True)
     np.testing.assert_allclose(fit.matrix, truth, rtol=1e-9)
-    assert all(current.shape == (4,) for current in fit.currents)
+    assert all(current.shape == (4,) for current in fit.regressor_values)
 
 
 def test_num_below_two_is_rejected():

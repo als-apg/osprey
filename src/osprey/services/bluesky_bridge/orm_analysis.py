@@ -23,7 +23,7 @@ Four pieces:
 
 `build_response_matrix`'s fit depends on an invariant the real `orm` plan
 upholds (see `plans_core/orm.py`'s `build_plan` docstring): every emitted row carries
-EVERY corrector's current, not just the one being swept — a non-swept
+EVERY corrector's regressor value, not just the one being swept — a non-swept
 corrector simply reports its idle value in that row. The fit still
 recovers the right slope only because each corrector's own sweep is
 symmetric about that same idle value: together those put every idle sample
@@ -44,11 +44,11 @@ declares child signals, so a channel lands under `"bpm1-value"`;
 channel lands under `"bpm1"`), and `resolve_column`'s docstring is where that
 is written down.
 
-A corrector's current is read from its regressor column, chosen by the fit's
+A corrector's regressor value is read from its regressor column, chosen by the fit's
 `regressor` argument through `plan_fields.resolve_regressor_column`: by
 default the commanded demand (`f"{channel}_setpoint"` on a connector device
 with a distinct readback, the device's one column otherwise), so slopes are
-per unit of commanded current; `"readback"` reads the corrector's measured
+per unit of the commanded value; `"readback"` reads the corrector's measured
 value instead. BPMs are always read through `resolve_column`.
 """
 
@@ -78,7 +78,7 @@ class DegenerateFitError(ValueError):
 
 
 #: Tolerance for the centred-sweep guard in `build_response_matrix`: a
-#: corrector's collected currents fail the check when their mean differs from
+#: corrector's collected regressor values fail the check when their mean differs from
 #: their median by more than this fraction of their spread (max - min).
 #: Floating-point noise on an exactly symmetric sweep + exactly-equal idle
 #: readings sits around 1e-15 relative, so this leaves ~9 orders of magnitude
@@ -96,7 +96,7 @@ def build_response_matrix(
 ) -> np.ndarray:
     """Fit the `[n_bpm, n_corr]` response-slope matrix from emitted ORM rows.
 
-    A real `orm` plan run emits one row per (corrector, current) point, and
+    A real `orm` plan run emits one row per (corrector, value) point, and
     every row carries a value for EVERY corrector in `correctors` — not just
     the one currently being swept (see `plans_core/orm.py`'s `build_plan` docstring) —
     plus a reading for every BPM. For each corrector, every row where that
@@ -104,7 +104,7 @@ def build_response_matrix(
     one (regressor value, BPM reading) sample; `numpy.polyfit` (degree 1)
     over those samples gives the response slope for each (BPM, corrector)
     pair. *regressor* chooses the column: ``"setpoint"`` (the commanded
-    demand, the default) or ``"readback"`` (the measured current); see
+    demand, the default) or ``"readback"`` (the measured value); see
     `plan_fields.resolve_regressor_column`.
 
     This only recovers the correct slope because the real plan sweeps each
@@ -144,37 +144,37 @@ def build_response_matrix(
     reason to abort the whole matrix.
 
     Raises:
-        DegenerateFitError: a corrector's collected currents are not
+        DegenerateFitError: a corrector's collected regressor values are not
             symmetric about that corrector's own idle value within
             `_SWEEP_SYMMETRY_TOL` — see above.
     """
     matrix = np.zeros((len(readbacks), len(correctors)))
 
     for j, corrector in enumerate(correctors):
-        currents: list[float] = []
+        regressor_values: list[float] = []
         readings: list[list[float]] = [[] for _ in readbacks]
         for row in rows:
             column = resolve_regressor_column(corrector, row, regressor)
-            current = None if column is None else row[column]
-            if current is None:
+            value = None if column is None else row[column]
+            if value is None:
                 continue  # row built without this corrector's column (see docstring)
-            currents.append(float(current))
+            regressor_values.append(float(value))
             for i, readback in enumerate(readbacks):
                 bpm_column = resolve_column(readback, row)
                 reading = None if bpm_column is None else row[bpm_column]
                 readings[i].append(np.nan if reading is None else float(reading))
 
-        if len(currents) < 2:
+        if len(regressor_values) < 2:
             continue  # not enough points along this corrector to fit a slope
 
-        mean_current = float(np.mean(currents))
-        idle_current = float(np.median(currents))
-        spread = float(np.max(currents) - np.min(currents))
-        if spread > 0 and abs(mean_current - idle_current) > _SWEEP_SYMMETRY_TOL * spread:
+        mean_value = float(np.mean(regressor_values))
+        idle_value = float(np.median(regressor_values))
+        spread = float(np.max(regressor_values) - np.min(regressor_values))
+        if spread > 0 and abs(mean_value - idle_value) > _SWEEP_SYMMETRY_TOL * spread:
             raise DegenerateFitError(
                 f"corrector {corrector!r}'s sweep is not symmetric about its "
-                f"idle value (mean current {mean_current:.6g} against an idle "
-                f"value of {idle_current:.6g}, over a spread of {spread:.6g}): "
+                f"idle value (mean value {mean_value:.6g} against an idle "
+                f"value of {idle_value:.6g}, over a spread of {spread:.6g}): "
                 f"build_response_matrix's polyfit depends on idle-corrector "
                 f"rows sitting at the fit's x-mean so they carry zero leverage "
                 f"on the fitted slope -- an off-centre sweep, or an idle "
@@ -186,7 +186,7 @@ def build_response_matrix(
             values = readings[i]
             if any(np.isnan(v) for v in values):
                 continue  # this BPM never reported during this corrector's sweep
-            slope, _intercept = np.polyfit(currents, values, deg=1)
+            slope, _intercept = np.polyfit(regressor_values, values, deg=1)
             matrix[i, j] = slope
 
     return matrix
@@ -202,14 +202,14 @@ class SlicedResponseFit:
 
     Attributes:
         correctors: The requested corrector names, in the order given —
-            `complete`, `currents` and `readings` are all aligned to this.
+            `complete`, `regressor_values` and `readings` are all aligned to this.
         readbacks: The requested BPM names, in the order given — the row axis of
             `matrix` and the column axis of every `readings` block.
         complete: One flag per requested corrector: `True` when that
             corrector's slice was fitted into a `matrix` column. `False`
             for a slice that is short (the sweep is still in flight, or the
-            row buffer ran out), that is missing a corrector current, or
-            whose currents never move (nothing to fit a slope against).
+            row buffer ran out), that is missing a corrector value, or
+            whose regressor values never move (nothing to fit a slope against).
         matrix: `[n_readbacks, n_complete]` response slopes. Only complete
             correctors get a column — an in-flight sweep has no slope yet,
             and a zero column would read as a dead corrector. Use
@@ -217,7 +217,7 @@ class SlicedResponseFit:
             `correctors` is.
         fitted_correctors: The names of the correctors that produced a
             `matrix` column, in column order. A subsequence of `correctors`.
-        currents: Per requested corrector, the regressor values over its
+        regressor_values: Per requested corrector, the regressor values over its
             slice, `[k]` with `k <= num` — the x-axis of a sweep trace.
             Present for incomplete correctors too.
         readings: Per requested corrector, the BPM block over its slice,
@@ -227,7 +227,7 @@ class SlicedResponseFit:
             `sliced_response_matrix`).
         regressor: The corrector value the slopes are per unit of:
             ``"setpoint"`` (the commanded demand) or ``"readback"`` (the
-            measured current).
+            measured value).
     """
 
     correctors: tuple[str, ...]
@@ -235,7 +235,7 @@ class SlicedResponseFit:
     complete: tuple[bool, ...]
     matrix: np.ndarray
     fitted_correctors: tuple[str, ...]
-    currents: tuple[np.ndarray, ...]
+    regressor_values: tuple[np.ndarray, ...]
     readings: tuple[np.ndarray, ...]
     regressor: str
 
@@ -259,7 +259,7 @@ def sliced_response_matrix(
     `build_plan`), so corrector `j`'s samples are exactly
     `rows[j * num : (j + 1) * num]` — no need to infer which rows belong to
     which corrector from the data. Each corrector's slope is then fitted
-    against its OWN currents over its OWN slice only, which drops
+    against its OWN regressor values over its OWN slice only, which drops
     `build_response_matrix`'s centred-sweep requirement entirely: idle
     correctors' rows are never in the slice to begin with, so a
     `monodirectional` sweep over `[0, span]` (which that function rejects
@@ -289,7 +289,7 @@ def sliced_response_matrix(
     Vandermonde system per (BPM, corrector) pair.
 
     A slice that is short (the run is still going, or ended early), that is
-    missing its corrector's current, or whose currents never move produces
+    missing its corrector's value, or whose regressor values never move produces
     no matrix column and is flagged `complete=False`; its raw samples are
     still returned for tracing. Inside a complete slice, a BPM that failed
     to report leaves its slope at `0.0` rather than `nan`, matching
@@ -304,7 +304,7 @@ def sliced_response_matrix(
         num: Points per corrector sweep — the plan's `num` parameter.
         regressor: Which corrector column the slopes regress on:
             ``"setpoint"`` (the commanded demand, the default) or
-            ``"readback"`` (the measured current); see
+            ``"readback"`` (the measured value); see
             `plan_fields.resolve_regressor_column`. BPMs are read through
             `plan_fields.resolve_column` either way.
 
@@ -333,7 +333,7 @@ def sliced_response_matrix(
             complete=(False,) * n_corr,
             matrix=empty,
             fitted_correctors=(),
-            currents=tuple(np.zeros(0) for _ in correctors),
+            regressor_values=tuple(np.zeros(0) for _ in correctors),
             readings=tuple(np.zeros((0, n_bpm)) for _ in correctors),
             regressor=regressor,
         )
@@ -364,11 +364,11 @@ def sliced_response_matrix(
         [[nan if key is None else row.get(key, nan) for key in keys] for row in rows[:n_rows]],
         dtype=float,
     )
-    currents_table = table[:, :n_corr]
+    regressor_table = table[:, :n_corr]
     readings_table = table[:, n_corr:]
 
     complete: list[bool] = []
-    slice_currents: list[np.ndarray] = []
+    slice_regressor_values: list[np.ndarray] = []
     slice_readings: list[np.ndarray] = []
     columns: list[np.ndarray] = []
     fitted: list[str] = []
@@ -376,9 +376,9 @@ def sliced_response_matrix(
     for j, corrector in enumerate(correctors):
         start = j * num
         stop = min(start + num, n_rows)
-        x = currents_table[start:stop, j]
+        x = regressor_table[start:stop, j]
         block = readings_table[start:stop, :]
-        slice_currents.append(x)
+        slice_regressor_values.append(x)
         slice_readings.append(block)
 
         if x.shape[0] < num or not np.all(np.isfinite(x)):
@@ -408,7 +408,7 @@ def sliced_response_matrix(
         complete=tuple(complete),
         matrix=matrix,
         fitted_correctors=tuple(fitted),
-        currents=tuple(slice_currents),
+        regressor_values=tuple(slice_regressor_values),
         readings=tuple(slice_readings),
         regressor=regressor,
     )
