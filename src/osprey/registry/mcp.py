@@ -506,6 +506,11 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # the hardware kill switch is one question for every non-hardware
         # write, and it is answered in one place, not here.
         permissions_ask=["entry_create", "entry_publish"],
+        optional_tools={
+            "attachment_view": OptionalTool("ariel_attachment_view", True),
+            "attachment_to_artifact": OptionalTool("ariel_attachment_view", True),
+            "sql_query": OptionalTool("ariel_sql_tool", True),
+        },
         hooks_pre=[
             HookRule(
                 matcher="mcp__ariel__entry_create",
@@ -1537,16 +1542,9 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
     A context without ``phoebus_agent_access`` resolves as ``read``: the
     ``phoebus`` server and its ``extends`` clones come back without
-    ``phoebus_drive`` in their permission lists. A context without
-    ``ariel_attachment_view`` resolves as ``True``; with it ``False`` the
-    ``ariel`` server and its ``extends`` clones come back without
-    ``attachment_view`` and ``attachment_to_artifact``. A context without
-    ``ariel_sql_tool`` resolves as ``True``; with it ``False`` the same servers
-    come back without ``sql_query``. An optional tool's
-    allow row renders only when its ctx key is truthy
-    (:attr:`ServerDefinition.optional_tools`); without ``pyaml_view_present``
-    the ``python`` server and its clones come back without
-    ``model_response_matrix``.
+    ``phoebus_drive`` in their permission lists. An optional tool's allow row
+    renders only when its ctx key, or the declared default when the key is
+    absent, is truthy (:attr:`ServerDefinition.optional_tools`).
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1626,8 +1624,6 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     # ── Phoebus agent access ──────────────────────────────────
     _withhold_phoebus_drive(servers, ctx.get("phoebus_agent_access", READ))
     _withhold_optional_tools(servers, ctx)
-    _withhold_ariel_attachment_view(servers, ctx.get("ariel_attachment_view", True))
-    _withhold_ariel_sql_tool(servers, ctx.get("ariel_sql_tool", True))
 
     # ── Build output dicts ────────────────────────────────────
     # Every launch denies the plugin and connector tool namespaces, so a server
@@ -1685,63 +1681,6 @@ def _withhold_phoebus_drive(servers: dict[str, ServerDefinition], access: str) -
             continue
         sdef.permissions_ask = [t for t in sdef.permissions_ask if t != DRIVE_TOOL]
         sdef.permissions_allow = [t for t in sdef.permissions_allow if t != DRIVE_TOOL]
-
-
-ARIEL_SERVER_TEMPLATE = "ariel"
-#: The ariel tools ``ariel.attachments.view.enabled`` withholds: the server's
-#: ``VIEW_GATED_TOOLS``, spelled here so the registry imports no server module.
-ARIEL_VIEW_TOOLS = ("attachment_view", "attachment_to_artifact")
-
-
-def _withhold_ariel_attachment_view(servers: dict[str, ServerDefinition], enabled: bool) -> None:
-    """Remove the picture tools from the ariel permission lists when the view is off.
-
-    Applies to the ``ariel`` server and every ``extends: ariel`` clone, on
-    ``resolve_servers``'s deep copies, never on ``FRAMEWORK_SERVERS``. With
-    ``ariel.attachments.view.enabled: false`` the server hides
-    ``ARIEL_VIEW_TOOLS`` from ``tools/list``, so an allow entry for them would
-    grant nothing the agent can reach and the rendered allow list stays the one
-    without pictures.
-
-    Args:
-        servers: Resolved server definitions, keyed by name; edited in place.
-        enabled: The ``ariel_attachment_view`` context value.
-    """
-    if enabled:
-        return
-    for name, sdef in servers.items():
-        if (sdef.extends_of or name) != ARIEL_SERVER_TEMPLATE:
-            continue
-        sdef.permissions_ask = [t for t in sdef.permissions_ask if t not in ARIEL_VIEW_TOOLS]
-        sdef.permissions_allow = [t for t in sdef.permissions_allow if t not in ARIEL_VIEW_TOOLS]
-
-
-#: The ariel tool ``ariel.database.readonly_uri`` gates: the server's
-#: ``SQL_QUERY_TOOL``, spelled here so the registry imports no server module.
-ARIEL_SQL_TOOL = "sql_query"
-
-
-def _withhold_ariel_sql_tool(servers: dict[str, ServerDefinition], offered: bool) -> None:
-    """Remove ``sql_query`` from the ariel permission lists when it is not served.
-
-    Applies to the ``ariel`` server and every ``extends: ariel`` clone, on
-    ``resolve_servers``'s deep copies, never on ``FRAMEWORK_SERVERS``. A
-    deployment that authors ``ariel.database.uri`` without
-    ``ariel.database.readonly_uri`` has no SELECT-only login, so the server
-    hides ``ARIEL_SQL_TOOL`` from ``tools/list`` and an allow entry for it
-    would grant nothing the agent can reach.
-
-    Args:
-        servers: Resolved server definitions, keyed by name; edited in place.
-        offered: The ``ariel_sql_tool`` context value.
-    """
-    if offered:
-        return
-    for name, sdef in servers.items():
-        if (sdef.extends_of or name) != ARIEL_SERVER_TEMPLATE:
-            continue
-        sdef.permissions_ask = [t for t in sdef.permissions_ask if t != ARIEL_SQL_TOOL]
-        sdef.permissions_allow = [t for t in sdef.permissions_allow if t != ARIEL_SQL_TOOL]
 
 
 # Extends-clone names are spliced into regex hook matchers, exact permission
