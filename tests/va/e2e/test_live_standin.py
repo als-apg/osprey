@@ -143,7 +143,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     evaluate_eligibility,
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from tests.va.e2e import conftest as e2e_conftest

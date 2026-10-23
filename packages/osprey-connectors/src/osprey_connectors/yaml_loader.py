@@ -19,6 +19,13 @@ from typing import IO, Any, overload
 
 import yaml
 
+__all__ = [
+    "safe_dump",
+    "safe_dumper",
+    "safe_load",
+    "safe_loader",
+]
+
 
 def safe_loader() -> type[Any]:
     """The safe loader class to parse with: libyaml's when present, else PyYAML's.

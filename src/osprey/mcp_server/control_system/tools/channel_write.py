@@ -786,7 +786,7 @@ async def channel_write(
 
     # Limits validation (additional safety layer inside the tool)
     try:
-        from osprey_connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system import LimitsValidator
     except ImportError:
         LimitsValidator = None  # type: ignore[assignment,misc]
 

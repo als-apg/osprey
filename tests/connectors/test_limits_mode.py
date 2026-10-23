@@ -24,7 +24,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_profile_deploy import limits_block_errors
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import (
     LIMITS_MODES,

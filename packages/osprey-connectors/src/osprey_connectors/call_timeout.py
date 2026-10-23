@@ -12,6 +12,13 @@ from typing import Any, SupportsFloat
 
 from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, TANGO, VIRTUAL_ACCELERATOR
 
+__all__ = [
+    "DEFAULT_TIMEOUT_S",
+    "TIMEOUT_KEY",
+    "call_timeout_s",
+    "refuse_renamed_timeout_keys",
+]
+
 #: Seconds a control-system call is given when its connector block names none.
 DEFAULT_TIMEOUT_S = 5.0
 

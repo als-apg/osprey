@@ -16,12 +16,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.control_system.tango_connector import (
+from osprey_connectors.control_system._tango_connector import (
     _quality_fields,
     _split_address,
 )
@@ -34,8 +34,8 @@ _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = "osprey_connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TZ_PATCH = "osprey_connectors.control_system.tango_connector.get_facility_timezone"
+_LIMITS_PATCH = "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 _ADDRESS = "sr/power_supply/ps01/Current"
 
@@ -126,7 +126,7 @@ async def connector():
         patch(_TZ_PATCH, return_value=UTC),
         patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey_connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -199,7 +199,7 @@ class TestConnect:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({})
@@ -208,7 +208,7 @@ class TestConnect:
 
     async def test_connect_raises_import_error_without_pytango(self):
         with patch.dict(sys.modules, {"tango": None}):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             with pytest.raises(ImportError, match="PyTango"):
@@ -222,7 +222,7 @@ class TestConnect:
             patch(_LIMITS_PATCH, return_value=None),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             with pytest.raises(ConnectionError, match="TANGO database"):
@@ -235,7 +235,7 @@ class TestConnect:
             patch(_LIMITS_PATCH, return_value=None),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({"tango_host": "db.example.org:10000"})
@@ -255,7 +255,7 @@ class TestConnect:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({})
@@ -271,7 +271,7 @@ class TestConnect:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({"timeout_s": 2.5})
@@ -288,7 +288,7 @@ class TestConnect:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             with pytest.raises(ValueError, match="control_system.connector.tango.timeout_s"):
@@ -305,7 +305,7 @@ class TestConnect:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             with pytest.raises(ValueError, match="renamed to timeout_s"):
@@ -366,8 +366,8 @@ class TestReadChannel:
         """
         from dataclasses import dataclass
 
-        from osprey_connectors.control_system import tango_connector as mod
-        from osprey_connectors.control_system.base import ChannelMetadata
+        from osprey_connectors.control_system import _tango_connector as mod
+        from osprey_connectors.control_system._base import ChannelMetadata
 
         @dataclass
         class _MetadataWithSeverity(ChannelMetadata):
@@ -474,7 +474,7 @@ async def _write_with_validator(
         patch(_TZ_PATCH, return_value=UTC),
         patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
-        from osprey_connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -534,7 +534,7 @@ class TestWriteChannel:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", return_value=False),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({})
@@ -653,7 +653,7 @@ class TestNonBlockingOffload:
             patch(_TZ_PATCH, return_value=UTC),
             patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
         ):
-            from osprey_connectors.control_system.tango_connector import TangoConnector
+            from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
             await conn.connect({})
@@ -705,7 +705,7 @@ class TestNonBlockingOffload:
 
 async def _bounded_tango(timeout):
     """A connected TangoConnector, patched by the caller, with the block's ``timeout_s``."""
-    from osprey_connectors.control_system.tango_connector import TangoConnector
+    from osprey_connectors.control_system._tango_connector import TangoConnector
 
     conn = TangoConnector()
     await conn.connect({"timeout_s": timeout})

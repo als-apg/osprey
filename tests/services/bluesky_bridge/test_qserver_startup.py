@@ -75,7 +75,7 @@ def _stock_devices_env(tmp_path: Path) -> dict[str, str]:
 
 
 class FakeChannelValue:
-    """Stand-in for ``osprey_connectors.control_system.base.ChannelValue``."""
+    """Stand-in for ``osprey_connectors.control_system._base.ChannelValue``."""
 
     def __init__(self, value: Any) -> None:
         self.value = value

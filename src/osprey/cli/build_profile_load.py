@@ -33,7 +33,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
-from osprey_connectors.control_system.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY

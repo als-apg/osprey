@@ -13,8 +13,8 @@ from dataclasses import MISSING, asdict, fields
 from pathlib import Path
 from typing import Any, get_type_hints
 
-from osprey_connectors.control_system import base as base_module
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system import _base as base_module
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelWriteResult,
     WriteOutcome,

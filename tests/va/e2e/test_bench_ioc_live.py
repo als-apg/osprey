@@ -35,7 +35,7 @@ judged as one.
 Process boundaries, restated because they are load-bearing
 ----------------------------------------------------------
 This pytest process never becomes a Channel Access client. Reads and writes go
-through real ``python -m osprey_connectors.ipc.host`` children, exactly as a
+through real ``python -m osprey_connectors.ipc._host`` children, exactly as a
 deployment's do — which is also why the refusal above can be asserted at all:
 ``tests/fixtures/bench_ioc.py``'s convenience ``caput`` collapses its result to
 four scalars, and ``refusal_reason`` is not among them. The structured
@@ -73,8 +73,7 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import WriteOutcome
-from osprey_connectors.control_system.base import ChannelValue, raise_for_write_result
+from osprey_connectors.control_system import ChannelValue, WriteOutcome, raise_for_write_result
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,

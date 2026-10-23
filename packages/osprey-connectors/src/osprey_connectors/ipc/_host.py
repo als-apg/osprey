@@ -1,7 +1,7 @@
 """The connector-host child: the process that owns the control-system client.
 
 One target, one child. The parent (the controls MCP server, or a
-:class:`~osprey_connectors.ipc.pool.ConnectorHostPool`) holds no ``libca``
+:class:`~osprey_connectors.ipc.ConnectorHostPool`) holds no ``libca``
 and never sets an ``EPICS_CA_*`` variable of its own; it launches this module,
 which builds the real connector through the ordinary
 :class:`~osprey_connectors.factory.ConnectorFactory` and serves the proxy
@@ -14,7 +14,7 @@ Launch contract
 ---------------
 The child is spawned as::
 
-    python -m osprey_connectors.ipc.host
+    python -m osprey_connectors.ipc._host
 
 with **stdin** and **stdout** connected to pipes and **stderr** left free for
 diagnostics. There are no command-line arguments and no configuration in
@@ -150,13 +150,13 @@ matches replies by ``request_id``.
 ``spawn_probe {channel, timeout}`` is the readiness check the parent runs
 against a freshly spawned child before it swaps traffic over: a real read of
 one named channel, bounded by ``timeout``, returning that channel's
-:class:`~osprey_connectors.control_system.base.ChannelValue`. It is a distinct
+:class:`~osprey_connectors.control_system.ChannelValue`. It is a distinct
 method because a probe is allowed to fail without meaning anything is wrong
 with the child — a failed probe aborts a switch, and this child keeps serving.
 
 **A request-level failure never kills the child.** Every exception raised while
 serving a request is encoded into an error frame for that ``request_id`` by
-:mod:`osprey_connectors.ipc.exceptions`, and the serve loop continues.
+:mod:`osprey_connectors.ipc._exceptions`, and the serve loop continues.
 
 Lifecycle
 ---------
@@ -198,8 +198,8 @@ from collections import deque
 from typing import Any
 
 from osprey_connectors.errors import ConnectorInternalError
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.exceptions import decode_exception, encode_exception
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
 
 __all__ = [
     "EXIT_INIT_FAILED",
@@ -288,6 +288,8 @@ DEFAULT_PROBE_TIMEOUT_S = 5.0
 
 _READ_CHUNK_BYTES = 65536
 
+# Named for the public namespace, not this private module, so a logging config
+# keyed on the name keeps matching whatever the module is called.
 logger = logging.getLogger("osprey_connectors.ipc.host")
 
 
@@ -555,7 +557,7 @@ def _post_connect_report(
     connector: Any, connector_type: str, target: str, section: dict[str, Any]
 ) -> dict[str, Any]:
     """Describe what ``connect()`` configured, for the parent to verify."""
-    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.control_system._base import is_readonly_run
 
     connector_block = (section.get("connector") or {}).get(connector_type) or {}
     gateways = connector_block.get("gateways") or {}
@@ -721,7 +723,7 @@ class _FrameWriter:
 def _error_frame(request_id: str, exc: BaseException) -> bytes:
     """Encode a failure for one request, normalising unknown classes here.
 
-    :func:`~osprey_connectors.ipc.exceptions.encode_exception` decides what
+    :func:`~osprey_connectors.ipc.encode_exception` decides what
     crosses typed; a class outside its registry is turned, at this edge, into
     the nearest registered class it subclasses or else into a
     ``ConnectorInternalError`` carrying the original ``repr``, so the parent is
@@ -886,7 +888,7 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for ``python -m osprey_connectors.ipc.host``."""
+    """Entry point for ``python -m osprey_connectors.ipc._host``."""
     parent = os.getppid()
     marks = _StartMarks()
     marks.mark("main")

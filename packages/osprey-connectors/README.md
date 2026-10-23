@@ -15,34 +15,59 @@ the rest of the OSPREY framework (agents, capabilities, web UI, etc.).
 pip install osprey-connectors
 ```
 
+## Public API
+
+Every public module lists its public names in `__all__`, and a module whose
+name starts with an underscore is internal and can change in any release.
+
+Most modules are their own API, each imported by its own path: `config`,
+`workspace`, `dotenv`, `yaml_loader`, `connection`, `types`, `factory`,
+`call_timeout`, `errors`, `logger`, `log_filter`, `identity`, `relative_time`,
+`control_context`, `posture_store`, `safety_file`, `settle`, `process`,
+`standin` and `honesty`. So are the `simulation` package and its modules
+(`simulation.state`, `simulation.view`, `simulation.archive`, ...): its root
+imports neither numpy nor lume, and the heavier modules are imported by their
+own names.
+
+Three subpackages gather their implementation modules behind one namespace,
+and their names are imported from the subpackage itself:
+
+| Namespace | What it holds |
+| --- | --- |
+| `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
+| `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the field name a channel is stored under, the MongoDB client arguments |
+| `osprey_connectors.ipc` | What a connector-host supervisor needs: the frame codec and exception registry, launching and stopping a child, the proxy and the pool, endpoint derivation and verification |
+
+`osprey_connectors.control_system.write_door`, the door a connector opens around
+its own write, is a public module of its own.
+
+The concrete connectors are internal (`control_system._epics_connector`,
+`archiver._mongodb_archiver_connector`, ...): a caller builds one through
+`ConnectorFactory` from its registered type name.
+
+`osprey-framework` imports these subpackages only through their namespaces, and
+takes from every module only names its `__all__` lists. `lint-imports`
+(import-linter, configured in the repository's root `pyproject.toml`) holds the
+first, and ruff's `PLC2701` and `tests/connectors/test_public_api.py` the
+second. import-linter also holds this package to never importing `osprey`, and
+holds its layers: the connector host above the factory, the factory above the
+archivers, and the archivers above the control-system connectors.
+
 ## Import map
 
 These modules used to live under `osprey.*`. The old paths have been
-removed; import from `osprey_connectors.*` instead. The table maps each old
-path to its replacement.
+removed; the table maps each old path to the public spelling that replaces it.
 
-| Old path (`osprey.*`) | New path (`osprey_connectors.*`) |
+| Old path (`osprey.*`) | Import from (`osprey_connectors.*`) |
 | --- | --- |
 | `osprey.connectors` | `osprey_connectors` |
 | `osprey.connectors.factory` | `osprey_connectors.factory` |
 | `osprey.connectors.types` | `osprey_connectors.types` |
 | `osprey.connectors.honesty` | `osprey_connectors.honesty` |
-| `osprey.connectors.control_system` | `osprey_connectors.control_system` |
-| `osprey.connectors.control_system.base` | `osprey_connectors.control_system.base` |
-| `osprey.connectors.control_system.epics_connector` | `osprey_connectors.control_system.epics_connector` |
-| `osprey.connectors.control_system.doocs_connector` | `osprey_connectors.control_system.doocs_connector` |
-| `osprey.connectors.control_system.va_in_process_connector` | `osprey_connectors.control_system.va_in_process_connector` |
-| `osprey.connectors.control_system.va_connector` | `osprey_connectors.control_system.va_connector` |
-| `osprey.connectors.control_system.tango_connector` | `osprey_connectors.control_system.tango_connector` |
-| `osprey.connectors.control_system.limits_validator` | `osprey_connectors.control_system.limits_validator` |
-| `osprey.connectors.archiver` | `osprey_connectors.archiver` |
-| `osprey.connectors.archiver.base` | `osprey_connectors.archiver.base` |
-| `osprey.connectors.archiver.epics_archiver_connector` | `osprey_connectors.archiver.epics_archiver_connector` |
-| `osprey.connectors.archiver.doocs_archiver_connector` | `osprey_connectors.archiver.doocs_archiver_connector` |
-| `osprey.connectors.archiver.mongodb_archiver_connector` | `osprey_connectors.archiver.mongodb_archiver_connector` |
-| `osprey.connectors.archiver.mock_archiver_connector` | `osprey_connectors.archiver.mock_archiver_connector` |
-| `osprey.connectors.archiver.mya_archiver_connector` | `osprey_connectors.archiver.mya_archiver_connector` |
-| `osprey.connectors.archiver._timerange` | `osprey_connectors.archiver._timerange` |
+| `osprey.connectors.control_system`, `.control_system.base`, `.control_system.limits_validator` | `osprey_connectors.control_system` |
+| `osprey.connectors.control_system.*_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
+| `osprey.connectors.archiver`, `.archiver.base`, `.archiver._timerange` | `osprey_connectors.archiver` |
+| `osprey.connectors.archiver.*_archiver_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config` | `osprey_connectors.config` |
 | `osprey.utils.dotenv` | `osprey_connectors.dotenv` |

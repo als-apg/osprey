@@ -30,14 +30,15 @@ import pytest
 
 from osprey.runtime import raw_put_block
 from osprey.services.python_executor.write_surface import _ARMED_BLOCKED
-from osprey_connectors.control_system import doocs_connector, tango_connector
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.ca_loop import CaLoop
-from osprey_connectors.control_system.doocs_connector import DOOCSConnector
-from osprey_connectors.control_system.epics_connector import EPICSConnector
-from osprey_connectors.control_system.tango_connector import TangoConnector
-from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system import _doocs_connector as doocs_connector
+from osprey_connectors.control_system import _tango_connector as tango_connector
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._ca_loop import CaLoop
+from osprey_connectors.control_system._doocs_connector import DOOCSConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._tango_connector import TangoConnector
+from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.control_system.write_door import door_is_open
 from osprey_connectors.errors import RAW_CLIENT_WRITE_MARKER, ChannelWriteBlockedError
 from tests.facility.served_tree import in_process_config, served_tree

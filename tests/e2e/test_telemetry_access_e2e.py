@@ -1791,10 +1791,13 @@ def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
 
     limit = tc.store_limits(stack.config)["concurrent"]
     assert limit == 2
-    # A pool one wider than one reader's limit, so the other reader's query
-    # and this reader's two all run: the refusal is then the per-reader one.
+    # A pool with a slot to spare after the other reader's query and this
+    # reader's two, so the third query is admitted to the pool and meets the
+    # per-reader check at once. With no spare slot it would queue for a pool
+    # slot instead, and the outcome would turn on whether a held query's
+    # slot or its per-reader count is released first.
     wider = copy.deepcopy(stack.config)
-    wider["services"]["telemetry_store"].setdefault("limits", {})["reader_slots"] = limit + 1
+    wider["services"]["telemetry_store"].setdefault("limits", {})["reader_slots"] = limit + 2
     try:
         stack.restage(wider)
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -1810,6 +1813,7 @@ def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
             ).split()
             assert running == [READER_X, str(limit), READER_Y, "1"], running
             third = _reader(stack, READER_X, "SELECT count() FROM telemetry.otel_logs")
+            assert not any(f.done() for f in held), "the third query waited for a held one"
             _refused_named(third, "TOO_MANY_SIMULTANEOUS_QUERIES")
             assert f"for user {READER_X}" in third.text, third.text[:300]
             for future in (other, *held):

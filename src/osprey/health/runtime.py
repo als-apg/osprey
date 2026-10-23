@@ -38,11 +38,11 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 from osprey.health.models import CheckResult, Status
-from osprey_connectors.control_system.base import ControlSystemConnector
+from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
-    from osprey_connectors.archiver.base import ArchiverConnector
+    from osprey_connectors.archiver import ArchiverConnector
 
 logger = logging.getLogger("osprey.health.runtime")
 

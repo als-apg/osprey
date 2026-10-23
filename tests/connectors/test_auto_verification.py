@@ -11,8 +11,8 @@ would.
 import json
 from unittest.mock import patch
 
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from tests.connectors._write_fakes import writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 

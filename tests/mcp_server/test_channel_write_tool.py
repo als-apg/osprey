@@ -28,7 +28,7 @@ import pytest
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -127,7 +127,7 @@ def _patched(connector, validator=None):
             return_value=connector,
         ),
         patch(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=validator,
         ),
     ):
@@ -196,7 +196,7 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
     )
 
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
 
     # Spec'd, so the mock carries exactly the entry points the real validator
     # does: the tool asks for `validate_without_step_check` — the checks a
@@ -213,7 +213,7 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     )
 
     with patch(
-        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
         return_value=mock_validator,
     ):
         fn = _get_channel_write()
@@ -244,7 +244,7 @@ async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypa
     connector makes the step check itself; refusing here for want of a reader
     would take max_step off the mediated write path rather than enforcing it.
     """
-    from osprey_connectors.control_system.limits_validator import (
+    from osprey_connectors.control_system._limits_validator import (
         ChannelLimitsConfig,
         LimitsValidator,
     )
@@ -276,7 +276,7 @@ async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channe
     tmp_path, monkeypatch
 ):
     """Deferring the step check defers nothing else."""
-    from osprey_connectors.control_system.limits_validator import (
+    from osprey_connectors.control_system._limits_validator import (
         ChannelLimitsConfig,
         LimitsValidator,
     )
@@ -375,7 +375,7 @@ async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     )
 
     with patch(
-        "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+        "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
         return_value=None,
     ):
         fn = _get_channel_write()
@@ -1330,7 +1330,7 @@ def full_record(monkeypatch):
 @pytest.mark.usefixtures("full_record")
 async def test_the_limits_verdict_is_noted(tmp_path, monkeypatch):
     from osprey.audit.call import call_scope
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
     from osprey_connectors.errors import ChannelLimitsViolationError
 
     _prepare(tmp_path, monkeypatch)
@@ -1366,7 +1366,7 @@ async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch
 
     from osprey.audit.call import call_scope
     from osprey.mcp_server.control_system.tools import channel_write as cw
-    from osprey_connectors.control_system.base import ChannelValue
+    from osprey_connectors.control_system._base import ChannelValue
 
     _prepare(tmp_path, monkeypatch)
     order: list[str] = []

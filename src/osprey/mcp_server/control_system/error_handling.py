@@ -26,8 +26,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     RefusalReason,
 )
-from osprey_connectors.ipc.pool import DEFAULT_PING_TIMEOUT_S
-from osprey_connectors.ipc.proxy import ChildUnresponsiveError
+from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 

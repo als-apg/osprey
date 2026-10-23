@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from osprey_connectors.control_system.base import WriteOutcome
+    from osprey_connectors.control_system._base import WriteOutcome
+
 
 __all__ = [
     "NOT_A_CHANNEL",

@@ -1,4 +1,4 @@
-`osprey_connectors.ipc.pool.ConnectorHostPool` lets one process drive several
+`osprey_connectors.ipc.ConnectorHostPool` lets one process drive several
 control-system targets at once, including targets that serve the same channel
 names. It runs one connector-host child per `(target, execution_mode)`, so
 `live`, a read-only `live` and `standin` can sit side by side. Each child is
@@ -30,6 +30,6 @@ The pool never loads a Channel Access or pvAccess client itself.
 
 The connector-host proxy and child now also serve `validate_channel`, and the
 proxy offers `write_channel_checked`. The endpoint derivation and post-connect
-verification behind the target switch have moved to
-`osprey_connectors.ipc.verification`, so the switch and the pool share one
+verification behind the target switch are exported from
+`osprey_connectors.ipc`, so the switch and the pool share one
 check.

@@ -415,7 +415,7 @@ def _gated_load(original: Callable[..., Any], *, policy: _LoaderPolicy) -> Calla
 
             def _close() -> None:
                 try:
-                    import _ctypes
+                    import _ctypes  # noqa: PLC2701 - the C module ctypes.CDLL loads through
 
                     _ctypes.dlclose(handle)
                 except Exception:
@@ -855,7 +855,7 @@ def _install_no_client(
     loader_targets: Rows,
 ) -> None:
     """Refuse every client package at import and every client library at load."""
-    import _ctypes
+    import _ctypes  # noqa: PLC2701 - the C module ctypes.CDLL loads through
     import ctypes
 
     denied = frozenset(denied_packages)

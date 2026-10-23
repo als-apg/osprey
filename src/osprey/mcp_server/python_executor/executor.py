@@ -535,7 +535,7 @@ def _load_limits_validator(target: str | None):
             that asked for checking.
     """
     try:
-        from osprey_connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system import LimitsValidator
 
         return LimitsValidator.from_config(target=target)
     except (ImportError, FileNotFoundError, KeyError, RuntimeError):

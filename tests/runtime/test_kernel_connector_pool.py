@@ -26,7 +26,7 @@ import yaml
 import osprey.runtime as runtime
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.types import baseline_target, configured_targets, resolve_target
 from tests._control_context_fixtures import state_dir_under
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
@@ -224,7 +224,7 @@ class _FakePool:
 def fake_pool(monkeypatch):
     """Replace the pool at the runtime's import seam; forbid an in-process build."""
     from osprey_connectors.factory import ConnectorFactory
-    from osprey_connectors.ipc import pool as pool_module
+    from osprey_connectors.ipc import _pool as pool_module
 
     async def no_in_process_build(*args, **kwargs):
         raise AssertionError("an opted-in kernel built a connector in its own process")
@@ -585,7 +585,7 @@ def pool_view(tmp_path_factory) -> Path:
 
 
 class TestRealChildren:
-    """The kernel path against real ``osprey_connectors.ipc.host`` children."""
+    """The kernel path against real ``osprey_connectors.ipc._host`` children."""
 
     @pytest.fixture(autouse=True)
     def child_start_guard(self, monkeypatch):

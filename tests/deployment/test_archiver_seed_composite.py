@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from osprey.deployment import container_lifecycle
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.simulation import archive as archive_module
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import pulse
@@ -377,7 +377,7 @@ def _reseed(root: Path, collection) -> None:
 
 
 def test_a_writes_journal_planted_before_a_rewrite_changes_no_sample(store) -> None:
-    from osprey_connectors.control_system.va_in_process_connector import (
+    from osprey_connectors.control_system._va_in_process_connector import (
         JOURNAL_DIR,
         JOURNAL_FILE,
         active_set_sha256,

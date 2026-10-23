@@ -155,7 +155,7 @@ def _readings(served: Served) -> list[str]:
 
 def _limits(deployment: gm.Deployment) -> dict[str, Any]:
     """The limits the served run's runtime checks, by address, from the build's limits view."""
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
 
     limits, _ = LimitsValidator._load_limits_database(
         str(deployment.data_root / "channel_limits.json")

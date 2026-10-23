@@ -21,8 +21,8 @@ import threading
 from typing import Any
 from unittest.mock import patch
 
-from osprey_connectors.control_system.ca_loop import get_ca_loop
-from osprey_connectors.control_system.epics_connector import EPICSConnector
+from osprey_connectors.control_system._ca_loop import get_ca_loop
+from osprey_connectors.control_system._epics_connector import EPICSConnector
 
 RESULT_MARKER = "__RESULT__"
 ATEXIT_MARKER = "__ATEXIT__"
@@ -100,7 +100,7 @@ async def contract(prefix: str) -> dict[str, Any]:
     await asyncio.sleep(0.5)
     out["monitor"] = updates
 
-    read_current = connector._current_value_reader()
+    read_current = connector.current_value_reader()
     out["max_step"] = [
         await asyncio.to_thread(read_current, f"{prefix}:AO"),
         await asyncio.to_thread(read_current, f"{prefix}:NOPE"),

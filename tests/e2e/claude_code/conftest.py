@@ -190,7 +190,7 @@ def safety_project_writes_off(tmp_path_factory):
 #: ``tests/mcp_server/test_switch_lifecycle.py`` uses to serve ``live`` with no
 #: Channel Access.
 MIXED_RENDER_LIVE_TYPE = (
-    "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+    "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 )
 
 

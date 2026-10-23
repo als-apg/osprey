@@ -26,7 +26,7 @@ from osprey.mcp_server.control_system.error_handling import (
     ToolError,
     connector_error_handler,
 )
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     WriteOutcome,
     raise_for_write_result,
@@ -341,7 +341,7 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None
             return_value=connector,
         ),
         patch(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
         patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled_config),

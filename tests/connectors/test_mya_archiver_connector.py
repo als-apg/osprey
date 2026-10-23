@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from osprey_connectors.archiver.mya_archiver_connector import (
+from osprey_connectors.archiver._mya_archiver_connector import (
     MYAArchiverConnector,
     _like_literal,
 )
@@ -97,7 +97,7 @@ def test_signature_matches_the_archiver_contract():
     """
     import inspect
 
-    from osprey_connectors.archiver.base import ArchiverConnector
+    from osprey_connectors.archiver._base import ArchiverConnector
 
     base = inspect.signature(ArchiverConnector.get_data)
     impl = inspect.signature(MYAArchiverConnector.get_data)

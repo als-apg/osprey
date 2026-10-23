@@ -42,10 +42,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+__all__ = [
+    "ConnectionSettings",
+    "Credential",
+    "ENV_NAME_RE",
+    "Login",
+    "LoginKind",
+    "read_ca_bundle",
+    "read_connection_settings",
+    "read_credential_env_names",
+    "urllib_opener",
+]
+
 LoginKind = Literal["token", "password"]
 
 #: Every login form the shape defines.
-ALL_LOGINS: frozenset[LoginKind] = frozenset({"token", "password"})
+_ALL_LOGINS: frozenset[LoginKind] = frozenset({"token", "password"})
 
 #: What an environment variable name looks like, wherever a config names one. ``\A`` and
 #: ``\Z`` anchor the whole string, so ``match`` and ``fullmatch`` agree; a ``$`` anchor would
@@ -183,7 +195,7 @@ def read_connection_settings(
     block: Mapping[str, Any] | None,
     *,
     where: str,
-    logins: frozenset[LoginKind] = ALL_LOGINS,
+    logins: frozenset[LoginKind] = _ALL_LOGINS,
     tls: bool = True,
     unsupported_because: str = "",
     extra_auth_keys: frozenset[str] = frozenset(),
@@ -209,7 +221,7 @@ def read_connection_settings(
         ValueError: The block breaks the shape. The message starts with the key
             and never repeats a value from under ``auth:`` or a url's userinfo.
     """
-    if (logins != ALL_LOGINS or not tls) and not unsupported_because:
+    if (logins != _ALL_LOGINS or not tls) and not unsupported_because:
         raise TypeError("a restricted login or tls reader needs unsupported_because")
     if block is None:
         block = {}

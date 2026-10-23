@@ -1,6 +1,6 @@
 """The connector-host child, exercised as a real process.
 
-Every wire-level test here spawns ``python -m osprey_connectors.ipc.host`` for
+Every wire-level test here spawns ``python -m osprey_connectors.ipc._host`` for
 real and talks to it over pipes, because the things worth pinning are the ones
 that only exist in a separate process: what the child inherits, what it emits
 first, whether it dies when it should, and whether a failed request takes it
@@ -42,14 +42,15 @@ import pytest
 import yaml
 
 from osprey_connectors import posture_store
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ConnectorInternalError
-from osprey_connectors.ipc import frames, host
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc import _host as host
 from tests._control_context_fixtures import write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -59,7 +60,7 @@ PYTHONPATH = os.pathsep.join(
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
-IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 
 #: A connector whose ``connect()`` never returns, by dotted path.
 HANGING_TYPE = "tests.connectors.ipc._pool_connectors.HangingConnector"
@@ -126,7 +127,7 @@ class Child:
         env["PYTHONPATH"] = PYTHONPATH
         env.update(env_extra or {})
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "osprey_connectors.ipc.host"],
+            [sys.executable, "-m", "osprey_connectors.ipc._host"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -601,7 +602,7 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
     launcher = (
         "import os, subprocess, sys\n"
         "proc = subprocess.Popen(\n"
-        "    [sys.executable, '-m', 'osprey_connectors.ipc.host'],\n"
+        "    [sys.executable, '-m', 'osprey_connectors.ipc._host'],\n"
         f"    stdin={read_fd}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,\n"
         ")\n"
         f"open({str(pid_file)!r}, 'w').write(str(proc.pid))\n"
@@ -675,7 +676,7 @@ def test_a_connector_host_handed_to_a_subreaper_exits(tmp_path):
         "env = dict(os.environ, EPICS_CA_ADDR_LIST='127.0.0.1')\n"
         f"err = open({str(started)!r}, 'w')\n"
         "proc = subprocess.Popen(\n"
-        "    [sys.executable, '-m', 'osprey_connectors.ipc.host'],\n"
+        "    [sys.executable, '-m', 'osprey_connectors.ipc._host'],\n"
         f"    stdin={read_fd}, stdout=subprocess.DEVNULL, stderr=err, env=env,\n"
         ")\n"
         f"deadline = time.monotonic() + {CHILD_STARTUP_TIMEOUT_S}\n"
@@ -1128,7 +1129,7 @@ def _install_addr_list(monkeypatch, address, port):
 
 def _verify(config, report, writes_enabled):
     """Run the parent's own verification against a child's report."""
-    from osprey_connectors.ipc.verification import derive_endpoints, verify_child_report
+    from osprey_connectors.ipc._verification import derive_endpoints, verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
     return derivation, verify_child_report(derivation, report)

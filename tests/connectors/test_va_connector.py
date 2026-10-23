@@ -10,8 +10,8 @@ import pytest
 
 from osprey.registry.base import ConnectorRegistration, RegistryConfig
 from osprey.registry.initializers import initialize_connectors
-from osprey_connectors.control_system.epics_connector import EPICSConnector
-from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
+from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
     isolated_connector_registries,
@@ -70,7 +70,7 @@ class TestRegistryResolution:
                 ConnectorRegistration(
                     name=VIRTUAL_ACCELERATOR,
                     connector_type="control_system",
-                    module_path="osprey_connectors.control_system.va_connector",
+                    module_path="osprey_connectors.control_system._va_connector",
                     class_name="VirtualAcceleratorConnector",
                     description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
                 ),
@@ -94,7 +94,7 @@ class TestRegistryResolution:
         registration = va_registrations[0]
         assert registration.connector_type == "control_system"
         assert registration.class_name == "VirtualAcceleratorConnector"
-        assert registration.module_path == "osprey_connectors.control_system.va_connector"
+        assert registration.module_path == "osprey_connectors.control_system._va_connector"
 
 
 class TestConfigBlockRouting:

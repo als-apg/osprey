@@ -39,7 +39,7 @@ several requests outstanding and match replies arriving in any order:
 ``error``
     ``{request_id, class_tag, message, fields}``. Exceptions cross the
     boundary *typed*: ``fields`` are the structured attributes enumerated by
-    :mod:`osprey_connectors.ipc.exceptions`, and decoding calls the real
+    :mod:`osprey_connectors.ipc._exceptions`, and decoding calls the real
     constructor, so ``.attempted_value``, ``.reason`` and the min/max/step
     bounds survive and the parent's error rendering is unchanged. That module
     owns the registry — which classes cross typed, which fields each carries,
@@ -62,7 +62,7 @@ Supported values
 (ISO 8601), lists/tuples and dicts of the above (dict keys are coerced to
 strings; tuples decode as lists), numpy arrays and numpy scalars (dtype and
 shape preserved), and the connector dataclasses
-:class:`~osprey_connectors.control_system.base.ChannelValue`,
+:class:`~osprey_connectors.control_system.ChannelValue`,
 ``ChannelMetadata`` and ``ChannelWriteResult``, which decode as real
 instances of those classes. Anything else is refused at encode
 time rather than silently degraded.
@@ -81,13 +81,13 @@ from typing import Any
 
 import numpy as np
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
 )
 from osprey_connectors.errors import ConnectorInternalError
-from osprey_connectors.ipc.exceptions import exception_fields, reconstruct_exception
+from osprey_connectors.ipc._exceptions import exception_fields, reconstruct_exception
 
 __all__ = [
     "MAGIC",

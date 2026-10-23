@@ -56,6 +56,81 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+__all__ = [
+    "ARCHIVER_SETTINGS_LEAF",
+    "CLI_ARCHIVER_TYPES",
+    "CLI_CONTROL_SYSTEM_TYPES",
+    "CONTROL_TARGETS",
+    "DEFAULT_VA_PORT",
+    "DOOCS",
+    "DOOCS_ARCHIVER",
+    "EPICS",
+    "EPICS_ARCHIVER",
+    "INVENTED_HISTORY_TYPES",
+    "IN_PROCESS",
+    "LIMITS_BLOCK_LEAVES",
+    "LIMITS_CHECKING_LEAF",
+    "LIMITS_LEAVES",
+    "LIMITS_MODES",
+    "LIMITS_MODE_EXCLUSIVE",
+    "LIMITS_MODE_OPTIONAL",
+    "LIVE_STANDIN",
+    "LimitsPosture",
+    "MOCK_ARCHIVER",
+    "MONGODB_ARCHIVER",
+    "MYA_ARCHIVER",
+    "ONE_REAL_MACHINE",
+    "RETIRED_CONTROL_SYSTEM_TYPES",
+    "SERVED",
+    "SERVING_KEY",
+    "SERVING_LEAF",
+    "SERVING_MODES",
+    "SET_CONTROL_SYSTEM_TYPES",
+    "SIMULATED_TYPES",
+    "STANDIN_TYPES",
+    "TANGO",
+    "TARGET_LIVE",
+    "TARGET_STANDIN",
+    "TARGET_VA",
+    "TRANSPORT_CA",
+    "TRANSPORT_DOOCS",
+    "TRANSPORT_IN_PROCESS",
+    "TRANSPORT_TANGO",
+    "TYPE_WRITES_ENABLED_LEAF",
+    "UNSET_TYPE_WARNING",
+    "VIRTUAL_ACCELERATOR",
+    "WRITES_ENABLED_KEY",
+    "any_armed_target_checks_limits",
+    "any_target_writes_enabled",
+    "archiver_settings_errors",
+    "archiver_settings_key",
+    "baseline_target",
+    "configured_targets",
+    "connector_transport",
+    "incomplete_limits_blocks",
+    "is_simulated",
+    "most_restrictive_limits_posture",
+    "resolve_archiver_settings",
+    "resolve_archiver_type",
+    "resolve_control_system_type",
+    "resolve_serving",
+    "resolve_target",
+    "retired_type_message",
+    "session_posture",
+    "speaks_channel_access",
+    "switch_capable",
+    "talks_to_network",
+    "target_configured",
+    "target_limits_posture",
+    "target_writes_enabled",
+    "target_writes_enabled_key",
+    "type_limits_posture",
+    "type_writes_enabled",
+    "writes_enabled_answering_key",
+    "writes_enabled_key",
+    "writes_enabled_remedy",
+]
+
 logger = logging.getLogger("osprey_connectors.types")
 
 #: Config shapes the second-real-block warning has already been said about, so
@@ -76,6 +151,12 @@ TANGO = "tango"
 #: thing ``live`` can mean, and the stand-in gets its own
 #: ``control_system.connector.live_standin`` block to be configured from.
 LIVE_STANDIN = "live_standin"
+
+#: Channel Access port the shipped Virtual Accelerator soft-IOC serves on. It is
+#: here rather than only in the VA connector because the deployment layer fills
+#: the same default when it dials the VA, and it must not import a concrete
+#: connector (and the EPICS client stack behind it) to learn one integer.
+DEFAULT_VA_PORT = 5064
 
 # -- Where the simulator runs --
 #: The leaf under ``control_system.connector.virtual_accelerator`` that says
@@ -183,7 +264,7 @@ TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
 #: whose baseline is one of these has not yet said what its real machine is.
-_SIMULATED_TYPES = (VIRTUAL_ACCELERATOR,)
+SIMULATED_TYPES = (VIRTUAL_ACCELERATOR,)
 
 
 def is_simulated(connector_type: str) -> bool:
@@ -193,7 +274,7 @@ def is_simulated(connector_type: str) -> bool:
     in process. It never says whether a connector dials a network; that is
     :func:`speaks_channel_access` and :func:`talks_to_network`.
     """
-    return connector_type in _SIMULATED_TYPES
+    return connector_type in SIMULATED_TYPES
 
 
 #: Types that serve the live stand-in. Reachable only through the ``standin``
@@ -349,7 +430,7 @@ ARCHIVER_SETTINGS_LEAF = "settings"
 
 #: Keys of the ``archiver:`` section that are not a connector's settings block:
 #: the selector, the settings block itself, and archiver_read's point budget.
-ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
+_ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
 
 
 def _own_name_block(connector_type: str) -> str | None:
@@ -429,7 +510,7 @@ def archiver_settings_errors(section: Any) -> list[str]:
 
     A lint, like :func:`incomplete_limits_blocks`, and read by the build over the
     config a deployment runs. It reports, in section order: each mapping under a
-    key no reader takes (anything but :data:`ARCHIVER_SECTION_LEAVES`, a built-in
+    key no reader takes (anything but :data:`_ARCHIVER_SECTION_LEAVES`, a built-in
     archiver's name, or the selected type's own name when it has no dot); then
     the two refusals :func:`resolve_archiver_settings` raises, in its words. A
     scalar is not a block and is not reported. Never raises.
@@ -438,7 +519,7 @@ def archiver_settings_errors(section: Any) -> list[str]:
         return []
     selected = resolve_archiver_type(section)
     own = _own_name_block(selected)
-    known = {*ARCHIVER_SECTION_LEAVES, *CLI_ARCHIVER_TYPES, *([own] if own else [])}
+    known = {*_ARCHIVER_SECTION_LEAVES, *CLI_ARCHIVER_TYPES, *([own] if own else [])}
     errors = [
         f"`{key}:` under `archiver:` is a block no archiver reads; the selected "
         f"archiver, {selected}, takes its settings from `archiver.settings`"
@@ -1252,7 +1333,7 @@ def any_armed_target_checks_limits(section: Any) -> bool:
 
     ``enabled`` alone decides the limits half, because that is the leaf that
     decides whether a validator exists at all —
-    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._from_posture`
+    :meth:`~osprey_connectors.control_system.LimitsValidator._from_posture`
     builds none for anything else, and a target with no validator consults no
     database. ``mode`` governs what a built validator does
     with a channel the database omits, which is a different question.
@@ -1586,7 +1667,7 @@ def _live_type(section: Any) -> str:
     raises, and a baseline that *is* one, beside a second real block no target
     can reach, is warned about.
     """
-    never_live = _SIMULATED_TYPES + STANDIN_TYPES
+    never_live = SIMULATED_TYPES + STANDIN_TYPES
     baseline = resolve_control_system_type(section)
     if baseline not in never_live:
         _report_second_real_block(section, baseline, never_live)

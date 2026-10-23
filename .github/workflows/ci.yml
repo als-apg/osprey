@@ -307,6 +307,17 @@ jobs:
         # (and not self-enabling until 3.14), inert on the cells that measure
         # no coverage, so it is set once for the matrix rather than branched.
         COVERAGE_CORE: sysmon
+        # Scratch files on the runner's disk, not under /tmp. On the Ubuntu
+        # 26.04 image (ubuntu-latest since 2026-10-22) /tmp is a RAM-backed
+        # tmpfs with a per-user quota of ~6.3 GB (actions/runner-images#14777).
+        # This lane's ~120 real `osprey build`s each install the full
+        # dependency tree into a project venv under pytest's basetemp, and
+        # uv's cache lives on the disk, so on tmpfs every venv is a ~2 GB copy
+        # rather than a set of hardlinks: the cli shard hit EDQUOT ten minutes
+        # in. runner.temp is the same filesystem as the uv cache, so the venvs
+        # are hardlinked again and cost next to nothing. Inherited by every
+        # build the suite spawns.
+        TMPDIR: ${{ runner.temp }}
       # Coverage is measured only on the cell that uploads to Codecov below —
       # the other three cells were paying for a report nobody reads.
       #
@@ -666,6 +677,25 @@ jobs:
       run: |
         uv run ruff format --check .
 
+    - name: Run lint-imports (import boundaries)
+      # The contracts live in [tool.importlinter] in pyproject.toml: the
+      # connectors package never imports the framework, the framework reaches
+      # the connectors package only through its public namespaces, and the
+      # package's own layers hold. `!cancelled()` so a ruff failure above does
+      # not hide a boundary break and buy a second CI cycle to discover it.
+      if: ${{ !cancelled() }}
+      run: uv run lint-imports
+
+    - name: Run ruff import-private-name on the framework
+      # PLC2701 flags a `_`-name imported from another package, which is how a
+      # framework module would reach past a connectors namespace for a name it
+      # does not export; lint-imports sees modules, not names. The rule is
+      # preview-only in the pinned ruff, so it is selected on its own here
+      # rather than by turning preview on for every rule, and a per-file
+      # ignore in pyproject.toml scopes it to src/osprey.
+      if: ${{ !cancelled() }}
+      run: uv run ruff check --preview --select=PLC2701 . --output-format=github
+
     - name: Run config-key resurrection guard (with back-test)
       # `!cancelled()` so folding this in never costs a signal: a ruff
       # failure above must not hide a resurrection-guard failure here and
@@ -856,8 +886,8 @@ jobs:
         uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
         /tmp/lean-check/bin/python -c "
         import importlib, pkgutil, sys
-        import osprey_connectors.control_system.epics_connector
-        import osprey_connectors.control_system.limits_validator
+        import osprey_connectors.control_system._epics_connector
+        import osprey_connectors.control_system
         import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger
         import osprey_connectors.simulation
         bad = sorted({m.split('.')[0] for m in sys.modules} & {'litellm','openai','anthropic','fastapi','playwright','osprey'})
@@ -873,6 +903,10 @@ jobs:
         for name in modules:
             importlib.import_module(name)
         assert 'osprey' not in sys.modules, 'a lean-wheel module imported the osprey framework'
+        # The PEP 561 marker: without it a type checker treats the installed
+        # package as untyped and every name imported from it as Any.
+        import importlib.resources
+        assert (importlib.resources.files('osprey_connectors') / 'py.typed').is_file(), 'py.typed missing from the wheel'
         print(f'LEAN WHEEL OK ({len(modules)} modules)')
         "
 
@@ -1354,6 +1388,11 @@ jobs:
     - name: Run Tier 1 boot smoke for preset
       env:
         PRESET: ${{ matrix.preset }}
+        # The module builds every preset with a full project venv under
+        # pytest's basetemp and keeps them until it ends — more than the
+        # ~6.3 GB per-user quota of the Ubuntu 26.04 image's tmpfs /tmp. See
+        # the same key on "Run unit tests".
+        TMPDIR: ${{ runner.temp }}
       run: |
         uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 

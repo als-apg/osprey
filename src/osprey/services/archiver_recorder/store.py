@@ -30,9 +30,9 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from osprey_connectors.archiver.field_names import field_name
-from osprey_connectors.archiver.mongodb_archiver_connector import (
+from osprey_connectors.archiver import (
     CA_FILE_ERRORS,
+    field_name,
     mongo_client_kwargs,
 )
 from osprey_connectors.simulation.archive import (

@@ -27,7 +27,7 @@ from types import ModuleType
 import pytest
 
 from osprey.runtime import raw_put_block
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,

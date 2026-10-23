@@ -75,7 +75,7 @@ def test_a_non_mapping_config_entry_reads_as_absent(monkeypatch):
 
     monkeypatch.setattr(
         connectors_config,
-        "_get_configurable",
+        "get_configurable",
         lambda config_path=None: {"model_configs": "oops", "provider_configs": {"p": "oops"}},
     )
     assert get_model_config("m") == {}

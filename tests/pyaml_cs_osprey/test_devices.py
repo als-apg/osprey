@@ -13,8 +13,8 @@ from pyaml.common.exception import PyAMLException
 from pyaml.control.deviceaccesslist import DeviceAccessList
 
 import osprey.runtime
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )

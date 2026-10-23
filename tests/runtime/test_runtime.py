@@ -20,14 +20,14 @@ from osprey.runtime import (
     write_channel,
     write_channels,
 )
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
@@ -472,7 +472,7 @@ class TestRuntimeStepCheckReader:
     @staticmethod
     def _connector(reads):
         class ReadingConnector(RecordingConnector):
-            def _current_value_reader(self):
+            def current_value_reader(self):
                 def read_current(channel_address):
                     reads.append(channel_address)
                     return 50.0
@@ -1248,7 +1248,7 @@ class TestChannelReadFailedError:
 
 class TestValuesMatchReexport:
     def test_values_match_is_the_connector_rule(self):
-        from osprey_connectors.control_system.base import values_match as connector_rule
+        from osprey_connectors.control_system._base import values_match as connector_rule
 
         assert values_match is connector_rule
 

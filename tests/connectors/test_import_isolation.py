@@ -45,8 +45,8 @@ def _run_clean(code: str) -> None:
 
 def test_control_system_chain_imports_without_heavy_deps():
     code = (
-        "import osprey_connectors.control_system.epics_connector;"
-        "import osprey_connectors.control_system.limits_validator;"
+        "import osprey_connectors.control_system._epics_connector;"
+        "import osprey_connectors.control_system._limits_validator;"
         "import osprey_connectors.errors, osprey_connectors.config, osprey_connectors.logger;"
         "import osprey.simulation, sys;"
         f"bad = sorted({{m.split('.')[0] for m in sys.modules}} & set({FORBIDDEN!r}));"
@@ -68,7 +68,7 @@ def test_limits_validator_reaches_for_no_control_system_client():
     """
     code = (
         "import sys;"
-        "from osprey_connectors.control_system.limits_validator import ("
+        "from osprey_connectors.control_system._limits_validator import ("
         "    ChannelLimitsConfig, LimitsValidator);"
         "v = LimitsValidator("
         "    {'FOO': ChannelLimitsConfig(channel_address='FOO', max_step=5.0, writable=True)},"
@@ -124,10 +124,10 @@ def test_identity_imports_no_osprey_module():
 @pytest.mark.parametrize(
     ("driver", "type_name", "registry", "connector_module"),
     [
-        ("tango", "tango", "control_system", "control_system.tango_connector"),
-        ("doocs4py", "doocs", "control_system", "control_system.doocs_connector"),
-        ("doocs4py", "doocs_archiver", "archiver", "archiver.doocs_archiver_connector"),
-        ("pymongo", "mongodb_archiver", "archiver", "archiver.mongodb_archiver_connector"),
+        ("tango", "tango", "control_system", "control_system._tango_connector"),
+        ("doocs4py", "doocs", "control_system", "control_system._doocs_connector"),
+        ("doocs4py", "doocs_archiver", "archiver", "archiver._doocs_archiver_connector"),
+        ("pymongo", "mongodb_archiver", "archiver", "archiver._mongodb_archiver_connector"),
     ],
     ids=["tango", "doocs", "doocs_archiver", "mongodb_archiver"],
 )
@@ -189,7 +189,7 @@ def test_mock_archiver_serves_a_built_view_without_osprey(tmp_path):
         else:
             sys.exit("blocker inert")
 
-        from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
+        from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 
 
         async def main():

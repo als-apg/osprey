@@ -26,7 +26,7 @@ import pytest
 
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.services.python_executor.write_surface import _CLIENT_WRITE_TARGETS
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
@@ -1476,3 +1476,35 @@ def test_absent_pvaccess_leaves_the_p4p_guards_in_place(monkeypatch):
     _, out = _run_monkeypatch(monkeypatch, _make_pva_validator())
     assert "pvaccess not available" in out
     assert "✅ Monkeypatched p4p.client.thread Context.put()" in out
+
+
+def test_the_embedded_limits_setup_imports_only_public_names():
+    """The sandbox's limits setup reaches the validator through the public namespace.
+
+    The setup is generated as source text, so neither lint-imports nor PLC2701
+    sees its imports, and it reports a failed import only as a warning before
+    running on with no validator. A private module path here would turn an
+    internal rename into a sandbox that checks no limits.
+    """
+    # Arrange
+    import ast
+
+    wrapper = ExecutionWrapper(limits_validator=_make_validator(), execution_mode="readwrite")
+    tree = ast.parse(wrapper._get_limits_checking_monkeypatch())
+
+    # Act
+    imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module
+        and node.module.startswith("osprey_connectors")
+    ]
+
+    # Assert
+    assert imports, "the limits setup no longer imports the validator"
+    for node in imports:
+        assert not any(part.startswith("_") for part in node.module.split(".")), node.module
+        module = importlib.import_module(node.module)
+        for alias in node.names:
+            assert alias.name in module.__all__, f"{node.module}.{alias.name}"

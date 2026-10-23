@@ -17,7 +17,7 @@ import yaml
 
 from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
 from tests.connectors.test_mock_connector import _config_with_writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
@@ -57,7 +57,7 @@ async def served(tmp_path, monkeypatch):
             return_value=connector,
         ),
         patch(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
     ):

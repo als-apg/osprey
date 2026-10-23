@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,

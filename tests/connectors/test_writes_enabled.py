@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -140,7 +140,7 @@ class TestMockWritesDisabledViaBaseClass:
 
     def test_mock_has_no_enable_writes_attr(self):
         """VAInProcessConnector must not carry an _enable_writes attribute."""
-        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         connector = VAInProcessConnector()
         assert not hasattr(connector, "_enable_writes")
@@ -148,7 +148,7 @@ class TestMockWritesDisabledViaBaseClass:
     @pytest.mark.asyncio
     async def test_write_blocked_full_path(self, tmp_path):
         """Full path: VAInProcessConnector with writes_enabled=false blocks writes."""
-        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = VAInProcessConnector()
@@ -169,7 +169,7 @@ class TestMockWritesDisabledViaBaseClass:
         No limits database and a noise-free confirming read, so the fleet
         default resolves to a confirmed write.
         """
-        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = VAInProcessConnector()

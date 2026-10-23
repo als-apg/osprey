@@ -20,7 +20,7 @@ import yaml
 
 import osprey.runtime
 from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
-from osprey_connectors.control_system.base import ChannelMetadata, ChannelValue
+from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.settle import SettleTimeoutError
 from osprey_connectors.simulation.envelope import MOTION_SIGMAS
 from osprey_connectors.workspace import reset_config_cache

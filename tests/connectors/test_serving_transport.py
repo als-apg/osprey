@@ -171,7 +171,7 @@ def test_factory_refuses_mock_with_the_new_spelling():
 
 
 def test_an_unbuilt_connector_names_no_transport():
-    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
     assert VAInProcessConnector().transport is None
 
@@ -187,7 +187,7 @@ def test_an_unbuilt_connector_names_no_transport():
 _TYPE_COMPARISON_HOMES = {
     "packages/osprey-connectors/src/osprey_connectors/types.py",
     "packages/osprey-connectors/src/osprey_connectors/factory.py",
-    "packages/osprey-connectors/src/osprey_connectors/ipc/verification.py",
+    "packages/osprey-connectors/src/osprey_connectors/ipc/_verification.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
 }
