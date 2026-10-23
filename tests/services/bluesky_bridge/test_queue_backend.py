@@ -147,8 +147,10 @@ async def test_manager_refusal_becomes_request_rejected() -> None:
 async def test_every_call_fails_closed_without_a_manager() -> None:
     backend = QueueBackend(None)
     for call in (backend.status(), backend.items(), backend.history(), backend.start()):
-        with pytest.raises(QueueUnavailableError):
+        with pytest.raises(QueueUnavailableError) as excinfo:
             await call
+        assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
+        assert str(excinfo.value) == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 async def test_close_is_safe_without_a_manager() -> None:
@@ -585,8 +587,9 @@ async def test_abort_reports_pending_while_the_manager_is_still_unwinding(
 
 
 async def test_abort_without_a_manager_fails_closed() -> None:
-    with pytest.raises(QueueUnavailableError):
+    with pytest.raises(QueueUnavailableError) as excinfo:
         await QueueBackend(None).abort()
+    assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
 
 
 # ------------------------------------------------------------ worker namespace
@@ -626,8 +629,9 @@ async def test_devices_allowed_reads_the_manager() -> None:
 
 
 async def test_devices_allowed_without_a_manager_fails_closed() -> None:
-    with pytest.raises(QueueUnavailableError):
+    with pytest.raises(QueueUnavailableError) as excinfo:
         await QueueBackend(None).devices_allowed()
+    assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
 
 
 # ------------------------------------------------------------------ capability
@@ -682,6 +686,7 @@ async def test_capability_fails_closed_without_a_configured_manager(connector) -
 
     assert capability.can_execute is False
     assert capability.reason == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert capability.detail == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 async def test_capability_fails_closed_when_the_manager_is_silent(connector) -> None:

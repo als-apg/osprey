@@ -68,6 +68,14 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 # will not answer.
 QSERVER_CONTROL_ADDRESS_ENV = "QSERVER_ZMQ_CONTROL_ADDRESS"
 
+# What a bridge with no queue server says on every surface: the fact and the
+# operator's remedy.
+MANAGER_NOT_CONFIGURED_DETAIL = (
+    "No queue server is configured for this deployment "
+    f"({QSERVER_CONTROL_ADDRESS_ENV} is unset), so plans cannot be executed. "
+    "Redeploy so the rendered bridge names its queue server."
+)
+
 EXTERNAL_WORKER_ENV = "BLUESKY_EXTERNAL_WORKER"
 """Set (to ``"1"``) by the compose render when this lane fronts a facility-run
 RE Manager (``bluesky.external:`` in the profile). Environment ownership
@@ -493,6 +501,17 @@ class QueueUnavailableError(QueueBackendError):
     reason = REASON_MANAGER_UNREACHABLE
 
 
+class ManagerNotConfiguredError(QueueUnavailableError):
+    """This deployment names no queue server, so there is no manager to reach.
+
+    A :class:`QueueUnavailableError` by kind, so every caller that treats "no
+    manager to talk to" as one case keeps doing so; its own reason tells a
+    client that only an operator can fix it.
+    """
+
+    reason = REASON_MANAGER_NOT_CONFIGURED
+
+
 class QueueRequestRejectedError(QueueBackendError):
     """The manager was reached and refused the request (bad state, unknown uid, ...)."""
 
@@ -780,10 +799,7 @@ class QueueBackend:
 
     def _require_manager(self) -> Any:
         if self._manager is None:
-            raise QueueUnavailableError(
-                "No queue server is configured for this deployment "
-                f"({QSERVER_CONTROL_ADDRESS_ENV} is unset)."
-            )
+            raise ManagerNotConfiguredError(MANAGER_NOT_CONFIGURED_DETAIL)
         return self._manager
 
     async def _call(self, method: str, /, **kwargs: Any) -> dict[str, Any]:
@@ -1608,10 +1624,7 @@ class QueueBackend:
                 lane=lane,
                 lane_target=lane_target,
                 lane_degraded=lane_degraded,
-                detail=(
-                    "No queue server is configured for this deployment "
-                    f"({QSERVER_CONTROL_ADDRESS_ENV} is unset), so plans cannot be executed."
-                ),
+                detail=MANAGER_NOT_CONFIGURED_DETAIL,
             )
 
         try:
