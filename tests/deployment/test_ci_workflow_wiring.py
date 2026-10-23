@@ -5281,6 +5281,55 @@ def test_unit_lane_arms_the_diagnostics_recorder__mutation_drops_the_env() -> No
         test_unit_lane_arms_the_diagnostics_recorder(mutated)
 
 
+#: The runner-disk scratch directory, as the step-level env has to spell it.
+#: ``runner.temp`` is on the same filesystem as uv's cache, so the project
+#: venvs the real-build tests install there are hardlinked rather than copied.
+RUNNER_DISK_TMPDIR = "${{ runner.temp }}"
+#: Every step that runs real ``osprey build``s under pytest's basetemp: each
+#: installs a ~2 GB project venv there, and on the Ubuntu 26.04 image /tmp is a
+#: RAM-backed tmpfs with a ~6.3 GB per-user quota (actions/runner-images#14777).
+REAL_BUILD_STEPS = (
+    (UNIT_TEST_JOB, "Run unit tests"),
+    (BOOT_SMOKE_JOB, BOOT_SMOKE_STEP),
+)
+
+
+@pytest.mark.parametrize(("job", "step_name"), REAL_BUILD_STEPS)
+def test_real_build_lanes_keep_scratch_on_the_runner_disk(
+    workflow: dict[str, Any], job: str, step_name: str
+) -> None:
+    """A lane that builds real project venvs under ``tmp_path`` must not do
+    so under ``/tmp``: on ubuntu-latest that is a quota-limited tmpfs, and
+    the venvs overran it with ``[Errno 122] Disk quota exceeded``."""
+    env = _find_named_step(workflow, job, step_name).get("env", {})
+    assert env.get("TMPDIR") == RUNNER_DISK_TMPDIR, (
+        f"step '{step_name}' of job '{job}' must set TMPDIR to {RUNNER_DISK_TMPDIR}: its "
+        "real builds install gigabytes of project venvs under pytest's basetemp, which "
+        "lands on the runner's tmpfs /tmp otherwise"
+    )
+
+
+@pytest.mark.parametrize(("job", "step_name"), REAL_BUILD_STEPS)
+def test_real_build_lanes_keep_scratch_on_the_runner_disk__mutation_drops_tmpdir(
+    job: str, step_name: str
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, job, step_name)["env"]["TMPDIR"]
+    with pytest.raises(AssertionError):
+        test_real_build_lanes_keep_scratch_on_the_runner_disk(mutated, job, step_name)
+
+
+@pytest.mark.parametrize(("job", "step_name"), REAL_BUILD_STEPS)
+def test_real_build_lanes_keep_scratch_on_the_runner_disk__mutation_points_back_at_tmp(
+    job: str, step_name: str
+) -> None:
+    """Set but to the tmpfs itself is the regression, not a variant of the fix."""
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, job, step_name)["env"]["TMPDIR"] = "/tmp"
+    with pytest.raises(AssertionError):
+        test_real_build_lanes_keep_scratch_on_the_runner_disk(mutated, job, step_name)
+
+
 def test_unit_lane_uploads_its_diagnostics(workflow: dict[str, Any]) -> None:
     """``always()``, not ``failure()``: a lane killed by the job cap is recorded
     as ``cancelled``, and a ``failure()`` step would not run for it."""

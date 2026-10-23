@@ -300,6 +300,17 @@ jobs:
         # (and not self-enabling until 3.14), inert on the cells that measure
         # no coverage, so it is set once for the matrix rather than branched.
         COVERAGE_CORE: sysmon
+        # Scratch files on the runner's disk, not under /tmp. On the Ubuntu
+        # 26.04 image (ubuntu-latest since 2026-10-22) /tmp is a RAM-backed
+        # tmpfs with a per-user quota of ~6.3 GB (actions/runner-images#14777).
+        # This lane's ~120 real `osprey build`s each install the full
+        # dependency tree into a project venv under pytest's basetemp, and
+        # uv's cache lives on the disk, so on tmpfs every venv is a ~2 GB copy
+        # rather than a set of hardlinks: the cli shard hit EDQUOT ten minutes
+        # in. runner.temp is the same filesystem as the uv cache, so the venvs
+        # are hardlinked again and cost next to nothing. Inherited by every
+        # build the suite spawns.
+        TMPDIR: ${{ runner.temp }}
       # Coverage is measured only on the cell that uploads to Codecov below —
       # the other three cells were paying for a report nobody reads.
       #
@@ -1370,6 +1381,11 @@ jobs:
     - name: Run Tier 1 boot smoke for preset
       env:
         PRESET: ${{ matrix.preset }}
+        # The module builds every preset with a full project venv under
+        # pytest's basetemp and keeps them until it ends — more than the
+        # ~6.3 GB per-user quota of the Ubuntu 26.04 image's tmpfs /tmp. See
+        # the same key on "Run unit tests".
+        TMPDIR: ${{ runner.temp }}
       run: |
         uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
