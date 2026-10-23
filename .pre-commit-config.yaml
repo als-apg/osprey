@@ -65,11 +65,8 @@ repos:
       # every merge touching those pages fails on prose that is perfectly fine.
       - id: check-merge-conflict
         exclude: \.rst$
-      # Check YAML syntax. The previous-release profile fixture carries `@…@`
-      # sentinels its test expands before reading it, so it is YAML only once
-      # expanded; the test that loads it is what checks it.
+      # Check YAML syntax
       - id: check-yaml
-        exclude: ^tests/fixtures/previous_release_repo/profile\.yml$
       # Check TOML syntax
       - id: check-toml
       # Prevent large files from being committed. The floor is set by the
