@@ -49,7 +49,11 @@ def _basetemp(request: pytest.FixtureRequest) -> Path | None:
 @pytest.hookimpl(wrapper=True)
 def pytest_fixture_setup(fixturedef, request):
     """Note the base temp entries a fixture's setup adds."""
-    base = _basetemp(request) if "tmp_path_factory" in fixturedef.argnames else None
+    # A function-scoped fixture can neither be set up inside a longer-lived one
+    # nor outlive its test, so it is not measured: listing the base temp around
+    # every ``tmp_path`` makes a run slower the more tests it has run.
+    measured = fixturedef.scope != "function" and "tmp_path_factory" in fixturedef.argnames
+    base = _basetemp(request) if measured else None
     if base is None:
         return (yield)
     before = set(base.iterdir())

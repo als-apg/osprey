@@ -13,6 +13,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -84,3 +86,21 @@ def test_a_failed_modules_directory_is_kept(tmp_path):
 def test_policy_all_keeps_every_directory(tmp_path):
     left = _run(tmp_path, "def test_uses(shared):\n    pass\n", policy="all")
     assert "module-made0" in left
+
+
+def test_a_function_scoped_fixture_does_not_list_the_base_temp():
+    from types import SimpleNamespace
+
+    from tests import _scoped_temp
+
+    class _Unlistable:
+        def getbasetemp(self):
+            raise AssertionError("the base temp was read for a function-scoped fixture")
+
+    fixturedef = SimpleNamespace(scope="function", argnames=("tmp_path_factory",))
+    request = SimpleNamespace(config=SimpleNamespace(_tmp_path_factory=_Unlistable()))
+    setup = _scoped_temp.pytest_fixture_setup(fixturedef, request)
+    next(setup)
+    with pytest.raises(StopIteration) as done:
+        setup.send("value")
+    assert done.value.value == "value"
