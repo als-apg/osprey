@@ -132,7 +132,7 @@ MIN_COLLECTED_TESTS = 18
 
 #: What each target's switch reads to prove itself reachable. A pyat-coupled
 #: readback, never written by anything in this file.
-VA_PROBE = "SR:MAG:HCM:01:CURRENT:RB"
+VA_PROBE = e2e_conftest.READINESS_ADDRESS
 LIVE_PROBE = VA_PROBE
 
 #: The channel that tells the two containers apart. Container L boots with the
@@ -149,8 +149,9 @@ SEEDED_ACTIVE_SCENARIOS = "\n".join(
 
 #: The one setpoint this module ever writes -- in the executor scenario, and
 #: restored to zero by that test before it returns. Listed in the shipped
-#: ``channel_limits.json`` with a +-12 A band, so the values below pass limits.
-CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+#: ``channel_limits.json`` with a band at both ends (``conftest.LANE.band``),
+#: and the values below lie inside it, so they pass limits.
+CORRECTOR_SP = e2e_conftest.BOUNDED_SETPOINT
 PINNED_WRITE_VALUE = 1.0
 REFUSED_WRITE_VALUE = 2.0
 
