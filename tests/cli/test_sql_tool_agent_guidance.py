@@ -42,7 +42,7 @@ def _ctx(sql_tool: bool) -> dict:
         "facility_permissions": {},
         "ariel_attachment_view": True,
         "ariel_sql_tool": sql_tool,
-        "ariel_read_tools": _ariel_read_tools(True, sql_tool),
+        "ariel_read_tools": _ariel_read_tools({"ariel_sql_tool": sql_tool}),
     }
     ctx["servers"] = resolve_servers({}, ctx)
     ctx["agents"] = resolve_agents({}, ctx, resolved_servers=ctx["servers"])
@@ -78,7 +78,7 @@ def test_the_deep_research_tools_line_follows_the_flag(sql_tool):
 
 @pytest.mark.parametrize("sql_tool", [True, False])
 def test_the_main_agent_do_not_call_list_follows_the_flag(sql_tool):
-    assert ("sql_query" in _ariel_read_tools(True, sql_tool)) is sql_tool
+    assert ("sql_query" in _ariel_read_tools({"ariel_sql_tool": sql_tool})) is sql_tool
     assert ("sql_query" in _render(CLAUDE_MD, sql_tool)) is sql_tool
 
 

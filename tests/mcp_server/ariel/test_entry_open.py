@@ -200,7 +200,7 @@ def test_registered_allowed_and_offered_to_the_main_agent():
     assert "entry_open" in FRAMEWORK_SERVERS["ariel"].permissions_allow
     assert "entry_open" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "entry_open" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
-    assert "entry_open" not in _ariel_read_tools(True)
+    assert "entry_open" not in _ariel_read_tools({})
 
 
 def test_the_description_asks_for_the_picture_under_discussion():

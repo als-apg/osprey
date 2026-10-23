@@ -78,7 +78,7 @@ def _ctx(view: bool) -> dict:
         "facility_permissions": {},
         "ariel_attachment_view": view,
         "ariel_sql_tool": True,
-        "ariel_read_tools": _ariel_read_tools(view),
+        "ariel_read_tools": _ariel_read_tools({"ariel_attachment_view": view}),
     }
     ctx["servers"] = resolve_servers({}, ctx)
     ctx["agents"] = resolve_agents({}, ctx, resolved_servers=ctx["servers"])
@@ -263,7 +263,7 @@ def test_ariel_read_tools_follow_the_flag(view):
         for t in FRAMEWORK_SERVERS["ariel"].permissions_allow
         if t not in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL and (view or t != "attachment_view")
     ]
-    assert _ariel_read_tools(view) == expected
+    assert _ariel_read_tools({"ariel_attachment_view": view}) == expected
 
 
 def test_config_derived_context_sets_both_keys(tmp_path):
