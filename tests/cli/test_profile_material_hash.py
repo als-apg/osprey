@@ -158,16 +158,20 @@ def test_profile_without_file_inputs_is_unaffected_by_neighbouring_files(tmp_pat
     assert compute_profile_hash(profile) == before
 
 
-def test_material_roots_folded_in_order_give_the_fold_digest(tmp_path):
-    """The fold is exactly a walk over :func:`profile_material_roots`, in its order."""
+def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
+    """The fold is exactly a walk over the material and overlay entries, in order."""
     import hashlib
 
+    from osprey.cli.build_profile_document import _read_profile_document
     from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
         _fold_profile_material,
         _fold_source_tree,
-        profile_material_roots,
+        profile_inputs,
+        resolve_profile_document,
     )
     from osprey.cli.profile_root import layer_files
+    from osprey.cli.variant_selection import VARIANT_SETTING_FILENAME, VARIANT_SETTING_KEY
 
     root = tmp_path / "facility"
     _write(root / "data" / "channels.json", "{}\n")
@@ -178,23 +182,61 @@ def test_material_roots_folded_in_order_give_the_fold_digest(tmp_path):
     _write(root / "tiers" / "operator.yml", "name: operator\n")
     _write(root / "tiers" / "expert.yml", "name: expert\n")
     _write(root / "apps" / "logbook.yml", "name: logbook\n")
-    resolved = {"data": "data", "dispatch": {"triggers": "triggers.yml"}}
+    _write(root / "profiles" / "teststand.yml", "# teststand\n")
+    _write(root / VARIANT_SETTING_FILENAME, f"{VARIANT_SETTING_KEY}=teststand\n")
+    profile = _write(
+        root / "profile.yml", "name: Facility\ndata: data\ndispatch:\n  triggers: triggers.yml\n"
+    )
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
-    roots = profile_material_roots(resolved, root)
-    labels = [label for label, _ in roots]
+    inputs = profile_inputs(profile, document)
+    folded = [entry for entry in inputs if entry.role is not ProfileInputRole.DOCUMENT]
+    labels = [entry.label for entry in folded]
     assert labels[0] == "data"
-    assert labels[-3:] == ["tier", "tier", "app"]
+    assert labels[-4:] == ["tier", "tier", "app", "variant"]
     assert "triggers" in labels
-    assert [path for label, path in roots if label in ("tier", "app")] == [
+    assert [entry.path for entry in folded if entry.label in ("tier", "app")] == [
         path for _kind, path in layer_files(root)
     ]
+    assert [entry.role for entry in inputs] == sorted(
+        (entry.role for entry in inputs), key=list(ProfileInputRole).index
+    )
 
     expected = hashlib.sha256()
-    for label, path in roots:
-        _fold_source_tree(expected, label, path, skip_runtime_output=label == "data")
+    for entry in folded:
+        _fold_source_tree(
+            expected, entry.label, entry.path, skip_runtime_output=entry.label == "data"
+        )
     actual = hashlib.sha256()
-    _fold_profile_material(actual, resolved, root)
+    _fold_profile_material(actual, inputs)
     assert actual.hexdigest() == expected.hexdigest()
+
+
+def test_a_label_disagreeing_with_the_role_fails_at_construction(tmp_path):
+    """A label is ``None`` exactly for a document; anything else never exists."""
+    from osprey.cli.build_profile_merge import ProfileInput, ProfileInputRole
+
+    with pytest.raises(ValueError):
+        ProfileInput("x", None, tmp_path, ProfileInputRole.MATERIAL)
+    with pytest.raises(ValueError):
+        ProfileInput("profile.yml", "data", tmp_path, ProfileInputRole.DOCUMENT)
+    with pytest.raises(ValueError):
+        ProfileInput("", "data", tmp_path, ProfileInputRole.MATERIAL)
+
+
+def test_the_data_key_is_the_tree_the_profile_names(tmp_path):
+    """A shared parent tree is named as the profile spells it, not as ``data/``."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import profile_inputs, resolve_profile_document
+
+    _write(tmp_path / "data" / "channels.json", "{}\n")
+    profile = _write(tmp_path / "alice" / "profile.yml", "name: alice\ndata: ../data\n")
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    data = [entry for entry in profile_inputs(profile, document) if entry.label == "data"]
+
+    assert [entry.key for entry in data] == ["../data/"]
+    assert data[0].path == (tmp_path / "data").resolve()
 
 
 def test_resolved_document_records_the_repo_local_extends_files(tmp_path):
@@ -209,3 +251,30 @@ def test_resolved_document_records_the_repo_local_extends_files(tmp_path):
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
     assert document.extends_files == ((root / "site-base.yml").resolve(),)
+
+
+def test_the_documents_are_the_root_profile_and_its_extends_files(tmp_path):
+    """Every document the resolver read is an input; a bundled preset is not."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
+        profile_inputs,
+        resolve_profile_document,
+    )
+
+    root = tmp_path / "facility"
+    _write(root / "site-base.yml", "extends: control-assistant\nname: Site\n")
+    profile = _write(root / "profile.yml", "extends: site-base.yml\nname: Facility\n")
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    documents = [
+        entry
+        for entry in profile_inputs(profile, document)
+        if entry.role is ProfileInputRole.DOCUMENT
+    ]
+
+    assert [entry.path for entry in documents] == [
+        root / "profile.yml",
+        *document.extends_files,
+    ]
+    assert [entry.key for entry in documents] == ["profile.yml", "site-base.yml"]

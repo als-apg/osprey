@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -1417,10 +1418,8 @@ def profile_triggers_material(
     return PurePosixPath(triggers).as_posix(), source.path
 
 
-def _fold_profile_material(
-    digest: Any, resolved: dict[str, Any], profile_dir: Path, *, conventions: bool = True
-) -> None:
-    """Fold the *file* inputs a resolved profile names into ``digest``.
+def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
+    """Fold the *file* inputs of a profile into ``digest``, in enumeration order.
 
     The canonical JSON alone captures what a profile says; it cannot see what
     the trees it points at contain. Without this, editing a facility's channel
@@ -1428,7 +1427,9 @@ def _fold_profile_material(
     on leaves the profile hash untouched and the deploy-side staleness advisory
     stays silent about a project that no longer matches its source.
 
-    Four kinds of input are covered:
+    *inputs* is :func:`profile_inputs`; every entry with a fold label is folded
+    and the document entries, which the canonical JSON already covers, are not.
+    Five kinds of input are covered:
 
     * the ``data:`` tree, anchored via
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
@@ -1438,7 +1439,7 @@ def _fold_profile_material(
       runtime-minted material (the Bluesky lanes' CURVE certificates) and
       never build input: fold it and every successful ``osprey up`` marks its
       own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
-      the drift gate (#716);
+      the drift gate;
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted name order
@@ -1453,7 +1454,13 @@ def _fold_profile_material(
       moves no hash at all: the deploy-side check would call the build clean,
       no rebuild would follow, and the render already on disk (which
       ``up`` re-renders only when it is *absent*) would keep shipping the
-      superseded delta into that render's image.
+      superseded delta into that render's image;
+    * the host-variant overlay ``.env.variant`` selects, folded last under
+      ``variant``. It is folded as file material rather than merged in:
+      :func:`_fold_source_tree` contributes the file's NAME beside its content,
+      so an edit to the selected overlay and a switch between two
+      byte-identical overlays both move the hash, while an overlay this host
+      did not select folds nothing.
 
     Layers are folded as the *direct children* of their layer directory and
     nothing deeper, because that is exactly the set that can be built: a file is
@@ -1472,73 +1479,175 @@ def _fold_profile_material(
     subtracting siblings would cost a render that silently no longer matches
     its source.
 
-    A convention directory, the named trigger file or ``tiers/`` that is absent
-    folds nothing at all, so a profile carrying none of them hashes exactly as
-    it did before they existed. Creating an empty convention directory does
-    move the hash — it folds its label — which is honest: the profile tree
-    changed.
+    A convention directory, the named trigger file, ``tiers/`` or an overlay
+    that is absent folds nothing at all, so a profile carrying none of them
+    hashes exactly as it did before they existed. Creating an empty convention
+    directory does move the hash — it folds its label — which is honest: the
+    profile tree changed.
 
     Args:
         digest: The hash object to update in place.
-        resolved: The profile after ``extends`` (and layer) resolution.
-        profile_dir: The profile root every relative path anchors at.
-        conventions: Whether to fold convention material. ``False`` for a
-            bundled preset, which is one file among many in a shared package
-            directory rather than a profile root of its own — folding there
-            would make every preset's hash depend on every other preset's
-            neighbouring directories.
+        inputs: The profile's inputs, as :func:`profile_inputs` lists them.
     """
-    for label, path in profile_material_roots(resolved, profile_dir, conventions=conventions):
-        # data/.runtime/ is runtime-minted material, never build input — see
-        # the docstring above and _fold_source_tree's skip contract.
-        _fold_source_tree(digest, label, path, skip_runtime_output=label == "data")
+    for entry in inputs:
+        if entry.label is None:
+            continue
+        _fold_source_tree(
+            digest, entry.label, entry.path, skip_runtime_output=entry.skips_runtime_output
+        )
 
 
-def profile_material_roots(
-    resolved: dict[str, Any], profile_dir: Path, *, conventions: bool = True
-) -> list[tuple[str, Path]]:
-    """The file inputs :func:`_fold_profile_material` folds, as ``(label, path)``.
+class ProfileInputRole(StrEnum):
+    """What part a file plays in a profile's build."""
 
-    Returned in fold order: the ``data:`` root (``data``), each existing
-    convention directory (``convention:<name>``, sorted by name), the trigger
-    file that lives with the profile (``triggers``) and each layer file
-    (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
-    order). This is the one enumeration of what a profile's hash reads from
-    disk; anything that must keep those files intact reads it here rather than
-    listing them again.
+    #: ``profile.yml`` and every repo-local file its ``extends`` chain reads.
+    DOCUMENT = "document"
+    #: The ``data:`` tree, the convention directories, the trigger file and the
+    #: layer files.
+    MATERIAL = "material"
+    #: The selected host-variant profile.
+    OVERLAY = "overlay"
+
+
+@dataclass(frozen=True)
+class ProfileInput:
+    """One file or directory a profile's build reads.
+
+    Attributes:
+        key: The input as the operator spells it, POSIX; a directory ends in
+            ``/``. What a drift refusal names.
+        label: The fold label, or ``None`` for a document, which the hash
+            covers as resolved JSON rather than as bytes.
+        path: Where the input lives.
+        role: What part it plays.
+
+    Raises:
+        ValueError: On an empty key, or a label that is ``None`` for anything
+            but a document or set for a document.
+    """
+
+    key: str
+    label: str | None
+    path: Path
+    role: ProfileInputRole
+
+    def __post_init__(self) -> None:
+        if not self.key:
+            raise ValueError("a profile input needs a non-empty key")
+        if (self.label is None) != (self.role is ProfileInputRole.DOCUMENT):
+            raise ValueError(
+                f"profile input {self.key!r}: a label is None exactly when the role is "
+                f"{ProfileInputRole.DOCUMENT.value}, not for role {self.role.value} "
+                f"with label {self.label!r}"
+            )
+
+    @property
+    def skips_runtime_output(self) -> bool:
+        """Whether the fold skips the runtime-minted subtree: the ``data:`` tree only."""
+        return self.label == "data"
+
+
+def profile_inputs(
+    profile_path: Path, document: ResolvedProfileDocument, *, conventions: bool = True
+) -> tuple[ProfileInput, ...]:
+    """Every file a build of *document* reads, in fold order.
+
+    The one enumeration of a profile's inputs: the hash folds its material and
+    overlay entries, the drift digests key one digest per entry, and the image
+    guard keeps every entry in the image.
+
+    Entries come in this order:
+
+    1. documents — the root ``profile.yml``, then the repo-local ``extends``
+       files nearest first (:attr:`ResolvedProfileDocument.extends_files`);
+    2. material — the ``data:`` root (``data``), each existing convention
+       directory (``convention:<name>``, sorted by name), the trigger file that
+       lives with the profile (``triggers``) and each layer file
+       (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
+       order);
+    3. the overlay ``.env.variant`` beside *profile_path* selects (``variant``).
+
+    Material and document entries anchor at ``document.root_dir``; the overlay
+    alone is read beside *profile_path*, so a layer path selects none.
 
     Args:
-        resolved: The profile after ``extends`` (and layer) resolution.
-        profile_dir: The profile root every relative path anchors at.
-        conventions: ``False`` returns the ``data:`` root alone, as the fold
-            does for a bundled preset.
+        profile_path: The profile file that was resolved. Need not exist.
+        document: Its resolution, from :func:`resolve_profile_document`.
+        conventions: ``False`` for a bundled preset: the ``data:`` root alone.
+            A preset is one file among many in a shared package directory, so
+            its neighbours, its own file and any overlay are package content.
     """
     from .build_profile_model import BuildProfile
     from .profile_conventions import CONVENTION_SOURCES
     from .profile_root import layer_files
+    from .variant_selection import VARIANT_DIRNAME, active_variant_overlay
 
-    roots: list[tuple[str, Path]] = []
-    data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
-    if data_root is not None:
-        roots.append(("data", data_root))
+    root = document.root_dir
+    entries: list[ProfileInput] = []
+
+    if conventions:
+        for path in (root / PROFILE_FILENAME, *document.extends_files):
+            entries.append(
+                ProfileInput(_document_key(path, root), None, path, ProfileInputRole.DOCUMENT)
+            )
+
+    data = document.raw.get("data")
+    data_root = BuildProfile(name="", data=data).resolved_data_root(root)
+    # A data root resolves only from a non-empty string ``data:``.
+    if data_root is not None and isinstance(data, str):
+        entries.append(
+            ProfileInput(
+                f"{PurePosixPath(data).as_posix()}/", "data", data_root, ProfileInputRole.MATERIAL
+            )
+        )
 
     if not conventions:
-        return roots
+        return tuple(entries)
 
     for source in sorted(CONVENTION_SOURCES):
-        candidate = profile_dir / source
+        candidate = root / source
         if candidate.exists():
-            roots.append((f"convention:{source}", candidate))
+            entries.append(
+                ProfileInput(
+                    f"{source}/", f"convention:{source}", candidate, ProfileInputRole.MATERIAL
+                )
+            )
 
-    triggers = profile_triggers_material(resolved, profile_dir)
+    triggers = profile_triggers_material(document.raw, root)
     if triggers is not None:
-        roots.append(("triggers", triggers[1]))
+        entries.append(
+            ProfileInput(triggers[0], "triggers", triggers[1], ProfileInputRole.MATERIAL)
+        )
 
     # Sorted by name, which is the whole ordering rule a flat directory needs;
     # `_fold_source_tree` contributes each delta's own name beside its content
     # digest, so a rename moves the hash exactly as an edit does.
-    roots.extend((layer_fold_label(layer), layer) for _kind, layer in layer_files(profile_dir))
-    return roots
+    for _kind, layer in layer_files(root):
+        entries.append(
+            ProfileInput(
+                f"{layer.parent.name}/{layer.name}",
+                layer_fold_label(layer),
+                layer,
+                ProfileInputRole.MATERIAL,
+            )
+        )
+
+    overlay = active_variant_overlay(Path(profile_path).parent)
+    if overlay is not None:
+        entries.append(
+            ProfileInput(
+                f"{VARIANT_DIRNAME}/{overlay.name}", "variant", overlay, ProfileInputRole.OVERLAY
+            )
+        )
+    return tuple(entries)
+
+
+def _document_key(path: Path, root: Path) -> str:
+    """A document's key: its path relative to *root* when inside it, else absolute."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def layer_fold_label(layer: Path) -> str:
@@ -1564,15 +1673,14 @@ def _hash_resolved_profile(
     profile_path: Path,
     *,
     conventions: bool = True,
-    overlay: Path | None = None,
 ) -> str:
     """Canonical content hash of a profile dict after ``extends`` resolution.
 
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
-    ``extends`` parent is not. The file inputs the resolved profile names — its
-    ``data:`` tree, convention directories, the named trigger file and the render
-    deltas in ``tiers/`` — are folded in on top by
+    ``extends`` parent is not. The file inputs :func:`profile_inputs` lists —
+    the ``data:`` tree, convention directories, the named trigger file, the
+    layer files and the selected host-variant overlay — are folded in on top by
     :func:`_fold_profile_material`, so a project whose facility data changed
     under an unchanged profile still reads as stale.
 
@@ -1604,16 +1712,6 @@ def _hash_resolved_profile(
     the same as one that did — the YAML-surface rename must not move any
     profile's hash. Normalizing before ``extends`` resolution (rather than
     after) keeps the deep merge child-wins across a mixed-spelling chain.
-
-    ``overlay`` is the host-variant profile this repo builds, when one is
-    selected — the layer ``raw`` does not carry, because the hash resolves the
-    TRACKED document while the render merges the overlay over it. It is folded
-    as file material rather than merged in: :func:`_fold_source_tree`
-    contributes the file's NAME beside its content, so an edit to the selected
-    overlay and a switch between two byte-identical overlays both move the hash,
-    while an overlay this host did not select folds nothing. No overlay folds
-    nothing at all, which is what keeps every repo that defines no variants
-    hashing exactly as it did before variants existed.
     """
     import hashlib
     import json
@@ -1621,9 +1719,7 @@ def _hash_resolved_profile(
     document = resolve_profile_document(raw, profile_path, warn=False)
     canonical = json.dumps(document.raw, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode("utf-8"))
-    _fold_profile_material(digest, document.raw, document.root_dir, conventions=conventions)
-    if overlay is not None:
-        _fold_source_tree(digest, "variant", overlay)
+    _fold_profile_material(digest, profile_inputs(profile_path, document, conventions=conventions))
     # Sorted so the record's iteration order cannot move a hash; a profile with
     # no exclusions folds nothing and keeps the digest it had before.
     for artifact in sorted(document.excluded_artifacts):
@@ -1669,8 +1765,8 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     drift-fingerprint input, hashed against the profile path the manifest
     recorded. Returns ``None`` when the file is missing or unreadable.
 
-    The host variant is folded in from the profile's own directory rather than
-    passed by the caller. That is deliberate: this one function is what the
+    The host variant is folded in from the profile's own directory
+    (:func:`profile_inputs`) rather than passed by the caller. That is deliberate: this one function is what the
     build stamps and what ``osprey up``/``status`` recompute, and a fingerprint
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
@@ -1679,12 +1775,10 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     nothing.
     """
     try:
-        from .variant_selection import active_variant_overlay
-
         path = Path(profile_path)
         raw = _read_profile_document(path)
         if not isinstance(raw, dict):
             return None
-        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(path.parent))
+        return _hash_resolved_profile(raw, path)
     except Exception:
         return None
