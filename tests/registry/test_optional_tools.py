@@ -17,6 +17,7 @@ from osprey.registry.mcp import (
     _APPROVAL,
     _WRITES_CHECK,
     FRAMEWORK_SERVERS,
+    OptionalTool,
     framework_mixed_read_write_tools,
     is_mixed_matcher,
     resolve_servers,
@@ -38,8 +39,8 @@ def _hooks(server: dict, matcher: str) -> list[str]:
 
 def test_both_tools_are_optional_on_the_view():
     assert FRAMEWORK_SERVERS["python"].optional_tools == {
-        "pyaml_measure": "pyaml_view_present",
-        "model_response_matrix": "pyaml_view_present",
+        "pyaml_measure": OptionalTool("pyaml_view_present"),
+        "model_response_matrix": OptionalTool("pyaml_view_present"),
     }
 
 
@@ -59,6 +60,12 @@ def test_the_model_tool_is_allowed_only_with_a_view():
     assert not [
         rule for rule in _python(True)["hooks_pre"] if "model_response_matrix" in rule["matcher"]
     ]
+
+
+def test_an_absent_view_key_withholds_the_model_tool():
+    (server,) = [entry for entry in resolve_servers({}, {}) if entry["name"] == "python"]
+
+    assert "model_response_matrix" not in server["permissions_allow"]
 
 
 @pytest.mark.parametrize("view", [True, False])

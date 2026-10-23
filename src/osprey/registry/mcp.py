@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,14 @@ class HookRule:
     hooks: list[HookEntry] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class OptionalTool:
+    """The ctx key that offers one optional tool, and its value when the key is absent."""
+
+    key: str
+    default: bool = False
+
+
 @dataclass
 class ServerDefinition:
     """Metadata for one MCP server."""
@@ -94,12 +103,13 @@ class ServerDefinition:
     # Framework template name this definition was cloned from via ``extends``
     # (set by build_extended_server); None for framework/custom definitions.
     extends_of: str | None = None
-    # Tools the server registers only when the named ctx key is truthy, by
-    # short tool name. The key gates the server's registration of the tool and
-    # the tool's ``permissions_allow`` row; an approval-gated tool's ask row and
-    # hook rule render whatever the key says, so the write floor, the deny list
-    # and the approval set never depend on it.
-    optional_tools: dict[str, str] = field(default_factory=dict)
+    # Tools the server registers only when their ctx key says so, by short
+    # tool name. A tool is withheld when ``ctx.get(key, default)`` is falsy.
+    # The key gates the server's registration of the tool and the tool's
+    # ``permissions_allow`` row; an approval-gated tool's ask row and hook rule
+    # render whatever the key says, so the write floor, the deny list and the
+    # approval set never depend on it.
+    optional_tools: dict[str, OptionalTool] = field(default_factory=dict)
     # Tools that stay callable while the session is in plan mode, by short tool
     # name. Every other tool the side-effect classifier marks
     # (:func:`server_side_effect_tools`) is refused in plan mode, and a tool
@@ -112,6 +122,14 @@ class ServerDefinition:
     # exactly one of side-effecting (refused in plan mode unless
     # ``plan_mode_allowed``) or an audited read.
     audited_reads: list[str] = field(default_factory=list)
+
+    def withheld_optional_tools(self, ctx: Mapping) -> frozenset[str]:
+        """The optional tools ``ctx`` withholds: those whose key, or its default, is falsy."""
+        return frozenset(
+            tool
+            for tool, offer in self.optional_tools.items()
+            if not ctx.get(offer.key, offer.default)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +358,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=["model_response_matrix"],
         permissions_ask=["execute", "execute_file", "pyaml_measure"],
         optional_tools={
-            "pyaml_measure": "pyaml_view_present",
-            "model_response_matrix": "pyaml_view_present",
+            "pyaml_measure": OptionalTool("pyaml_view_present"),
+            "model_response_matrix": OptionalTool("pyaml_view_present"),
         },
         hooks_pre=[
             HookRule(
@@ -1631,16 +1649,17 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
 
 
 def _withhold_optional_tools(servers: dict[str, ServerDefinition], ctx: dict) -> None:
-    """Drop the allow row of each optional tool whose ctx key is not truthy.
+    """Drop the allow row of each optional tool the ctx withholds.
 
-    Only ``permissions_allow`` follows the key: an optional tool that asks
+    A tool is withheld when its ctx key, or the declared default when the key
+    is absent, is falsy (:meth:`ServerDefinition.withheld_optional_tools`). Only ``permissions_allow`` follows the key: an optional tool that asks
     keeps its ask row and hook rule, so its gate renders whether or not the
     server registers it. A framework server and its ``extends`` clones carry
     the same optional tools under their own names.
     """
     for sdef in servers.values():
-        for tool, key in sdef.optional_tools.items():
-            if not ctx.get(key) and tool in sdef.permissions_allow:
+        for tool in sdef.withheld_optional_tools(ctx):
+            if tool in sdef.permissions_allow:
                 sdef.permissions_allow.remove(tool)
 
 
