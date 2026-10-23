@@ -47,10 +47,15 @@ import json
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from osprey.cli.build_profile_merge import ProfileInput
 
 logger = get_logger("deployment.staleness")
 
@@ -76,17 +81,17 @@ KEY_DIGESTS_MANIFEST_KEY = "profile_key_digests"
 #: tree it names.
 MATERIAL_PREFIX = "material:"
 
-#: Digest over *all* the material at once — the ``data:`` tree, the convention
-#: directories, the trigger file the dispatch block names and the ``tiers/``
-#: deltas — folded by the build's own
+#: Digest over *all* the material at once — every input
+#: :func:`~osprey.cli.build_profile_merge.profile_inputs` lists that the hash
+#: folds — by the build's own
 #: :func:`~osprey.cli.build_profile_merge._fold_profile_material`.
-#: Stamped alongside the per-input digests as the backstop that keeps material
-#: the per-input split does not enumerate from going unreported (see
-#: :func:`_material_input_digests`).
+#: Stamped alongside the per-input digests as the backstop for the one move no
+#: per-input key can name: an input whose key coincides with another's, so
+#: that one digest overwrites the other in :func:`_material_input_digests`.
 MATERIAL_KEY = f"{MATERIAL_PREFIX}all"
 
 #: How :data:`MATERIAL_KEY` is printed. Reached only when the material moved and
-#: no single input can be named for it — material the split does not enumerate.
+#: no single input can be named for it.
 MATERIAL_DISPLAY = "files the profile points at"
 
 #: The refusal headline for "the fingerprint could not be computed at all".
@@ -291,9 +296,9 @@ class DriftReport:
         remedy: The suggested next step, or ``""`` when there is nothing to
             suggest.
         changed_keys: What moved, named as the operator would spell it: the
-            top-level profile keys, and the paths of the file inputs the profile
-            points at (``data/``, a convention directory, the trigger file
-            the dispatch block names, a ``tiers/`` delta). Empty on a
+            top-level profile keys, and the key of every input
+            :func:`~osprey.cli.build_profile_merge.profile_inputs` lists
+            that the hash folds. Empty on a
             ``DRIFT`` whose build stamped no per-key digests — the verdict
             still stands, only the detail is missing.
         version_skew: Present whenever installed and stamped versions differ,
@@ -345,7 +350,7 @@ def build_manifest_path(repo_root: Path) -> Path:
     return Path(repo_root) / BUILD_DIRNAME / _MANIFEST_FILENAME
 
 
-def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict[str, str]:
+def _material_input_digests(inputs: Iterable[ProfileInput]) -> dict[str, str]:
     """One digest per *named* file input, so a refusal can point at a path.
 
     :data:`MATERIAL_KEY` alone can only say "something the profile points at
@@ -357,77 +362,33 @@ def _material_input_digests(resolved: dict[str, Any], profile_dir: Path) -> dict
     Each input is folded with the same label and the same
     :func:`~osprey.cli.build_profile_merge._fold_source_tree` call the build's
     material fold uses, into its own hash rather than a shared one, so the value
-    here answers "did *this* input move" independently.
-
-    The enumeration mirrors
-    :func:`~osprey.cli.build_profile_merge._fold_profile_material` — plus the
-    selected host overlay, which the hash folds one level up in
-    :func:`~osprey.cli.build_profile_merge._hash_resolved_profile` — and is
-    therefore a second copy of it. That copy is deliberately diagnostic-only:
-    nothing decides drift by reading these keys, and :data:`MATERIAL_KEY` —
-    computed by the fold itself, not by this function — still covers whatever
-    this enumeration misses. An input the build learns to fold and this does not
-    is reported as :data:`MATERIAL_DISPLAY` rather than going unmentioned.
+    here answers "did *this* input move" independently. Diagnostic only:
+    nothing decides drift by reading these keys.
 
     Args:
-        resolved: The profile after ``extends`` (and layer) resolution.
-        profile_dir: The profile root every relative path anchors at.
+        inputs: The profile's inputs, as
+            :func:`~osprey.cli.build_profile_merge.profile_inputs` lists them.
+            Document entries get no digest: an edit to one already shows as
+            the profile keys it changed.
 
     Returns:
-        Digests keyed by :data:`MATERIAL_PREFIX` plus the input's path as the
-        operator would spell it. Inputs the profile does not have are absent,
-        so creating or deleting one reads as a change to that key.
+        Digests keyed by :data:`MATERIAL_PREFIX` plus the input's key. Inputs
+        the profile does not have are absent, so creating or deleting one reads
+        as a change to that key.
     """
     import hashlib
 
-    from osprey.cli.build_profile_merge import (
-        _fold_source_tree,
-        layer_fold_label,
-        profile_triggers_material,
-    )
-    from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.profile_conventions import CONVENTION_SOURCES
-    from osprey.cli.profile_root import layer_files
-    from osprey.cli.variant_selection import VARIANT_DIRNAME, active_variant_overlay
+    from osprey.cli.build_profile_merge import _fold_source_tree
 
     digests: dict[str, str] = {}
-
-    def fold(key: str, label: str, source: Path, *, skip_runtime_output: bool = False) -> None:
+    for entry in inputs:
+        if entry.label is None:
+            continue
         digest = hashlib.sha256()
-        _fold_source_tree(digest, label, source, skip_runtime_output=skip_runtime_output)
-        digests[f"{MATERIAL_PREFIX}{key}"] = digest.hexdigest()
-
-    data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
-    if data_root is not None:
-        # Same carve-out as the build's material fold: data/.runtime/ is
-        # runtime-minted, so a start must not move this diagnostic digest
-        # either — the refusal would name data/ for files nobody authored.
-        fold("data/", "data", data_root, skip_runtime_output=True)
-
-    for source in sorted(CONVENTION_SOURCES):
-        candidate = profile_dir / source
-        if candidate.exists():
-            fold(f"{source}/", f"convention:{source}", candidate)
-
-    triggers = profile_triggers_material(resolved, profile_dir)
-    if triggers is not None:
-        fold(triggers[0], "triggers", triggers[1])
-
-    # The host variant this repo builds, keyed by the overlay's own path so a
-    # switch between two variants reads as one key gone and another arrived —
-    # which is what happened. Only the SELECTED overlay is digested, matching
-    # what `compute_profile_hash` folds: an overlay for another host is not an
-    # input to this build and must not be reported as one.
-    overlay = active_variant_overlay(profile_dir)
-    if overlay is not None:
-        fold(f"{VARIANT_DIRNAME}/{overlay.name}", "variant", overlay)
-
-    # Per file rather than per directory: each layer file IS a build input of
-    # its own, so naming the one file that moved costs nothing and is what the
-    # operator edited. The same listing, and the same label, the fold uses.
-    for _kind, layer in layer_files(profile_dir):
-        fold(f"{layer.parent.name}/{layer.name}", layer_fold_label(layer), layer)
-
+        _fold_source_tree(
+            digest, entry.label, entry.path, skip_runtime_output=entry.skips_runtime_output
+        )
+        digests[f"{MATERIAL_PREFIX}{entry.key}"] = digest.hexdigest()
     return digests
 
 
@@ -460,18 +421,20 @@ def profile_fingerprint(profile_path: Path) -> ProfileFingerprint | None:
         from osprey.cli.build_profile_document import _read_profile_document
         from osprey.cli.build_profile_merge import (
             _fold_profile_material,
+            profile_inputs,
             resolve_profile_document,
         )
 
         raw = _read_profile_document(profile_path)
         document = resolve_profile_document(raw, profile_path, warn=False)
+        inputs = profile_inputs(profile_path, document)
         for key, value in document.raw.items():
             canonical = json.dumps(value, sort_keys=True, default=str)
             digests[str(key)] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         material = hashlib.sha256()
-        _fold_profile_material(material, document.raw, document.root_dir)
+        _fold_profile_material(material, inputs)
         digests[MATERIAL_KEY] = material.hexdigest()
-        digests.update(_material_input_digests(document.raw, document.root_dir))
+        digests.update(_material_input_digests(inputs))
     except Exception as exc:
         # The hash resolved, so the profile is fine; only the commentary failed.
         # Losing the "what changed" detail must not turn a computable verdict

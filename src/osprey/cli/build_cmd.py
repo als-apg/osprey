@@ -3153,7 +3153,7 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
 
     What the stamp of each image folds: the file inputs of the repo's own
     ``profile.yml`` as the fingerprint enumerates them
-    (:func:`~osprey.cli.build_profile_merge.profile_material_roots`), that
+    (:func:`~osprey.cli.build_profile_merge.profile_inputs`), that
     ``profile.yml`` itself, which every repo-scoped verb finds the deployment
     by, and the active host-variant overlay when there is one. Every image's
     ``creation.preset_hash`` is taken over that one profile
@@ -3162,14 +3162,18 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     it is not returned.
     """
     from .build_profile_document import _read_profile_document
-    from .build_profile_merge import profile_material_roots, resolve_profile_document
+    from .build_profile_merge import ProfileInputRole, profile_inputs, resolve_profile_document
     from .variant_selection import active_variant_overlay
 
     profile_path = repo_root / PROFILE_FILENAME
     document = resolve_profile_document(
         _read_profile_document(profile_path), profile_path, warn=False
     )
-    paths = [path for _, path in profile_material_roots(document.raw, document.root_dir)]
+    paths = [
+        entry.path
+        for entry in profile_inputs(profile_path, document)
+        if entry.role is ProfileInputRole.MATERIAL
+    ]
     paths.append(profile_path)
     overlay = active_variant_overlay(repo_root)
     if overlay is not None:

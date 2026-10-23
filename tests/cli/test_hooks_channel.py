@@ -809,17 +809,14 @@ def test_bare_exclusion_without_a_shipped_file_is_quiet(
 
 def test_editing_a_hook_moves_the_profile_hash(tmp_path: Path):
     """Hooks are folded like every other channel — the table drives it."""
-    import hashlib
-
-    from osprey.cli.build_profile_merge import _fold_profile_material
+    from osprey.cli.build_profile_merge import compute_profile_hash
 
     profile = tmp_path / "profile"
     hook = _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    profile_yml = _write(profile / "profile.yml", "name: Facility\n")
 
-    def digest() -> str:
-        h = hashlib.sha256()
-        _fold_profile_material(h, {}, profile)
-        return h.hexdigest()
+    def digest() -> str | None:
+        return compute_profile_hash(profile_yml)
 
     before = digest()
     hook.write_text("print('guard v2')\n", encoding="utf-8")

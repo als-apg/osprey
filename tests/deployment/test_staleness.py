@@ -155,3 +155,42 @@ def test_an_uncomparable_stamp_is_not_judged_too_old(repo, stamp):
 
 def test_no_build_still_reads_as_no_build(tmp_path):
     assert staleness.check_drift(tmp_path).state is DriftState.NO_BUILD
+
+
+# ── Per-input digests ────────────────────────────────────────────────
+
+
+def test_every_folded_input_has_its_own_digest(tmp_path):
+    """The drift digests name exactly the inputs the enumeration lists."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import (
+        ProfileInputRole,
+        profile_inputs,
+        resolve_profile_document,
+    )
+    from osprey.cli.variant_selection import VARIANT_SETTING_FILENAME, VARIANT_SETTING_KEY
+
+    repo = tmp_path / "facility"
+    _write(repo / "data" / "channels.json", "{}\n")
+    _write(repo / "rules" / "safety.md", "rule\n")
+    _write(repo / "triggers.yml", "triggers: []\n")
+    _write(repo / "tiers" / "readonly.yml", "name: readonly\n")
+    _write(repo / "apps" / "logbook.yml", "name: logbook\n")
+    _write(repo / "profiles" / "teststand.yml", "# teststand\n")
+    _write(repo / VARIANT_SETTING_FILENAME, f"{VARIANT_SETTING_KEY}=teststand\n")
+    profile = _write(repo / "profile.yml", PROFILE_YAML + "dispatch:\n  triggers: triggers.yml\n")
+
+    fingerprint = staleness.profile_fingerprint(profile)
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    assert fingerprint is not None
+    named = {
+        key
+        for key in fingerprint.key_digests
+        if key.startswith(staleness.MATERIAL_PREFIX) and key != staleness.MATERIAL_KEY
+    }
+    assert named == {
+        staleness.MATERIAL_PREFIX + entry.key
+        for entry in profile_inputs(profile, document)
+        if entry.role is not ProfileInputRole.DOCUMENT
+    }
