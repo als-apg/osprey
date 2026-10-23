@@ -1436,7 +1436,7 @@ def _corrector_offset_panel(sweep: _Sweep, params: PARAMS, unit: str | None) -> 
     )
 
 
-def _monitor_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _monitor_panel(sweep: _Sweep, params: PARAMS, unit: str | None) -> Panel | None:
     """Monitor readings against bump amplitude, one line per leg.
 
     Amplitude rather than step number, because what a monitor has to say about
@@ -1483,6 +1483,7 @@ def _monitor_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Monitor response",
         x_label="Bump amplitude (fraction of requested)",
         y_label="Monitor reading",
+        y_units=unit,
         annotations=annotations,
         series_picker=True,
         mark=_lines(series),
@@ -1513,6 +1514,7 @@ def _build(window: RowWindow, params: PARAMS) -> Figure:
     bpm_unit = _unit_of(window, sweep.bpm_order)
     constrained_unit = _unit_of(window, _constrained_names(params))
     corrector_unit = _unit_of(window, list(params.correctors))
+    monitor_unit = _unit_of(window, list(params.monitors))
     panels = [
         panel
         for panel in (
@@ -1523,7 +1525,7 @@ def _build(window: RowWindow, params: PARAMS) -> Figure:
             _panel_or_none(
                 lambda: _corrector_offset_panel(sweep, params, corrector_unit), "corrector offset"
             ),
-            _panel_or_none(lambda: _monitor_panel(sweep, params), "monitor response"),
+            _panel_or_none(lambda: _monitor_panel(sweep, params, monitor_unit), "monitor response"),
         )
         if panel is not None
     ]
