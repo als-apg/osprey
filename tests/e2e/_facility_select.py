@@ -148,6 +148,115 @@ def lane_model(view: SimulatorView) -> str:
     return found[2]
 
 
+@dataclass(frozen=True)
+class LaneSelection:
+    """The channels of the lane model a lane reads and writes, as one selection.
+
+    Every field is read from the served view: the model is :func:`lane_model`,
+    the setpoint its bounded corrector, and the rest are that model's own
+    channels or the facility's limits records.
+
+    Attributes:
+        model: The lane model.
+        setpoint: The model's corrector a limits record bounds at both ends.
+        plane: The transverse plane, ``"x"`` or ``"y"``, the setpoint's served
+            binding steers.
+        readback: That corrector's readback, the setpoint's ``pair``.
+        band: The setpoint's ``value_range``, ``(min, max)``.
+        status_address: The model's status address.
+        locked_setpoint: The first setpoint, by address, a limits record locks.
+        monitor_x: The model's first horizontal monitor reading, by address.
+        monitor_y: The model's first vertical monitor reading, by address.
+    """
+
+    model: str
+    setpoint: str
+    plane: str
+    readback: str
+    band: tuple[float, float]
+    status_address: str
+    locked_setpoint: str
+    monitor_x: str
+    monitor_y: str
+
+
+def lane_selection(view: SimulatorView) -> LaneSelection:
+    """The :class:`LaneSelection` of ``view``.
+
+    The locked setpoint is a setpoint the view serves ``writable: false``. In a
+    view rendered under the optional limits mode only a limits record locks a
+    setpoint, while every readback is unwritable whatever the records say, so
+    the role is what tells the two apart.
+    """
+    found = bounded_corrector_of(view)
+    if found is None:
+        raise AssertionError(
+            "no corrector of the served view has a limits record with both min_value and max_value"
+        )
+    setpoint, readback, model = found
+    plane = next(
+        binding.plane
+        for binding in view.bindings(role="setpoint", model=model)
+        if binding.address == setpoint
+    )
+    if plane is None:
+        raise AssertionError(f"the lane corrector {setpoint} steers no transverse plane")
+    value_range = view.channel(setpoint).value_range
+    assert value_range is not None
+    low, high = value_range
+    locked = [
+        address
+        for address in view.channels()
+        if view.channel(address).role == "setpoint" and not view.channel(address).writable
+    ]
+    if not locked:
+        raise AssertionError("no setpoint of the served view is locked by a limits record")
+    return LaneSelection(
+        model=model,
+        setpoint=setpoint,
+        plane=plane,
+        readback=readback,
+        band=(float(low), float(high)),
+        status_address=view.status_addresses()[model],
+        locked_setpoint=locked[0],
+        monitor_x=monitors_in_plane(view, "x", 1, model=model)[0],
+        monitor_y=monitors_in_plane(view, "y", 1, model=model)[0],
+    )
+
+
+def second_models(view: SimulatorView, document: dict[str, Any]) -> tuple[str, ...]:
+    """The served models a lane tests beside the lane model, sorted by name.
+
+    A second model is served, is not :func:`lane_model`, measures ``orm`` and
+    not ``dispersion`` (its ``measurement.kinds`` in the built ``document``),
+    and seeds none of the addresses it wires: its readings are its solved
+    lattice alone.
+    """
+    lane = lane_model(view)
+    served = set(view.served())
+    found = []
+    for entry in document["models"]:
+        name = str(entry["name"])
+        kinds = (entry.get("measurement") or {}).get("kinds") or ()
+        if name not in served or name == lane or "orm" not in kinds or "dispersion" in kinds:
+            continue
+        if any(view.seed(binding.address) is not None for binding in view.bindings(model=name)):
+            continue
+        found.append(name)
+    return tuple(sorted(found))
+
+
+def second_model(view: SimulatorView, document: dict[str, Any]) -> str:
+    """The first of :func:`second_models` by name."""
+    found = second_models(view, document)
+    if not found:
+        raise AssertionError(
+            "no served model other than the lane model measures orm without dispersion "
+            "and seeds none of its addresses"
+        )
+    return found[0]
+
+
 def bounded_corrector(repo: Path) -> tuple[str, str, str]:
     """:func:`bounded_corrector_of` the view the build rendered into ``repo``.
 
