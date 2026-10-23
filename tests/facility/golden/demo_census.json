@@ -669,11 +669,6 @@
       }
     },
     {
-      "file": "tests/va/e2e/test_substrate_parity.py",
-      "pin": "assign:EXPECTED_NOISY_CHANNELS",
-      "value": 751
-    },
-    {
       "file": "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
       "pin": "assign:GRAPH_CHANNEL_COUNT",
       "value": 3338
