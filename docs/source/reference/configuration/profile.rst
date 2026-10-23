@@ -1354,7 +1354,8 @@ installed into the project venv and recorded in its generated ``pyproject.toml``
    uv sync               # rebuilds it from pyproject.toml
 
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
-install dependencies yourself in that mode.
+install dependencies yourself in that mode. The generated Dockerfile still
+installs every declared requirement.
 
 .. _profile-environment:
 

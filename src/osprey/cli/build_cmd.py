@@ -3673,10 +3673,12 @@ def _build_repo(
         # is written where it will be read from and joins the staged tree at
         # swap time. Its dependency record, which `_create_project_venv` writes
         # beside it, is copied into the staged tree — the record and the
-        # environment it describes must ship together.
+        # environment it describes must ship together. The requirement list is
+        # resolved first and in both modes, so a `--skip-deps` render's image
+        # installs what a full build's venv does.
+        requirements = _resolve_project_requirements(build_profile)
+        project_deps = list(requirements.extra_deps)
         if not skip_deps:
-            requirements = _resolve_project_requirements(build_profile)
-            project_deps = list(requirements.extra_deps)
             # Reported on its own, not folded into the render below: it is the
             # longest thing a first build does by a wide margin, and a build
             # that looks stuck for two minutes is the moment an operator most
@@ -3686,8 +3688,6 @@ def _build_repo(
                 recorded = zones.build_dir / "pyproject.toml"
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")
-        else:
-            project_deps = list(build_profile.dependencies or [])
 
         shared = _SharedRenderInputs(
             repo_root=repo_root,
