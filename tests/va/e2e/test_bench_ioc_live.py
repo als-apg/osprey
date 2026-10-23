@@ -106,8 +106,8 @@ MIN_COLLECTED_TESTS = 15
 PROBE_CHANNEL = bench.PROBE_CHANNEL
 BENCH_PROBE_VALUE = bench.PROBE_VALUE
 #: Two more shared channels, so "the values differ" is not one measurement.
-SHARED_BPM_X = "SR:DIAG:BPM:01:POSITION:X"
-BENCH_BPM_X_VALUE = 0.412
+SHARED_BPM_X = bench.SHARED_BPM_X
+BENCH_BPM_X_VALUE = bench.SHARED_BPM_X_VALUE
 #: Read by anyone, written by no one: the bench IOC's ASG withholds WRITE.
 PROTECTED_SP = bench.PROTECTED_SP
 BENCH_PROTECTED_VALUE = bench.PROTECTED_VALUE
@@ -119,17 +119,20 @@ PROTECTED_BAND = (-12.0, 12.0)
 #: limits validator BEFORE any caput was issued, and the refusal this module
 #: is about -- the control system's own -- would never be reached.
 PROTECTED_WRITE_VALUE = -4.0
-#: Writable on both, and carrying a +-12 A record in the facility's limits --
-#: which is what lets a deliberately out-of-range write be refused by the
-#: reference monitor rather than by the machine.
+#: Writable on both, and carrying a band in the facility's limits -- which is
+#: what lets a deliberately out-of-range write be refused by the reference
+#: monitor rather than by the machine. ``LIMITS_MAX`` is the band's top, read
+#: from the example view.
 WRITABLE_SP = bench.WRITABLE_SP
-LIMITS_MAX = 12.0
+_WRITABLE_BAND = e2e_conftest.PRESET_VIEW.channel(WRITABLE_SP).value_range
+assert _WRITABLE_BAND is not None, f"{WRITABLE_SP} carries no band in the example view"
+LIMITS_MAX = float(_WRITABLE_BAND[1])
 OUT_OF_LIMITS_VALUE = 40.0
-VA_WRITE_VALUE = 1.25
+VA_WRITE_VALUE = bench.VA_WRITE_VALUE
 
 #: Bench-only: the virtual accelerator's manifest has no SR:DIAG:STRIPLINE.
-BENCH_ONLY_AMPLITUDE = "SR:DIAG:STRIPLINE:01:AMPLITUDE:RB"
-BENCH_ONLY_AMPLITUDE_VALUE = 12.75
+BENCH_ONLY_AMPLITUDE = bench.BENCH_ONLY_AMPLITUDE
+BENCH_ONLY_AMPLITUDE_VALUE = bench.BENCH_ONLY_AMPLITUDE_VALUE
 MODE_STATE = bench.MODE_STATE
 MODE_STATE_VALUE = bench.MODE_STATE_VALUE
 MODE_STATE_LABEL = bench.MODE_STATE_LABEL
@@ -138,17 +141,17 @@ SCALED_AMPLITUDE = bench.SCALED_AMPLITUDE
 SCALED_AMPLITUDE_VALUE = bench.SCALED_AMPLITUDE_VALUE
 
 #: Virtual-accelerator-only: the bench database deliberately omits the DCCT.
-VA_ONLY_CHANNEL = "SR:DIAG:DCCT:01:CURRENT:RB"
+VA_ONLY_CHANNEL = bench.VA_ONLY_CHANNEL
 
 #: The one bench record carrying alarm limits (``HIHI 11.0``, ``HHSV MAJOR``).
 #: The alarm texture has to be driven here rather than on a setpoint because no
-#: setpoint in ``bench.db`` sets any alarm field -- ``SR:MAG:HCM:01:CURRENT:SP``
+#: setpoint in ``bench.db`` sets any alarm field -- :data:`WRITABLE_SP`
 #: carries drive limits and nothing else, so it can never alarm. That this is a
 #: readback is also why :func:`limits_database` grants it a band: a readback is
 #: never writable in a deployment, correctly.
-ALARM_CHANNEL = "SR:MAG:VCM:02:CURRENT:RB"
-ALARM_SEEDED_VALUE = -3.5
-ALARM_HIHI_THRESHOLD = 11.0
+ALARM_CHANNEL = bench.ALARM_CHANNEL
+ALARM_SEEDED_VALUE = bench.ALARM_SEEDED_VALUE
+ALARM_HIHI_THRESHOLD = bench.ALARM_HIHI_THRESHOLD
 ALARM_DRIVE_VALUE = 11.5
 #: EPICS ``epicsSevMAJOR``. The record's ``HHSV`` names MAJOR, so a HIHI here is
 #: a severity-2 alarm and not merely a status string.
