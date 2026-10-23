@@ -708,7 +708,83 @@ def test_capability_serializes_to_the_wire_shape() -> None:
         "lane": "bluesky",
         "lane_target": "live",
         "lane_degraded": None,
+        "retryable": False,
     }
+
+
+# ------------------------------------------------------------- refusal reasons
+
+
+def _declared_refusal_reasons() -> set[str]:
+    """Every refusal reason the module states: its `REASON_*` constants and the
+    `reason` of every `QueueBackendError` subclass, found by walking the module
+    and the class tree."""
+    constants = {
+        value
+        for name, value in vars(qb).items()
+        if name.startswith("REASON_") and value != qb.REASON_EXECUTABLE
+    }
+
+    def walk(cls: type[qb.QueueBackendError]) -> set[type[qb.QueueBackendError]]:
+        found = {cls}
+        for sub in cls.__subclasses__():
+            found |= walk(sub)
+        return found
+
+    class_reasons = {
+        cls.reason
+        for cls in walk(qb.QueueBackendError)
+        if cls.reason != qb.ExecutionUnavailableError.reason
+    }
+    return constants | class_reasons
+
+
+def test_every_refusal_reason_has_a_record() -> None:
+    assert _declared_refusal_reasons() <= set(qb.REFUSAL_REASONS)
+    assert qb.REASON_EXECUTABLE not in qb.REFUSAL_REASONS
+    assert qb.ExecutionUnavailableError.reason not in qb.REFUSAL_REASONS
+
+
+@pytest.mark.parametrize(
+    ("can_execute", "reason"),
+    [
+        (False, "nope"),
+        (False, qb.REASON_EXECUTABLE),
+        (True, qb.REASON_MANAGER_UNREACHABLE),
+        (True, "nope"),
+    ],
+)
+def test_a_capability_with_an_undeclared_or_contradictory_reason_fails(
+    can_execute: bool, reason: str
+) -> None:
+    with pytest.raises(ValueError):
+        Capability(
+            can_execute=can_execute,
+            reason=reason,
+            detail="why",
+            lane="bluesky",
+            lane_target="live",
+        )
+
+
+@pytest.mark.parametrize("reason", sorted(qb.REFUSAL_REASONS))
+def test_a_refused_capability_is_retryable_exactly_as_its_record_says(reason: str) -> None:
+    capability = Capability(
+        can_execute=False, reason=reason, detail="why", lane="bluesky", lane_target="live"
+    )
+    assert capability.retryable is qb.REFUSAL_REASONS[reason].retryable
+    assert capability.to_dict()["retryable"] is capability.retryable
+
+
+def test_an_executable_capability_is_never_retryable() -> None:
+    capability = Capability(
+        can_execute=True,
+        reason=qb.REASON_EXECUTABLE,
+        detail="ok",
+        lane="bluesky",
+        lane_target="live",
+    )
+    assert capability.retryable is False
 
 
 # -------------------------------------------------------- environment lifecycle
