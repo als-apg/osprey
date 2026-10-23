@@ -390,6 +390,7 @@ def _resolve_extends(
     artifacts: set[str] | None = None,
     shadow_candidates: set[str] | None = None,
     preset_lineage: list[str] | None = None,
+    local_bases: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Resolve ``extends`` chain, returning a fully merged raw YAML dict.
 
@@ -402,6 +403,8 @@ def _resolve_extends(
         shadow_candidates: Set collecting bare library-selection exclusions from
             every layer, mutated in place. ``None`` skips recording.
         preset_lineage: List collecting the bundled presets the chain extends,
+            nearest layer first, mutated in place. ``None`` skips recording.
+        local_bases: List collecting the repo-local files the chain extends,
             nearest layer first, mutated in place. ``None`` skips recording.
 
     Returns:
@@ -453,6 +456,8 @@ def _resolve_extends(
                 f"No bundled preset by that name (available: {available}), "
                 f"and no file at {base_path}."
             )
+        if local_bases is not None:
+            local_bases.append(base_path)
 
     base_raw = _read_profile_document(base_path)
 
@@ -485,6 +490,7 @@ def _resolve_extends(
         artifacts=artifacts,
         shadow_candidates=shadow_candidates,
         preset_lineage=preset_lineage,
+        local_bases=local_bases,
     )
 
     merged = _deep_merge(base_raw, raw)
@@ -1150,6 +1156,8 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
+        extends_files: The repo-local files the ``extends`` chain read, nearest
+            first; bundled presets are not listed.
     """
 
     raw: dict[str, Any]
@@ -1157,6 +1165,7 @@ class ResolvedProfileDocument:
     is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
+    extends_files: tuple[Path, ...] = ()
 
 
 def resolve_profile_document(
@@ -1202,6 +1211,7 @@ def resolve_profile_document(
     artifacts: set[str] = set()
     shadowed: set[str] = set()
     lineage: list[str] = []
+    local_bases: list[Path] = []
 
     def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
         """Report the exclusion diagnostics, then package the result.
@@ -1219,6 +1229,7 @@ def resolve_profile_document(
             as_delta,
             frozenset(artifacts),
             lineage[0] if lineage else None,
+            tuple(local_bases),
         )
 
     if not is_layer:
@@ -1229,6 +1240,7 @@ def resolve_profile_document(
                 artifacts=artifacts,
                 shadow_candidates=shadowed,
                 preset_lineage=lineage,
+                local_bases=local_bases,
             ),
             False,
         )
@@ -1273,6 +1285,7 @@ def resolve_profile_document(
         artifacts=artifacts,
         shadow_candidates=shadowed,
         preset_lineage=lineage,
+        local_bases=local_bases,
     )
     # The delta goes into the merge unresolved on purpose: it carries no
     # ``extends:`` of its own (rejected above), and _resolve_extends would

@@ -195,3 +195,17 @@ def test_material_roots_folded_in_order_give_the_fold_digest(tmp_path):
     actual = hashlib.sha256()
     _fold_profile_material(actual, resolved, root)
     assert actual.hexdigest() == expected.hexdigest()
+
+
+def test_resolved_document_records_the_repo_local_extends_files(tmp_path):
+    """The chain's repo-local files are recorded nearest first; a bundled preset is not."""
+    from osprey.cli.build_profile_document import _read_profile_document
+    from osprey.cli.build_profile_merge import resolve_profile_document
+
+    root = tmp_path / "facility"
+    _write(root / "site-base.yml", "extends: control-assistant\nname: Site\n")
+    profile = _write(root / "profile.yml", "extends: site-base.yml\nname: Facility\n")
+
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+
+    assert document.extends_files == ((root / "site-base.yml").resolve(),)
