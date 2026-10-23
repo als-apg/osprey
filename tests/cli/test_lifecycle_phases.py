@@ -303,6 +303,7 @@ class TestBuildPhases:
     @pytest.fixture
     def build_stubs(self, monkeypatch, tmp_path: Path, seen):
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
+        from osprey.cli.build_environment import _ProjectRequirements
 
         class _Lifecycle:
             pre_build = None
@@ -350,7 +351,12 @@ class TestBuildPhases:
             build_profile_deploy, "deploy_aware_config_warnings", lambda *a, **k: []
         )
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
-        monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: [])
+        monkeypatch.setattr(
+            build_cmd,
+            "_resolve_project_requirements",
+            lambda *a, **k: _ProjectRequirements(base_python_arg=sys.executable, extra_deps=[]),
+        )
+        monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: None)
 
         def _render(*a, injected_out=None, **k):
             """Stand in for a render, recording one injected service.

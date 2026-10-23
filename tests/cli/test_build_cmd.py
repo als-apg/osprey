@@ -1028,7 +1028,7 @@ class TestProjectPyproject:
         tables — and makes a malformed emission a hard failure here rather than
         a mystery inside uv.
         """
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _resolve_project_requirements
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
@@ -1036,7 +1036,7 @@ class TestProjectPyproject:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        _create_project_venv(project_path, profile)
+        _create_project_venv(project_path, profile, _resolve_project_requirements(profile))
         return tomllib.loads((project_path / "pyproject.toml").read_text())
 
     def test_records_profile_deps(self, monkeypatch, tmp_path: Path):
@@ -1197,7 +1197,7 @@ class TestCreateProjectVenv:
 
     def test_creates_venv_and_installs_with_uv(self, monkeypatch, tmp_path):
         """Should create project venv then install deps with uv."""
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _resolve_project_requirements
 
         calls = []
 
@@ -1208,7 +1208,8 @@ class TestCreateProjectVenv:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
-        _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24", "pandas"]))
+        profile = self._make_profile(["numpy>=1.24", "pandas"])
+        _create_project_venv(tmp_path, profile, _resolve_project_requirements(profile))
 
         assert len(calls) == 2
         # First call: create venv
@@ -1227,7 +1228,7 @@ class TestCreateProjectVenv:
         """Should use python -m venv + pip when uv is not available."""
         import sys
 
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _resolve_project_requirements
 
         calls = []
 
@@ -1239,7 +1240,8 @@ class TestCreateProjectVenv:
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
-        _create_project_venv(tmp_path, self._make_profile(["numpy>=1.24"]))
+        profile = self._make_profile(["numpy>=1.24"])
+        _create_project_venv(tmp_path, profile, _resolve_project_requirements(profile))
 
         assert len(calls) == 2
         # First call: python -m venv
@@ -1253,7 +1255,7 @@ class TestCreateProjectVenv:
 
     def test_raises_on_venv_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError if venv creation fails."""
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _resolve_project_requirements
 
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(
@@ -1264,11 +1266,12 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
-            _create_project_venv(tmp_path, self._make_profile(["pkg"]))
+            profile = self._make_profile(["pkg"])
+            _create_project_venv(tmp_path, profile, _resolve_project_requirements(profile))
 
     def test_raises_on_install_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError when pip install fails."""
-        from osprey.cli.build_cmd import _create_project_venv
+        from osprey.cli.build_cmd import _create_project_venv, _resolve_project_requirements
 
         call_count = 0
 
@@ -1287,7 +1290,8 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
-            _create_project_venv(tmp_path, self._make_profile(["nonexistent-xyz"]))
+            profile = self._make_profile(["nonexistent-xyz"])
+            _create_project_venv(tmp_path, profile, _resolve_project_requirements(profile))
 
 
 # ---------------------------------------------------------------------------

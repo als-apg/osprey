@@ -621,13 +621,12 @@ class TestCarriedOverFlags:
         """It records its own location, so it is created where it will be read from."""
         created: dict[str, Path] = {}
 
-        def fake_venv(project_path: Path, _profile) -> list[str]:
+        def fake_venv(project_path: Path, _profile, _requirements) -> None:
             created["at"] = Path(project_path)
             bin_dir = Path(project_path) / ".venv" / "bin"
             bin_dir.mkdir(parents=True)
             (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
             (Path(project_path) / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-            return []
 
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         result = _build(runner, lifecycle_repo, flags=["--skip-lifecycle"])
@@ -641,12 +640,11 @@ class TestCarriedOverFlags:
     def test_a_venv_survives_a_failed_rebuild(self, runner, lifecycle_repo, monkeypatch):
         """It is the one artifact outside the atomic set — and not one `down` needs."""
 
-        def fake_venv(project_path: Path, _profile) -> list[str]:
+        def fake_venv(project_path: Path, _profile, _requirements) -> None:
             (Path(project_path) / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
             (Path(project_path) / ".venv" / "bin" / "python").write_text(
                 "#!/bin/sh\n", encoding="utf-8"
             )
-            return []
 
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
