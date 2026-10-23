@@ -68,6 +68,14 @@ def test_an_absent_view_key_withholds_the_model_tool():
     assert "model_response_matrix" not in server["permissions_allow"]
 
 
+def test_an_empty_context_offers_the_ariel_tools():
+    (server,) = [entry for entry in resolve_servers({}, {}) if entry["name"] == "ariel"]
+
+    assert {"sql_query", "attachment_view", "attachment_to_artifact"} <= set(
+        server["permissions_allow"]
+    )
+
+
 @pytest.mark.parametrize("view", [True, False])
 def test_an_extends_clone_carries_the_optional_tools_under_its_own_name(view: bool):
     clone = _python(view, {"python2": {"extends": "python"}}, name="python2")
