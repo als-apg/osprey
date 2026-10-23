@@ -529,7 +529,7 @@ def _selected_hooks(repo: Path) -> list[str]:
 @pytest.mark.slow
 @pytest.mark.parametrize("key", FLOOR_KEYS)
 def test_removing_a_required_key_is_refused_naming_it(
-    key: str, built_preset: Any, offline_build_env: dict[str, str], tmp_path: Path
+    key: str, built_preset: Any, tmp_path: Path
 ) -> None:
     """A built repo, one line deleted from its profile, refuses to rebuild.
 
@@ -537,7 +537,8 @@ def test_removing_a_required_key_is_refused_naming_it(
     all six: it runs the controls server and selects the approval hook. The
     edit is the deletion of exactly one dotted ``config:`` line, which is what
     an operator trimming a profile does, and the rebuild has to name that key
-    and the file it belongs in.
+    and the file it belongs in. The refusal comes before any install, so the
+    rebuild installs nothing.
     """
     source = built_preset("hello-world")
     repo = tmp_path / PROJECT_NAME
@@ -549,7 +550,7 @@ def test_removing_a_required_key_is_refused_naming_it(
     assert len(kept) == len(lines) - 1, f"expected exactly one `  {key}:` line in {profile}"
     profile.write_text("".join(kept))
 
-    result = _run_cli(["build"], repo, offline_build_env)
+    result = _run_cli(["build", "--skip-deps"], repo)
     output = _output(result)
     assert result.returncode != 0, f"build should have refused a profile with no {key}:\n{output}"
     assert f"{key} is not stated" in output
