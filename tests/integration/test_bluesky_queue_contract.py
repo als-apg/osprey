@@ -1422,11 +1422,14 @@ async def test_the_event_stream_reports_a_manager_outage_without_dropping_the_st
 # ---------------------------------------------------------------------------
 
 _FAIL_CLOSED_CASES = [
-    pytest.param(qb.REASON_BROWSE_ONLY_CONNECTOR, 409, id="mock-connector"),
-    pytest.param(qb.REASON_UNSUPPORTED_CONNECTOR, 409, id="unsupported-connector"),
-    pytest.param(qb.REASON_CONFIG_UNREADABLE, 409, id="config-unreadable"),
-    pytest.param(qb.REASON_MANAGER_NOT_CONFIGURED, 503, id="manager-not-configured"),
-    pytest.param(qb.REASON_MANAGER_UNREACHABLE, 503, id="manager-unreachable"),
+    pytest.param(reason, qb.REFUSAL_REASONS[reason].status, id=case_id)
+    for reason, case_id in (
+        (qb.REASON_BROWSE_ONLY_CONNECTOR, "mock-connector"),
+        (qb.REASON_UNSUPPORTED_CONNECTOR, "unsupported-connector"),
+        (qb.REASON_CONFIG_UNREADABLE, "config-unreadable"),
+        (qb.REASON_MANAGER_NOT_CONFIGURED, "manager-not-configured"),
+        (qb.REASON_MANAGER_UNREACHABLE, "manager-unreachable"),
+    )
 ]
 
 
@@ -1435,9 +1438,10 @@ def _make_incapable(
 ) -> None:
     """Put the deployment into the state that yields *reason*.
 
-    The two manager-side reasons are retryable outages (deploy the manager,
-    bring it back); the three connector/config reasons are properties of the
-    deployment itself, where retrying changes nothing.
+    The refusal's status and retryability are the reason's row in
+    `REFUSAL_REASONS`: only an unanswering manager is worth retrying; the
+    other four are properties of the deployment, which only an operator
+    changes.
     """
     if reason == qb.REASON_BROWSE_ONLY_CONNECTOR:
         connector(IN_PROCESS)
@@ -1473,6 +1477,7 @@ def test_a_deployment_that_cannot_execute_refuses_to_hold_queue_items(
     assert resp.status_code == expected_status, resp.text
     detail = resp.json()["detail"]
     assert detail["code"] == reason
+    assert detail["retryable"] is qb.REFUSAL_REASONS[reason].retryable
     assert detail["capability"]["can_execute"] is False
     assert detail["capability"]["reason"] == reason
     assert isinstance(detail["capability"]["detail"], str) and detail["capability"]["detail"]

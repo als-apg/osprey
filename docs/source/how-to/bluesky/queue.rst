@@ -124,8 +124,9 @@ One queue, three ways to drive it
       the field and the start arms whatever is queued now.
 
       Every refusal comes back with a ``detail`` object of the form
-      ``{"code": ..., "detail": ...}`` — a stable code for software to
-      branch on, a sentence for a human to read. The panels and the agent
+      ``{"code": ..., "detail": ..., "retryable": ...}`` — a stable code for
+      software to branch on, a sentence for a human to read, and whether
+      trying again can help. The panels and the agent
       show that same sentence, so every surface describes the same event
       the same way.
 
@@ -235,7 +236,9 @@ quirks worth knowing:
    :color: info
    :icon: alert
 
-   A refusal always says why. The codes you will actually meet:
+   A refusal always says why. Every queue refusal also carries
+   ``retryable``; only ``retryable: true`` means trying again can help. The
+   codes you will actually meet:
 
    ``stale_draft_revision`` / ``draft_revision_already_launched``
       The draft changed since you looked, or that exact revision has already
@@ -264,6 +267,10 @@ quirks worth knowing:
 
    ``interrupted_item_in_queue``
       The queue still holds a plan someone stopped — see the next dropdown.
+
+   ``manager_not_configured``
+      No queue server is configured for this deployment. This needs an
+      operator to redeploy, never a retry.
 
    ``manager_unreachable``
       The queue server is not answering — often it is simply still starting.

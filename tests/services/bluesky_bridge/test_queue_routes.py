@@ -130,7 +130,7 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     The backend singleton lives in `app.py`; clearing it to `None` here means
     a test that forgets to install a fake would lazily build a managerless
-    real backend (fail-closed 503s) rather than seeing another test's fake.
+    real backend (fail-closed refusals) rather than seeing another test's fake.
     """
     monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
     monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
@@ -234,6 +234,25 @@ def test_get_queue_maps_manager_silence_to_503(client: TestClient) -> None:
 
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == qb.REASON_MANAGER_UNREACHABLE
+    assert resp.json()["detail"]["retryable"] is True
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [("get", "/queue"), ("post", "/queue/stop"), ("get", "/runs")],
+)
+def test_a_bridge_with_no_queue_server_refuses_every_route_as_not_retryable(
+    client: TestClient, method: str, route: str
+) -> None:
+    app_module.set_queue_backend(QueueBackend(None))
+
+    resp = getattr(client, method)(route)
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert detail["retryable"] is False
+    assert detail["detail"] == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 # ---------------------------------------------------------------------------
@@ -580,17 +599,21 @@ def test_enqueue_is_refused_on_a_browse_only_deployment(client: TestClient, conn
     assert draft._launching == set()
 
 
-def test_enqueue_without_a_configured_manager_is_503(client: TestClient, connector) -> None:
+def test_enqueue_without_a_configured_manager_is_409_and_not_retryable(
+    client: TestClient, connector
+) -> None:
     connector("virtual_accelerator")
     app_module.set_queue_backend(QueueBackend(None))
     revision = _make_draft(client)
 
     resp = client.post("/queue/items", json={"draft_revision": revision})
 
-    assert resp.status_code == 503
+    assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert detail["code"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert detail["retryable"] is False
     assert detail["capability"]["can_execute"] is False
+    assert detail["capability"]["retryable"] is False
 
 
 def test_validation_gate_refusal_releases_the_reservation(
@@ -2379,6 +2402,20 @@ async def test_sse_reports_manager_outage_as_unavailable() -> None:
     assert frame["status"]["available"] is False
     assert frame["status"]["reason"] == qb.REASON_MANAGER_UNREACHABLE
     assert frame["items"] == []
+
+
+async def test_sse_reports_a_bridge_with_no_queue_server_as_not_retryable() -> None:
+    app_module.set_queue_backend(QueueBackend(None))
+    subscriber: asyncio.Queue[Any] = asyncio.Queue()
+    queue._subscribers.add(subscriber)
+
+    await queue._poll_once()
+
+    status = subscriber.get_nowait()["status"]
+    assert status["available"] is False
+    assert status["reason"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert status["retryable"] is False
+    assert status["detail"] == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 def test_bridge_mutations_nudge_the_sse_poller(client: TestClient) -> None:

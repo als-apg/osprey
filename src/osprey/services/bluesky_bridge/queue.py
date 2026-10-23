@@ -116,17 +116,12 @@ from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
 from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
-    REASON_MANAGER_NOT_CONFIGURED,
-    REASON_MANAGER_UNREACHABLE,
-    AbortPauseTimeoutError,
-    EnvironmentUnavailableError,
+    REFUSAL_REASONS,
     ExecutionUnavailableError,
-    NothingRunningError,
     QueueBackend,
     QueueBackendError,
-    QueueItemInvalidError,
     QueueRequestRejectedError,
-    QueueUnavailableError,
+    ReasonRecord,
     is_queue_active,
     run_id_of,
     split_owner,
@@ -226,43 +221,32 @@ async def shutdown() -> None:
     _stop_poller()
 
 
+# The answer for a reason with no row in `REFUSAL_REASONS`: a server error
+# nobody is told to retry.
+_UNDECLARED = ReasonRecord(500, False)
+
+
 def _http_error(exc: QueueBackendError, *, extra: Mapping[str, Any] | None = None) -> HTTPException:
     """Map one typed backend failure to the HTTP refusal the wire contract promises.
 
-    - `ExecutionUnavailableError` carries the capability record in the body so
-      the caller sees the same reason/remediation the status surface
-      publishes. Manager-side reasons are 503 (deploy the manager / bring it
-      back and retry); connector/config reasons are 409 (the deployment
-      itself cannot execute — retrying changes nothing).
-    - `QueueUnavailableError` / `EnvironmentUnavailableError` /
-      `AbortPauseTimeoutError` are 503 — genuinely retryable. The abort timeout
-      belongs in that bucket rather than getting a status of its own: the
-      operator's next move is to try again (or reach for out-of-band means),
-      and every client already branches on `detail.code`, so a fourth status
-      would only be one more thing to learn.
-    - `QueueRequestRejectedError` / `NothingRunningError` are 409 — the manager
-      answered and the request does not apply.
-    - `QueueItemInvalidError` is 400 — the request itself is malformed, and the
-      fix is in the caller's hands, the same reading `_refuse_unknown_devices`
-      gives an item naming a device that does not exist.
+    The status and ``retryable`` both come from the reason's row in
+    `REFUSAL_REASONS`; the body is ``{code, detail, retryable}``.
+    `ExecutionUnavailableError` also carries the capability record, so the
+    caller sees the same reason and remedy the status surface publishes.
 
     *extra* carries caller-side facts the backend exception cannot, merged into
     the body beside ``code`` and ``detail``.
     """
-    detail: dict[str, Any] = {"code": exc.reason, "detail": str(exc), **(extra or {})}
-    if isinstance(exc, QueueItemInvalidError):
-        return HTTPException(status_code=400, detail=detail)
+    record = REFUSAL_REASONS.get(exc.reason, _UNDECLARED)
+    detail: dict[str, Any] = {
+        "code": exc.reason,
+        "detail": str(exc),
+        "retryable": record.retryable,
+        **(extra or {}),
+    }
     if isinstance(exc, ExecutionUnavailableError):
         detail["capability"] = exc.capability.to_dict()
-        retryable = exc.reason in (REASON_MANAGER_UNREACHABLE, REASON_MANAGER_NOT_CONFIGURED)
-        return HTTPException(status_code=503 if retryable else 409, detail=detail)
-    if isinstance(
-        exc, (QueueUnavailableError, EnvironmentUnavailableError, AbortPauseTimeoutError)
-    ):
-        return HTTPException(status_code=503, detail=detail)
-    if isinstance(exc, (QueueRequestRejectedError, NothingRunningError)):
-        return HTTPException(status_code=409, detail=detail)
-    return HTTPException(status_code=500, detail=detail)
+    return HTTPException(status_code=record.status, detail=detail)
 
 
 def _token_is_valid(header: str) -> bool:
@@ -858,9 +842,18 @@ def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _unavailable_summary(reason: str) -> dict[str, Any]:
-    """The summary published when the manager (or backend) cannot be read."""
-    summary: dict[str, Any] = {"available": False, "reason": reason}
+def _unavailable_summary(reason: str, detail: str) -> dict[str, Any]:
+    """The summary published when the manager (or backend) cannot be read.
+
+    ``detail`` is the backend's own sentence, so a reader is told the cause the
+    backend stated and nothing it could not tell apart.
+    """
+    summary: dict[str, Any] = {
+        "available": False,
+        "reason": reason,
+        "retryable": REFUSAL_REASONS.get(reason, _UNDECLARED).retryable,
+        "detail": detail,
+    }
     for key in _SUMMARY_KEYS:
         summary[key] = None
     summary["runs_removed"] = None
@@ -874,7 +867,7 @@ async def _current_summary() -> dict[str, Any]:
         # client's ~0.5 s status cache would quietly halve that.
         return _status_summary(await _get_backend().status(reload=True))
     except QueueBackendError as exc:
-        return _unavailable_summary(exc.reason)
+        return _unavailable_summary(exc.reason, str(exc))
 
 
 def _with_progress(running_item: Any) -> Any:
@@ -1646,6 +1639,8 @@ async def abort_running_plan(
     - 503 ``abort_pause_timeout`` — the Run Engine never paused, so NOTHING was
       aborted and the plan may still be running. Never dressed up as a halt.
     - 503 ``manager_unreachable`` — the manager did not answer at all.
+    - 409 ``manager_not_configured`` — this deployment names no queue server;
+      only an operator can fix that.
     - 409 ``queue_request_rejected`` — the manager refused the abort itself.
 
     WHERE THE ABORTED PLAN ENDS UP, which is not where the wording above might
