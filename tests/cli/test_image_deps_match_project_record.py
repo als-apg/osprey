@@ -248,18 +248,19 @@ class TestNoFrozenBase:
 
 
 class TestSkipDeps:
-    """`--skip-deps` builds no venv, so there is no assembled list to carry."""
+    """`--skip-deps` builds no venv, but its image installs the list a full build records."""
 
-    def test_falls_back_to_profile_dependencies(self, build, base_venv):
-        """The declared base is never probed and its packages never appear."""
+    def test_image_installs_what_a_full_build_records(self, build, base_venv):
+        """The declared base is frozen and `environment.packages` joins the list."""
         python = base_venv(_record("lmfit", "1.3.2"))
-
-        project = build(
-            _profile_yaml(python=python, dependencies=["numpy>=1.24"], packages=["humanize"]),
-            skip_deps=True,
+        profile_yaml = _profile_yaml(
+            python=python, dependencies=["numpy>=1.24"], packages=["humanize"]
         )
+        full_record = recorded_deps(build(profile_yaml))
 
-        assert image_deps(project) == ["numpy>=1.24"]
+        project = build(profile_yaml, skip_deps=True)
+
+        assert image_deps(project) == full_record
 
     def test_writes_no_dependency_record(self, build):
         """Nothing was installed, so nothing is recorded — and nothing can diverge."""

@@ -133,6 +133,7 @@ def _build_in_memory(
     from osprey_connectors.errors import BuildProfileError
 
     from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs
+    from .build_environment import _resolve_project_requirements
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
@@ -181,7 +182,7 @@ def _build_in_memory(
         repo_root=repo_root,
         build_dir=build_dir,
         runtime_root=None,
-        project_deps=list(build_profile.dependencies or []),
+        project_deps=list(_resolve_project_requirements(build_profile).extra_deps),
         skip_deps=True,
         manager=TemplateManager(),
         graph_indexes={},

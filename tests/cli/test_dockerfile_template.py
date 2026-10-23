@@ -85,6 +85,16 @@ def deps_project(tmp_path_factory):
     )
 
 
+@pytest.fixture(scope="module")
+def packages_project(tmp_path_factory):
+    """The same, for a deployment whose profile declares ``environment.packages``."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-packages") / "packages-docker",
+        "hello-world",
+        'environment.packages=["pyepics"]',
+    )
+
+
 class TestDockerfileContent:
     """Content invariants of the rendered Dockerfile."""
 
@@ -437,6 +447,12 @@ class TestDockerfileContent:
         assert "'pydantic>=2'" in deps, "version-constrained dep must be shell-quoted"
         # Deps trail the OSPREY spec token, not precede it.
         assert "numpy" in deps.split('"$OSPREY_PIP_SPEC"', 1)[1]
+
+    def test_environment_packages_on_deps_run(self, packages_project):
+        """A ``--skip-deps`` render installs the list a full build installs:
+        ``environment.packages`` joins the deps RUN after ``$OSPREY_PIP_SPEC``."""
+        deps = self._deps_run_body((packages_project / "Dockerfile").read_text())
+        assert "pyepics" in deps.split('"$OSPREY_PIP_SPEC"', 1)[1]
 
     @staticmethod
     def _run_command_bodies(text: str) -> list[str]:
