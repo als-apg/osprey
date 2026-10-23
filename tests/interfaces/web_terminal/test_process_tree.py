@@ -30,7 +30,7 @@ pytestmark = [
 
 
 def _own_row() -> process_tree.ProcessRow:
-    rows = process_tree.snapshot()
+    rows = process_tree.read_while_alive(lambda: True)
     assert rows is not None
     return rows[os.getpid()]
 
@@ -47,7 +47,12 @@ def test_a_started_group_and_the_roots_own_group_are_found(tmp_path):
         child = session.pid
         assert child is not None
 
-        groups = {g.pgid: g for g in process_tree.tree_groups(child)}
+        groups = {
+            g.pgid: g
+            for g in process_tree.tree_groups(
+                child, process_tree.read_while_alive(lambda: session.is_alive)
+            )
+        }
 
         assert set(groups) == {grandchild, os.getpgid(child)}
         assert groups[grandchild].label == "magnet_scan.py"
@@ -240,7 +245,7 @@ def test_still_running_drops_a_group_whose_members_ended():
         [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
     )
     try:
-        rows = process_tree.snapshot()
+        rows = process_tree.read_while_alive(lambda: proc.poll() is None)
         assert rows is not None
         row = rows[proc.pid]
         group = ProcessGroup(row.pgid, ((row.pid, row.started),), "sleep", row.command)
@@ -249,7 +254,7 @@ def test_still_running_drops_a_group_whose_members_ended():
         proc.kill()
         proc.wait()
     assert pid_gone(proc.pid)
-    assert process_tree.still_running([group]) == []
+    assert process_tree.still_running([group], process_tree.read_while_alive(lambda: True)) == []
 
 
 def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
@@ -259,7 +264,7 @@ def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
         start_new_session=True,
     )
     try:
-        rows = process_tree.snapshot()
+        rows = process_tree.read_while_alive(lambda: proc.poll() is None)
         assert rows is not None
         row = rows[proc.pid]
         group = ProcessGroup(row.pgid, ((row.pid, row.started),), "python", row.command)
@@ -274,7 +279,9 @@ def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
                 ["ps", "-o", "stat=", "-p", str(proc.pid)], capture_output=True, text=True
             ).stdout.strip()
 
-        assert process_tree.still_running([group]) == []
+        assert (
+            process_tree.still_running([group], process_tree.read_while_alive(lambda: True)) == []
+        )
     finally:
         proc.kill()
         proc.wait()
@@ -365,7 +372,15 @@ async def test_server_group_members_are_the_roots_descendants_in_the_servers_gro
             pids = _read_pids(factory.pid_files[0], 2)
             grandchild, helper = pids
 
-            members = {row.pid for row in process_tree.server_group_members(root)}
+            members = {
+                row.pid
+                for row in process_tree.server_group_members(
+                    root,
+                    process_tree.read_while_alive(
+                        lambda: client._transport._process.returncode is None
+                    ),
+                )
+            }
 
             assert helper in members
             assert root not in members
