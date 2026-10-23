@@ -655,6 +655,9 @@ _WRITES_CHECK_HOOK = "writes-check"
 #: The dotted ``config:`` key that gives a render its own web-terminal tier.
 _WEB_TERMINALS_ENABLED = "modules.web_terminals.enabled"
 
+#: The ``config:`` key that names the deployment's container runtime, set once per build.
+_CONTAINER_RUNTIME = "container_runtime"
+
 #: What an attached render is, whatever its file says: no services of its own,
 #: no web-terminal tier of its own. ``(key, value)`` for the top-level facts.
 _ATTACHMENT_FACTS: tuple[tuple[str, Any], ...] = (("deploy_services", False), ("services", {}))
@@ -699,13 +702,15 @@ def _drop_config_path(config: dict[str, Any], parts: list[str]) -> dict[str, Any
 def _refuse_layer_spellings(
     layer: dict[str, Any], layer_rel: str, kind: Any, *, legacy: bool
 ) -> None:
-    """Refuse what a tier or app file may not say: subtraction and attachment.
+    """Refuse what a tier or app file may not say: subtraction, attachment, runtime.
 
     A tier adds by name, so ``exclude:`` has no meaning in it; the same holds
     for an app, whose lists are its own. Attachment is a fact of the kind, set
     by the resolver, so a file spelling it is either redundant or wrong. A
     file in the retired layer directory (``legacy``) keeps ``exclude:`` and may restate the
-    attachment it gets anyway, but never contradict it.
+    attachment it gets anyway, but never contradict it. The container runtime
+    is a fact of the build, stated in the deployment's own profile and written
+    into every render of it, so no layer file, legacy or not, may spell it.
 
     Raises:
         BuildProfileError: Naming the file and the offending key.
@@ -724,6 +729,11 @@ def _refuse_layer_spellings(
         (_WEB_TERMINALS_ENABLED, value, False)
         for value in _find_config_path(layer.get("config"), _WEB_TERMINALS_ENABLED.split("."))
     )
+    if _find_config_path(layer.get("config"), [_CONTAINER_RUNTIME]):
+        raise BuildProfileError(
+            f"{layer_rel} spells {_CONTAINER_RUNTIME!r}. The build sets the deployment's "
+            f"runtime once; remove it from {layer_rel} and state it in {PROFILE_FILENAME}."
+        )
     for key, value, forced in spelled:
         if legacy and value == forced:
             continue
