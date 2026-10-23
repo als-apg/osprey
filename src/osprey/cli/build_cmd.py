@@ -72,6 +72,7 @@ from osprey_connectors.workspace import (
 from .build_environment import (
     _create_project_venv,
     _resolve_osprey_spec,
+    _resolve_project_requirements,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -159,6 +160,7 @@ __all__ = [
     "_register_convention_artifacts",
     "_resolve_context_roster",
     "_resolve_osprey_spec",
+    "_resolve_project_requirements",
     "_run_lifecycle_phase",
     "build",
     "report_provider_credentials",
@@ -3673,12 +3675,14 @@ def _build_repo(
         # beside it, is copied into the staged tree — the record and the
         # environment it describes must ship together.
         if not skip_deps:
+            requirements = _resolve_project_requirements(build_profile)
+            project_deps = list(requirements.extra_deps)
             # Reported on its own, not folded into the render below: it is the
             # longest thing a first build does by a wide margin, and a build
             # that looks stuck for two minutes is the moment an operator most
             # needs to be told what it is waiting on.
             with reporter.phase("Preparing the project environment"):
-                project_deps = _create_project_venv(zones.build_dir, build_profile)
+                _create_project_venv(zones.build_dir, build_profile, requirements)
                 recorded = zones.build_dir / "pyproject.toml"
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")
