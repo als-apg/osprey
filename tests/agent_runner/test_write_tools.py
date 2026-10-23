@@ -614,13 +614,26 @@ def test_no_destructive_permissions_allow_tool_is_reachable(tmp_path: Path) -> N
 
 
 def test_read_only_disallowed_tools_allows_audited_reads(tmp_path: Path) -> None:
-    """Approval-gated *reads* must stay callable — the read-only run still needs
-    to read PVs/archiver. Only writes/side-effects are blocked, not all
-    approval-gated tools."""
-    result = read_only_disallowed_tools(tmp_path)
+    """Every tool the registry declares an audited read, on every framework
+    server and on an ``extends`` clone of one, stays callable in the read-only
+    run: the floor blocks side effects, never an approval-gated read."""
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
 
-    assert "mcp__controls__channel_read" not in result
-    assert "mcp__controls__archiver_read" not in result
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    controls2:\n      extends: controls\n"
+    )
+    clone = build_extended_server("controls2", {"extends": "controls"})
+    assert clone is not None
+
+    audited = {
+        f"mcp__{server.name}__{tool}"
+        for server in (*FRAMEWORK_SERVERS.values(), clone)
+        for tool in server.audited_reads
+    }
+    assert audited
+
+    blocked = audited & set(read_only_disallowed_tools(tmp_path))
+    assert not blocked, f"audited reads blocked in the read-only run: {sorted(blocked)}"
 
 
 def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) -> None:
