@@ -3275,6 +3275,19 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
             shape — a bare ``osprey init --preset control-assistant`` has no
             coordinates to render a pipeline from, so it emits neither.
     """
+    return {
+        path: expand_sentinels(text)
+        for path, text in _exemplar_source_texts(with_ci=with_ci).items()
+    }
+
+
+def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
+    """The exemplar's source zone with its sentinels still in place.
+
+    The texts :func:`exemplar_source_files` expands. A patch over one of them
+    stays applicable across version bumps and preset edits, because a sentinel
+    line reads the same whatever value it stands for.
+    """
     if with_ci:
         deploy_block = DEPLOY_BLOCK_ACTIVE
         # image_source has exactly one home. With a deploy block that home is
@@ -3293,7 +3306,7 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     files["providers.yml"] = packaged_providers_yml()
     if with_ci:
         files.update(CI_PIPELINE_FILES)
-    return {path: expand_sentinels(text) for path, text in files.items()}
+    return files
 
 
 @contextlib.contextmanager
