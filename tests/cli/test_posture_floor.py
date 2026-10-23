@@ -476,11 +476,14 @@ def built_preset(
         verb fails the calling test with the CLI's own output.
     """
     built: dict[str, Path] = {}
+    # Made now, not on the first build, so it goes when the module ends.
+    root = tmp_path_factory.mktemp("posture")
 
     def _build(preset: str) -> Path:
         if preset in built:
             return built[preset]
-        workspace = tmp_path_factory.mktemp(f"posture-{preset}")
+        workspace = root / preset
+        workspace.mkdir()
         init = _run_cli(["init", PROJECT_NAME, "--preset", preset, "--no-git"], workspace)
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME

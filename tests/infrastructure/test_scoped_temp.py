@@ -13,8 +13,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
-
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +29,12 @@ def shared(tmp_path_factory, request):
     made = tmp_path_factory.mktemp("module-made")
     # A session fixture first set up inside this one keeps its own directory.
     request.getfixturevalue("long_lived")
+    return made
+
+@pytest.fixture(scope="module")
+def hand_made(tmp_path_factory):
+    made = tmp_path_factory.getbasetemp() / "hand-made"
+    made.mkdir()
     return made
 """
 
@@ -88,19 +92,7 @@ def test_policy_all_keeps_every_directory(tmp_path):
     assert "module-made0" in left
 
 
-def test_a_function_scoped_fixture_does_not_list_the_base_temp():
-    from types import SimpleNamespace
-
-    from tests import _scoped_temp
-
-    class _Unlistable:
-        def getbasetemp(self):
-            raise AssertionError("the base temp was read for a function-scoped fixture")
-
-    fixturedef = SimpleNamespace(scope="function", argnames=("tmp_path_factory",))
-    request = SimpleNamespace(config=SimpleNamespace(_tmp_path_factory=_Unlistable()))
-    setup = _scoped_temp.pytest_fixture_setup(fixturedef, request)
-    next(setup)
-    with pytest.raises(StopIteration) as done:
-        setup.send("value")
-    assert done.value.value == "value"
+def test_only_what_mktemp_made_is_removed(tmp_path):
+    left = _run(tmp_path, "def test_uses(shared, hand_made):\n    pass\n")
+    assert "module-made0" not in left
+    assert "hand-made" in left
