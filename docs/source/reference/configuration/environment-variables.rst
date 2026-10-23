@@ -98,9 +98,13 @@ deployment, which is why none of them is a config key.
 **build arguments** at once: the Dockerfiles in
 :doc:`/how-to/deploy-project/project-image` declare an ARG of each name, and
 ``osprey up`` supplies each one from the host variable, or from the
-``images.*`` key behind it. One spelling for one setting, whether the build is
-managed or a hand-run ``docker build``. What they configure is the build — a
-container that is already running reads nothing from them.
+``images.*`` key behind it. The ``PIP_*`` names come from your shell or that
+key, never from ``.env`` or ``.env.shared``: a line there is ignored with a
+warning, like every launch variable (see
+:ref:`launch variables <deployment-env-launch-variables>`). One spelling for
+one setting, whether the build is managed or a hand-run ``docker build``.
+What they configure is the build — a container that is already running reads
+nothing from them.
 
 Virtual accelerator source
 ==========================
