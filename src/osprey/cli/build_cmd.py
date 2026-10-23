@@ -637,7 +637,7 @@ def _stamp_repo_manifest(
     is exactly why a render does not get them: the drift gate reads one
     manifest per repo, the deployment's, and the layers are already
     folded into ITS fingerprint
-    (:func:`~osprey.cli.build_profile_merge._fold_profile_material`). A second
+    (:func:`~osprey.cli.build_profile_merge.profile_inputs`). A second
     set of digests under each render would be a fingerprint nothing consults.
 
     Args:
@@ -2565,9 +2565,9 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
 
     :func:`~osprey.cli.profile_root.layer_files` — the direct children of
     ``tiers/``, ``apps/`` and the retired layer directory — which is the same listing the
-    content-hash fold (:func:`~osprey.cli.build_profile_merge._fold_profile_material`)
-    and the staleness digests read. The build and the fingerprint have to agree
-    exactly: a file the fingerprint covers but the render skips would make an
+    content-hash fold and the staleness digests read through
+    :func:`~osprey.cli.build_profile_merge.profile_inputs`. The build and the
+    fingerprint have to agree exactly: a file the fingerprint covers but the render skips would make an
     edit to it refuse the next start with nothing to re-render; a file the
     render picks up but the fingerprint misses would let an edit to it ship
     silently.
@@ -2745,9 +2745,8 @@ def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Seque
       exception, so an image without one boots into a repo-not-found refusal.
     * the rest is what the drift fingerprint folds. ``check_drift`` recomputes
       it from the source beside the render
-      (:func:`~osprey.cli.build_profile_merge._fold_profile_material` covers the
-      ``data:`` tree, every convention directory, ``triggers.yml`` and every
-      layer), and a container carrying the profile alone reports its own
+      (:func:`~osprey.cli.build_profile_merge.profile_inputs` lists every
+      input it folds), and a container carrying the profile alone reports its own
       untouched build as DRIFTED, naming files nobody edited.
 
     Copied by EXCLUSION rather than by naming what to take: everything at the
@@ -3042,9 +3041,9 @@ def _prune_ignored_entries(image_root: Path, patterns: Sequence[str]) -> None:
     context on disk. That difference is invisible until something fingerprints
     the context — and :func:`_relocate_container_manifest` does, stamping the
     profile hash that ``osprey status`` and the drift gate re-check inside the
-    container. The hash folds the profile's file inputs (``data/``, the
-    convention directories, ``tiers/``), and those patterns are ``**/``-
-    anchored, so a stray ``data/ingest.log`` or a ``__pycache__/`` under a
+    container. The hash folds the profile's file inputs
+    (:func:`~osprey.cli.build_profile_merge.profile_inputs`), and those
+    patterns are ``**/``-anchored, so a stray ``data/ingest.log`` or a ``__pycache__/`` under a
     convention directory would be folded into the stamp here and then be missing
     from the image there. The container would recompute a different hash and
     report its own untouched build as drifted — the exact failure the whole
@@ -3151,33 +3150,24 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
 def _image_build_inputs(repo_root: Path) -> list[Path]:
     """The repo-relative paths every image of a build must keep from the source zone.
 
-    What the stamp of each image folds: the file inputs of the repo's own
-    ``profile.yml`` as the fingerprint enumerates them
-    (:func:`~osprey.cli.build_profile_merge.profile_inputs`), that
-    ``profile.yml`` itself, which every repo-scoped verb finds the deployment
-    by, and the active host-variant overlay when there is one. Every image's
+    Every input of the repo's own ``profile.yml`` as
+    :func:`~osprey.cli.build_profile_merge.profile_inputs` lists them: that
+    ``profile.yml``, which every repo-scoped verb finds the deployment by, the
+    repo-local ``extends`` files it reads, the file material the stamp folds
+    and the selected host-variant overlay. Every image's
     ``creation.preset_hash`` is taken over that one profile
     (:func:`_relocate_container_manifest`), so one set serves the deployment's
     image and every tier's and app's. A path outside the repo is not staged, so
     it is not returned.
     """
     from .build_profile_document import _read_profile_document
-    from .build_profile_merge import ProfileInputRole, profile_inputs, resolve_profile_document
-    from .variant_selection import active_variant_overlay
+    from .build_profile_merge import profile_inputs, resolve_profile_document
 
     profile_path = repo_root / PROFILE_FILENAME
     document = resolve_profile_document(
         _read_profile_document(profile_path), profile_path, warn=False
     )
-    paths = [
-        entry.path
-        for entry in profile_inputs(profile_path, document)
-        if entry.role is ProfileInputRole.MATERIAL
-    ]
-    paths.append(profile_path)
-    overlay = active_variant_overlay(repo_root)
-    if overlay is not None:
-        paths.append(overlay)
+    paths = [entry.path for entry in profile_inputs(profile_path, document)]
 
     root = repo_root.resolve()
     inputs: list[Path] = []

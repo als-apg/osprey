@@ -375,11 +375,17 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
     )
 
 
-def _repo_with_own_dockerignore(tmp_path: Path, ignore: str) -> Path:
-    """A deployment repo with fold inputs, non-input clutter and its own ``.dockerignore``."""
+def _repo_with_own_dockerignore(
+    tmp_path: Path, ignore: str, *, extends_base: str | None = None
+) -> Path:
+    """A deployment repo with fold inputs, non-input clutter and its own ``.dockerignore``.
+
+    *extends_base* names a sibling file the profile extends, written beside it.
+    """
     repo = tmp_path / "facility"
+    extends = f"extends: {extends_base}\n" if extends_base else ""
     files = {
-        Path(PROFILE_FILENAME): "name: facility\ndata: data\n",
+        Path(PROFILE_FILENAME): f"{extends}name: facility\ndata: data\n",
         Path("data") / "channels.csv": "name\n",
         Path("data") / "deep.h5": "authored\n",
         Path(TIERS_DIRNAME) / "readonly.yml": "name: readonly\n",
@@ -390,6 +396,8 @@ def _repo_with_own_dockerignore(tmp_path: Path, ignore: str) -> Path:
         Path(".claude") / "settings.json": '{"dev": true}\n',
         Path(".dockerignore"): ignore,
     }
+    if extends_base:
+        files[Path(extends_base)] = "name: site\n"
     for relpath, text in files.items():
         (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
         (repo / relpath).write_text(text, encoding="utf-8")
@@ -448,14 +456,18 @@ def test_a_negated_line_keeps_one_file_of_an_excluded_directory(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(
-    "pattern,path",
-    [("**/*.csv", "data/channels.csv"), (PROFILE_FILENAME, PROFILE_FILENAME)],
+    "pattern,path,extends_base",
+    [
+        ("**/*.csv", "data/channels.csv", None),
+        (PROFILE_FILENAME, PROFILE_FILENAME, None),
+        ("site-base.yml", "site-base.yml", "site-base.yml"),
+    ],
 )
 def test_the_repos_own_dockerignore_cannot_remove_a_build_input(
-    tmp_path: Path, pattern: str, path: str
+    tmp_path: Path, pattern: str, path: str, extends_base: str | None
 ) -> None:
-    """A pattern that would drop a file the fingerprint folds fails the build, naming both."""
-    repo = _repo_with_own_dockerignore(tmp_path, f"{pattern}\n")
+    """A pattern that would drop a file the build reads fails the build, naming both."""
+    repo = _repo_with_own_dockerignore(tmp_path, f"{pattern}\n", extends_base=extends_base)
 
     with pytest.raises(BuildProfileError) as raised:
         _stage_with_build_inputs(repo, tmp_path / "image")
