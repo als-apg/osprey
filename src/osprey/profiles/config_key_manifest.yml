@@ -6,20 +6,20 @@
 #
 # Parity marks (`all-templates: true`) come from scripts/config_key_parity.md.
 # The mark kept its name and changed its meaning when the app templates were
-# deleted: it now means "present in all FOUR shipped presets' resolved
+# deleted: it now means "present in every shipped root preset's resolved
 # `config:`". A derived key can never carry it — no preset spells one.
-# READ THAT DOCUMENT'S SCOPE CAVEAT BEFORE ADDING RULES: presence in all four
-# presets and value-equality across them are separate properties, and neither
+# READ THAT DOCUMENT'S SCOPE CAVEAT BEFORE ADDING RULES: presence in every root
+# preset and value-equality across them are separate properties, and neither
 # may be inferred from the other.
 #
 # `same-value: true` is the other property: every root preset that states the
 # key states the same value. The value is written only in the presets; the mark
 # says they agree, and failure mode 6 compares them. With `all-templates: true`
-# beside it the claim is "the same value in all four"; alone it is "the same
-# value wherever stated". The mark applies to leaves only and needs at least two
-# presets stating the key, so a mark on a block, a derived key or a key only one
-# preset ships is refused instead of passing with nothing compared. The reason
-# each key carries it is in scripts/config_key_parity.md.
+# beside it the claim is "the same value in every root preset"; alone it is
+# "the same value wherever stated". The mark applies to leaves only and needs
+# at least two presets stating the key, so a mark on a block, a derived key
+# or a key only one preset ships is refused instead of passing with nothing
+# compared. The reason each key carries it is in scripts/config_key_parity.md.
 #
 # Each key carries exactly one disposition:
 #
@@ -167,7 +167,7 @@ keys:
     rendered: false
     evidence: 'deployment\.get\("port_base"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       First port of the thousand-port
       block a deployment publishes into: every framework host port is this base
       plus a fixed offset from `osprey.port_layout.LAYOUT`, so two deployments
@@ -181,7 +181,7 @@ keys:
     rendered: false
     evidence: '\.get\("offline", False\)'
     note: >-
-      Hidden key, commented in the framework template and unset in the four
+      Hidden key, commented in the framework template and unset in the
       presets. Both halves of air-gapped operation, deliberately under one
       key: `osprey up` passes it to the project, render and sidecar image
       builds as `OSPREY_OFFLINE=1`, which makes each image run `osprey vendor
@@ -195,7 +195,7 @@ keys:
     rendered: false
     evidence: 'images\.get\("registry"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       One of the two stack-wide image
       axes (`compose_generator.resolve_image_axes`): the registry every
       OSPREY-built image's DEFAULT reference is prefixed with, so the images CI
@@ -217,7 +217,7 @@ keys:
     rendered: false
     evidence: '"OSPREY_SITE_CA": "site_ca"'
     note: >-
-      Hidden key, commented in the framework template and unset in the four
+      Hidden key, commented in the framework template and unset in the
       presets. Path on the DEPLOY HOST to the PEM bundle of a proxy that
       re-signs TLS. `osprey up` stages a copy into the build context of each
       image it builds from a shipped recipe — the project image, each render
@@ -232,7 +232,7 @@ keys:
     rendered: false
     evidence: '"PIP_NO_PROXY": "pip_no_proxy"'
     note: >-
-      Hidden key, commented in the framework template and unset in the four
+      Hidden key, commented in the framework template and unset in the
       presets. The hosts pip reaches without going through the proxy, passed
       to the project, render and sidecar image builds as the `PIP_NO_PROXY`
       build arg those recipes declare. PIP_NO_PROXY overrides it in the
@@ -242,7 +242,7 @@ keys:
     rendered: false
     evidence: '"PIP_INDEX_URL": "pip_index_url"'
     note: >-
-      Hidden key, commented in the framework template and unset in the four
+      Hidden key, commented in the framework template and unset in the
       presets. The package index the images resolve from, for a site that
       mirrors PyPI internally. The build arg carries pip's own environment
       name, so a declared value reaches pip directly and an unset one arrives
@@ -373,8 +373,8 @@ keys:
     evidence: 'block\.get\("first_index_grace"\)'
     note: >-
       Seconds the container healthcheck holds off before an unhealthy result
-      counts, covering the first full index build. Commented in the two presets
-      that deploy the sidecar, because how long that build takes scales with
+      counts, covering the first full index build. Commented in the preset
+      that deploys the sidecar, because how long that build takes scales with
       the corpus. The entrypoint does not open the port until the index exists
       and is non-empty, so a grace period shorter than the build reports a
       working container as failed. Rendered as the template's `start_period`.
@@ -383,7 +383,7 @@ keys:
     rendered: false
     evidence: '_absolute_path\(block\.get\("models_dir"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       Names a host directory holding
       the three GGUF models the sidecar image otherwise downloads at build
       time; setting it skips the downloads and delivers them over a read-only
@@ -534,7 +534,7 @@ keys:
     rendered: false
     evidence: '_optional_text\(section\.get\("uri"\), "services\.graphdb\.uri"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets:
+      Hidden key, unset in the framework template and the presets:
       it names an EXTERNAL Neo4j this
       deployment connects to but does not run, so a shipped default would be a
       guess. Read by `resolve_graphdb_connection`; when set it wins outright and
@@ -583,7 +583,7 @@ keys:
   services.dispatch_worker.worker_port_stride:
     evidence: 'worker\.get\("worker_port_stride"\)'
     note: >-
-      Unset in the framework template and the four presets' `config:` blocks,
+      Unset in the framework template and the presets' `config:` blocks,
       written by the dispatch injector — and only in host-network mode, which
       is how control-assistant's deploying render carries it, where the
       workers share the host's namespace and so need their host ports to fan
@@ -1020,7 +1020,7 @@ keys:
       approval hook, so both belong here.
     default: derived
     default_note: falls through to approval.default_policy
-  # The panel-rail verbs. Spelled in both root presets, each of which ships an
+  # The panel-rail verbs. Spelled in every root preset, each of which ships an
   # approval table for a workspace tool; `covered-by` rather than `evidence`
   # because the reader is the same approval table `execute` is read from, and a
   # bare literal would pin the tool name instead of the policy key.
@@ -1041,7 +1041,7 @@ keys:
     all-templates: true
     evidence: 'cfg\.get\("hooks", \{\}\)\.get\("debug"\)'
     note: >-
-      Present in both presets, with deliberately different values: live
+      Present in every root preset, with deliberately different values: live
       true in control-assistant, live false in hello-world. It is a posture-floor key, so every preset has
       to state it either way — which is what makes it parity-required now,
       where under the templates it was a per-template divergence.
@@ -1066,7 +1066,7 @@ keys:
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
     note: >-
-      Per-preset: control-assistant alone states it ([rf-thermal]), the one
+      Per-preset: control-assistant alone states it ([rf-thermal]), the
       preset whose facility tree ships scenarios. Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
       has no scenario state.
@@ -1151,7 +1151,7 @@ keys:
     evidence: 'control_system\.get\("write_tools", \[\]\)'
     note: >-
       Extra tool names a project folds into the writes kill switch, commented
-      in the two presets that carry the stanza, so no preset's resolved
+      in the presets that carry the stanza, so no preset's resolved
       config carries it. The reader is the claude_code renderer, which folds the
       list into `hook_config.json`'s `write_tools` — the key the writes-check
       hook, the headless disallow list and the audit middleware all read. The
@@ -1793,7 +1793,7 @@ keys:
     rendered: false
     evidence: 'config\.get\("python_executor", \{\}\)\.get\(\s*"execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS'
     note: >-
-      The sandbox's own block. Two keys, both carried commented in all four
+      The sandbox's own block. Two keys, both carried commented in the
       presets — the ceiling is a facility property (how long a legitimate
       analysis may run) and the shipped number is a starting point, not a
       value any preset should assert; the passthrough list names what a
@@ -1871,7 +1871,7 @@ keys:
     rendered: false
     evidence: 'get\("screen_capture", \{\}\) or \{\}\)\.get\("output_dir"\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets. The
+      Hidden key, unset in the framework template and the presets. The
       directory the workspace server's screenshot_capture tool writes its PNG
       files to, read in one place (mcp_server/workspace/tools/screen_capture
       `_get_output_dir`). A relative value is anchored on the project root,
@@ -2150,8 +2150,8 @@ keys:
     evidence: 'get_config_value\("ariel\.entry_url_template"'
     note: >-
       The logbook's own URL for one entry, with a single `{entry_id}`
-      placeholder filled with the URL-encoded id. Commented in the two presets
-      that ship an `ariel:` block, because the URL is facility content. Read
+      placeholder filled with the URL-encoded id. Commented in the preset
+      that ships an `ariel:` block, because the URL is facility content. Read
       per entry on egress by `build_entry_url`, not by ARIELConfig.from_dict;
       unset, or a template that does not format, emits no `entry_url` (the
       second is logged once) and the read itself never fails.
@@ -2161,7 +2161,7 @@ keys:
     evidence: 'database\.get\("uri"\)'
     note: >-
       The address of a logbook database the deployment does not run. Commented
-      in control-assistant, the one root preset that ships an `ariel:` block,
+      in control-assistant, the preset that ships an `ariel:` block,
       because an external database is facility content. Read by `resolve_ariel_dsn`; set, it is used
       verbatim and wins over the address derived from `services.postgresql`.
     default: derived
@@ -2173,7 +2173,7 @@ keys:
     note: >-
       The SELECT-only login the agent's SQL tool connects as, on a store the
       deployment names itself with the `uri` key. Commented in control-assistant,
-      the one root preset that ships an `ariel:` block, because an external
+      the preset that ships an `ariel:` block, because an external
       database is facility content. Read by `resolve_ariel_readonly_dsn` and
       `sql_tool_offered`; a value equal to the ingestion login is refused at
       config parse.
@@ -2202,7 +2202,7 @@ keys:
     evidence: '_entry_text_chars\(data, "listing_chars"'
     note: >-
       Characters of each entry's text a listing carries: the three search tools
-      and `browse`. Commented in the two presets that ship an `ariel:` block,
+      and `browse`. Commented in the preset that ships an `ariel:` block,
       because the number that fits depends on how long a facility's entries run.
       A cut entry carries `raw_text_truncated` and `raw_text_length`; a value
       that is not a positive integer is refused at config parse.
@@ -2391,15 +2391,15 @@ keys:
   ariel.enhancement_modules.image_caption:
     evidence: 'IMAGE_CAPTION_KEY = "ariel\.enhancement_modules\.image_caption"'
     note: >-
-      Block of the catch-up caption module. The two presets that ship an
-      `ariel:` block render it on, with its own provider and model; absent, the
+      Block of the catch-up caption module. The preset that ships an
+      `ariel:` block renders it on, with its own provider and model; absent, the
       module is off like every enhancement module.
     default: {}
   ariel.enhancement_modules.image_caption.enabled:
     covered-by: ariel.enhancement_modules.image_caption
     note: >-
-      Whether the catch-up captions pictures. Shipped `true` in the two presets
-      that ship an `ariel:` block; a missing server or model skips the module,
+      Whether the catch-up captions pictures. Shipped `true` in the preset
+      that ships an `ariel:` block; a missing server or model skips the module,
       named in `osprey ariel status`, and leaves everything else working.
     default: false
   ariel.enhancement_modules.image_caption.provider:
@@ -2462,8 +2462,8 @@ keys:
   ariel.enhancement_modules.image_embedding:
     evidence: 'IMAGE_EMBEDDING_KEY = "ariel\.enhancement_modules\.image_embedding"'
     note: >-
-      Block of the catch-up picture embedding module. The two presets that ship
-      an `ariel:` block render it on as scalar keys (provider, model,
+      Block of the catch-up picture embedding module. The preset that ships
+      an `ariel:` block renders it on as scalar keys (provider, model,
       dimensions), not text_embedding's `models` list; absent, the module is
       off like every enhancement module.
     default: {}
@@ -2555,7 +2555,7 @@ keys:
     evidence: 'ariel\.attachments\.max_file_mb must be an integer >= 1'
     note: >-
       Largest file one logbook entry may attach, in megabytes. Commented in the
-      two presets that ship an `ariel:` block: attachments are BYTEA rows in
+      preset that ships an `ariel:` block: attachments are BYTEA rows in
       the same Postgres the logbook lives in, so both raising and lowering it
       is a site storage decision. A value that is not a positive integer is
       logged and the default kept.
@@ -2565,7 +2565,7 @@ keys:
     evidence: 'config\.get\("max_input_chars", DEFAULT_MAX_INPUT_CHARS\)'
     note: >-
       How many characters of an entry are sent for keyword extraction and
-      summarising. Commented in the two presets that ship an `ariel:` block,
+      summarising. Commented in the preset that ships an `ariel:` block,
       because the number that fits depends on how long a facility's entries run
       and on the context window its provider serves. A cut is logged at INFO
       naming the entry; a value that is not a positive integer is refused at
@@ -2575,7 +2575,7 @@ keys:
     rendered: false
     evidence: 'config\.get\("prompt_template"\)'
     note: >-
-      Hidden key, unset in the four presets and documented as a commented
+      Hidden key, unset in the presets and documented as a commented
       example beside the module's other settings. It replaces the extraction
       prompt outright, which is how a facility puts its own equipment and
       process vocabulary in front of the model without a framework default
@@ -2662,7 +2662,7 @@ keys:
       Extra artifact-gallery categories a facility declares for itself, each
       leaf a `{label, color}` pair. The CATEGORY NAMES are the operator's own
       vocabulary, so this is a data map: the guard checks that the block is
-      read, never which categories a deployment declares. Commented in all four
+      read, never which categories a deployment declares. Commented in the
       presets — a shipped value would be one facility's vocabulary imposed on
       every other. Read once at startup by
       `stores/type_registry.load_categories_from_config`, from the MCP server's
@@ -2674,7 +2674,7 @@ keys:
     evidence: 'get_config_value\(\s*"artifact_server\.max_timeseries_file_mb"'
     note: >-
       Largest timeseries data file the gallery renders as a chart or a table,
-      in megabytes. Commented in all four presets, because the number that
+      in megabytes. Commented in the presets, because the number that
       fits is a property of the host serving the gallery and of the exports a
       facility's archiver produces. The handler loads the whole file to build
       the view, so raising it costs that much resident memory; over the cap the
@@ -2686,7 +2686,7 @@ keys:
     evidence: 'get_config_value\(\s*"artifact_server\.page_size"'
     note: >-
       How many artifacts one listing request answers with, and so how many the
-      gallery draws before it fetches the next page. Commented in all four
+      gallery draws before it fetches the next page. Commented in the
       presets, because the right number depends on a site's store size and
       link. A value that is not a positive integer is logged and the default
       kept; a value above 200 is logged and capped at 200.
@@ -2869,8 +2869,8 @@ keys:
       Onboarding-tour invite policy: once / always / never. Same layering as
       `web.theme`, one rung deeper — the per-user `OSPREY_WEB_TOUR` a multi-user
       roster entry's `tour:` field renders OUTRANKS this key, and an unknown
-      word warns and falls back rather than blocking startup. Commented in all
-      four presets because `once` is what a first deployment wants and a
+      word warns and falls back rather than blocking startup. Commented in the
+      presets because `once` is what a first deployment wants and a
       rendered value would only repeat the default.
     default: once
   web.control_target_picker:
@@ -3124,7 +3124,7 @@ keys:
     rendered: false
     evidence: '_load_web_ui_config\(\s*config_path\s*\)\.get\(\s*"app_name"\s*\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       An optional human-readable
       deployment name shown in the web terminal's header so otherwise-identical
       terminals are told apart; empty or absent means no label is rendered, so
@@ -3137,7 +3137,7 @@ keys:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       First of the three keys that
       bound the Simple-mode operator-chat pool, all read in one lifespan block
       of the web terminal and all documented together in
@@ -3150,7 +3150,7 @@ keys:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       How long an operator's chat
       session may sit idle before it is reaped; default 1800 s. Same lifespan
       block and same `\s*` rule as `web.chat_turn_timeout_s`.
@@ -3159,7 +3159,7 @@ keys:
     rendered: false
     evidence: 'get_config_value\(\s*"web\.chat_max_sessions",\s*5\s*\)'
     note: >-
-      Hidden key, unset in the framework template and the four presets.
+      Hidden key, unset in the framework template and the presets.
       Cap on concurrent operator-chat
       sessions, handed to the OperatorRegistry alongside the idle timeout;
       default 5. Third of the trio, same lifespan block and same `\s*` rule as
@@ -3942,7 +3942,7 @@ render_contexts:
   - src/osprey/profiles/presets/apps/*.yml
   host: src/osprey/profiles/presets/control-assistant.yml
   note_presets: >-
-    The two ROOT presets, the documents an operator starts from. Parity
+    The ROOT presets, the documents an operator starts from. Parity
     (`all-templates`, `same-value`) is a claim about these alone. The bundled
     tiers (`tiers/*.yml`) are deliberately absent: a tier is a delta over its
     root, so every key it carries is either inherited from the root — already
@@ -4067,11 +4067,11 @@ governed_sets:
     falls to default_policy: always.
   rail_tools_note: >-
     add_panel_to_rail, remove_panel_from_rail and register_panel are governed
-    wherever the workspace server runs, which is every preset. Both presets —
-    hello-world and control-assistant, whose six `extends` children inherit
-    the lines — spell `always` for each of them, so the shipped policy is
-    explicit there. A deployment that ships no approval.tools block at all
-    still gates its rail verbs: they fall to default_policy: always, the same
+    wherever the workspace server runs, which is every preset. Every root
+    preset — hello-world and control-assistant, whose `extends` children
+    inherit the lines — spells `always` for each of them, so the shipped
+    policy is explicit there. A deployment that ships no approval.tools block
+    at all still gates its rail verbs: they fall to default_policy: always, the same
     fail-closed route draft_concept and control_target_set take.
 
 # ---------------------------------------------------------------------------
