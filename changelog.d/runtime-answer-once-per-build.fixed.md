@@ -1,0 +1,1 @@
+One build asks the container runtime once and every render records the same answer; a tier or app file that states `container_runtime` is refused; `osprey facility validate` no longer asks the container runtime.

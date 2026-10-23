@@ -194,9 +194,11 @@ The runtime is chosen once, by ``osprey build``, and recorded in
 ``build/config.yml`` as ``container_runtime: docker`` or ``podman``. With the
 default ``container_runtime: auto`` the build takes Docker when its daemon
 answers and Podman otherwise; an explicit ``docker`` or ``podman`` in the
-profile's ``config:`` block is taken as written. Every later verb — ``up``,
-``down``, ``restart``, ``reset``, the port preflight — reads the recorded
-runtime and talks only to it. If that runtime says it is not running, or does
+profile's ``config:`` block is taken as written; a tier or app file may not
+state one. Every render of the build (each tier, app and image copy) records
+the same answer, and a host where no runtime answers records ``auto``. Every
+later verb — ``up``, ``down``, ``restart``, ``reset``, the port preflight —
+reads the recorded runtime and talks only to it. If that runtime says it is not running, or does
 not answer within two minutes, the verb refuses and says which; it never
 switches to the other runtime, because a stack started under Docker is invisible
 from Podman and a ``down`` served there would report it stopped while it keeps

@@ -67,9 +67,21 @@ def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
     )
 
 
-def test_a_clean_repo_exits_0_and_prints_nothing(repo: Path) -> None:
+def test_a_clean_repo_exits_0_and_prints_nothing(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checking a facility file renders outside any build, so it asks no container runtime."""
+    asked: list[Any] = []
+
+    def _ask(config: Any = None) -> list[str]:
+        asked.append(config)
+        raise AssertionError("facility validate asked the container runtime")
+
+    monkeypatch.setattr("osprey.deployment.runtime_helper.get_runtime_command", _ask)
+
     result = _validate(repo)
 
+    assert asked == []
     assert result.exit_code == 0, result.output
     assert (result.stdout, result.stderr) == ("", "")
 
