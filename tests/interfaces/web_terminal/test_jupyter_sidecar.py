@@ -8,6 +8,7 @@ survives ``stop()`` or a dead parent.
 
 from __future__ import annotations
 
+import contextlib
 import http.server
 import json
 import logging
@@ -26,6 +27,7 @@ from pathlib import Path
 import nbformat
 import pytest
 
+from osprey.deployment import subprocess_capture
 from osprey.interfaces.web_terminal import jupyter_sidecar
 from osprey.interfaces.web_terminal.jupyter_sidecar import (
     KERNELSPEC_NAME,
@@ -723,6 +725,113 @@ def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
             orphan = int(pid_file.read_text())
         if orphan is not None and _alive(orphan):
             os.kill(orphan, signal.SIGKILL)
+        sidecar.stop()
+
+
+#: A stand-in sidecar that ignores SIGTERM and starts a member of its own group
+#: that ignores it too. Its pid is published with a rename once the member has
+#: set that disposition, so a signal sent afterwards meets it.
+_STUBBORN_GROUP_SCRIPT = (
+    "import os, signal, subprocess, sys, time\n"
+    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+    "member = subprocess.Popen(\n"
+    "    [sys.executable, '-c', 'import signal, time\\n'\n"
+    "     'signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n'\n"
+    "     'print(1, flush=True)\\n'\n"
+    "     'time.sleep(3600)\\n'],\n"
+    "    stdout=subprocess.PIPE,\n"
+    ")\n"
+    "member.stdout.readline()\n"
+    "open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
+    "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
+    "time.sleep(3600)\n"
+)
+
+
+def _spawn_stand_in(
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> tuple[JupyterSidecar, int]:
+    """Spawn *source* as the sidecar and return it with its pid once it is ready."""
+    pid_file = tmp_path / "stand-in.pid"
+    script = tmp_path / "stand_in.py"
+    script.write_text(source, encoding="utf-8")
+    fake = tmp_path / "python"
+    fake.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "{pid_file}"\n')
+    fake.chmod(0o755)
+    monkeypatch.setattr(jupyter_sidecar.sys, "executable", str(fake))
+    sidecar = JupyterSidecar(shared_root, "", None)
+    sidecar.spawn()
+    pid = sidecar.pid
+    assert pid is not None
+    deadline = time.monotonic() + 10
+    while not pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert pid_file.exists(), "the stand-in never reported ready"
+    return sidecar, pid
+
+
+def _kill_group(pgid: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)
+
+
+@pytest.mark.usefixtures("config_env")
+@spawns
+def test_stop_ends_a_member_of_the_sidecars_group_that_ignores_sigterm(
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(jupyter_sidecar, "_STOP_GRACE", 0.5)
+    sidecar, pid = _spawn_stand_in(shared_root, tmp_path, monkeypatch, _STUBBORN_GROUP_SCRIPT)
+    try:
+        sidecar.stop()
+        assert subprocess_capture.group_is_gone(pid), (
+            f"a member of the sidecar's group {pid} is still running"
+        )
+    finally:
+        _kill_group(pid)
+        sidecar.stop()
+
+
+@pytest.mark.usefixtures("config_env")
+@spawns
+@pytest.mark.parametrize(
+    ("answer", "said"),
+    [([4242], "pids 4242"), (None, "process table unreadable: group")],
+    ids=["survivors", "unreadable"],
+)
+def test_stop_names_what_its_group_stop_could_not_prove_gone(
+    shared_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    answer: list[int] | None,
+    said: str,
+) -> None:
+    real_stop = subprocess_capture.stop_group
+
+    def stop_answering(pgid: int, **kwargs: float) -> list[int] | None:
+        real_stop(pgid, **kwargs)
+        return answer
+
+    monkeypatch.setattr(subprocess_capture, "stop_group", stop_answering)
+    source = (
+        "import os, sys, time\n"
+        "open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
+        "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
+        "time.sleep(3600)\n"
+    )
+    sidecar, pid = _spawn_stand_in(shared_root, tmp_path, monkeypatch, source)
+    try:
+        with caplog.at_level("WARNING", logger=jupyter_sidecar.__name__):
+            sidecar.stop()
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == jupyter_sidecar.__name__ and record.levelno == logging.WARNING
+        ]
+        assert any(said in warning for warning in warnings), warnings
+    finally:
+        _kill_group(pid)
         sidecar.stop()
 
 
