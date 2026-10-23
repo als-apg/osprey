@@ -1,0 +1,117 @@
+--- a/profile.yml
++++ b/profile.yml
+@@ -52,6 +52,9 @@
+ # need; add your own through an overlay.
+
+ hooks:
++  - hook-log          # Append every tool call to a structured JSONL audit log
++  - target-state      # Stdlib reader for the control-target state file (helper, not wired to an event)
++  - hook-config       # Inject project config.yml path into every tool call env
+   - approval          # Gate hardware-write tool calls on human approval prompt
+   - writes-check      # Kill switch: refuse every write while writes_enabled is false
+   - limits            # Enforce per-channel min/max limits before writes
+@@ -1122,7 +1125,7 @@
+     # To override one port rather than move the block, name it here:
+     #   nginx_port: 18000         # the landing page everyone opens first
+     #   web_base_port: 18100      # first per-user web-terminal port
+-    default_tier: readonly   # used for any user below with no tier
++    default_persona: readonly   # used for any user below with no tier
+     # Every terminal below asks for a login (user alice: password alice, and
+     # so on — set in this repo's .env; rotate with `osprey users passwd`).
+     auth:
+@@ -1182,22 +1185,37 @@
+           # to your terminal" button, so the page lists nobody. It needs the
+           # login wall above (auth.method password or oidc).
+           # names: shown
+-        # `apps` renders one card per entry in `shared:` below, titled by the
+-        # app's own `name:` in apps/. Everyone on the roster opens them.
+-        - type: apps
+-          label: Apps
+     users:
+       # One web terminal per person. `index` pins that user's ports, `tier`
+       # names their access level in tiers/, and `display_name` becomes the
+       # browser tab title, which is how you tell the terminals apart.
+       - name: alice
+         index: 0
+-        tier: readwrite
++        persona: readwrite
+         display_name: "Control Room (Alice)"
+       - name: bob
+         index: 1
+-        tier: readonly
++        persona: readonly
+         display_name: "Read-Only View (Bob)"
++      # Not a person: a second product running beside them. Same machinery as
++      # any other entry — its own container, ports and volumes — but what is
++      # behind the card is the ARIEL logbook assistant, not a control terminal.
++      - name: logbook
++        index: 3
++        persona: logbook
++        display_name: "Logbook Research"
++        # A shared card: everyone on this roster opens it with their own
++        # password. It has no password of its own, so none is set in .env.
++        access: any
++      # The second product beside them: the facility knowledge layer — the
++      # knowledge graph, the graph channel finder and the knowledge bundle —
++      # read-only, with no control system behind it. Shared like the card
++      # above; the page follows roster order, so it sits with its sibling.
++      - name: knowledge
++        index: 4
++        persona: knowledge
++        display_name: "Facility Knowledge"
++        access: any
+       # The one login that can change this deployment's configuration — the web
+       # Config panel, the scaffold gallery's editors, and the agent's own setup
+       # tool. Behind the login wall like every other person on this page: an
+@@ -1205,15 +1223,31 @@
+       # it.
+       - name: carol
+         index: 2
+-        tier: admin
++        persona: admin
+         display_name: "Deployment Admin (Carol)"
++    personas:
++      # `osprey build` builds one of these per file in personas/, into build/.
++      # `osprey up` builds nothing: if one is missing it stops and says so.
++      readonly:
++        build_profile: personas/readonly.yml
++      readwrite:
++        build_profile: personas/readwrite.yml
++      admin:
++        build_profile: personas/admin.yml
++      logbook:
++        build_profile: personas/logbook.yml
++        # Puts this persona's users under their own landing-page heading
++        # instead of in with the people. Presentation only — it changes
++        # nothing about the container, its ports, or what it can do.
++        landing_group: Standalone deployments
++      knowledge:
++        build_profile: personas/knowledge.yml
++        landing_group: Standalone deployments
+     # Apps everyone above may open, each defined in apps/<name>.yml: a second
+     # agent beside this deployment's own, on this deployment's services. Each
+     # gets its own container and a port slot counted down from the top of the
+     # user block, in this order; no password of its own, so none is set in .env.
+     shared:
+-      - logbook          # Logbook Research: search and synthesise the logbook
+-      - knowledge        # Facility Knowledge: how the machine is built
+       - channel-finder   # Channel Finder: channel addresses from the hierarchy
+
+   # ── Health checks ──────────────────────────────────────────────────────────
+@@ -1317,14 +1351,14 @@
+     OSPREY_AUTH_PW_CAROL: carol
+ data: data
+ # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
+-requires_osprey_version: '>=2026.10.0'
++requires_osprey_version: '>=2026.9.0'
+ # What this profile was materialized from. Emitted, not hand-written: a
+ # build compares it against the installed preset and mentions it when the
+ # preset has moved on; `osprey validate` refuses every difference from the
+ # preset that no `# DEVIATION: <why>` comment above the line claims (tag set
+ # by `deviation_marker:`). This profile is the source of truth either way.
+ # `providers_hash` is the same record for providers.yml beside this file;
+-# `osprey init --revalidate` refreshes the packaged entries in it.
++# `osprey profile expand --providers` refreshes the packaged entries in it.
+ provenance:
+   preset: control-assistant
+   preset_hash: @PRESET_HASH:control-assistant@

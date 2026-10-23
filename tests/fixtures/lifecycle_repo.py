@@ -690,7 +690,13 @@ config:
   audit.tool_call.max_inline_bytes: 262144
 
   # ── ARIEL logbook search ───────────────────────────────────────────────────
-@ARIEL_DATABASE_EXAMPLE@
+  # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
+  # below, so moving the database stays a one-place edit. Set it only to point
+  # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
+  # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # With an authored uri, the agent's SQL tool is served only through this
+  # SELECT-only login; without it the tool is not offered.
+  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
@@ -3192,20 +3198,6 @@ _VERSION_SENTINEL = "@OSPREY_VERSION@"
 _PROVIDERS_HASH_SENTINEL = "@PROVIDERS_HASH@"
 _IMAGE_SOURCE_MARKER = "@WEB_TERMINALS_IMAGE_SOURCE@"
 _DEPLOY_BLOCK_MARKER = "@DEPLOY_BLOCK@"
-_ARIEL_DATABASE_SENTINEL = "@ARIEL_DATABASE_EXAMPLE@\n"
-
-#: The preset's commented external-database example. The exemplar and the
-#: previous-release fixture both carry it through the sentinel above: the
-#: rewrite never touches a comment, so the two hold the same text.
-ARIEL_DATABASE_EXAMPLE = """\
-  # No `ariel.database.uri`: the DSN is derived from `services.postgresql.*`
-  # below, so moving the database stays a one-place edit. Set it only to point
-  # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
-  # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
-  # With an authored uri, the agent's SQL tool is served only through this
-  # SELECT-only login; without it the tool is not offered.
-  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
-"""
 
 
 def _osprey_version() -> str:
@@ -3248,16 +3240,14 @@ def packaged_providers_yml() -> str:
 
 
 def expand_sentinels(text: str) -> str:
-    """Resolve the version, preset-hash, providers-hash and shared-text sentinels in ``text``.
+    """Resolve the version, preset-hash and providers-hash sentinels in ``text``.
 
     The values the real emission stamps at materialization time. Resolving them
     here rather than freezing them keeps a byte-comparison against a live
     ``osprey init`` honest across version bumps, preset edits and additions to
-    the provider catalog. A shared-text sentinel puts one text into every file
-    that carries it.
+    the provider catalog.
     """
     text = text.replace(_VERSION_SENTINEL, _osprey_version())
-    text = text.replace(_ARIEL_DATABASE_SENTINEL, ARIEL_DATABASE_EXAMPLE)
     text = text.replace(_PROVIDERS_HASH_SENTINEL, _providers_hash())
     return _PRESET_HASH_SENTINEL.sub(lambda m: _preset_hash(m.group(1)), text)
 

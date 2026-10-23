@@ -2,9 +2,9 @@
 
 The fixture under ``tests/fixtures/previous_release_repo/`` holds the files the
 tier/app vocabulary migrates, as the previous release wrote them: a
-``profile.yml`` spelling the retired default-tier and tier-pin keys and the
-retired render catalog, with the logbook and knowledge cards as users pinned to a
-tier; the five retired layer-directory files exactly as that release emitted
+``profile.yml`` as a patch over today's exemplar profile, spelling the retired
+default-tier and tier-pin keys and the retired render catalog, with the logbook
+and knowledge cards as users pinned to a tier; the five retired layer-directory files exactly as that release emitted
 them (header, no provenance block); and the logbook and knowledge context
 slots. Every other file of the repo — README, data tree, provider catalog, the
 ``channel-finder`` app the previous release had no word for — is the current
@@ -30,12 +30,19 @@ from osprey.cli.build_profile_document import (
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import RETIRED_PRESETS, _content_hash, _text_hash
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
-from tests.fixtures.lifecycle_repo import exemplar_source_files, expand_sentinels
+from tests.fixtures.lifecycle_repo import (
+    _exemplar_source_texts,
+    exemplar_source_files,
+    expand_sentinels,
+)
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "previous_release_repo"
 
 #: Exemplar files the previous release wrote differently; the fixture holds those.
 _MIGRATED = ("profile.yml", "tiers/", "apps/logbook.yml", "apps/knowledge.yml")
+
+#: The previous release's ``profile.yml`` as a diff from today's exemplar profile.
+_PROFILE_PATCH = "profile.yml.patch"
 
 _CHANNEL_FINDER_ITEM = (
     "      - channel-finder   # Channel Finder: channel addresses from the hierarchy\n"
@@ -63,6 +70,29 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
+def _apply_profile_patch(base: str, dest: Path) -> None:
+    """Write the previous release's ``profile.yml`` at *dest*: *base* plus the fixture's patch.
+
+    The patch is applied to the sentinel-form text, so its context reads the
+    same across version bumps and preset edits; the result is expanded after.
+    A hunk whose context *base* no longer holds fails the test with git's own
+    message, which names the file and line of that hunk.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    profile = dest / "profile.yml"
+    profile.write_text(base, encoding="utf-8")
+    applied = subprocess.run(
+        ["git", "apply", str(FIXTURE / _PROFILE_PATCH)],
+        cwd=dest,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_CEILING_DIRECTORIES": str(dest.parent)},
+    )
+    if applied.returncode != 0:
+        pytest.fail(f"{_PROFILE_PATCH} no longer applies:\n{applied.stderr}")
+    profile.write_text(expand_sentinels(profile.read_text(encoding="utf-8")), encoding="utf-8")
+
+
 def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
     """Lay the previous release's repo at *dest* (see the module docstring)."""
     dest.mkdir(parents=True, exist_ok=True)
@@ -72,8 +102,9 @@ def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
         path = dest / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+    _apply_profile_patch(_exemplar_source_texts()["profile.yml"], dest)
     for source in FIXTURE.rglob("*"):
-        if source.is_file():
+        if source.is_file() and source.suffix != ".patch":
             path = dest / source.relative_to(FIXTURE)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(expand_sentinels(source.read_text(encoding="utf-8")), encoding="utf-8")
@@ -182,6 +213,15 @@ def test_a_second_run_rewrites_nothing(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "nothing to rewrite" in result.output
     assert _repo_files(root) == before
+
+
+def test_a_patch_that_no_longer_applies_names_its_hunk(tmp_path: Path) -> None:
+    base = _exemplar_source_texts()["profile.yml"]
+    assert base.count("default_tier: readonly") == 1
+    moved = base.replace("default_tier: readonly", "default_tier: operator")
+
+    with pytest.raises(pytest.fail.Exception, match=r"profile\.yml:1122"):
+        _apply_profile_patch(moved, tmp_path / "als-exemplar")
 
 
 # ── What the rewrite leaves alone ───────────────────────────────────────────
