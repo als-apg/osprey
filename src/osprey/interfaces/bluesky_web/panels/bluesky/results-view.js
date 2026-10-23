@@ -565,6 +565,14 @@ export function createResultsView({
     for (const column of data.columns) {
       const th = document.createElement('th');
       th.textContent = column.name;
+      if (column.unit != null) {
+        // The same `label (unit)` spelling the figure's axis titles use, so the
+        // table and the plot name a column's unit identically.
+        const unit = document.createElement('span');
+        unit.className = 'muted';
+        unit.textContent = `(${column.unit})`;
+        th.append(' ', unit);
+      }
       elements.tableHeadRow.appendChild(th);
     }
 
