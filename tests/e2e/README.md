@@ -111,7 +111,9 @@ seeded reading, a bounded setpoint, the corrector the limits file bounds, a run
 of monitors in one plane, the device a graph lane probes) and never types an
 address. Every selection is scoped to the lane's model, the model of that
 bounded corrector. A lane that builds its own stand-in world names each address
-once, in that fixture, and asserts against it.
+once, in that fixture, and asserts against it. The VA e2e suite selects its lane
+model's channels through `tests/va/e2e/conftest.py`'s `LANE`, and names its
+scenario and bench worlds once, vouched by `tests/va/test_suite_world.py`.
 
 ## Test Categories
 
