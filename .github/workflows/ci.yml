@@ -157,25 +157,22 @@ jobs:
     # Without a bound, a single wedged xdist worker holds the lane at 99% for
     # the 6-hour default.
     #
-    # 60 rather than 45 (#838, #841). The healthy runtime of one cell is not
-    # a number but a band: on main between 2026-08-28 and 2026-09-03 the four
-    # cells took anywhere from 24 to 46 minutes, with the same commit landing
-    # at 33 and 45 minutes on the same day. The per-test event logs in the
-    # ci-diag artifact show why — every test, the 24,000 sub-10 ms ones
-    # included, runs 1.5-1.7x slower on some runners than on others, so the
-    # spread is the runner pool, not the suite (the coverage cell is no
-    # outlier either: it measures through PEP 669, see COVERAGE_CORE below,
-    # which costs near enough nothing). The shard axis below splits what one
-    # cell runs three ways, which is what keeps a slow runner clear of this
-    # cap. What forces the headroom on top is a known intermittent tail worth
-    # ~12 minutes: a worker wedges mid-test and its share has to be
-    # redistributed to a replacement, or the session hangs after the last test
-    # on non-daemon threads that outlive it. Both are visible in this lane's
-    # uploaded diagnostics, and neither is bounded by anything the suite
-    # controls, so a cap tight enough to catch them also reds the runs where
-    # they merely cost time. The 40-minute step cap below sat at the healthy
-    # runtime for a day and did exactly that: main timed out on the macOS cell
-    # at 99% three times on 2026-09-01 with zero test failures.
+    # The healthy runtime of one cell is not a number but a band: the same
+    # commit can land far apart on the same day. The per-test event logs in
+    # the ci-diag artifact show why — every test, the fastest ones included,
+    # runs markedly slower on some runners than on others, so the spread is
+    # the runner pool, not the suite (the coverage cell is no outlier either:
+    # it measures through PEP 669, see COVERAGE_CORE below, which costs near
+    # enough nothing). The shard axis below splits what one cell runs, which
+    # is what keeps a slow runner clear of this cap. What forces the headroom
+    # on top is a known intermittent tail: a worker wedges mid-test and its
+    # share has to be redistributed to a replacement, or the session hangs
+    # after the last test on non-daemon threads that outlive it. Both are
+    # visible in this lane's uploaded diagnostics, and neither is bounded by
+    # anything the suite controls, so a cap tight enough to catch them also
+    # reds the runs where they merely cost time. A step cap set at the healthy
+    # runtime reds healthy runs: the first run that hits the tail times out
+    # with zero test failures.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -280,16 +277,13 @@ jobs:
       # as `cancelled` with nothing to read. Failing the STEP instead costs the
       # same wall clock and leaves the summary and upload steps room to run.
       #
-      # The 5-minute margin is not sized to the collection steps, which take two
-      # seconds between them — it is there so this cap sits clear of the ~12
-      # minute intermittent tail described on the job cap above. A cap set just
-      # above the healthy runtime kills the runs that hit that tail and would
-      # have passed anyway; the value is deliberately loose for that reason, and
-      # tightening it is how this lane starts flaking. 55 was sized when a cell
-      # ran the whole suite and the slowest healthy one took ~41 min; a shard
-      # runs about half of it or less, so the same cap leaves room for the
-      # slowest runner in the pool AND the tail. The previous 40 was sized for
-      # a ~18 min cell and became the healthy runtime itself.
+      # The margin under the job cap is not sized to the collection steps,
+      # which take seconds between them. This cap itself sits clear of the
+      # intermittent tail described on the job cap above: a cap set just above
+      # the healthy runtime kills the runs that hit that tail and would have
+      # passed anyway. The value is deliberately loose for that reason, leaving
+      # room for the slowest runner in the pool AND the tail, and tightening it
+      # is how this lane starts flaking.
       timeout-minutes: 55
       env:
         # Switches on tests/ci_diagnostics.py: a continuously flushed event log
@@ -530,12 +524,13 @@ jobs:
       # checkout is writable, so the fixture writes there and the runner throws
       # it away with everything else.
       #
-      # The job cap above stays at 45 rather than growing to absorb this step.
-      # 40 (the unit step) plus 10 (here) exceeds it on paper, but only in a run
-      # where the unit step has already burned its own cap, which is a red lane
-      # whatever happens next: nothing is lost by the job cap cutting a step
-      # short in that case. On a healthy lane this step costs well under a
-      # minute, so the tail margin the job cap comment argues for is untouched.
+      # The job cap is not raised to absorb this step or the wall-clock step
+      # below. Their caps added to the unit step's can exceed the job cap, but
+      # only in a run whose unit step has already hit its own cap. That lane is
+      # red whatever happens next, so nothing is lost when the job cap cuts a
+      # later step short. On a healthy lane this step finishes well inside the
+      # margin the job cap leaves, so the tail headroom argued for on the job
+      # cap stays untouched.
       timeout-minutes: 10
       run: uv run pytest tests/pty/ -m pty -v --tb=short
 
