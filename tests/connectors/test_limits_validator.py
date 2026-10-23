@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     ChannelLimitsConfig,
     LimitsValidator,

@@ -93,7 +93,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.utils.sensitive_env import guard_process_memory
-from osprey_connectors.identity import TERMINAL_USER_ENV, _usable, acting_identity
+from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity, usable_identity
 from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
@@ -858,13 +858,13 @@ def _own_secret_operator() -> OperatorIdentity:
     names the SERVICE, so falling through to ``acting_identity()`` there would
     file a human's work under ``bluesky-web``; it names nobody instead.
 
-    The container test asks :func:`~osprey_connectors.identity._usable` rather than
+    The container test asks :func:`~osprey_connectors.identity.usable_identity` rather than
     whether the marker is merely non-blank, because the answer comes from the
     ladder that applies that same rule: a marker the ladder rejects would
     otherwise take this branch and be answered from the rung below it, which in
     a sidecar is the service's own name.
     """
-    if _usable(os.environ.get(TERMINAL_USER_ENV)):
+    if usable_identity(os.environ.get(TERMINAL_USER_ENV)):
         return acting_identity()
     if os.environ.get(BIND_HOST_ENV):
         return UNNAMED_OPERATOR

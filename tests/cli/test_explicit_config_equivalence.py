@@ -66,7 +66,7 @@ slow'``. On their own::
 
 A full run is minutes, not seconds: each cell is a real ``osprey build``, and a
 control-assistant cell derives a large virtual-accelerator channel set. Each cell
-is therefore built once per session and shared between the tests that read it.
+is therefore built once per module and shared between the tests that read it.
 Under the repo's ``--dist loadgroup`` scheduler an unmarked file goes to one
 worker whole (``tests/README.md``), so that cache holds in the parallel lane too
 and no ``xdist_group`` is needed.
@@ -305,7 +305,7 @@ class Refused(NamedTuple):
 
 
 class CellRenderer:
-    """Builds each cell at most once per session and hands out the result.
+    """Builds each cell at most once per module and hands out the result.
 
     A cell is a real ``osprey init`` + ``osprey build``; a control-assistant cell
     costs minutes. Several tests read the same cell, so the outcome — rendered or
@@ -388,11 +388,11 @@ class CellRenderer:
         return Rendered(masked, verify_capture_is_complete(project, masked))
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def rendered_cells(
     tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
 ) -> CellRenderer:
-    """One renderer for the whole session, so no cell is built twice."""
+    """One renderer for the whole module, so no cell is built twice."""
     return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"), offline_build_env)
 
 

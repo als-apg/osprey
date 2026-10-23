@@ -20,6 +20,19 @@ import numpy as np
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
+__all__ = [
+    "anchored_instant",
+    "apply_events",
+    "channel_key_bytes",
+    "clamp",
+    "daily_occurrences",
+    "driver_key_bytes",
+    "epoch_seconds_array",
+    "event_positions",
+    "keyed_normals",
+    "wander",
+]
+
 logger = get_logger("simulation_series")
 
 # splitmix64 mixing constants: an odd increment (the golden-ratio word) and the

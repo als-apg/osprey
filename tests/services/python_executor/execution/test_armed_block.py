@@ -37,7 +37,7 @@ from osprey.services.python_executor.write_surface import (
     _ARMED_CHECKED,
     _ARMED_RPC,
 )
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )

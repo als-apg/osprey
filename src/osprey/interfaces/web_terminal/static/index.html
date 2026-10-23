@@ -91,6 +91,10 @@
   <!-- DOMPurify: sanitizes marked's HTML output before it reaches the DOM -->
   <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
 
+  <!-- KaTeX: typesets math in the Simple chat's markdown -->
+  <link rel="stylesheet" href="{{ prefixed(vendor_url('KaTeX CSS', '/static/vendor/katex.min.css')) }}">
+  <script src="{{ prefixed(vendor_url('KaTeX JS', '/static/vendor/katex.min.js')) }}"></script>
+
   <!-- dockview: docking workspace. UMD global window['dockview-core']. CSS before
        the OSPREY styles below so our theming can override the base dockview rules. -->
   <link rel="stylesheet" href="{{ prefixed(vendor_url('dockview-core css', '/static/vendor/dockview.css')) }}">

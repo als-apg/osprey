@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors.control_system.limits_validator import LimitsValidator
+from osprey_connectors.control_system._limits_validator import LimitsValidator
 
 __all__ = ["packaged_facility_dir", "render_limits", "validator_under"]
 

@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.connectors._epics_fakes import ECA_DISCONN
 from tests.connectors._write_fakes import make_mock_epics_connector as _make_connector

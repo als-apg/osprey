@@ -2,8 +2,8 @@
 """
 ---
 name: Memory Write Guard
-description: Gates the file-writing tools the permission floor leaves reachable — Write to Claude memory files, NotebookEdit to the agent-data artifacts and notebooks trees
-summary: Restricts Write to the Claude memory directory and NotebookEdit to the agent-data artifacts and notebooks trees
+description: Gates the file-writing tools the permission floor leaves reachable — Write to Claude memory files and to the plan file while planning, NotebookEdit to the agent-data artifacts and notebooks trees
+summary: Restricts Write to the Claude memory directory and to the plan file while planning, and NotebookEdit to the agent-data artifacts and notebooks trees
 event: PreToolUse
 tools: Write|NotebookEdit
 safety_layer: 0
@@ -32,7 +32,12 @@ stdin ──► Parse JSON
               │                           │
               │                          NO
               │                           ▼
-              │                  DENY: not a memory file
+              │                  Planning, and a .md file ──YES──► ALLOW
+              │                  directly in the plans dir?
+              │                           │
+              │                          NO
+              │                           ▼
+              │                  DENY: not a memory or plan file
               │
               └──── NotebookEdit ─────────┐
                                           ▼
@@ -61,6 +66,14 @@ it. This lets the agent use Claude Code's native
 memory system while preventing arbitrary file creation. The memory gallery
 frontend reads from the same directory, so saved memories appear in the UI
 automatically.
+
+``Write`` also reaches the plan file. A session in plan mode writes its plan to
+``<plans-dir>/<slug>.md`` before it calls ``ExitPlanMode``, and the approval card
+shows what the CLI reads back from there. ``<plans-dir>`` is ``$CLAUDE_CONFIG_DIR/plans``
+(``~/.claude/plans`` when the variable is unset). The allowance is a ``.md`` file
+directly in that directory, and only while the hook payload's ``permission_mode`` is
+``plan``. Outside planning the write is refused, and nothing else under the plans
+directory or the memory directory is widened.
 
 ``NotebookEdit`` is held to ``<agent_data_root>/artifacts/`` and
 ``<agent_data_root>/notebooks/`` instead, mirroring the scoped
@@ -128,6 +141,10 @@ _PATH_KEYS = {
 #: resolved under every anchor by ``osprey_hook_log.agent_data_subdirs``.
 _NOTEBOOK_SUBDIRS = ("artifacts", "notebooks")
 
+#: The permission mode a session plans in. The CLI reports it as ``permission_mode``
+#: on every hook payload, and the plan-file allowance applies in no other mode.
+_PLAN_MODE = "plan"
+
 
 def resolve_memory_dir(project_dir: str) -> Path:
     """Compute the Claude Code memory directory for a project.
@@ -147,6 +164,19 @@ def resolve_memory_dir(project_dir: str) -> Path:
     configured = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
     config_dir = Path(configured).expanduser() if configured else Path.home() / ".claude"
     return config_dir / "projects" / encoded / "memory"
+
+
+def resolve_plans_dir() -> Path:
+    """Compute the directory Claude Code keeps plan files in.
+
+    The CLI writes a session's plan to ``<config-dir>/plans/<slug>.md``, where
+    ``<config-dir>`` is ``$CLAUDE_CONFIG_DIR`` when set and ``~/.claude`` otherwise:
+    the same root :func:`resolve_memory_dir` uses. The render sets no
+    ``plansDirectory``, so this default is the only plans location the hook allows.
+    """
+    configured = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    config_dir = Path(configured).expanduser() if configured else Path.home() / ".claude"
+    return config_dir / "plans"
 
 
 def resolve_agent_data_subdirs(hook_input, subdir) -> list[Path]:
@@ -199,6 +229,25 @@ def is_allowed_memory_write(file_path: str, memory_dir: Path) -> bool:
         return False
 
     return True
+
+
+def is_allowed_plan_write(file_path: str, plans_dir: Path) -> bool:
+    """Check whether a file path is a ``.md`` file directly inside the plans directory.
+
+    Only the plans directory's own files qualify: a subdirectory, a sibling that
+    shares its prefix, the config dir above it, and any traversal are all refused.
+    The planning-mode check that makes this allowance planning-only is the caller's.
+    """
+    if ".." in file_path:
+        return False
+
+    try:
+        target = Path(file_path).expanduser().resolve()
+        plans = plans_dir.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+    return target.suffix.lower() == ".md" and target.parent == plans
 
 
 def is_allowed_notebook_edit(notebook_path: str, allowed_dirs: list[Path]) -> bool:
@@ -308,6 +357,7 @@ def main():
         json.dump(_deny(f"{_denied_header(tool_name)}\n\nNo file path provided."), sys.stdout)
         sys.exit(0)
 
+    in_plan_file = False
     if tool_name == _NOTEBOOK_TOOL:
         notebook_dirs = resolve_notebook_dirs(hook_input)
         allowed = is_allowed_notebook_edit(target_path, notebook_dirs)
@@ -320,18 +370,25 @@ def main():
     else:
         project_dir = get_project_dir(hook_input) or os.getcwd()
         memory_dir = resolve_memory_dir(project_dir)
-        allowed = is_allowed_memory_write(target_path, memory_dir)
+        plans_dir = resolve_plans_dir()
+        in_plan_file = hook_input.get("permission_mode") == _PLAN_MODE and is_allowed_plan_write(
+            target_path, plans_dir
+        )
+        allowed = in_plan_file or is_allowed_memory_write(target_path, memory_dir)
         reason = (
             f"{_denied_header(tool_name)}\n\n"
-            "File writes are restricted to Claude Code memory files only.\n"
+            "File writes are restricted to Claude Code memory files, and to the plan file "
+            "while planning.\n"
             f"Allowed directory: {memory_dir}/\n"
+            f"Plan file while planning: {plans_dir}/<name>.md\n"
             "Allowed extension: .md\n\n"
             "To save memories, write .md files to your Claude memory directory.\n"
             "Use Claude Code's native /memory command to view saved memories."
         )
 
     if allowed:
-        log_hook("memory-guard", hook_input, status="allow", detail=f"tool={tool_name}")
+        detail = f"tool={tool_name}" + (" plan-file" if in_plan_file else "")
+        log_hook("memory-guard", hook_input, status="allow", detail=detail)
         output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",

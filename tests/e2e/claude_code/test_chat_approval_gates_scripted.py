@@ -1,0 +1,619 @@
+"""The chat child's approval gates, proved on the Claude Code the project pins.
+
+The Simple view launches its child with the project's own hooks, no hooks of
+its own and no bypass, and puts every tool ask the child raises in front of the
+operator as an approval card. These scripted runs drive that real launch
+(:class:`~osprey.interfaces.web_terminal.operator_session.OperatorSession`)
+against a real render, with the scripted model (:mod:`tests.e2e.scripted_model`)
+making the calls, and prove six things:
+
+(a) a write the limits hook denies is not executed, although the approval hook
+    asks about it, and the operator is never shown it;
+(b) a write the writes-check hook denies (writes off for the deployment) is not
+    executed, although the approval hook asks about it, and the operator is never
+    shown it;
+(c) a write only the approval hook asks about is put to the operator, with no
+    "Allow for this session" offered, and an allow lets it run;
+(d) an operator's decline blocks the call.
+(e) an approved write the tool then refuses is put to the operator, is allowed, and is
+    refused in the tool; the model is still told the operator approved it.
+(f) a session allow rule for the tool, installed as "Allow for this session" would,
+    does not skip the hook's ask: the CLI ranks the ask above the rule, and suggests
+    no such rule for a hook ask in the first place.
+
+In (a) and (b) the operator approves everything, so an approval the hooks did
+not earn would run the write, and the test would see it executed.
+
+The approval hook tells the model, in the request that carries an approved call's result,
+that the operator approved it (APPROVAL_NOTE). That note reaches the request after (c) and
+(e), and no request at all after (a), (b) or (d).
+
+Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
+it reads "ran" in (c), "not run" in (d), and "failed" in (e).
+
+Each gate's own decision for each call is read from the render's hook log, which
+records every decision a hook makes, denials included. The transcript is not the
+witness: it keeps a hook's output when the hook asks or allows, and nothing when
+the hook denies.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
+
+import nbformat
+import pytest
+import yaml
+from claude_agent_sdk.types import PermissionRuleValue, PermissionUpdate
+
+from osprey.agent_runner.primitives import await_mcp_ready, expected_mcp_servers
+from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
+from osprey.interfaces.web_terminal.operator_session import OperatorSession
+from osprey.stores.artifact_store import ArtifactStore
+from osprey_connectors.workspace import resolve_shared_data_root
+from tests.e2e import sdk_helpers
+from tests.e2e.claude_code._chat_turn import (
+    TASK,
+    Answer,
+    calls_and_results,
+    carries_result,
+    drive_turn,
+    record_conversations,
+)
+from tests.e2e.scripted_model import ScriptedCall
+from tests.e2e.sdk_helpers import render_dir
+
+pytestmark = [pytest.mark.model_free, pytest.mark.harness_benchmark]
+
+WRITE = "mcp__controls__channel_write"
+READ = "mcp__controls__channel_read"
+#: Bounded writable setpoint in the safety limits fixture: [0, 100].
+SETPOINT = "SR:DIAG:TEMP:01:TEMPERATURE:SP"
+
+#: The reason the limits hook gives for an over-limit write.
+LIMITS_REASON = "CHANNEL LIMITS VIOLATION"
+#: The reason the writes-check hook gives under a deployment-wide readonly run.
+WRITES_OFF_REASON = "WRITES OFF"
+#: What the operator's decline says back to the model.
+OPERATOR_DECLINED = "Declined by the scripted operator."
+
+#: What the approval hook tells the model about a call a person approved at its prompt.
+APPROVAL_NOTE = "The operator approved this call at the approval prompt before it ran."
+
+EXECUTE = "mcp__python__execute"
+#: What the scenarios' execute calls run. Readwrite mode, so the approval hook asks about it.
+EXECUTE_CODE = "x = 1 + 1\nprint(x)\n"
+#: The description the python tool requires on every call.
+EXECUTE_DESCRIPTION = "Scripted proof: approval review notebook"
+REVIEW_TITLE = "Pre-Execution Review"
+REVIEW_NOT_RUN = "Not run: declined or interrupted at the prompt"
+
+
+def write(channel: str, value: float) -> ScriptedCall:
+    return ScriptedCall(WRITE, {"operations": [{"channel": channel, "value": value}]})
+
+
+def read(channel: str) -> ScriptedCall:
+    return ScriptedCall(READ, {"channels": [channel], "include_metadata": False})
+
+
+def unfinished_write() -> ScriptedCall:
+    """A write with no ``operations``, the tool's required argument: the tool refuses it."""
+    return ScriptedCall(WRITE, {})
+
+
+def execute_readwrite() -> ScriptedCall:
+    """An execute in readwrite mode: the approval hook asks about it, and the code runs."""
+    return ScriptedCall(
+        EXECUTE,
+        {"code": EXECUTE_CODE, "description": EXECUTE_DESCRIPTION, "execution_mode": "readwrite"},
+    )
+
+
+def failing_execute() -> ScriptedCall:
+    """An approved execute whose code raises, so the tool reports the run as failed."""
+    code = 'raise RuntimeError("refused by the scripted proof")'
+    return ScriptedCall(
+        EXECUTE,
+        {"code": code, "description": EXECUTE_DESCRIPTION, "execution_mode": "readwrite"},
+    )
+
+
+def _review_notebooks(repo) -> dict[str, tuple[str, str]]:
+    """Every review notebook the render's artifact store holds, as ``id -> (status, description)``.
+
+    The store is the one the approval hook writes, under the root the render's own config
+    resolves to.
+    """
+    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
+    store = ArtifactStore(workspace_root=resolve_shared_data_root(config), auto_launch=False)
+    reviews = {}
+    for entry in store.list_entries():
+        if entry.title != REVIEW_TITLE:
+            continue
+        notebook = nbformat.read(store.get_file_path(entry.id), as_version=4)
+        (line,) = [
+            line
+            for line in notebook.cells[0].source.splitlines()
+            if line.startswith("**Status:** ")
+        ]
+        reviews[entry.id] = (line.removeprefix("**Status:** ").rstrip(), entry.description)
+    return reviews
+
+
+def _new_review(repo, before: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    """The ``(status, description)`` of the one review notebook added since *before*."""
+    added = [value for key, value in _review_notebooks(repo).items() if key not in before]
+    assert len(added) == 1, f"expected one new review notebook, saw {len(added)}"
+    return added[0]
+
+
+def approves_everything(_card: dict[str, Any]) -> Answer:
+    return Answer(allow=True)
+
+
+def declines_everything(_card: dict[str, Any]) -> Answer:
+    return Answer(allow=False, message=OPERATOR_DECLINED)
+
+
+@dataclass
+class ChatRun:
+    """What one chat turn produced, from the frames the chat itself received.
+
+    Attributes:
+        calls: Every ``tool_use`` frame, in order.
+        results: The ``tool_result`` frame of each call, by tool-use id.
+        cards: Every approval card the operator was shown.
+        gates: Each hook's own decision for each call, by tool-use id, as the hook
+            logged it: ``(hook, status)`` in the order the hooks ran.
+        conversations: The message list of every request the endpoint received, in order.
+    """
+
+    calls: list[dict[str, Any]] = field(default_factory=list)
+    results: dict[str, dict[str, Any]] = field(default_factory=dict)
+    cards: list[dict[str, Any]] = field(default_factory=list)
+    gates: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
+    conversations: list[list[dict[str, Any]]] = field(default_factory=list)
+
+    def only_call(self, tool: str) -> dict[str, Any]:
+        """The one call of *tool*; the scenarios make exactly one each."""
+        calls = [call for call in self.calls if call["tool_name_raw"] == tool]
+        assert len(calls) == 1, f"expected one {tool} call, saw {len(calls)}"
+        return calls[0]
+
+    def was_carded(self, call: dict[str, Any]) -> bool:
+        return any(card["tool_use_id"] == call["tool_use_id"] for card in self.cards)
+
+    def statuses(self, call: dict[str, Any]) -> list[tuple[str, str]]:
+        """Every ``(hook, status)`` logged for *call*, in the order the hooks ran."""
+        return self.gates.get(call["tool_use_id"], [])
+
+    def describe(self, call: dict[str, Any]) -> str:
+        """The facts a failing assertion needs, in one line."""
+        result = self.results.get(call["tool_use_id"], {})
+        return (
+            f"gates={self.statuses(call)} carded={self.was_carded(call)} "
+            f"result={result.get('is_error')}:{str(result.get('preview'))[:160]!r}"
+        )
+
+    def note_reached_model(self, call: dict[str, Any]) -> bool:
+        """Whether the approval note is in the first request that carries *call*'s result.
+
+        The note travels with the result, so it must sit after the result in the request
+        the result first arrives in.
+        """
+        for messages in self.conversations:
+            for index, message in enumerate(messages):
+                if carries_result(message, call["tool_use_id"]):
+                    return APPROVAL_NOTE in json.dumps(messages[index:])
+        return False
+
+    def note_reached_any_request(self) -> bool:
+        """Whether the approval note is in any request the endpoint received."""
+        return any(APPROVAL_NOTE in json.dumps(messages) for messages in self.conversations)
+
+
+async def drive_chat(repo, scripted_model, turns, *, operator, env=None) -> tuple[Any, ChatRun]:
+    """Run *turns* through the chat's own launch on *repo*, as *operator*.
+
+    The turn is :func:`~tests.e2e.claude_code._chat_turn.drive_turn`'s: the render is
+    trusted, hook debugging is on, *env* is on top, and the operator answers each
+    approval card. The scripted model's every request is kept whole.
+    """
+    model = scripted_model(turns)
+    conversations = record_conversations(model)
+    frames, cards, gates = await drive_turn(repo, TASK, operator, env=env)
+    model.assert_script_consumed()
+    calls, results = calls_and_results(frames)
+    run = ChatRun(
+        calls=calls, results=results, cards=cards, gates=gates, conversations=conversations
+    )
+    return model, run
+
+
+def _rendered_ask_list(repo) -> list[str]:
+    """The ``permissions.ask`` entries the render's settings carry."""
+    settings = json.loads((render_dir(repo) / ".claude" / "settings.json").read_text("utf-8"))
+    return list(settings.get("permissions", {}).get("ask", []))
+
+
+# ---------------------------------------------------------------------------
+# Precondition of every proof here: the render is trusted in a Claude Code state
+# the harness owns, never in the developer's own.
+# ---------------------------------------------------------------------------
+
+
+def test_the_proofs_run_under_the_harness_own_claude_state(tmp_path_factory):
+    """The e2e conftest points ``CLAUDE_CONFIG_DIR`` into the temp tree for a
+    model-free test and names the same directory to the helpers that seed trust."""
+    assert sdk_helpers.harness_config_dir is not None
+    assert os.environ[CLAUDE_CONFIG_DIR_ENV] == str(sdk_helpers.harness_config_dir)
+    assert sdk_helpers.harness_config_dir.is_relative_to(tmp_path_factory.getbasetemp())
+
+
+# ---------------------------------------------------------------------------
+# (a) the limits hook denies; the approval hook asks; the operator approves everything
+# ---------------------------------------------------------------------------
+
+
+async def test_an_over_limit_write_is_not_executed_though_approval_asks(
+    safety_project, scripted_model
+):
+    """(a): the limits hook denies, the approval hook asks, and the write does not run."""
+    model, run = await drive_chat(
+        safety_project,
+        scripted_model,
+        [[read(SETPOINT)], [write(SETPOINT, 999.0)], [read(SETPOINT)]],
+        operator=approves_everything,
+    )
+    assert WRITE in model.offered_tools
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    print(f"chat-gates (a) {facts}")
+
+    # The conflict is real: the approval hook asked, and the limits hook denied, for this call.
+    assert ("approval", "ask") in run.statuses(call), facts
+    assert ("limits", "deny") in run.statuses(call), facts
+
+    # Deny beats ask: the callback is never consulted for a call a hook denied.
+    assert not run.was_carded(call), f"the operator was shown an over-limit write: {facts}"
+
+    # Not executed: the refusal is the limits hook's, before the tool ran.
+    refused = run.results[call["tool_use_id"]]
+    assert refused["is_error"], facts
+    assert refused["preview"].startswith(f"PreToolUse:{WRITE} hook error"), facts
+    assert LIMITS_REASON in refused["preview"], facts
+    assert not run.note_reached_any_request(), "the model was told a refused call was approved"
+
+
+# ---------------------------------------------------------------------------
+# (b) writes-check denies (writes off); the approval hook asks; the operator approves everything
+# ---------------------------------------------------------------------------
+
+
+async def test_a_write_with_writes_off_is_not_executed_though_approval_asks(
+    safety_project, scripted_model
+):
+    """(b): a deployment-wide readonly run denies the write at writes-check. The render's
+    static ``permissions.ask`` still names the write, and the approval hook still asks."""
+    assert WRITE in _rendered_ask_list(safety_project), (
+        "the render carries no static ask for the write; the scenario would not test "
+        "a deny against an ask"
+    )
+    model, run = await drive_chat(
+        safety_project,
+        scripted_model,
+        [[read(SETPOINT)], [write(SETPOINT, 75.0)], [read(SETPOINT)]],
+        operator=approves_everything,
+        env={"OSPREY_EXECUTION_MODE": "readonly"},
+    )
+    assert WRITE in model.offered_tools
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    print(f"chat-gates (b) {facts}")
+
+    assert ("approval", "ask") in run.statuses(call), facts
+    assert ("writes-check", "deny") in run.statuses(call), facts
+
+    assert not run.was_carded(call), f"the operator was shown a write with writes off: {facts}"
+
+    refused = run.results[call["tool_use_id"]]
+    assert refused["is_error"], facts
+    assert refused["preview"].startswith(f"PreToolUse:{WRITE} hook error"), facts
+    assert WRITES_OFF_REASON in refused["preview"], facts
+    assert not run.note_reached_any_request(), "the model was told a refused call was approved"
+
+
+# ---------------------------------------------------------------------------
+# (c) an approval-only ask reaches the operator; an allow runs the write
+# ---------------------------------------------------------------------------
+
+
+async def test_an_approval_only_write_is_carded_and_an_allow_runs_it(
+    safety_project, scripted_model
+):
+    """(c): in limits, writes enabled. The card reaches the operator, and the allow runs the
+    write; the scenarios above cannot be passing on a chat that never asks. The execute that
+    follows is an approval too, and its review notebook reads that it ran."""
+    before = _review_notebooks(safety_project)
+    _model, run = await drive_chat(
+        safety_project,
+        scripted_model,
+        [[read(SETPOINT)], [write(SETPOINT, 75.0)], [execute_readwrite()], [read(SETPOINT)]],
+        operator=approves_everything,
+    )
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    print(f"chat-gates (c) {facts}")
+
+    assert run.was_carded(call), f"the approval-only write never reached the operator: {facts}"
+    assert ("approval", "ask") in run.statuses(call), facts
+    (card,) = [c for c in run.cards if c["tool_use_id"] == call["tool_use_id"]]
+    assert card["can_allow_session"] is False, "a write was offered 'Allow for this session'"
+    executed = run.results[call["tool_use_id"]]
+    assert not executed["is_error"], f"an allowed write was refused: {facts}"
+    assert run.note_reached_model(call), f"the model was not told the operator approved it: {facts}"
+    execute = run.only_call(EXECUTE)
+    print(f"chat-gates (c) execute {run.describe(execute)}")
+    assert run.was_carded(execute), (
+        f"the execute never reached the operator: {run.describe(execute)}"
+    )
+    assert not run.results[execute["tool_use_id"]]["is_error"], run.describe(execute)
+    assert _new_review(safety_project, before) == (
+        "Ran after operator approval",
+        "Code ran after operator approval (mode: readwrite)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# (d) the operator's decline blocks the call
+# ---------------------------------------------------------------------------
+
+
+async def test_an_operator_decline_blocks_an_approval_only_write(safety_project, scripted_model):
+    """(d): the same write, declined on its card: the call is blocked, and says so. The
+    execute declined on its card settles its review as not run."""
+    before = _review_notebooks(safety_project)
+    _model, run = await drive_chat(
+        safety_project,
+        scripted_model,
+        [[read(SETPOINT)], [write(SETPOINT, 75.0)], [execute_readwrite()], [read(SETPOINT)]],
+        operator=declines_everything,
+    )
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    print(f"chat-gates (d) {facts}")
+
+    assert run.was_carded(call), f"the decline was never offered: {facts}"
+    blocked = run.results[call["tool_use_id"]]
+    assert blocked["is_error"], facts
+    assert OPERATOR_DECLINED in blocked["preview"], facts
+    assert not run.note_reached_any_request(), "the model was told a declined call was approved"
+    execute = run.only_call(EXECUTE)
+    print(f"chat-gates (d) execute {run.describe(execute)}")
+    assert run.was_carded(execute), (
+        f"the execute never reached the operator: {run.describe(execute)}"
+    )
+    assert _new_review(safety_project, before) == (
+        REVIEW_NOT_RUN,
+        "Code not run: declined or interrupted at the prompt (mode: readwrite)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# (e) an approved write the tool refuses is still put to the operator, and the model is told
+# ---------------------------------------------------------------------------
+
+
+async def test_an_approved_write_that_fails_in_the_tool_still_tells_the_model(
+    safety_project, scripted_model
+):
+    """(e): the operator allows a write the tool then refuses. The model is still told the
+    operator approved it, because the approval came before the refusal. The execute the tool
+    refuses settles its review as failed."""
+    before = _review_notebooks(safety_project)
+    _model, run = await drive_chat(
+        safety_project,
+        scripted_model,
+        [[read(SETPOINT)], [unfinished_write()], [failing_execute()], [read(SETPOINT)]],
+        operator=approves_everything,
+    )
+    call = run.only_call(WRITE)
+    facts = run.describe(call)
+    print(f"chat-gates (e) {facts}")
+
+    assert run.was_carded(call), f"the approval-only write never reached the operator: {facts}"
+    assert ("approval", "ask") in run.statuses(call), facts
+    failed = run.results[call["tool_use_id"]]
+    assert failed["is_error"], f"the write was not refused in the tool: {facts}"
+    assert run.note_reached_model(call), f"the model was not told the operator approved it: {facts}"
+    execute = run.only_call(EXECUTE)
+    print(f"chat-gates (e) execute {run.describe(execute)}")
+    assert run.was_carded(execute), (
+        f"the execute never reached the operator: {run.describe(execute)}"
+    )
+    assert run.results[execute["tool_use_id"]]["is_error"], run.describe(execute)
+    assert _new_review(safety_project, before) == (
+        "Failed after operator approval",
+        "Code failed after operator approval (mode: readwrite)",
+    )
+
+
+# ---------------------------------------------------------------------------
+# (f) a session allow rule does not skip the hook's ask
+# ---------------------------------------------------------------------------
+
+
+def _session_rule(tool_name: str) -> PermissionUpdate:
+    """The rule "Allow for this session" would install for *tool_name*, were it offered."""
+    return PermissionUpdate(
+        type="addRules",
+        rules=[PermissionRuleValue(tool_name=tool_name)],
+        behavior="allow",
+        destination="session",
+    )
+
+
+async def test_a_session_allow_rule_does_not_skip_the_hooks_ask(
+    safety_project, scripted_model, monkeypatch
+):
+    """(f): the chat withholds "Allow for this session" under an approval prefix because a
+    session rule that skipped the hook's ask would run every later call unasked. This run
+    installs such a rule anyway, as the button would, and reads how the CLI ranks it: the
+    hook still asks, and every write is still carded. The rule mechanism itself is proved
+    on the CLI's own ask first: a Read outside the render is carded once and allowed for
+    the session, with the rule the CLI suggests (``Read(//<repo>/**)``), and a Read of a
+    second file beside it runs with no card.
+
+    The lever is the server's rule filter, replaced to hand back the CLI's suggestions
+    narrowed to the session, or a rule for the asked tool when the CLI suggests none.
+    """
+    from osprey.interfaces.web_terminal import operator_session
+
+    suggested: dict[str, list[Any]] = {}
+
+    def hand_back_a_session_rule(tool_name, suggestions, _surface):
+        suggested.setdefault(tool_name, []).extend(suggestions)
+        kept = [
+            replace(s, destination="session")
+            for s in suggestions
+            if getattr(s, "type", None) == "addRules" and getattr(s, "behavior", None) == "allow"
+        ]
+        return kept or [_session_rule(tool_name)]
+
+    monkeypatch.setattr(operator_session, "_standing_rules", hand_back_a_session_rule)
+
+    first_file = Path(safety_project) / "outside-the-render-a.txt"
+    second_file = Path(safety_project) / "outside-the-render-b.txt"
+    first_file.write_text("the first file beside the render\n")
+    second_file.write_text("the second file beside the render\n")
+    read_first = ScriptedCall("Read", {"file_path": str(first_file)})
+    read_second = ScriptedCall("Read", {"file_path": str(second_file)})
+    first_of: dict[str, bool] = {}
+
+    def allows_each_tool_for_the_session(card: dict[str, Any]) -> Answer:
+        tool = card["tool_name_raw"]
+        if first_of.setdefault(tool, True):
+            first_of[tool] = False
+            return Answer(allow=True, for_session=True)
+        return Answer(allow=True)
+
+    _model, run = await drive_chat(
+        safety_project,
+        scripted_model,
+        [[read_first], [read_second], [write(SETPOINT, 10.0)], [write(SETPOINT, 20.0)]],
+        operator=allows_each_tool_for_the_session,
+    )
+    reads = [c for c in run.calls if c["tool_name_raw"] == "Read"]
+    writes = [c for c in run.calls if c["tool_name_raw"] == WRITE]
+    assert len(reads) == 2 and len(writes) == 2, [c["tool_name_raw"] for c in run.calls]
+    print(f"chat-gates (f) reads={[run.describe(c) for c in reads]}")
+    print(f"chat-gates (f) writes={[run.describe(c) for c in writes]} suggested={suggested}")
+
+    # The CLI's own ask: the suggested rule takes, and the second file is read unasked.
+    assert run.was_carded(reads[0]), run.describe(reads[0])
+    assert not run.was_carded(reads[1]), f"the session rule did not take: {run.describe(reads[1])}"
+    second_read = run.results[reads[1]["tool_use_id"]]
+    assert not second_read["is_error"], run.describe(reads[1])
+    assert "second file" in second_read["preview"], run.describe(reads[1])
+
+    # The hook's ask: the CLI suggests no rule for it, and one installed anyway does not
+    # rank above it. Every write is asked about, and carded, and runs only when allowed.
+    assert suggested.get(WRITE, []) == [], f"the CLI suggested a rule for a hook ask: {suggested}"
+    for call in writes:
+        assert ("approval", "ask") in run.statuses(call), run.describe(call)
+        assert run.was_carded(call), f"a session rule skipped the hook's ask: {run.describe(call)}"
+        assert not run.results[call["tool_use_id"]]["is_error"], run.describe(call)
+    assert len(run.cards) == 3, [c["tool_name_raw"] for c in run.cards]
+
+
+# ---------------------------------------------------------------------------
+# (g) an approved call the operator interrupts: how its review notebook settles
+# ---------------------------------------------------------------------------
+
+
+def sleeping_execute() -> ScriptedCall:
+    """An approved execute that runs long enough for the operator to stop the turn under it."""
+    code = "import time\ntime.sleep(30)\nprint('slept')\n"
+    return ScriptedCall(
+        EXECUTE,
+        {"code": code, "description": EXECUTE_DESCRIPTION, "execution_mode": "readwrite"},
+    )
+
+
+async def _turn(session: OperatorSession, prompt: str, operator, *, interrupt_after_s=None):
+    """Run one turn on *session*, answering cards as *operator*; optionally Stop it.
+
+    With *interrupt_after_s* set, the turn is interrupted that long after its first card
+    is answered, as the operator's Stop button would.
+    """
+    frames: list[dict[str, Any]] = []
+    stopper: asyncio.Task[None] | None = None
+    token = session.acquire_turn()
+    try:
+        async for frame in session.run_turn(prompt, token, timeout_s=120.0):
+            if frame.get("type") == "heartbeat":
+                continue
+            frames.append(frame)
+            if frame.get("type") == "permission_request":
+                answer = operator(frame)
+                await session.resolve_permission(
+                    frame["request_id"], allow=answer.allow, message=answer.message
+                )
+                if interrupt_after_s is not None and stopper is None:
+
+                    async def stop_later() -> None:
+                        await asyncio.sleep(interrupt_after_s)
+                        await session.interrupt()
+
+                    stopper = asyncio.ensure_future(stop_later())
+    finally:
+        if stopper is not None:
+            stopper.cancel()
+    return frames
+
+
+async def test_an_interrupted_approved_execute_is_settled_not_run_at_the_next_stop(
+    safety_project, scripted_model
+):
+    """(g): the operator approves an execute, then stops the turn while it runs. No outcome
+    event reaches the hook, so the review stays as the ask left it until the conversation
+    next stops; that Stop settles it as not run. The next turn ends normally and does
+    exactly that.
+    """
+    before = _review_notebooks(safety_project)
+    model = scripted_model([[sleeping_execute()], [read(SETPOINT)]])
+    render = render_dir(safety_project)
+    sdk_helpers.trust_render(safety_project)
+    child_env = {**sdk_helpers.sdk_env(render), "OSPREY_HOOK_DEBUG": "1"}
+    session = OperatorSession(cwd=str(render), env=child_env)
+    try:
+        await session.start()
+        await await_mcp_ready(session._agent._client, expected_mcp_servers(render))
+        first = await _turn(session, TASK, approves_everything, interrupt_after_s=3.0)
+        after_interrupt = _new_review(safety_project, before)
+        print(f"chat-gates (g) after the interrupt: {after_interrupt}")
+        second = await _turn(session, "Carry on.", declines_everything)
+    finally:
+        await session.stop()
+    model.assert_script_consumed()
+
+    (execute,) = [f for f in first if f.get("type") == "tool_use"]
+    assert execute["tool_name_raw"] == EXECUTE
+    result = next(f for f in first if f.get("type") == "tool_result")
+    assert result["is_error"], f"the interrupted execute reported a run: {result}"
+    assert "slept" not in str(result.get("preview")), result
+    assert not any(f.get("type") == "permission_request" for f in second)
+
+    # Until the conversation stops again the review still reads as the ask left it.
+    assert after_interrupt[0].startswith("Pending"), after_interrupt
+    # The next turn's Stop settles it: the call never reported an outcome, so not run.
+    assert _new_review(safety_project, before) == (
+        REVIEW_NOT_RUN,
+        "Code not run: declined or interrupted at the prompt (mode: readwrite)",
+    )

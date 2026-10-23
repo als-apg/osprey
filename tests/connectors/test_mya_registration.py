@@ -35,7 +35,7 @@ class TestBuiltinRegistration:
 
     def test_mya_archiver_registers_as_builtin_archiver(self):
         """`archiver.type: mya_archiver` must resolve without a dotted path."""
-        from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
+        from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
 
         with isolated_connector_registries(clear=True):
             register_builtin_connectors()
@@ -59,10 +59,10 @@ class TestBuiltinRegistration:
 
         import osprey_connectors.archiver as archiver_pkg
 
-        canonical = "osprey_connectors.archiver.mya_archiver_connector"
+        canonical = "osprey_connectors.archiver._mya_archiver_connector"
         cached = sys.modules.get(canonical)
         # The re-import rebinds the package attribute; put it back afterwards.
-        monkeypatch.setattr(archiver_pkg, "mya_archiver_connector", cached, raising=False)
+        monkeypatch.setattr(archiver_pkg, "_mya_archiver_connector", cached, raising=False)
 
         with (
             patch.dict(sys.modules, {"jlab_archiver_client": None}),
@@ -89,5 +89,5 @@ class TestFrameworkRegistryEntries:
         assert by_name[types.MYA_ARCHIVER].class_name == "MYAArchiverConnector"
         assert (
             by_name[types.MYA_ARCHIVER].module_path
-            == "osprey_connectors.archiver.mya_archiver_connector"
+            == "osprey_connectors.archiver._mya_archiver_connector"
         )

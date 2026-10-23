@@ -15,7 +15,8 @@ safety_layer: 2
 stdin ──► Parse JSON
               │
               ├── PostToolUse / PostToolUseFailure ──► ask stamp for this
-              │        tool_use_id? file `approved`, drop it; EXIT (no output)
+              │        tool_use_id? file `approved`, drop it; EXIT, with the note
+              │        as `additionalContext` if a person approved it
               ├── Stop / StopFailure ──► this conversation's unconsumed ask
               │        stamps: file `denied`, drop them; EXIT (no output)
               ▼
@@ -102,8 +103,15 @@ Every ask also leaves an *ask stamp* keyed by the call's `tool_use_id`. The
 harness has no event for a human "No", so the answer is read from what it
 does emit: `PostToolUse` / `PostToolUseFailure` for that id means the call ran
 (`approved`), and a stamp of this conversation still unconsumed at `Stop` /
-`StopFailure` means it did not (`denied` — declined or interrupted). Both
-branches print nothing, so no decision of the harness's changes.
+`StopFailure` means it did not (`denied` — declined or interrupted). Neither
+branch makes a decision. A call a person approved at its prompt gets the
+approval as `additionalContext` on that outcome event: the model cannot see the
+prompt, so the note is how it learns the call was approved.
+
+An `execute` ask also leaves its review notebook to be settled. Once the outcome is known,
+the status line reads `Ran`, `Failed` or `Not run`, and names the approver the stamp
+records. The pinned CLI sends no outcome event for a declined call, so its review is
+settled at `Stop`, as any unconsumed ask is.
 
 ## Bluesky plan lanes
 
@@ -317,7 +325,7 @@ def build_approval_output(
 APPROVED_FIELD_PREFIX = "approved_"
 
 
-def _emit_ask(output, hook_input, approved=None) -> None:
+def _emit_ask(output, hook_input, approved=None, review_id=None) -> None:
     """Send the ask envelope, then leave its stamp.
 
     The stamp is written only after the envelope is flushed to the harness, so
@@ -325,10 +333,12 @@ def _emit_ask(output, hook_input, approved=None) -> None:
     received. *approved* is the binding this hook computed for the call; an
     ``approved_*`` key the agent sent and the hook did not set never reaches
     the stamp.
+
+    *review_id* is the review notebook's artifact id, when the ask has one.
     """
     json.dump(output, sys.stdout)
     sys.stdout.flush()
-    _stamp_ask(hook_input, approved=approved)
+    _stamp_ask(hook_input, approved=approved, review_id=review_id)
 
 
 def _record_ask(hook_input):
@@ -924,7 +934,7 @@ def _approval_state_dir(hook_input):
         return None
 
 
-def _stamp_ask(hook_input, approved=None) -> None:
+def _stamp_ask(hook_input, approved=None, review_id=None) -> None:
     """Leave the stamp that lets this ask's answer be recorded. Never raises.
 
     Keyed by the call's tool-use id, so the ``PostToolUse`` for that call finds
@@ -936,6 +946,8 @@ def _stamp_ask(hook_input, approved=None) -> None:
     call; the python executor reads them back before it starts a read-write
     run, and refuses a call whose own fields differ or that carries
     one the stamp does not hold.
+
+    *review_id* names the review notebook the call's outcome settles.
     """
     try:
         if not isinstance(hook_input, dict):
@@ -961,6 +973,8 @@ def _stamp_ask(hook_input, approved=None) -> None:
         for key, value in (approved or {}).items():
             if key.startswith(APPROVED_FIELD_PREFIX):
                 payload[key] = value
+        if review_id:
+            payload[REVIEW_ARTIFACT_KEY] = review_id
         _write_stamp(os.path.join(directory, approval_ask_filename(tool_use_id)), payload)
     except Exception:
         return
@@ -981,22 +995,49 @@ def _outcome_detail(stamp) -> str:
     return f"approver={stamp.get('approver') or 'unknown'} mode={stamp.get('permission_mode')}"
 
 
-def _record_executed(hook_input) -> None:
+#: What the model is told when an operator approved an ask and the call then ran,
+#: or ran and failed. The model cannot see the prompt it was approved at, so this
+#: line is the only record of the approval it is given.
+APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt before it ran."
+
+#: The permission mode in which the CLI puts a hook's ask in front of a person,
+#: and the one the web terminal runs its agent in: the CLI's `default`. Under any
+#: other mode the hook cannot tell that a person answered, so the note is
+#: withheld: it must never claim an approval that did not happen.
+_PROMPTED_PERMISSION_MODES = frozenset({"default"})
+
+
+def _approved_call_note(stamp) -> str | None:
+    """The note for a call a person approved at its prompt, or ``None``.
+
+    The stamp names the approver. A dispatch run's asks are answered by the
+    dispatch worker's policy and no operator is asked, so the note, which names
+    one, is withheld there.
+    """
+    if stamp.get("approver") != "human":
+        return None
+    if stamp.get("permission_mode") not in _PROMPTED_PERMISSION_MODES:
+        return None
+    return APPROVED_CALL_NOTE
+
+
+def _record_executed(hook_input) -> str | None:
     """File ``approved`` for an asked call the harness reports ran. Never raises.
 
     Fired on ``PostToolUse`` and ``PostToolUseFailure`` alike: a call that ran
     and failed was still approved. No stamp means the call was never asked, and
-    nothing is filed.
+    nothing is filed. Returns the note the model should read about the approval,
+    or ``None``.
     """
     try:
         tool_use_id = _valid_tool_use_id(hook_input.get("tool_use_id"))
         directory = _approval_state_dir(hook_input)
         if tool_use_id is None or not directory:
-            return
+            return None
         path = os.path.join(directory, approval_ask_filename(tool_use_id))
         stamp = _read_stamp(path)
         if stamp is None:
-            return
+            return None
         emit_audit(
             "approval",
             hook_input,
@@ -1006,10 +1047,28 @@ def _record_executed(hook_input) -> None:
             detail=_outcome_detail(stamp),
             tool_use_id=tool_use_id,
         )
+        outcome = "failed" if hook_input.get("hook_event_name") == "PostToolUseFailure" else "ran"
+        _settle_review(stamp, outcome)
         with contextlib.suppress(OSError):
             os.unlink(path)
+        return _approved_call_note(stamp)
     except Exception:
-        return
+        return None
+
+
+def _emit_outcome_note(event, note) -> None:
+    """Hand *note* to the model as ``additionalContext`` on the outcome event. Never raises.
+
+    ``additionalContext`` on ``PostToolUse`` and ``PostToolUseFailure`` reaches
+    the model with its next request. It carries no decision, so the harness's
+    flow is unchanged.
+    """
+    with contextlib.suppress(Exception):
+        json.dump(
+            {"hookSpecificOutput": {"hookEventName": event, "additionalContext": note}},
+            sys.stdout,
+        )
+        sys.stdout.flush()
 
 
 def _close_unanswered_asks(hook_input) -> None:
@@ -1041,6 +1100,7 @@ def _close_unanswered_asks(hook_input) -> None:
                 detail=_outcome_detail(stamp),
                 tool_use_id=stamp.get("tool_use_id"),
             )
+            _settle_review(stamp, "not_run")
             with contextlib.suppress(OSError):
                 os.unlink(path)
     except Exception:
@@ -2577,58 +2637,147 @@ def _gallery_base_url(config: dict) -> str:
         return f"http://{host}:{port}" if port else ""
 
 
-def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> str | None:
-    """Create a pre-execution notebook artifact for code review.
+# ---------------------------------------------------------------------------
+# Review notebook: the artifact an `execute` ask puts in front of the operator
+# ---------------------------------------------------------------------------
+# An `execute` ask saves the code under review as a notebook, which says
+# "Pending approval". The answer then settles that notebook through the ask
+# stamp (see "The answer to an ask" above): a PostToolUse or PostToolUseFailure
+# for the call says it ran or failed, and a Stop that finds the stamp still
+# unconsumed says it did not run. The pinned CLI emits no outcome event for a
+# person's "No" (a rejected call gets an error tool result and no hook runs),
+# and PermissionDenied fires only for auto-mode classifier denials, so the
+# decline is read at Stop.
 
-    Returns the gallery URL if successful, None otherwise.
-    Failures are silently swallowed — notebook creation must never break approval.
+#: The ask-stamp field that names the review notebook's artifact id.
+REVIEW_ARTIFACT_KEY = "review_artifact_id"
+
+_REVIEW_TITLE = "Pre-Execution Review"
+_REVIEW_FILENAME = "pre_execution_review.ipynb"
+_REVIEW_PENDING = "pending approval"
+
+#: How each outcome reads in a review. A call that ran or failed may then name its approver.
+_REVIEW_OUTCOME_WORDS = {
+    "ran": "ran",
+    "failed": "failed",
+    "not_run": "not run: declined or interrupted at the prompt",
+}
+
+
+def _review_notebook_bytes(code: str, exec_mode: str, state: str) -> bytes:
+    """The review notebook for *code*, its status line reading *state*."""
+    import nbformat
+
+    status = state[:1].upper() + state[1:]
+    notebook = nbformat.v4.new_notebook()
+    notebook.cells = [
+        nbformat.v4.new_markdown_cell(
+            f"# {_REVIEW_TITLE}\n\n"
+            f"**Mode:** `{exec_mode or 'unspecified'}`  \n"
+            f"**Status:** {status}  \n"
+        ),
+        nbformat.v4.new_code_cell(code),
+    ]
+    return str(nbformat.writes(notebook)).encode()
+
+
+def _review_description(exec_mode: str, state: str) -> str:
+    """The gallery line for a review in *state*."""
+    return f"Code {state} (mode: {exec_mode or 'unspecified'})"
+
+
+def _review_outcome_state(outcome: str, stamp) -> str:
+    """How a review reads once its call has *outcome* (``ran``, ``failed`` or ``not_run``).
+
+    A call that ran or failed names who approved it, where the stamp says so: an
+    operator shown a prompt, or the dispatch policy. Under a permission mode that
+    shows no prompt the state claims no approval at all.
     """
+    words = _REVIEW_OUTCOME_WORDS[outcome]
+    if outcome == "not_run":
+        return words
+    if _approved_call_note(stamp) is not None:
+        return f"{words} after operator approval"
+    if stamp.get("approver") == "dispatch_policy":
+        return f"{words} after dispatch-policy approval"
+    return words
+
+
+def _create_pre_execution_notebook(
+    code: str, exec_mode: str, config: dict
+) -> tuple[str | None, str | None]:
+    """Save the review notebook for *code* as ``(gallery URL, artifact id)``.
+
+    Either part may be ``None``: the URL when no gallery address can be derived,
+    the id when the notebook could not be saved. Failures are silently swallowed,
+    because notebook creation must never break approval.
+    """
+    artifact_id = None
     try:
-        import nbformat
-
         from osprey.stores.artifact_store import ArtifactStore
-
-        # Build a minimal notebook with the code to be reviewed
-        cells = []
-        cells.append(
-            nbformat.v4.new_markdown_cell(
-                f"# Pre-Execution Review\n\n"
-                f"**Mode:** `{exec_mode or 'unspecified'}`  \n"
-                f"**Status:** Pending approval  \n"
-            )
-        )
-        cells.append(nbformat.v4.new_code_cell(code))
-        nb = nbformat.v4.new_notebook()
-        nb.cells = cells
-
-        nb_bytes = nbformat.writes(nb).encode()
 
         # The hook is a one-shot process, so it must not start a gallery of its
         # own: a gallery already running picks the notebook up from the shared store.
         store = ArtifactStore(auto_launch=False)
         entry = store.save_file(
-            file_content=nb_bytes,
-            filename="pre_execution_review.ipynb",
+            file_content=_review_notebook_bytes(code, exec_mode, _REVIEW_PENDING),
+            filename=_REVIEW_FILENAME,
             artifact_type="notebook",
-            title="Pre-Execution Review",
-            description=f"Code pending approval (mode: {exec_mode or 'unspecified'})",
+            title=_REVIEW_TITLE,
+            description=_review_description(exec_mode, _REVIEW_PENDING),
             mime_type="application/x-ipynb+json",
             tool_source="osprey_approval",
+            metadata={"exec_mode": exec_mode or ""},
         )
+        artifact_id = entry.id
 
         # Build gallery URL and bring the notebook into focus
         base_url = _gallery_base_url(config)
         if not base_url:
             # No derivable gallery address; the notebook is saved, but a link
             # to a port nobody is serving would be worse than no link.
-            return None
+            return None, artifact_id
 
         # Fire-and-forget POST to switch gallery focus to this notebook
-        _focus_artifact(base_url, entry.id)
+        _focus_artifact(base_url, artifact_id)
 
-        return f"{base_url}#focus"
+        return f"{base_url}#focus", artifact_id
     except Exception:
-        return None
+        return None, artifact_id
+
+
+def _settle_review(stamp, outcome: str) -> None:
+    """Rewrite an asked call's review notebook to say how the call ended. Never raises.
+
+    Only the status line and the gallery description change: the code and the mode
+    are read back from the notebook and written again as they were. A stamp with no
+    review id, or a review no longer in the store, is left alone.
+    """
+    try:
+        artifact_id = stamp.get(REVIEW_ARTIFACT_KEY)
+        if not isinstance(artifact_id, str) or not artifact_id:
+            return
+        import nbformat
+
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(auto_launch=False)
+        entry = store.get_entry(artifact_id)
+        if entry is None:
+            return
+        notebook = nbformat.reads(
+            (store.artifact_dir / entry.filename).read_text(encoding="utf-8"), as_version=4
+        )
+        code = next(cell.source for cell in notebook.cells if cell.cell_type == "code")
+        exec_mode = entry.metadata.get("exec_mode", "")
+        state = _review_outcome_state(outcome, stamp)
+        store.replace_file(
+            artifact_id,
+            _review_notebook_bytes(code, exec_mode, state),
+            description=_review_description(exec_mode, state),
+        )
+    except Exception:
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -2654,8 +2803,9 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 # refuses it. There are exactly two guarantors, and they cover different tools:
 #
 # * `osprey_writes_check` denies the write tools that follow the control target.
-#   That deny is the whole reason this short-circuit exists (an "ask" from here
-#   reopens `can_use_tool` over it), and it is what makes a defer safe for them;
+#   That deny is what makes a defer safe for them. On the pinned Claude Code it
+#   also holds over an "ask" from this hook: scenario (b) of
+#   tests/e2e/claude_code/test_chat_approval_gates_scripted.py shows no card and no run;
 # * `queue_start` refuses in-tool, before its bridge is called, whenever the
 #   bound lane's target is not armed. `writes_check` deliberately allows every
 #   lane-addressed tool, so for a start THAT gate is the only guarantor — and it
@@ -3229,11 +3379,14 @@ def main():
     if not hook_input:
         sys.exit(0)
 
-    # The outcome branches: an asked call ran, or the turn ended. Both print
-    # nothing, so the harness's flow is untouched.
+    # The outcome branches: an asked call ran, or the turn ended. Neither makes a
+    # decision. A call a person approved gets the approval as context the model
+    # reads, because the prompt it was approved at is not visible to the model.
     event = hook_input.get("hook_event_name")
     if event in ("PostToolUse", "PostToolUseFailure"):
-        _record_executed(hook_input)
+        note = _record_executed(hook_input)
+        if note is not None:
+            _emit_outcome_note(event, note)
         sys.exit(0)
     if event in ("Stop", "StopFailure"):
         _close_unanswered_asks(hook_input)
@@ -3258,18 +3411,18 @@ def main():
     approval_config = config.get("approval", {})
 
     # Deterministic short-circuit when this deployment is NOT armed for the
-    # target this call would act on. Empirically (Claude Code SDK 2.x, not
-    # source-verified): PreToolUse hook-decision aggregation does NOT honour
-    # writes_check's JSON deny if this hook ALSO emits an "ask" decision —
-    # aggregation appears to be any-ask-wins, not deny-dominates, when multiple
-    # hooks return decisions for the same tool call. Without the short-circuit
-    # `can_use_tool` fires and the unarmed invariant is violated.
+    # target this call would act on. On the pinned Claude Code, writes_check's
+    # deny holds even when this hook also asks: scenario (b) of
+    # tests/e2e/claude_code/test_chat_approval_gates_scripted.py shows no card and
+    # no run. The defer still means this hook raises no ask for a call the
+    # deployment refuses, so the refusal never depends on how the CLI combines the
+    # two decisions.
     #
     # How much this defer carries depends on the render, and posture is per
     # target, so `osprey.cli.templates.claude_code` renders three ways:
     #
     # * NO target may write — every write tool is hard-denied in
-    #   `permissions.deny`, which blocks before any PreToolUse hook fires. There
+    #   `permissions.deny`, which the permission layer refuses. There
     #   the deny is primary and this defer is belt-and-braces against renderer
     #   drift, such as a stale `settings.json` after a posture flip without
     #   regen;
@@ -3354,8 +3507,11 @@ def main():
                 reason_parts = [f"Python execution (mode: {exec_mode or 'unspecified'})"]
                 if writes_detected:
                     reason_parts.append("Code contains control system write patterns.")
+                review_id = None
                 if code.strip():
-                    gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+                    gallery_link, review_id = _create_pre_execution_notebook(
+                        code, exec_mode, config
+                    )
                     if gallery_link:
                         reason_parts.append(f"\nReview notebook: {gallery_link}")
                 reason = "\n".join(reason_parts)
@@ -3364,6 +3520,7 @@ def main():
                     build_approval_output(reason, hook_input, read_record, updated_input),
                     hook_input,
                     binding,
+                    review_id=review_id,
                 )
                 sys.exit(0)
 
@@ -3395,12 +3552,13 @@ def main():
     read_record = _record_reader(hook_input)
     updated_input = None
     binding = None
+    review_id = None
     if short_name == "execute":
         code = tool_input.get("code", "")
         exec_mode = tool_input.get("execution_mode", "")
         updated_input, binding = _guarded_call(hook_input, tool_input, read_record)
         if code.strip():
-            gallery_link = _create_pre_execution_notebook(code, exec_mode, config)
+            gallery_link, review_id = _create_pre_execution_notebook(code, exec_mode, config)
             if gallery_link:
                 reason_parts.append(f"\nReview notebook: {gallery_link}")
     elif short_name == "execute_file":
@@ -3444,6 +3602,7 @@ def main():
         build_approval_output(reason, hook_input, read_record, updated_input),
         hook_input,
         binding,
+        review_id=review_id,
     )
     sys.exit(0)
 

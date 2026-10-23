@@ -44,7 +44,7 @@ from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFaile
 
 @dataclass
 class _FakeChannelValue:
-    """Stand-in for ``osprey_connectors.control_system.base.ChannelValue``."""
+    """Stand-in for ``osprey_connectors.control_system._base.ChannelValue``."""
 
     value: Any
     timestamp: float = field(default_factory=time.time)

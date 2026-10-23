@@ -26,7 +26,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from osprey_connectors.control_system.va_in_process_connector import (
+from osprey_connectors.control_system._va_in_process_connector import (
     JOURNAL_REJECTED_EVENT,
     simulation_state_dir,
 )

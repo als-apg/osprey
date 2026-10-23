@@ -467,7 +467,7 @@ def initialize_registry(
     registry.initialize(silent=silent)
 
     try:
-        from osprey_connectors.control_system.limits_validator import LimitsValidator
+        from osprey_connectors.control_system import LimitsValidator
 
         limits_validator = LimitsValidator.from_config()
         if limits_validator:

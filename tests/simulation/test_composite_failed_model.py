@@ -28,8 +28,8 @@ from lume.variables import ScalarVariable, StrVariable, Variable
 from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.cli.sim import sim_group
-from osprey_connectors.control_system.base import WriteOutcome
-from osprey_connectors.control_system.va_in_process_connector import (
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )

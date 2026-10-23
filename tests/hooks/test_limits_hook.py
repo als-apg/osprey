@@ -9,6 +9,7 @@ specified by control_system.limits_checking.database_path. Tests must create
 a proper database file for validation to work.
 """
 
+import ast
 import importlib
 import io
 import json
@@ -783,10 +784,13 @@ def test_osprey_unimportable_allows_the_write(tmp_path, hook_module, monkeypatch
     """
     # Arrange
     hook = hook_module("osprey_limits")
-    monkeypatch.setitem(sys.modules, "osprey_connectors.control_system.limits_validator", None)
-    # A `None` entry in `sys.modules` is what makes the hook's own import raise.
+    monkeypatch.setitem(sys.modules, "osprey_connectors.control_system", None)
+    # A `None` entry in `sys.modules` is what makes the hook's own imports raise,
+    # both the namespace and the module path a release before it spelled.
     # Asserted here so that a test which stopped exercising the branch cannot
     # pass by exiting 0 for some other reason.
+    with pytest.raises(ImportError):
+        importlib.import_module("osprey_connectors.control_system")
     with pytest.raises(ImportError):
         importlib.import_module("osprey_connectors.control_system.limits_validator")
     payload = {
@@ -803,6 +807,72 @@ def test_osprey_unimportable_allows_the_write(tmp_path, hook_module, monkeypatch
     # Assert
     assert exit_info.value.code == 0
     assert capsys.readouterr().out.strip() == ""
+
+
+def test_the_hook_imports_the_validator_this_tree_ships(hook_module):
+    """The hook's first import names the real `LimitsValidator` of this tree.
+
+    A spelling this tree no longer provides would raise `ImportError`, which the
+    hook reads as "no framework installed" and allows every write. Read off the
+    hook's source rather than by running it, so a renamed module cannot be
+    hidden by the fallback path the hook tries next.
+    """
+    # Arrange
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
+
+    with open(hook_module("osprey_limits").__file__, encoding="utf-8") as handle:
+        source = handle.read()
+    imports = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom)
+        and any(alias.name == "LimitsValidator" for alias in node.names)
+    ]
+
+    # Act
+    first = min(imports, key=lambda node: node.lineno)
+    imported = importlib.import_module(first.module).LimitsValidator
+
+    # Assert
+    assert imported is LimitsValidator
+
+
+def test_an_older_framework_is_reached_through_the_module_path(
+    tmp_path, hook_module, monkeypatch, capsys
+):
+    """A framework without the namespace export still has its validator found.
+
+    A deployed project runs a freshly rendered hook against the framework it has
+    installed. One released before the connectors package had namespaces has no
+    `LimitsValidator` on `osprey_connectors.control_system`, only on the module,
+    and finding none would allow the write unchecked.
+    """
+    # Arrange
+    hook = hook_module("osprey_limits")
+    calls = []
+    validator_cls = _stand_in_validator_class(calls)
+    monkeypatch.setitem(sys.modules, "osprey_connectors.control_system", types.ModuleType("old"))
+    monkeypatch.setitem(
+        sys.modules,
+        "osprey_connectors.control_system.limits_validator",
+        types.SimpleNamespace(LimitsValidator=validator_cls),
+    )
+    payload = {
+        "tool_name": "mcp__controls__channel_write",
+        "tool_input": {"operations": [{"channel": UNLISTED_CHANNEL, "value": 50.0}]},
+        "cwd": str(tmp_path),
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    # Act
+    with pytest.raises(SystemExit) as exit_info:
+        hook.main()
+
+    # Assert
+    assert exit_info.value.code == 0
+    assert calls, "the hook allowed the write without asking the validator"
+    decision = json.loads(capsys.readouterr().out.strip())
+    assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 # -- Branches only reachable from inside the interpreter --
@@ -902,11 +972,9 @@ def _run_in_process(hook, monkeypatch, capsys, tmp_path, validator_cls):
     Returns `(exit_code, decision, stderr)`, where the decision is the hook's
     parsed JSON output or `None` when it wrote none (allowed through).
     """
-    monkeypatch.setitem(
-        sys.modules,
-        "osprey_connectors.control_system.limits_validator",
-        types.SimpleNamespace(LimitsValidator=validator_cls),
-    )
+    from osprey_connectors.control_system import _limits_validator
+
+    monkeypatch.setattr(_limits_validator, "LimitsValidator", validator_cls)
     payload = {
         "tool_name": "mcp__controls__channel_write",
         "tool_input": {"operations": [{"channel": UNLISTED_CHANNEL, "value": 50.0}]},

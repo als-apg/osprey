@@ -246,18 +246,22 @@ def fill_uv_cache(scratch: Path) -> None:
     """
     venv = scratch / "venv"
     offline = {**os.environ, **OFFLINE_BUILD_ENV}
-    if install_osprey_into(venv, offline).returncode == 0:
-        return
-    filled = install_osprey_into(venv, os.environ)
-    assert filled.returncode == 0, (
-        "uv's cache does not hold what an osprey build installs, and it could not be "
-        f"fetched:\n{filled.stdout}{filled.stderr}"
-    )
-    served = install_osprey_into(venv, offline)
-    assert served.returncode == 0, (
-        "uv's cache was filled and still does not serve an osprey build's install:\n"
-        f"{served.stdout}{served.stderr}"
-    )
+    try:
+        if install_osprey_into(venv, offline).returncode == 0:
+            return
+        filled = install_osprey_into(venv, os.environ)
+        assert filled.returncode == 0, (
+            "uv's cache does not hold what an osprey build installs, and it could not be "
+            f"fetched:\n{filled.stdout}{filled.stderr}"
+        )
+        served = install_osprey_into(venv, offline)
+        assert served.returncode == 0, (
+            "uv's cache was filled and still does not serve an osprey build's install:\n"
+            f"{served.stdout}{served.stderr}"
+        )
+    finally:
+        # The venv only proves the install; at about 2 GB it is not left for the run.
+        shutil.rmtree(venv, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")

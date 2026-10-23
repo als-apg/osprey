@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from osprey_connectors.control_system.base import WriteOutcome
+from osprey_connectors.control_system._base import WriteOutcome
 from tests.connectors._epics_fakes import (
     FakeAioca,
     FakeChannel,

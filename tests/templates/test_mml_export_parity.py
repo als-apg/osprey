@@ -244,10 +244,13 @@ def export(tmp_path_factory: pytest.TempPathFactory) -> Callable[[Case], Path]:
     two environment variables it has no use for.
     """
     produced: dict[str, Path] = {}
+    # Made now, not on the first export, so it goes when the module ends.
+    root = tmp_path_factory.mktemp("mml-export")
 
     def run(case: Case) -> Path:
         if case.key not in produced:
-            workdir = tmp_path_factory.mktemp(case.stem.replace(".", "_"))
+            workdir = root / case.key
+            workdir.mkdir()
             produced[case.key] = _run_export(case, workdir, *_checkouts())
         return produced[case.key]
 

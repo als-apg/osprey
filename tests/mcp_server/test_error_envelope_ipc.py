@@ -9,8 +9,8 @@ rendering the *same* agent-facing envelope, down to the allowed-range text the
 operator is told to report.
 
 Nothing is stubbed on the far side: every test here spawns the real
-``python -m osprey_connectors.ipc.host``, drives it through the real
-:class:`~osprey_connectors.ipc.proxy.ConnectorHostProxy`, and runs whatever
+``python -m osprey_connectors.ipc._host``, drives it through the real
+:class:`~osprey_connectors.ipc._proxy.ConnectorHostProxy`, and runs whatever
 comes back through the real ``connector_error_handler``. Two connectors are
 used, for two different claims:
 
@@ -44,8 +44,8 @@ import yaml
 from osprey.mcp_server.control_system import error_handling
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
-from osprey_connectors.ipc import frames
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server._raising_connector import (
     BLOCKED_CHANNEL,
@@ -76,7 +76,7 @@ PYTHONPATH = os.pathsep.join(
 RAISING_TYPE = "tests.mcp_server._raising_connector.RaisingConnector"
 
 #: The mock connector, by dotted path, for the same reason.
-IN_PROCESS_TYPE = "osprey_connectors.control_system.va_in_process_connector.VAInProcessConnector"
+IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 
 #: Generous enough that a loaded machine is not a failure, tight enough that a
 #: wedged child fails this test rather than the run.
@@ -117,7 +117,7 @@ async def _spawn(control_system: dict, config_file: Path, cwd: Path):
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
-        "osprey_connectors.ipc.host",
+        "osprey_connectors.ipc._host",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

@@ -73,6 +73,7 @@ const transport = vi.hoisted(() => ({
   requestHandoff: vi.fn(),
   // The message box's slash-command list loads through it.
   fetchCommands: vi.fn(() => Promise.resolve([])),
+  followChat: vi.fn(() => ({ close: () => {} })),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => transport);

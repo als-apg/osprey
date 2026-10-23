@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from osprey_connectors.archiver.field_names import (
+from osprey_connectors.archiver._field_names import (
     _RESERVED_FIELDS,
     channel_address,
     field_name,
@@ -135,7 +135,7 @@ def test_an_empty_address_is_refused() -> None:
 def test_the_module_imports_only_the_standard_library() -> None:
     probe = (
         "import sys\n"
-        "import osprey_connectors.archiver.field_names\n"
+        "import osprey_connectors.archiver._field_names\n"
         "assert 'pymongo' not in sys.modules, 'pymongo was imported'\n"
     )
     result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True)

@@ -13,6 +13,45 @@ from typing import Any, Final
 
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 
+__all__ = [
+    "APPS_DIRNAME",
+    "ARCHIVE_DIR_RELPATH",
+    "AUDIT_DIR_RELPATH",
+    "BUILD_DIR_NAME",
+    "CHAT_UPLOADS_SUBDIR",
+    "DEFAULT_AGENT_DATA_BASE_DIR",
+    "IMAGE_DIR_NAME",
+    "LAYER_DIRNAMES",
+    "LAYER_DIR_KINDS",
+    "PROFILE_FILENAME",
+    "RENDERED_CONFIG_RELPATH",
+    "RETIRED_LAYER_DIRS",
+    "RUNTIME_DATA_DIR_NAME",
+    "SIMULATION_STATE_DIR_CONFIG_KEY",
+    "SIMULATOR_LOG_DIR_RELPATH",
+    "SIMULATOR_STANDIN_LOG_SUBDIR",
+    "STATE_DIR_NAME",
+    "STATE_ZONE_DIRS",
+    "TIERS_DIRNAME",
+    "agent_data_base_dir",
+    "anchored_path",
+    "container_image_context",
+    "deployment_env_chain",
+    "dotted_config_str",
+    "layer_dir_kind",
+    "load_osprey_config",
+    "rendered_config_path",
+    "repo_root_for_agent_data",
+    "repo_root_for_config",
+    "reset_config_cache",
+    "resolve_agent_data_root",
+    "resolve_config_path",
+    "resolve_path",
+    "resolve_project_root",
+    "resolve_shared_data_root",
+    "resolve_simulation_state_dir",
+]
+
 logger = logging.getLogger("osprey_connectors.workspace")
 
 #: Zone directory names inside a deployment repo. ``build/`` is the render zone,
@@ -122,9 +161,15 @@ SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
 #: commands agreeing by coincidence is how a reset and a clone start to differ.
 STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR, AUDIT_DIR_RELPATH)
 
+#: Subdirectory of the agent-data root holding the files operators attach in the
+#: Simple view's chat. The web terminal stores them there and hands the agent
+#: their absolute paths; the rendered permissions allow the agent to read exactly
+#: that directory. Spelled once so the store and the rule cannot name two places.
+CHAT_UPLOADS_SUBDIR = "uploads"
+
 #: Subdirectory of the agent-data root holding the simulation's mutable
 #: ``active_scenarios`` state file.
-SIMULATION_STATE_DIR_NAME = "simulation"
+_SIMULATION_STATE_DIR_NAME = "simulation"
 
 #: Config key naming that directory explicitly (relative paths resolve against
 #: the project root). Unset — the normal case — puts it under the agent-data
@@ -240,7 +285,7 @@ def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root:
     """
     config = config or {}
     configured = dotted_config_str(config, SIMULATION_STATE_DIR_CONFIG_KEY)
-    relative = configured or f"{agent_data_base_dir(config)}/{SIMULATION_STATE_DIR_NAME}"
+    relative = configured or f"{agent_data_base_dir(config)}/{_SIMULATION_STATE_DIR_NAME}"
     return anchored_path(relative, project_root)
 
 
@@ -339,7 +384,7 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     return parent.parent if parent.name == BUILD_DIR_NAME else parent
 
 
-def deployment_env_path(config_path: Path | str) -> Path:
+def _deployment_env_path(config_path: Path | str) -> Path:
     """The ``.env`` that belongs to the deployment whose config is *config_path*.
 
     There is one ``.env`` per deployment and it sits at the repo ROOT, beside
@@ -366,7 +411,7 @@ def deployment_env_path(config_path: Path | str) -> Path:
 def deployment_env_chain(config_path: Path | str) -> list[Path]:
     """Every env-chain file of the deployment whose config is *config_path*.
 
-    The chain counterpart of :func:`deployment_env_path`, with the same
+    The chain counterpart of :func:`_deployment_env_path`, with the same
     root-then-container anchoring: the repo root's chain when any member exists
     there, else the config's own directory (the container case, whose project
     directory *is* the render). Paths come back in ascending precedence —
@@ -376,7 +421,7 @@ def deployment_env_chain(config_path: Path | str) -> list[Path]:
     Every member path is returned whether or not the file exists. A watcher
     has to stat the places a member could *appear*, or a ``.env`` created
     after start-up never invalidates anything — the same reason
-    :func:`deployment_env_path` is spelled once for its readers and watchers.
+    :func:`_deployment_env_path` is spelled once for its readers and watchers.
 
     Spelled here rather than at each caller because the callers that ask this
     have to agree exactly — a reader that loads one set of files and a

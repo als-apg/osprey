@@ -20,8 +20,8 @@ from pyaml.accelerator import Accelerator
 
 import osprey.runtime
 from osprey.runtime.guarded_run import GuardedRunDirError, lock
-from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
-from osprey_connectors.control_system.limits_validator import (
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )

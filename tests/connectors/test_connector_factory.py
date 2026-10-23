@@ -5,10 +5,10 @@ from unittest.mock import patch
 import pytest
 
 from osprey_connectors import types
-from osprey_connectors.archiver.base import ArchiverConnector
-from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey_connectors.control_system.base import ControlSystemConnector
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.archiver._base import ArchiverConnector
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system._base import ControlSystemConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
@@ -275,7 +275,7 @@ class TestLiveStandinRegistration:
         rather than to the ``epics`` block's.
         """
         from osprey_connectors import types
-        from osprey_connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system._epics_connector import EPICSConnector
         from osprey_connectors.factory import register_builtin_connectors
 
         register_builtin_connectors()
@@ -330,8 +330,8 @@ class TestArchiverTypeResolution:
                 id="module-not-importable",
             ),
             pytest.param(
-                "osprey_connectors.archiver.mock_archiver_connector.NoSuchArchiver",
-                "Module 'osprey_connectors.archiver.mock_archiver_connector' has no class "
+                "osprey_connectors.archiver._mock_archiver_connector.NoSuchArchiver",
+                "Module 'osprey_connectors.archiver._mock_archiver_connector' has no class "
                 "'NoSuchArchiver'",
                 id="class-missing",
             ),
@@ -352,7 +352,7 @@ class TestArchiverTypeResolution:
 
     @pytest.mark.asyncio
     async def test_a_dotted_archiver_path_is_imported_and_remembered(self, tmp_path):
-        dotted = "osprey_connectors.archiver.mock_archiver_connector.MockArchiverConnector"
+        dotted = "osprey_connectors.archiver._mock_archiver_connector.MockArchiverConnector"
 
         connector = await ConnectorFactory.create_archiver_connector(
             {"type": dotted, "settings": in_process_config(served_tree(tmp_path))}

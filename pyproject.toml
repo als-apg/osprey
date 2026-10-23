@@ -291,6 +291,9 @@ dev = [
     # disagree about what "formatted" means.
     "ruff>=0.16.2,<0.17",
     "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
+    # `lint-imports` holds the boundary between the framework and the
+    # connectors package: the contracts are in [tool.importlinter] below.
+    "import-linter>=2.15,<3",
     "testcontainers[mongodb]>=4.15.0",  # Real MongoDB for archiver integration tests
     "docker>=7.2.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
@@ -675,6 +678,64 @@ markers = [
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
 ]
 
+# Import boundaries, checked by `lint-imports` (import-linter) in the lint job.
+# The graph covers both distributions: `osprey` is the framework and
+# `osprey_connectors` the separately installable connectors package. Every
+# import statement counts, including ones inside functions and under
+# `if TYPE_CHECKING:`; an `importlib.import_module("...")` string does not.
+[tool.importlinter]
+root_packages = ["osprey", "osprey_connectors"]
+
+[[tool.importlinter.contracts]]
+id = "connectors-standalone"
+name = "osprey_connectors never imports the framework"
+# The package runs where osprey is absent: connector-host children, executor
+# sandboxes, notebook kernels, and consumers of the connectors wheel alone.
+type = "forbidden"
+source_modules = ["osprey_connectors"]
+forbidden_modules = ["osprey"]
+
+[[tool.importlinter.contracts]]
+id = "connectors-public-api"
+name = "The framework reaches the connector packages only through their namespaces"
+# Every module inside the control_system, archiver and ipc subpackages is
+# protected, so their implementation modules (the concrete connectors among
+# them) are reached through the subpackage itself, and a module added there
+# later is private until it is exempted here. The simulation subpackage keeps
+# its modules public: its root is imported by readers that must not load
+# numpy, so the heavy modules are reached by their own names. The package's
+# top-level modules (config, types, posture_store, ...) are each their own
+# public API. The one private top-level module, `_version`, is written by the
+# build and gitignored; it is not listed, because import-linter refuses a
+# listed module that is missing from the graph, as it is on a fresh clone.
+type = "protected"
+protected_modules = [
+    "osprey_connectors.control_system.*",
+    "osprey_connectors.archiver.*",
+    "osprey_connectors.ipc.*",
+]
+allowed_importers = ["osprey_connectors"]
+ignore_imports = [
+    # The door a connector opens around its own write is a public module of
+    # its own: the runtime's raw-put guard reads it by this path.
+    "osprey.** -> osprey_connectors.control_system.write_door",
+]
+
+[[tool.importlinter.contracts]]
+id = "connectors-layers"
+name = "Connector host, then factory, then the archivers, then the control-system connectors"
+# The connector-host child builds connectors through the factory, which builds
+# both families. The simulator's archiver reads the simulator view the
+# in-process control-system connector names, so the archivers sit above the
+# control-system connectors and never the other way round.
+type = "layers"
+layers = [
+    "osprey_connectors.ipc",
+    "osprey_connectors.factory",
+    "osprey_connectors.archiver",
+    "osprey_connectors.control_system",
+]
+
 # Ruff configuration for modern Python linting
 [tool.ruff]
 line-length = 100
@@ -724,6 +785,10 @@ select = [
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
     "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
 ]
+# Rules this config does not select but code may name in a `noqa`: PLC2701
+# (import-private-name) runs in a preview-only invocation of its own, so RUF100
+# must not report a suppression of it as unused.
+external = ["PLC2701"]
 ignore = [
     "E501",  # line too long, handled by formatter
     "B008",  # do not perform function calls in argument defaults
@@ -752,6 +817,13 @@ ignore-variadic-names = true
 # scripts drive the SDK directly.
 "!{src,packages}/**" = ["TID251"]
 "src/osprey/agent_runner/**" = ["TID251"]
+# import-private-name holds the framework to the connectors package's public
+# names (lint-imports holds it at the level of modules). Tests, scripts and the
+# package itself reach implementation on purpose. The rule is preview-only in
+# the pinned ruff, so CI selects it in a run of its own
+# (`ruff check --preview --select=PLC2701 .`) rather than turning preview on
+# here, and this entry is what scopes that run to the framework.
+"!src/osprey/**" = ["PLC2701"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]

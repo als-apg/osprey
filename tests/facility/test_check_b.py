@@ -171,12 +171,12 @@ class ReplicaRuntime:
         self.writes: list[tuple[str, Any]] = []
 
     def _reading(self, value: Any) -> Any:
-        from osprey_connectors.control_system.base import ChannelMetadata, ChannelValue
+        from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 
         return ChannelValue(value=value, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
 
     def _write(self, address: str, value: Any) -> Any:
-        from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
+        from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 
         self.writes.append((address, value))
         self.composite.set({address: value})

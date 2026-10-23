@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.simulation import archive
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,

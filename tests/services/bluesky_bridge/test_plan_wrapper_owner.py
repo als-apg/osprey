@@ -102,7 +102,7 @@ def refuse_a_narrowed_write() -> None:
     have to meet the same refusal, and a plan file is exec'd in a namespace of
     its own that sees nothing of this module.
     """
-    from osprey_connectors.control_system import base as connector_base
+    from osprey_connectors.control_system import _base as connector_base
 
     connector_base.raise_for_write_result(
         connector_base._writes_disabled_result(

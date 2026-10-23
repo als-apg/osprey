@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import osprey.interfaces.web_terminal.routes.chat as chat_module
 from osprey.interfaces.web_terminal.slash_commands import (
     SlashCommand,
+    list_chat_slash_commands,
     list_project_slash_commands,
 )
 
@@ -141,7 +142,7 @@ class TestCommandsRoute:
         app.include_router(chat_module.router)
         return app, TestClient(app)
 
-    def test_lists_project_commands(self, tmp_path: Path) -> None:
+    def test_lists_project_commands_beside_the_builtins(self, tmp_path: Path) -> None:
         _write(
             tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md",
             "---\nsummary: Investigate failures\n---\nBody\n",
@@ -153,29 +154,45 @@ class TestCommandsRoute:
         _app, client = self._client(tmp_path)
         resp = client.get("/api/chat/commands")
         assert resp.status_code == 200
-        assert resp.json() == {
-            "commands": [
-                {
-                    "name": "check",
-                    "description": "Check a PV",
-                    "argument_hint": "<pv>",
-                    "kind": "command",
-                },
-                {
-                    "name": "diagnose",
-                    "description": "Investigate failures",
-                    "argument_hint": "",
-                    "kind": "skill",
-                },
-            ]
+        commands = resp.json()["commands"]
+        assert [c["name"] for c in commands] == ["check", "clear", "compact", "diagnose"]
+        assert commands[0] == {
+            "name": "check",
+            "description": "Check a PV",
+            "argument_hint": "<pv>",
+            "kind": "command",
         }
+        assert commands[3] == {
+            "name": "diagnose",
+            "description": "Investigate failures",
+            "argument_hint": "",
+            "kind": "skill",
+        }
+        assert [c["kind"] for c in commands[1:3]] == ["builtin", "builtin"]
 
-    def test_empty_project_answers_empty_list(self, tmp_path: Path) -> None:
+    def test_an_empty_project_lists_the_builtins(self, tmp_path: Path) -> None:
         _app, client = self._client(tmp_path)
         resp = client.get("/api/chat/commands")
         assert resp.status_code == 200
-        assert resp.json() == {"commands": []}
+        assert [c["name"] for c in resp.json()["commands"]] == ["clear", "compact"]
 
     def test_post_chat_route_unchanged(self, tmp_path: Path) -> None:
         app, _client = self._client(tmp_path)
         assert app.url_path_for("chat") == "/api/chat"
+
+
+class TestBuiltinCommands:
+    """The CLI's own commands the chat offers beside the project's.
+
+    The route tests above pin the built-ins listed and sorted in with the project's own;
+    this one pins the clash between the two.
+    """
+
+    def test_a_project_command_named_as_a_builtin_is_listed_once_as_the_projects(
+        self, tmp_path: Path
+    ) -> None:
+        _write(tmp_path / ".claude" / "commands" / "clear.md", "Project clear\n")
+        found = list_chat_slash_commands(tmp_path)
+        assert [c.name for c in found] == ["clear", "compact"]
+        assert found[0].kind == "command"
+        assert found[0].description == "Project clear"

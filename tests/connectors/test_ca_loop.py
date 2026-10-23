@@ -12,7 +12,7 @@ import types
 
 import pytest
 
-from osprey_connectors.control_system.ca_loop import CA_ENV_KEYS, CaLoop
+from osprey_connectors.control_system._ca_loop import CA_ENV_KEYS, CaLoop
 
 GATEWAY_A = {
     "EPICS_CA_ADDR_LIST": "gw-a",

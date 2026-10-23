@@ -5,8 +5,8 @@ ask stamp keyed by the call's ``tool_use_id`` when it asks, and reads the
 answer off what the harness does emit: ``PostToolUse`` / ``PostToolUseFailure``
 for that id means the call ran (``approved``), and a stamp of the same
 conversation still unconsumed at ``Stop`` / ``StopFailure`` means it did not
-(``denied``). Both outcome branches must print nothing — the harness's flow is
-not theirs to change.
+(``denied``). Neither outcome branch makes a decision. For a call a person approved,
+the outcome event also carries the approval as ``additionalContext``, which the model reads.
 
 Every end-to-end case runs the real hook script as a subprocess, the way the
 harness does.
@@ -42,6 +42,17 @@ APPROVAL_CONFIG = {
 
 CONVERSATION = "conv-1111"
 OTHER_CONVERSATION = "conv-2222"
+
+
+def _approved_note(hook_module, event):
+    """What an outcome event answers for a call a person approved.
+
+    The note is the hook's own constant, not a copy: the chat's transcript reader in
+    ``routes/session.py`` matches that exact sentence, and
+    ``test_session_chat_full.py`` pins its copy to the hook's.
+    """
+    note = hook_module("osprey_approval").APPROVED_CALL_NOTE
+    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": note}}
 
 
 @pytest.fixture
@@ -83,7 +94,7 @@ def _event(event, tool_use_id, session=CONVERSATION, **extra):
     return payload
 
 
-def _ask(hook_runner, deployment, tool_use_id, session=CONVERSATION):
+def _ask(hook_runner, deployment, tool_use_id, session=CONVERSATION, permission_mode="default"):
     result = hook_runner(
         HOOK,
         CHANNEL_WRITE,
@@ -92,7 +103,7 @@ def _ask(hook_runner, deployment, tool_use_id, session=CONVERSATION):
         cwd=deployment.cwd,
         hook_config=HOOK_CONFIG,
         hook_input_extra=_event(
-            "PreToolUse", tool_use_id, session=session, permission_mode="default"
+            "PreToolUse", tool_use_id, session=session, permission_mode=permission_mode
         ),
     )
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
@@ -141,9 +152,14 @@ def test_an_ask_leaves_a_stamp_keyed_by_the_tool_use_id(hook_runner, deployment)
     assert ask["tool_use_id"] == "toolu_ask1"
 
 
-def test_post_tool_use_files_approved_and_consumes_the_stamp(hook_runner, deployment):
+@pytest.mark.parametrize("event", ["PostToolUse", "PostToolUseFailure"])
+def test_an_outcome_files_approved_tells_the_model_and_consumes_the_stamp(
+    hook_runner, hook_module, deployment, event
+):
+    """A call that ran, or ran and failed, was approved: filed once, and the model is told."""
     _ask(hook_runner, deployment, "toolu_ok")
-    assert _after(hook_runner, deployment, "PostToolUse", "toolu_ok") is None
+    result = _after(hook_runner, deployment, event, "toolu_ok")
+    assert result == _approved_note(hook_module, event)
 
     ask, approved = deployment.ledger()
     assert approved["decision"] == "approved"
@@ -151,15 +167,6 @@ def test_post_tool_use_files_approved_and_consumes_the_stamp(hook_runner, deploy
     assert approved["subject"] == CHANNEL_WRITE
     assert approved["tool_use_id"] == ask["tool_use_id"] == "toolu_ok"
     assert approved["detail"] == "approver=human mode=default"
-    assert deployment.ask_stamps() == []
-
-
-def test_post_tool_use_failure_files_approved_too(hook_runner, deployment):
-    _ask(hook_runner, deployment, "toolu_failed")
-    assert _after(hook_runner, deployment, "PostToolUseFailure", "toolu_failed") is None
-
-    decisions = [record["decision"] for record in deployment.ledger()]
-    assert decisions == ["ask", "approved"]
     assert deployment.ask_stamps() == []
 
 
@@ -193,13 +200,21 @@ def test_a_call_never_asked_files_nothing(hook_runner, deployment):
 @pytest.mark.parametrize(
     "payload",
     [
-        _event("PostToolUse", "toolu_quiet"),
-        _event("PostToolUseFailure", "toolu_quiet"),
-        {"hook_event_name": "Stop", "session_id": CONVERSATION},
-        {"hook_event_name": "StopFailure", "session_id": CONVERSATION},
+        pytest.param({"hook_event_name": "Stop", "session_id": CONVERSATION}, id="stop"),
+        pytest.param(
+            {"hook_event_name": "StopFailure", "session_id": CONVERSATION}, id="stop-failure"
+        ),
+        pytest.param(_event("PostToolUse", "toolu_unasked"), id="outcome-of-a-call-never-asked"),
     ],
 )
-def test_the_outcome_branches_print_nothing(hook_runner, hook_runner_raw, deployment, payload):
+def test_the_branches_with_nothing_to_report_print_nothing(
+    hook_runner, hook_runner_raw, deployment, payload
+):
+    """Stop closes asks and prints nothing; an outcome for a call never asked has no note.
+
+    ``PostToolUseFailure`` for a call never asked takes the same no-stamp exit, so the
+    ``PostToolUse`` case stands for both.
+    """
     _ask(hook_runner, deployment, "toolu_quiet")
     returncode, stdout, _stderr = hook_runner_raw(
         HOOK,
@@ -220,7 +235,8 @@ def test_a_dispatch_run_names_the_policy_as_approver(hook_runner, deployment, mo
     (stamp_path,) = deployment.ask_stamps()
     assert json.loads(stamp_path.read_text())["approver"] == "dispatch_policy"
 
-    _after(hook_runner, deployment, "PostToolUse", "toolu_dispatch")
+    # No operator was asked, so the model is told nothing about an operator's approval.
+    assert _after(hook_runner, deployment, "PostToolUse", "toolu_dispatch") is None
     approved = deployment.ledger()[-1]
     assert approved["detail"].startswith("approver=dispatch_policy ")
 
@@ -263,3 +279,16 @@ def test_ask_stamps_keep_their_own_ttl(hook_module, tmp_path):
 
     approval._prune_approval_stamps(str(tmp_path), approval.APPROVAL_ASK_PREFIX)
     assert not two_hours_old.exists()
+
+
+def test_the_note_is_withheld_where_the_prompt_was_not_put_to_a_person(hook_runner, deployment):
+    """The note names an operator, so it is withheld unless the mode shows the prompt.
+
+    Only ``default`` puts the ask in front of a person, and every other mode takes one
+    branch (not in ``_PROMPTED_PERMISSION_MODES``). An unreported mode stands for them
+    all; the told side is pinned by the outcome test above. The call is still filed.
+    """
+    _ask(hook_runner, deployment, "toolu_mode", permission_mode=None)
+
+    assert _after(hook_runner, deployment, "PostToolUse", "toolu_mode") is None
+    assert deployment.ledger()[-1]["decision"] == "approved"

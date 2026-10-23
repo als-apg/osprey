@@ -28,7 +28,7 @@ from unittest.mock import AsyncMock, patch
 import numpy as np
 import pytest
 
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -205,10 +205,7 @@ def store(mongodb_container):  # noqa: F811
 @pytest.fixture
 def connector_config(mongodb_container, store, monkeypatch):  # noqa: F811
     """The connector config of the store, password by environment name."""
-    from osprey_connectors.archiver.mongodb_archiver_connector import (
-        HOST_OVERRIDE_ENV,
-        PORT_OVERRIDE_ENV,
-    )
+    from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
     monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
@@ -232,7 +229,7 @@ def connector_config(mongodb_container, store, monkeypatch):  # noqa: F811
 @pytest.fixture
 async def connector(connector_config):
     """A connected ``MongoDBArchiverConnector`` on the store."""
-    from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
     archiver = MongoDBArchiverConnector()
     await archiver.connect(connector_config)

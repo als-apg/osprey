@@ -77,6 +77,9 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/interfaces/web_terminal/ownership.py", "OwnershipStore._quarantine"): (
         "sets a corrupt index aside"
     ),
+    ("src/osprey/interfaces/web_terminal/routes/chat_attachments.py", "upload_chat_attachment"): (
+        "moves a streamed upload into place; atomic_replace takes bytes"
+    ),
     ("src/osprey/services/archive/run.py", "ArchiveTree.place"): (
         "places a staged copy, never over an existing file"
     ),

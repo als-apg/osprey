@@ -22,13 +22,13 @@ import aioca
 import numpy
 import pytest
 
-from osprey_connectors.control_system.base import (
+from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
     WriteOutcome,
     raise_for_write_result,
 )
-from osprey_connectors.control_system.epics_connector import (
+from osprey_connectors.control_system._epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
 )
@@ -225,7 +225,7 @@ class TestConnect:
         _patch_writes_enabled(monkeypatch, False)
         sentinel = MagicMock(name="limits_validator")
         monkeypatch.setattr(
-            "osprey_connectors.control_system.limits_validator.LimitsValidator.from_config",
+            "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             classmethod(lambda cls, *, connector_type=None, target=None: sentinel),
         )
 
@@ -321,7 +321,7 @@ class TestReadChannel:
         A naive ``datetime.fromtimestamp(ts)`` without a zone would fail this.
         """
         monkeypatch.setattr(
-            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),  # UTC+9, no DST
         )
         connector = _channel_connector(ca_reading(1.23, timestamp=1_750_000_000.0))
@@ -336,7 +336,7 @@ class TestReadChannel:
     async def test_missing_timestamp_falls_back_to_now(self, monkeypatch):
         """When the reading carries no timestamp, the read stamps a facility-tz 'now'."""
         monkeypatch.setattr(
-            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
         connector = _channel_connector(ca_reading(3.14, timestamp=0))
@@ -887,7 +887,7 @@ class TestCurrentValueReader:
     @pytest.mark.asyncio
     async def test_reads_the_channel_as_a_plain_value(self):
         connector = _channel_connector(ca_reading(3.5))
-        read_current = connector._current_value_reader()
+        read_current = connector.current_value_reader()
 
         assert await asyncio.to_thread(read_current, "SR:CH") == 3.5
 
@@ -895,7 +895,7 @@ class TestCurrentValueReader:
     async def test_a_channel_that_does_not_answer_reads_as_none(self):
         """``None`` fails the step check closed."""
         connector = _connector(aioca=FakeAioca())
-        read_current = connector._current_value_reader()
+        read_current = connector.current_value_reader()
 
         assert await asyncio.to_thread(read_current, "SR:NOPE") is None
 
@@ -903,7 +903,7 @@ class TestCurrentValueReader:
     async def test_the_read_uses_the_step_read_timeout(self):
         connector = _channel_connector(ca_reading(3.5))
         connector._step_read_timeout = 0.75
-        read_current = connector._current_value_reader()
+        read_current = connector.current_value_reader()
 
         await asyncio.to_thread(read_current, "SR:CH")
 
@@ -932,7 +932,7 @@ class TestSubscribe:
     async def test_a_monitor_update_converts_to_channel_value(self, monkeypatch):
         """aioca's monitor update is adapted into a facility-tz ChannelValue."""
         monkeypatch.setattr(
-            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
         connector = _channel_connector(ctrl=ca_reading(0.0, units="A"))
@@ -1186,7 +1186,7 @@ class TestChannelAccessAlarmNames:
     async def test_subscribe_callback_reports_alarm_name(self, monkeypatch):
         """The monitor path maps codes exactly like the read path."""
         monkeypatch.setattr(
-            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("UTC"),
         )
         connector = _channel_connector()
@@ -1337,7 +1337,7 @@ class TestChannelAccessEnumLabels:
     @pytest.mark.asyncio
     async def test_subscribe_callback_reports_the_label_once_ctrl_fields_arrive(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey_connectors.control_system.epics_connector.get_facility_timezone",
+            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
             lambda: ZoneInfo("UTC"),
         )
         connector = _enum_connector()

@@ -106,14 +106,15 @@ function dispatch(callbacks, event) {
 
 /**
  * Read the response body to completion, decoding and dispatching each SSE
- * frame. Returns once the stream ends or a terminal event is seen. Partial
- * chunks are buffered across reads so a frame split mid-transfer is delivered
- * exactly once and whole.
+ * frame. Returns once the stream ends or — unless *untilClosed* — a terminal
+ * event is seen. Partial chunks are buffered across reads so a frame split
+ * mid-transfer is delivered exactly once and whole.
  * @param {ReadableStreamDefaultReader<Uint8Array>} reader
  * @param {ChatCallbacks} callbacks
+ * @param {boolean} [untilClosed] - keep reading past terminal events (a live feed)
  * @returns {Promise<void>}
  */
-async function pump(reader, callbacks) {
+async function pump(reader, callbacks, untilClosed = false) {
   const decoder = new TextDecoder();
   let buffer = '';
   while (true) {
@@ -127,7 +128,7 @@ async function pump(reader, callbacks) {
       const event = parseSseFrame(frame);
       if (!event) continue;
       dispatch(callbacks, event);
-      if (isTerminal(event)) return;
+      if (!untilClosed && isTerminal(event)) return;
     }
   }
   // Flush a trailing frame that arrived without its closing blank line.
@@ -280,6 +281,96 @@ export async function interrupt(chatId) {
 }
 
 /**
+ * Answer the `permission_request` a turn is waiting on. The body carries the
+ * request id, the decision and — for a question — the chosen answers keyed by
+ * question text; `for_session` also allows the tool for the rest of the
+ * session where the request offered that. A 404 `no_pending_request` means
+ * the request is already gone: the turn was stopped, or another tab answered
+ * it first.
+ * @param {string} chatId
+ * @param {{ request_id: string, allow: boolean, answers?: Record<string, string>, message?: string, for_session?: boolean }} body
+ * @returns {Promise<Response>}
+ */
+export async function answerPermission(chatId, body) {
+  const res = await fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/permission`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await transportError(res);
+  return res;
+}
+
+/**
+ * A live feed held open by {@link followChat}.
+ * @typedef {object} ChatFeed
+ * @property {() => void} close - stop following for good
+ */
+
+/**
+ * Follow everything the agent behind *chatId* does, whichever tab asked, until
+ * closed: `GET /api/chat/{chat_id}/events`. Each (re)connect opens with a
+ * `hello` snapshot. A dropped connection is retried with backoff; a 204 (no
+ * agent runs for the chat yet) more slowly.
+ * @param {string} chatId
+ * @param {ChatCallbacks} callbacks - `onEvent` gets every frame
+ * @returns {ChatFeed}
+ */
+export function followChat(chatId, callbacks) {
+  let closed = false;
+  let generation = 0;
+  let delay = 1000;
+  let timer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
+  let controller = /** @type {AbortController | null} */ (null);
+
+  /** @param {number} ms */
+  function retry(ms) {
+    if (closed) return;
+    clearTimeout(timer ?? undefined);
+    timer = setTimeout(() => void connect(), ms);
+  }
+
+  async function connect() {
+    if (closed) return;
+    const mine = ++generation;
+    // A reconnect supersedes any retry still waiting to fire.
+    clearTimeout(timer ?? undefined);
+    timer = null;
+    controller?.abort();
+    controller = new AbortController();
+    let next = delay;
+    try {
+      const res = await fetch(
+        withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/events`),
+        { signal: controller.signal, cache: 'no-store' },
+      );
+      if (res.status === 204) {
+        next = 10000;
+      } else if (res.ok && res.body) {
+        delay = 1000;
+        await pump(res.body.getReader(), callbacks, true);
+        next = delay;
+      }
+    } catch {
+      /* dropped or aborted — retried below unless superseded or closed */
+    }
+    if (mine !== generation) return;
+    delay = Math.min(delay * 2, 10000);
+    retry(next);
+  }
+
+  void connect();
+  return {
+    close() {
+      closed = true;
+      generation += 1;
+      clearTimeout(timer ?? undefined);
+      controller?.abort();
+    },
+  };
+}
+
+/**
  * One conversation turn as served by `GET /api/session-chat`. The same shape
  * the renderer takes, so turns pass straight from here to the replay.
  *
@@ -287,6 +378,8 @@ export async function interrupt(chatId) {
  * @property {string} role - `user` or `assistant`
  * @property {string} content - the turn's text; markdown for an agent turn
  * @property {string} [timestamp] - transcript timestamp
+ * @property {ChatEvent[]} [events] - an agent turn's stream as the live chat
+ *   received it (`text`, `thinking`, `tool_use`, `tool_result`, `result`)
  */
 
 /**
@@ -335,7 +428,8 @@ export async function requestHandoff(key, options = {}) {
  * Read the conversation behind *key* so the Simple view can replay it.
  *
  * `full=1` asks for the whole transcript rather than the trailing window the
- * session page shows. The response is `{turns, count}`; only the turns are
+ * session page shows, and `events=1` for each agent turn's thinking and tool
+ * calls alongside its text. The response is `{turns, count}`; only the turns are
  * returned, and a body without them yields an empty list — a key whose
  * transcript has no turns yet is a normal first flip, not a failure.
  * `no-store` keeps a flip from replaying a copy cached before the last turn.
@@ -343,7 +437,7 @@ export async function requestHandoff(key, options = {}) {
  * @returns {Promise<ChatTurn[]>}
  */
 export async function fetchHistory(key) {
-  const url = `${SESSION_CHAT_ENDPOINT}?session_id=${encodeURIComponent(key)}&full=1`;
+  const url = `${SESSION_CHAT_ENDPOINT}?session_id=${encodeURIComponent(key)}&full=1&events=1`;
   const res = await fetch(withPrefix(url), { cache: 'no-store' });
   if (!res.ok) throw await transportError(res);
   const data = await res.json();
@@ -362,4 +456,67 @@ export async function fetchHistory(key) {
 export async function fetchCommands() {
   const body = await fetchJSON(COMMANDS_ENDPOINT);
   return Array.isArray(body?.commands) ? body.commands : [];
+}
+
+/**
+ * A file the server stored for an attachment: the name it is shown under, the
+ * absolute path the agent reads, the size in bytes and the MIME type the
+ * content was found to be.
+ * @typedef {{ name: string, path: string, size: number, type: string }} StoredAttachment
+ */
+
+/**
+ * Store one file the operator attached to a message that has not been sent yet.
+ *
+ * POSTs the file's bytes to `/api/chat/{chatId}/attachments`. The name travels
+ * percent-encoded in a header, and *batch* names the message the file belongs
+ * to, so the server can hold that message to its file cap. A refusal rejects
+ * with a {@link TransportError} whose `slug` names the reason (`unsupported_type`,
+ * `file_too_large`, `chat_full`, `too_many_files`, `empty_file`, ...). *signal*
+ * cancels the upload.
+ * @param {string} chatId
+ * @param {Blob} file
+ * @param {{ name: string, batch: string, signal?: AbortSignal }} options
+ * @returns {Promise<StoredAttachment>}
+ */
+export async function uploadChatAttachment(chatId, file, { name, batch, signal }) {
+  const res = await fetch(
+    withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/attachments`),
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Osprey-Attachment-Name': encodeURIComponent(name),
+        'X-Osprey-Attachment-Batch': batch,
+      },
+      body: file,
+      signal,
+    },
+  );
+  if (!res.ok) throw await transportError(res);
+  return res.json();
+}
+
+/**
+ * Remove a file the operator took back before sending it. Removing a file that
+ * is no longer there is not an error: the server answers the same either way.
+ * With *keepalive* the request outlives the page, so a tab that closes with
+ * files in its tray still takes them back.
+ * @param {string} chatId
+ * @param {string} storedName - the file's name in the store (the last segment of its path)
+ * @param {{ batch?: string, keepalive?: boolean }} [options] - the message the file was filed under
+ * @returns {Promise<void>}
+ */
+export async function removeChatAttachment(chatId, storedName, { batch, keepalive } = {}) {
+  const res = await fetch(
+    withPrefix(
+      `${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(storedName)}`,
+    ),
+    {
+      method: 'DELETE',
+      headers: batch ? { 'X-Osprey-Attachment-Batch': batch } : {},
+      keepalive: Boolean(keepalive),
+    },
+  );
+  if (!res.ok) throw await transportError(res);
 }

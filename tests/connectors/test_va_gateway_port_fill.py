@@ -26,8 +26,8 @@ import yaml
 import osprey.profiles
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey_connectors.control_system import va_connector
-from osprey_connectors.control_system.va_connector import (
+from osprey_connectors.control_system import _va_connector as va_connector
+from osprey_connectors.control_system._va_connector import (
     DEFAULT_VA_PORT,
     VirtualAcceleratorConnector,
     fill_gateway_ports,
@@ -303,7 +303,7 @@ async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeyp
     project also deploys a VA on some other port.
     """
     from osprey_connectors import config as config_module
-    from osprey_connectors.control_system.epics_connector import EPICSConnector
+    from osprey_connectors.control_system._epics_connector import EPICSConnector
 
     def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
         if path == "services.virtual_accelerator.port":

@@ -18,7 +18,12 @@ from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import zero_source_facts
-from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH, agent_data_base_dir
+from osprey_connectors.workspace import (
+    CHAT_UPLOADS_SUBDIR,
+    RENDERED_CONFIG_RELPATH,
+    agent_data_base_dir,
+    resolve_shared_data_root,
+)
 from tests._preset_data import bundle_data_root
 
 
@@ -288,6 +293,25 @@ class TestClaudeCodeFileContents:
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
         assert f"Read({root}/**)" in allow
+
+    def test_the_chat_uploads_directory_is_readable_by_absolute_path(self, project_dir):
+        """The agent reads an attached file by the absolute path the chat hands it.
+
+        The render's other Read rules are relative to the agent's working directory,
+        which is the render; the uploads sit under the agent-data root beside it, so
+        their rule names that directory absolutely (``//`` opens an absolute path in
+        a Claude Code rule) and nothing wider: Read only, the one directory.
+        """
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+
+        uploads = resolve_shared_data_root(config) / CHAT_UPLOADS_SUBDIR
+        assert uploads.is_absolute()
+        assert f"Read(/{uploads}/**)" in allow
+        assert not any(entry.startswith("Edit(") and "uploads" in entry for entry in allow), (
+            "the uploads directory must stay read-only to the agent"
+        )
 
     def test_settings_json_hooks_are_structurally_valid(self, project_dir):
         """Every hook entry in PreToolUse/PostToolUse has a 'hooks' array."""

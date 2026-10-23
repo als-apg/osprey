@@ -158,7 +158,7 @@ def worker_writes_enabled() -> bool:
     """
     from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.control_system import is_readonly_run
     from osprey_connectors.types import WRITES_ENABLED_KEY, type_writes_enabled
 
     connector_type, lane_degraded = resolve_lane_connector_type()
@@ -193,7 +193,7 @@ def build_connector_config(control_system_type: str, section: Any) -> dict[str, 
     (``REASON_UNSUPPORTED_CONNECTOR`` in
     :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
-    from osprey_connectors.control_system.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY
+    from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY
     from osprey_connectors.types import (
         IN_PROCESS,
         SERVING_LEAF,

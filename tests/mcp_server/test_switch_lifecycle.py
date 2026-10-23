@@ -1,7 +1,7 @@
 """The connector-host supervisor and the spawn-then-swap target switch.
 
 Every test that is about the *mechanics* of a switch spawns real
-``python -m osprey_connectors.ipc.host`` children and swaps between them, for
+``python -m osprey_connectors.ipc._host`` children and swaps between them, for
 the same reason the child's own tests do: the things worth pinning here — that
 the old process actually dies, that a hung read on it really does end, that a
 failed candidate leaves nothing behind — only exist between processes.
@@ -42,12 +42,12 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
-from osprey_connectors.control_system.base import ChannelValue, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from osprey_connectors.ipc.launch import host_env
-from osprey_connectors.ipc.pool import DEFAULT_CALL_DEADLINE_S
-from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.ipc.verification import (
+from osprey_connectors.ipc._launch import host_env
+from osprey_connectors.ipc._pool import DEFAULT_CALL_DEADLINE_S
+from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors.ipc._verification import (
     Endpoint,
     TargetDerivation,
     verify_host_report,
@@ -2167,7 +2167,7 @@ class TestNonCapableDeploymentIsUntouched:
 
         connector = await context.control_system()
 
-        from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+        from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         assert isinstance(connector, VAInProcessConnector)
         assert await context.control_system() is connector

@@ -290,7 +290,7 @@ def _patch_lane_config(
 
 def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record every `LimitsValidator._load_limits_database` call, still doing it."""
-    from osprey_connectors.control_system.limits_validator import LimitsValidator
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
 
     probe_calls: list[str] = []
     original_load = LimitsValidator._load_limits_database

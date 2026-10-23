@@ -5,7 +5,7 @@ can block or crash the process — pyepics' ``finalize_libca`` wedges after
 Channel Access was used from a worker thread, which the EPICS connector always
 does. The executor only sees a child that never closes its pipes, and reports a
 run that finished in a second as a timeout ten minutes later. The wrapper
-therefore leaves the way ``osprey_connectors.ipc.host`` does: streams flushed,
+therefore leaves the way ``osprey_connectors.ipc._host`` does: streams flushed,
 outputs persisted, then ``os._exit`` — no shutdown hook gets a say.
 
 The stand-in for the wedging hook is an ``atexit`` handler registered by the

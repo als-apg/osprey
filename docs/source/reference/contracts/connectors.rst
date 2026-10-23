@@ -258,7 +258,7 @@ implementation:
   ``asyncio.run_coroutine_threadsafe``. Each runs the put in a copy of the
   calling context, and a task created while the door is open inherits it too.
   The EPICS connector uses the last: its Channel Access puts run on the
-  process's CA loop (``osprey_connectors.control_system.ca_loop``).
+  process's single Channel Access loop.
 - **Not behind** ``loop.run_in_executor``, a raw executor ``submit`` or a bare
   ``threading.Thread``. Each starts from a fresh context, sees the door
   closed, and the put is refused with reason ``RAW_CLIENT_WRITE``.
@@ -385,7 +385,7 @@ control-system connector answers about the present.
    ``get_data`` returns long-format data (below) instead of a shared-index wide
    ``DataFrame``. Out-of-tree connectors written against the old contract must be updated.
 
-Subclass :class:`~osprey_connectors.archiver.base.ArchiverConnector` and implement
+Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
 ``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
@@ -440,7 +440,7 @@ applied independently to each channel's own samples:
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
-The shared helpers in ``osprey_connectors.archiver._timerange`` (``to_utc``,
+The shared helpers in ``osprey_connectors.archiver`` (``to_utc``,
 ``require_datetime``, ``resolve_processing``, ``long_frame``, ``decimate_raw``,
 ``aggregate_series``, ``reject_non_numeric``) implement all of the above --
 every in-tree connector builds on them rather than reimplementing binning.

@@ -85,7 +85,7 @@ from osprey.mcp_server.control_system.tools import channel_write as channel_writ
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 from tests.fixtures.control_context import (
     claim_the_record,
     context_for,

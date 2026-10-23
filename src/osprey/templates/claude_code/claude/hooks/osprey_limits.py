@@ -234,14 +234,20 @@ def main():
 
     tool_input = hook_input.get("tool_input", {})
 
-    # Try to import LimitsValidator; if unavailable, allow
+    # Try to import LimitsValidator; if unavailable, allow. A deployed project
+    # runs this hook against whatever framework is installed there, and a
+    # release before the connectors package had namespaces spelled the validator
+    # by its module's path, so that path is tried second.
     try:
-        from osprey_connectors.control_system.limits_validator import (
-            LimitsValidator,
-        )
+        from osprey_connectors.control_system import LimitsValidator
     except ImportError:
-        # osprey not installed — allow and let the MCP tool handle it
-        sys.exit(0)
+        try:
+            from osprey_connectors.control_system.limits_validator import (  # type: ignore[no-redef]
+                LimitsValidator,
+            )
+        except ImportError:
+            # osprey not installed — allow and let the MCP tool handle it
+            sys.exit(0)
 
     if not _supports_per_target_postures(LimitsValidator):
         # Framework older than this render (see `_supports_per_target_postures`):

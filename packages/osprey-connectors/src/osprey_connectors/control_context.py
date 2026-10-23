@@ -113,6 +113,7 @@ from osprey_connectors.types import CONTROL_TARGETS
 logger = logging.getLogger("osprey_connectors.control_context")
 
 __all__ = [
+    "claimed",
     "REPORT_APPLIED",
     "REPORT_APPLYING",
     "REPORT_FAILED",

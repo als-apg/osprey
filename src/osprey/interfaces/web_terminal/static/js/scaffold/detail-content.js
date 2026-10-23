@@ -5,7 +5,7 @@
  * The two read-only detail-view content renderers: Preview (rendered
  * markdown / highlighted code, plus the structured settings.json and
  * mcp.json views; the files are agent-writable, so markdown renders through
- * chat-render.js's sanitise-or-degrade renderMarkdownInto) and Diff (unified diff between the active and
+ * chat-markdown.js's sanitise-or-degrade renderMarkdownInto) and Diff (unified diff between the active and
  * framework-default layers, grouped into hunks and word-diffed per pair
  * via diff-utils). Kept separate from scaffold/detail.js to hold both
  * modules comfortably under the 450-line cap -- Preview/Diff is the
@@ -20,7 +20,7 @@
  */
 
 import { fetchJSON } from '../api.js';
-import { renderMarkdownInto } from '../chat-render.js';
+import { renderMarkdownInto } from '../chat-markdown.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from '../diff-utils.js';
 import { renderSettingsJson, renderMcpJson } from '../config-renderers.js';
 import {

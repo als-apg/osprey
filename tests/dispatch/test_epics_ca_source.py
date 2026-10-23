@@ -23,7 +23,7 @@ import pytest
 from osprey.dispatch.sources import epics_ca
 from osprey.dispatch.sources.epics_ca import EpicsCaSource, _PvWatcher
 from osprey.dispatch.trigger_config import TriggerConfig
-from osprey_connectors.control_system.base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -714,7 +714,7 @@ class TestConnect:
     @pytest.mark.asyncio
     async def test_the_dispatchers_ca_environment_is_left_as_it_stands(self, monkeypatch) -> None:
         """``dispatch.env`` hands the gateway over; a gateway block would rewrite it."""
-        from osprey_connectors.control_system.epics_connector import EPICSConnector
+        from osprey_connectors.control_system._epics_connector import EPICSConnector
         from tests.connectors._epics_fakes import install_fake_aioca
 
         install_fake_aioca(monkeypatch)

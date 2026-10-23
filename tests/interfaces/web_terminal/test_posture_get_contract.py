@@ -56,7 +56,7 @@ from osprey.mcp_server.control_system import (
     target_state,
 )
 from osprey_connectors import control_context, posture_store, workspace
-from osprey_connectors.ipc import verification
+from osprey_connectors.ipc import _verification as verification
 from tests._control_context_fixtures import (
     owner,
     state_dir_under,

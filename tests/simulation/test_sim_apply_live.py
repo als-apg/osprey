@@ -14,7 +14,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from osprey_connectors.control_system.va_in_process_connector import simulation_state_dir
+from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from osprey_connectors.simulation.composite import Composite
 from tests._builds import BuiltProject
 from tests.simulation.conftest import stage_built_simulator_view

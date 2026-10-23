@@ -81,7 +81,7 @@ PROBE_SCRIPT = textwrap.dedent(
     f"""
     import json
 
-    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from osprey_connectors.factory import ConnectorFactory
 
     # See the module docstring: the class is substituted, the type keys are not.

@@ -31,6 +31,10 @@ import {
   registerContribHost,
   unregisterContribHost,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
+import {
+  closeMenu,
+  toggleOverflowMenu,
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-items.js';
 
 /** Monotonic id source so each test gets an isolated panel id. */
 let seq = 0;
@@ -86,6 +90,7 @@ function attachedHost(panelId) {
 initHeaderContrib();
 
 afterEach(() => {
+  closeMenu();
   document.body.replaceChildren();
 });
 
@@ -376,5 +381,39 @@ describe('sanitization of the extended vocabulary', () => {
     const pop = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover'));
     expect(pop.querySelector('img')).toBeNull();
     expect(pop.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+});
+
+// Close-on-scroll guards against the popover drifting off its button, so only
+// a scroll that moves the button may close it -- not the chat pane
+// auto-scrolling on new output, nor the popover's own rows.
+describe('popover close-on-scroll', () => {
+  function openOverflow() {
+    const strip = document.createElement('div');
+    const btn = document.createElement('button');
+    strip.appendChild(btn);
+    document.body.appendChild(strip);
+    toggleOverflowMenu(btn, [{ label: 'Clock', pick: () => {} }]);
+    return { strip, pop: /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover')) };
+  }
+
+  test('a scroll elsewhere on the page keeps it open', () => {
+    openOverflow();
+    const chat = document.createElement('div');
+    document.body.appendChild(chat);
+    chat.dispatchEvent(new Event('scroll'));
+    expect(document.querySelector('.contrib-menu-popover')).not.toBeNull();
+  });
+
+  test('scrolling its own rows keeps it open', () => {
+    const { pop } = openOverflow();
+    pop.dispatchEvent(new Event('scroll'));
+    expect(document.querySelector('.contrib-menu-popover')).not.toBeNull();
+  });
+
+  test('a scroll that moves the button closes it', () => {
+    const { strip } = openOverflow();
+    strip.dispatchEvent(new Event('scroll'));
+    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
   });
 });

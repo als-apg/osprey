@@ -49,7 +49,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system.base import is_readonly_run
+from osprey_connectors.control_system import is_readonly_run
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
@@ -2571,7 +2571,7 @@ def _row_selected_role(
     *config_path* is the file *config* was parsed from; an unset gateway port is filled from it.
 
     The reachability collapse keys on it, so it is derived through
-    :func:`~osprey_connectors.ipc.verification.derive_endpoints`
+    :func:`~osprey_connectors.ipc.derive_endpoints`
     — the function the connector-host child's own selection is verified against
     — with the recorded effective posture rather than the configured one. A
     role derived from config alone would name the write gateway for a target the
@@ -2584,7 +2584,7 @@ def _row_selected_role(
     if config is _UNREADABLE_SECTION:
         return None
     try:
-        from osprey_connectors.ipc.verification import derive_endpoints
+        from osprey_connectors.ipc import derive_endpoints
 
         return derive_endpoints(
             config, target, writes_enabled=writes_enabled, config_path=config_path
@@ -3359,10 +3359,11 @@ async def operator_ws(websocket: WebSocket):
         return
 
     async def forward_events():
-        """Drain the session queue and send events to the WebSocket."""
+        """Forward the session's feed to the WebSocket."""
+        feed, _hello = session.subscribe()
         try:
             while True:
-                event = await session._queue.get()
+                event = await feed.get()
                 if event.get("type") == "keepalive":
                     continue
                 await websocket.send_json(event)
@@ -3370,6 +3371,8 @@ async def operator_ws(websocket: WebSocket):
             pass
         except Exception:
             pass
+        finally:
+            session.unsubscribe(feed)
 
     forward_task = asyncio.create_task(forward_events())
 

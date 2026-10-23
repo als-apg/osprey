@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
 from tests.facility.served_tree import in_process_config, served_tree
 

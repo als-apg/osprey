@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
     from osprey.dispatch.sources.base import FireCallback
     from osprey.dispatch.trigger_config import TriggerConfig
-    from osprey_connectors.control_system.base import ChannelValue, ControlSystemConnector
+    from osprey_connectors.control_system import ChannelValue, ControlSystemConnector
 
 logger = logging.getLogger("osprey.dispatch.sources.epics_ca")
 

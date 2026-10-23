@@ -515,12 +515,10 @@ def main():
 
     # Deny — this deployment is not armed for what the call would touch. Emit a
     # JSON `permissionDecision: deny`, the canonical PreToolUse deny mechanism.
-    # Empirically: PreToolUse decision aggregation does not honour this deny if
-    # another hook in the same chain returns an "ask", so on a mixed
-    # read/write render — where the renderer no longer emits a static ask for
-    # the write tools — this deny together with approval's defer (see
-    # osprey_approval.py) is the whole gate. On a render that hard-blocks the
-    # tool through `permissions.deny` in
+    # On the pinned Claude Code this deny holds when another hook in the same chain
+    # asks: the approval card is not shown and the call does not run. That is what
+    # tests/e2e/claude_code/test_chat_approval_gates_scripted.py proves (scenarios a
+    # and b). On a render that hard-blocks the tool through `permissions.deny` in
     # `osprey.cli.templates.claude_code`, this is defense-in-depth.
     log_hook("writes-check", hook_input, status="deny", detail=f"target={target}")
     _record_refusal(

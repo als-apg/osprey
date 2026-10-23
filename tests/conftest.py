@@ -18,7 +18,7 @@ from rich.logging import RichHandler
 
 from osprey.services.bluesky_bridge import session_dir as _session_plan_dir
 from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, _live_threads, _repo_cleanliness, ci_diagnostics
+from tests import _env_scope_guard, _live_threads, _repo_cleanliness, _scoped_temp, ci_diagnostics
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
@@ -1594,6 +1594,11 @@ def pytest_configure(config):
     # run because it prints nothing when nothing is left. See tests/_live_threads.py.
     if not config.pluginmanager.is_registered(_live_threads):
         config.pluginmanager.register(_live_threads, _live_threads.PLUGIN_NAME)
+
+    # A shared fixture's temporary directories go when its scope ends, not when
+    # the session does. See tests/_scoped_temp.py.
+    if not config.pluginmanager.is_registered(_scoped_temp):
+        config.pluginmanager.register(_scoped_temp, _scoped_temp.PLUGIN_NAME)
 
     # Registered here rather than in pyproject.toml so the seam and its opt-out
     # marker live in one file; `--strict-markers` would otherwise reject it.

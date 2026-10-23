@@ -9,7 +9,7 @@ import asyncio
 import os
 import time
 
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
 #: Channels whose reads and writes take far longer than any test waits.
 SLOW_PREFIX = "SLOW:"

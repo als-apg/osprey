@@ -33,7 +33,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from osprey_connectors.archiver.field_names import field_name
+from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -216,7 +216,7 @@ def read_back(mongo_store, monkeypatch):
     monkeypatch.setenv(password_env, mongo_store["password"])
 
     async def query(channels, start, end):
-        from osprey_connectors.archiver.mongodb_archiver_connector import (
+        from osprey_connectors.archiver._mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
 

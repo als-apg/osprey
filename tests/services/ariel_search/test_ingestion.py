@@ -1550,7 +1550,14 @@ class TestALSLogbookAdapterWrite:
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
         mock_response.__aexit__ = AsyncMock(return_value=None)
 
+        logbooks_response = AsyncMock()
+        logbooks_response.raise_for_status = MagicMock()
+        logbooks_response.text = AsyncMock(return_value='[{"id": "1", "name": "Operations"}]')
+        logbooks_response.__aenter__ = AsyncMock(return_value=logbooks_response)
+        logbooks_response.__aexit__ = AsyncMock(return_value=None)
+
         mock_session = MagicMock()
+        mock_session.get = MagicMock(return_value=logbooks_response)
         mock_session.post = MagicMock(return_value=mock_response)
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
@@ -1568,10 +1575,10 @@ class TestALSLogbookAdapterWrite:
 
         assert entry_id == "99999"
 
-        # Verify POST was called with XML content type
+        # Verify the XML rode the ``xml`` form field
         mock_session.post.assert_called_once()
         call_kwargs = mock_session.post.call_args
-        assert call_kwargs.kwargs["headers"]["Content-Type"] == "application/xml"
+        assert call_kwargs.kwargs["data"]["xml"].startswith("<root>")
 
     def test_requires_write_auth_default_true(self):
         """ALS adapter requires credentials to publish (inherits fail-closed default)."""

@@ -174,7 +174,7 @@ async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes
     from osprey.facility.render import render_facility_outputs
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.simulation.engines import pyat as engine
-    from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+    from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from osprey_connectors.simulation.composite import STATUS_OK
     from tests.facility._mml_built import WIDENED, widen
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config

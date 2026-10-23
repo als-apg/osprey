@@ -288,7 +288,7 @@ def _mongodb_archiver_connector(
     its absence is refused — with the refusal naming both the config key the
     build writes and the env var a containerized consumer sets.
     """
-    from osprey_connectors.archiver.mongodb_archiver_connector import (
+    from osprey_connectors.archiver._mongodb_archiver_connector import (
         MongoDBArchiverConnector,
     )
 

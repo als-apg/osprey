@@ -400,10 +400,11 @@ function openSharedStream(url) {
 /**
  * Fetch JSON from a URL.
  * @param {string} url
+ * @param {{ signal?: AbortSignal }} [options] - `signal` aborts the request
  * @returns {Promise<any>}
  */
-export async function fetchJSON(url) {
-  const res = await fetch(withPrefix(url), { cache: 'no-store' });
+export async function fetchJSON(url, { signal } = {}) {
+  const res = await fetch(withPrefix(url), { cache: 'no-store', signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
 }

@@ -128,8 +128,8 @@ class ConnectorRegistration:
 
     .. seealso::
        :class:`osprey_connectors.factory.ConnectorFactory` : Runtime connector factory
-       :class:`osprey_connectors.control_system.base.ControlSystemConnector` : Base class for control system connectors
-       :class:`osprey_connectors.archiver.base.ArchiverConnector` : Base class for archiver connectors
+       :class:`osprey_connectors.control_system.ControlSystemConnector` : Base class for control system connectors
+       :class:`osprey_connectors.archiver.ArchiverConnector` : Base class for archiver connectors
     """
 
     name: str

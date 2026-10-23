@@ -36,9 +36,9 @@ import aioca
 import pytest
 
 from osprey.runtime import read_channels
-from osprey_connectors.control_system.base import ChannelValue
-from osprey_connectors.control_system.epics_connector import EPICSConnector
-from osprey_connectors.control_system.va_in_process_connector import VAInProcessConnector
+from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelReadFailedError
 from tests.connectors._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
 from tests.facility.served_tree import in_process_config, served_tree
@@ -145,8 +145,10 @@ async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 DOOCS_ADDRESSES = ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B", "FAC/DEV/LOC/C"]
 
-_DOOCS_LIMITS_PATCH = "osprey_connectors.control_system.doocs_connector.LimitsValidator.from_config"
-_DOOCS_TZ_PATCH = "osprey_connectors.control_system.doocs_connector.get_facility_timezone"
+_DOOCS_LIMITS_PATCH = (
+    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+)
+_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
 
 
 def _eq_data(value):
@@ -174,7 +176,7 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
         patch(_DOOCS_LIMITS_PATCH, return_value=None),
         patch(_DOOCS_TZ_PATCH, return_value=UTC),
     ):
-        from osprey_connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
         await conn.connect({})
@@ -190,8 +192,10 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 
 TANGO_ADDRESSES = ["sr/ps/01/Current", "sr/ps/02/Current", "sr/ps/03/Current"]
 
-_TANGO_LIMITS_PATCH = "osprey_connectors.control_system.tango_connector.LimitsValidator.from_config"
-_TANGO_TZ_PATCH = "osprey_connectors.control_system.tango_connector.get_facility_timezone"
+_TANGO_LIMITS_PATCH = (
+    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+)
+_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 
 def _device_attribute(value):
@@ -228,7 +232,7 @@ async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
         patch(_TANGO_LIMITS_PATCH, return_value=None),
         patch(_TANGO_TZ_PATCH, return_value=UTC),
     ):
-        from osprey_connectors.control_system.tango_connector import TangoConnector
+        from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
         await conn.connect({})
@@ -357,8 +361,8 @@ class TestRuntimeReadChannels:
 
 
 def _connector_classes():
-    from osprey_connectors.control_system.doocs_connector import DOOCSConnector
-    from osprey_connectors.control_system.tango_connector import TangoConnector
+    from osprey_connectors.control_system._doocs_connector import DOOCSConnector
+    from osprey_connectors.control_system._tango_connector import TangoConnector
 
     return {
         "in_process": VAInProcessConnector,
