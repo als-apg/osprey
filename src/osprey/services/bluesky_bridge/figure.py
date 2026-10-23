@@ -678,6 +678,8 @@ def default_figure(
                 title=name,
                 x_label="Row" if x_column is None else x_column,
                 y_label=name,
+                x_units=None if x_column is None else window.units.get(x_column),
+                y_units=window.units.get(name),
                 annotations=annotations if not panels else [],
                 mark=LinesMark(
                     series=[Series(label=name, **kept._asdict())],
