@@ -1442,6 +1442,16 @@ class _SharedRenderInputs(NamedTuple):
     deployment instead (:func:`_template_host_config`).
     """
 
+    container_runtime: str | None = None
+    """The build's one container-runtime answer: ``docker``, ``podman``, or ``auto``
+    when no runtime answered.
+
+    Set from the deployment's own render, which is the one render that asks the
+    host (:func:`_pin_rendered_container_runtime`); every later render of the
+    build writes this answer. ``None`` for a render that belongs to no build,
+    which asks the host nothing and writes nothing.
+    """
+
 
 #: Parsed ``config.yml`` documents by (path, content digest); see
 #: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
@@ -1565,8 +1575,10 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     return []
 
 
-def _resolve_rendered_container_runtime(render_dir: Path, progress: Any) -> None:
-    """Answer ``container_runtime: auto`` in a render with the runtime that served it.
+def _pin_rendered_container_runtime(
+    render_dir: Path, shared: _SharedRenderInputs, *, deployment: bool, progress: Any
+) -> None:
+    """Answer ``container_runtime: auto`` in a render with the build's one runtime.
 
     ``auto`` is a question, and every deployment template ships it as the
     default. Left in ``build/config.yml`` — the as-built config every lifecycle
@@ -1577,37 +1589,51 @@ def _resolve_rendered_container_runtime(render_dir: Path, progress: Any) -> None
     podman, find nothing, exit 0, and report the still-running docker stack as
     stopped.
 
-    So the build answers it once, here, and writes the answer into the render.
-    Every later verb then reads a pinned runtime, and
+    So a build answers it once and writes the answer into every render. Every
+    later verb then reads a pinned runtime, and
     :func:`~osprey.deployment.runtime_helper.get_runtime_command` narrows its
     probe to that one: a pinned runtime that does not answer is a refusal
     naming that runtime, never a switch to the other. The same seam as
     :func:`_resolve_rendered_execution_method`, for the same reason — it is the
     render, not the profile, that the verbs load.
 
-    An explicit ``docker``/``podman`` is the operator's answer and is left as
-    written. A host where no runtime answers keeps ``auto``: there is nothing
-    to pin to, such a host cannot start anything, and a build there is still
-    a valid thing to do.
+    The deployment's own render answers the runtime once; every later render of
+    the build writes that answer (:attr:`_SharedRenderInputs.container_runtime`);
+    a render outside a build asks nothing and writes nothing. An explicit
+    ``docker``/``podman`` is the operator's answer and is left as written; a
+    tier or app cannot state one (:func:`~osprey.cli.build_profile_merge._refuse_layer_spellings`),
+    so every render of one build states the same runtime. A host where no
+    runtime answers keeps ``auto``: there is nothing to pin to, such a host
+    cannot start anything, and a build there is still a valid thing to do.
     """
-    from osprey.deployment import runtime_helper
-
     config_path = render_dir / "config.yml"
     config = _rendered_config(render_dir)
     written = str(config.get("container_runtime") or "auto").lower()
     if written in ("docker", "podman"):
         return
 
-    try:
-        runtime = runtime_helper.get_runtime_command(config)[0]
-    except RuntimeError as e:
-        logger.debug("Leaving container_runtime: auto in the render — %s", e)
+    if shared.container_runtime is not None:
+        if shared.container_runtime == "auto":
+            return
+        runtime = shared.container_runtime
+    elif deployment:
+        from osprey.deployment import runtime_helper
+
+        try:
+            runtime = runtime_helper.get_runtime_command(config)[0]
+        except RuntimeError as e:
+            logger.debug("Leaving container_runtime: auto in the render — %s", e)
+            return
+    else:
         return
 
     document = load_config_document(config_path)
     document["container_runtime"] = runtime
     save_config_document(config_path, document)
-    progress("  ✓ container_runtime: %s (resolved from auto; the runtime this build used)", runtime)
+    if shared.container_runtime is None:
+        progress(
+            "  ✓ container_runtime: %s (resolved from auto; the runtime this build used)", runtime
+        )
 
 
 def _incomplete_limits_errors(render_dir: Path) -> list[str]:
@@ -2334,8 +2360,12 @@ def _render_project(
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
         # And the runtime, for the same reason once more: the verbs that stop,
         # restart and preflight this deployment read the render, and must act on
-        # the runtime that owns the containers rather than re-detect one.
-        _resolve_rendered_container_runtime(render_dir, progress)
+        # the runtime that owns the containers rather than re-detect one. One
+        # build has one runtime answer, asked by the deployment's render and
+        # written into every render after it.
+        _pin_rendered_container_runtime(
+            render_dir, shared, deployment=deployment, progress=progress
+        )
         # And who host launches send and record as, recorded once so the two
         # agree whichever account later runs them. The deployment's render
         # only: a render's runs in a container the compose file names.
@@ -3704,6 +3734,11 @@ def _build_repo(
             )
 
             rendered = _rendered_config(host_render)
+            # The deployment's render answered the container runtime; every
+            # render after it, attached or not, writes that one answer.
+            shared = shared._replace(
+                container_runtime=str(rendered.get("container_runtime") or "auto").lower()
+            )
             # Every render carries the same connector table, so PVA channels
             # with no address source are named once, here. Advisory: the
             # build is sound, the reads would time out.
