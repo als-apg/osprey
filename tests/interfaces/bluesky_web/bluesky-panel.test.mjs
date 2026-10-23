@@ -1492,6 +1492,36 @@ describe('createResultsView', () => {
     expect(elements.figureNote.textContent).toContain('live data');
   });
 
+  test('a table header states the unit the run declares for its column', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'scan' } },
+        '/runs/r1/data': {
+          status: 200,
+          body: {
+            ...DATA,
+            columns: [
+              { name: 'time', unit: null },
+              { name: 'signal', unit: 'mm' },
+            ],
+          },
+        },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    const [time, signal] = elements.tableHeadRow.querySelectorAll('th');
+    expect(time.textContent).toBe('time');
+    expect(time.querySelector('span')).toBeNull();
+    expect(signal.querySelector('span.muted').textContent).toBe('(mm)');
+    expect(signal.textContent).toBe('signal (mm)');
+  });
+
   test('"Remove from history" is offered for a finished run only, and hands the id up', async () => {
     const routes = {
       '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
