@@ -38,6 +38,7 @@ Failure modes
                          matrix produces is stale, or missing
 10. ``layout``           a ``default:`` line stranded below a comment block
                          instead of sitting inside the entry it belongs to
+11. ``preset-count``     manifest prose that counts presets
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -132,6 +133,15 @@ INJECTED_SUFFIX = "+injectors"
 #: them.
 PANEL_PORT_MARKER = "osprey:panel-port"
 PANEL_PORT_MARKER_RE = re.compile(rf"{re.escape(PANEL_PORT_MARKER)}\s+([A-Za-z0-9_-]+)")
+
+# A number, or "both", within two words before "preset(s)". A quantifier such
+# as "every root preset" passes: it stays true as presets are added.
+PRESET_COUNT_RE = re.compile(
+    r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
+    r"(?:\s+[\w`'-]+){0,2}?\s+presets?\b",
+    re.I,
+)
+PATTERN_FIELDS = frozenset({"evidence", "regex"})
 
 #: A bare-word ``evidence`` regex appearing in more than this many files proves
 #: nothing — it would keep matching after its reader was deleted. See the
@@ -253,6 +263,19 @@ def walk_paths(node: Any, prefix: str = "") -> Iterator[str]:
             path = f"{prefix}.{key}" if prefix else str(key)
             yield path
             yield from walk_paths(value, path)
+
+
+def _prose_strings(node: Any, path: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], str]]:
+    """Every string scalar under ``node`` with its dotted path, patterns skipped."""
+    if isinstance(node, str):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            if key not in PATTERN_FIELDS:
+                yield from _prose_strings(value, (*path, str(key)))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _prose_strings(value, (*path, str(index)))
 
 
 _ABSENT = object()
@@ -1195,6 +1218,24 @@ class ConfigKeyGuard:
                     )
                 comment = None
 
+    def check_preset_counts(self) -> None:
+        """Manifest prose never counts presets.
+
+        ``render_contexts.presets`` and the preset files state how many presets
+        ship; a number, or "both", in a note restates that fact and goes false
+        when a preset is added or removed. Every string scalar is read except
+        ``evidence`` and ``regex`` values, which are patterns, not prose. A
+        quantifier such as "every root preset" stays true and passes.
+        """
+        for path, text in _prose_strings(self.manifest, ()):
+            match = PRESET_COUNT_RE.search(text)
+            if match is not None:
+                self.fail(
+                    "preset-count",
+                    f"{'.'.join(path)} counts presets ({match.group(0)!r}); the "
+                    f"presets list in render_contexts.presets is the count's one home",
+                )
+
     def check_branch_self_test(self) -> None:
         """Each Jinja conditional branch must still be covered by the matrix.
 
@@ -1487,6 +1528,7 @@ class ConfigKeyGuard:
         self.check_panel_port_markers()
         self.check_branch_self_test()
         self.check_manifest_layout()
+        self.check_preset_counts()
         self.check_provider_shape()
         self.check_governed_sets()
         self.check_keeps()
