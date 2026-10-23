@@ -107,8 +107,8 @@ def test_orm_plan_restores_each_corrector_through_the_real_loader_path(
     """Restore survives the round trip through the real plan loader and
     `run_plan` wrapper, not just a directly-built generator.
 
-    These mock motors start at 0 A, so the working point each corrector is
-    put back to is 0 A here; `test_builtin_plans.py` covers the nonzero case
+    These mock motors start idle at zero, so the working point each corrector is
+    put back to is zero here; `test_builtin_plans.py` covers the nonzero case
     that distinguishes "put back where it was" from "driven to zero".
     """
     run_plan(
