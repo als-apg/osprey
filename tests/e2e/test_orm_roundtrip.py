@@ -783,12 +783,12 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     measured = build_response_matrix(rows, correctors=list(correctors), readbacks=list(bpms))
 
-    # (a) matches the model oracle: the same symmetric-sweep currents the
+    # (a) matches the model oracle: the same symmetric-sweep values the
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so
     # the model is driven identically to how the plan drove the real stack.
     # The plan kicks each corrector about its own pre-run working point; every
-    # reading this stack serves is still, so the VA's correctors idle at 0 A,
-    # here those kicks ARE these absolute currents and the model needs no
+    # reading this stack serves is still, so the VA's correctors idle at zero,
+    # here those kicks ARE these absolute values and the model needs no
     # offset of its own.
     step = (2 * SPAN) / (NUM_POINTS - 1)
     currents = [-SPAN + i * step for i in range(NUM_POINTS)]
