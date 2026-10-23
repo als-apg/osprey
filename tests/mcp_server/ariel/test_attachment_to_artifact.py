@@ -212,4 +212,4 @@ def test_registered_gated_and_offered_to_the_main_agent():
     assert "attachment_to_artifact" in FRAMEWORK_SERVERS["ariel"].permissions_allow
     assert "attachment_to_artifact" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "attachment_to_artifact" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
-    assert "attachment_to_artifact" not in _ariel_read_tools(True)
+    assert "attachment_to_artifact" not in _ariel_read_tools({})

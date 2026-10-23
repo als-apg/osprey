@@ -342,7 +342,9 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The ARIEL read tools the control-assistant CLAUDE.md tells the main
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
-        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view, ariel_sql_tool),
+        "ariel_read_tools": _ariel_read_tools(
+            {"ariel_attachment_view": ariel_attachment_view, "ariel_sql_tool": ariel_sql_tool}
+        ),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -526,22 +528,18 @@ _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
 )
 
 
-def _ariel_read_tools(view_enabled: bool, sql_tool: bool = True) -> list[str]:
+def _ariel_read_tools(ctx: Mapping) -> list[str]:
     """The ARIEL read tools only the logbook subagents call, in registry order.
 
     Every ``permissions_allow`` tool of the ``ariel`` registry entry except
-    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, except
-    ``attachment_view`` while the view is off, and except ``sql_query`` while
-    the SQL tool is withheld (the server then does not offer either).
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL`` and the optional tools
+    ``ctx`` withholds (the server then does not offer them).
     """
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-    excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
-    if not view_enabled:
-        excluded.add("attachment_view")
-    if not sql_tool:
-        excluded.add("sql_query")
-    return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
+    ariel = FRAMEWORK_SERVERS["ariel"]
+    excluded = _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL | ariel.withheld_optional_tools(ctx)
+    return [t for t in ariel.permissions_allow if t not in excluded]
 
 
 def _transcripts_retention_days(config: dict) -> int | None:
