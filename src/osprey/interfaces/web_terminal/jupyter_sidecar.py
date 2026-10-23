@@ -70,6 +70,7 @@ from typing import IO, Any
 
 import nbformat
 
+from osprey.deployment import subprocess_capture
 from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
@@ -720,12 +721,27 @@ class JupyterSidecar:
         process, self._process = self._process, None
         if process is not None:
             if process.poll() is None:
-                _signal_group(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(_STOP_GRACE)
-                except subprocess.TimeoutExpired:
-                    _signal_group(process.pid, signal.SIGKILL)
+                # The sidecar leads its group, so its pid names it. The stop
+                # assumes the leader is unreaped, but ``_watch_exit`` waits on
+                # (and so can reap) it concurrently: an emptied group then reads
+                # as gone at the next look, and its id could be reused within the
+                # stop's seconds. The end state is one stop that owns the child's
+                # reap while every watcher only observes the exit.
+                survivors = subprocess_capture.stop_group(process.pid, grace=_STOP_GRACE)
+                if survivors == []:
                     process.wait()
+                elif survivors is None:
+                    logger.warning(
+                        "%s: process table unreadable: group %d may still be running",
+                        _NAME,
+                        process.pid,
+                    )
+                else:
+                    logger.warning(
+                        "%s: its process group is still running after SIGKILL: pids %s",
+                        _NAME,
+                        " ".join(str(pid) for pid in survivors),
+                    )
             # The stderr pipe is left to the tail thread: closing it here
             # blocks on the reader, and a kernel the group signal did not
             # reach (kernels start their own session) can hold the write end
@@ -811,9 +827,3 @@ def _signal_pid(pid: int, signum: signal.Signals) -> None:
     """Send *signum* to *pid*; a process already gone is fine."""
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signum)
-
-
-def _signal_group(pid: int, signum: signal.Signals) -> None:
-    """Send *signum* to the process group led by *pid*; a gone group is fine."""
-    with contextlib.suppress(ProcessLookupError):
-        os.killpg(pid, signum)
