@@ -39,7 +39,7 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
-from osprey_connectors.ipc.proxy import raised_by_child
+from osprey_connectors.ipc._proxy import raised_by_child
 from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
 from tests.facility.served_tree import in_process_config, served_tree
 

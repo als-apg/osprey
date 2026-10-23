@@ -22,7 +22,7 @@ import yaml
 
 from osprey.agent_runner.primitives import ToolTrace
 from osprey_connectors.control_context import record_path_under
-from osprey_connectors.control_system.va_in_process_connector import simulator_view_dir
+from osprey_connectors.control_system._va_in_process_connector import simulator_view_dir
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.workspace import rendered_config_path
 from tests.e2e.claude_code.conftest import (

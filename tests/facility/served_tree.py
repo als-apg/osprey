@@ -153,7 +153,7 @@ def served_active(view: SimulatorView) -> list[str]:
     the view, so the set is the one the served readings are drawn under. A
     render with no state file runs ``nominal`` alone.
     """
-    from osprey_connectors.control_system.va_in_process_connector import simulation_state_dir
+    from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
 
     return resolve_active_scenarios(read_active_state(simulation_state_dir(view.path))[0])
