@@ -33,6 +33,7 @@ from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, SURFACE_EX
 from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from tests.audit._verdict_arming import arm_writes
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers
@@ -421,6 +422,8 @@ class TestThePostureClampRecordsAndMarks:
         assert records[0]["subject"] == PYTHON_EXECUTE
         assert records[0]["posture"] == gates.POSTURE_SANDBOX
         assert records[0].get("source") is None
+        # The verdict's own reason rides in the detail, as on every layer.
+        assert records[0]["detail"].startswith("reason=readonly_run")
 
         marked = dedup.recorded_decision()
         assert marked is not None
@@ -461,7 +464,10 @@ class TestThePostureClampRecordsAndMarks:
         assert _all_records(project) == []
         assert dedup.recorded_decision() is None
 
-    def test_the_writes_posture_is_neither_recorded_nor_marked(self, project, monkeypatch):
+    def test_the_writes_posture_is_neither_recorded_nor_marked(
+        self, project, monkeypatch, tmp_path
+    ):
+        arm_writes(monkeypatch, tmp_path / "agent_data")
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, "readwrite")
         gates.enforce_posture_clamp("readwrite", tool="execute")
         assert _all_records(project) == []
