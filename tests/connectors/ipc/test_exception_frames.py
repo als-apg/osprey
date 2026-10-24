@@ -1,24 +1,33 @@
 """Typed-exception contract for the connector-host IPC channel.
 
-The child and the proxy both encode against this spec, so the field lists are
-pinned here by exact contents: a class or field added on one side of the
-boundary without the other has to fail in this file first. Assertions are on
-the concrete reconstructed exception — every field the parent's error rendering
-reads — never merely that a round trip "didn't raise".
+The child and the proxy both encode against this spec, and the registry is
+derived from the public failure vocabulary, so the parity tests here read the
+vocabulary and the registry rather than a copied list: a public failure with no
+wire detail, or no sample to round-trip, fails in this file in the commit that
+adds it. Assertions are on the concrete reconstructed exception — every field
+the parent's error rendering reads — never merely that a round trip "didn't
+raise".
 """
+
+from collections.abc import Callable
 
 import pytest
 
+import osprey_connectors.errors as errors_module
 import osprey_connectors.ipc
+from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.errors import (
+    ChannelError,
     ChannelLimitsViolationError,
     ChannelNotFoundError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
+    ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
 )
 from osprey_connectors.ipc import _exceptions as exceptions
+from osprey_connectors.ipc import _frames as frames
 
 
 def _round_trip(exc: BaseException) -> BaseException:
@@ -31,26 +40,88 @@ def _round_trip(exc: BaseException) -> BaseException:
 # ---------------------------------------------------------------- protocol pin
 
 
-def test_registry_carries_exactly_the_eight_agreed_classes():
-    assert set(exceptions.EXCEPTION_SPECS) == {
-        "ConnectionError",
-        "TimeoutError",
-        "ChannelWriteBlockedError",
-        "ChannelLimitsViolationError",
-        "ChannelNotFoundError",
-        "ChannelUnreachableError",
-        "ConnectorUnavailableError",
-        "ConnectorInternalError",
-    }
-    registry = exceptions.EXCEPTION_SPECS
-    assert registry["ConnectionError"].cls is ConnectionError
-    assert registry["TimeoutError"].cls is TimeoutError
-    assert registry["ChannelWriteBlockedError"].cls is ChannelWriteBlockedError
-    assert registry["ChannelLimitsViolationError"].cls is ChannelLimitsViolationError
-    assert registry["ChannelNotFoundError"].cls is ChannelNotFoundError
-    assert registry["ConnectorInternalError"].cls is ConnectorInternalError
-    assert registry["ChannelUnreachableError"].cls is ChannelUnreachableError
-    assert registry["ConnectorUnavailableError"].cls is ConnectorUnavailableError
+def _vocabulary() -> list[type[BaseException]]:
+    """Every class the errors module publishes under a contract root."""
+    published = (getattr(errors_module, name) for name in errors_module.__all__)
+    return [
+        item
+        for item in published
+        if isinstance(item, type) and issubclass(item, exceptions._CONTRACT_ROOTS)
+    ]
+
+
+#: One sample per registered class, by tag. A class with no entry fails the
+#: round-trip test by name.
+_SAMPLES: dict[str, Callable[[], BaseException]] = {
+    "ConnectionError": lambda: ConnectionError("gateway unreachable"),
+    "TimeoutError": lambda: TimeoutError("read timed out after 2.0s"),
+    "ChannelError": lambda: ChannelError("SR:Q", "SR:Q failed its own way"),
+    "ChannelLimitsViolationError": lambda: ChannelLimitsViolationError(
+        channel_address="SR:Q",
+        value=999.0,
+        violation_type="range",
+        violation_reason="Value 999.0 above maximum 500.0",
+        min_value=0.0,
+        max_value=500.0,
+        max_step=10.0,
+        current_value=120.0,
+    ),
+    "ChannelNotFoundError": lambda: ChannelNotFoundError("SR:Q"),
+    "ChannelUnreachableError": lambda: ChannelUnreachableError("SR:Q", "SR:Q timed out"),
+    "ChannelWriteBlockedError": lambda: ChannelWriteBlockedError(
+        "SR:Q", "WRITES_DISABLED", "Writes are disabled for this deployment"
+    ),
+    "ChannelWriteFailedError": lambda: ChannelWriteFailedError(
+        "SR:Q",
+        "MISMATCH",
+        outcome=WriteOutcome.MISMATCH,
+        value_written=1.7,
+        observed_value=1.5,
+    ),
+    "ConnectorUnavailableError": lambda: ConnectorUnavailableError("the transport is gone"),
+    "ConnectorInternalError": lambda: ConnectorInternalError(
+        "connector raised KeyError('x')", class_tag="KeyError"
+    ),
+}
+
+
+def test_the_registry_is_the_builtins_plus_the_vocabulary():
+    expected = {"ConnectionError", "TimeoutError"} | {cls.__name__ for cls in _vocabulary()}
+    assert set(exceptions.EXCEPTION_SPECS) == expected
+    for tag, spec in exceptions.EXCEPTION_SPECS.items():
+        assert spec.cls.__name__ == tag
+
+
+def test_every_vocabulary_class_has_its_wire_detail():
+    missing = [cls.__name__ for cls in _vocabulary() if cls not in exceptions._WIRE_DETAIL]
+    assert missing == []
+
+
+def test_every_channel_error_carries_its_channel_first():
+    for spec in exceptions.EXCEPTION_SPECS.values():
+        if issubclass(spec.cls, ChannelError):
+            assert spec.fields[0] == "channel_address", spec.cls.__name__
+            assert spec.fields.count("channel_address") == 1, spec.cls.__name__
+
+
+@pytest.mark.parametrize("tag", list(exceptions.EXCEPTION_SPECS))
+def test_every_vocabulary_class_round_trips(tag):
+    sample = _SAMPLES.get(tag)
+    if sample is None:
+        pytest.fail(f"{tag} has no round-trip sample")
+    original = sample()
+    spec = exceptions.EXCEPTION_SPECS[tag]
+    assert type(original) is spec.cls
+
+    in_process = exceptions.decode_exception(exceptions.encode_exception(original))
+    frame = frames.decode_frame(frames.encode_error("req-p", original))
+    assert isinstance(frame, frames.ErrorFrame)
+
+    for rebuilt in (in_process, frame.exception):
+        assert type(rebuilt) is spec.cls
+        assert str(rebuilt) == str(original)
+        for name in spec.fields:
+            assert getattr(rebuilt, name) == getattr(original, name), name
 
 
 def test_the_contract_fault_is_no_connection_error():
@@ -58,44 +129,6 @@ def test_the_contract_fault_is_no_connection_error():
     # bug as an unreachable control system.
     assert not issubclass(ConnectorInternalError, OSError)
     assert issubclass(ConnectorInternalError, RuntimeError)
-
-
-def test_limits_violation_field_list_is_the_published_spec():
-    assert exceptions.CHANNEL_LIMITS_VIOLATION_FIELDS == (
-        "channel_address",
-        "attempted_value",
-        "violation_type",
-        "violation_reason",
-        "min_value",
-        "max_value",
-        "max_step",
-        "current_value",
-    )
-    spec = exceptions.EXCEPTION_SPECS["ChannelLimitsViolationError"]
-    assert spec.fields == exceptions.CHANNEL_LIMITS_VIOLATION_FIELDS
-    # The spec spells the attribute; the constructor spells it `value`.
-    assert spec.ctor_kwargs == {"attempted_value": "value"}
-
-
-def test_write_blocked_field_list_is_the_published_spec():
-    assert exceptions.CHANNEL_WRITE_BLOCKED_FIELDS == ("channel_address", "reason")
-    spec = exceptions.EXCEPTION_SPECS["ChannelWriteBlockedError"]
-    assert spec.fields == exceptions.CHANNEL_WRITE_BLOCKED_FIELDS
-    # Its text is not a field: the frame's own message feeds the ctor keyword.
-    assert spec.message_kwarg == "message"
-
-
-def test_channel_not_found_field_list_is_the_published_spec():
-    assert exceptions.CHANNEL_NOT_FOUND_FIELDS == ("channel_address",)
-    spec = exceptions.EXCEPTION_SPECS["ChannelNotFoundError"]
-    assert spec.fields == exceptions.CHANNEL_NOT_FOUND_FIELDS
-    # Its text is derived from the address, so no message keyword is fed.
-    assert spec.message_kwarg is None
-
-
-def test_builtin_specs_carry_no_fields():
-    assert exceptions.EXCEPTION_SPECS["ConnectionError"].fields == ()
-    assert exceptions.EXCEPTION_SPECS["TimeoutError"].fields == ()
 
 
 # ---------------------------------------------------------------- round trips
@@ -116,7 +149,9 @@ def test_limits_violation_round_trips_every_spec_field():
 
     assert body["class_tag"] == "ChannelLimitsViolationError"
     # The wire spells the attribute name, not the constructor keyword.
-    assert set(body["fields"]) == set(exceptions.CHANNEL_LIMITS_VIOLATION_FIELDS)
+    assert set(body["fields"]) == set(
+        exceptions.EXCEPTION_SPECS["ChannelLimitsViolationError"].fields
+    )
     assert body["fields"]["attempted_value"] == 999.0
 
     rebuilt = exceptions.decode_exception(body)
@@ -234,7 +269,7 @@ def test_fields_are_read_by_spec_name_not_from_the_instance_dict():
     body = exceptions.encode_exception(original)
 
     assert "internal_handle" not in body["fields"]
-    assert set(body["fields"]) == set(exceptions.CHANNEL_WRITE_BLOCKED_FIELDS)
+    assert set(body["fields"]) == {"channel_address", "reason"}
 
 
 def test_missing_attribute_encodes_as_none_without_raising():
@@ -291,13 +326,20 @@ def test_unknown_exception_type_encodes_fail_closed_to_the_contract_fault():
     assert repr(original) in str(rebuilt)
 
 
-def test_a_subclass_of_a_registered_class_crosses_as_that_class():
+def test_a_subclass_crosses_as_its_nearest_vocabulary_class():
+    class _Mine(ChannelUnreachableError):
+        pass
+
     class SlowLinkError(TimeoutError):
         pass
 
+    mine = _round_trip(_Mine("SR:Q", "SR:Q went quiet"))
     refused = _round_trip(ConnectionRefusedError("SR:Q refused the connection"))
     slow = _round_trip(SlowLinkError("SR:Q did not answer"))
 
+    assert type(mine) is ChannelUnreachableError
+    assert mine.channel_address == "SR:Q"
+    assert str(mine) == "SR:Q went quiet"
     assert type(refused) is ConnectionError
     assert str(refused) == "SR:Q refused the connection"
     assert type(slow) is TimeoutError
@@ -340,5 +382,5 @@ def test_incomplete_frame_body_still_yields_an_exception(body, expected):
     assert type(rebuilt) is expected
 
 
-def test_the_package_re_exports_every_field_list():
+def test_the_package_re_exports_every_exception_contract_name():
     assert set(exceptions.__all__) <= set(osprey_connectors.ipc.__all__)
