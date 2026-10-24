@@ -197,9 +197,9 @@ def agent_cli_resolved_per_test():
     """
     from osprey.agent_runner import launcher
 
-    launcher._project_agent_cli_path.cache_clear()
+    launcher._project_agent_cli.cache_clear()
     yield
-    launcher._project_agent_cli_path.cache_clear()
+    launcher._project_agent_cli.cache_clear()
 
 
 @pytest.fixture
@@ -222,6 +222,12 @@ def stub_agent_cli(request, monkeypatch):
     from osprey.agent_runner import launcher
 
     monkeypatch.setattr(launcher, "project_agent_cli_path", lambda _project_dir: STUB_AGENT_CLI)
+    # What production resolves on the default pin, so a stubbed run never probes.
+    monkeypatch.setattr(
+        launcher,
+        "project_thinking_display",
+        lambda _project_dir: launcher.ThinkingDisplay("summarized", True),
+    )
 
 
 @pytest.fixture(autouse=True, scope="function")
