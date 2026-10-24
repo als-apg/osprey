@@ -421,8 +421,3 @@ def load(section: str, root: Path | None = MML_ROOT) -> Section:
         raise ValueError(f"no MML checkout: set {MML_ROOT_ENV} to its machine folder")
     path = root / LATTICES[section][0]
     return parse(path.read_text(encoding="latin-1"), section)
-
-
-def load_all(root: Path | None = MML_ROOT) -> dict[str, Section]:
-    """Every section, in beam order, read from the MML checkout at ``root``."""
-    return {section: load(section, root) for section in LATTICES}
