@@ -949,5 +949,5 @@ def test_the_union_is_true_when_one_reachable_target_is_armed():
 
 # The connector's reference monitor no longer reads this posture: it decides
 # every write by the write verdict (tier, machine, owner, switch, launch pin),
-# pinned in ``tests/connectors/test_monitor_verdict.py``. Everything above is
+# pinned in ``test_monitor_verdict.py``. Everything above is
 # the deployment's own posture as the remaining readers still derive it.

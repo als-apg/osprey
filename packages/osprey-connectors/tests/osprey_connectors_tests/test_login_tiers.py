@@ -11,14 +11,14 @@ bound; under a tree a missing or unreadable map is ``unknown``, never skipped.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from osprey_connectors import posture_store
 from osprey_connectors.posture_store import NO_OWNER, owner_tier_term
+from osprey_connectors_tests._harness._write_verdict_cases import LOGIN_TIERS_SHAPE_PATH
 
-SHAPE = Path(__file__).resolve().parents[1] / "fixtures" / "login_tiers_shape.json"
+SHAPE = LOGIN_TIERS_SHAPE_PATH
 TREE_ENV = posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
 
 
