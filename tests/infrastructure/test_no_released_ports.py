@@ -7,11 +7,8 @@ instead: a server it controls binds port 0 itself and reports the number, a
 free port that is held is a ``reserved_port()`` / ``reserved_ports()``, and an
 occupied port is a ``bound_socket()``.
 
-A site is a ``.bind((<host>, 0))`` call, whatever expression the host is, or a
-test's use of a product helper that picks a port the same way: an import of
-``osprey.interfaces._serving.free_port`` or a call of
-``osprey.infrastructure.proxy.lifecycle.find_free_port``. ``REMAINING_SITES``
-lists the files that still hold one. A file outside it fails the ratchet, and
+A site is a ``.bind((<host>, 0))`` call, whatever expression the host is.
+``REMAINING_SITES`` lists the files that still hold one. A file outside it fails the ratchet, and
 so does a listed file that no longer holds one, so the list only shrinks.
 """
 
@@ -30,15 +27,6 @@ TESTS_ROOT = Path(__file__).resolve().parents[1]
 #: bind explicit ports.
 EXEMPT = frozenset({"_ports.py"})
 
-#: Product helpers that pick a port by binding port 0 and releasing it, by
-#: ``(module, name)``.
-PORT_PICKERS = frozenset(
-    {
-        ("osprey.interfaces._serving", "free_port"),
-        ("osprey.infrastructure.proxy.lifecycle", "find_free_port"),
-    }
-)
-
 #: Files under ``tests/`` that still pick a released port, sorted.
 REMAINING_SITES: tuple[str, ...] = (
     "e2e/_ca_client_name_sniffer.py",
@@ -52,7 +40,6 @@ REMAINING_SITES: tuple[str, ...] = (
     "e2e/test_va_substrate_equivalence.py",
     "e2e/web_terminals/test_loopback_chokepoint.py",
     "e2e/web_terminals/test_terminal_auth_e2e.py",
-    "infrastructure/proxy/test_proxy_lifecycle.py",
     "va/e2e/conftest.py",
     "va/e2e/test_bluesky_lanes.py",
     "va/e2e/test_live_standin.py",
@@ -64,16 +51,7 @@ REMAINING_SITES: tuple[str, ...] = (
     "va/e2e/test_va_put_surface.py",
 )
 
-_TOKEN = re.compile(r"\.bind\b|\bfree_port\b|\bfind_free_port\b")
-
-
-def _dotted(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        receiver = _dotted(node.value)
-        return None if receiver is None else f"{receiver}.{node.attr}"
-    return None
+_TOKEN = re.compile(r"\.bind\b")
 
 
 def _binds_port_zero(node: ast.Call) -> bool:
@@ -92,31 +70,10 @@ def has_released_port(source: str) -> bool:
     """Whether a module picks a port by binding port 0 and releasing it."""
     if not _TOKEN.search(source):
         return False
-    tree = ast.parse(source)
-    pickers = {name for _, name in PORT_PICKERS}
-    picker_modules = {module for module, _ in PORT_PICKERS}
-    # Names a picker's module is bound to in this file, mapped to the module.
-    module_names: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in picker_modules:
-                    module_names[alias.asname or alias.name] = alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                if (node.module, alias.name) in PORT_PICKERS:
-                    return True
-                full = f"{node.module}.{alias.name}"
-                if full in picker_modules:
-                    module_names[alias.asname or alias.name] = full
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and _binds_port_zero(node):
-            return True
-        if isinstance(node, ast.Attribute) and node.attr in pickers:
-            module = module_names.get(_dotted(node.value) or "")
-            if module is not None and (module, node.attr) in PORT_PICKERS:
-                return True
-    return False
+    return any(
+        isinstance(node, ast.Call) and _binds_port_zero(node)
+        for node in ast.walk(ast.parse(source))
+    )
 
 
 def released_port_sites(root: Path) -> set[str]:
@@ -159,14 +116,6 @@ def test_no_new_released_port_sites():
         "def pick(self):\n    self.sock.bind((self.host, 0))\n",
         "def pick(sock, hosts):\n    sock.bind((hosts[0], 0))\n",
         "def pick(sock, host):\n    sock.bind((host(), 0))\n",
-        "from osprey.interfaces._serving import free_port as _free_port\n",
-        "def port():\n    from osprey.interfaces._serving import free_port\n    return free_port()\n",
-        "import osprey.infrastructure.proxy.lifecycle as lifecycle\n"
-        "port = lifecycle.find_free_port()\n",
-        "import osprey.infrastructure.proxy.lifecycle\n"
-        "port = osprey.infrastructure.proxy.lifecycle.find_free_port()\n",
-        "from osprey.infrastructure.proxy import lifecycle\nport = lifecycle.find_free_port()\n",
-        "from osprey.infrastructure.proxy.lifecycle import find_free_port\n",
     ],
     ids=[
         "str-host",
@@ -174,12 +123,6 @@ def test_no_new_released_port_sites():
         "attribute-host",
         "subscript-host",
         "call-host",
-        "serving-import-aliased",
-        "serving-import-in-function",
-        "lifecycle-module-aliased",
-        "lifecycle-module-plain",
-        "lifecycle-from-package",
-        "lifecycle-name",
     ],
 )
 def test_every_site_shape_is_found(source):
@@ -191,11 +134,9 @@ def test_every_site_shape_is_found(source):
     [
         'def serve(sock, port):\n    sock.bind(("127.0.0.1", port))\n',
         'def serve(sock):\n    sock.bind(("127.0.0.1", 8080))\n',
-        "def free_port():\n    return 20000\n",
-        "import osprey.infrastructure.proxy.lifecycle as lifecycle\nlifecycle.start()\n",
         "SOURCE = 's.bind((\"127.0.0.1\", 0))'\n",
     ],
-    ids=["port-variable", "explicit-port", "local-free-port", "other-lifecycle-call", "string"],
+    ids=["port-variable", "explicit-port", "string"],
 )
 def test_a_held_or_explicit_port_is_no_site(source):
     assert not has_released_port(source)

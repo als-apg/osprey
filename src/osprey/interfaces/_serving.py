@@ -55,13 +55,6 @@ _DRAIN_TIMEOUT = 5
 _SHUTDOWN_JOIN = 30.0
 
 
-def free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
 #: Pending-connection queue of a socket :func:`listening_socket` returns;
 #: uvicorn's own default, so a server handed the socket listens as it would
 #: have on a socket it bound itself.
