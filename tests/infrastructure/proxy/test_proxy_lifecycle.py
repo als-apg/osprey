@@ -198,24 +198,6 @@ print(loaded)
 
 
 # ---------------------------------------------------------------------------
-# find_free_port
-# ---------------------------------------------------------------------------
-
-
-class TestFindFreePort:
-    def test_returns_a_bindable_port(self):
-        import socket
-
-        port = lifecycle.find_free_port()
-        assert isinstance(port, int)
-        assert 1 <= port <= 65535
-
-        # The OS just handed it back as free, so we must be able to bind it.
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", port))
-
-
-# ---------------------------------------------------------------------------
 # start_proxy / stop_proxy / get_proxy_url
 # ---------------------------------------------------------------------------
 

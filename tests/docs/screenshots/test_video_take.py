@@ -502,7 +502,11 @@ def _stub_web_launch(monkeypatch, *, ready: bool = True):
     run = Mock()
     monkeypatch.setattr(capture.subprocess, "Popen", popen)
     monkeypatch.setattr(capture.subprocess, "run", run)
-    monkeypatch.setattr(capture, "free_port", lambda: 5151)
+    # The detached launch names the port its server bound.
+    popen.return_value.communicate.return_value = (
+        "Web terminal started (PID 4242).\n  URL   http://127.0.0.1:5151\n",
+        None,
+    )
     monkeypatch.setattr(capture, "mint_secret", lambda: SECRET)
 
     def wait_for_port(*_args, **_kwargs):
@@ -522,7 +526,7 @@ def test_bootstrap_web_terminal_exposes_secret_and_disables_tour(monkeypatch, tm
         run.assert_not_called()
     (args,), kwargs = popen.call_args
     assert kwargs["env"]["CLAUDE_CONFIG_DIR"] == str(web.claude_config_dir)
-    assert args == ["osprey", "web", "--repo", str(tmp_path), "--detach", "--port", "5151"]
+    assert args == ["osprey", "web", "--repo", str(tmp_path), "--detach", "--port", "0"]
     child_env = kwargs["env"]
     assert child_env[capture.OPERATOR_SECRET_ENV] == SECRET
     assert child_env["OSPREY_WEB_TOUR"] == "never"
@@ -537,6 +541,14 @@ def test_bootstrap_web_terminal_not_ready_skips_and_tears_down(monkeypatch, tmp_
         pytest.fail("body must not run")
     run.assert_called_once()
     popen.return_value.terminate.assert_called_once()
+
+
+def test_bootstrap_web_terminal_launch_naming_no_port_skips(monkeypatch, tmp_path) -> None:
+    popen, run = _stub_web_launch(monkeypatch)
+    popen.return_value.communicate.return_value = ("The web terminal exited\n", None)
+    with pytest.raises(capture.ScreenshotSkip), capture.web_terminal(tmp_path):
+        pytest.fail("body must not run")
+    run.assert_called_once()
 
 
 def test_bootstrap_web_terminal_missing_cli_skips(monkeypatch, tmp_path) -> None:
