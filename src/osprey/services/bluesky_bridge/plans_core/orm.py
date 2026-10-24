@@ -345,15 +345,15 @@ def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], boo
     element is how many samples survived that, which is what tells a caller
     whether this corrector reported a value at all.
     """
-    currents = fit.currents[index]
+    values = fit.regressor_values[index]
     readings = fit.readings[index]
-    kept = [k for k, current in enumerate(currents) if math.isfinite(float(current))]
+    kept = [k for k, value in enumerate(values) if math.isfinite(float(value))]
 
     series: list[Series] = []
     decimated = False
     source_points = 0
     for i, readback in enumerate(fit.readbacks[:_MAX_TRACE_SERIES]):
-        points = [Point(x=float(currents[k]), y=float(readings[k, i])) for k in kept]
+        points = [Point(x=float(values[k]), y=float(readings[k, i])) for k in kept]
         thinned = decimate(points)
         series.append(Series(label=readback, **thinned._asdict()))
         decimated = decimated or thinned.decimated
@@ -381,7 +381,7 @@ def _trace_panels(
     order, so the tail is where a live run's in-flight sweep is, and a settled
     run's tail is as arbitrary a choice as its head.
     """
-    traced = [j for j in range(len(fit.correctors)) if fit.currents[j].size]
+    traced = [j for j in range(len(fit.correctors)) if fit.regressor_values[j].size]
     hidden = max(0, len(traced) - _MAX_TRACE_PANELS)
     if hidden:
         traced = traced[-_MAX_TRACE_PANELS:]
@@ -404,7 +404,7 @@ def _trace_panels(
         if shown_readbacks < len(fit.readbacks):
             annotations.append(f"Showing the first {shown_readbacks} of {len(fit.readbacks)} BPMs.")
         if not fit.complete[j]:
-            recorded = int(fit.currents[j].shape[0])
+            recorded = int(fit.regressor_values[j].shape[0])
             if recorded < num:
                 annotations.append(
                     f"This sweep is still in flight: {recorded} of {num} points "
