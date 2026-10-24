@@ -749,13 +749,11 @@ def test_logs_emits_the_podman_shape(tmp_path: Path, monkeypatch: pytest.MonkeyP
     nothing at all and reads as a deployment whose services log nothing.
     """
     repo = _started_repo(tmp_path)
+    _record_a_podman_start(repo)
     monkeypatch.setattr(
         container_lifecycle,
         "_compose_provider",
         lambda config=None, **_: ComposeProvider.PODMAN_COMPOSE,
-    )
-    monkeypatch.setattr(
-        status_display, "get_runtime_command", lambda config=None: ["podman", "compose"]
     )
 
     cmd, env = status_display.logs_command(repo)
