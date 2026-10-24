@@ -28,9 +28,10 @@ What is pinned here, and why each one matters:
   every write bound to the old one for nothing.
 * **The record write is read-verified before the request is unlinked**, because
   the requester polls the record for its own id and nothing else.
-* **A narrowing waits for a running execution** and says so while it waits: the
-  realignment rebuilds the connector, and rebuilding it under a run would
-  retire the child that run was promised.
+* **A write verdict that moves for the active target realigns the connector** —
+  the switch turned on or off, or a narrowing — and waits for a running
+  execution, saying so while it waits: the realignment rebuilds the connector,
+  and rebuilding it under a run would retire the child that run was promised.
 
 Everything below runs against fakes: no sockets, no child processes, no real
 event-loop sleeping. The reconciler's ``poll_once`` is public precisely so a
@@ -56,6 +57,7 @@ from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
+from osprey_connectors_tests._harness import isolate_verdict_environment
 
 SESSION_KEY = "session-abc"
 
@@ -210,8 +212,8 @@ def deployment(control_context_root, monkeypatch):
     published nothing about a target refuses the switch on its own reason, and
     that refusal is not what most of these tests are about.
     """
+    isolate_verdict_environment(monkeypatch, control_context_root)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
     target_state.write_server_record({"live": {"label": "Live"}, "va": {"label": "VA"}})
     target_state.publish_reachability(
@@ -291,8 +293,12 @@ def write_record(
     posture: Any = None,
     owned_by: Any = OURS,
     last_switch: dict | None = None,
+    switch: dict | None = None,
 ) -> Path:
-    """Write the deployment's control-context record, owned here by default."""
+    """Write the deployment's control-context record, owned here by default.
+
+    *switch* ``None`` keeps the switch already on disk.
+    """
     return fixtures.write_control_context(
         root(),
         target,
@@ -302,7 +308,26 @@ def write_record(
             fixtures.owner(control_context.OWNER_CONTROLS_SERVER) if owned_by is OURS else owned_by
         ),
         last_switch=last_switch,
+        switch=switch,
     )
+
+
+#: A deployment whose tier allows writes and on which both targets resolve, so
+#: the write verdict for the active target moves with the record's switch.
+ARMED_RAW: dict[str, Any] = {
+    "control_system": {
+        "type": "epics",
+        "writes": "allowed",
+        "connector": {"epics": {}, "virtual_accelerator": {}},
+    }
+}
+
+
+def armed(manager: FakeManager, monkeypatch, raw: dict | None = None):
+    """*manager*'s context on :data:`ARMED_RAW`, with both machines switched on."""
+    context = install_context(manager, monkeypatch, raw=ARMED_RAW if raw is None else raw)
+    write_record(switch={"live": "on", "va": "on"})
+    return context
 
 
 def record() -> control_context.ControlContext | None:
@@ -629,7 +654,7 @@ class TestReconcileToTheRecord:
         """PROPOSAL bullet 7: a same-target adoption leaves a narrowing pending,
         and the rebuild that answers it happens in the same pass, after it."""
         manager = FakeManager(target="live", generation=0)
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
@@ -1043,9 +1068,65 @@ class TestRequestsNobodyIsWaitingFor:
 
 class TestPostureRealignment:
     @pytest.mark.usefixtures("records")
+    async def test_turning_the_active_targets_switch_off_rebuilds_the_connector(self, monkeypatch):
+        manager = FakeManager(target="live")
+        armed(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()  # baseline: live switched on
+
+        write_record(switch={"va": "on"})
+        await reconciler.poll_once()
+
+        assert manager.respawns == 1
+        assert realign()["state"] == session_control.REALIGN_DONE
+
+    @pytest.mark.usefixtures("records")
+    async def test_turning_the_active_targets_switch_on_rebuilds_the_connector(self, monkeypatch):
+        """The child came up on the read gateway; only a rebuild reaches the write one."""
+        manager = FakeManager(target="live")
+        install_context(manager, monkeypatch, raw=ARMED_RAW)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()  # baseline: every switch off
+        assert manager.respawns == 0
+
+        write_record(switch={"live": "on"})
+        await reconciler.poll_once()
+
+        assert manager.respawns == 1
+        assert realign()["state"] == session_control.REALIGN_DONE
+
+    @pytest.mark.usefixtures("records")
+    async def test_a_switch_flipped_for_another_target_is_not_a_realignment(self, monkeypatch):
+        manager = FakeManager(target="live")
+        armed(manager, monkeypatch)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()
+
+        write_record(switch={"live": "on"})  # va off, live still on
+        await reconciler.poll_once()
+
+        assert manager.respawns == 0
+        assert realign() is None
+
+    @pytest.mark.usefixtures("records")
+    async def test_a_switch_a_never_tier_overrides_moves_no_verdict(self, monkeypatch):
+        """The verdict, not the record, is what realigns: tier never refuses either way."""
+        manager = FakeManager(target="live")
+        never = {"control_system": {**ARMED_RAW["control_system"], "writes": "never"}}
+        install_context(manager, monkeypatch, raw=never)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()
+
+        write_record(switch={"live": "on"})
+        await reconciler.poll_once()
+
+        assert manager.respawns == 0
+        assert realign() is None
+
+    @pytest.mark.usefixtures("records")
     async def test_a_narrowing_on_the_active_target_rebuilds_the_connector(self, monkeypatch):
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
 
         await reconciler.poll_once()  # baseline: nothing narrowed
@@ -1061,7 +1142,7 @@ class TestPostureRealignment:
     async def test_a_narrowing_waits_for_a_running_execution(self, monkeypatch):
         """The rebuild retires the child a running execution was promised."""
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
@@ -1096,7 +1177,7 @@ class TestPostureRealignment:
         manager.respawn_fails_with = SwitchError(
             "live", "spawn", "spawn_failed", "the child would not come up"
         )
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
@@ -1120,7 +1201,7 @@ class TestPostureRealignment:
     async def test_a_narrowing_on_another_target_is_not_a_realignment(self, monkeypatch):
         """Narrowing the machine this server is not on changes nothing here."""
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
@@ -1133,7 +1214,7 @@ class TestPostureRealignment:
     @pytest.mark.usefixtures("records")
     async def test_an_unchanged_record_is_not_reconciled_twice(self, monkeypatch):
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
@@ -1148,7 +1229,7 @@ class TestPostureRealignment:
     async def test_a_switch_re_baselines_the_posture_it_is_judged_by(self, monkeypatch):
         """The child a switch built already read the record; it needs no rebuild."""
         manager = FakeManager(target="live", generation=0)
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         write_record(posture={"va": "sandbox"})
         await reconciler.poll_once()
@@ -1182,7 +1263,7 @@ class TestDisplayRepublication:
     async def test_a_narrowing_on_another_target_republishes_without_realigning(self, monkeypatch):
         """No switch runs for that machine, so nothing else would restate it."""
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
 
         await reconciler.poll_once()  # baseline
@@ -1197,7 +1278,7 @@ class TestDisplayRepublication:
 
     async def test_a_narrowing_on_the_active_target_republishes_and_realigns(self, monkeypatch):
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
         manager.display_publishes = 0
@@ -1212,7 +1293,7 @@ class TestDisplayRepublication:
     async def test_a_settled_deployment_republishes_nothing_and_writes_nothing(self, monkeypatch):
         """Counted after the baseline pass, which legitimately does both."""
         manager = FakeManager(target="live")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         write_record(posture={"live": "sandbox"})
         await reconciler.poll_once()
@@ -1238,7 +1319,7 @@ class TestDisplayRepublication:
         """The rebuild is what the operator asked for; the block is a copy."""
         manager = FakeManager(target="live")
         manager.display_fails_with = OSError("the report could not be written")
-        install_context(manager, monkeypatch)
+        armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
         manager.display_publishes = 0
@@ -1363,3 +1444,63 @@ class TestTheLifespan:
 
         assert await server_mod.start_session_control() is None
         assert server_mod.get_session_reconciler() is None
+
+
+# ------------------------------------------------- the switch, end to end
+
+
+class TestTheSwitchReachesARunningChild:
+    """B1-10's reconciler half: a child spawned with the switch off writes once it is on.
+
+    A real connector-host child, on the simulator, comes up on the read gateway
+    while the switch is off and refuses a write. The switch is turned on; the
+    reconciler sees the verdict move for the active target, rebuilds the child,
+    and the next write lands through the write gateway.
+    """
+
+    @pytest.mark.usefixtures("records", "child_environment")
+    async def test_the_next_write_lands_after_the_switch_is_turned_on(
+        self, monkeypatch, make_manager, state_root, tmp_path
+    ):
+        from osprey_connectors.control_system._base import WriteOutcome
+        from osprey_connectors.types import VIRTUAL_ACCELERATOR
+        from tests.mcp_server._switch_harness import GATEWAY_TYPE, gateway_config, project_config
+
+        raw = gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True)
+        config_path = project_config(
+            tmp_path,
+            {
+                "type": GATEWAY_TYPE,
+                "writes_enabled": False,
+                "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
+            },
+        )
+        manager = make_manager(raw=raw, config_path=config_path)
+        await manager.ensure_started("va")
+        assert manager.status()["selected_role"] == "read_only"
+
+        def write_va_record(switch: dict | None) -> None:
+            fixtures.write_control_context(
+                state_root,
+                "va",
+                manager.active_generation(),
+                owned_by=fixtures.owner(control_context.OWNER_CONTROLS_SERVER),
+                switch=switch,
+            )
+            posture_store.invalidate_cache()
+
+        write_va_record(None)
+        install_context(manager, monkeypatch, raw=raw)
+        reconciler = session_control.SessionControlReconciler()
+        await reconciler.poll_once()  # baseline: the switch is off
+
+        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        assert refused.outcome is WriteOutcome.REFUSED
+
+        write_va_record({"va": "on"})
+        await reconciler.poll_once()
+
+        assert realign()["state"] == session_control.REALIGN_DONE
+        assert manager.status()["selected_role"] == "write_access"
+        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        assert written.outcome is not WriteOutcome.REFUSED

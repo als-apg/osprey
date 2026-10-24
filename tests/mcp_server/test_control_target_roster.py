@@ -40,6 +40,7 @@ from osprey_connectors_tests._harness import owner, write_control_context
 from tests.mcp_server._switch_harness import (
     LIVE_PROBE,
     VA_PROBE,
+    arm,
     narrow,
     started_on,
 )
@@ -330,48 +331,59 @@ class TestCorrectBeforeAnySwitch:
         assert rows["live"]["connector_type"].endswith("VAInProcessConnector")
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_writes_permitted_follows_the_deployment_posture_no_type_states(
-        self, make_manager, monkeypatch
+    async def test_writes_permitted_is_the_write_verdict_for_each_row(
+        self, make_manager, monkeypatch, state_root
     ):
-        """Neither connector block says anything, so both rows inherit the global key."""
+        """A tier that never allows writes refuses every row; allowed and on, every row writes."""
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
         assert [row["writes_permitted"] for row in rows.values()] == [False, False]
+        assert [row["writes_reason"] for row in rows.values()] == ["tier_never", "tier_never"]
 
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        arm(state_root, "live", "va")
         writable = make_manager(raw=raw)
         install_context(writable, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
         assert all(row["writes_permitted"] for row in rows.values())
+        assert all(row["writes_reason"] is None for row in rows.values())
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_each_row_carries_its_own_targets_posture(self, make_manager, monkeypatch):
-        """A deployment arms its simulator alone, and the two rows say so separately.
+    async def test_each_row_carries_its_own_targets_verdict(
+        self, make_manager, monkeypatch, state_root
+    ):
+        """The simulator switched on and the real machine off are two rows, not one flag.
 
-        The write posture the roster reports is per connector type, so the row
-        for ``va`` and the row for ``live`` are two answers and not one flag
-        printed twice.
+        The switch is per target, so the row for ``va`` and the row for ``live``
+        are two answers: the simulator's write is allowed and the real
+        machine's is refused, with the verdict's reason.
         """
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = False
-        raw["control_system"]["connector"]["virtual_accelerator"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        arm(state_root, "va")
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
-        assert rows["va"]["writes_permitted"] is True
-        assert rows["live"]["writes_permitted"] is False
+        assert (rows["va"]["writes_permitted"], rows["va"]["writes_reason"]) == (True, None)
+        assert (rows["live"]["writes_permitted"], rows["live"]["writes_reason"]) == (
+            False,
+            "switch_off",
+        )
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_a_readonly_run_reports_writes_as_not_permitted(self, make_manager, monkeypatch):
-        """The run's own claim counts, not only the deployment's posture."""
+    async def test_a_readonly_run_reports_writes_as_not_permitted(
+        self, make_manager, monkeypatch, state_root
+    ):
+        """The run's own claim counts, ahead of the tier and the switch."""
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        arm(state_root, "live", "va")
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -379,21 +391,31 @@ class TestCorrectBeforeAnySwitch:
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
         assert not any(row["writes_permitted"] for row in rows.values())
+        assert {row["writes_reason"] for row in rows.values()} == {"readonly_run"}
 
     @pytest.mark.usefixtures("no_prober")
-    async def test_a_readonly_run_collapses_an_armed_target_too(self, make_manager, monkeypatch):
-        """Per-target posture does not survive a read-only run — no row is armed."""
+    async def test_unknown_owner_and_unreadable_record_refuse_every_row(
+        self, make_manager, monkeypatch, state_root
+    ):
+        """An owner the login map does not name, and a record that cannot be read."""
         raw = config_with_gateways()
-        raw["control_system"]["writes_enabled"] = False
-        raw["control_system"]["connector"]["virtual_accelerator"]["writes_enabled"] = True
+        raw["control_system"]["writes"] = "allowed"
+        raw["control_system"]["login_tiers"] = {"somebody-else": "allowed"}
+        arm(state_root, "live", "va")
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+        assert {row["writes_reason"] for row in rows.values()} == {"owner_unknown"}
 
-        assert rows["va"]["writes_permitted"] is False
-        assert rows["live"]["writes_permitted"] is False
+        del raw["control_system"]["login_tiers"]
+        control_context.record_path_under(state_root).write_text("{not json", encoding="utf-8")
+        control_context.invalidate_cache()
+        install_context(make_manager(raw=raw), monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+        assert not any(row["writes_permitted"] for row in rows.values())
+        assert {row["writes_reason"] for row in rows.values()} == {"record_unavailable"}
 
 
 # ------------------------------------------------------- reachability rows
@@ -941,7 +963,9 @@ class TestLiveStandinLabel:
         assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
         assert metadata["standin"]["real_machine"] is True
 
-    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(self, monkeypatch):
+    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(
+        self, monkeypatch, state_root
+    ):
         """Arming writes selects the other gateway row, and the endpoint says so.
 
         The two rows are split onto different ports, so the selection is
@@ -951,6 +975,7 @@ class TestLiveStandinLabel:
         saw before postures could move an endpoint at all.
         """
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+        arm(state_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1076,6 +1101,7 @@ class TestEndpointFollowsThePosture:
     """
 
     def test_a_narrowed_session_is_named_through_the_read_gateway(self, posture_root):
+        arm(posture_root, "standin", "live")
         narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
@@ -1084,7 +1110,8 @@ class TestEndpointFollowsThePosture:
         assert metadata["standin"]["selected_role"] == "read_only"
 
     def test_a_narrowing_never_renames_the_machine(self, posture_root):
-        """The parenthesis is read from the ceiling, so it cannot follow a port."""
+        """The parenthesis is read from the tier, so it cannot follow a port."""
+        arm(posture_root, "standin", "live")
         narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
@@ -1095,7 +1122,8 @@ class TestEndpointFollowsThePosture:
         assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
 
     def test_a_narrowing_reaches_only_the_target_it_names(self, posture_root):
-        """Per-target, the way the store is keyed: ``live`` keeps its own answer."""
+        """Per target, the way the switch is keyed: ``live`` keeps its own answer."""
+        arm(posture_root, "standin", "live")
         narrow(posture_root, "standin")
 
         metadata = target_display_metadata(split_gateway_config())
@@ -1103,17 +1131,17 @@ class TestEndpointFollowsThePosture:
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
 
-    @pytest.mark.usefixtures("posture_root")
-    def test_an_unnarrowed_session_still_names_the_write_gateway(self):
-        """Stamped, with nothing in the store: the ceiling answers unchanged."""
+    def test_an_unnarrowed_session_still_names_the_write_gateway(self, posture_root):
+        """Switched on and not narrowed: the write gateway, as the verdict allows."""
+        arm(posture_root, "standin")
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert metadata["standin"]["selected_role"] == "write_access"
 
-    @pytest.mark.usefixtures("posture_root")
-    def test_the_store_never_widens_a_deployment_that_arms_nothing(self):
-        """Nothing a session holds can arm a target the deployment left unarmed."""
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_root):
+        """A switch on cannot arm a target whose tier never allows writes."""
+        arm(posture_root, "standin")
         metadata = target_display_metadata(split_gateway_config(writes_enabled=False))
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"

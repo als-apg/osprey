@@ -475,9 +475,17 @@ def test_the_gate_never_reads_the_posture_store(monkeypatch: pytest.MonkeyPatch)
     def _explode(*args: Any, **kwargs: Any) -> bool:
         raise AssertionError("evaluate_switch read the posture store")
 
+    monkeypatch.setattr(posture_store, "write_verdict", _explode)
     monkeypatch.setattr(posture_store, "effective_writes", _explode)
 
-    assert _gate(writes_enabled=None).allowed is True
+    assert _gate(writes_enabled=False).allowed is True
+    assert _gate(writes_enabled=True).allowed is True
+
+
+def test_the_gate_has_no_default_for_the_write_verdict() -> None:
+    """The caller takes the verdict; a gate called without it is a caller bug, not a default."""
+    with pytest.raises(TypeError, match="writes_enabled"):
+        te.evaluate_switch(_config(), VA, current_target=LIVE, baseline=LIVE)  # type: ignore[call-arg]
 
 
 def test_the_gate_never_reads_the_control_context_record(
