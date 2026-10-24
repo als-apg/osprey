@@ -15,6 +15,7 @@ are the public ``write_terminus`` and ``write_record``.
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
@@ -24,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context
-from osprey_connectors_tests._harness._control_context_fixtures import (
+from osprey_connectors_tests._harness import (
     data_root,
     race_record_writers,
     write_control_context,
@@ -54,6 +55,72 @@ def test_the_lock_follows_an_explicit_path(tmp_path):
     assert elsewhere.is_file()
     assert (tmp_path / "elsewhere" / "record.json.lock").is_file()
     assert not control_context.state_dir().exists()
+
+
+def test_a_symlinked_lock_refuses_the_write_and_leaves_its_target_alone(data_root):
+    """A link planted at ``<record>.lock`` is not followed: the write fails closed."""
+    path = write_control_context(data_root, generation=3)
+    before = path.read_bytes()
+    lock = control_context._lock_path(path)
+    lock.unlink()
+    target = data_root / "planted-target"
+    target.write_text("", encoding="utf-8")
+    target.chmod(0o600)
+    lock.symlink_to(target)
+
+    with pytest.raises(OSError) as exc:
+        control_context.write_record(
+            control_context.ControlContext(target="va", generation=4), path=path
+        )
+    assert exc.value.errno == errno.ELOOP
+
+    assert (target.stat().st_mode & 0o777) == 0o600
+    assert lock.is_symlink()
+    assert path.read_bytes() == before
+
+
+def test_a_dangling_symlinked_lock_creates_nothing_at_its_target(data_root, tmp_path):
+    path = write_control_context(data_root, generation=3)
+    lock = control_context._lock_path(path)
+    lock.unlink()
+    target = tmp_path / "nowhere"
+    lock.symlink_to(target)
+
+    with pytest.raises(OSError) as exc:
+        control_context.write_record(
+            control_context.ControlContext(target="va", generation=4), path=path
+        )
+    assert exc.value.errno == errno.ELOOP
+
+    assert not target.exists()
+
+
+def test_an_existing_regular_lock_is_reused_and_not_chmodded(data_root):
+    path = write_control_context(data_root, generation=3)
+    lock = control_context._lock_path(path)
+    lock.chmod(0o600)
+    inode = lock.stat().st_ino
+
+    control_context.write_record(
+        control_context.ControlContext(target="va", generation=4), path=path
+    )
+
+    assert lock.stat().st_ino == inode
+    assert (lock.stat().st_mode & 0o777) == 0o600
+    assert _payload(path)["generation"] == 4
+
+
+@pytest.mark.usefixtures("data_root")
+def test_a_fresh_lock_is_created_at_0o660_under_a_umask(tmp_path):
+    record = tmp_path / "fresh" / "record.json"
+    previous = os.umask(0o077)
+    try:
+        control_context.write_record(
+            control_context.ControlContext(target="va", generation=0), path=record
+        )
+    finally:
+        os.umask(previous)
+    assert (control_context._lock_path(record).stat().st_mode & 0o777) == 0o660
 
 
 def _hold(lock_file: Path):
@@ -153,7 +220,7 @@ def test_a_write_keeps_the_switch_and_epoch_on_disk(data_root):
 @pytest.mark.usefixtures("data_root")
 def test_a_write_over_an_epoch_less_record_keeps_it_epoch_less():
     """A non-person write never stamps an epoch onto a readable record."""
-    from osprey_connectors_tests._harness._control_context_fixtures import write_payload
+    from osprey_connectors_tests._harness import write_payload
 
     path = control_context.record_path()
     write_payload(path, {"schema": 1, "target": "live", "generation": 1, "switch": {"live": "on"}})

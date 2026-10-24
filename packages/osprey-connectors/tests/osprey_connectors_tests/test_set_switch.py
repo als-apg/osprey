@@ -19,7 +19,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, refusals
 from osprey_connectors.control_context import StoppedSince, set_switch
-from osprey_connectors_tests._harness._control_context_fixtures import (
+from osprey_connectors_tests._harness import (
     data_root,
     race_record_writers,
     write_control_context,
@@ -82,11 +82,26 @@ def test_a_turn_off_of_a_target_that_is_off_is_a_no_op(data_root):
     assert _payload(path)["switch_epoch"] == epoch
 
 
-def test_a_turn_on_with_a_newer_epoch_than_the_record_is_accepted(data_root):
-    path = write_control_context(data_root)
+def test_a_turn_on_with_a_newer_epoch_than_the_record_is_refused_and_writes_nothing(data_root):
+    """Equality, not order: an epoch the record never carried was not what the person saw."""
+    path = write_control_context(data_root, switch={"live": "on"})
     epoch = _epoch(path)
-    set_switch(["va"], "on", epoch=epoch + 10)
-    assert _payload(path)["switch"] == {"va": "on"}
+    before = path.read_bytes()
+
+    with pytest.raises(StoppedSince) as caught:
+        set_switch(["va"], "on", epoch=epoch + 10)
+
+    assert caught.value.epoch == epoch
+    assert caught.value.stamped is False
+    assert path.read_bytes() == before
+
+
+def test_a_turn_on_with_the_equal_epoch_is_accepted(data_root):
+    path = write_control_context(data_root, switch={"live": "on"})
+    epoch = _epoch(path)
+    stored = set_switch(["va"], "on", epoch=epoch)
+    assert stored is not None and stored.switch == {"live": "on", "va": "on"}
+    assert _payload(path)["switch"] == {"live": "on", "va": "on"}
     assert _payload(path)["switch_epoch"] == epoch
 
 
@@ -155,6 +170,8 @@ def test_a_turn_on_begun_before_all_off_is_refused(data_root):
     with pytest.raises(StoppedSince) as caught:
         set_switch(["va"], "on", epoch=seen)
     assert caught.value.epoch == _epoch(path) > seen
+    # Not a stamp: the chip re-renders and needs a new click, so the turn-on stays off.
+    assert caught.value.stamped is False
     assert _payload(path)["switch"] == {}
 
 
@@ -178,6 +195,7 @@ def test_a_turn_on_with_an_older_epoch_is_refused_and_writes_nothing(data_root):
         set_switch(["va"], "on", epoch=epoch - 1)
 
     assert caught.value.epoch == epoch
+    assert caught.value.stamped is False
     assert caught.value.reason == "stopped_since"
     assert str(caught.value) == refusals.refusal_phrase("stopped_since")
     assert path.read_bytes() == before
@@ -212,6 +230,8 @@ def test_a_turn_on_against_an_epoch_less_record_stamps_one_and_the_retry_succeed
     stamped = _payload(path)["switch_epoch"]
     assert isinstance(stamped, int) and stamped >= before and stamped != 0
     assert caught.value.epoch == stamped
+    # Only a just-stamped record lets the chip retry on its own.
+    assert caught.value.stamped is True
     # The refused gesture armed nothing; what was on stays on.
     assert _payload(path)["switch"] == {"va": "on"}
 
@@ -305,6 +325,7 @@ def test_on_on_a_missing_record_is_refused():
     with pytest.raises(StoppedSince) as caught:
         set_switch(["va"], "on", epoch=time.time_ns())
     assert caught.value.epoch is None
+    assert caught.value.stamped is False
     assert not path.exists()
 
 
@@ -458,5 +479,19 @@ def test_stopped_since_carries_its_epoch_and_reason():
     """A route answers a stale gesture from attributes, never by parsing text."""
     error = StoppedSince(epoch=42)
     assert error.epoch == 42 and error.reason == "stopped_since"
+    assert error.stamped is False
+    assert StoppedSince(epoch=42, stamped=True).stamped is True
     # Not a RuntimeError: "store unavailable" handlers must not swallow it.
     assert not isinstance(error, RuntimeError)
+
+
+@pytest.mark.parametrize("offset", [-1, 1], ids=["older", "newer"])
+def test_the_fixture_retry_helpers_still_arm_after_a_refusal(data_root, offset):
+    """The retry the fixtures use — re-offer the refusal's epoch — lands under equality."""
+    path = write_control_context(data_root)
+    epoch = _epoch(path)
+    with pytest.raises(StoppedSince) as caught:
+        set_switch(["va"], "on", epoch=epoch + offset)
+    assert caught.value.epoch == epoch
+    set_switch(["va"], "on", epoch=caught.value.epoch)
+    assert _payload(path)["switch"] == {"va": "on"}

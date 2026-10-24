@@ -702,6 +702,37 @@ def _lock_path(path: Path) -> Path:
     return path.with_name(path.name + _LOCK_SUFFIX)
 
 
+def _open_lock_file(lock: Path) -> int:
+    """Open *lock* for :func:`_record_lock`, creating it at 0o660 if absent.
+
+    Neither open follows a symbolic link at the last component: the create
+    uses ``O_EXCL | O_NOFOLLOW``, and the reopen of an existing lock uses
+    ``O_NOFOLLOW``. A lock removed between the two is created once more.
+
+    Raises:
+        OSError: A symbolic link sits at *lock* (``errno.ELOOP``), or *lock*
+            could not be created or opened.
+    """
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o660)
+        except FileExistsError:
+            pass
+        else:
+            try:
+                # The create honoured the umask; this file is this writer's own.
+                os.fchmod(fd, 0o660)
+            except BaseException:
+                os.close(fd)
+                raise
+            return fd
+        try:
+            return os.open(lock, os.O_RDWR | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            continue
+    return os.open(lock, os.O_RDWR | os.O_NOFOLLOW)
+
+
 @contextlib.contextmanager
 def _record_lock(path: Path) -> Iterator[None]:
     """Hold the exclusive lock on the record at *path*. Rule 3.
@@ -712,15 +743,22 @@ def _record_lock(path: Path) -> Iterator[None]:
     record is given 0o640: writers under other uids reach it through the
     state directory's setgid group.
 
+    Only a lock file this call created is given that mode. One that already
+    exists is reused as it stands: it may be another uid's, and a mode set on
+    it here would be a mode set on whatever the path resolves to. Neither open
+    follows a symbolic link at the last component (``O_NOFOLLOW``), because the
+    directory is group-writable by parties other than its owner: a link planted
+    there would otherwise have this writer chmod and lock a file of the
+    planter's choosing. A link refuses the write.
+
     Raises:
         RuntimeError: The lock was not acquired in time.
-        OSError: The lock file could not be created or opened.
+        OSError: A symbolic link sits where the lock file belongs
+            (``errno.ELOOP``), or the lock file could not be created or opened.
     """
     _ensure_directory(path.parent)
-    fd = os.open(_lock_path(path), os.O_RDWR | os.O_CREAT, 0o660)
+    fd = _open_lock_file(_lock_path(path))
     try:
-        with contextlib.suppress(OSError):  # not this uid's file to set a mode on
-            os.fchmod(fd, 0o660)
         deadline = time.monotonic() + _LOCK_TIMEOUT_S
         while True:
             try:
@@ -803,9 +841,11 @@ class StoppedSince(Exception):
     """A turn-on refused because a stop, or a lost record, came after it began.
 
     Rule 3: a person turning a machine on names the epoch they saw. A record
-    whose epoch is newer, a record that has no epoch, and no record at all each
-    mean that what they saw is no longer what is on disk, so nothing is armed.
-    The gesture is retried, from the chip, with :attr:`epoch`.
+    whose epoch differs from it — newer or older —, a record that has no epoch,
+    and no record at all each mean that what they saw is no longer what is on
+    disk, so nothing is armed. The chip retries on its own, with :attr:`epoch`,
+    only when :attr:`stamped`; otherwise it re-renders and needs a new click, so
+    a turn-on that raced a stop stays off.
 
     Not a ``RuntimeError``: a caller that answers ``RuntimeError`` with "the
     store is unavailable" must not answer a stale gesture the same way.
@@ -813,12 +853,15 @@ class StoppedSince(Exception):
     Attributes:
         epoch: The record's epoch now — the one a retried gesture names — or
             ``None`` when there is no usable record to retry against.
+        stamped: ``True`` only when this refusal just stamped an epoch on an
+            epoch-less record — nothing was stopped, so a retry is safe.
         reason: Always ``"stopped_since"``, a member of
             :data:`osprey_connectors.refusals.REASONS`.
     """
 
-    def __init__(self, *, epoch: int | None) -> None:
+    def __init__(self, *, epoch: int | None, stamped: bool = False) -> None:
         self.epoch = epoch
+        self.stamped = stamped
         self.reason = "stopped_since"
         super().__init__(refusal_phrase(self.reason))
 
@@ -865,10 +908,11 @@ def set_switch(
     between what this compared and what it stored.
 
     * ``"on"`` arms each named target. It requires *epoch*, the
-      ``switch_epoch`` the person saw, and raises :class:`StoppedSince` when
-      the record's epoch is newer, when the record has no epoch (``None`` is
-      never older; one is stamped, so the retried gesture succeeds), or when
-      there is no usable record.
+      ``switch_epoch`` the person saw, and succeeds only when it equals the
+      record's epoch — a compare-and-swap. It raises :class:`StoppedSince`
+      carrying the on-disk epoch when the two differ (newer or older), when the
+      record has no epoch (one is stamped and ``stamped`` is set, so the
+      retried gesture succeeds), or when there is no usable record.
     * ``"off"`` disarms each named target — any key, known target or not —
       and never refuses.
     * ``"all"`` (with ``"off"``) clears every key and moves the epoch to
@@ -923,8 +967,8 @@ def set_switch(
             if on_disk_epoch is None:
                 stamped = replace(current, switch_epoch=time.time_ns())
                 _write_record_unlocked(stamped, target_path)
-                raise StoppedSince(epoch=stamped.switch_epoch)
-            if epoch is None or on_disk_epoch > epoch:  # epoch is checked above
+                raise StoppedSince(epoch=stamped.switch_epoch, stamped=True)
+            if epoch != on_disk_epoch:
                 raise StoppedSince(epoch=on_disk_epoch)
             stored = replace(current, switch={**current.switch, **dict.fromkeys(names, _SWITCH_ON)})
         else:
