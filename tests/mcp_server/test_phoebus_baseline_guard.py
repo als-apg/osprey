@@ -5,7 +5,9 @@ fixed when that product started, so a session-level control-system target
 switch does not move it. Two behaviours follow, both covered here:
 
 * ``phoebus_drive`` refuses while the control target differs from the
-  deployment baseline — a write must never land on a target the session left;
+  deployment baseline — a write must never land on a target the session left
+  (what follows the guard, the switch and the approval record, is
+  ``test_phoebus_drive_stage1.py``);
 * the four read tools prepend one informational line naming both targets while
   switched, and change nothing at all while on the baseline.
 
@@ -30,6 +32,8 @@ import yaml
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.mcp_server.phoebus.tools import bridge_tools, databrowser_tools
 from osprey_connectors import control_context
+from osprey_connectors_tests._harness import isolate_verdict_environment, reset_verdict_state
+from tests._approval_stamp_fixture import use_stamp_dir
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 _BRIDGE_MOD = "osprey.mcp_server.phoebus.tools.bridge_tools"
@@ -233,27 +237,46 @@ async def test_drive_refusal_precedes_argument_validation():
         await bridge_fn("phoebus_drive")(widget="0", verb="frobnicate")
 
 
-@pytest.mark.usefixtures("on_baseline")
-async def test_drive_proceeds_on_baseline():
-    with patch(
-        f"{_BRIDGE_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
-    ) as post:
+async def test_drive_proceeds_on_baseline(
+    tmp_path, monkeypatch, control_context_root, write_control_context
+):
+    """On the baseline, with its switch on and the call stamped, the drive is sent."""
+    set_config(tmp_path, monkeypatch, {"type": "epics", "writes": "allowed"})
+    isolate_verdict_environment(monkeypatch, control_context_root)
+    write_control_context(control_context_root, target="live", switch={"live": "on"})
+    reset_verdict_state()
+    stamps = use_stamp_dir(monkeypatch, tmp_path / "state")
+    with (
+        patch(
+            f"{_BRIDGE_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
+        ) as post,
+        stamps.approved("phoebus_drive"),
+    ):
         result = await bridge_fn("phoebus_drive")(widget="SetButton", verb="click")
     post.assert_called_once()
     assert json.loads(result)["fired"] is True
 
 
-async def test_drive_proceeds_when_the_record_is_corrupt(
+async def test_a_corrupt_record_passes_the_guard_and_the_verdict_refuses(
     tmp_path, monkeypatch, control_context_root
 ):
-    """An unreadable record means "unknown", and unknown must not block an operator."""
-    set_config(tmp_path, monkeypatch, {"type": "epics"})
+    """An unreadable record is "unknown": not a switch to refuse, but no switch that is on.
+
+    The baseline guard lets it through, as it does for every reader; the write
+    verdict, which needs the record to say the machine is on, refuses the drive.
+    """
+    set_config(tmp_path, monkeypatch, {"type": "epics", "writes": "allowed"})
+    isolate_verdict_environment(monkeypatch, control_context_root)
     write_corrupt_record(control_context_root, "}{")
-    with patch(
-        f"{_BRIDGE_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
+    reset_verdict_state()
+    stamps = use_stamp_dir(monkeypatch, tmp_path / "state")
+    with (
+        patch(f"{_BRIDGE_MOD}._http_post_drive") as post,
+        stamps.approved("phoebus_drive"),
+        assert_raises_error(error_type="writes_disabled"),
     ):
-        result = await bridge_fn("phoebus_drive")(widget="SetButton", verb="click")
-    assert json.loads(result)["status"] == "success"
+        await bridge_fn("phoebus_drive")(widget="SetButton", verb="click")
+    post.assert_not_called()
 
 
 # ── read tools: the informational line ──────────────────────────────────────

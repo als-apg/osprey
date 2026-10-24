@@ -56,8 +56,15 @@ Agent access
 ------------
 ``phoebus_drive`` is offered and served only when ``phoebus.agent_access`` is
 ``read_write``. Under the default ``read`` the server leaves it out of
-``tools/list`` and refuses a call to it by the key's name. This is the only
-switch, because a panel runs whatever its widgets are wired to.
+``tools/list`` and refuses a call to it by the key's name: a panel runs
+whatever its widgets are wired to, so a deployment offers the drive or not.
+
+A drive the deployment offers is a write, so it then follows its machine's
+switch like every other write: the write verdict
+(:func:`osprey_connectors.posture_store.write_verdict`) for the baseline, the
+only machine the bridge drives, must allow it, and where the approval policy
+asks, the approval prompt must have left its record for the call
+(:func:`osprey.mcp_server.approval_record.require_approval_record`).
 
 Panel name registry
 -------------------
@@ -108,6 +115,8 @@ from osprey.mcp_server.http import (
 )
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
+from osprey_connectors import posture_store
+from osprey_connectors.types import baseline_target
 from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
@@ -249,6 +258,62 @@ def _check_drive_offered() -> None:
                 "in the build profile, then rebuild."
             ],
             details={"key": AGENT_ACCESS_KEY, "value": READ},
+        )
+
+
+def _check_drive_switch() -> None:
+    """Refuse a drive the write verdict refuses for the deployment baseline.
+
+    The bridge drives the baseline's Phoebus and :func:`baseline_refusal` has
+    already refused a session that left it, so the baseline is the machine the
+    drive writes to. Asked fresh on every call over the deployment's
+    ``control_system`` section, with the owner left to the verdict's ladder,
+    so a switch turned off reaches the next drive. A verdict that cannot be
+    reached refuses as ``record_unavailable``.
+
+    The message is the verdict's phrase, which says who can lift the refusal
+    and names no config key; ``details`` carries the reason and the target.
+    """
+    from osprey_connectors.refusals import refusal_phrase
+
+    try:
+        config = load_osprey_config()
+        section = config.get("control_system") if isinstance(config, dict) else None
+        target = baseline_target(section)
+        verdict = posture_store.write_verdict(section or {}, target)
+    except Exception:  # unknown posture must not drive a panel
+        logger.warning("Write verdict for phoebus_drive could not be reached", exc_info=True)
+        verdict = posture_store.WriteVerdict(
+            allowed=False, reason="record_unavailable", target=None, kind=None
+        )
+    if verdict.allowed:
+        return
+    reason = verdict.reason or "record_unavailable"
+    make_error(
+        "writes_disabled",
+        f"{refusal_phrase(reason, verdict.kind)} phoebus_drive was refused before "
+        "reaching the bridge.",
+        ["Hand the action to the operator, who can perform it on the Phoebus panel."],
+        details={"reason": reason, "target": verdict.target},
+    )
+
+
+def _check_drive_record() -> None:
+    """Refuse a drive whose approval prompt left no record, where approval applies.
+
+    :func:`~osprey.mcp_server.approval_record.require_approval_record` decides:
+    a drive whose policy does not ask runs unchanged, and an approval switch
+    that is not a bool refuses every drive.
+    """
+    from osprey.mcp_server.approval_record import require_approval_record
+
+    config = load_osprey_config()
+    refusal = require_approval_record("phoebus_drive", config if isinstance(config, dict) else {})
+    if refusal is not None:
+        make_error(
+            refusal.error_type,
+            refusal.message,
+            ["Call phoebus_drive again so the approval prompt can ask."],
         )
 
 
@@ -817,17 +882,25 @@ async def phoebus_drive(
     Refuses outright while the session's control-system target differs from the
     deployment baseline: the bridge drives the baseline's Phoebus, so the drive
     would land on a target this session has left (see the module docstring).
-    Refused unless ``phoebus.agent_access`` is ``read_write``.
+    Refused unless ``phoebus.agent_access`` is ``read_write``. Refused
+    ``writes_disabled`` while the write verdict refuses the baseline (its
+    switch is off, its tier allows nothing, the record cannot be read), with
+    ``details.reason`` naming why. Where the approval policy asks, refused
+    ``approval_missing`` when the approval prompt left no record of this call,
+    and ``approval_config_invalid`` under an approval switch that is not a bool.
     """
-    # Both checks run before argument validation. Access is a fact about the
-    # deployment and the target is a fact about the session; both hold for
-    # every argument, so an operator learns them rather than first being sent
-    # to fix a typo'd verb, and a deployment that offers no drive says so
-    # before anything else.
+    # Every check runs before argument validation, in this order: access, the
+    # session target, the write verdict, the approval record. Access is a fact
+    # about the deployment, the target and the switch facts about the machine,
+    # the record a fact about this call; each holds for every argument, so an
+    # operator learns them rather than first being sent to fix a typo'd verb,
+    # and a deployment that offers no drive says so before anything else.
     _check_drive_offered()
     refusal = baseline_refusal(PHOEBUS_SUBJECT, "Driving a Phoebus widget")
     if refusal is not None:
         return make_error(BASELINE_REFUSAL_ERROR_TYPE, refusal[0], refusal[1])
+    _check_drive_switch()
+    _check_drive_record()
 
     verb_l = verb.lower()
     mode_l = mode.lower()
