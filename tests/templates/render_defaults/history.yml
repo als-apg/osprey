@@ -61,14 +61,20 @@ services:
       # privileges.
       OSPREY_AUDIT_IDENTITY: history
       OSPREY_AUDIT_DIR: /app/golden-project/var/audit/history
+      # Its own spool and state directories, bound below; the entrypoint
+      # joins their groups too.
+      OSPREY_SPOOL_DIR: /app/golden-project/var/spool/history
+      OSPREY_STATE_DIR: /app/golden-project/var/state/history
       TZ: UTC
     # Published on loopback only: the web tier's nginx runs on the host
     # network and reaches the page there; nothing else may.
     ports:
       - "127.0.0.1:10003:8000"
-    # This page's audit subdirectory, and only its own.
+    # This page's audit, spool and state subdirectories, and only its own.
     volumes:
       - ./var/audit/history:/app/golden-project/var/audit/history
+      - ./var/spool/history:/app/golden-project/var/spool/history
+      - ./var/state/history:/app/golden-project/var/state/history
     # Always on the compose network: the page dials the store by its service
     # name, and nginx reaches it on the loopback port above.
     networks:

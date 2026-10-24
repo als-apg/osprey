@@ -113,8 +113,11 @@ def test_the_page_alone_builds_the_project_image() -> None:
     assert container_lifecycle._project_image_build_target(_config(), {}) == "dls_controls:local"
 
 
-def test_auth_none_with_the_store_alone_builds_nothing() -> None:
-    assert container_lifecycle._project_image_build_target(_config("none"), {}) is None
+def test_auth_none_with_the_store_alone_builds_no_image_for_the_page() -> None:
+    """The project image is still built, for agent-record, which every
+    deployment runs; the page is not among the services it is built for."""
+    services = container_lifecycle._deployed_project_image_services(_config("none"))
+    assert tc.HISTORY_SERVICE not in services
 
 
 def test_an_image_override_takes_the_page_build_away() -> None:
@@ -182,8 +185,13 @@ def test_the_history_service_runs_the_project_image_on_loopback() -> None:
     assert service["labels"] == {
         "osprey.telemetry.cred.digest": "${OSPREY_TELEMETRY_DIGEST_HISTORY:-}"
     }
-    (volume,) = service["volumes"]
-    assert volume.split(":")[0].endswith(f"/{tc.HISTORY_SERVICE}")
+    # Its audit, spool and state directories, each addressed by its identity.
+    sources = [volume.split(":")[0] for volume in service["volumes"]]
+    assert [source.rsplit("/", 2)[-2:] for source in sources] == [
+        ["audit", tc.HISTORY_SERVICE],
+        ["spool", tc.HISTORY_SERVICE],
+        ["state", tc.HISTORY_SERVICE],
+    ]
 
 
 def _dispatcher_env(config: dict[str, Any]) -> dict[str, Any]:

@@ -110,6 +110,11 @@ services:
       # writable by it), so the variable would be config nothing reads — exactly
       # why the auth sidecar omits it too.
       OSPREY_AUDIT_IDENTITY: bluesky-web
+      # Where this sidecar appends its agent-record events and keeps its own
+      # state: its directories in the two zones, bound below. Plain config,
+      # read by the writer; there is no entrypoint here to join their groups.
+      OSPREY_SPOOL_DIR: /app/project/var/spool/bluesky-web
+      OSPREY_STATE_DIR: /app/project/var/state/bluesky-web
     volumes:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the
@@ -132,6 +137,10 @@ services:
       # else would be a directory nothing writes to while the records piled up
       # in the writable layer.
       - ./var/audit/bluesky-web:/app/project/var/audit/bluesky-web
+      # Its spool and state directories, and only its own, for the audit
+      # bind's reasons.
+      - ./var/spool/bluesky-web:/app/project/var/spool/bluesky-web
+      - ./var/state/bluesky-web:/app/project/var/state/bluesky-web
 
     networks:
       - osprey-network
