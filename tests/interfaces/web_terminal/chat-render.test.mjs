@@ -1076,4 +1076,168 @@ describe('createChatRenderer', () => {
       expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
     });
   });
+
+  describe('settled questions leave a trace', () => {
+    const QUESTIONS = [
+      {
+        question: 'Which lattice?',
+        header: 'Lattice',
+        multiSelect: false,
+        options: [
+          { label: 'Top-off', description: '' },
+          { label: 'Hybrid', description: '' },
+        ],
+      },
+      {
+        question: 'Say "go" when ready?',
+        header: 'Ready',
+        multiSelect: false,
+        options: [
+          { label: 'Go', description: '' },
+          { label: 'Wait', description: '' },
+        ],
+      },
+    ];
+
+    /** @param {HTMLElement} root */
+    const items = (root) =>
+      [...root.querySelectorAll('.op-qtrace-item')].map((item) => [
+        item.querySelector('.op-qtrace-q')?.textContent,
+        item.querySelector('.op-qtrace-a')?.textContent,
+      ]);
+
+    test('an answered question folds to a closed line that opens to each question and its answer', async () => {
+      const answerPermission = vi.fn(async () => {});
+      const r = createChatRenderer(container, { answerPermission });
+      r.handleEvent({
+        type: 'permission_request',
+        request_id: 'q-1',
+        kind: 'question',
+        input: { questions: QUESTIONS },
+      });
+      const card = qs(container, '.op-card');
+      const key = (/** @type {string} */ k) =>
+        card.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+      key('2');
+      qs(card, '.op-btn-primary').click();
+      key('1');
+      qs(card, '.op-btn-primary').click();
+      await vi.waitFor(() => expect(card.dataset.state).toBe('answered'));
+
+      expect(answerPermission).toHaveBeenCalledWith('q-1', {
+        allow: true,
+        answers: { 'Which lattice?': 'Hybrid', 'Say "go" when ready?': 'Go' },
+      });
+      const head = qs(card, '.op-qtrace-head');
+      expect(head.textContent).toBe('Answered · 2 questions');
+      expect(qs(card, '.op-qtrace-body').hidden).toBe(true);
+      head.click();
+      expect(head.getAttribute('aria-expanded')).toBe('true');
+      expect(qs(card, '.op-qtrace-body').hidden).toBe(false);
+      expect(items(card)).toEqual([
+        ['Which lattice?', 'Hybrid'],
+        ['Say "go" when ready?', 'Go'],
+      ]);
+    });
+
+    test('a replayed question is redrawn as its trace, answers read back from the result', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [
+            {
+              type: 'tool_use',
+              tool_name: 'AskUserQuestion',
+              tool_name_raw: 'AskUserQuestion',
+              tool_use_id: 'u1',
+              input: { questions: QUESTIONS },
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 'u1',
+              is_error: false,
+              preview:
+                'Your questions have been answered: "Which lattice?"="Hybrid, then "top-off"", ' +
+                '"Say "go" when ready?"="Go". You can now continue with these answers in mind.',
+            },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+
+      const card = qs(container, '.op-card');
+      expect(card.dataset.state).toBe('answered');
+      expect(items(card)).toEqual([
+        ['Which lattice?', 'Hybrid, then "top-off"'],
+        ['Say "go" when ready?', 'Go'],
+      ]);
+      expect(container.querySelector('.op-tool')).toBeNull();
+    });
+
+    test('a replayed question whose call ended in an error reads as skipped, with no answers', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [
+            {
+              type: 'tool_use',
+              tool_name: 'AskUserQuestion',
+              tool_name_raw: 'AskUserQuestion',
+              tool_use_id: 'u2',
+              input: { questions: [QUESTIONS[0]] },
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 'u2',
+              is_error: true,
+              preview: 'The user declined.',
+            },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+
+      const card = qs(container, '.op-card');
+      expect(card.dataset.state).toBe('skipped');
+      expect(qs(card, '.op-qtrace-head').textContent).toBe('Skipped · Lattice');
+      expect(items(card)).toEqual([['Which lattice?', 'No answer']]);
+    });
+  });
+
+  describe('artifact ids in agent answers', () => {
+    /** @param {string} markdown */
+    const links = (markdown) => {
+      createChatRenderer(container).addAgentMessage(markdown);
+      return [...container.querySelectorAll('.op-artifact-link')].map((b) => [
+        /** @type {HTMLElement} */ (b).dataset.artifactId,
+        b.textContent,
+      ]);
+    };
+
+    test('the artifact_id phrase becomes a control that reads as written', () => {
+      expect(
+        links('<p>Tunes (artifact_id: a57934cf00dd), and artifact_id=7AC86013F4B4.</p>')
+      ).toEqual([
+        ['a57934cf00dd', 'artifact_id: a57934cf00dd'],
+        ['7ac86013f4b4', 'artifact_id=7AC86013F4B4'],
+      ]);
+      expect(container.textContent).toBe(
+        'Tunes (artifact_id: a57934cf00dd), and artifact_id=7AC86013F4B4.'
+      );
+    });
+
+    test('an id in inline code after the phrase is linked; a code block and a link are not', () => {
+      expect(
+        links(
+          '<p>artifact_id: <code>a57934cf00dd</code></p>' +
+            '<pre><code>artifact_id: 7ac86013f4b4</code></pre>' +
+            '<p><a href="/x">artifact_id: 0123456789ab</a></p>'
+        )
+      ).toEqual([['a57934cf00dd', 'artifact_id: a57934cf00dd']]);
+    });
+  });
 });

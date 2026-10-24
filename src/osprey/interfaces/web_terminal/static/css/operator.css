@@ -456,8 +456,99 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-primary);
 }
 
+/* The OSPREY mark at 1.5 px a cell, the header lockup's scale. The roll spins
+   the whole box, so it must be free to paint outside it. */
 .op-thinking-glyph {
+  flex-shrink: 0;
+  width: 24px;
+  height: 12px;
+  overflow: visible;
   color: var(--color-accent-light);
+}
+
+/* Sprite frames: the mark at rest unless a flight shows another. */
+.op-osprey-mid,
+.op-osprey-down {
+  opacity: 0;
+}
+
+/* The wingbeat: level, down, level, up, a frame each quarter of a cycle. The
+   loader beats for as long as the turn works; a live thinking finish beats
+   twice, quicker, then rolls 360°. */
+.op-loader-bird path,
+.op-thinking-glyph.flying path {
+  animation-timing-function: step-end;
+}
+
+.op-loader-bird path {
+  animation-duration: 480ms; /* hygiene-allow-scale: sprite frame cadence, 120ms a frame */
+  animation-iteration-count: infinite;
+}
+
+.op-thinking-glyph.flying path {
+  animation-duration: 280ms; /* hygiene-allow-scale: sprite frame cadence, 70ms a frame */
+  animation-iteration-count: 2;
+}
+
+.op-loader-bird .op-osprey-up,
+.op-thinking-glyph.flying .op-osprey-up {
+  animation-name: op-osprey-up;
+}
+
+.op-loader-bird .op-osprey-mid,
+.op-thinking-glyph.flying .op-osprey-mid {
+  animation-name: op-osprey-mid;
+}
+
+.op-loader-bird .op-osprey-down,
+.op-thinking-glyph.flying .op-osprey-down {
+  animation-name: op-osprey-down;
+}
+
+.op-thinking-glyph.flying {
+  animation: op-osprey-roll 640ms ease-in-out 560ms; /* hygiene-allow-scale: roll follows the two 280ms wingbeats */
+}
+
+@keyframes op-osprey-up {
+  0% {
+    opacity: 0;
+  }
+  75% {
+    opacity: 1;
+  }
+}
+
+@keyframes op-osprey-mid {
+  0% {
+    opacity: 1;
+  }
+  25% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0;
+  }
+}
+
+@keyframes op-osprey-down {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes op-osprey-roll {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .op-thinking-chevron {
@@ -769,9 +860,13 @@ html[data-ui-mode="simple"] #operator-container {
   overflow-y: auto;
 }
 
+/* Past its max-height the trace scrolls: its rows keep their height rather
+   than shrink to fit (a tool row's overflow: hidden would let it shrink to a sliver). */
+.op-agent-trace > * {
+  flex-shrink: 0;
+}
+
 .op-agent-text {
-  padding-left: 10px;
-  border-left: 2px solid var(--border-default);
   font-size: var(--text-md);
   color: var(--text-secondary);
 }
@@ -1072,20 +1167,126 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--color-error);
 }
 
-.op-card-answers {
+/* A settled question: one line naming the outcome and what was asked, which
+   opens to every question and its answer. */
+.op-qtrace-head {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  margin-left: -6px;
+  padding: 2px 6px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  font-family: var(--chat-font);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.op-qtrace-head:hover {
+  background: var(--neutral-tint-06);
+  color: var(--text-primary);
+}
+
+.op-qtrace-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-qtrace-status,
+.op-qtrace-chevron {
+  color: var(--text-muted);
+}
+
+.op-card[data-state="answered"] .op-qtrace-status {
+  color: var(--color-success);
+}
+
+.op-qtrace-chevron {
+  transition: transform var(--wt-transition-fast);
+}
+
+.op-qtrace-head[aria-expanded="true"] .op-qtrace-chevron {
+  transform: rotate(90deg);
+}
+
+.op-qtrace-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin: 0 0 0 22px;
-  padding: 0;
-  list-style: none;
+  gap: var(--space-3);
+  margin: 6px 0 0 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-default);
+}
+
+.op-qtrace-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.op-qtrace-q {
+  margin: 0;
   font-size: var(--text-md);
+  line-height: var(--leading-normal);
   color: var(--text-secondary);
 }
 
-.op-card-answers strong {
+.op-qtrace-a {
+  margin: 0;
+  font-size: var(--text-lg);
   font-weight: var(--weight-medium);
+  line-height: var(--leading-normal);
   color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.op-qtrace-a[data-empty="true"] {
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+
+/* An artifact id in an agent answer: a link-styled control that shows the
+   artifact in the workspace. Reads as the agent's own text. */
+.op-artifact-link {
+  display: inline;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--color-accent-light);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.op-artifact-link:hover {
+  text-decoration-style: solid;
+}
+
+.op-artifact-link:focus-visible {
+  outline: 2px solid var(--border-accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-xs);
+}
+
+.op-artifact-link[data-missing="true"] {
+  color: var(--text-muted);
+  text-decoration-style: solid;
+  text-decoration-line: line-through;
+  cursor: default;
+}
+
+.op-artifact-link code {
+  color: inherit;
 }
 
 /* Question cards */
@@ -1419,62 +1620,14 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-muted);
 }
 
-/* The 3×3 pixel grid: nine 4px cells, the lit wave running diagonally. */
-.op-loader-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  gap: 1.5px;
+/* The OSPREY mark at the thinking glyph's scale, beating its wings while the
+   turn works (the wingbeat rules sit with the thinking glyph's). */
+.op-loader-bird {
   flex-shrink: 0;
+  width: 24px;
+  height: 12px;
+  color: var(--color-accent-light);
 }
-
-.op-loader-cell {
-  width: 4px;
-  height: 4px;
-  border-radius: var(--radius-xs);
-  background: var(--text-primary);
-  opacity: 0.15;
-  animation: op-pixel 650ms ease-in-out infinite; /* hygiene-allow-scale: decorative pixel-wave cadence */
-}
-
-@keyframes op-pixel {
-  0%,
-  100% {
-    opacity: 0.15;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* hygiene-allow-scale-start: per-cell phase offsets of the pixel wave (decorative) */
-.op-loader-cell:nth-child(1) {
-  animation-delay: 90ms;
-}
-.op-loader-cell:nth-child(2) {
-  animation-delay: 180ms;
-}
-.op-loader-cell:nth-child(3) {
-  animation-delay: 270ms;
-}
-.op-loader-cell:nth-child(4) {
-  animation-delay: 0ms;
-}
-.op-loader-cell:nth-child(5) {
-  animation-delay: 90ms;
-}
-.op-loader-cell:nth-child(6) {
-  animation-delay: 180ms;
-}
-.op-loader-cell:nth-child(7) {
-  animation-delay: 90ms;
-}
-.op-loader-cell:nth-child(8) {
-  animation-delay: 180ms;
-}
-.op-loader-cell:nth-child(9) {
-  animation-delay: 270ms;
-}
-/* hygiene-allow-scale-end */
 
 /* ---- Composer: one rounded surface holding the box and its toolbar ---- */
 
@@ -1683,8 +1836,10 @@ html[data-ui-mode="simple"] #operator-container {
 @media (prefers-reduced-motion: reduce) {
   .op-shimmer,
   .op-spin,
-  .op-loader-cell,
-  .op-task[data-status="in_progress"] .op-task-glyph {
+  .op-loader-bird path,
+  .op-task[data-status="in_progress"] .op-task-glyph,
+  .op-thinking-glyph.flying,
+  .op-thinking-glyph.flying path {
     animation: none;
   }
 
@@ -1692,7 +1847,7 @@ html[data-ui-mode="simple"] #operator-container {
     background-position: 50% 50%;
   }
 
-  .op-loader-cell {
+  .op-loader-bird {
     opacity: 0.6;
   }
 }

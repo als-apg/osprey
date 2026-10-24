@@ -7,6 +7,7 @@ via PTY) on the left and a live workspace file viewer on the right.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
 import json
 import os
@@ -90,6 +91,22 @@ if TYPE_CHECKING:
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+#: The tab icon, in the design system's static tree.
+_FAVICON = Path(__file__).parent.parent / "design_system" / "static" / "img" / "osprey-mark.svg"
+
+
+def _favicon_url() -> str:
+    """The tab icon's root-relative URL, versioned by the icon's content.
+
+    Firefox keeps a page's tab icon in its own store, keyed by the icon's URL,
+    for days, and does not ask the server again while that entry lasts, whatever
+    the response's cache headers said. An edited mark therefore reaches a
+    browser that has seen the old one only at a new address: the hash makes
+    every edit one.
+    """
+    digest = hashlib.sha256(_FAVICON.read_bytes()).hexdigest()[:12]
+    return f"/design-system/img/{_FAVICON.name}?v={digest}"
+
 
 @pass_context
 def _prefixed(ctx: Context, path: str) -> str:
@@ -111,6 +128,7 @@ def _prefixed(ctx: Context, path: str) -> str:
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 templates.env.globals["prefixed"] = _prefixed
+templates.env.globals["favicon_url"] = _favicon_url()
 
 logger = __import__("logging").getLogger(__name__)
 

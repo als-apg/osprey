@@ -39,10 +39,11 @@ import {
 import { createTaskCard } from './chat-plan.js';
 import { createToolGroup, refusalLine } from './chat-tool-cards.js';
 import { createApprovalCard } from './chat-approval.js';
-import { createQuestionCard } from './chat-question.js';
+import { createQuestionCard, createQuestionReplay } from './chat-question.js';
 import { HIDDEN_TOOL_KEYS, PLAN_TOOL_KEY, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
 import { activityLabel } from './chat-activity.js';
 import { renderMarkdownInto } from './chat-markdown.js';
+import { linkArtifactIds } from './artifact-links.js';
 import { emitChat } from './chat-events.js';
 import { systemFrame } from './chat-system.js';
 import { endsTurn } from './chat-frames.js';
@@ -85,6 +86,17 @@ export { elem } from './chat-dom.js';
  * @property {string} [timestamp] - transcript timestamp; not rendered here
  * @property {ChatEvent[]} [events] - an agent turn's stream, when `events=1` is asked for
  */
+
+/**
+ * Render an agent's markdown into `el` and make its artifact ids clickable:
+ * every agent-authored body in the log goes through here.
+ * @param {HTMLElement} el
+ * @param {string} text
+ */
+function renderAgentMarkdown(el, text) {
+  renderMarkdownInto(el, text, { math: true });
+  linkArtifactIds(el);
+}
 
 // ---- Stateful renderer ---- //
 
@@ -175,6 +187,8 @@ export function createChatRenderer(container, options = {}) {
   const cards = new Map();
   /** Subagent chips of the turn in flight, keyed by the call's `tool_use_id`. */
   const agents = new Map();
+  /** Redraws each replayed AskUserQuestion from its call and result: history holds no card. */
+  const questionReplay = createQuestionReplay();
 
   /**
    * The agent chip a record belongs to, when it is a subagent's own. A record
@@ -249,7 +263,7 @@ export function createChatRenderer(container, options = {}) {
     nextFrame(() => {
       const latest = pendingRenders.get(body);
       pendingRenders.delete(body);
-      if (latest !== undefined) renderMarkdownInto(body, latest, { math: true });
+      if (latest !== undefined) renderAgentMarkdown(body, latest);
     });
   }
 
@@ -259,7 +273,7 @@ export function createChatRenderer(container, options = {}) {
    */
   function renderNow(body, text) {
     pendingRenders.delete(body);
-    renderMarkdownInto(body, text, { math: true });
+    renderAgentMarkdown(body, text);
   }
 
   /** @param {AgentTurn} t */
@@ -271,7 +285,7 @@ export function createChatRenderer(container, options = {}) {
   /** @param {AgentTurn} t */
   function closeThinking(t) {
     if (t.thinking) {
-      t.thinking.finish();
+      t.thinking.finish({ fly: !replaying });
       t.thinking = null;
       t.thinkingStreamed = false;
     }
@@ -369,9 +383,7 @@ export function createChatRenderer(container, options = {}) {
     const raw = String(event.tool_name_raw ?? '');
     const id = String(event.tool_use_id ?? '');
     if (raw === 'Agent' || raw === 'Task') {
-      const agent = t.group.addAgent(event, (el, text) =>
-        renderMarkdownInto(el, text, { math: true })
-      );
+      const agent = t.group.addAgent(event, renderAgentMarkdown);
       if (id) {
         agents.set(id, agent);
         chips.set(id, agent);
@@ -428,8 +440,7 @@ export function createChatRenderer(container, options = {}) {
     const hooks = {
       answer: (/** @type {PermissionBody} */ body) => answer(id, body),
       onSettled: () => syncLoader(),
-      renderText: (/** @type {HTMLElement} */ el, /** @type {string} */ text) =>
-        renderMarkdownInto(el, text, { math: true }),
+      renderText: renderAgentMarkdown,
     };
     let card;
     if (row) {
@@ -527,7 +538,7 @@ export function createChatRenderer(container, options = {}) {
     dropTurn();
     const entry = createAgentEntry();
     const body = createTextBlock();
-    renderMarkdownInto(body, markdown, { math: true });
+    renderAgentMarkdown(body, markdown);
     entry.appendChild(body);
     count += 1;
     hasPriorExchange = true;
@@ -639,11 +650,20 @@ export function createChatRenderer(container, options = {}) {
         const key = toolKey(event.tool_name_raw ?? event.tool_name);
         activity = key === QUESTION_TOOL_KEY ? 'Preparing a question…' : activityLabel(event);
         if (key === PLAN_TOOL_KEY) upsertPlan(event);
-        else if (key !== QUESTION_TOOL_KEY && !HIDDEN_TOOL_KEYS.has(key)) appendToolUse(event);
+        else if (key === QUESTION_TOOL_KEY) {
+          if (replaying) questionReplay.ask(event);
+        } else if (!HIDDEN_TOOL_KEYS.has(key)) appendToolUse(event);
         break;
       }
       case 'tool_result': {
         streamingText = false;
+        const trace = questionReplay.answer(event);
+        if (trace) {
+          const t = ensureTurn();
+          closeAll(t);
+          t.entry.appendChild(trace);
+          break;
+        }
         const row = chips.get(String(event.tool_use_id ?? ''));
         // Only a replayed call carries a decision; a live frame never does.
         if (event.decision) showDecision(row, event.decision);

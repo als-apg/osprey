@@ -20,7 +20,7 @@
  * @module chat-blocks
  */
 
-import { chatIcon } from './chat-icons.js';
+import { chatIcon, ospreySprite } from './chat-icons.js';
 import { button, elem, formatElapsed } from './chat-dom.js';
 
 /**
@@ -36,30 +36,30 @@ import { button, elem, formatElapsed } from './chat-dom.js';
  * @property {HTMLElement} el
  * @property {(text: string) => void} add
  * @property {(text: string) => void} set - replace the reasoning with its final copy
- * @property {() => void} finish
+ * @property {(opts?: { fly?: boolean }) => void} finish - close the block; `fly`
+ *   plays the osprey's flourish (two wingbeats, then a roll), for a live finish
  */
 
 // ---- Live status ---- //
 
 /**
- * The turn's live status line: a 3×3 pixel grid, the current activity in a
- * shimmer, and the elapsed time. The renderer decides when it shows; the loader
- * owns its label and its clock.
+ * The turn's live status line: the OSPREY mark beating its wings, the current
+ * activity in a shimmer, and the elapsed time. The renderer decides when it
+ * shows; the loader owns its label and its clock.
  * @returns {LoaderHandle}
  */
 export function createLoader() {
   const el = elem('div', 'op-loader');
   // No live role: the label changes with every step, and chat-announce.js speaks what matters.
-  const grid = elem('span', 'op-loader-grid');
-  grid.setAttribute('aria-hidden', 'true');
-  for (let i = 0; i < 9; i += 1) grid.append(elem('span', 'op-loader-cell'));
+  const bird = ospreySprite();
+  bird.classList.add('op-loader-bird');
   const label = elem('span', 'op-loader-label op-shimmer', 'Working…');
   const sep = elem('span', 'op-loader-sep', '·');
   sep.setAttribute('aria-hidden', 'true');
   // Off the live region: the label is the announcement; the clock is for the eye.
   const time = elem('span', 'op-loader-time', '0.0s');
   time.setAttribute('aria-live', 'off');
-  el.append(grid, label, sep, time);
+  el.append(bird, label, sep, time);
 
   let since = 0;
   /** @type {number | null} */
@@ -93,7 +93,8 @@ export function createLoader() {
 
 /**
  * A collapsible reasoning row, collapsed by default. Its label shimmers while
- * the reasoning is still arriving, then reads how long it took.
+ * the reasoning is still arriving, then reads how long it took. Its glyph is the
+ * OSPREY mark, which can fly once when the reasoning ends.
  * @returns {ThinkingBlock}
  */
 export function createThinkingBlock() {
@@ -101,8 +102,12 @@ export function createThinkingBlock() {
   const el = elem('div', 'op-thinking live');
   const head = button('op-thinking-head');
   head.setAttribute('aria-expanded', 'false');
-  const glyph = chatIcon('spark');
+  const glyph = ospreySprite();
   glyph.classList.add('op-thinking-glyph');
+  // One flight per finish: re-inserting the row must not replay it.
+  glyph.addEventListener('animationend', (event) => {
+    if (event.animationName === 'op-osprey-roll') glyph.classList.remove('flying');
+  });
   const label = elem('span', 'op-thinking-label op-shimmer', 'Thinking');
   const chevron = chatIcon('chevron');
   chevron.classList.add('op-thinking-chevron');
@@ -125,9 +130,10 @@ export function createThinkingBlock() {
     set(text) {
       body.textContent = text;
     },
-    finish() {
+    finish({ fly = false } = {}) {
       el.classList.remove('live');
       label.classList.remove('op-shimmer');
+      if (fly) glyph.classList.add('flying');
       const elapsed = Date.now() - startedAt;
       label.textContent = elapsed >= 1000 ? `Thought for ${formatElapsed(elapsed)}` : 'Thought';
       // Models that return redacted reasoning send empty blocks: nothing to open.

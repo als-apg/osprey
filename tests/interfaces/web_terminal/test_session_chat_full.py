@@ -326,6 +326,92 @@ class TestReplayedBookkeeping:
         assert "QUJD" not in json.dumps(results)
 
 
+def _agent_call(tool_use_id: str) -> dict:
+    """An assistant entry starting one subagent."""
+    block = {
+        "type": "tool_use",
+        "id": tool_use_id,
+        "name": "Agent",
+        "input": {"subagent_type": "data-visualizer", "description": "Plot the tunes"},
+    }
+    return {
+        "type": "assistant",
+        "timestamp": STAMP,
+        "message": {"role": "assistant", "content": [block]},
+    }
+
+
+def _write_subagent(transcript_dir: Path, agent_id: str, parent: str, entries: list[dict]) -> None:
+    """Write a subagent's transcript and the meta file naming the call that started it."""
+    folder = transcript_dir / SESSION_KEY / "subagents"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"agent-{agent_id}.meta.json").write_text(
+        json.dumps({"agentType": "data-visualizer", "toolUseId": parent})
+    )
+    sidechain = [{**e, "isSidechain": True} for e in entries]
+    (folder / f"agent-{agent_id}.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in sidechain) + "\n"
+    )
+
+
+class TestReplayedSubagents:
+    """A subagent's chip replays with the activity it showed live, read from its own transcript."""
+
+    def _agent_turn(self, client, transcripts, parent_of_subagent: str) -> dict:
+        _, transcript_dir = transcripts
+        _write(
+            transcript_dir,
+            SESSION_KEY,
+            [
+                _entry("user", "plot the tunes"),
+                _agent_call("toolu_agent"),
+                _result("toolu_agent", "Created the tune diagram plot."),
+                _entry("assistant", "Here is the plot."),
+            ],
+        )
+        prompt = {
+            "type": "user",
+            "timestamp": STAMP,
+            "message": {"role": "user", "content": "Plot Qx vs Qy."},
+        }
+        _write_subagent(
+            transcript_dir,
+            "a1",
+            parent_of_subagent,
+            [
+                prompt,
+                _call("toolu_plot"),
+                _result("toolu_plot", "saved"),
+                _entry("assistant", "Plotted."),
+            ],
+        )
+        resp = client.get(f"/api/session-chat?session_id={SESSION_KEY}&events=1")
+        (agent_turn,) = [t for t in resp.json()["turns"] if t["role"] == "assistant"]
+        return agent_turn
+
+    def test_a_subagents_work_follows_its_call_under_that_call(self, replay_client, transcripts):
+        turn = self._agent_turn(replay_client, transcripts, "toolu_agent")
+
+        shape = [
+            (e["type"], e.get("tool_use_id"), e.get("parent_tool_use_id")) for e in turn["events"]
+        ]
+        assert shape[:4] == [
+            ("tool_use", "toolu_agent", None),
+            ("tool_use", "toolu_plot", "toolu_agent"),
+            ("tool_result", "toolu_plot", "toolu_agent"),
+            ("text", None, "toolu_agent"),
+        ]
+        # The prompt it was started with is not the agent speaking.
+        assert "Plot Qx vs Qy." not in json.dumps(turn["events"])
+        # The subagent's words stay in its chip, out of the main agent's text.
+        assert turn["content"] == "Here is the plot."
+
+    def test_a_subagent_started_by_another_call_is_not_attached(self, replay_client, transcripts):
+        turn = self._agent_turn(replay_client, transcripts, "toolu_elsewhere")
+
+        assert not [e for e in turn["events"] if e.get("parent_tool_use_id")]
+
+
 def test_the_approval_note_is_the_hooks_own_text():
     """The replay matches the note the approval hook writes, so the two copies cannot drift."""
     spec = importlib.util.spec_from_file_location("osprey_approval_pin", HOOK_PATH)

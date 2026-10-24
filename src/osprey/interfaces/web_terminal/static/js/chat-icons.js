@@ -43,7 +43,6 @@ const PATHS = Object.freeze({
   question: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
   read: ['M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z', 'M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z'],
   search: ['M11 3a8 8 0 1 0 0 16a8 8 0 1 0 0-16z', 'm21 21-4.35-4.35'],
-  spark: ['M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z'],
   stop: ['M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z'],
   tool: ['M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z'],
   up: ['M12 19V5', 'M5 12l7-7 7 7'],
@@ -79,6 +78,40 @@ export function chatIcon(name) {
   svg.setAttribute('focusable', 'false');
   for (const d of PATHS[name]) {
     const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+/**
+ * The OSPREY mark's flight frames on its 16x8 grid (the mark whose master is
+ * design-system/img/osprey-mark.svg). `up` is the mark at rest, wings raised;
+ * `mid` holds them level and `down` sweeps them low. One run of filled cells
+ * per subpath.
+ */
+const OSPREY_FRAMES = Object.freeze({
+  up: 'M0 0h2v1h-2zM14 0h2v1h-2zM1 1h3v1h-3zM12 1h3v1h-3zM2 2h4v1h-4zM10 2h4v1h-4zM3 3h4v1h-4zM9 3h4v1h-4zM4 4h8v1h-8zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z',
+  mid: 'M1 3h2v1h-2zM13 3h2v1h-2zM2 4h12v1h-12zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z',
+  down: 'M3 4h10v1h-10zM1 5h4v1h-4zM6 5h4v1h-4zM11 5h4v1h-4zM0 6h2v1h-2zM7 6h2v1h-2zM14 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z',
+});
+
+/**
+ * The OSPREY mark as a sprite: every flight frame is drawn, and CSS shows one
+ * (`.op-osprey-up` at rest). Decorative, like {@link chatIcon}.
+ * @returns {SVGSVGElement}
+ */
+export function ospreySprite() {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 8');
+  svg.setAttribute('class', 'op-osprey');
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  for (const [frame, d] of Object.entries(OSPREY_FRAMES)) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('class', `op-osprey-${frame}`);
     path.setAttribute('d', d);
     svg.append(path);
   }

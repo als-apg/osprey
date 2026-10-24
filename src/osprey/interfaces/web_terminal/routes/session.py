@@ -329,6 +329,121 @@ def _operator_text(blocks: list[Any]) -> str:
     ).strip()
 
 
+#: The tools that start a subagent; the chat draws each call as that agent's chip.
+_SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
+
+
+def _block_events(
+    blocks: list[Any], *, assistant: bool, approved: set[str]
+) -> list[dict[str, Any]]:
+    """The chat frames one transcript entry's content blocks stand for.
+
+    Text counts only from the agent (``assistant``): a user entry's text is the
+    operator's, or the prompt a subagent was started with, and neither is the
+    agent speaking.
+    """
+    from osprey.interfaces.web_terminal.operator_session import format_tool_name
+    from osprey.interfaces.web_terminal.routes.chat import clip_input
+    from osprey.interfaces.web_terminal.tool_preview import (
+        tool_result_preview,
+        tool_result_refusal,
+        tool_result_text,
+    )
+
+    events: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text" and assistant and block.get("text", "").strip():
+            events.append({"type": "text", "content": block["text"]})
+        elif btype == "thinking":
+            events.append({"type": "thinking", "content": block.get("thinking", "")})
+        elif btype == "tool_use":
+            name = block.get("name", "")
+            events.append(
+                {
+                    "type": "tool_use",
+                    "tool_name": format_tool_name(name),
+                    "tool_name_raw": name,
+                    "tool_use_id": block.get("id", ""),
+                    "input": clip_input(block.get("input", {})),
+                }
+            )
+        elif btype == "tool_result":
+            result_text = tool_result_text(block.get("content"))
+            # Read before the preview cut, as the live stream does.
+            refusal, shown = tool_result_refusal(result_text, bool(block.get("is_error")))
+            preview, truncated = tool_result_preview(shown)
+            events.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.get("tool_use_id", ""),
+                    "is_error": bool(block.get("is_error")),
+                    "preview": preview,
+                    "truncated": truncated,
+                    "refusal": refusal,
+                    "decision": _replayed_decision(
+                        block.get("tool_use_id", ""),
+                        result_text,
+                        bool(block.get("is_error")),
+                        approved,
+                    ),
+                }
+            )
+    return events
+
+
+def _subagent_transcripts(path: Path) -> dict[str, Path]:
+    """Each subagent transcript of the session at ``path``, by the call that started it.
+
+    The CLI writes a subagent's work to ``<session>/subagents/agent-<id>.jsonl``,
+    beside a ``.meta.json`` naming the ``toolUseId`` of the Agent call that
+    launched it. A meta file that cannot be read, or whose transcript is
+    missing, names nothing.
+    """
+    found: dict[str, Path] = {}
+    for meta in (path.parent / path.stem / "subagents").glob("*.meta.json"):
+        try:
+            tool_use_id = json.loads(meta.read_text()).get("toolUseId")
+        except (OSError, ValueError, AttributeError):
+            continue
+        transcript = meta.with_name(meta.name.removesuffix(".meta.json") + ".jsonl")
+        if isinstance(tool_use_id, str) and tool_use_id and transcript.is_file():
+            found[tool_use_id] = transcript
+    return found
+
+
+def _subagent_events(path: Path, parent: str) -> list[dict[str, Any]]:
+    """A subagent's text, calls and results as the frames the live chat drew in its chip.
+
+    Each frame carries ``parent_tool_use_id``, the way the live stream marks a
+    subagent's own records, so the replay files it under that agent's chip. Its
+    reasoning is left out, as the chip never shows it.
+    """
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return []
+    approved = _approved_call_ids(lines)
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        kind = entry.get("type")
+        if kind not in ("user", "assistant") or entry.get("isMeta"):
+            continue
+        blocks = entry.get("message", {}).get("content", [])
+        if not isinstance(blocks, list):
+            continue  # the prompt the agent was started with
+        for event in _block_events(blocks, assistant=kind == "assistant", approved=approved):
+            if event["type"] != "thinking":
+                events.append({**event, "parent_tool_use_id": parent})
+    return events
+
+
 def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     """Read a transcript as the Simple chat's turns, agent turns carrying their events.
 
@@ -342,15 +457,11 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     A ``tool_result`` event carries its call's ``decision`` when the transcript
     shows one; see :func:`_replayed_decision`. It carries ``refusal`` exactly as
     the live stream does (:func:`~osprey.interfaces.web_terminal.tool_preview.tool_result_refusal`).
-    """
-    from osprey.interfaces.web_terminal.operator_session import format_tool_name
-    from osprey.interfaces.web_terminal.routes.chat import clip_input
-    from osprey.interfaces.web_terminal.tool_preview import (
-        tool_result_preview,
-        tool_result_refusal,
-        tool_result_text,
-    )
 
+    A subagent's work follows the call that started it, read from its own
+    transcript (see :func:`_subagent_events`), so its chip replays with the
+    activity it showed live. Those frames stay out of ``content``.
+    """
     turns: list[dict[str, Any]] = []
     agent: dict[str, Any] | None = None
     started: datetime | None = None
@@ -362,12 +473,17 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
             return
         duration = (last - started).total_seconds() * 1000 if started and last else None
         agent["events"].append({"type": "result", "is_error": False, "duration_ms": duration})
-        agent["content"] = "\n\n".join(e["content"] for e in agent["events"] if e["type"] == "text")
+        agent["content"] = "\n\n".join(
+            e["content"]
+            for e in agent["events"]
+            if e["type"] == "text" and not e.get("parent_tool_use_id")
+        )
         turns.append(agent)
         agent = None
 
     lines = path.read_text().splitlines()
     approved = _approved_call_ids(lines)
+    subagents = _subagent_transcripts(path)
     for line in lines:
         try:
             entry = json.loads(line)
@@ -410,46 +526,12 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
         if kind == "user" and text.startswith(_TASK_NOTIFICATION_MARK):
             agent["events"].append(_agent_done_event(text))
             continue
-        for block in blocks:
-            if not isinstance(block, dict):
-                continue
-            btype = block.get("type")
-            if btype == "text" and kind == "assistant" and block.get("text", "").strip():
-                agent["events"].append({"type": "text", "content": block["text"]})
-            elif btype == "thinking":
-                agent["events"].append({"type": "thinking", "content": block.get("thinking", "")})
-            elif btype == "tool_use":
-                name = block.get("name", "")
-                agent["events"].append(
-                    {
-                        "type": "tool_use",
-                        "tool_name": format_tool_name(name),
-                        "tool_name_raw": name,
-                        "tool_use_id": block.get("id", ""),
-                        "input": clip_input(block.get("input", {})),
-                    }
-                )
-            elif btype == "tool_result":
-                result_text = tool_result_text(block.get("content"))
-                # Read before the preview cut, as the live stream does.
-                refusal, shown = tool_result_refusal(result_text, bool(block.get("is_error")))
-                preview, truncated = tool_result_preview(shown)
-                agent["events"].append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.get("tool_use_id", ""),
-                        "is_error": bool(block.get("is_error")),
-                        "preview": preview,
-                        "truncated": truncated,
-                        "refusal": refusal,
-                        "decision": _replayed_decision(
-                            block.get("tool_use_id", ""),
-                            result_text,
-                            bool(block.get("is_error")),
-                            approved,
-                        ),
-                    }
-                )
+        for event in _block_events(blocks, assistant=kind == "assistant", approved=approved):
+            agent["events"].append(event)
+            if event["type"] == "tool_use" and event["tool_name_raw"] in _SUBAGENT_TOOLS:
+                transcript = subagents.get(event["tool_use_id"])
+                if transcript is not None:
+                    agent["events"].extend(_subagent_events(transcript, event["tool_use_id"]))
     close_agent()
     return turns
 

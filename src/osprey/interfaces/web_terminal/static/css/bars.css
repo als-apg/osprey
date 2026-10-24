@@ -976,7 +976,13 @@ body.bar-editing .bar-item > .bar-pop {
    popover still carry: at 20 px there is no room for a sentence. */
 
 .status-bar .header-logo {
+  gap: 5px;
   font-size: var(--text-md);
+}
+
+.status-bar .header-logo-mark {
+  width: 16px;
+  height: 8px;
 }
 
 .status-bar .header-deployment,

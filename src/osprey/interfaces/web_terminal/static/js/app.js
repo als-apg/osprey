@@ -18,6 +18,8 @@ import {
   getPanelStandaloneUrl,
 } from './panel-manager.js';
 import { wireAgentLinks } from './agent-links.js';
+import { wireArtifactLinks } from './artifact-links.js';
+import { withPrefix } from './api.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -82,6 +84,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initAgentLinks();
   } catch (err) {
     console.error('Failed to init agent answer links:', err);
+  }
+  try {
+    initArtifactLinks();
+  } catch (err) {
+    console.error('Failed to init artifact links:', err);
   }
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
@@ -424,6 +431,40 @@ export function initAgentLinks() {
     openPanel: navigateAndActivatePanel,
     openWindow: (url, target, features) => {
       window.open(url, target, features);
+    },
+  });
+}
+
+/** The panel that hosts the artifact gallery. */
+const ARTIFACTS_PANEL_ID = 'artifacts';
+
+/**
+ * Make an artifact id in a Simple-view agent answer show that artifact: the
+ * gallery is asked to focus it through the hub's panel proxy (the request the
+ * agent's `artifact_focus` makes), and the artifacts panel opens once it has.
+ * Focusing first means a gallery that loads only now reads the new focus on
+ * its first `GET /api/focus`.
+ *
+ * Exported so the wiring can be driven directly in tests: the bootstrap above
+ * runs on DOMContentLoaded, which has already fired by then.
+ */
+export function initArtifactLinks() {
+  const operatorRoot = document.getElementById('operator-container');
+  if (!operatorRoot) return;
+  wireArtifactLinks(operatorRoot, {
+    focusArtifact: async (id) => {
+      try {
+        const res = await fetch(withPrefix(`/panel/${ARTIFACTS_PANEL_ID}/api/focus`), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ artifact_id: id }),
+        });
+        if (!res.ok) return false;
+      } catch {
+        return false;
+      }
+      navigateAndActivatePanel(ARTIFACTS_PANEL_ID, '');
+      return true;
     },
   });
 }
