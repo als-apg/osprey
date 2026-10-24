@@ -9444,21 +9444,41 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
 
 RELEASE_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
 RELEASE_GATE_JOB = "verify-full-ci"
+#: The gate both release workflows run, and the env var each one lists its lanes in.
+GREEN_LANES_SCRIPT = "scripts/ci/require_green_lanes.py"
+GREEN_LANES_ENV = "REQUIRED_LANES"
 
 
-def _release_gate_source() -> str:
-    """The inline Python the tag gate runs, lifted out of its heredoc."""
-    release = yaml.safe_load(RELEASE_YML.read_text())
-    steps = release["jobs"][RELEASE_GATE_JOB]["steps"]
-    step = next(s for s in steps if "python3 - <<'PY'" in s.get("run", ""))
-    return step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+@functools.cache
+def _green_lanes_module() -> Any:
+    """``scripts/ci/require_green_lanes.py``, loaded by path (``scripts/`` is no package)."""
+    path = Path(__file__).resolve().parents[2] / GREEN_LANES_SCRIPT
+    spec = importlib.util.spec_from_file_location("require_green_lanes", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _gate_step(release: dict[str, Any], job: str) -> dict[str, Any]:
+    """The one step of *job* that runs the shared lane gate."""
+    steps = [s for s in release["jobs"][job]["steps"] if GREEN_LANES_SCRIPT in s.get("run", "")]
+    assert len(steps) == 1, f"{job} must run {GREEN_LANES_SCRIPT} in exactly one step"
+    return steps[0]
+
+
+def _gate_lanes(release: dict[str, Any], job: str) -> dict[str, str]:
+    """``{ci.yml job id: rendered-name prefix}`` the gate in *job* requires, read by
+    the gate script's own parser so the test and the gate cannot read it apart."""
+    step = _gate_step(release, job)
+    assert f'--lanes "${GREEN_LANES_ENV}"' in step["run"], (
+        f"{job} does not pass ${GREEN_LANES_ENV} to the gate"
+    )
+    return _green_lanes_module().parse_lanes(step["env"][GREEN_LANES_ENV])
 
 
 def _required_lane_prefixes() -> dict[str, str]:
-    for node in ast.walk(ast.parse(_release_gate_source())):
-        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "REQUIRED":
-            return ast.literal_eval(node.value)
-    raise AssertionError(f"{RELEASE_GATE_JOB} no longer defines REQUIRED")
+    return _gate_lanes(yaml.safe_load(RELEASE_YML.read_text()), RELEASE_GATE_JOB)
 
 
 def test_the_tag_gate_covers_every_spending_lane() -> None:
@@ -9467,16 +9487,22 @@ def test_the_tag_gate_covers_every_spending_lane() -> None:
     assert set(_required_lane_prefixes()) == set(SPENDING_LANES)
 
 
-def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
-    """Each prefix identifies its own lane and nothing else. The matrix lane
-    renders one job per preset, so a prefix is the only stable handle."""
+def _assert_lane_prefixes_match(
+    workflow: dict[str, Any], lanes: dict[str, str], source: str = "release.yml"
+) -> None:
     jobs = _jobs(workflow)
-    for lane, prefix in _required_lane_prefixes().items():
+    for lane, prefix in lanes.items():
         assert jobs[lane]["name"].startswith(prefix), (
-            f"{lane}: release.yml looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+            f"{lane}: {source} looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
         )
         others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
         assert others == [], f"{prefix!r} also matches {others}"
+
+
+def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
+    """Each prefix identifies its own lane and nothing else. The matrix lane
+    renders one job per preset, so a prefix is the only stable handle."""
+    _assert_lane_prefixes_match(workflow, _required_lane_prefixes())
 
 
 def test_the_tag_gate_names_match__mutation_renames_a_lane() -> None:
@@ -9588,6 +9614,355 @@ def test_the_publish_order__mutation_drops_skip_existing() -> None:
     del _publish_steps(mutated)[0]["with"]["skip-existing"]
     with pytest.raises(AssertionError, match="skip-existing"):
         test_every_publish_step_skips_existing_files(mutated)
+
+
+# ---------------------------------------------------------------------------
+# osprey-connectors releases from its own tags, through its own workflow
+# ---------------------------------------------------------------------------
+#
+# The connectors package has its own calendar stream on osprey-connectors-v2*
+# tags, so it publishes from release-connectors.yml and release.yml stops
+# building it. What is pinned: the connectors workflow fires on those tags and
+# nothing else (no dispatch); its publish waits on the CI gate, the build and
+# the install check, under its own PyPI environment, with the OIDC scope on
+# that job alone; its version check refuses a build that is not the tag; and
+# the framework release builds exactly its lockstep members.
+
+CONNECTORS_RELEASE_YML = RELEASE_YML.with_name("release-connectors.yml")
+CONNECTORS_GATE_JOB = "verify-ci"
+CONNECTORS_BUILD_JOB = "build"
+CONNECTORS_INSTALL_JOB = "verify-install"
+CONNECTORS_TAG_GUARD = "startsWith(github.ref, 'refs/tags/osprey-connectors-v2')"
+CONNECTORS_ENVIRONMENT = "pypi-connectors"
+CONNECTORS_VERSION_STEP = "Verify built versions match tag"
+LEAN_WALK_SCRIPT = "scripts/ci/connectors_lean_import_walk.py"
+#: The always-on lanes that prove the package. The backward-compatibility lanes
+#: join the gate the day ci.yml grows them; the test below fails until they do.
+CONNECTORS_LANES = frozenset({"test", "lint", "package", "connectors-standalone"})
+CONNECTORS_COMPAT_LANES = frozenset({"connectors-compat", "framework-at-connectors-floor"})
+
+
+def _load_connectors_release() -> dict[str, Any]:
+    return yaml.safe_load(CONNECTORS_RELEASE_YML.read_text())
+
+
+def _github_tag_glob_matches(pattern: str, tag: str) -> bool:
+    """A GitHub tag filter: ``*`` matches any run of characters but ``/``."""
+    regex = "".join("[^/]*" if c == "*" else re.escape(c) for c in pattern)
+    return re.fullmatch(regex, tag) is not None
+
+
+def _tag_filters(release: dict[str, Any]) -> list[str]:
+    # YAML 1.1 reads the bare `on:` key as True.
+    return release[True]["push"]["tags"]
+
+
+@pytest.mark.parametrize(
+    ("tag", "connectors", "framework"),
+    [
+        ("osprey-connectors-v2026.10.0", True, False),
+        ("osprey-connectors-v2026.10.0b1", True, False),
+        ("osprey-connectors-v2027.1.3rc2", True, False),
+        ("osprey-connectors-v0.1.0", False, False),  # retired; PyPI carries 0.1.0
+        ("v2026.10.0", False, True),
+        ("v2026.9.0b3", False, True),
+        ("checkpoint-2026-10-01", False, False),
+    ],
+)
+def test_each_release_workflow_fires_only_on_its_own_tags(
+    tag: str, connectors: bool, framework: bool
+) -> None:
+    fires = {
+        "connectors": any(
+            _github_tag_glob_matches(p, tag) for p in _tag_filters(_load_connectors_release())
+        ),
+        "framework": any(_github_tag_glob_matches(p, tag) for p in _tag_filters(_load_release())),
+    }
+    assert fires == {"connectors": connectors, "framework": framework}, tag
+
+
+def test_the_connectors_release_has_no_other_trigger() -> None:
+    """No dispatch: nothing publishes a commit nobody tagged."""
+    triggers = _load_connectors_release()[True]
+    assert triggers == {"push": {"tags": ["osprey-connectors-v2*"]}}
+
+
+def test_every_connectors_job_runs_only_on_a_connectors_tag(
+    release: dict[str, Any] | None = None,
+) -> None:
+    release = release if release is not None else _load_connectors_release()
+    for name, job in release["jobs"].items():
+        assert job.get("if") == CONNECTORS_TAG_GUARD, f"{name} is not guarded on the tag ref"
+
+
+def test_every_connectors_job_runs_only_on_a_connectors_tag__mutation_drops_a_guard() -> None:
+    mutated = _load_connectors_release()
+    del mutated["jobs"]["publish-to-pypi"]["if"]
+    with pytest.raises(AssertionError, match="publish-to-pypi is not guarded"):
+        test_every_connectors_job_runs_only_on_a_connectors_tag(mutated)
+
+
+def test_the_connectors_publish_is_gated_and_scoped(release: dict[str, Any] | None = None) -> None:
+    """The upload waits on the CI gate, the build and the install check; it
+    runs in the package's own environment, which the PyPI trusted publisher
+    names; and it alone holds the OIDC scope."""
+    release = release if release is not None else _load_connectors_release()
+    publish = release["jobs"]["publish-to-pypi"]
+    assert {CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB, CONNECTORS_INSTALL_JOB} <= set(
+        publish["needs"]
+    ), f"the publish needs {publish['needs']}"
+    assert publish["environment"]["name"] == CONNECTORS_ENVIRONMENT, (
+        f"the publish runs in environment {publish['environment']['name']!r}"
+    )
+    assert publish.get("permissions") == {"id-token": "write"}, "publish must hold id-token"
+    assert "id-token" not in release.get("permissions", {}), (
+        "id-token is granted at workflow level, so every job can mint a PyPI token"
+    )
+    holders = [n for n, j in release["jobs"].items() if "id-token" in j.get("permissions", {})]
+    assert holders == ["publish-to-pypi"], f"id-token held by {holders}"
+    test_every_publish_step_skips_existing_files({"jobs": {PUBLISH_JOB: publish}})
+
+
+def test_the_connectors_publish__mutation_workflow_level_id_token() -> None:
+    mutated = _load_connectors_release()
+    mutated["permissions"]["id-token"] = "write"
+    with pytest.raises(AssertionError, match="workflow level"):
+        test_the_connectors_publish_is_gated_and_scoped(mutated)
+
+
+def test_the_connectors_publish__mutation_ungated() -> None:
+    mutated = _load_connectors_release()
+    mutated["jobs"]["publish-to-pypi"]["needs"] = [CONNECTORS_BUILD_JOB]
+    with pytest.raises(AssertionError, match="the publish needs"):
+        test_the_connectors_publish_is_gated_and_scoped(mutated)
+
+
+def test_the_connectors_publish__mutation_framework_environment() -> None:
+    mutated = _load_connectors_release()
+    mutated["jobs"]["publish-to-pypi"]["environment"]["name"] = "pypi"
+    with pytest.raises(AssertionError, match="runs in environment 'pypi'"):
+        test_the_connectors_publish_is_gated_and_scoped(mutated)
+
+
+def test_the_connectors_gate_requires_the_connectors_lanes(
+    workflow: dict[str, Any], release: dict[str, Any] | None = None
+) -> None:
+    """The four always-on lanes, plus every compatibility lane ci.yml has."""
+    release = release if release is not None else _load_connectors_release()
+    lanes = _gate_lanes(release, CONNECTORS_GATE_JOB)
+    expected = CONNECTORS_LANES | (CONNECTORS_COMPAT_LANES & set(_jobs(workflow)))
+    assert set(lanes) == expected, f"the connectors gate requires {sorted(lanes)}"
+    _assert_lane_prefixes_match(workflow, lanes, CONNECTORS_RELEASE_YML.name)
+
+
+def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
+    workflow = _load_workflow()
+    _jobs(workflow)["connectors-compat"] = {"name": "Connectors against older frameworks"}
+    with pytest.raises(AssertionError, match="the connectors gate requires"):
+        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+
+
+def test_the_connectors_gate__mutation_renames_a_lane() -> None:
+    workflow = _load_workflow()
+    _jobs(workflow)["connectors-standalone"]["name"] = "Standalone connectors suite"
+    with pytest.raises(AssertionError, match="release-connectors.yml looks for"):
+        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+
+
+def test_the_connectors_gate_blocks_the_build() -> None:
+    release = _load_connectors_release()
+    assert release["jobs"][CONNECTORS_BUILD_JOB]["needs"] == [CONNECTORS_GATE_JOB]
+    assert release["jobs"][CONNECTORS_GATE_JOB]["permissions"]["actions"] == "read"
+
+
+def test_both_release_workflows_run_the_shared_lane_gate() -> None:
+    for release, job in (
+        (_load_release(), RELEASE_GATE_JOB),
+        (_load_connectors_release(), CONNECTORS_GATE_JOB),
+    ):
+        step = _gate_step(release, job)
+        assert "python3 - <<" not in step["run"], f"{job} still carries an inline gate"
+
+
+def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
+    step = next(
+        s
+        for s in _load_connectors_release()["jobs"][CONNECTORS_BUILD_JOB]["steps"]
+        if s.get("name") == CONNECTORS_VERSION_STEP
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    for name in files:
+        (dist / name).write_text("")
+    env = {**os.environ, "VERSION": version}
+    return subprocess.run(
+        ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+    ).returncode
+
+
+@pytest.mark.parametrize(
+    ("files", "ok"),
+    [
+        (
+            ["osprey_connectors-2026.10.0-py3-none-any.whl", "osprey_connectors-2026.10.0.tar.gz"],
+            True,
+        ),
+        (
+            [
+                "osprey_connectors-2026.9.0b3.post4-py3-none-any.whl",
+                "osprey_connectors-2026.9.0b3.post4.tar.gz",
+            ],
+            False,
+        ),
+        (["osprey_connectors-2026.10.0-py3-none-any.whl"], False),  # no sdist
+        (
+            [
+                "osprey_connectors-2026.10.0-py3-none-any.whl",
+                "osprey_connectors-2026.10.0.tar.gz",
+                "osprey_framework-2026.10.0-py3-none-any.whl",
+            ],
+            False,
+        ),
+    ],
+)
+def test_the_connectors_version_check_refuses_anything_but_the_tag(
+    tmp_path: Path, files: list[str], ok: bool
+) -> None:
+    assert (_run_version_check(tmp_path, "2026.10.0", files) == 0) is ok
+
+
+def test_the_connectors_build_builds_the_package_alone() -> None:
+    steps = _load_connectors_release()["jobs"][CONNECTORS_BUILD_JOB]["steps"]
+    runs = [s.get("run", "") for s in steps]
+    assert "uv build --package osprey-connectors" in runs
+    assert not any("--all-packages" in r for r in runs)
+    assert any("${TAG_NAME#osprey-connectors-v}" in r for r in runs), (
+        "the version is not derived from the tag minus its prefix"
+    )
+
+
+def _lean_walk_invocations(steps: list[dict[str, Any]]) -> list[str]:
+    return [s["run"] for s in steps if LEAN_WALK_SCRIPT in s.get("run", "")]
+
+
+def test_both_lean_wheel_checks_run_the_shared_walk(workflow: dict[str, Any]) -> None:
+    """The wheel a tag publishes passes the check every PR runs, isolated from the checkout."""
+    for where, steps in (
+        ("ci.yml package", [_find_named_step(workflow, PACKAGE_JOB, LEAN_WHEEL_STEP)]),
+        (
+            "release-connectors.yml verify-install",
+            _load_connectors_release()["jobs"][CONNECTORS_INSTALL_JOB]["steps"],
+        ),
+    ):
+        runs = _lean_walk_invocations(steps)
+        assert len(runs) == 1, f"{where} does not run {LEAN_WALK_SCRIPT}"
+        assert f"/tmp/lean-check/bin/python -I {LEAN_WALK_SCRIPT}" in runs[0], (
+            f"{where} must run the walk in isolated mode from the bare venv"
+        )
+        assert (
+            "uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl"
+            in runs[0]
+        )
+
+
+def test_the_connectors_jobs_that_read_tags_fetch_them(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """The gate walks the tag's parents and the build describes the package's
+    tags; a shallow checkout has neither and builds a wrong version silently."""
+    release = release if release is not None else _load_connectors_release()
+    for job in (CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB):
+        checkout = next(
+            s
+            for s in release["jobs"][job]["steps"]
+            if str(s.get("uses", "")).startswith("actions/checkout@")
+        )
+        assert checkout.get("with", {}).get("fetch-depth") == 0, f"{job} checks out shallow"
+
+
+def test_the_connectors_jobs_that_read_tags_fetch_them__mutation_shallow_build() -> None:
+    mutated = _load_connectors_release()
+    for step in mutated["jobs"][CONNECTORS_BUILD_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            step.pop("with")
+    with pytest.raises(AssertionError, match="build checks out shallow"):
+        test_the_connectors_jobs_that_read_tags_fetch_them(mutated)
+
+
+def test_both_release_workflows_extract_notes_with_the_shared_script() -> None:
+    for release, changelog in (
+        (_load_release(), "CHANGELOG.md"),
+        (_load_connectors_release(), "packages/osprey-connectors/CHANGELOG.md"),
+    ):
+        runs = " ".join(s.get("run", "") for s in release["jobs"]["create-github-release"]["steps"])
+        assert f'python3 scripts/ci/release_notes.py {changelog} "$VERSION"' in runs
+        assert "sed -n" not in runs, "an inline sed extractor drops a last section's last line"
+
+
+def test_the_connectors_release_notes_come_from_its_own_changelog() -> None:
+    job = _load_connectors_release()["jobs"]["create-github-release"]
+    runs = " ".join(s.get("run", "") for s in job["steps"])
+    assert "packages/osprey-connectors/CHANGELOG.md" in runs
+    create = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("softprops/"))
+    assert create["with"]["make_latest"] is False, "a connectors release must not become Latest"
+    assert create["with"]["name"].startswith("osprey-connectors v")
+    assert job["permissions"] == {"contents": "write"}
+
+
+def _framework_build_commands(release: dict[str, Any]) -> list[str]:
+    step = next(s for s in release["jobs"]["build"]["steps"] if s.get("name") == "Build packages")
+    return [line.strip() for line in step["run"].splitlines() if line.strip()]
+
+
+def test_the_framework_release_builds_its_lockstep_members_only(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """Every workspace member but osprey-connectors rides the v-tag; a member
+    added later fails here until the release builds it."""
+    release = release if release is not None else _load_release()
+    members = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"][
+        "members"
+    ]
+    lockstep = sorted(Path(m).name for m in members if Path(m).name != "osprey-connectors")
+    expected = ["uv build", *(f"uv build --package {m}" for m in lockstep)]
+    assert _framework_build_commands(release) == expected, (
+        f"the framework release builds {_framework_build_commands(release)}"
+    )
+    text = yaml.safe_dump(release)
+    assert "--all-packages" not in text, "release.yml builds every package again"
+
+
+def test_the_framework_release_builds__mutation_all_packages() -> None:
+    mutated = _load_release()
+    step = next(s for s in mutated["jobs"]["build"]["steps"] if s.get("name") == "Build packages")
+    step["run"] = "uv build --all-packages\n"
+    with pytest.raises(AssertionError, match="the framework release builds"):
+        test_the_framework_release_builds_its_lockstep_members_only(mutated)
+
+
+def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Path) -> None:
+    step = next(
+        s
+        for s in _load_release()["jobs"]["build"]["steps"]
+        if s.get("name") == CONNECTORS_VERSION_STEP
+    )
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    env = {**os.environ, "GITHUB_REF": "refs/tags/v2026.10.0"}
+
+    def run() -> int:
+        return subprocess.run(
+            ["bash", "-c", step["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+        ).returncode
+
+    for name in (
+        "osprey_framework-2026.10.0-py3-none-any.whl",
+        "pyaml_cs_osprey-2026.10.0-py3-none-any.whl",
+    ):
+        (dist / name).write_text("")
+    assert run() == 0
+    (dist / "osprey_connectors-2026.10.0-py3-none-any.whl").write_text("")
+    assert run() != 0
 
 
 # ---------------------------------------------------------------------------
@@ -10702,8 +11077,9 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
 
 
 def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path: Path) -> None:
+    # osprey-connectors is absent even from a dist/ that holds it: it releases
+    # on its own tags, so the framework's floor on it must resolve from PyPI.
     assert _staged_siblings(release, tmp_path) == [
-        "osprey_connectors-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
     ], "the release gate stages the wrong sibling set"
 
@@ -10719,9 +11095,10 @@ def _with_staging(release: dict[str, Any], staging: str) -> dict[str, Any]:
 
 
 def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: Path) -> None:
-    """The framework depends on every member, so a sibling left out of the
-    find-links fails the gate on the tag that first ships it; the framework's
-    own wheel or any sdist staged there would let an unpublished pin resolve."""
+    """The framework depends on every lockstep member, so a sibling left out of
+    the find-links fails the gate on the tag that first ships it; the
+    framework's own wheel, any sdist, or a connectors wheel staged there would
+    let an unpublished pin resolve."""
     _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)
 
 
@@ -10731,6 +11108,19 @@ def test_the_release_gate_stages_every_member_wheel__mutation_connectors_only(
     mutated = _with_staging(
         yaml.safe_load(RELEASE_YML.read_text()),
         f"cp dist/osprey_connectors-*.whl {RELEASE_SIBLING_DIR}/",
+    )
+    with pytest.raises(AssertionError, match="wrong sibling set"):
+        _assert_release_stages_every_member_wheel(mutated, tmp_path)
+
+
+def test_the_release_gate_stages_every_member_wheel__mutation_offers_connectors(
+    tmp_path: Path,
+) -> None:
+    """Staging by exclusion of the framework alone, as before the split."""
+    mutated = _with_staging(
+        yaml.safe_load(RELEASE_YML.read_text()),
+        f'for wheel in dist/*.whl; do case "$(basename "$wheel")" in '
+        f'osprey_framework-*) ;; *) cp "$wheel" {RELEASE_SIBLING_DIR}/ ;; esac; done',
     )
     with pytest.raises(AssertionError, match="wrong sibling set"):
         _assert_release_stages_every_member_wheel(mutated, tmp_path)

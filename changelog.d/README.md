@@ -42,8 +42,11 @@ sidecar, as it already did for the operator's credentials.
 
 ## The check
 
-A pull request that touches `src/` or `packages/` needs a fragment. To check
-before pushing:
+A pull request that touches `src/`, `packages/` or `plugins/` needs a fragment.
+The one exception is `packages/osprey-connectors/`, which releases on its own
+`osprey-connectors-v*` tags and keeps its own changelog: a change to what ships
+in its wheel needs a fragment in `packages/osprey-connectors/changelog.d/`
+instead (see the README there). To check before pushing:
 
 ```bash
 uv run python scripts/changelog_fragments.py check --base origin/main
