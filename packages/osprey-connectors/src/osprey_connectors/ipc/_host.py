@@ -47,12 +47,13 @@ resolved to a connector type by :func:`osprey_connectors.types.resolve_target`
 holder can decide privately which machine ``live`` means.
 
 Writes are deliberately **not** grantable by launch payload. The connector's
-write guard reads the posture of its own connector type from the project config
-— ``control_system.connector.<type>.writes_enabled``, which inherits
-``control_system.writes_enabled`` when that block says nothing about it — and
-``execution_mode`` here can only *add* the ``OSPREY_EXECUTION_MODE=readonly``
-claim, never clear an inherited one. A child cannot be talked into writing by
-the way it was started; only the deployment's own config enables writes.
+write guard decides every write by the write verdict
+(:func:`osprey_connectors.posture_store.write_verdict`): the write tier of the
+project config's ``control_system`` section — not the section in the init
+frame — and the login's switch for the machine, read from the record this
+child's environment names. ``execution_mode`` here can only *add* the
+``OSPREY_EXECUTION_MODE=readonly`` claim, never clear an inherited one. A child
+cannot be talked into writing by the way it was started.
 
 Environment scrub
 -----------------
@@ -111,15 +112,15 @@ asserts its own derivation against::
 was installed; where both roles name the same endpoint — which makes them
 operationally indistinguishable — the tie is broken by the rule ``connect()``
 applies (``write_access`` when writes are enabled, a write gateway exists, and
-the run is not readonly; otherwise ``read_only``).
+the run is not readonly; otherwise ``read_only``, or ``write_access`` on a block
+that configures no ``read_only`` gateway).
 
-``writes_enabled`` is the connector instance's own posture — the deployment
-ceiling for its type, ANDed with the run mode and with the operator's narrowing
-for this child's target — because that is the value ``connect()`` selected on,
-and the parent verifies the reported role against a derivation made with the
-same terms. In a readonly run, where that instance value collapses to false for
-every type, the deployment half is reported instead and ``readonly_run`` names
-the reason.
+``writes_enabled`` is the connector instance's own posture — whether the write
+verdict allows a write to this child's target — because that is the value
+``connect()`` selected on, and the parent verifies the reported role against a
+derivation made with the same verdict. In a readonly run, where that verdict
+refuses for every type, the write tier is reported instead and ``readonly_run``
+names the reason.
 
 **A connector that configures no CA environment reports all five as
 null/false**, and that is a well-formed report rather than a degraded one: the
@@ -436,46 +437,40 @@ def _as_port(value: str | None) -> Any:
     return int(value) if value.isdigit() else value
 
 
-def _writes_enabled_input(connector_type: str) -> bool:
-    """The DEPLOYMENT half of this child's write posture — config alone.
+def _writes_enabled_input() -> bool:
+    """The DEPLOYMENT half of this child's write posture — the write tier alone.
 
-    Write posture is per connector type, so the answer depends on which type
-    this child is serving. That type is the one the init frame already resolved
-    and the factory stamped on the connector, threaded in rather than derived a
-    second time here: a report that re-read the config for a type would be free
-    to name one the child is not running.
+    :func:`osprey_connectors.types.tier_allows` over the project config's
+    ``control_system`` section: whether this deployment's write tier allows
+    writes at all, before the switch, the owner or the target are asked. The
+    tier is one per section, so the connector type this child serves does not
+    change the answer.
 
-    This is **not** the posture ``connect()`` selected its gateway on, and the
-    report no longer treats it as such. The connector's own
-    ``_writes_enabled`` ANDs two live terms with this one — the run mode, and
-    the operator's narrowing for the control target this child was stamped
-    with, read from the deployment's control-context record — and that property
-    is the value the selection was made with, so that property is what
-    :func:`_selection_writes_enabled` reads for the report. Re-deriving the
-    deployment half here and reporting it as the selection input is exactly the
-    divergence the parent's ``verify_child_report`` turns into an aborted
-    switch: the shipped virtual-accelerator gateways name the same endpoint for
-    both roles, so the reported role follows this value alone and would say
-    ``write_access`` for a target the operator has narrowed to read-only.
+    This is **not** the posture ``connect()`` selected its gateway on. The
+    connector's own ``_writes_enabled`` is the whole write verdict — run mode,
+    tier, target, owner, the login's switch for the machine and the launch pin —
+    and that property is what :func:`_selection_writes_enabled` reads for the
+    report.
 
-    What is left for it is the readonly-run mirror. A readonly run collapses
-    the instance's posture to ``False`` for every type, which would erase the
+    What is left for this one is the readonly-run mirror. A readonly run
+    collapses the instance's verdict to ``False``, which would erase the
     deployment's answer from the report; reported here instead, the pair
-    ``(writes_enabled, readonly_run)`` still says that an armed target was held
-    on the read gateway by the run mode. The reported role is unaffected,
-    because :func:`_rule_role` ANDs ``not readonly_run`` itself.
+    ``(writes_enabled, readonly_run)`` still says that a tier allowing writes
+    was held on the read gateway by the run mode. The reported role is
+    unaffected, because :func:`_rule_role` ANDs ``not readonly_run`` itself.
 
     The section is read from the project config rather than taken from the init
-    payload for the same reason the connector reads it there.
+    payload for the same reason the connector reads it there. A config that
+    cannot be read allows nothing.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import type_writes_enabled
+    from osprey_connectors.types import tier_allows
 
     try:
         section = get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
-    return type_writes_enabled(section, connector_type)
+    return tier_allows(section)
 
 
 def _selection_writes_enabled(connector: Any) -> bool:
@@ -499,10 +494,17 @@ def _selection_writes_enabled(connector: Any) -> bool:
 
 
 def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: bool) -> str | None:
-    """The gateway role ``connect()``'s rule selects, given its inputs."""
+    """The gateway role ``connect()``'s rule selects, given its inputs.
+
+    A block with a ``write_access`` gateway and no ``read_only`` one reads
+    through the write gateway whatever the posture: writes stay refused in
+    software.
+    """
     if writes_enabled and not readonly_run and gateways.get("write_access"):
         return "write_access"
-    return "read_only" if gateways.get("read_only") else None
+    if gateways.get("read_only"):
+        return "read_only"
+    return "write_access" if gateways.get("write_access") else None
 
 
 def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: Any) -> bool:
@@ -571,7 +573,7 @@ def _post_connect_report(
         # readonly_run) pair still names the run mode as what held an armed
         # target on the read gateway. _rule_role ANDs `not readonly_run`, so the
         # role this report names is the same either way.
-        writes_enabled = _writes_enabled_input(connector_type)
+        writes_enabled = _writes_enabled_input()
     else:
         writes_enabled = _selection_writes_enabled(connector)
     mode, host, port = _installed_endpoint()

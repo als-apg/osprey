@@ -13,10 +13,10 @@ deployment's own control system). That runs the entire real path — resolver,
 factory, ``connect()`` — with no EPICS, no gateway and no network.
 
 The child runs with ``cwd`` set to a scratch directory and no ``CONFIG_FILE``,
-so no project config is reachable: writes are disabled, which is the posture
-the write tests assert against. The write-posture tests are the exception —
-posture is read from the project config, so they put a real config file in
-reach and point the child at it.
+so no project config is reachable: the write tier is then ``never``, which is
+the posture the write tests assert against. The write-posture tests are the
+exception — the tier is read from the project config and the switch from the
+record the environment names, so they put both in reach of the child.
 
 The report-derivation helpers are unit-tested in-process at the bottom, since
 the interesting cases (name-server vs address-list mode, which gateway role was
@@ -50,7 +50,9 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
+from osprey_connectors.refusals import refusal_phrase
 from tests._control_context_fixtures import write_control_context
+from tests.connectors._write_fakes import arm_switch
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -83,12 +85,11 @@ def _control_system(root: Path) -> dict:
     }
 
 
-#: A deployment whose real machine is EPICS and whose simulator is armed: the
-#: deployment-wide posture is off, the virtual accelerator's own block turns
-#: writes on, and the live machine's block says nothing about them at all.
+#: A deployment whose real machine is EPICS and whose write tier allows writes;
+#: :func:`mixed_deployment` turns the login's switch on for the simulator only.
 MIXED_CONTROL_SYSTEM = {
     "type": "epics",
-    "writes_enabled": False,
+    "writes": "allowed",
     "connector": {
         "epics": {
             "gateways": {
@@ -97,7 +98,6 @@ MIXED_CONTROL_SYSTEM = {
             }
         },
         "virtual_accelerator": {
-            "writes_enabled": True,
             "gateways": {
                 "read_only": {"address": "va-ro.example.org", "port": 5074},
                 "write_access": {"address": "va-rw.example.org", "port": 5075},
@@ -428,7 +428,8 @@ def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(ready_
     # outcome is a WriteOutcome member on this side of the boundary.
     assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "WRITES_DISABLED"
-    assert "writes are disabled" in result.error_message
+    # No config in reach: the write tier is never.
+    assert refusal_phrase("tier_never") in result.error_message
 
 
 def test_write_multiple_channels_refuses_every_operation(ready_child):
@@ -443,32 +444,32 @@ def test_write_multiple_channels_refuses_every_operation(ready_child):
     assert all(result.refusal_reason == "WRITES_DISABLED" for result in results)
 
 
-def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
-    """Write posture is per connector type, end to end through a real child.
+@pytest.mark.parametrize("switched_on", [True, False], ids=["on", "off"])
+def test_the_child_reports_the_verdict_for_its_own_target(tmp_path, monkeypatch, switched_on):
+    """Write posture is the write verdict, end to end through a real child.
 
-    The deployment-wide posture is off and the block for the type this child
-    resolved arms writes, so only a report that looked its own type up can say
-    the child is armed.
+    The tier comes from the project config the child is pointed at and the
+    switch from the record its inherited environment names, so the report says
+    armed only when the login's switch is on for the child's own target.
     """
     project = tmp_path / "project"
     project.mkdir()
     view = served_tree(tmp_path / "served")
     control_system = {
         "type": IN_PROCESS_TYPE,
-        "writes_enabled": False,
-        "connector": {
-            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10, writes_enabled=True)
-        },
+        "writes": "allowed",
+        "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=10)},
     }
     config_file = project / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": control_system}))
+    arm_switch(monkeypatch, tmp_path / "agent-data", "live" if switched_on else None, stamp=False)
 
     spawned = Child(cwd=tmp_path)
     try:
         report = spawned.init(control_system=control_system, config_file=str(config_file)).value
 
         assert report["connector_type"] == IN_PROCESS_TYPE
-        assert report["writes_enabled"] is True
+        assert report["writes_enabled"] is switched_on
     finally:
         spawned.close()
 
@@ -943,17 +944,18 @@ def _posture_carrier(connector_type, control_target, *, epics_configured=False):
 def mixed_deployment(tmp_path, monkeypatch):
     """Put :data:`MIXED_CONTROL_SYSTEM` on disk and in reach of this process.
 
-    Posture is read from the project config, where the connector reads it, so a
-    test about posture has to point at a real file rather than hand a section
-    in.
+    The tier is read from the project config, where the connector reads it, so
+    a test about posture has to point at a real file rather than hand a section
+    in. The login's switch is on for ``va`` and off for ``live``.
     """
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": MIXED_CONTROL_SYSTEM}))
     monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    arm_switch(monkeypatch, tmp_path / "agent-data", "va", stamp=False)
     return MIXED_CONTROL_SYSTEM
 
 
-def test_the_report_arms_the_target_whose_own_block_says_so(mixed_deployment):
+def test_the_report_arms_the_target_whose_switch_is_on(mixed_deployment):
     report = host._post_connect_report(
         _posture_carrier("virtual_accelerator", "va"), "virtual_accelerator", "va", mixed_deployment
     )
@@ -963,10 +965,9 @@ def test_the_report_arms_the_target_whose_own_block_says_so(mixed_deployment):
     assert report["writes_enabled"] is True
 
 
-def test_a_target_whose_block_says_nothing_inherits_the_disabled_deployment(mixed_deployment):
-    # The epics block configures gateways and no posture, so this target keeps
-    # the deployment-wide answer — which is off, whatever the simulator's block
-    # says about the simulator.
+def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
+    # The tier allows writes and the simulator's switch is on; this target's is
+    # not, so its report is off whatever the simulator's says.
     report = host._post_connect_report(
         _posture_carrier("epics", "live"), "epics", "live", mixed_deployment
     )
@@ -989,10 +990,10 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
         mixed_deployment,
     )
 
-    # The block arms this target and the report says so: that is the deployment
-    # posture, and the same input connect() made its selection with. What the
-    # readonly run collapses is the selection itself — an armed target still
-    # went through the read gateway.
+    # The tier allows writes and the report says so: that is the deployment
+    # half, reported where the run mode collapses the verdict. What the readonly
+    # run collapses is the selection itself — an armed target still went
+    # through the read gateway.
     assert report["writes_enabled"] is True
     assert report["readonly_run"] is True
     assert report["selected_role"] == "read_only"
@@ -1022,15 +1023,15 @@ VA_SERVICE_PORT = 5064
 
 
 def _va_config(gateways):
-    """A switch-capable deployment whose virtual accelerator is armed."""
+    """A switch-capable deployment whose write tier allows writes."""
     return {
         "services": {"virtual_accelerator": {"port": VA_SERVICE_PORT}},
         "control_system": {
             "type": "epics",
-            "writes_enabled": False,
+            "writes": "allowed",
             "connector": {
                 "epics": {"gateways": {"read_only": {"address": "ro.example.org", "port": 5064}}},
-                "virtual_accelerator": {"writes_enabled": True, "gateways": gateways},
+                "virtual_accelerator": {"gateways": gateways},
             },
         },
     }
@@ -1082,7 +1083,8 @@ def _limits_control_system(database_path: Path, view: Path) -> dict:
 
 @pytest.fixture
 def va_deployment(tmp_path, monkeypatch):
-    """Put an armed virtual accelerator on disk and in reach of this process."""
+    """Put a virtual accelerator on disk, with the login's switch on for it."""
+    arm_switch(monkeypatch, tmp_path / "agent-data", "va", stamp=False)
 
     def _build(gateways):
         config = _va_config(gateways)
@@ -1096,7 +1098,7 @@ def va_deployment(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def narrowed_va(tmp_path, monkeypatch):
+def narrowed_va(tmp_path, monkeypatch, va_deployment):  # noqa: ARG001 - arms the switch first
     """An operator narrowing of ``va`` to read-only, in reach of this process.
 
     The narrowing lives in the deployment's control-context record under
@@ -1104,7 +1106,7 @@ def narrowed_va(tmp_path, monkeypatch):
     and the connector-host child it spawns — reads the same one.
     """
     root = tmp_path / "agent-data"
-    write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX})
+    write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX}, switch={"va": "on"})
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     posture_store.invalidate_cache()
     yield root
@@ -1357,3 +1359,45 @@ def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_dep
     # relaxation, two keys away in the same file, does not reach it.
     assert policy["mode"] == "exclusive"
     assert policy["mode_key"] == DEPLOYMENT_WIDE_MODE_KEY
+
+
+# ------------------------------------- the role a write-gateway-only block reads by
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True], ids=["off", "on"])
+def test_a_write_gateway_only_block_reports_the_write_gateway(monkeypatch, writes_enabled):
+    gateways = {"write_access": {"address": "rw.example.org", "port": 5065}}
+    _install_addr_list(monkeypatch, "rw.example.org", 5065)
+
+    role = host._selected_role(
+        gateways,
+        "addr_list",
+        "rw.example.org",
+        5065,
+        writes_enabled=writes_enabled,
+        readonly_run=False,
+    )
+
+    assert role == "write_access"
+    assert host._rule_role(gateways, writes_enabled, readonly_run=True) == "write_access"
+
+
+# ----------------------------------------- the deployment half of the report
+
+
+@pytest.mark.parametrize(
+    ("section", "expected"),
+    [
+        ({"writes": "allowed"}, True),
+        ({"writes": "never", "connector": {"epics": {"writes_enabled": True}}}, False),
+        ({"connector": {"epics": {"writes_enabled": True}}}, True),
+        ({}, False),
+    ],
+    ids=["allowed", "never-beats-a-block", "old-armed-block", "silent"],
+)
+def test_the_readonly_mirror_reports_the_write_tier(tmp_path, monkeypatch, section, expected):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump({"control_system": section}))
+    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+
+    assert host._writes_enabled_input() is expected

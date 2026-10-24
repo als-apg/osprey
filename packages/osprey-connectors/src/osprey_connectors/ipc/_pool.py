@@ -64,15 +64,27 @@ check the controls MCP server's target switch runs), and the report must name
 the target and connector type this process resolved. A child that fails any of
 it is stopped before the caller sees anything.
 
-Write posture is never granted by the pool. The child reads
-``control_system.connector.<type>.writes_enabled`` from the project config at
-``config_file`` — not from the section it was sent — and with no config file
-reachable its writes stay off. ``execution_mode="readonly"`` can only take
-writes away. Verification compares the write posture the child reports with
-the one this process derives from the section it was given, for every
-connector type, gateways or none: a child armed where the section says it is
-not — or unarmed where the section arms it — is refused, so the section a
-caller hands the pool and ``config_file`` must agree.
+Write posture is never granted by the pool. The child decides every write by
+the write verdict (:func:`osprey_connectors.posture_store.write_verdict`) over
+the ``control_system`` section of the project config at ``config_file`` — not
+the section it was sent — and the login's switch for its target, read from the
+record its inherited environment names; with no config file reachable its
+writes stay off. ``execution_mode="readonly"`` can only take writes away.
+Verification compares the write posture the child reports with the verdict this
+process takes over the section it was given, for every connector type, gateways
+or none: a child armed where that verdict refuses — or unarmed where it allows —
+is refused, so the section a caller hands the pool and ``config_file`` must
+agree. A switch turned between this process's verdict and the child's report
+is not such a disagreement: the verdict is taken again, and when it moved the
+child is replaced by a fresh one, once, before the start fails.
+
+The gateway a child selects follows the verdict at spawn time and does not
+follow a switch turned later; a caller that wants the next write to use the
+write gateway after a turn-on asks for a fresh child (the notebook kernel's
+runtime does, by disconnecting the handle). Until then the child refuses an
+allowed write ``switching`` when a write gateway is configured and was not
+selected. A block with a ``write_access`` gateway and no ``read_only`` one is
+read through the write gateway while writes are off.
 
 Failure
 -------
@@ -164,7 +176,7 @@ import os
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -190,6 +202,8 @@ from osprey_connectors.ipc._proxy import (
     raised_by_child,
 )
 from osprey_connectors.ipc._verification import (
+    ROLE_READ_ONLY,
+    ROLE_WRITE_ACCESS,
     TargetDerivation,
     connector_block,
     derive_endpoints,
@@ -450,6 +464,29 @@ class _PoolChild:
             and self.process.returncode is None
             and self.proxy.dead_reason is None
         )
+
+
+class _WritesMoved(Exception):
+    """A starting child's writes disagreed with a verdict that has since moved to agree."""
+
+
+def _read_through_only_gateway(derivation: TargetDerivation) -> TargetDerivation:
+    """*derivation*, reading through ``write_access`` when it is the only gateway.
+
+    ``connect()`` reads through a block's ``write_access`` gateway when the
+    block configures no ``read_only`` one, whatever the posture: its writes
+    stay refused in software while off. The shared derivation selects
+    ``read_only`` whenever writes are off, so the role is restated here for the
+    same rule, before the config refusal and the verification judge it.
+    """
+    endpoints = derivation.endpoints
+    if (
+        derivation.selected_role == ROLE_READ_ONLY
+        and ROLE_READ_ONLY not in endpoints
+        and ROLE_WRITE_ACCESS in endpoints
+    ):
+        return replace(derivation, selected_role=ROLE_WRITE_ACCESS)
+    return derivation
 
 
 def _label(key: _Key) -> str:
@@ -738,6 +775,24 @@ class ConnectorHostPool:
             return child
 
     async def _start(self, key: _Key) -> _PoolChild:
+        try:
+            return await self._start_once(key, may_respawn=True)
+        except _WritesMoved:
+            logger.info(
+                "connector host pool: the write verdict for %s moved while its child "
+                "was starting; starting a fresh one",
+                _label(key),
+            )
+            return await self._start_once(key, may_respawn=False)
+
+    async def _start_once(self, key: _Key, *, may_respawn: bool) -> _PoolChild:
+        """Spawn, initialise and verify one child for *key*.
+
+        With *may_respawn*, a child whose reported writes disagree with the
+        verdict taken before it was spawned — where the verdict taken again now
+        agrees with the child, so the switch moved in between — is discarded and
+        :class:`_WritesMoved` raised for :meth:`_start` to try once more.
+        """
         target, mode = key
         readonly = mode == READONLY
         section = resolve_env_vars(copy.deepcopy(self._section))
@@ -849,6 +904,8 @@ class ConnectorHostPool:
                     "not the post-connect report.",
                 )
             child.report = report
+            if may_respawn and self._writes_moved(key, section, readonly_run, writes, report):
+                raise _WritesMoved
             self._verify(derivation, readonly_run, writes, report, failure)
         except BaseException:
             await self._discard(
@@ -876,7 +933,7 @@ class ConnectorHostPool:
         """
         target, mode = key
         readonly_run = mode == READONLY or is_readonly_run()
-        writes = False if readonly_run else posture_store.effective_writes(section, target)
+        writes = False if readonly_run else self._writes_allowed(section, target)
         derivation = derive_endpoints(
             {"control_system": section},
             target,
@@ -886,7 +943,36 @@ class ConnectorHostPool:
             # derivation must read the same file or the ports disagree.
             config_path=self._config_file,
         )
-        return derivation, readonly_run, writes
+        return _read_through_only_gateway(derivation), readonly_run, writes
+
+    @staticmethod
+    def _writes_allowed(section: dict[str, Any], target: str) -> bool:
+        """Whether the write verdict allows a write to *target*, launch pin honoured.
+
+        The verdict the child's own write guard takes, over the same record: the
+        child inherits this process's environment, so it names the same owner
+        and the same agent-data root.
+        """
+        return posture_store.write_verdict(section, target).allowed
+
+    def _writes_moved(
+        self,
+        key: _Key,
+        section: dict[str, Any],
+        readonly_run: bool,
+        writes: bool,
+        report: dict[str, Any],
+    ) -> bool:
+        """Whether a writes mismatch in *report* is a switch that moved, not a disagreement.
+
+        True only when the child reports the other posture *and* the verdict,
+        taken again now, has moved to it. A mismatch the verdict does not
+        explain — ``config_file`` arming what the section does not — is left
+        for :meth:`_verify` to refuse.
+        """
+        if readonly_run or report.get("writes_enabled") is not (not writes):
+            return False
+        return self._writes_allowed(section, key[0]) is not writes
 
     def _config_refusal(
         self, key: _Key, section: dict[str, Any], derivation: TargetDerivation
@@ -989,7 +1075,7 @@ class ConnectorHostPool:
                 STAGE_VERIFY,
                 f"reports writes {'armed' if child_writes else 'off'} where the section "
                 f"given to the pool has them {'armed' if writes else 'off'}. The child "
-                f"reads its write posture from config_file ({source}), not from the "
+                f"takes its write tier from config_file ({source}), not from the "
                 "section; the two must agree.",
             )
         raise failure(
