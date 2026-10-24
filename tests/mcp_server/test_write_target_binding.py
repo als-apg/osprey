@@ -33,6 +33,13 @@ refusal, and the neighbour that must not be refused with it.
 Every assertion is made on the shipped envelope (the parsed tool result, or the
 structured error a refusal raises), never on an internal helper: the envelope is
 the only thing an agent or an operator ever sees.
+
+Every call here runs under a record with both switches on and the ask stamp the
+approval hook files, so the tool's stage 1 lets it through to the binding
+checks. Approval asks here, so a call also needs the prompt's target stamp:
+``_run_single`` files it on the binding the call enters on, as the hook would,
+and the approval-window tests file their own or none. A call that enters with no usable record never gets that far: the write
+verdict refuses it at entry, and the first section pins that.
 """
 
 import json
@@ -53,10 +60,12 @@ from osprey.mcp_server.control_system.tools import channel_write as channel_writ
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
     state_dir_under,
     write_control_context,
     write_server_report,
 )
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -107,7 +116,25 @@ def _get_channel_write():
     return get_tool_fn(channel_write)
 
 
-def _prepare(tmp_path, monkeypatch, *, session=None):
+#: The project these tests write from: the simulator in process beside a named
+#: real machine, so both ``va`` and ``live`` are targets here, under a write
+#: tier that allows.
+_CONFIG = (
+    "control_system:\n  type: virtual_accelerator\n  writes: allowed\n  connector:\n"
+    "    virtual_accelerator:\n      serving: in_process\n"
+    "    epics:\n      prefix: 'RING:'\n"
+)
+
+#: Both machines' switches on: the write verdict lets every call here reach the
+#: binding checks, whichever target its record names.
+_SWITCH_ON = {"va": "on", "live": "on"}
+
+
+#: An approval section whose policy lets ``channel_write`` run without asking.
+_APPROVAL_SKIPS = "approval:\n  enabled: true\n  tools:\n    channel_write: skip\n"
+
+
+def _prepare(tmp_path, monkeypatch, *, session=None, config=_CONFIG):
     """Project, server context, and a state root nothing else writes into.
 
     The agent-data root is stamped on the environment rather than patched into
@@ -123,17 +150,22 @@ def _prepare(tmp_path, monkeypatch, *, session=None):
     report and is therefore held up only by a swap in flight.
     """
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(
-        "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-    )
+    (tmp_path / "config.yml").write_text(config)
     root = tmp_path / "var" / "agent_data"
+    isolate_verdict_environment(monkeypatch, root)
     state_dir_under(root).mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     if session is None:
         monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
     else:
         monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, session)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    # The real machine is named only so the write verdict can answer for a
+    # record on ``live``. Serving stays in process, as for a simulator-only
+    # deployment: the binding checks are the subject here, and a connector-host
+    # child would need a built simulator view to start at all.
+    from osprey.mcp_server.control_system import server_context
+
+    monkeypatch.setattr(server_context, "switch_capable", lambda _raw: False)
     control_context.invalidate_cache()
     initialize_server_context()
     return root
@@ -154,7 +186,11 @@ def _root():
 
 
 def _write_record(target, generation, **fields):
-    """Write the deployment's record, as the owner writes it after a switch."""
+    """Write the deployment's record, as the owner writes it after a switch.
+
+    Both switches are on unless *fields* says otherwise.
+    """
+    fields.setdefault("switch", _SWITCH_ON)
     return write_control_context(_root(), target, generation, **fields)
 
 
@@ -306,14 +342,26 @@ def _patched(connector, *, when_resolved=None):
             "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
+        ApprovalStamps(target_state.state_dir()).approved("channel_write"),
     ):
         yield
 
 
-async def _run_single(connector, *, when_resolved=None, channel="TEST:PV", value=42.0):
+def _stamp_current(operations):
+    """The prompt's target stamp for *operations*, on the binding the deployment is on now."""
+    binding = channel_write_module._read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
+    return _stamp_approval(operations, target=target, generation=generation)
+
+
+async def _run_single(connector, *, when_resolved=None, channel="TEST:PV", value=42.0, stamp=True):
+    """One write; *stamp* files its target stamp first, rendered on the current binding."""
+    operations = [{"channel": channel, "value": value}]
+    if stamp:
+        _stamp_current(operations)
     with _patched(connector, when_resolved=when_resolved):
         fn = _get_channel_write()
-        return await fn(operations=[{"channel": channel, "value": value}])
+        return await fn(operations=operations)
 
 
 # ---------------------------------------------------------------------------
@@ -321,26 +369,23 @@ async def _run_single(connector, *, when_resolved=None, channel="TEST:PV", value
 # ---------------------------------------------------------------------------
 
 
-async def test_write_proceeds_and_looks_unchanged_without_target_state(tmp_path, monkeypatch):
-    """No record at all: the write runs, and the envelope is what it was.
+async def test_without_target_state_the_verdict_refuses_before_any_binding(tmp_path, monkeypatch):
+    """No record at all: every switch is off, so the write verdict refuses at entry.
 
-    This is the baseline in-process deployment — nothing publishes a target, so
-    there is nothing to bind to and nothing to refuse. The envelope's shape is
-    asserted key-by-key: a deployment that never switches targets must not be
-    able to tell that this feature exists.
+    There is no binding to compare, and none is needed: the deployment's
+    baseline is the target the verdict is asked about, and a deployment with no
+    record has turned nothing on. The connector is never resolved.
     """
     _prepare(tmp_path, monkeypatch)
     connector = AsyncMock()
-    connector.write_channel.return_value = _write_result()
+    resolved = []
 
-    data = extract_response_dict(await _run_single(connector))
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await _run_single(connector, when_resolved=lambda: resolved.append(True))
 
-    assert set(data) == EXPECTED_TOP_LEVEL_KEYS
-    assert set(data["summary"]) == EXPECTED_SUMMARY_KEYS
-    assert set(data["summary"]["results"][0]) == EXPECTED_RESULT_KEYS
-    assert data["status"] == "success"
-    assert data["summary"]["outcomes"] == {"confirmed": 1}
-    connector.write_channel.assert_awaited_once()
+    assert ctx["envelope"]["details"] == {"reason": "switch_off", "target": "va"}
+    assert resolved == []
+    connector.write_channel.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -447,16 +492,16 @@ async def test_a_batch_write_is_refused_before_the_connector_call(tmp_path, monk
 
     connector = AsyncMock()
     connector.write_multiple_channels.return_value = []
+    operations = [
+        {"channel": "PV:A", "value": 1.0},
+        {"channel": "PV:B", "value": 2.0},
+    ]
+    _stamp_current(operations)
 
     with _patched(connector, when_resolved=lambda: _write_record("va", 1)):
         fn = _get_channel_write()
         with assert_raises_error(error_type="target_changed") as ctx:
-            await fn(
-                operations=[
-                    {"channel": "PV:A", "value": 1.0},
-                    {"channel": "PV:B", "value": 2.0},
-                ]
-            )
+            await fn(operations=operations)
 
     message = ctx["envelope"]["error_message"]
     assert "approved on target 'live' (generation 0)" in message
@@ -464,29 +509,23 @@ async def test_a_batch_write_is_refused_before_the_connector_call(tmp_path, monk
     connector.write_multiple_channels.assert_not_awaited()
 
 
-async def test_a_record_appearing_mid_call_is_refused(tmp_path, monkeypatch):
-    """A deployment that started publishing mid-call is a change, not a nothing.
+async def test_a_call_entering_with_no_record_is_refused_before_one_appears(tmp_path, monkeypatch):
+    """A record published mid-call cannot rescue a call that entered without one.
 
-    "No record" and "a record" are different claims about the deployment. The
-    write was approved while nothing published a target; by the time it would
-    execute something does, and what that something is was never shown to the
-    operator.
+    "No record" and "a record" are different claims about the deployment, and
+    the first is every switch off: the verdict refuses at entry, before the
+    connector is resolved, so a record appearing later is never consulted.
     """
     _prepare(tmp_path, monkeypatch)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    with assert_raises_error(error_type="target_changed") as ctx:
+    with assert_raises_error(error_type="writes_disabled") as ctx:
         await _run_single(connector, when_resolved=lambda: _write_record("live", 7))
 
-    message = ctx["envelope"]["error_message"]
-    assert "approved on an unpublished target" in message
-    assert "now target 'live' (generation 7)" in message
-    details = ctx["envelope"]["details"]
-    assert details["approved_target"] is None
-    assert details["approved_generation"] is None
-    assert details["current_target"] == "live"
+    assert ctx["envelope"]["details"]["reason"] == "switch_off"
+    assert control_context.read_record() is None
     connector.write_channel.assert_not_awaited()
 
 
@@ -508,13 +547,12 @@ async def test_a_record_disappearing_mid_call_is_refused(tmp_path, monkeypatch):
     connector.write_channel.assert_not_awaited()
 
 
-async def test_a_corrupt_record_reads_as_no_record_and_does_not_refuse(tmp_path, monkeypatch):
-    """An unreadable record is "no answer" at both ends, so the write runs.
+async def test_a_corrupt_record_is_refused_by_the_verdict(tmp_path, monkeypatch):
+    """An unreadable record refuses at entry: the verdict fails closed on it.
 
-    The record's readers are fail-closed by contract: every failure mode arrives
-    as the same value. A file that is corrupt for the whole call is therefore
-    absent for the whole call, which is stable — and turning a corrupt file into
-    a refusal would break writes on a deployment that never switches at all.
+    The binding reader collapses a corrupt file into "no record", which is
+    stable across the call; the write verdict reads the same file as a record it
+    could not read, and an unknown switch is not an "on".
     """
     _prepare(tmp_path, monkeypatch)
     _write_record("va", 5).write_text("{not json", encoding="utf-8")
@@ -522,10 +560,11 @@ async def test_a_corrupt_record_reads_as_no_record_and_does_not_refuse(tmp_path,
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    data = extract_response_dict(await _run_single(connector))
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await _run_single(connector)
 
-    assert data["status"] == "success"
-    connector.write_channel.assert_awaited_once()
+    assert ctx["envelope"]["details"]["reason"] == "record_unavailable"
+    connector.write_channel.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -583,48 +622,50 @@ async def test_a_stamp_that_agrees_with_entry_lets_the_write_through(tmp_path, m
 
 
 async def test_a_stamp_for_a_different_write_is_not_this_calls_approval(tmp_path, monkeypatch):
-    """The stamp is keyed by the payload: another write's stamp is not consulted.
+    """The stamp is keyed by the payload: another write's stamp vouches for nothing.
 
     Without the key, one approval would vouch for a different set of channels
-    and values — which is the opposite of what an approval is.
+    and values — which is the opposite of what an approval is. This write has
+    no stamp of its own, so where approval asks it is refused.
     """
     _prepare(tmp_path, monkeypatch)
     _write_record("live", 4)
-    _stamp_approval([{"channel": "OTHER:PV", "value": 1.0}], target="va", generation=3)
+    _stamp_approval([{"channel": "OTHER:PV", "value": 1.0}], target="live", generation=4)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
     with _patched(connector):
         fn = _get_channel_write()
-        data = extract_response_dict(await fn(operations=[{"channel": "TEST:PV", "value": 42.0}]))
+        with assert_raises_error(error_type="approval_missing"):
+            await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
 
-    assert data["status"] == "success"
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_stamp_from_another_session_on_this_checkout_is_ignored(tmp_path, monkeypatch):
-    """A second session's approval must not refuse — or authorize — this one.
+    """A second session's approval must not authorize this one.
 
     Two windows share one agent-data root. A stamp whose ``session`` is not this
-    process's belongs to the other window's prompt, so it is not consulted; the
-    call keeps the comparison it can make honestly. The binding here would
-    refuse if it were consulted, which is what makes the success meaningful.
+    process's belongs to the other window's prompt, so it is not consulted, and
+    this write is left with no stamp of its own — refused where approval asks.
+    The stamp here agrees with entry, so had it been consulted the write would
+    have run: the refusal is the proof it was ignored.
     """
     _prepare(tmp_path, monkeypatch, session="this-session")
     operations = [{"channel": "TEST:PV", "value": 42.0}]
     _write_record("live", 4)
-    _stamp_approval(operations, target="va", generation=3, session="another-session")
+    _stamp_approval(operations, target="live", generation=4, session="another-session")
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
     with _patched(connector):
         fn = _get_channel_write()
-        data = extract_response_dict(await fn(operations=operations))
+        with assert_raises_error(error_type="approval_missing"):
+            await fn(operations=operations)
 
-    assert data["status"] == "success"
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_prompt_rendered_on_an_unpublished_target_still_binds(tmp_path, monkeypatch):
@@ -655,14 +696,13 @@ async def test_a_prompt_rendered_on_an_unpublished_target_still_binds(tmp_path, 
     connector.write_channel.assert_not_awaited()
 
 
-async def test_no_stamp_means_no_approval_comparison(tmp_path, monkeypatch):
-    """An unstamped call is not refused: older renders must keep working.
+async def test_no_stamp_is_refused_where_approval_asks(tmp_path, monkeypatch):
+    """Stage 1 passed, but the prompt left no target stamp: refused.
 
-    A project rendered before the hook stamped anything, and a deployment whose
-    policy allows the write without asking, both arrive here with no stamp. The
-    entry-to-write comparison still applies; the approval window simply cannot
-    be checked, and inventing a refusal from its absence would break every one
-    of those deployments.
+    Without the stamp the target the operator was shown cannot be compared with
+    the one the call entered on, so a switch between them would go unseen. A
+    project rendered before the hook stamped anything is refused too, until it
+    is rebuilt.
     """
     _prepare(tmp_path, monkeypatch)
     _write_record("live", 4)
@@ -670,7 +710,26 @@ async def test_no_stamp_means_no_approval_comparison(tmp_path, monkeypatch):
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    data = extract_response_dict(await _run_single(connector))
+    with assert_raises_error(error_type="approval_missing") as ctx:
+        await _run_single(connector, stamp=False)
+
+    assert ctx["envelope"]["error_message"].startswith("not run:")
+    connector.write_channel.assert_not_awaited()
+
+
+async def test_no_stamp_is_not_compared_where_approval_does_not_ask(tmp_path, monkeypatch):
+    """A write the policy allows without asking has no stamp, and runs.
+
+    The entry-to-write comparison still applies; the approval window has
+    nothing to compare and is not checked.
+    """
+    _prepare(tmp_path, monkeypatch, config=_CONFIG + _APPROVAL_SKIPS)
+    _write_record("live", 4)
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _write_result()
+
+    data = extract_response_dict(await _run_single(connector, stamp=False))
 
     assert data["status"] == "success"
     connector.write_channel.assert_awaited_once()
@@ -682,27 +741,27 @@ async def test_a_stamp_approved_for_a_different_confirmation_is_not_consulted(
     """``confirm`` is half the payload, so it is half the stamp's identity.
 
     The prompt the operator saw named a confirmation setting; a call made with
-    another one is a different write. Keying on it is also what keeps the two
-    halves of the hash in step — if one side stopped hashing ``confirm`` the
-    keys would agree only for the omitted case, and the window check would go
-    quiet for every explicit one without failing anything.
+    another one is a different write, with no stamp of its own, and is refused.
+    Keying on it is also what keeps the two halves of the hash in step — if one
+    side stopped hashing ``confirm`` the keys would agree only for the omitted
+    case.
     """
     _prepare(tmp_path, monkeypatch)
     operations = [{"channel": "TEST:PV", "value": 42.0}]
     _write_record("live", 4)
     # An approval rendered for a write that would NOT be confirmed. This call
     # asks for confirmation, so that prompt does not vouch for it.
-    _stamp_approval(operations, target="va", generation=3, confirm=False)
+    _stamp_approval(operations, target="live", generation=4, confirm=False)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
     with _patched(connector):
         fn = _get_channel_write()
-        data = extract_response_dict(await fn(operations=operations, confirm=True))
+        with assert_raises_error(error_type="approval_missing"):
+            await fn(operations=operations, confirm=True)
 
-    assert data["status"] == "success"
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_stamp_matching_this_calls_confirmation_binds(tmp_path, monkeypatch):
@@ -755,8 +814,8 @@ async def test_a_miss_with_this_servers_stamps_present_warns_about_the_render(
 
     The failure this warning exists for is silent by construction: a project
     rendered before the stamp key changed files its stamps under the old
-    derivation, every lookup misses, and the approval-window check stops running
-    without anything going red. Stamps this process's own prompts left behind
+    derivation, every lookup misses, and every asked write is refused with
+    nothing naming the cause. Stamps this process's own prompts left behind
     are the evidence that the hook is stamping and only the key is wrong.
     """
     _prepare(tmp_path, monkeypatch, session="this-session")
@@ -768,12 +827,14 @@ async def test_a_miss_with_this_servers_stamps_present_warns_about_the_render(
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
-        data = extract_response_dict(await _run_single(connector))
+    with (
+        caplog.at_level("WARNING", logger=channel_write_module.logger.name),
+        assert_raises_error(error_type="approval_missing"),
+    ):
+        await _run_single(connector, stamp=False)
 
-    assert data["status"] == "success", "the warning is advice, never a refusal"
     assert any("osprey build" in message for message in _tool_warnings(caplog))
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_miss_with_only_another_sessions_stamps_stays_quiet(tmp_path, monkeypatch, caplog):
@@ -795,24 +856,26 @@ async def test_a_miss_with_only_another_sessions_stamps_stays_quiet(tmp_path, mo
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
-        data = extract_response_dict(await _run_single(connector))
+    with (
+        caplog.at_level("WARNING", logger=channel_write_module.logger.name),
+        assert_raises_error(error_type="approval_missing"),
+    ):
+        await _run_single(connector, stamp=False)
 
-    assert data["status"] == "success"
     assert _tool_warnings(caplog) == []
-    connector.write_channel.assert_awaited_once()
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_miss_with_no_stamps_at_all_stays_quiet(tmp_path, monkeypatch, caplog):
     """A deployment whose policy never asks has no stamps and needs no advice."""
-    _prepare(tmp_path, monkeypatch)
+    _prepare(tmp_path, monkeypatch, config=_CONFIG + _APPROVAL_SKIPS)
     _write_record("live", 4)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
     with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
-        data = extract_response_dict(await _run_single(connector))
+        data = extract_response_dict(await _run_single(connector, stamp=False))
 
     assert data["status"] == "success"
     assert _tool_warnings(caplog) == []
@@ -836,6 +899,8 @@ async def test_a_serving_host_that_disagrees_with_the_file_refuses(tmp_path, mon
     _write_record("va", 3)
     monkeypatch.setattr(ConnectorHostManager, "is_started", lambda self: True)
     monkeypatch.setattr(ConnectorHostManager, "active_binding", lambda self: ("live", 4))
+    operations = [{"channel": "TEST:PV", "value": 42.0}]
+    _stamp_current(operations)
 
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
@@ -843,7 +908,7 @@ async def test_a_serving_host_that_disagrees_with_the_file_refuses(tmp_path, mon
     with _patched(connector):
         fn = _get_channel_write()
         with assert_raises_error(error_type="target_changed") as ctx:
-            await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
+            await fn(operations=operations)
 
     envelope = ctx["envelope"]
     assert "approved on target 'va' (generation 3)" in envelope["error_message"]
@@ -1193,12 +1258,11 @@ async def test_a_dead_servers_swap_does_not_refuse(tmp_path, monkeypatch):
     connector.write_channel.assert_awaited_once()
 
 
-async def test_without_a_record_there_is_no_convergence_to_judge(tmp_path, monkeypatch):
-    """No record means no generation to be behind, so reports decide nothing.
+async def test_without_a_record_the_verdict_refuses_before_convergence(tmp_path, monkeypatch):
+    """No record means no generation to be behind, and no switch turned on.
 
-    The whole verdict is "where the record says" against "where this server
-    got to". With no record there is no first half, and the deployment is the
-    unswitched one every other test in this file's first section describes.
+    A report claiming a swap in flight is never judged: the call is refused at
+    entry by the write verdict, in its own words, not as a switch in progress.
     """
     _prepare(tmp_path, monkeypatch, session=THIS_SESSION)
     _write_report(
@@ -1208,10 +1272,11 @@ async def test_without_a_record_there_is_no_convergence_to_judge(tmp_path, monke
     connector = AsyncMock()
     connector.write_channel.return_value = _write_result()
 
-    data = extract_response_dict(await _run_single(connector))
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await _run_single(connector)
 
-    assert data["status"] == "success"
-    connector.write_channel.assert_awaited_once()
+    assert ctx["envelope"]["details"]["reason"] == "switch_off"
+    connector.write_channel.assert_not_awaited()
 
 
 async def test_a_stale_approval_is_reported_before_an_unsettled_fleet(tmp_path, monkeypatch):

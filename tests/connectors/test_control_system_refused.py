@@ -229,11 +229,17 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons):
 
     monkeypatch.chdir(tmp_path)
     view = served_tree(tmp_path / "served", ["PV:A", "PV:B"])
+    # A write tier that allows, and approval switched off: the autouse switch is
+    # on for the simulator, so the tool's stage 1 lets the batch reach the
+    # connector, whose refusals are the subject here.
     control_system = {
         "type": "virtual_accelerator",
+        "writes": "allowed",
         "connector": {"virtual_accelerator": in_process_config(view)},
     }
-    (tmp_path / "config.yml").write_text(yaml.safe_dump({"control_system": control_system}))
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump({"control_system": control_system, "approval": {"enabled": False}})
+    )
     initialize_server_context()
 
     connector = AsyncMock()

@@ -2,7 +2,9 @@
 
 The controls tools are driven end to end over the real in-process simulator: a
 served tree holding ``A:SP`` and ``A:RB``, the connector the factory would build
-for it, writes enabled and no limits validator. Each test pins the exact JSON
+for it, writes armed (a write tier that allows, the simulator's switch on) and no
+limits validator. Each write is stamped as the approval hook stamps an approved
+call, so the tool's stage 1 lets it through. Each test pins the exact JSON
 the agent reads, so no envelope for an unknown address can name an internal
 error, a control-system denial or a connection failure.
 """
@@ -19,6 +21,8 @@ from osprey.mcp_server.control_system.error_handling import ToolError, connector
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors_tests._write_fakes import arm_switch
+from tests._approval_stamp_fixture import ApprovalStamps
 from tests.connectors.test_mock_connector import _config_with_writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn, hook_error_class_map
@@ -36,8 +40,14 @@ SUGGESTIONS = [
 
 @pytest.fixture
 async def served(tmp_path, monkeypatch):
-    """The controls tools over a real in-process simulator serving ``A:SP`` and ``A:RB``."""
+    """The controls tools over a real in-process simulator serving ``A:SP`` and ``A:RB``.
+
+    The login's switch is on for the simulator and the connector is stamped with it
+    (:func:`arm_switch`); with a write tier that allows, the reference monitor lets the
+    write through to the simulator, which answers for the unknown address.
+    """
     monkeypatch.chdir(tmp_path)
+    arm_switch(monkeypatch, tmp_path / "armed-data")
     view = served_tree(tmp_path / "served", ["A:SP"], readings=["A:RB"])
     control_system = {
         "type": "virtual_accelerator",
@@ -72,9 +82,21 @@ async def _read(channels: list[str]):
 
 
 async def _write(operations: list[dict]):
-    from osprey.mcp_server.control_system.tools.channel_write import channel_write
+    """One approved ``channel_write`` call: both approval stamps filed, the call bound to them."""
+    from osprey.mcp_server.control_system import target_state
+    from osprey.mcp_server.control_system.tools.channel_write import (
+        _read_target_binding,
+        channel_write,
+    )
 
-    return await get_tool_fn(channel_write)(operations=operations)
+    state = target_state.state_dir()
+    state.mkdir(parents=True, exist_ok=True)
+    binding = _read_target_binding()
+    target, generation = binding if binding is not None else (None, None)
+    with ApprovalStamps(state).approved(
+        "channel_write", operations=operations, target=target, generation=generation
+    ):
+        return await get_tool_fn(channel_write)(operations=operations)
 
 
 def _envelope(excinfo: pytest.ExceptionInfo[ToolError]) -> dict:
