@@ -39,8 +39,13 @@ from rich.text import Text
 from osprey.cli.output import fail, machine_mode, note, report, table, warn
 from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import Styles, data_table
-from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
-from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.deployment_record import (
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    read_deployment_record,
+)
+from osprey.deployment.runtime_helper import runtime_env
 from osprey.deployment.web_terminals.lifecycle import _require_running_runtime
 from osprey.deployment.web_terminals.roster import as_dict, resolve_cards
 from osprey_connectors.config import load_project_config
@@ -368,8 +373,21 @@ def _list_agent_data_volumes(
     return found
 
 
+def _recorded_deployment(repo_root: Path) -> DeploymentRecord:
+    """The deployment record whose volumes are read.
+
+    :raises RuntimeError: When nothing has been deployed from this repo, so no
+        project names the volumes.
+    :raises DeploymentRecordError: When the record is unreadable.
+    """
+    record = read_deployment_record(repo_root)
+    if record is None:
+        raise RuntimeError(NOTHING_DEPLOYED)
+    return record
+
+
 def _verified_volumes(
-    config: dict[str, Any], *, runtime: str, env: dict[str, str] | None
+    config: dict[str, Any], *, project: str, runtime: str, env: dict[str, str] | None
 ) -> tuple[list[VolumeTarget], list[VolumeError]]:
     """Resolve which volumes to read, confirming each one exists first.
 
@@ -386,11 +404,12 @@ def _verified_volumes(
     the roster resolves, since a departed user's render may be gone.
 
     :param config: The deployment's rendered config.
+    :param project: The compose project the last start recorded, whose
+        volumes these are.
     :param runtime: The container runtime binary, ``docker`` or ``podman``.
     :param env: Environment for the runtime subprocess.
     :returns: ``(targets, errors)``.
     """
-    project = resolve_project_name(config)
     listed = _list_agent_data_volumes(runtime, project, env=env)
     listed_names = set(listed.values())
 
@@ -405,7 +424,7 @@ def _verified_volumes(
         if not user:
             continue
         roster_users.add(user)
-        _, volume = resolve_user_volume_names(config, user)
+        _, volume = resolve_user_volume_names({"project_name": project}, user)
         image = str(entry.get("image") or "")
         if volume not in listed_names:
             errors.append(
@@ -494,7 +513,7 @@ def _read_volume_headers(
 
 
 def read_volume_headers(
-    config: dict[str, Any], *, env: dict[str, str] | None = None
+    config: dict[str, Any], *, repo_root: Path, env: dict[str, str] | None = None
 ) -> VolumeReadResult:
     """Read every feedback record header this deployment's volumes hold.
 
@@ -502,19 +521,28 @@ def read_volume_headers(
     runtime has confirmed the volume exists (see :func:`_verified_volumes`),
     and the ``-claude-config`` volumes are never mounted at all.
 
+    The volumes are the recorded compose project's, read through the runtime
+    the last start recorded.
+
     :param config: The deployment's rendered config.
+    :param repo_root: The deployment repo, whose deployment record names the
+        project and runtime.
     :param env: Environment for the runtime subprocesses. Defaults to the
         deployment's own runtime environment.
     :returns: The headers per volume, the targets they were read from, and one
         entry in ``errors`` per volume that could not be read.
-    :raises RuntimeError: If the container runtime daemon is unreachable, or
-        the volume listing fails. Both would otherwise present as a deployment
-        with no feedback in it.
+    :raises RuntimeError: If nothing has been deployed from this repo, the
+        container runtime daemon is unreachable, or the volume listing fails.
+        Each would otherwise present as a deployment with no feedback in it.
+    :raises DeploymentRecordError: If the deployment record is unreadable.
     """
-    _require_running_runtime(config)
-    runtime = get_runtime_command(config)[0]
-    run_env = runtime_env(config) if env is None else env
-    targets, errors = _verified_volumes(config, runtime=runtime, env=run_env)
+    record = _recorded_deployment(repo_root)
+    runtime = record.runtime
+    _require_running_runtime(config, runtime=runtime)
+    run_env = runtime_env(config, project=record.compose_project) if env is None else env
+    targets, errors = _verified_volumes(
+        config, project=record.compose_project, runtime=runtime, env=run_env
+    )
 
     volumes: list[VolumeHeaders] = []
     for target in targets:
@@ -610,6 +638,7 @@ def stream_volume_contexts(
     config: dict[str, Any],
     targets: Iterable[VolumeTarget],
     *,
+    repo_root: Path,
     env: dict[str, str] | None = None,
     on_error: Callable[[VolumeError], None] | None = None,
 ) -> Iterator[dict[str, Any]]:
@@ -620,15 +649,20 @@ def stream_volume_contexts(
 
     :param config: The deployment's rendered config.
     :param targets: Volumes to read, in the order they should be read.
+    :param repo_root: The deployment repo, whose deployment record names the
+        runtime and project.
     :param env: Environment for the runtime subprocesses. Defaults to the
         deployment's own runtime environment.
     :param on_error: Called with each volume that could not be read, so the
         rest of the export still runs. When it is ``None``, such a failure
         raises :class:`FeedbackReadError` instead of passing unnoticed.
     :returns: Each context document, in target order.
+    :raises RuntimeError: If nothing has been deployed from this repo.
+    :raises DeploymentRecordError: If the deployment record is unreadable.
     """
-    runtime = get_runtime_command(config)[0]
-    run_env = runtime_env(config) if env is None else env
+    record = _recorded_deployment(repo_root)
+    runtime = record.runtime
+    run_env = runtime_env(config, project=record.compose_project) if env is None else env
     for target in targets:
         yield from _stream_one_volume(runtime, target, env=run_env, on_error=on_error)
 
@@ -958,7 +992,7 @@ def _read_store(deployment: _Deployment) -> _Store:
     """Read every submission header this deployment holds."""
     config = deployment.config
     if _has_roster(config):
-        result = read_volume_headers(config)
+        result = read_volume_headers(config, repo_root=deployment.root)
         return _Store(
             records=[
                 _Record(user=volume.user, header=header)
@@ -1008,7 +1042,9 @@ def _stream_contexts(
         return stream_local_contexts(local_feedback_dir(deployment.config, deployment.root))
     lost = {error.volume for error in _absent_workspaces(store)}
     targets = [target for target in store.targets if target.volume not in lost]
-    return stream_volume_contexts(deployment.config, targets, on_error=on_error)
+    return stream_volume_contexts(
+        deployment.config, targets, repo_root=deployment.root, on_error=on_error
+    )
 
 
 def _report_read_errors(errors: Iterable[VolumeError]) -> None:

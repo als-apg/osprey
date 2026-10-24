@@ -47,6 +47,7 @@ from osprey.cli.feedback_cmd import (
     stream_local_contexts,
     stream_volume_contexts,
 )
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.web_terminals import lifecycle
 from tests._renders import tier_render
 
@@ -95,6 +96,8 @@ class _FakeRuntime:
     #: volume name -> (exit code, stdout bytes, stderr bytes) for a store read.
     stores: dict[str, tuple[int, bytes, bytes]] = field(default_factory=dict)
     list_exit: int = 0
+    #: A deployment repo holding the record of a start of ``_PROJECT`` on docker.
+    repo: Path = Path()
 
     def runs(self) -> list[list[str]]:
         """Every ``<runtime> run`` argv the code under test issued."""
@@ -102,9 +105,10 @@ class _FakeRuntime:
 
 
 @pytest.fixture
-def fake_runtime(monkeypatch: pytest.MonkeyPatch) -> _FakeRuntime:
+def fake_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _FakeRuntime:
     """Stand a recording double in for docker/podman, daemon reported up."""
-    runtime = _FakeRuntime()
+    runtime = _FakeRuntime(repo=tmp_path / "recorded")
+    write_deployment_record(runtime.repo, DeploymentRecord("docker", _PROJECT))
 
     def _fake_run(argv, capture_output=False, text=False, env=None, check=False):  # noqa: ARG001 - the keywords subprocess.run is called with
         runtime.calls.append(list(argv))
@@ -117,9 +121,6 @@ def fake_runtime(monkeypatch: pytest.MonkeyPatch) -> _FakeRuntime:
         raise AssertionError(f"unexpected subprocess call: {argv}")
 
     monkeypatch.setattr(feedback_cmd.subprocess, "run", _fake_run)
-    monkeypatch.setattr(
-        feedback_cmd, "get_runtime_command", lambda config=None: ["docker", "compose"]
-    )
     monkeypatch.setattr(feedback_cmd, "runtime_env", lambda config, *args, **kwargs: {"E": "1"})
     monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return runtime
@@ -220,6 +221,7 @@ def _make_repo(tmp_path: Path, config: dict[str, Any], *, name: str = "deploymen
     (repo_root / "build").mkdir(parents=True)
     (repo_root / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
     (repo_root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+    write_deployment_record(repo_root, DeploymentRecord("docker", _PROJECT))
     return repo_root.resolve()
 
 
@@ -407,9 +409,49 @@ class TestVolumeReader:
         )
 
         with pytest.raises(RuntimeError, match="Docker daemon is not running"):
-            read_volume_headers(_config(["alice"]))
+            read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         assert fake_runtime.calls == [], "nothing may be listed or mounted after the precheck"
+
+    def test_volume_read_reads_the_recorded_projects_volumes_with_the_recorded_runtime(
+        self, fake_runtime: _FakeRuntime, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A rebuild renamed the project; the volumes are still the recorded one's."""
+        monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+        record = DeploymentRecord("podman", "earlier-name")
+        write_deployment_record(fake_runtime.repo, record)
+        volume = f"{record.compose_project}_alice-agent-data"
+        fake_runtime.listed = [volume]
+        fake_runtime.stores[volume] = (0, _header_bytes({"id": "fb-1"}), b"")
+
+        result = read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
+
+        assert result.errors == []
+        assert [target.volume for target in result.targets] == [volume]
+        assert {argv[0] for argv in fake_runtime.calls} == {record.runtime}
+        listing = next(argv for argv in fake_runtime.calls if argv[1:3] == ["volume", "ls"])
+        assert f"label=com.docker.compose.project={record.compose_project}" in listing
+
+    def test_volume_read_with_no_record_says_nothing_is_deployed(self, fake_runtime: _FakeRuntime):
+        from osprey.deployment.deployment_record import NOTHING_DEPLOYED, remove_deployment_record
+
+        remove_deployment_record(fake_runtime.repo)
+
+        with pytest.raises(RuntimeError, match=NOTHING_DEPLOYED):
+            read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
+
+        assert fake_runtime.calls == []
+
+    def test_volume_read_names_an_unreadable_record(self, fake_runtime: _FakeRuntime):
+        from osprey.deployment.deployment_record import DEPLOYMENT_RECORD_RELPATH
+        from osprey.deployment.errors import DeploymentRecordError
+
+        (fake_runtime.repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+
+        with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)):
+            read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
+
+        assert fake_runtime.calls == []
 
     def test_volume_read_asserts_each_roster_volume_before_mounting_it(
         self, fake_runtime: _FakeRuntime
@@ -422,7 +464,7 @@ class TestVolumeReader:
         """
         fake_runtime.listed = [_agent_data("bob")]
 
-        result = read_volume_headers(_config(["alice", "bob"]))
+        result = read_volume_headers(_config(["alice", "bob"]), repo_root=fake_runtime.repo)
 
         assert [error.user for error in result.errors] == ["alice"]
         assert _agent_data("alice") in result.errors[0].message
@@ -440,7 +482,7 @@ class TestVolumeReader:
         """The mount is long-form, read-only, and made with the user's image."""
         fake_runtime.listed = [_agent_data("alice")]
 
-        read_volume_headers(_config(["alice"]))
+        read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         argv = fake_runtime.runs()[0]
         assert argv[:3] == ["docker", "run", "--rm"]
@@ -469,7 +511,7 @@ class TestVolumeReader:
         """The claude-config volume holds session state and is never read."""
         fake_runtime.listed = [_agent_data("alice"), f"{_PROJECT}_alice-claude-config"]
 
-        read_volume_headers(_config(["alice"]))
+        read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         assert not any("claude-config" in " ".join(argv) for argv in fake_runtime.runs())
 
@@ -478,7 +520,7 @@ class TestVolumeReader:
         fake_runtime.listed = [_agent_data("alice")]
         fake_runtime.stores[_agent_data("alice")] = (0, b'{"id": "fb-1"}{"id": "fb-2"}', b"")
 
-        result = read_volume_headers(_config(["alice"]))
+        result = read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         assert result.errors == []
         assert [volume.user for volume in result.volumes] == ["alice"]
@@ -490,7 +532,7 @@ class TestVolumeReader:
         fake_runtime.listed = [_agent_data("alice")]
         fake_runtime.stores[_agent_data("alice")] = (3, b"", b"")
 
-        result = read_volume_headers(_config(["alice"]))
+        result = read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         assert result.errors == []
         assert result.volumes[0].headers == []
@@ -507,7 +549,7 @@ class TestVolumeReader:
         )
         fake_runtime.stores[_agent_data("bob")] = (0, b'{"id": "fb-9"}', b"")
 
-        result = read_volume_headers(_config(["alice", "bob"]))
+        result = read_volume_headers(_config(["alice", "bob"]), repo_root=fake_runtime.repo)
 
         assert len(result.errors) == 1
         message = result.errors[0].message
@@ -528,7 +570,7 @@ class TestVolumeReader:
             b"find: /data/feedback/fb-3.json: Input/output error",
         )
 
-        result = read_volume_headers(_config(["alice"]))
+        result = read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         assert result.volumes[0].headers == [{"id": "fb-1"}, {"id": "fb-2"}]
         assert len(result.errors) == 1
@@ -541,7 +583,7 @@ class TestVolumeReader:
         fake_runtime.listed = [_agent_data("alice")]
         fake_runtime.stores[_agent_data("alice")] = (0, b'{"id": "fb-1"}{"id": ', b"")
 
-        result = read_volume_headers(_config(["alice"]))
+        result = read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         assert result.volumes[0].headers == [{"id": "fb-1"}]
         assert len(result.errors) == 1
@@ -552,7 +594,7 @@ class TestVolumeReader:
         fake_runtime.list_exit = 125
 
         with pytest.raises(RuntimeError, match="volume ls"):
-            read_volume_headers(_config(["alice"]))
+            read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
     def test_volume_read_picks_up_an_orphan_agent_data_volume(self, fake_runtime: _FakeRuntime):
         """A decommissioned user's volume still holds feedback worth reading."""
@@ -563,7 +605,7 @@ class TestVolumeReader:
         ]
         fake_runtime.stores[_agent_data("zoe")] = (0, b'{"id": "fb-z"}', b"")
 
-        result = read_volume_headers(_config(["alice"]))
+        result = read_volume_headers(_config(["alice"]), repo_root=fake_runtime.repo)
 
         orphans = [target for target in result.targets if not target.on_roster]
         assert [target.user for target in orphans] == ["zoe"]
@@ -598,9 +640,9 @@ class TestVolumeContextStream:
             b'{"id": "fb-1", "context": "a"}{"id": "fb-2", "context": "b"}',
             b"",
         )
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
 
-        documents = list(stream_volume_contexts(config, targets))
+        documents = list(stream_volume_contexts(config, targets, repo_root=fake_runtime.repo))
 
         assert documents == [
             {"id": "fb-1", "context": "a"},
@@ -624,11 +666,15 @@ class TestVolumeContextStream:
         config = _config(["alice"])
         fake_runtime.listed = [_agent_data("alice")]
         fake_popen.scripted[_agent_data("alice")] = (0, b'{"id": "fb-1"}', b"")
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
         fake_popen.hangs = True
         errors: list[feedback_cmd.VolumeError] = []
 
-        documents = list(stream_volume_contexts(config, targets, on_error=errors.append))
+        documents = list(
+            stream_volume_contexts(
+                config, targets, repo_root=fake_runtime.repo, on_error=errors.append
+            )
+        )
 
         assert documents == [{"id": "fb-1"}]
         assert [child.killed for child in fake_popen.live] == [True]
@@ -642,11 +688,15 @@ class TestVolumeContextStream:
         config = _config(["alice"])
         fake_runtime.listed = [_agent_data("alice")]
         fake_popen.scripted[_agent_data("alice")] = (0, b'{"id": "fb-1"}{"id": ', b"")
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
         fake_popen.hangs = True
         errors: list[feedback_cmd.VolumeError] = []
 
-        documents = list(stream_volume_contexts(config, targets, on_error=errors.append))
+        documents = list(
+            stream_volume_contexts(
+                config, targets, repo_root=fake_runtime.repo, on_error=errors.append
+            )
+        )
 
         assert documents == [{"id": "fb-1"}]
         assert [child.killed for child in fake_popen.live] == [True]
@@ -660,11 +710,18 @@ class TestVolumeContextStream:
         """A runtime that cannot launch the reader is a per-volume error."""
         config = _config(["alice"])
         fake_runtime.listed = [_agent_data("alice")]
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
         fake_popen.start_error = OSError("no such file or directory: docker")
         errors: list[feedback_cmd.VolumeError] = []
 
-        assert list(stream_volume_contexts(config, targets, on_error=errors.append)) == []
+        assert (
+            list(
+                stream_volume_contexts(
+                    config, targets, repo_root=fake_runtime.repo, on_error=errors.append
+                )
+            )
+            == []
+        )
         assert len(errors) == 1
         assert _agent_data("alice") in errors[0].message
         assert "no such file or directory" in errors[0].message
@@ -676,10 +733,14 @@ class TestVolumeContextStream:
         config = _config(["alice"])
         fake_runtime.listed = [_agent_data("alice")]
         fake_popen.scripted[_agent_data("alice")] = (1, b"", b"cat: cannot open")
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
         errors: list[feedback_cmd.VolumeError] = []
 
-        documents = list(stream_volume_contexts(config, targets, on_error=errors.append))
+        documents = list(
+            stream_volume_contexts(
+                config, targets, repo_root=fake_runtime.repo, on_error=errors.append
+            )
+        )
 
         assert documents == []
         assert len(errors) == 1
@@ -693,10 +754,10 @@ class TestVolumeContextStream:
         config = _config(["alice"])
         fake_runtime.listed = [_agent_data("alice")]
         fake_popen.scripted[_agent_data("alice")] = (1, b"", b"cat: cannot open")
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
 
         with pytest.raises(FeedbackReadError, match="cat: cannot open"):
-            list(stream_volume_contexts(config, targets))
+            list(stream_volume_contexts(config, targets, repo_root=fake_runtime.repo))
 
     def test_stream_volume_contexts_accepts_the_no_store_exit(
         self, fake_runtime: _FakeRuntime, fake_popen: type[_FakePopen]
@@ -705,10 +766,17 @@ class TestVolumeContextStream:
         config = _config(["alice"])
         fake_runtime.listed = [_agent_data("alice")]
         fake_popen.scripted[_agent_data("alice")] = (3, b"", b"")
-        targets = read_volume_headers(config).targets
+        targets = read_volume_headers(config, repo_root=fake_runtime.repo).targets
         errors: list[feedback_cmd.VolumeError] = []
 
-        assert list(stream_volume_contexts(config, targets, on_error=errors.append)) == []
+        assert (
+            list(
+                stream_volume_contexts(
+                    config, targets, repo_root=fake_runtime.repo, on_error=errors.append
+                )
+            )
+            == []
+        )
         assert errors == []
 
 
