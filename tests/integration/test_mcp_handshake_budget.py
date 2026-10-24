@@ -18,6 +18,10 @@ no service, unlike the container-backed modules beside them.
 
 from __future__ import annotations
 
+import contextlib
+import gc
+import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -26,6 +30,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment import subprocess_capture
+from tests.integration import _mcp_handshake
 from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
 
 #: The helper leaves no pipe or child behind: a pipe or process left for the
@@ -80,6 +86,19 @@ raise RuntimeError("{marker}")
 #: The dying stub's exception message: present in the error text only if the
 #: report carries the tail of stderr.
 _DYING_MARKER = "stub-server-startup-failure-marker"
+
+#: A stub MCP server that leaves a child holding its pipes: it records its
+#: process group and its child's pid, starts a sleeper that inherits stdout and
+#: stderr (same group, both pipes held open), announces one startup phase, then
+#: dies before reading a frame.
+_FORKING_STUB = """\
+import pathlib, subprocess, sys, os
+
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+pathlib.Path({record!r}).write_text(f"{{os.getpgid(0)}} {{child.pid}}")
+print("[STARTUP-TIMING] stub | import_0: 1ms", file=sys.stderr, flush=True)
+raise RuntimeError("{marker}")
+"""
 
 
 def _stub(tmp_path: Path, *, phases: int = 0, gap: float = 0.0, mute: float = 0.0) -> list[str]:
@@ -221,3 +240,104 @@ def test_a_finished_handshake_leaves_the_childs_stdin_closed(
         list_mcp_tools(command=sys.executable, args=[str(script)], timeout=10.0)
 
     assert len(made) == 1 and made[0].stdin is not None and made[0].stdin.closed
+
+
+def _handshake_failure(command: str, args: list[str]) -> str:
+    """The handshake error's text, with no frame left holding the helper's child."""
+    with pytest.raises(MCPHandshakeError) as excinfo:
+        list_mcp_tools(command=command, args=args, timeout=10.0)
+    return str(excinfo.value)
+
+
+def test_a_server_whose_child_holds_its_pipes_leaves_no_group_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The helper ends the server's whole group, not only its leader."""
+    record = tmp_path / "group"
+    script = tmp_path / "forking_server.py"
+    script.write_text(_FORKING_STUB.format(record=str(record), marker=_DYING_MARKER))
+    real = subprocess.Popen
+    leaders: list[int] = []
+
+    def spy(*a, **k):
+        p = real(*a, **k)
+        leaders.append(p.pid)
+        return p
+
+    monkeypatch.setattr(subprocess, "Popen", spy)
+    try:
+        message = _handshake_failure(sys.executable, [str(script)])
+        gc.collect()
+        pgid, _ = (int(field) for field in record.read_text().split())
+
+        assert "rc=1" in message
+        assert subprocess_capture.group_is_gone(pgid)
+        assert leaders == [pgid]
+    finally:
+        # A red run must leave nothing: kill the server's group unless it is ours.
+        if record.exists():
+            pgid, grandchild = (int(field) for field in record.read_text().split())
+            if pgid != os.getpgrp():
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(pgid, signal.SIGKILL)
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(grandchild, signal.SIGKILL)
+
+
+def _stop_reporting(answer: list[int] | None, stopped: list[int]):
+    """A ``stop_group`` that really stops the group, then answers ``answer``."""
+    real = subprocess_capture.stop_group
+
+    def stop(pgid: int, **kwargs) -> list[int] | None:
+        stopped.append(pgid)
+        real(pgid, **kwargs)
+        return answer
+
+    return stop
+
+
+def test_a_survivor_is_named_in_the_handshake_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A group still running after the stop is added to the error that ended the handshake."""
+    stopped: list[int] = []
+    monkeypatch.setattr(_mcp_handshake, "stop_group", _stop_reporting([424242], stopped))
+    script = tmp_path / "dying_server.py"
+    script.write_text(_DYING_STUB.format(marker=_DYING_MARKER))
+
+    message = _handshake_failure(sys.executable, [str(script)])
+    gc.collect()
+
+    assert "rc=1" in message
+    assert _DYING_MARKER in message
+    assert message.endswith("; still running after stop: pids [424242]")
+
+
+def test_a_survivor_after_a_good_handshake_fails_the_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A handshake that answered still fails when the server's group outlives the stop."""
+    stopped: list[int] = []
+    monkeypatch.setattr(_mcp_handshake, "stop_group", _stop_reporting([424242], stopped))
+    command, *args = _stub(tmp_path)
+
+    message = _handshake_failure(command, args)
+    gc.collect()
+
+    assert message == f"server group {stopped[0]} still running after stop: pids [424242]"
+
+
+def test_an_unreadable_process_table_after_the_stop_fails_the_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stop that could not look is never read as a group that is gone."""
+    stopped: list[int] = []
+    monkeypatch.setattr(_mcp_handshake, "stop_group", _stop_reporting(None, stopped))
+    command, *args = _stub(tmp_path)
+
+    message = _handshake_failure(command, args)
+    gc.collect()
+
+    assert message == (
+        f"server group {stopped[0]} may still be running after stop: process table unreadable"
+    )
