@@ -28,6 +28,7 @@ import pytest
 import yaml
 
 from osprey.audit import envelope as osprey_envelope
+from osprey_connectors_tests._harness import pin_identity, write_control_context
 
 from .conftest import HOOKS_DIR, import_hook
 
@@ -54,6 +55,16 @@ def run_hook(hook_name, payload, env=None, cwd=None):
         env=child_env,
         cwd=str(cwd) if cwd else None,
     )
+
+
+def _switch_on_for_alice(repo, monkeypatch):
+    """Write alice's switch-on record where :func:`project_env`'s hook child reads it.
+
+    The write verdict allows nothing without one, so a call that should reach the
+    approval prompt, or pass, would otherwise defer or deny as ``switch_off``.
+    """
+    pin_identity(monkeypatch, "alice")
+    write_control_context(repo / "var" / "agent_data", target="va", switch={"va": "on"})
 
 
 def decision_of(result):
@@ -770,11 +781,13 @@ class TestWritesCheckDenies:
         assert decision_of(result) == "deny"
         record = records(ledger(repo, "alice", "hook_writes_check"))[0]
         assert record["decision"] == "refused"
-        assert record["reason"] == "writes_disabled"
-        assert record["posture"] == "writes"
+        # Every verdict deny records the one reason word; the detail says which term.
+        assert record["reason"] == "posture"
+        assert "reason=tier_never" in record["detail"]
 
-    def test_an_allowed_call_records_nothing(self, repo, project_env):
+    def test_an_allowed_call_records_nothing(self, repo, project_env, monkeypatch):
         (repo / "config.yml").write_text("control_system:\n  writes_enabled: true\n")
+        _switch_on_for_alice(repo, monkeypatch)
         env = {**project_env, "OSPREY_CONFIG": str(repo / "config.yml")}
         result = run_hook(
             "osprey_writes_check.py",
@@ -946,7 +959,8 @@ class TestOtherHookDenies:
         assert decision_of(result) == "deny", result.stderr
         assert "987654" not in ledger(repo, "alice", "hook_limits").read_text()
 
-    def test_the_approval_ask_records(self, repo, project_env, tmp_path):
+    def test_the_approval_ask_records(self, repo, project_env, tmp_path, monkeypatch):
+        _switch_on_for_alice(repo, monkeypatch)
         config = repo / "config.yml"
         config.write_text(
             yaml.dump(

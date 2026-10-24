@@ -13,6 +13,22 @@ from osprey.mcp_server.python_executor.executor import ExecutionResult
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
+@pytest.fixture
+def armed(tmp_path, monkeypatch):
+    """A deployment whose write verdict allows: a tier that allows, the switch on.
+
+    The executor's entry gate asks the write verdict for the run's target, so a
+    readwrite run is armed the way an operator arms one — a tier that allows
+    writes and the record's switch on for the simulator — never by patching a
+    config reader the gate no longer consults.
+    """
+    from osprey.audit import posture
+    from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
+
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, tmp_path / "agent_data", ARMED_TARGET, stamp=False)
+
+
 def _get_python_execute_file():
     from osprey.mcp_server.python_executor.tools.python_execute_file import execute_file
 
@@ -260,6 +276,7 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
+@pytest.mark.usefixtures("armed")
 async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     """Write patterns pass in readwrite mode."""
     monkeypatch.chdir(tmp_path)
@@ -271,7 +288,6 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
 
     # The deployment-level writes gate is independent of execution_mode; this
     # test asserts the readwrite path, so the gate must be allow-through.
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch(
@@ -285,10 +301,6 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
                 "has_reads": False,
                 "detected_patterns": {"writes": ["caput"], "reads": []},
             },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
         ),
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",
@@ -307,21 +319,24 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
-async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypatch):
-    """The deployment kill switch refuses readwrite runs when writes are disabled.
+@pytest.mark.usefixtures("armed")
+async def test_execute_file_switched_off_target_blocks(tmp_path, monkeypatch):
+    """The write verdict refuses readwrite runs when the run's machine is switched off.
 
-    ``execute_file`` used to carry no deployment-level gate at all: a script
-    full of write patterns ran under execution_mode="readwrite" even with
-    control_system.writes_enabled=false in the project config.
+    ``execute_file`` used to carry no write gate at all: a script full of write
+    patterns ran under execution_mode="readwrite" whatever the deployment
+    allowed. The refusal is the switch's phrase, and names no config key.
     """
+    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors_tests._write_fakes import ARMED_TARGET, turn_switch
+
+    turn_switch(ARMED_TARGET, "off")
     monkeypatch.chdir(tmp_path)
 
     script = tmp_path / "writer.py"
     script.write_text("epics.caput('PV', 1)\n")
 
     mock_exec = _mock_execute_code()
-
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch(
@@ -335,10 +350,6 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
                 "has_reads": False,
                 "detected_patterns": {"writes": ["caput"], "reads": []},
             },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
         ),
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",
@@ -354,7 +365,8 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
             )
 
     mock_exec.assert_not_called()
-    assert "writes_enabled" in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["error_message"] == refusal_phrase("switch_off", "simulator")
+    assert "writes_enabled" not in ctx["envelope"]["error_message"]
 
 
 @pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
@@ -366,8 +378,6 @@ async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch
     script.write_text("epics.caput('PV', 1)\n")
 
     mock_exec = _mock_execute_code()
-
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch(
@@ -381,10 +391,6 @@ async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch
                 "has_reads": False,
                 "detected_patterns": {"writes": ["caput"], "reads": []},
             },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
         ),
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",

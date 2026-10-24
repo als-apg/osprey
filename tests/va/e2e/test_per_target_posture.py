@@ -465,7 +465,7 @@ def module_environment(tmp_path_factory, endpoints):
     here read the ambient config rather than one handed to them: the executor's
     ``_target_is_resolvable``, which declines to stamp a target it cannot
     resolve — leaving a run unstamped and pinned everywhere, which would make
-    the launch-pin leg measure the wrong pin — and the deployment writes gate.
+    the launch-pin leg measure the wrong pin — and the write verdict's section.
     Pointing them at the deployment this module staged is stating the config,
     not inheriting one.
 
@@ -647,11 +647,11 @@ async def execute_readwrite() -> dict:
 
 
 def gates_are_silent() -> bool:
-    """Whether the two write gates ``execute`` runs would let a readwrite run by.
+    """Whether the write gate ``execute`` runs would let a readwrite run by.
 
     The anti-vacuous control for the ``execute`` leg, asked of the very
-    functions the tool calls — the posture clamp and the per-target
-    writes gate — rather than by launching a sandbox. Running the tool for real
+    function the tool calls — the posture clamp, which asks the write
+    verdict — rather than by launching a sandbox. Running the tool for real
     on the permitted target would spawn the executor subprocess, and a failure
     in *that* (a workspace, a virtualenv, a timeout) would be reported here as a
     posture verdict, which is the one thing this control must not do.
@@ -660,9 +660,6 @@ def gates_are_silent() -> bool:
 
     try:
         execution_gates.enforce_posture_clamp("readwrite", tool="execute")
-        execution_gates.enforce_deployment_writes_gate(
-            "readwrite", execution_gates.recorded_control_target()
-        )
     except ToolError:
         return False
     return True
@@ -980,7 +977,7 @@ async def session(config_path, web, module_environment):  # noqa: ARG001 - the s
             await move_session(TARGET_VA)
             journal["va_write_while_narrowed"] = await write_via_tool(CORRECTOR_SP, ARMED_VALUE)
             journal["va_readback_while_narrowed"] = await reading(manager, CORRECTOR_SP)
-            journal["va_control_target"] = execution_gates.recorded_control_target()
+            journal["va_control_target"] = audit_posture.recorded_control_target()
             journal["va_gates_silent"] = gates_are_silent()
             await restore_machine()
 

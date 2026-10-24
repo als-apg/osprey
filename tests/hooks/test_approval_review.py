@@ -19,7 +19,11 @@ import nbformat
 import pytest
 
 from osprey.stores.artifact_store import ArtifactStore
-from osprey_connectors_tests._harness import pin_identity, state_dir_under
+from osprey_connectors_tests._harness import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+)
 
 HOOK = "osprey_approval.py"
 EXECUTE = "mcp__python__execute"
@@ -49,6 +53,9 @@ def deployment(tmp_path, monkeypatch, make_config):
     state = state_dir_under(root)
     state.mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    # The write verdict asks for a switch-on record; without one every write
+    # defers as switch_off before the approval prompt this suite reads.
+    write_control_context(root, target="va", switch={"va": "on"})
     config = make_config(APPROVAL_CONFIG)
 
     class _Deployment:
@@ -212,6 +219,8 @@ def test_a_dispatch_run_settles_its_review_under_the_policy_approval(
 ):
     """A dispatch run's ask is answered by the dispatch policy, and its review says so."""
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    # A dispatch run with no owner is refused owner_unscheduled before it is asked.
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", pin_identity(monkeypatch))
     _ask(hook_runner, deployment, "toolu_dispatch")
     result = _after(hook_runner, deployment, "PostToolUse", "toolu_dispatch")
 

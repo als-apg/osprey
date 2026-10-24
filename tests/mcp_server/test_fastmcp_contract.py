@@ -515,7 +515,10 @@ class TestExtendsCloneClamps:
 
         await _refused("channel_write")
 
-        assert _records(audited, clone)[0]["detail"] == am.CLAMP_SOURCE_LOADED
+        # The backstop detail is ``clamp=<source> reason=<r>[ target=<t>]``.
+        detail = _records(audited, clone)[0]["detail"].split()
+        assert detail[0] == am.CLAMP_SOURCE_LOADED
+        assert detail[1] == "reason=readonly_run"
 
     async def test_a_clone_read_tool_still_runs_under_the_sandbox_posture(
         self, audited, monkeypatch
@@ -588,7 +591,9 @@ class TestMissingHookConfigFloor:
 
         await _refused("channel_write")
 
-        assert _records(no_hook_config, CLONE)[0]["detail"] == am.CLAMP_SOURCE_FLOOR
+        detail = _records(no_hook_config, CLONE)[0]["detail"].split()
+        assert detail[0] == am.CLAMP_SOURCE_FLOOR
+        assert detail[1] == "reason=readonly_run"
 
     @pytest.mark.usefixtures("no_hook_config")
     async def test_the_mixed_tool_survives_the_floor(self, monkeypatch):

@@ -47,6 +47,22 @@ def _in_flight_markers_land_in_tmp(tmp_path, monkeypatch):
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
 
 
+@pytest.fixture
+def armed(tmp_path, monkeypatch):
+    """A deployment whose write verdict allows: a tier that allows, the switch on.
+
+    The executor's entry gate asks the write verdict for the run's target, so a
+    readwrite run is armed the way an operator arms one — a tier that allows
+    writes and the record's switch on for the simulator — never by patching a
+    config reader the gate no longer consults.
+    """
+    from osprey.audit import posture
+    from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
+
+    monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
+    arm_switch(monkeypatch, tmp_path / "agent_data", ARMED_TARGET, stamp=False)
+
+
 def _get_python_execute():
     from osprey.mcp_server.python_executor.tools.python_execute import execute
 
@@ -223,15 +239,12 @@ async def test_python_execute_no_saving(tmp_path, monkeypatch):
     assert "hello" in data["stdout"]
 
 
+@pytest.mark.usefixtures("armed")
 async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     """readwrite mode allows code with write patterns."""
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(success=True, stdout="write mode\n")
-
-    # Deployment-level writes gate (Fix 1b) is independent of execution_mode;
-    # this test asserts the readwrite path, so the gate must be allow-through.
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch(
@@ -245,10 +258,6 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
         ),
     ):
         fn = _get_python_execute()
@@ -273,13 +282,12 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
         ("readonly", False, None),
     ],
 )
+@pytest.mark.usefixtures("armed")
 async def test_python_execute_write_activity_follows_the_run_mode(
     tmp_path, monkeypatch, mode, has_writes, detail
 ):
     """A read-write run reports write activity even when the scan finds no write."""
     monkeypatch.chdir(tmp_path)
-
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch(
@@ -291,10 +299,6 @@ async def test_python_execute_write_activity_follows_the_run_mode(
             },
         ),
         patch("osprey.mcp_server.python_executor.executor.execute_code", _mock_execute_code()),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
-        ),
         patch(
             "osprey.mcp_server.python_executor.tools.python_execute.notify_agent_activity_async"
         ) as notify,
@@ -324,8 +328,6 @@ async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypat
     """
     monkeypatch.chdir(tmp_path)
 
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
-
     mock_exec = _mock_execute_code()
 
     with (
@@ -336,10 +338,6 @@ async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypat
                 "has_reads": False,
                 "detected_patterns": {"caput": ["caput('TEST:PV', 1.0)"]},
             },
-        ),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=False),
         ),
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",
@@ -1456,18 +1454,14 @@ async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatc
     mock_exec.assert_not_called()
 
 
+@pytest.mark.usefixtures("armed")
 async def test_python_execute_readwrite_allows_epics_import(tmp_path, monkeypatch):
     """The denylist is a readonly gate only; readwrite runs are approved by a human."""
     monkeypatch.chdir(tmp_path)
     mock_exec = _mock_execute_code(success=True, stdout="")
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
-        ),
     ):
         fn = _get_python_execute()
         result = await fn(code=ALIASED_CAPUT, description="alias", execution_mode="readwrite")
@@ -1490,6 +1484,7 @@ def _mock_execute_with_writes(success=True, written_channels=None):
 
 
 @pytest.mark.parametrize("success", [True, False])
+@pytest.mark.usefixtures("armed")
 async def test_python_execute_notes_written_channels_and_stamps(tmp_path, monkeypatch, success):
     """The call's facts carry the run's written channels and this process's stamps.
 
@@ -1500,7 +1495,6 @@ async def test_python_execute_notes_written_channels_and_stamps(tmp_path, monkey
     import socket
 
     from osprey.audit.call import call_scope
-    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     monkeypatch.chdir(tmp_path)
     mock_exec = _mock_execute_with_writes(success, ["SR:MAG:1", "SR:MAG:2"])
@@ -1511,10 +1505,6 @@ async def test_python_execute_notes_written_channels_and_stamps(tmp_path, monkey
             return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
         ),
         patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
-        patch(
-            "osprey.services.python_executor.execution.control.get_execution_control_config",
-            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
-        ),
         call_scope("toolu_x", None) as call,
     ):
         fn = _get_python_execute()
