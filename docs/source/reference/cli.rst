@@ -468,7 +468,9 @@ osprey restart
 
 Stop and start this deployment again. Takes the same options as ``up``:
 ``-d/--detached``, ``--dev``, ``--build``, ``--as-built``,
-``--keep-archiver-base``.
+``--keep-archiver-base``. The stop half acts on the runtime and compose project
+the last ``osprey up`` recorded; the start half picks the runtime the setting
+selects now.
 
 osprey status
 -------------
