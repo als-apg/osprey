@@ -223,6 +223,24 @@ describe('describeQueueStatus', () => {
     expect(described.note).toContain('manager_unreachable');
   });
 
+  test("an unavailable summary's hint is the bridge's own sentence", () => {
+    const unavailable = {
+      available: false,
+      reason: 'manager_not_configured',
+      retryable: false,
+      detail: 'No queue server is configured for this deployment.',
+    };
+    expect(describeQueueStatus(unavailable).hint).toBe(unavailable.detail);
+  });
+
+  test('an unavailable summary with no sentence falls back to the generic hint', () => {
+    for (const detail of [undefined, '', 42]) {
+      expect(
+        describeQueueStatus({ available: false, reason: 'manager_unreachable', detail }).hint
+      ).toBe('The queue server cannot be reached.');
+    }
+  });
+
   test('the badge speaks the operator vocabulary, never the raw manager word', () => {
     // "idle" is the queue server's word for "nothing to do"; to an operator it
     // reads as "waiting for input", which is exactly wrong for a queue that
