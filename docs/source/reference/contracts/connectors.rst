@@ -103,6 +103,13 @@ A call that finds the connector-host child already dead is refused, the
 refusal names the fresh child the supervisor started on the same target, and
 the next call is served by it.
 
+Every failure about one channel -- an unreachable or unknown channel, a
+refused, failed or limits-violating write -- is a ``ChannelError`` whose
+``channel_address`` names the channel, in process or across the connector
+host. The registry that carries failures across the host is derived from
+``osprey_connectors.errors``: each public class there crosses as itself, and a
+connector's own subclass crosses as the nearest public class it extends.
+
 Write Confirmation
 ------------------
 
