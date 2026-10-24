@@ -11,8 +11,11 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.deployment_record import (
     COMPOSE_PROJECT_KEY,
     DEPLOYMENT_RECORD_RELPATH,
+    NOTHING_DEPLOYED,
     RUNTIME_KEY,
     DeploymentRecord,
+    deployed_project,
+    deployed_runtime,
     read_deployment_record,
     remove_deployment_record,
     write_deployment_record,
@@ -122,3 +125,38 @@ def test_an_unreadable_record_is_refused_naming_the_path(tmp_path: Path) -> None
 def test_a_record_refuses_construction_outside_its_invariant(runtime: str, project: str) -> None:
     with pytest.raises(ValueError):
         DeploymentRecord(runtime, project)
+
+
+def test_observers_read_the_record_over_a_renamed_build_and_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_deployment_record(tmp_path, DeploymentRecord("podman", _project()))
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "config.yml").write_text("project_name: Renamed Facility\n", encoding="utf-8")
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+
+    assert deployed_project(tmp_path) == _project()
+    assert deployed_runtime(tmp_path) == "podman"
+
+
+def test_observers_answer_none_with_no_record(tmp_path: Path) -> None:
+    assert deployed_project(tmp_path) is None
+    assert deployed_runtime(tmp_path) is None
+
+
+def test_observers_raise_on_a_corrupt_record(tmp_path: Path) -> None:
+    _raw(tmp_path, "{not json")
+
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)):
+        deployed_project(tmp_path)
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)):
+        deployed_runtime(tmp_path)
+
+
+def test_the_health_script_says_what_the_observers_say() -> None:
+    import osprey
+
+    template = Path(osprey.__file__).parent / "templates" / "deploy" / "verify.sh.j2"
+
+    assert NOTHING_DEPLOYED in template.read_text(encoding="utf-8")
