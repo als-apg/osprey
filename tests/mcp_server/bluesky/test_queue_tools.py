@@ -751,12 +751,41 @@ async def test_queue_start_bridge_token_mismatch_relays_launch_token_required(
 
 async def test_queue_start_environment_unavailable_is_relayed_as_retryable(tmp_path, monkeypatch):
     _armed(tmp_path, monkeypatch)
-    body = _refusal("environment_unavailable", "the worker environment could not be opened")
+    body = _refusal(
+        "environment_unavailable", "the worker environment could not be opened", retryable=True
+    )
     with patch(f"{_MOD}._http_post_json", return_value=(503, body)):
         with assert_raises_error(error_type="environment_unavailable") as ctx:
             await _start_fn()()
 
-    assert any("Retry" in s for s in ctx["envelope"]["suggestions"])
+    assert queue._RETRY_HINT in ctx["envelope"]["suggestions"]
+
+
+@pytest.mark.parametrize("extras", [{"retryable": False}, {}], ids=["false", "absent"])
+async def test_a_refusal_that_does_not_say_retryable_gets_no_retry_advice(
+    tmp_path, monkeypatch, extras
+):
+    """No queue server is an operator problem: nothing in the answer says retry."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal("manager_not_configured", "No queue server is configured.", **extras)
+    with patch(f"{_MOD}._http_post_json", return_value=(409, body)):
+        with assert_raises_error(error_type="manager_not_configured") as ctx:
+            await _start_fn()()
+
+    suggestions = ctx["envelope"]["suggestions"]
+    assert queue._RETRY_HINT not in suggestions
+    assert not any("retry" in s.lower() for s in suggestions)
+
+
+def test_the_hint_rows_of_table_reasons_leave_retry_advice_to_the_field():
+    """Retry advice comes only from the refusal's ``retryable``, never from a row."""
+    from osprey.services.bluesky_bridge import queue_backend as qb
+
+    shared = set(qb.REFUSAL_REASONS) & set(queue._REFUSAL_HINTS)
+    assert shared
+    for code in sorted(shared):
+        for hint in queue._REFUSAL_HINTS[code]:
+            assert "retry" not in hint.lower(), code
 
 
 # =========================================================================

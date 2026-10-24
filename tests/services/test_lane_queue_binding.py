@@ -520,10 +520,12 @@ async def test_a_lane_refusal_carries_the_whole_lane_board(deployment):
     # Same `{code, detail, capability}` shape every other queue refusal has, so
     # a consumer branching on details.code needs no special case.
     assert details["code"] == lanes_module.REASON_LANE_MISMATCH
+    assert details["retryable"] is False
     assert details["capability"] == {
         "can_execute": False,
         "reason": lanes_module.REASON_LANE_MISMATCH,
         "detail": details["detail"],
+        "retryable": False,
     }
 
 
