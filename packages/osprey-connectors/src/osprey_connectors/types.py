@@ -54,7 +54,7 @@ every write instead of waving them through unchecked.
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 __all__ = [
     "ARCHIVER_SETTINGS_LEAF",
@@ -100,6 +100,7 @@ __all__ = [
     "UNSET_TYPE_WARNING",
     "VIRTUAL_ACCELERATOR",
     "WRITES_ENABLED_KEY",
+    "WRITES_KEY",
     "any_armed_target_checks_limits",
     "any_target_writes_enabled",
     "archiver_settings_errors",
@@ -109,6 +110,7 @@ __all__ = [
     "connector_transport",
     "incomplete_limits_blocks",
     "is_simulated",
+    "machine_kind",
     "most_restrictive_limits_posture",
     "resolve_archiver_settings",
     "resolve_archiver_type",
@@ -124,6 +126,8 @@ __all__ = [
     "target_limits_posture",
     "target_writes_enabled",
     "target_writes_enabled_key",
+    "tier_allows",
+    "tier_writes",
     "type_limits_posture",
     "type_writes_enabled",
     "writes_enabled_answering_key",
@@ -260,6 +264,21 @@ WRITES_ENABLED_KEY = "control_system.writes_enabled"
 #: it is looked up in an already-resolved block, whose own key is the connector
 #: type in full.
 TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
+
+#: The login tier's write ceiling, dotted as a caller spells it for
+#: ``get_config_value``: ``"allowed"`` or ``"never"``. Target-blind — a tier
+#: that allows writes allows them for every machine, and which machine is
+#: actually written is the session's switch to decide, not the tier's. Read by
+#: :func:`tier_writes`; when the key is absent the older ``writes_enabled``
+#: leaves answer in its place.
+WRITES_KEY = "control_system.writes"
+
+#: :data:`WRITES_KEY`'s leaf inside the ``control_system:`` section.
+_WRITES_LEAF = "writes"
+
+#: The one value of :data:`WRITES_KEY` that arms anything.
+_TIER_ALLOWED: Literal["allowed"] = "allowed"
+_TIER_NEVER: Literal["never"] = "never"
 
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
@@ -971,6 +990,68 @@ def any_target_writes_enabled(section: Any) -> bool:
     ``False`` no matter what the deployment-wide key says.
     """
     return any(session_posture(section).values())
+
+
+def tier_writes(section: Any) -> Literal["allowed", "never"]:
+    """The write ceiling this deployment's login tier sets: ``allowed`` or ``never``.
+
+    :data:`WRITES_KEY` decides when the section carries it, and then only the
+    literal string ``"allowed"`` arms; ``"never"``, any other string, ``True``,
+    ``None`` and every other value answer ``never``. When the key is absent the
+    older posture is rewritten into the new one: a literal ``True`` in the flat
+    ``writes_enabled`` or in any connector block's ``writes_enabled`` leaf is
+    ``allowed``, anything else ``never``. That is the rewrite a config normalizer
+    applies, so a deployment answers the same before and after it is migrated.
+
+    Target-blind by design: a tier that arms one machine's leaf today allows
+    writes for every machine. The tier is a ceiling, not a selection — the
+    session's switch picks the machine.
+
+    Never raises. A section that is not a mapping answers ``never``.
+    """
+    if not isinstance(section, dict):
+        return _TIER_NEVER
+    if _WRITES_LEAF in section:
+        value = section[_WRITES_LEAF]
+        return _TIER_ALLOWED if isinstance(value, str) and value == _TIER_ALLOWED else _TIER_NEVER
+    if _global_writes_enabled(section):
+        return _TIER_ALLOWED
+    connector = section.get("connector")
+    if isinstance(connector, dict) and any(
+        isinstance(block, dict) and block.get(TYPE_WRITES_ENABLED_LEAF) is True
+        for block in connector.values()
+    ):
+        return _TIER_ALLOWED
+    return _TIER_NEVER
+
+
+def tier_allows(section: Any) -> bool:
+    """Whether :func:`tier_writes` answers ``allowed``. Never raises."""
+    return tier_writes(section) == _TIER_ALLOWED
+
+
+#: What kind of machine each control target names, for the words a refusal
+#: uses about it.
+_MACHINE_KINDS: dict[str, Literal["real", "rehearsal", "simulator"]] = {
+    TARGET_LIVE: "real",
+    TARGET_STANDIN: "rehearsal",
+    TARGET_VA: "simulator",
+}
+
+
+def machine_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+    """The kind of machine *target* names here: ``real``, ``rehearsal`` or ``simulator``.
+
+    ``live`` is the real machine, ``standin`` the rehearsal one, ``va`` the
+    simulator. ``None`` when :func:`resolve_target` cannot resolve the target in
+    this deployment — an unknown target, or ``live`` on a deployment that never
+    named its real machine. Never raises.
+    """
+    try:
+        resolve_target(section, target)
+    except ValueError:
+        return None
+    return _MACHINE_KINDS.get(target)
 
 
 # -- Limits posture --
