@@ -321,7 +321,9 @@ export function queueArmed(status) {
  * unknown state is doubt, and doubt is not painted calm.
  *
  * `hint` is the badge's tooltip: one plain sentence saying what the state
- * means for the operator, followed by the manager's own word.
+ * means for the operator, followed by the manager's own word. For an
+ * unavailable queue it is the bridge's own `detail` sentence when the summary
+ * carries one.
  *
  * @param {QueueStatus|null} status
  * @returns {{label: string, tone: BadgeTone, note: string|null, raw: string|null, hint: string}}
@@ -329,6 +331,9 @@ export function queueArmed(status) {
 export function describeQueueStatus(status) {
   if (!status || status.available !== true) {
     const reason = status && typeof status.reason === 'string' ? status.reason : null;
+    // The bridge's own sentence names the cause and its remedy; without one
+    // the hint names no cause the summary did not state.
+    const detail = status && typeof status.detail === 'string' ? status.detail : '';
     return {
       label: 'unavailable',
       tone: 'err',
@@ -336,7 +341,7 @@ export function describeQueueStatus(status) {
         ? `The queue manager could not be read (${reason}).`
         : 'The queue manager could not be read.',
       raw: null,
-      hint: 'The queue server cannot be reached.',
+      hint: detail || 'The queue server cannot be reached.',
     };
   }
   const raw = typeof status.manager_state === 'string' ? status.manager_state : null;

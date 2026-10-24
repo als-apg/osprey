@@ -211,6 +211,8 @@ _LANE_SUBJECT = "This deployment's single Bluesky plan lane"
 # Remediation guidance per bridge refusal code, kept in one table so every
 # tool answers the same code with the same next step. Codes absent here get
 # the tool's own generic hints — an unknown code is relayed, never dropped.
+# A row states the remedy only: whether retrying can help is the refusal's own
+# `retryable`, which `_relay_refusal` turns into `_RETRY_HINT`.
 _REFUSAL_HINTS: dict[str, list[str]] = {
     "launch_token_required": [
         "This operation arms hardware motion and needs the bridge's launch token, "
@@ -263,7 +265,7 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
     ],
     "config_unreadable": [
         "The bridge could not read the project config to determine what it may execute; "
-        "this needs an operator, not a retry.",
+        "this needs an operator.",
     ],
     # Minted locally by `_check_control_target`, which names both
     # targets. This static entry is the fallback for the same code arriving
@@ -278,12 +280,10 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "No queue manager is deployed for this bridge; this needs an operator.",
     ],
     "manager_unreachable": [
-        "The queue manager did not answer. It may be starting up — retrying shortly is "
-        "reasonable; a persistent failure needs an operator.",
+        "The queue manager did not answer; it may be starting up.",
     ],
     "environment_unavailable": [
-        "The worker environment could not be brought up. Retry shortly; a persistent "
-        "failure needs an operator.",
+        "The worker environment could not be brought up.",
     ],
     "queue_request_rejected": [
         "The queue manager answered and refused; read the detail for what it objected to.",
@@ -297,8 +297,8 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
     "abort_pause_timeout": [
         "NOTHING WAS ABORTED and the plan may still be running — report that plainly "
         "and immediately; never describe this as a halt.",
-        "Retrying the abort once is reasonable; if it does not take, the human needs "
-        "whatever out-of-band means their facility provides, now.",
+        "If the abort does not take, the human needs whatever out-of-band means their "
+        "facility provides, now.",
     ],
     # Raised by queue_start when a plan is already in motion. Not a failure of
     # anything the agent did — the queue is simply already doing the thing
@@ -649,7 +649,7 @@ def _check_control_target(action: str, situation: TargetSituation) -> None:
 
     ``details`` carries the capability record this server composes from the
     state file — the bridge cannot compose it, since it never learns the control
-    target — in the same ``{"code", "detail", "capability"}`` shape every other
+    target — in the same ``{"code", "detail", "retryable", "capability"}`` shape every other
     queue refusal arrives in, so a consumer branching on ``details.code``
     handles this one without a special case.
 
@@ -686,10 +686,12 @@ def _check_control_target(action: str, situation: TargetSituation) -> None:
             "detail": message,
             "control_target": situation.control_target,
             "baseline_target": situation.baseline_target,
+            "retryable": False,
             "capability": {
                 "can_execute": False,
                 "reason": REASON_CONTROL_TARGET_MISMATCH,
                 "detail": message,
+                "retryable": False,
             },
         },
     )
@@ -698,7 +700,7 @@ def _check_control_target(action: str, situation: TargetSituation) -> None:
 def _lane_details(code: str, message: str, situation: LaneSituation) -> dict:
     """The details object every lane refusal carries.
 
-    Same ``{"code", "detail", "capability"}`` shape as every other queue
+    Same ``{"code", "detail", "retryable", "capability"}`` shape as every other queue
     refusal — so a consumer branching on ``details.code`` and rendering
     ``capability.detail`` needs no special case — plus the lane board:
     ``lanes`` (every rendered lane, its target, and whether it is active) and
@@ -712,7 +714,8 @@ def _lane_details(code: str, message: str, situation: LaneSituation) -> dict:
         "baseline_target": situation.baseline_target,
         "lanes": lane_roster(situation),
         "active_lane": situation.active.key if situation.active else None,
-        "capability": {"can_execute": False, "reason": code, "detail": message},
+        "retryable": False,
+        "capability": {"can_execute": False, "reason": code, "detail": message, "retryable": False},
     }
 
 
@@ -879,6 +882,10 @@ def _bind_lane(action: str, *, requested: str | None = None, require: bool = Fal
     return situation.active
 
 
+# The one retry sentence, added only to a refusal whose `retryable` is true.
+_RETRY_HINT = "Retrying shortly can help; a persistent failure needs an operator."
+
+
 def _code_of(body: object) -> str | None:
     """The bridge's machine-readable refusal code, or ``None`` if it sent none."""
     detail = unwrap_bridge_conflict_detail(body)
@@ -903,7 +910,9 @@ def _relay_refusal(
     ``bluesky_bridge_error`` rather than inventing one.
 
     ``extra_hints`` appends caller-side context that the bridge cannot know —
-    it never replaces or reclassifies what the bridge said.
+    it never replaces or reclassifies what the bridge said. ``_RETRY_HINT`` is
+    appended iff the bridge's detail says ``retryable: true``; a missing field
+    gets no retry advice.
     """
     code = _code_of(body)
     detail = unwrap_bridge_conflict_detail(body)
@@ -921,6 +930,8 @@ def _relay_refusal(
         else f"The Bluesky bridge refused the request: {code}."
     )
     hints = [*_REFUSAL_HINTS.get(code, fallback_hints), *(extra_hints or [])]
+    if detail.get("retryable") is True:
+        hints.append(_RETRY_HINT)
     make_error(code, message, hints, details=detail)
 
 
@@ -1075,6 +1086,7 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
             "can_execute": False,
             "reason": REASON_CONTROL_TARGET_MISMATCH,
             "detail": detail,
+            "retryable": False,
             "active": False,
         }
     return view
@@ -1102,13 +1114,17 @@ async def queue_status() -> str:
         JSON ``{"status", "capability"}``. ``status`` is bridge liveness and is
         deliberately independent of capability: a browse-only deployment is a
         healthy deployment, so ``"ok"`` never implies executability.
-        ``capability`` is ``{"can_execute", "reason", "detail"}`` —
+        ``capability`` is ``{"can_execute", "reason", "detail", "retryable"}`` —
         ``can_execute`` is the answer, ``reason`` is the machine-readable code
         (``executable``, ``browse_only_connector``, ``unsupported_connector``,
         ``config_unreadable``, ``manager_not_configured``,
-        ``manager_unreachable``), and ``detail`` is the operator-facing
+        ``manager_unreachable``), ``detail`` is the operator-facing
         sentence, which for a browse-only deployment names the exact command
-        that makes it executable. Relay ``detail`` to the human verbatim.
+        that makes it executable, and ``retryable`` says whether the reason can
+        clear on its own. Relay ``detail`` to the human verbatim.
+        ``manager_not_configured`` means this deployment has no queue server:
+        hand it to the operator and never retry. ``manager_unreachable`` is
+        worth a later re-check only when ``retryable`` is true.
 
         On a deployment that renders TWO plan lanes the answer also carries
         ``lanes`` — one entry per lane, each with its ``lane``, ``lane_target``,
@@ -1194,9 +1210,17 @@ async def queue_list() -> str:
         points cannot be derived, which means indeterminate — report it as "N
         points so far", never as 0%.
 
+        Two keys appear only on a summary whose ``available`` is false, which
+        the human's live queue panel receives; this read refuses instead.
+        ``retryable`` says whether retrying can help, and ``detail`` is the
+        bridge's own sentence — relay it verbatim.
+
     Refusals:
-        - manager_not_configured / manager_unreachable: the queue could not be
-          read. The bridge is up; the manager behind it is not.
+        - manager_not_configured: this deployment has no queue server. Hand it
+          to the operator; never retry.
+        - manager_unreachable: the queue could not be read. The bridge is up;
+          the manager behind it is not. Retry only if the refusal says
+          ``retryable``.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, "/queue")
     if status != 200:
@@ -1299,8 +1323,11 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
         - browse_only_connector / unsupported_connector / config_unreadable:
           this deployment cannot execute plans, so the queue holds none.
           ``details.capability.detail`` names the flip; relay it verbatim.
-        - manager_not_configured / manager_unreachable / environment_unavailable:
-          the manager or its worker environment is not available right now.
+        - manager_not_configured: this deployment has no queue server. Hand it
+          to the operator; never retry.
+        - manager_unreachable / environment_unavailable: the manager or its
+          worker environment is not available right now. Retry only if the
+          refusal says ``retryable``.
         - queue_request_rejected: the manager answered and refused the item.
         - control_target_mismatch: this deployment is on a control target no plan
           lane in this deployment serves, so the PLAN would run against another
@@ -1609,8 +1636,11 @@ async def queue_start(lane: str | None = None) -> str:
           halt the plan in motion if that is what the human wants.
         - browse_only_connector / unsupported_connector / config_unreadable:
           this deployment cannot execute plans at all.
-        - manager_not_configured / manager_unreachable / environment_unavailable:
-          the manager or its worker environment is unavailable.
+        - manager_not_configured: this deployment has no queue server. Hand it
+          to the operator; never retry.
+        - manager_unreachable / environment_unavailable: the manager or its
+          worker environment is unavailable. Retry only if the refusal says
+          ``retryable``.
         - queue_request_rejected: the manager refused the start (e.g. it is
           already running).
         - control_target_mismatch: this deployment is on a control target that
@@ -1737,9 +1767,12 @@ async def queue_stop(cancel: bool = False) -> str:
           the bridge, or the two do not match. This deployment did not grant
           this agent a usable token — ask the operator to withdraw the stop
           from their queue panel instead; never chase the token in config.
-        - manager_not_configured / manager_unreachable: the manager could not
-          be reached. The queue was NOT stopped — say so plainly; do not report
-          an unconfirmed halt as done.
+        - manager_not_configured: this deployment has no queue server. The
+          queue was NOT stopped — say so plainly; hand it to the operator and
+          never retry.
+        - manager_unreachable: the manager could not be reached. The queue was
+          NOT stopped — say so plainly; do not report an unconfirmed halt as
+          done. Retry only if the refusal says ``retryable``.
         - queue_request_rejected: the manager refused (e.g. no stop is pending
           to withdraw).
     """
@@ -1832,8 +1865,10 @@ async def queue_remove(uid: str, lane: str | None = None) -> str:
           often the uid is not in the queue (already removed, already
           running, or mistyped). Re-read queue_list for what is actually
           pending.
-        - manager_not_configured / manager_unreachable: the queue could not
-          be reached at all.
+        - manager_not_configured: this deployment has no queue server. Hand it
+          to the operator; never retry.
+        - manager_unreachable: the queue could not be reached at all. Retry
+          only if the refusal says ``retryable``.
     """
     from urllib.parse import quote
 

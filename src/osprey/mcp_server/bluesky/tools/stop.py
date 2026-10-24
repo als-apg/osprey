@@ -121,8 +121,10 @@ async def stop_run() -> str:
           running. Tell the human immediately and plainly; retrying once is
           reasonable, and beyond that they need their facility's out-of-band
           means.
-        - manager_unreachable: the queue manager did not answer at all. The
-          plan was NOT stopped.
+        - manager_not_configured: this deployment has no queue server. The
+          plan was NOT stopped; hand it to the operator and never retry.
+        - manager_unreachable: the queue manager did not answer at all. Retry
+          only if the refusal says ``retryable``; the plan was NOT stopped.
         - queue_request_rejected: the manager reached the paused state and then
           refused the abort itself.
     """

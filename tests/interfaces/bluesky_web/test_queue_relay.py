@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.bluesky_web import queue_relay
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
 from osprey.interfaces.web_auth import WebCredentials
+from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.utils.owner_header import OWNER_HEADER
 
 _BRIDGE_URL = "http://bridge.test"
@@ -904,12 +905,17 @@ def test_enqueue_stale_revision_409_passes_through_without_unwrapping() -> None:
         (409, "draft_revision_already_launched"),
         (409, "session_plan_unvalidated"),
         (409, "session_plan_not_in_namespace"),
-        (409, "queue_request_rejected"),
-        (409, "unsupported_connector"),
-        (409, "config_unreadable"),
-        (503, "manager_not_configured"),
-        (503, "manager_unreachable"),
-        (503, "environment_unavailable"),
+        *(
+            (qb.REFUSAL_REASONS[code].status, code)
+            for code in (
+                qb.REASON_QUEUE_REQUEST_REJECTED,
+                qb.REASON_UNSUPPORTED_CONNECTOR,
+                qb.REASON_CONFIG_UNREADABLE,
+                qb.REASON_MANAGER_NOT_CONFIGURED,
+                qb.REASON_MANAGER_UNREACHABLE,
+                qb.REASON_ENVIRONMENT_UNAVAILABLE,
+            )
+        ),
     ],
 )
 def test_every_refusal_code_reaches_the_caller_intact(status_code: int, code: str) -> None:
