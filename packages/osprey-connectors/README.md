@@ -98,10 +98,13 @@ importing `osprey_connectors` never requires them:
 `osprey-connectors` follows semantic versioning starting at `0.1.0`.
 
 The exception taxonomy in `osprey_connectors.errors` is public API: the class
-names `ChannelWriteBlockedError`, `ChannelWriteFailedError`,
+names `ChannelError`, `ChannelWriteBlockedError`, `ChannelWriteFailedError`,
 `ChannelLimitsViolationError` and `ChannelNotFoundError`, and their `reason`
 codes, are load-bearing for callers that branch on them.
 
+- `ChannelError` — the base of every failure about one channel; the classes
+  below and `ChannelUnreachableError` are one. `channel_address` names the
+  channel, in process and across the connector host.
 - `ChannelWriteBlockedError` — the write was refused and no value was written.
   `reason` is a `RefusalReason`, one of `WRITES_DISABLED`, `LIMITS`,
   `VALIDATION_ERROR`, `CONTROL_SYSTEM_REFUSED`, `RAW_CLIENT_WRITE`, or
