@@ -25,7 +25,10 @@ __all__ = [
     "COMPOSE_PROJECT_KEY",
     "DEPLOYMENT_RECORD_RELPATH",
     "RUNTIME_KEY",
+    "NOTHING_DEPLOYED",
     "DeploymentRecord",
+    "deployed_project",
+    "deployed_runtime",
     "read_deployment_record",
     "remove_deployment_record",
     "write_deployment_record",
@@ -38,6 +41,9 @@ RUNTIME_KEY = "runtime"
 COMPOSE_PROJECT_KEY = "compose_project"
 
 _RUNTIMES = ("docker", "podman")
+
+#: What every observer says when the repo holds no record.
+NOTHING_DEPLOYED = "nothing has been deployed from this repo yet — run osprey up"
 
 
 @dataclass(frozen=True)
@@ -105,3 +111,30 @@ def read_deployment_record(repo_root: Path) -> DeploymentRecord | None:
 def remove_deployment_record(repo_root: Path) -> None:
     """Delete the repo's record; no record is not an error."""
     (Path(repo_root) / DEPLOYMENT_RECORD_RELPATH).unlink(missing_ok=True)
+
+
+def deployed_project(repo_root: Path) -> str | None:
+    """The compose project the last start recorded, or ``None`` with no record.
+
+    Observers (down, status, logs, the health probes) act on what the last
+    start drove and read it here; every start decides the project through the
+    setting and records it.
+
+    Raises:
+        DeploymentRecordError: The record is there but unreadable.
+    """
+    record = read_deployment_record(repo_root)
+    return None if record is None else record.compose_project
+
+
+def deployed_runtime(repo_root: Path) -> str | None:
+    """The container runtime the last start recorded, or ``None`` with no record.
+
+    Observers act on the runtime the last start drove and read it here; every
+    start decides the runtime through the setting and records it.
+
+    Raises:
+        DeploymentRecordError: The record is there but unreadable.
+    """
+    record = read_deployment_record(repo_root)
+    return None if record is None else record.runtime
