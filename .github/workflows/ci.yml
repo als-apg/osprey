@@ -1689,6 +1689,7 @@ jobs:
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
             --ignore=tests/e2e/test_telemetry_store_e2e.py \
             --ignore=tests/e2e/test_telemetry_access_e2e.py \
+            --ignore=tests/e2e/test_agent_record_smoke_e2e.py \
             --ignore=tests/e2e/test_sdk_helpers.py \
             --ignore=tests/e2e/test_scripted_model.py \
             --ignore=tests/e2e/claude_code/test_safety_gates_scripted.py \
@@ -1811,6 +1812,11 @@ jobs:
         docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
         docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
           | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-agent-record down || true
+        docker rm -f osprey-e2e-agent-record-agent-record || true
+        docker rm -f osprey-e2e-agent-record-agent-record-clickhouse || true
+        docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
+          | xargs -r docker volume rm -f || true
 
 
   e2e-no-model:
@@ -1880,9 +1886,10 @@ jobs:
         # would select nothing and green it. Every test this step selects
         # carries model_free, and the wiring test holds the two equal.
         #
-        # The two telemetry modules are named first because they are the only
-        # ones that deploy a stack, and xdist hands the first files to the
-        # first workers; each has its own project name and port base.
+        # The two telemetry modules and the agent-record smoke are named first
+        # because they are the only ones that deploy a stack, and xdist hands
+        # the first files to the first workers; each has its own project name
+        # and port base.
         # -n 4 --dist loadfile is the mode these files already run under in
         # the shared lane: loadfile keeps a file's tests on one worker, and
         # the three real-process web-terminal modules each bind an ephemeral
@@ -1890,6 +1897,7 @@ jobs:
         uv run pytest \
           tests/e2e/test_telemetry_store_e2e.py \
           tests/e2e/test_telemetry_access_e2e.py \
+          tests/e2e/test_agent_record_smoke_e2e.py \
           tests/e2e/test_sdk_helpers.py \
           tests/e2e/test_scripted_model.py \
           tests/e2e/claude_code/test_safety_gates_scripted.py \
@@ -1949,7 +1957,8 @@ jobs:
     # is killed. A hosted runner is discarded with the job, but a self-hosted
     # or reused runner, or a local `act` run, keeps the store's port and its
     # credential-pinned volume. Names are exact, never a prune.
-    # The two telemetry modules deploy a store each, under their own project.
+    # The two telemetry modules deploy a store each, under their own project;
+    # the agent-record smoke deploys the record and its ClickHouse store.
     - name: Clean up any stranded stack resources
       if: always()
       run: |
@@ -1962,6 +1971,11 @@ jobs:
         docker rm -f osprey-e2e-telemetry-access-telemetry-store || true
         docker rm -f osprey-e2e-telemetry-access-telemetry-gateway || true
         docker volume ls -q --filter "name=^osprey-e2e-telemetry-access_" \
+          | xargs -r docker volume rm -f || true
+        docker compose -p osprey-e2e-agent-record down || true
+        docker rm -f osprey-e2e-agent-record-agent-record || true
+        docker rm -f osprey-e2e-agent-record-agent-record-clickhouse || true
+        docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
           | xargs -r docker volume rm -f || true
 
 

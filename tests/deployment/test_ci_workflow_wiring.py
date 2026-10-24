@@ -147,6 +147,7 @@ NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 NO_MODEL_TEST_FILES = (
     "tests/e2e/test_telemetry_store_e2e.py",
     "tests/e2e/test_telemetry_access_e2e.py",
+    "tests/e2e/test_agent_record_smoke_e2e.py",
     "tests/e2e/test_sdk_helpers.py",
     "tests/e2e/test_scripted_model.py",
     "tests/e2e/claude_code/test_safety_gates_scripted.py",
@@ -10218,7 +10219,11 @@ _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "single-user-narrowing-e2e": ("suproj",),
     "va-substrate-equivalence-e2e": ("osprey-e2e-va-substrate",),
     "va-bluesky-deploy-e2e": ("lane-e2e",),
-    "e2e-no-model": ("osprey-e2e-telemetry-store", "osprey-e2e-telemetry-access"),
+    "e2e-no-model": (
+        "osprey-e2e-telemetry-store",
+        "osprey-e2e-telemetry-access",
+        "osprey-e2e-agent-record",
+    ),
 }
 
 #: Where each lane's projects come from: the module constant they must equal.
@@ -10241,7 +10246,12 @@ _STACK_PROJECT_SOURCES: dict[str, str] = {
     "lane-e2e": "tests/va/e2e/test_bluesky_lanes.py",
     "osprey-e2e-telemetry-store": "tests/e2e/test_telemetry_store_e2e.py",
     "osprey-e2e-telemetry-access": "tests/e2e/test_telemetry_access_e2e.py",
+    "osprey-e2e-agent-record": "tests/e2e/test_agent_record_smoke_e2e.py",
 }
+
+#: The lane projects whose deployment runs no old telemetry store: the agent
+#: record and its ClickHouse store are what a killed run leaves behind there.
+_RECORD_ONLY_PROJECTS = frozenset({"osprey-e2e-agent-record"})
 
 TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
     (
@@ -10291,18 +10301,27 @@ def _telemetry_cleanup_gaps(run: str, project: str) -> list[str]:
     """What *run* fails to remove of *project*'s store, gateway and their volumes.
 
     A volume counts as removed when the step names it exactly or sweeps the
-    project's own volume prefix (``--filter "name=^<project>_"``).
+    project's own volume prefix (``--filter "name=^<project>_"``). A project
+    in :data:`_RECORD_ONLY_PROJECTS` owes its agent-record container, the
+    record's ClickHouse store and the volume sweep instead.
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
     removed = set(_CONTAINER_REMOVAL.findall(run))
+    prefix = f"{resolve_project_name({'project_name': project})}_"
+    swept = f'name=^{prefix}"' in run
+    if project in _RECORD_ONLY_PROJECTS:
+        gaps = [
+            name
+            for name in (f"{project}-agent-record", f"{project}-agent-record-clickhouse")
+            if name not in removed
+        ]
+        return gaps if swept else [*gaps, f"{prefix}* volume sweep"]
     gaps = [
         name
         for name in (f"{project}-telemetry-store", f"{project}-telemetry-gateway")
         if name not in removed
     ]
-    prefix = f"{resolve_project_name({'project_name': project})}_"
-    swept = f'name=^{prefix}"' in run
     for suffix in ("telemetry_store_data", "gateway-state"):
         volume = f"{prefix}{suffix}"
         if not swept and not re.search(rf"volume rm (?:-f )?{re.escape(volume)}(?:\s|$)", run):
@@ -10362,6 +10381,19 @@ def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_one_proj
     step["run"] = "\n".join(line for line in before.splitlines() if "suproj" not in line)
     assert step["run"] != before, "no suproj in the shared cleanup — mutation is stale"
     with pytest.raises(AssertionError, match="suproj-telemetry-store"):
+        test_store_deploying_lanes_remove_the_store_by_name(mutated)
+
+
+def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_record_store() -> None:
+    """A record-only project owes the record's ClickHouse store by exact name."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, STACK_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if "agent-record-agent-record-clickhouse" not in line
+    )
+    assert step["run"] != before, "no record store removal in the cleanup — mutation is stale"
+    with pytest.raises(AssertionError, match="osprey-e2e-agent-record-agent-record-clickhouse"):
         test_store_deploying_lanes_remove_the_store_by_name(mutated)
 
 
