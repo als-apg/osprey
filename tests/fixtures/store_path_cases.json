@@ -1,0 +1,152 @@
+{
+  "_doc": "One row per case of the store-path check, read by the approval hook's test, the executor's test and their parity test. `expected` is the rule's outcome: `ask` (the hook asks and stamps; the executor runs only on that stamp), `deny` (the hook denies and files no stamp; the executor refuses, and when `deny_reason` is `store_path` it refuses even with a stamp), `defer` (the hook makes no decision because the writes posture refuses; the executor refuses: nothing was stamped), `unchanged` (no marker: the hook decides as it would for neutral code, and the executor's store-path check does not apply). `deny_reason` names which deny the hook gives. `execute_file` rows carry the file's text in `code`; the hook sees only a path, so only the executor is asserted for them.",
+  "cases": [
+    {
+      "id": "relative-dir-in-string-always-readonly",
+      "tool": "execute",
+      "code": "data = open('_agent_data/control_target/notes.txt').read()\n",
+      "policy": "always", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "ask"
+    },
+    {
+      "id": "absolute-record-selective-readonly",
+      "tool": "execute",
+      "code": "from pathlib import Path\nprint(Path('/srv/osprey/state/control_context.json').read_text())\n",
+      "policy": "selective", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "ask"
+    },
+    {
+      "id": "marker-in-comment-selective-readonly",
+      "tool": "execute",
+      "code": "x = 1  # the switch lives in control_target\nprint(x)\n",
+      "policy": "selective", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "ask"
+    },
+    {
+      "id": "record-in-string-selective-readwrite",
+      "tool": "execute",
+      "code": "name = 'control_context.json'\nprint(name)\n",
+      "policy": "selective", "enabled": true, "execution_mode": "readwrite",
+      "dispatch": false, "switch": "on", "expected": "ask"
+    },
+    {
+      "id": "tool-name-false-positive-pinned",
+      "tool": "execute",
+      "code": "print('switch machines with mcp__controls__control_target first')\n",
+      "policy": "selective", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "ask"
+    },
+    {
+      "id": "marker-under-skip",
+      "tool": "execute",
+      "code": "open('_agent_data/control_target/default/control_context.json', 'w').write('{}')\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "deny", "deny_reason": "store_path"
+    },
+    {
+      "id": "marker-under-approval-disabled",
+      "tool": "execute",
+      "code": "import os\nos.remove('control_context.json')\n",
+      "policy": "always", "enabled": false, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "deny", "deny_reason": "store_path"
+    },
+    {
+      "id": "marker-readwrite-under-skip",
+      "tool": "execute",
+      "code": "print('control_target')\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readwrite",
+      "dispatch": false, "switch": "on", "expected": "deny", "deny_reason": "store_path"
+    },
+    {
+      "id": "marker-in-dispatch-run",
+      "tool": "execute",
+      "code": "print(open('control_context.json').read())\n",
+      "policy": "always", "enabled": true, "execution_mode": "readonly",
+      "dispatch": true, "switch": "on", "expected": "deny", "deny_reason": "store_path"
+    },
+    {
+      "id": "marker-with-raw-client-write",
+      "tool": "execute",
+      "code": "import epics\nepics.caput('SR:CURRENT', 1.0)\nprint('control_target')\n",
+      "policy": "always", "enabled": true, "execution_mode": "readwrite",
+      "dispatch": false, "switch": "on", "expected": "deny", "deny_reason": "raw_client_write"
+    },
+    {
+      "id": "marker-readwrite-switch-off",
+      "tool": "execute",
+      "code": "print('control_target')\n",
+      "policy": "always", "enabled": true, "execution_mode": "readwrite",
+      "dispatch": false, "switch": "off", "expected": "defer"
+    },
+    {
+      "id": "no-marker-selective-readonly",
+      "tool": "execute",
+      "code": "print(sum(range(10)))\n",
+      "policy": "selective", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "unchanged"
+    },
+    {
+      "id": "no-marker-skip",
+      "tool": "execute",
+      "code": "print('target state')\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "unchanged"
+    },
+    {
+      "id": "no-marker-approval-disabled",
+      "tool": "execute",
+      "code": "print('context')\n",
+      "policy": "always", "enabled": false, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "unchanged"
+    },
+    {
+      "id": "no-marker-always-readonly",
+      "tool": "execute",
+      "code": "print(1)\n",
+      "policy": "always", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "unchanged"
+    },
+    {
+      "id": "no-marker-dispatch-skip",
+      "tool": "execute",
+      "code": "print(2)\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readonly",
+      "dispatch": true, "switch": "on", "expected": "unchanged"
+    },
+    {
+      "id": "other-case-is-not-a-marker",
+      "tool": "execute",
+      "code": "print('CONTROL_TARGET', 'Control_Context.JSON')\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "unchanged"
+    },
+    {
+      "id": "file-naming-store-always",
+      "tool": "execute_file",
+      "code": "print(open('_agent_data/control_target/default/control_context.json').read())\n",
+      "policy": "always", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "ask"
+    },
+    {
+      "id": "file-naming-store-skip",
+      "tool": "execute_file",
+      "code": "print('control_target')\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "deny", "deny_reason": "store_path"
+    },
+    {
+      "id": "file-naming-store-dispatch",
+      "tool": "execute_file",
+      "code": "print('control_context.json')\n",
+      "policy": "always", "enabled": true, "execution_mode": "readonly",
+      "dispatch": true, "switch": "on", "expected": "deny", "deny_reason": "store_path"
+    },
+    {
+      "id": "file-without-marker-skip",
+      "tool": "execute_file",
+      "code": "print(3)\n",
+      "policy": "skip", "enabled": true, "execution_mode": "readonly",
+      "dispatch": false, "switch": "on", "expected": "unchanged"
+    }
+  ]
+}

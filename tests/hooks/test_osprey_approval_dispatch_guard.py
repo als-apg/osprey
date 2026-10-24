@@ -94,8 +94,17 @@ def test_skip_policy_emits_no_decision_in_dispatch_context(
 
 
 def test_ask_path_still_asks_in_dispatch_context(tmp_path, hook_runner, make_config, monkeypatch):
-    """The approval ask-gate for writes is untouched by the dispatch guard."""
+    """The approval ask-gate for writes is untouched by the dispatch guard.
+
+    The job is scheduled the way the dispatcher stamps it, with its owner's
+    switch on for the target: an unscheduled job's write is refused by the
+    write verdict and deferred before any prompt.
+    """
+    from osprey_connectors_tests._harness import pin_identity, write_control_context
+
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", pin_identity(monkeypatch))
+    write_control_context(tmp_path / "var" / "agent_data", target="va", switch={"va": "on"})
     config = make_config(
         {
             "approval": {

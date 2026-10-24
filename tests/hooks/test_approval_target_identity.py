@@ -769,9 +769,15 @@ def _write_session_state(repo_root, target):
     ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
     its ``cwd`` — so this lands exactly where the hook looks, with no seam
     replaced. The report is filed under THIS process's PID, which is alive by
-    definition, so the reader's real liveness filter selects it.
+    definition, so the reader's real liveness filter selects it. Both machines
+    are switched on, so the write verdict allows and the hook reaches its prompt.
     """
-    write_control_context(repo_root / "var" / "agent_data", target=target, generation=GENERATION)
+    write_control_context(
+        repo_root / "var" / "agent_data",
+        target=target,
+        generation=GENERATION,
+        switch={"live": "on", "va": "on"},
+    )
     write_server_report(
         repo_root / "var" / "agent_data",
         os.getpid(),
@@ -781,11 +787,19 @@ def _write_session_state(repo_root, target):
     )
 
 
+#: A real-machine deployment with a simulator beside it, whose tier allows writes.
+WRITES_ALLOWED_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "connector": {"epics": {}, "virtual_accelerator": {}},
+}
+
+
 def _approval_config(make_config):
     return make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+            "control_system": WRITES_ALLOWED_SECTION,
         }
     )
 
@@ -873,7 +887,7 @@ def test_end_to_end_an_allowed_call_carries_no_target_line(
     inform — and an `allow` envelope carrying a machine identity would be a
     safety claim made to a decision that was never a decision.
     """
-    config = make_config({"approval": approval_config, "control_system": {"writes_enabled": True}})
+    config = make_config({"approval": approval_config, "control_system": WRITES_ALLOWED_SECTION})
     _write_session_state(tmp_path, target="live")
 
     result = hook_runner(

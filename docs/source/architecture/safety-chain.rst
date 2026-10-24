@@ -60,6 +60,14 @@ drive meet the first and the last:
    artifact gallery and linked from the prompt, so the operator can read what is about to run.
    The approval is the terminal prompt; the gallery only shows the code.
 
+   **What a prompt guarantees (stage 1).** Where the policy asks, a channel write, a Phoebus
+   drive, queueing or starting a plan, and a read-write Python run go ahead only on the record
+   the prompt left for that call; a call the prompt never saw is refused by the server that
+   would carry it out. Python code that names the store holding the machine's switch is asked
+   under every policy and refused where nothing can ask --- under ``skip``, with approval off,
+   or in a dispatch run. The executor checks it again before the code runs, read-only runs
+   included.
+
 Every check reads the deployment's settings: which machine the deployment points at, and
 whether the person who asked has narrowed it, come from the records the deployment keeps ---
 one per person --- read fresh on every call, so a switch made anywhere reaches the agent's
@@ -344,6 +352,9 @@ write door, which records who is making the put rather than guarding it. Code th
 the client library altogether is not stopped: a ``libca`` handle loaded through ``ctypes``, a
 raw socket, a user-installed pyepics' callback under ``PREEMPTIVE_CALLBACK=False`` run inside a
 connector's waiting put, or a connector subclass written in the run itself.
+
+The store check matches the store's path as the code spells it, case-sensitively: code that
+assembles the path at run time is not caught.
 
 A notebook kernel's block refuses the client library itself: client imports and Python's two
 loaders (``ctypes`` and ``cffi``) are refused. What remains is the OS loader itself (an extension

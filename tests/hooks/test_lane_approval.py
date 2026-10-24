@@ -701,10 +701,11 @@ def _write_session_state(repo_root, target):
     ``OSPREY_AGENT_DATA_ROOT``, and the hook subprocess runs with *repo_root* as
     its ``cwd``. The report is filed under THIS process's PID, which is alive by
     definition, so the reader's real liveness filter selects it with no seam
-    replaced.
+    replaced. Both machines are switched on, so the write verdict allows every
+    lane and the prompt, not a defer, is what these tests read.
     """
     root = repo_root / "var" / "agent_data"
-    write_control_context(root, target=target, generation=2)
+    write_control_context(root, target=target, generation=2, switch=SWITCHED_ON)
     write_server_report(
         root,
         os.getpid(),
@@ -714,10 +715,29 @@ def _write_session_state(repo_root, target):
     )
 
 
+#: Both machines switched on.
+SWITCHED_ON = {"live": "on", "va": "on"}
+
+#: A real-machine deployment with a simulator beside it, whose tier allows writes.
+WRITES_ALLOWED_SECTION = {
+    "type": "epics",
+    "writes": "allowed",
+    "connector": {"epics": {}, "virtual_accelerator": {}},
+}
+
+#: The rendered hook_config of a deployment with plan lanes: the queue tools are
+#: writes, and a lane addresses them.
+END_TO_END_HOOK_CONFIG = {
+    **HOOK_CONFIG,
+    "write_tools": ["mcp__bluesky__queue_add", "mcp__bluesky__queue_start"],
+    "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
+}
+
+
 def _config_with(make_config, extra):
     config = {
         "approval": {"enabled": True, "default_policy": "always"},
-        "control_system": {"writes_enabled": True},
+        "control_system": WRITES_ALLOWED_SECTION,
     }
     config.update(extra)
     return make_config(config)
@@ -745,7 +765,7 @@ def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, 
         {"lane": "bluesky_live"},
         config_path=config,
         cwd=tmp_path,
-        hook_config=HOOK_CONFIG,
+        hook_config=END_TO_END_HOOK_CONFIG,
     )
 
     reason = _reason(result)
@@ -771,7 +791,7 @@ def test_end_to_end_a_single_lane_start_says_nothing_about_lanes(
         {},
         config_path=config,
         cwd=tmp_path,
-        hook_config=HOOK_CONFIG,
+        hook_config=END_TO_END_HOOK_CONFIG,
     )
 
     reason = _reason(result)
@@ -793,7 +813,7 @@ def test_end_to_end_the_hook_survives_garbage_everywhere(tmp_path, hook_runner, 
         {"draft_revision": {"nested": "object"}, "lane": ["list"]},
         config_path=config,
         cwd=tmp_path,
-        hook_config=HOOK_CONFIG,
+        hook_config=END_TO_END_HOOK_CONFIG,
     )
 
     assert "Tool: queue_add" in _reason(result)
