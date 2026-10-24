@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import logging
 import os
@@ -14,7 +15,7 @@ import time
 
 import pytest
 
-from osprey.deployment import process_table
+from osprey.deployment import process_table, subprocess_capture
 from osprey.deployment.subprocess_capture import group_is_gone
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, PtySession
@@ -30,6 +31,46 @@ from tests.interfaces.web_terminal._pty_child import (
     wait_for_report,
     wait_gone,
 )
+
+
+def _stubborn_child_script(pid_file, grandchild) -> str:
+    """Return the source of a PTY child that ignores SIGHUP and SIGTERM.
+
+    It starts *grandchild* in its own process group, waits for its ready line,
+    publishes its own pid and then the grandchild's to *pid_file* under a
+    temporary name renamed into place, and sleeps.
+    """
+    return f"""
+import os, signal, subprocess, sys, time
+for signum in (signal.SIGHUP, signal.SIGTERM):
+    signal.signal(signum, signal.SIG_IGN)
+proc = subprocess.Popen(
+    [sys.executable, {str(grandchild)!r}],
+    start_new_session=False,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+)
+proc.stdout.readline()
+tmp = {str(pid_file) + ".tmp"!r}
+with open(tmp, "w") as fh:
+    fh.write(f"{{os.getpid()}}\\n{{proc.pid}}\\n")
+os.replace(tmp, {str(pid_file)!r})
+time.sleep(120)
+"""
+
+
+def _stubborn_session(tmp_path) -> tuple[PtySession, list[int]]:
+    """Start a PTY child whose own group ignores the hang-up and SIGTERM; return its pids."""
+    pid_file = tmp_path / "pids"
+    grandchild = sleeper_script(tmp_path, "mcp_helper.py", ignore=(signal.SIGHUP, signal.SIGTERM))
+    session = PtySession([sys.executable, "-c", _stubborn_child_script(pid_file, grandchild)])
+    session.start()
+    return session, wait_for_pids(session, pid_file, 2)
+
+
+def _kill_group(pgid: int) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pgid, signal.SIGKILL)
 
 
 def _winsize(session: PtySession) -> tuple[int, int]:
@@ -310,6 +351,70 @@ class TestPtySession:
         monkeypatch.setattr(process_table, "snapshot", spy)
         session.terminate()
         assert calls == []
+
+    def test_terminate_stops_the_childs_own_group_including_a_member_that_ignores_the_hang_up(
+        self, tmp_path
+    ):
+        session, (child, grandchild) = _stubborn_session(tmp_path)
+        try:
+            assert session.pid == child
+            session.terminate()
+            assert subprocess_capture.group_is_gone(child), (
+                f"the child's group (pids {child} {grandchild}) is still running"
+            )
+            assert not session.is_alive
+        finally:
+            _kill_group(child)
+            session.terminate()
+
+    def test_terminate_names_the_survivors_of_its_own_group(self, tmp_path, monkeypatch, caplog):
+        real_stop = subprocess_capture.stop_group
+        real_end = process_tree.end_groups
+        ended: list[int] = []
+
+        def stop_reporting_a_survivor(pgid, **kwargs):
+            real_stop(pgid, **kwargs)
+            return [4242]
+
+        def end_spy(groups):
+            ended.extend(group.pgid for group in groups)
+            return real_end(groups)
+
+        monkeypatch.setattr(subprocess_capture, "stop_group", stop_reporting_a_survivor)
+        monkeypatch.setattr(process_tree, "end_groups", end_spy)
+        session, (child, _) = _stubborn_session(tmp_path)
+        try:
+            with caplog.at_level(logging.WARNING):
+                session.terminate()
+            warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+            named = [w for w in warnings if "4242" in w]
+            assert len(named) == 1, warnings
+            assert f"PTY child {child}" in named[0]
+            assert child not in ended, "the child's group was stopped twice"
+        finally:
+            _kill_group(child)
+            session.terminate()
+
+    def test_terminate_says_the_table_was_unreadable_not_a_pid(self, tmp_path, monkeypatch, caplog):
+        real_stop = subprocess_capture.stop_group
+
+        def stop_that_could_not_look(pgid, **kwargs):
+            real_stop(pgid, **kwargs)
+
+        monkeypatch.setattr(subprocess_capture, "stop_group", stop_that_could_not_look)
+        session, (child, _) = _stubborn_session(tmp_path)
+        try:
+            with caplog.at_level(logging.WARNING):
+                session.terminate()
+            warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+            assert any(
+                f"process table unreadable: group {child} may still be running" in w
+                for w in warnings
+            ), warnings
+            assert not any("pids" in w for w in warnings), warnings
+        finally:
+            _kill_group(child)
+            session.terminate()
 
     def test_started_commands_lists_only_groups_of_their_own(self, tmp_path):
         pid_file = tmp_path / "pids"
