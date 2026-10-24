@@ -22,16 +22,18 @@ logger = logging.getLogger("osprey.infrastructure.proxy")
 
 
 class _ProxyState(TypedDict):
-    """The running proxy's server, its thread and its port, set and cleared together."""
+    """The running proxy's server, thread, socket and port, set and cleared together."""
 
     server: uvicorn.Server | None
     thread: threading.Thread | None
+    sock: socket.socket | None
     port: int | None
 
 
 _state: _ProxyState = {
     "server": None,
     "thread": None,
+    "sock": None,
     "port": None,
 }
 _lock = threading.Lock()
@@ -179,9 +181,14 @@ def start_proxy(
             forward_headers=frozenset(forward_headers),
             **_request_shape(provider, supports_images),
         )
-        port = find_free_port()
-
         import uvicorn
+
+        from osprey.interfaces._serving import listening_socket
+
+        # The proxy serves on the socket it bound, so the port it records is
+        # the one it holds.
+        sock = listening_socket("127.0.0.1", 0)
+        port: int = sock.getsockname()[1]
 
         config = uvicorn.Config(
             app,
@@ -192,7 +199,9 @@ def start_proxy(
         )
         server = uvicorn.Server(config)
 
-        thread = threading.Thread(target=server.run, daemon=True, name="osprey-proxy")
+        thread = threading.Thread(
+            target=server.run, kwargs={"sockets": [sock]}, daemon=True, name="osprey-proxy"
+        )
         thread.start()
 
         # Wait for server to be ready (up to 5 seconds)
@@ -203,6 +212,7 @@ def start_proxy(
 
         _state["server"] = server
         _state["thread"] = thread
+        _state["sock"] = sock
         _state["port"] = port
 
         logger.info("Translation proxy started on port %d → %s", port, upstream_base_url)
@@ -255,8 +265,12 @@ def stop_proxy() -> None:
             thread = _state.get("thread")
             if thread:
                 thread.join(timeout=5)
+            sock = _state.get("sock")
+            if sock is not None:
+                sock.close()
             _state["server"] = None
             _state["thread"] = None
+            _state["sock"] = None
             _state["port"] = None
             logger.info("Translation proxy stopped")
 
