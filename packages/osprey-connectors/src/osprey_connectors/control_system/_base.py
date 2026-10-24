@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     # string annotations name these types and nothing else in this module's
     # runtime namespace does. A reader of annotations — a schema generator, a
     # doc builder, a test — has to supply the two names itself.
-    from osprey_connectors.posture_store import StoreVerdict, StoreVerdictDetail
+    from osprey_connectors.posture_store import StoreVerdict, StoreVerdictDetail, WriteVerdict
 
 logger = logging.getLogger("osprey_connectors.control_system")
 
@@ -327,7 +327,7 @@ def is_readonly_run() -> bool:
       at runtime, independent of the pre-execution pattern scan.
 
     Both are refusals; only the operator-facing wording differs, which
-    :func:`_writes_disabled_result` decides through
+    :func:`_verdict_refusal` decides through
     :func:`_in_mcp_server_process` — the discriminator, because the two are
     the same variable at the same value and only the process tells them apart.
 
@@ -428,26 +428,6 @@ def _posture_store_verdict(control_target: str | None) -> "StoreVerdictDetail":
     return posture_store.store_verdict_detail(control_target)
 
 
-def _posture_store_permits(control_target: str | None) -> bool:
-    """Whether the operator has left *control_target* writable on this deployment.
-
-    :func:`_posture_store_verdict` compared against ``PERMITTED`` — the bool
-    spelling, for a caller that has to decide whether to proceed and not what
-    to say about it. The comparison is by NAME: every verdict is a non-empty
-    string, so a safety answer that reaches a ``bool`` call site reads as yes
-    for the two answers that refuse.
-
-    It exists as that bool spelling and as nothing else: the monitor and the
-    refusal both go through :func:`_posture_store_verdict`, and what holds this
-    function is the parity table, which pins this module's two spellings
-    against the store's own two. A reader finding no other caller is looking at
-    a contract rather than at dead code.
-    """
-    from osprey_connectors.posture_store import StoreVerdict
-
-    return _posture_store_verdict(control_target).verdict is StoreVerdict.PERMITTED
-
-
 def _posture_record_verdict(control_target: str | None) -> "StoreVerdictDetail":
     """The record clause without the launch pin, for *control_target*.
 
@@ -492,16 +472,6 @@ def _deployment_posture(connector_type: str | None) -> tuple[bool, str]:
         )
     except (FileNotFoundError, RuntimeError):
         return False, writes_enabled_key(connector_type)
-
-
-def _deployment_writes_enabled(connector_type: str | None) -> bool:
-    """The deployment half of the write posture — config alone, fail-safe.
-
-    Split out of :attr:`ControlSystemConnector._writes_enabled` so the refusal
-    message can ask the same question the monitor asked, rather than carry a
-    second spelling of it.
-    """
-    return _deployment_posture(connector_type)[0]
 
 
 #: How a refusal introduces its second and further reasons. Each reason is a
@@ -655,7 +625,12 @@ def _writes_disabled_result(
     record_verdict: "StoreVerdict | None" = None,
     record_reason: str | None = None,
 ) -> ChannelWriteResult:
-    """Build the refusal result for a write the monitor never attempted.
+    """Build the pre-verdict refusal result: deployment posture and chip narrowing.
+
+    No longer what the reference monitor refuses with — the monitor decides by
+    the write verdict and words its refusal with :func:`_verdict_refusal`. This
+    older builder is kept for the callers outside the monitor that still compose
+    the pre-verdict wording, until they move to the verdict too.
 
     *store_verdict* is the store answer the monitor already got, handed down so
     that one write makes exactly ONE store read. Without it this function would
@@ -792,6 +767,92 @@ def _writes_disabled_result(
     )
 
 
+#: What a refusal says in place of a phrase when the verdict itself allowed the
+#: write and something else refused it: a subclass that overrides
+#: :attr:`ControlSystemConnector._writes_enabled` and answers no. No reason of
+#: the refusals contract applies, so none is claimed.
+_OVERRIDE_REFUSAL = "Writes are refused by this connector's own write check."
+
+#: The words a read-only run's refusal carries beside its phrase:
+#: ``wrapper.READONLY_REFUSAL_MARKER``, which the executor's stderr matcher
+#: looks for to name the runtime guard as the layer that refused. Kept out of
+#: the phrase, which is a closed contract shared with the hooks.
+_READONLY_MARKER = "readonly execution mode"
+
+#: What a read-only refusal adds when the process is a script the executor ran
+#: for one readonly submission rather than an MCP server of a read-only
+#: deployment (:func:`_in_mcp_server_process`): that run alone can be resubmitted.
+_READONLY_SCRIPT_REMEDY = (
+    "This script was submitted readonly; resubmit it with execution_mode='readwrite' "
+    "(human approval required) if the write is intended."
+)
+
+
+def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
+    """The verdict the reference monitor decides one write (or batch) by.
+
+    :func:`osprey_connectors.posture_store.write_verdict` over this deployment's
+    ``control_system`` section for *control_target*, the owner taken from the
+    ladder. An unstamped connector (*control_target* ``None``) resolves no
+    machine and is refused ``target_unknown`` unless an earlier term refuses
+    first. A read-only run is answered before any config is read: it refuses
+    whatever the config says. A config that cannot be read arms nothing — the
+    section is then empty, which the tier answers ``never``.
+
+    Never raises; reads the record at most once.
+    """
+    # Imported here: ``posture_store`` imports this module for
+    # :func:`is_readonly_run`, so the two must not import each other while loading.
+    from osprey_connectors.posture_store import write_verdict
+
+    if is_readonly_run():
+        return write_verdict({}, control_target, owner=None)
+    try:
+        from osprey_connectors.config import get_config_value
+
+        section: Any = get_config_value("control_system", {})
+    except (FileNotFoundError, RuntimeError):
+        section = {}
+    return write_verdict(section, control_target, owner=None)
+
+
+def _verdict_refusal(
+    channel_address: str, value: Any, verdict: "WriteVerdict"
+) -> ChannelWriteResult:
+    """The REFUSED result the monitor returns for a write *verdict* refused.
+
+    The operator's words are :func:`~osprey_connectors.refusals.refusal_phrase`
+    for the verdict's reason and machine kind — the same phrase the hooks
+    speak — after the channel it concerns. A read-only run's refusal also
+    carries :data:`_READONLY_MARKER`, and in a script the executor ran for one
+    readonly submission :data:`_READONLY_SCRIPT_REMEDY` as well. A verdict that
+    allowed (an overriding subclass refused on its own) names no contract reason.
+    """
+    from osprey_connectors.refusals import refusal_phrase
+
+    if verdict.allowed or verdict.reason is None:
+        spoken = _OVERRIDE_REFUSAL
+    else:
+        try:
+            spoken = refusal_phrase(verdict.reason, verdict.kind)
+        except ValueError:
+            spoken = _OVERRIDE_REFUSAL
+    marker = ""
+    if verdict.reason == "readonly_run":
+        marker = f" ({_READONLY_MARKER})"
+        if not _in_mcp_server_process():
+            # One script submitted readonly, not the deployment: the same
+            # refusal, and the one remedy that applies to it alone.
+            spoken = f"{spoken} {_READONLY_SCRIPT_REMEDY}"
+    return ChannelWriteResult(
+        channel_address=channel_address,
+        value_written=value,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason="WRITES_DISABLED",
+        error_message=f"Write to '{channel_address}' blocked{marker}: {spoken}",
+    )
+
+
 #: The outcomes a caller may proceed on: the channel was confirmed to hold the
 #: value sent, or no confirmation was asked for. Deliberately an allowlist and
 #: not a denylist — a :class:`WriteOutcome` member added after this line was
@@ -896,102 +957,39 @@ class ControlSystemConnector(ABC):
         """The factory-stamped wire this instance speaks (``None`` off the factory)."""
         return self._transport
 
-    # What the last :attr:`_writes_enabled` evaluation saw in the posture store,
-    # so the refusal it leads to can name the right cause without reading the
-    # store a second time — a narrowing lifted between the two reads would
-    # otherwise produce a refusal blaming the chip for a write the deployment
-    # turned down. The write guard clears it before each evaluation, so a
-    # subclass that OVERRIDES ``_writes_enabled`` (and therefore never sets it)
-    # leaves it None and the refusal reads the store for itself, exactly as it
-    # did before this memo existed. It holds the VERDICT, not whether the write
-    # may proceed: one of the three answers is nobody's decision, and a refusal
-    # that cannot tell it from a chip flip words it as one.
-    _last_store_verdict: "StoreVerdict | None" = None
-    # The operator sentence that belongs with the verdict above, and only ever
-    # set for the one verdict that has one: which record could not be read,
-    # which bind names no path. The reader composes it and no other process can,
-    # so it rides here rather than being derived where the refusal is worded.
-    _last_store_reason: str | None = None
-    # The record clause of that same evaluation, without the launch pin, and
-    # its sentence. They equal the store pair above whenever the pin permits,
-    # and are read separately only when the pin refused ahead of the record —
-    # which is what lets that refusal name a narrowing or an unreadable record
-    # the pin's own answer hid, off one record read per write or batch.
-    _last_record_verdict: "StoreVerdict | None" = None
-    _last_record_reason: str | None = None
+    # The verdict the last :attr:`_writes_enabled` evaluation reached, so the
+    # refusal it leads to is worded from the same answer without reading the
+    # record a second time — a switch flipped between two reads would otherwise
+    # produce a refusal for a cause the decision never saw. The write guard
+    # clears it before each evaluation, so a subclass that OVERRIDES
+    # ``_writes_enabled`` (and therefore never sets it) leaves it None and the
+    # refusal asks for a verdict itself.
+    _last_verdict: "WriteVerdict | None" = None
 
     @property
     def _writes_enabled(self) -> bool:
-        """Check whether writes are enabled for this connector's type.
+        """Whether the write verdict allows a write to this connector's machine.
 
-        Returns False (fail-safe) when config is unavailable.
+        Decided by :func:`osprey_connectors.posture_store.write_verdict` for
+        :attr:`_control_target` (see :func:`_monitor_verdict`), re-read on every
+        call: a read-only run, the login's write tier, the target, the owner,
+        the login's switch for that machine and the launch pin, first refusal
+        wins. The switch is the live half: turning a machine on or off from the
+        chip lands on the very next write of a session already running, with no
+        respawn and no config edit.
 
-        Posture is per connector type:
-        ``control_system.connector.<type>.writes_enabled`` arms one type, and a
-        deployment that says nothing about a type keeps the deployment-wide
-        ``control_system.writes_enabled`` for it — see
-        :func:`~osprey_connectors.types.type_writes_enabled`. An unstamped
-        connector has no type to key that on, so the deployment-wide key is the
-        whole posture it can read — under the same rule as every other reader:
-        only a literal ``true`` arms it, never a truthy stand-in.
+        An unstamped connector — one nobody built through the factory — names
+        no machine and is refused ``target_unknown``. Returns False rather than
+        raising on any failure.
 
-        ``control_system.writes_enabled`` is a **launch-time deployment posture,
-        not a live kill-switch.** It is read from config and process-cached, so
-        flipping it in ``config.yml`` does NOT take effect in a running process.
-        The enforced kill-switch lives at the harness layer: a renderer
-        ``permissions.deny`` on the write tool, followed by regenerating and
-        relaunching the agent. In-flight control of an active scan is the
-        RunEngine's own ``abort`` / ``pause`` — never a config flag.
-
-        That paragraph describes the DEPLOYMENT half alone. Two live terms are
-        ANDed with it, and both are re-read on every call:
-
-        * a readonly sandbox run (see :func:`is_readonly_run`) is refused
-          regardless of the deployment posture;
-        * the operator's own narrowing for :attr:`_control_target`, read from
-          the deployment's control-context record on every write (see
-          :func:`_posture_store_verdict`, whose bool spelling for a caller that
-          needs no reason is :func:`_posture_store_permits`). That is the live
-          half the deployment posture deliberately is not: a target flipped to
-          read-only from the control-target chip refuses the very next write on
-          a session that is already running, with no respawn and no config edit.
-
-        The record can only narrow. Nothing in it widens the deployment's
-        ceiling, and an unreadable or absent record leaves that ceiling exactly
-        as it was.
-
-        The store answer is memoised on :attr:`_last_store_verdict`, with its
-        sentence on :attr:`_last_store_reason`, for the refusal the write guard
-        is about to build, so one write reads the store once; a subclass
-        overriding this property simply never sets them, and the refusal falls
-        back to reading for itself. :attr:`_last_record_verdict` and
-        :attr:`_last_record_reason` carry the record clause of the same
-        evaluation without the launch pin, so a pinned refusal can name what
-        the record says without opening it a second time.
+        The verdict is memoised on :attr:`_last_verdict` for the refusal the
+        write guard is about to build, so one write reads the record once; a
+        subclass overriding this property never sets it, and the refusal asks
+        for a verdict itself.
         """
-        if is_readonly_run():
-            return False
-        # Imported here for the reason :func:`_posture_store_verdict` gives:
-        # the two modules may not import each other while loading.
-        from osprey_connectors.posture_store import StoreVerdict, launch_permits
-
-        store = _posture_store_verdict(self._control_target)
-        self._last_store_verdict = store.verdict
-        self._last_store_reason = store.reason
-        # The record clause, for at most one record read per evaluation. While
-        # the pin permits, the store's answer IS the record's and the read is
-        # spent. Only a pin refusal leaves the record unread, and only there is
-        # it read.
-        if launch_permits(self._control_target):
-            self._last_record_verdict = store.verdict
-            self._last_record_reason = store.reason
-        else:
-            record = _posture_record_verdict(self._control_target)
-            self._last_record_verdict = record.verdict
-            self._last_record_reason = record.reason
-        if store.verdict is not StoreVerdict.PERMITTED:
-            return False
-        return _deployment_writes_enabled(self._connector_type)
+        verdict = _monitor_verdict(self._control_target)
+        self._last_verdict = verdict
+        return verdict.allowed
 
     def current_value_reader(self) -> Callable[[str], Any] | None:
         """This connector's own way to read a channel's present value.
@@ -1035,13 +1033,13 @@ class ControlSystemConnector(ABC):
         )
 
     def __init_subclass__(cls, **kwargs):
-        """Auto-wrap write methods with writes_enabled pre-check.
+        """Auto-wrap write methods with the write-verdict pre-check.
 
         Any subclass that defines ``write_channel()`` or
         ``write_multiple_channels()`` gets them transparently wrapped.
         The wrapper checks ``_writes_enabled`` before calling the original
-        method.  When writes are disabled, returns failure results with an
-        operator-facing error message — no exception is raised.
+        method.  When the verdict refuses, returns ``REFUSED`` results worded
+        by :func:`_verdict_refusal` — no exception is raised.
 
         This fires before limits validation (intentional: fast-reject when
         writes are disabled, avoiding unnecessary validation work).
@@ -1058,21 +1056,10 @@ class ControlSystemConnector(ABC):
 
             @functools.wraps(original_write)
             async def _guarded_write(self, channel_address, value, *args, **kwargs):
-                self._last_store_verdict = None
-                self._last_store_reason = None
-                self._last_record_verdict = None
-                self._last_record_reason = None
+                self._last_verdict = None
                 if not self._writes_enabled:
-                    return _writes_disabled_result(
-                        channel_address,
-                        value,
-                        self._connector_type,
-                        self._control_target,
-                        store_verdict=self._last_store_verdict,
-                        store_reason=self._last_store_reason,
-                        record_verdict=self._last_record_verdict,
-                        record_reason=self._last_record_reason,
-                    )
+                    verdict = self._last_verdict or _monitor_verdict(self._control_target)
+                    return _verdict_refusal(channel_address, value, verdict)
                 with open_door():
                     return await original_write(self, channel_address, value, *args, **kwargs)
 
@@ -1083,31 +1070,13 @@ class ControlSystemConnector(ABC):
 
             @functools.wraps(original_multi)
             async def _guarded_multi(self, operations, *args, **kwargs):
-                self._last_store_verdict = None
-                self._last_store_reason = None
-                self._last_record_verdict = None
-                self._last_record_reason = None
+                self._last_verdict = None
                 if not self._writes_enabled:
-                    # One store read for the batch, not one per operation: the
-                    # whole batch was refused by one verdict, and every result
+                    # One verdict for the batch, not one per operation: the
+                    # whole batch was refused by one answer, and every result
                     # must tell the same story about why.
-                    verdict = self._last_store_verdict
-                    reason = self._last_store_reason
-                    recorded = self._last_record_verdict
-                    recorded_reason = self._last_record_reason
-                    return [
-                        _writes_disabled_result(
-                            addr,
-                            val,
-                            self._connector_type,
-                            self._control_target,
-                            store_verdict=verdict,
-                            store_reason=reason,
-                            record_verdict=recorded,
-                            record_reason=recorded_reason,
-                        )
-                        for addr, val in operations
-                    ]
+                    verdict = self._last_verdict or _monitor_verdict(self._control_target)
+                    return [_verdict_refusal(addr, val, verdict) for addr, val in operations]
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 

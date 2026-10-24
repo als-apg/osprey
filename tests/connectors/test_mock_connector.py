@@ -19,14 +19,20 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
 )
 from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from tests.connectors._write_fakes import arm_switch
+from tests.connectors._write_fakes import writes_enabled_config as _config_with_writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
 
 
-def _config_with_writes_enabled(key, default=None):
-    """Mock get_config_value that enables writes but returns sane defaults otherwise."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 class TestVAInProcessConnector:
@@ -97,7 +103,9 @@ class TestVAInProcessConnector:
     async def test_read_refuses_an_address_outside_the_facility_file(self, tmp_path):
         """An address the built facility file does not hold is refused, by name."""
         view = served_tree(tmp_path, readings=["MADE:UP:CHANNEL"])
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
@@ -116,7 +124,9 @@ class TestVAInProcessConnector:
         naive datetime — guards the connector render sites against silent
         reversion to ``datetime.now()``."""
         view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
@@ -139,7 +149,9 @@ class TestVAInProcessConnector:
     async def test_read_carries_the_unit_of_the_channel_record(self, tmp_path, channel, units):
         """A read's unit is exactly the one the channel record states."""
         view = served_tree(tmp_path, readings=[channel], channels={channel: {"unit": units}})
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
@@ -523,7 +535,9 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels(self, tmp_path):
         """Test reading multiple PVs concurrently."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3", "PV:4"])
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
@@ -552,7 +566,9 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels_omits_a_failed_read(self, tmp_path):
         """A read that fails with an ordinary error is left out of the result."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
@@ -566,7 +582,9 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels_propagates_a_cancelled_read(self, tmp_path):
         """A cancelled read raises the cancellation instead of returning it as a value."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
@@ -579,7 +597,9 @@ class TestVAInProcessConnector:
     async def test_validate_channel_is_membership(self, tmp_path):
         """A channel is valid exactly when the built facility file holds it."""
         view = served_tree(tmp_path, readings=["ANY:PV:NAME"])
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
@@ -596,7 +616,9 @@ class TestVAInProcessConnector:
             readings=["BEAM:CURRENT"],
             channels={"BEAM:CURRENT": {"unit": "mA", "description": "Stored beam current"}},
         )
-        with patch("osprey_connectors.config.get_config_value", return_value=True):
+        with patch(
+            "osprey_connectors.config.get_config_value", side_effect=_config_with_writes_enabled
+        ):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
 

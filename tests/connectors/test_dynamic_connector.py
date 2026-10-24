@@ -8,6 +8,18 @@ from osprey_connectors import types
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from tests.connectors._write_fakes import ARMED_TARGET, arm_switch
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 @pytest.fixture(autouse=True)
@@ -141,7 +153,11 @@ class TestCustomConnectorConfirmDefault:
             "type": "tests.connectors._mock_dynamic_connector.MockDynamicConnector",
             "connector": {},
         }
-        return await ConnectorFactory.create_control_system_connector(config)
+        # Built for the simulator target, whose switch the module's fixture
+        # turned on: the factory stamps the target the caller names.
+        return await ConnectorFactory.create_control_system_connector(
+            config, control_target=ARMED_TARGET
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("writes_enabled")

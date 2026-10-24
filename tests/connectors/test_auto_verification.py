@@ -11,9 +11,11 @@ would.
 import json
 from unittest.mock import patch
 
+import pytest
+
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from tests.connectors._write_fakes import writes_enabled_config
+from tests.connectors._write_fakes import arm_switch, writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: Every address this module writes.
@@ -26,6 +28,17 @@ WRITTEN = (
     "QUIET:CHANNEL",
     "TEST:CHANNEL",
 )
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _write_limits_db(tmp_path, limits_db):

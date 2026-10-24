@@ -1,26 +1,50 @@
 """Shared fakes for the write-path and write-posture tests.
 
-One recording connector, one config-reader shape and one mocked
-``EPICSConnector`` builder, so the files that pin the write guard do not each
-carry their own byte-equivalent copy.
+One recording connector, one config-reader shape, one mocked ``EPICSConnector``
+builder and one way to arm writes, so the files that pin the write guard do not
+each carry their own byte-equivalent copy.
+
+Arming a write takes what the reference monitor's verdict asks for
+(:func:`osprey_connectors.posture_store.write_verdict`): a ``control_system``
+section whose tier allows writes, a connector stamped with the machine it
+writes to, and the login's switch turned on for that machine in its record.
+:data:`ARMED_SECTION` is the first, :func:`arm_switch` the other two.
 """
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+from osprey_connectors import control_context
 from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.types import WRITES_ENABLED_KEY
+from osprey_connectors.types import TARGET_VA, WRITES_ENABLED_KEY
+from tests._control_context_fixtures import isolate_verdict_environment, write_control_context
 from tests.connectors._epics_fakes import FakeAioca, FakeChannel, ca_connector
+
+#: A ``control_system`` section whose write tier allows writes. Its type is
+#: not a real control system, so ``live`` does not resolve on it; ``va`` does
+#: on every section, which is why :data:`ARMED_TARGET` is the simulator.
+ARMED_SECTION: dict[str, Any] = {"writes": "allowed"}
+
+#: The machine :func:`arm_switch` turns on and stamps when told nothing else.
+ARMED_TARGET = TARGET_VA
 
 
 def writes_enabled_config(key: str, default: Any = None) -> Any:
-    """``get_config_value`` stand-in: writes armed deployment-wide, all else defaulted."""
+    """``get_config_value`` stand-in: a write tier that allows, all else defaulted.
+
+    Serves :data:`ARMED_SECTION` as the ``control_system`` section and the old
+    deployment-wide key as ``True``. The tier alone arms nothing: the write also
+    needs its machine's switch on (:func:`arm_switch`).
+    """
+    if key == "control_system":
+        return dict(ARMED_SECTION)
     if key == WRITES_ENABLED_KEY:
         return True
     return default
@@ -30,8 +54,8 @@ def config_reader(section: dict[str, Any]) -> Callable[..., Any]:
     """A ``get_config_value`` stand-in serving one ``control_system:`` section.
 
     Answers both paths the posture is read through, the way dot-path lookup
-    would: the whole section, which a type-stamped connector keys its block on,
-    and the deployment-wide key inside it, which an unstamped connector reads.
+    would: the whole section, which the write verdict reads its tier from, and
+    the deployment-wide key inside it, which older readers still ask.
     """
 
     def _get(key: str, default: Any = None) -> Any:
@@ -42,6 +66,60 @@ def config_reader(section: dict[str, Any]) -> Callable[..., Any]:
         return default
 
     return _get
+
+
+def arm_switch(
+    monkeypatch: Any,
+    root: Path,
+    target: str | None = ARMED_TARGET,
+    *,
+    stamp: bool = True,
+) -> Path | None:
+    """Turn the login's switch on for *target* and stamp connectors with it.
+
+    Points the host record at *root*, pins the acting identity, clears every
+    variable that would change the verdict
+    (:func:`~tests._control_context_fixtures.isolate_verdict_environment`) and writes an
+    ownerless record whose switch is ``{target: "on"}`` through the person's
+    gesture. ``None`` writes no record at all: every switch off.
+
+    *stamp* sets the class default of ``_control_target`` to *target*, so a
+    connector built directly rather than through the factory writes to that
+    machine. A test about the unstamped connector passes ``stamp=False`` or
+    sets ``connector._control_target = None`` itself.
+
+    The tier is not set here: serve a section that allows writes
+    (:data:`ARMED_SECTION`, :func:`writes_enabled_config`) through
+    ``get_config_value``.
+
+    Returns:
+        The record's path, or ``None`` when no record was written.
+    """
+    isolate_verdict_environment(monkeypatch, root)
+    if stamp:
+        monkeypatch.setattr(ControlSystemConnector, "_control_target", target)
+    if target is None:
+        return None
+    return write_control_context(root, target=target, owned_by=None, switch={target: "on"})
+
+
+def turn_switch(target: str, state: str) -> None:
+    """The person's switch gesture for *target*, against the record the environment names.
+
+    A turn-on names the record's epoch, as the chip does; an epoch-less record is
+    stamped by the refused gesture, and the retry with that epoch succeeds.
+    """
+    if state == "off":
+        control_context.set_switch([target], "off")
+    else:
+        record = control_context.read_record()
+        try:
+            control_context.set_switch([target], "on", epoch=record.switch_epoch)
+        except control_context.StoppedSince:
+            control_context.invalidate_cache()
+            record = control_context.read_record()
+            control_context.set_switch([target], "on", epoch=record.switch_epoch)
+    control_context.invalidate_cache()
 
 
 class RecordingConnector(ControlSystemConnector):

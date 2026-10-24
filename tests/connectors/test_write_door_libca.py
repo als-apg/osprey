@@ -27,6 +27,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests._control_context_fixtures import (
+    VERDICT_ENV_VARS,
+    pin_identity,
+    write_control_context,
+)
 from tests.connectors.ipc._soft_ioc import SoftIOC
 
 # Decided by lookup, never by import: importing either would load libca here.
@@ -127,8 +132,19 @@ def _control_system(port: int) -> dict:
     }
 
 
-def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(tmp_path, ioc_prefix):
+#: Variables that would change the child's write verdict behind the test's back.
+_VERDICT_ENV = (*VERDICT_ENV_VARS, "OSPREY_AGENT_DATA_ROOT")
+
+
+def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(
+    tmp_path, ioc_prefix, monkeypatch
+):
     setpoint = f"{ioc_prefix}:SP"
+    # The login's switch on for the live machine the child's connector is
+    # built for, under a scratch root the child is pointed at.
+    pin_identity(monkeypatch)
+    data_root = tmp_path / "data"
+    write_control_context(data_root, target="live", owned_by=None, switch={"live": "on"})
     ioc = SoftIOC(tmp_path, "machine", ioc_prefix, 1.0)
     try:
         config_file = tmp_path / "config.yml"
@@ -136,11 +152,11 @@ def test_a_monitor_callbacks_put_is_refused_while_the_connectors_write_lands(tmp
         env = {
             k: v
             for k, v in os.environ.items()
-            if not k.startswith(("EPICS_CA", "EPICS_PVA"))
-            and k not in ("OSPREY_EXECUTION_MODE", "OSPREY_AGENT_DATA_ROOT")
+            if not k.startswith(("EPICS_CA", "EPICS_PVA")) and k not in _VERDICT_ENV
         }
         env.update(
             {
+                "OSPREY_AGENT_DATA_ROOT": str(data_root),
                 "PYTHONPATH": PYTHONPATH,
                 "CONFIG_FILE": str(config_file),
                 "EPICS_CA_ADDR_LIST": "127.0.0.1",

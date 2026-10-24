@@ -33,11 +33,22 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
 from tests.connectors._epics_fakes import ECA_NOWTACCESS
-from tests.connectors._write_fakes import make_mock_epics_connector
+from tests.connectors._write_fakes import arm_switch, make_mock_epics_connector
 from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
 CHANNEL = "TEST:MAG:PS:SP"
+
+
+@pytest.fixture(autouse=True)
+def _switch_on(monkeypatch, tmp_path):
+    """The login's switch on for the simulator target, connectors stamped with it.
+
+    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    everything the reference monitor's verdict asks before a write reaches the
+    transport; a test that disarms serves a tier that does not.
+    """
+    return arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 def _make_connector():

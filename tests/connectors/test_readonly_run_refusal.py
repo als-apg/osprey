@@ -1,11 +1,11 @@
-"""A readonly sandbox run is refused at the connector, whatever the deployment posture.
+"""A readonly sandbox run is refused at the connector, whatever the tier and switch say.
 
-``control_system.writes_enabled`` is the launch-time deployment posture. The
-python executor additionally exports ``OSPREY_EXECUTION_MODE`` into its
-sandbox subprocess; when that says ``readonly`` the connector base class
-refuses every write before any connector-specific code runs — so
+The python executor exports ``OSPREY_EXECUTION_MODE`` into its sandbox
+subprocess; when that says ``readonly`` the reference monitor's verdict refuses
+every write ``readonly_run`` before any connector-specific code runs — so
 ``osprey.runtime.write_channel`` and direct ``connector.write_channel`` calls
-alike are blocked in a readonly run even on a write-enabled deployment.
+alike are blocked in a readonly run even with the tier allowing writes and the
+login's switch on.
 """
 
 import sys
@@ -15,12 +15,19 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
-from tests.connectors._write_fakes import RecordingConnector, writes_enabled_config
+from osprey_connectors.refusals import refusal_phrase
+from tests._vocabulary import REFUSAL_BAN_LIST
+from tests.connectors._write_fakes import RecordingConnector, arm_switch, writes_enabled_config
+
+#: The read-only phrase, for the simulator target the fixture arms.
+READONLY_PHRASE = refusal_phrase("readonly_run")
 
 
 @pytest.fixture
-def writes_enabled_deployment(monkeypatch):
+def writes_enabled_deployment(monkeypatch, tmp_path):
+    """A write tier that allows and the login's switch on: only the run refuses."""
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
 @pytest.mark.asyncio
@@ -33,7 +40,7 @@ async def test_readonly_run_refuses_write(monkeypatch):
 
     assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "WRITES_DISABLED"
-    assert "readonly" in result.error_message
+    assert READONLY_PHRASE in result.error_message
     assert connector.writes == []
 
 
@@ -52,14 +59,15 @@ async def test_readonly_run_refuses_multi_write(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("writes_enabled_deployment")
 async def test_readonly_refusal_message_does_not_blame_deployment(monkeypatch):
-    """The operator-facing text must not send anyone to flip writes_enabled —
-    the deployment allows writes; this *run* was declared readonly."""
+    """The operator-facing text names no config key, file or variable — the
+    tier allows writes; this *run* was declared readonly, and resubmitting it
+    readwrite is the remedy."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    assert "writes_enabled" not in result.error_message
+    assert REFUSAL_BAN_LIST.search(result.error_message) is None
     assert "readwrite" in result.error_message
 
 
@@ -79,7 +87,7 @@ async def test_readwrite_run_passes_through(monkeypatch):
 @pytest.mark.usefixtures("writes_enabled_deployment")
 async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch):
     """Outside the sandbox (e.g. the controls MCP server) the variable is unset
-    and the deployment posture alone decides."""
+    and the tier and the switch decide."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     connector = RecordingConnector()
 
@@ -187,8 +195,7 @@ async def test_readonly_run_refusal_names_the_deployment_wide_run():
 
     assert result.outcome is WriteOutcome.REFUSED
     assert "readonly execution mode" in result.error_message.lower()
-    assert "OSPREY_EXECUTION_MODE=readonly" in result.error_message
-    assert "every session" in result.error_message.lower()
+    assert READONLY_PHRASE in result.error_message
     assert connector.writes == []
 
 
@@ -200,14 +207,14 @@ async def test_readonly_run_refusal_does_not_blame_config_or_a_script():
     ``writes_enabled`` is not the gate (the deployment config allows writes),
     and there is no script to resubmit — ``channel_write`` came straight from
     the agent through the controls MCP server. Sending the operator to either
-    one is a dead end. The variable is named, but as the run's own switch,
-    never as an ``execution_mode`` argument the caller could resubmit with.
+    one is a dead end. No variable is named, and no ``execution_mode``
+    argument the caller could resubmit with.
     """
     connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    assert "writes_enabled" not in result.error_message
+    assert REFUSAL_BAN_LIST.search(result.error_message) is None
     assert "resubmit" not in result.error_message.lower()
     assert "execution_mode=" not in result.error_message
     assert "execution_mode='" not in result.error_message
@@ -217,16 +224,14 @@ async def test_readonly_run_refusal_does_not_blame_config_or_a_script():
 @pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
 async def test_readonly_run_refusal_says_the_chip_cannot_lift_it():
     """The one remedy that does NOT work is named, because it is the one an
-    operator would reach for: the control-target chip in the header already
-    reads writes here and cannot lift a deployment-wide read-only run. Sending
-    them there is the dead end this wording exists to close."""
+    operator would reach for: the chip already reads writes here and cannot
+    lift a deployment-wide read-only run. Sending them there is the dead end
+    this wording exists to close."""
     connector = RecordingConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    message = result.error_message.lower()
-    assert "control-target chip in the header" in message
-    assert "cannot lift it" in message
+    assert "the chip cannot lift this" in result.error_message
 
 
 @pytest.mark.asyncio
@@ -290,21 +295,20 @@ async def test_sandbox_script_run_keeps_the_script_shaped_message():
     result = await connector.write_channel("A:SP", 1.0)
 
     assert "readwrite" in result.error_message
-    # The MCP-server branch's distinctive text must not leak into the script's.
-    assert "every session" not in result.error_message.lower()
+    assert READONLY_PHRASE in result.error_message
 
 
 @pytest.mark.asyncio
 async def test_deployment_refusal_is_unchanged_inside_an_mcp_server(monkeypatch):
-    """The posture branch is reached only when the posture is what refused.
+    """The tier branch is reached only when the tier is what refused.
 
-    A write-disabled deployment refuses in the controls MCP server too, and
-    that one really is ``writes_enabled`` — telling the operator to change
-    their session posture would send them somewhere that cannot help.
+    A login whose tier is ``never`` refuses in the controls MCP server too, and
+    that one is the deployment admin's to lift — telling the operator the run
+    is read-only would send them somewhere that cannot help.
     """
     monkeypatch.setattr(
         "osprey_connectors.config.get_config_value",
-        lambda key, default=None: False if key == "control_system.writes_enabled" else default,
+        lambda key, default=None: {"writes": "never"} if key == "control_system" else default,
     )
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setattr(sys, "argv", [str(_controls_server_main())])
@@ -312,6 +316,6 @@ async def test_deployment_refusal_is_unchanged_inside_an_mcp_server(monkeypatch)
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    assert "writes_enabled" in result.error_message
+    assert refusal_phrase("tier_never") in result.error_message
     # Not a readonly run, so neither readonly story may be told.
     assert "readonly execution mode" not in result.error_message.lower()
