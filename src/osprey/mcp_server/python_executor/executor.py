@@ -353,7 +353,7 @@ def resolve_protected_roots(
 ) -> tuple[Path, ...]:
     """Resolve the paths executed code may not write into, in any mode.
 
-    Three groups, all anchored on the deployment repo root:
+    Four groups, all anchored on the deployment repo root:
 
     * The **render zone** (``build/``). Every ``osprey build`` re-creates it
       wholesale, so a write there is either lost at the next build or, worse,
@@ -368,6 +368,11 @@ def resolve_protected_roots(
       process (``osprey.audit.writer``, called from the MCP tool layer) and
       never by the child. A run that could rewrite it could
       erase the evidence of its own refusal.
+    * The **agent-record roots** (``var/spool``, ``var/agent_record`` and
+      ``var/state``): the spool the record is ingested from, the embedded
+      record itself, and the per-container state that holds the sidecar's
+      revocations. Like the ledger, each is written by OSPREY processes and
+      never by executed code, which could otherwise forge or erase entries.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to
@@ -386,12 +391,24 @@ def resolve_protected_roots(
         Absolute, resolved paths — de-duplicated, order preserved. The child
         gets these as literals and never re-derives them.
     """
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
+    from osprey_connectors.workspace import (
+        AUDIT_DIR_RELPATH,
+        BUILD_DIR_NAME,
+        RECORD_DIR_RELPATH,
+        SPOOL_DIR_RELPATH,
+        STATE_DIR_RELPATH,
+    )
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
 
-    candidates = [root / BUILD_DIR_NAME, root / AUDIT_DIR_RELPATH]
+    candidates = [
+        root / BUILD_DIR_NAME,
+        root / AUDIT_DIR_RELPATH,
+        root / SPOOL_DIR_RELPATH,
+        root / RECORD_DIR_RELPATH,
+        root / STATE_DIR_RELPATH,
+    ]
     candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
     return tuple(dict.fromkeys(path.resolve() for path in candidates))
 

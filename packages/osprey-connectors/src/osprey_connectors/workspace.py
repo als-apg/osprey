@@ -24,13 +24,16 @@ __all__ = [
     "LAYER_DIRNAMES",
     "LAYER_DIR_KINDS",
     "PROFILE_FILENAME",
+    "RECORD_DIR_RELPATH",
     "RENDERED_CONFIG_RELPATH",
     "RETIRED_LAYER_DIRS",
     "RUNTIME_DATA_DIR_NAME",
     "SIMULATION_STATE_DIR_CONFIG_KEY",
     "SIMULATOR_LOG_DIR_RELPATH",
     "SIMULATOR_STANDIN_LOG_SUBDIR",
+    "SPOOL_DIR_RELPATH",
     "STATE_DIR_NAME",
+    "STATE_DIR_RELPATH",
     "STATE_ZONE_DIRS",
     "TIERS_DIRNAME",
     "agent_data_base_dir",
@@ -143,6 +146,21 @@ AUDIT_DIR_RELPATH = f"{STATE_DIR_NAME}/audit"
 #: The append-only agent-record archive, relative to the repo root; nothing in
 #: OSPREY deletes under it.
 ARCHIVE_DIR_RELPATH = f"{STATE_DIR_NAME}/archive"
+
+#: The spool root, relative to the repo root: one directory per writer identity
+#: (``<identity>/``) plus agent-record's receiver-owned ``.otlp/<login>/``. The
+#: writer client appends here and agent-record ingests and then deletes; it is
+#: transport, never history.
+SPOOL_DIR_RELPATH = f"{STATE_DIR_NAME}/spool"
+
+#: The embedded agent-record store's directory, relative to the repo root,
+#: written by agent-record alone.
+RECORD_DIR_RELPATH = f"{STATE_DIR_NAME}/agent_record"
+
+#: Per-container state that is neither the record nor the spool, relative to the
+#: repo root: one ``<identity>/`` directory per container (the preflight-refused
+#: marker, the sidecar's revocations).
+STATE_DIR_RELPATH = f"{STATE_DIR_NAME}/state"
 
 #: The simulator's model-log directory, relative to the repo root: the composite
 #: appends one ``<model>.log`` per served physics model here, from whichever
