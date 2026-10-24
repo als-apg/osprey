@@ -457,7 +457,8 @@ def _writes_enabled_input() -> bool:
     deployment's answer from the report; reported here instead, the pair
     ``(writes_enabled, readonly_run)`` still says that a tier allowing writes
     was held on the read gateway by the run mode. The reported role is
-    unaffected, because :func:`_rule_role` ANDs ``not readonly_run`` itself.
+    unaffected, because the gateway rule (:func:`_rule_role`) never selects
+    ``write_access`` for a readonly run.
 
     The section is read from the project config rather than taken from the init
     payload for the same reason the connector reads it there. A config that
@@ -494,17 +495,16 @@ def _selection_writes_enabled(connector: Any) -> bool:
 
 
 def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: bool) -> str | None:
-    """The gateway role ``connect()``'s rule selects, given its inputs.
+    """The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.
 
-    A block with a ``write_access`` gateway and no ``read_only`` one reads
-    through the write gateway whatever the posture: writes stay refused in
-    software.
+    The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,
+    the one place it lives: this only adds that an empty table selects nothing.
     """
-    if writes_enabled and not readonly_run and gateways.get("write_access"):
-        return "write_access"
-    if gateways.get("read_only"):
-        return "read_only"
-    return "write_access" if gateways.get("write_access") else None
+    from osprey_connectors.ipc._verification import _selected_role
+
+    if not gateways:
+        return None
+    return _selected_role(gateways, writes_enabled=writes_enabled, readonly_run=readonly_run)
 
 
 def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: Any) -> bool:
@@ -527,7 +527,7 @@ def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: An
     return ("name_server" if name_server else "addr_list") == mode
 
 
-def _selected_role(
+def _installed_role(
     gateways: dict[str, Any],
     mode: str | None,
     host: str | None,
@@ -571,15 +571,16 @@ def _post_connect_report(
         # run, which would erase the deployment's answer from the report. The
         # deployment half is reported instead, so the (writes_enabled,
         # readonly_run) pair still names the run mode as what held an armed
-        # target on the read gateway. _rule_role ANDs `not readonly_run`, so the
-        # role this report names is the same either way.
+        # target on the read gateway. The gateway rule never selects
+        # write_access for a readonly run, so the role this report names is the
+        # same either way.
         writes_enabled = _writes_enabled_input()
     else:
         writes_enabled = _selection_writes_enabled(connector)
     mode, host, port = _installed_endpoint()
 
     return {
-        "selected_role": _selected_role(gateways, mode, host, port, writes_enabled, readonly_run),
+        "selected_role": _installed_role(gateways, mode, host, port, writes_enabled, readonly_run),
         "mode": mode,
         "host": host,
         "port": port,

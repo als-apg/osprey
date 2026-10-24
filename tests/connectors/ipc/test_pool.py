@@ -42,6 +42,7 @@ from osprey_connectors.ipc._pool import (
     ConnectorHostWriteTimeoutError,
     PooledConnector,
 )
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
@@ -448,6 +449,47 @@ def test_a_write_gateway_only_machine_is_derived_reading_through_it(isolated, sw
     assert pool._config_refusal(key, pool._section, derivation) is None
 
 
+@pytest.mark.parametrize("switch", [None, "on"], ids=["off", "on"])
+def test_a_readonly_run_on_a_write_gateway_only_machine_is_derived_on_the_read_role(
+    isolated, switch
+):
+    if switch:
+        write_control_context(
+            isolated / "agent-data", target="live", owned_by=None, switch={"live": switch}
+        )
+    pool = ConnectorHostPool(_epics_section({"write_access": _CA_ROW_RW}))
+    key = ("live", "readonly")
+
+    derivation, readonly_run, writes = pool._derive(key, pool._section)
+
+    assert (derivation.selected_role, readonly_run, writes) == ("read_only", True, False)
+    assert derivation.selected_endpoint() is None
+    # Refused as a readonly run, naming the gateway it lacks, not as a
+    # broadcast hazard: a readonly run never reads through the write gateway.
+    refusal = pool._config_refusal(key, pool._section, derivation)
+    assert refusal is not None
+    assert "no read-only gateway" in refusal
+    assert "deployment admin" in refusal
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in refusal
+
+
+@pytest.mark.usefixtures("isolated")
+async def test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned(pools, spawns):
+    pool = pools(_epics_section({"write_access": _CA_ROW_RW}))
+
+    with pytest.raises(ConnectorHostStartError) as caught:
+        await pool.connector("live", execution_mode="readonly")
+
+    assert caught.value.stage == "config"
+    assert caught.value.pid is None
+    assert "no read-only gateway" in str(caught.value)
+    assert "deployment admin" in str(caught.value)
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in str(caught.value)
+    assert spawns == []
+
+
 # ------------------------------------------------------------ losing a child
 
 
@@ -730,7 +772,9 @@ def _ca_gateways(address: str, read_port, write_port=None) -> dict:
         ("live", "epics", {}),
         ("live", "epics", {"gateways": {}}),
         # A write-only table is not here: it reads through its write gateway
-        # (test_a_write_gateway_only_machine_is_derived_reading_through_it).
+        # (test_a_write_gateway_only_machine_is_derived_reading_through_it),
+        # and a readonly run on one is refused as readonly
+        # (test_a_readonly_child_on_a_write_gateway_only_machine_is_never_spawned).
         ("standin", "live_standin", {}),
         ("va", "virtual_accelerator", {}),
     ],

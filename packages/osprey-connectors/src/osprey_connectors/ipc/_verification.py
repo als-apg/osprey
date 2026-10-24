@@ -32,6 +32,12 @@ from typing import Any
 
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._base import is_readonly_run
+from osprey_connectors.control_system._gateway_role import (
+    ROLE_READ_ONLY,
+    ROLE_WRITE_ACCESS,
+    _selected_role,
+    readonly_gateway_refusal,
+)
 from osprey_connectors.types import (
     STANDIN_TYPES,
     TARGET_LIVE,
@@ -40,6 +46,7 @@ from osprey_connectors.types import (
     connector_transport,
     resolve_target,
     target_writes_enabled,
+    tier_allows,
 )
 
 __all__ = [
@@ -61,6 +68,7 @@ __all__ = [
     "connector_block",
     "derive_endpoints",
     "live_collision",
+    "readonly_gateway_refusal",
     "same_endpoint",
     "verify_child_report",
     "verify_host_report",
@@ -68,8 +76,6 @@ __all__ = [
 
 # -- Gateway roles and the environment modes they produce -------------------
 
-ROLE_READ_ONLY = "read_only"
-ROLE_WRITE_ACCESS = "write_access"
 ROLE_PVA = "pva"
 
 #: ``use_name_server: true`` — EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS.
@@ -210,27 +216,6 @@ def _pva_globs(block: dict[str, Any]) -> list[str]:
     return [str(pattern).strip() for pattern in pva_channels if str(pattern).strip()]
 
 
-def _selected_role(gateways: dict[str, Any], *, writes_enabled: bool, readonly_run: bool) -> str:
-    """The gateway role the child will configure the process with.
-
-    A positive restatement of ``EPICSConnector.connect()``'s selection: the
-    write-capable gateway is used only when writes are armed for the target being
-    derived, this run is not a readonly sandbox run, and a ``write_access``
-    gateway is actually configured. Every other combination — writes unarmed,
-    readonly run, or no write-capable gateway to route through — lands on
-    ``read_only``, which is also what ``connect()`` falls back to (with a
-    warning) when writes are enabled and no write gateway exists.
-
-    Takes the posture as an argument rather than resolving it: the caller holds
-    the target, and one gateways table is all this selection is entitled to know
-    about.
-    """
-    write_gateway = gateways.get(ROLE_WRITE_ACCESS) or {}
-    if writes_enabled and write_gateway and not readonly_run:
-        return ROLE_WRITE_ACCESS
-    return ROLE_READ_ONLY
-
-
 def derive_endpoints(
     config: Any,
     target: str,
@@ -245,12 +230,12 @@ def derive_endpoints(
         config: The full rendered config mapping (``config.yml`` as loaded).
         target: The control target, ``'live'`` or ``'va'``.
         writes_enabled: Whether writes are armed for *target*. Defaults to
-            this target's own posture —
-            ``control_system.connector.<type>.writes_enabled`` where the
-            resolved type states one, ``control_system.writes_enabled`` where it
-            does not — which is the same value the connector reads; injectable
-            so a caller (or a test) can derive the endpoints of a posture other
-            than the configured one.
+            the deployment's write tier —
+            :func:`~osprey_connectors.types.tier_allows` over the
+            ``control_system`` section, which is what the connector's write
+            verdict reads — never the per-type ``writes_enabled`` key on its
+            own; injectable so a caller (or a test) can derive the endpoints of
+            a posture other than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
             :func:`~osprey_connectors.control_system.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
@@ -288,7 +273,7 @@ def derive_endpoints(
         )
 
     if writes_enabled is None:
-        writes_enabled = config_writes_enabled(config, target)
+        writes_enabled = tier_allows(control_system)
     if readonly_run is None:
         readonly_run = is_readonly_run()
 

@@ -176,7 +176,7 @@ import os
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -202,16 +202,16 @@ from osprey_connectors.ipc._proxy import (
     raised_by_child,
 )
 from osprey_connectors.ipc._verification import (
-    ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
     TargetDerivation,
     connector_block,
     derive_endpoints,
     live_collision,
+    readonly_gateway_refusal,
     verify_host_report,
 )
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
-from osprey_connectors.types import TRANSPORT_CA
+from osprey_connectors.types import TRANSPORT_CA, machine_kind
 
 __all__ = [
     "DEFAULT_CALL_DEADLINE_S",
@@ -468,25 +468,6 @@ class _PoolChild:
 
 class _WritesMoved(Exception):
     """A starting child's writes disagreed with a verdict that has since moved to agree."""
-
-
-def _read_through_only_gateway(derivation: TargetDerivation) -> TargetDerivation:
-    """*derivation*, reading through ``write_access`` when it is the only gateway.
-
-    ``connect()`` reads through a block's ``write_access`` gateway when the
-    block configures no ``read_only`` one, whatever the posture: its writes
-    stay refused in software while off. The shared derivation selects
-    ``read_only`` whenever writes are off, so the role is restated here for the
-    same rule, before the config refusal and the verification judge it.
-    """
-    endpoints = derivation.endpoints
-    if (
-        derivation.selected_role == ROLE_READ_ONLY
-        and ROLE_READ_ONLY not in endpoints
-        and ROLE_WRITE_ACCESS in endpoints
-    ):
-        return replace(derivation, selected_role=ROLE_WRITE_ACCESS)
-    return derivation
 
 
 def _label(key: _Key) -> str:
@@ -929,7 +910,8 @@ class ConnectorHostPool:
     def _derive(self, key: _Key, section: dict[str, Any]) -> tuple[TargetDerivation, bool, bool]:
         """The derivation for *key*, and the ``(readonly_run, writes)`` it was taken under.
 
-        That posture is what the child will select its gateway on.
+        That posture is what the child will select its gateway on, and the
+        derivation's role is :func:`derive_endpoints`'s own: the one gateway rule.
         """
         target, mode = key
         readonly_run = mode == READONLY or is_readonly_run()
@@ -943,7 +925,7 @@ class ConnectorHostPool:
             # derivation must read the same file or the ports disagree.
             config_path=self._config_file,
         )
-        return _read_through_only_gateway(derivation), readonly_run, writes
+        return derivation, readonly_run, writes
 
     @staticmethod
     def _writes_allowed(section: dict[str, Any], target: str) -> bool:
@@ -1011,6 +993,11 @@ class ConnectorHostPool:
         block_key = f"control_system.connector.{connector_type}"
 
         if derivation.transport == TRANSPORT_CA and selected is None:
+            if ROLE_WRITE_ACCESS in derivation.endpoints:
+                # Only a readonly run selects no endpoint while a write gateway
+                # is configured: it never selects write_access, and this block
+                # has no read gateway for it.
+                return readonly_gateway_refusal(machine_kind(section, target))
             configured = sorted(derivation.endpoints) or "none"
             return (
                 f"it resolves to {connector_type!r}, which speaks Channel Access, and "

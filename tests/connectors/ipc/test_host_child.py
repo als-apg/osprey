@@ -857,7 +857,7 @@ GATEWAYS = {
 
 
 def test_selected_role_is_the_write_gateway_when_writes_are_on():
-    role = host._selected_role(
+    role = host._installed_role(
         GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=True, readonly_run=False
     )
 
@@ -865,7 +865,7 @@ def test_selected_role_is_the_write_gateway_when_writes_are_on():
 
 
 def test_selected_role_stays_read_only_in_a_readonly_run():
-    role = host._selected_role(
+    role = host._installed_role(
         GATEWAYS, "addr_list", "ro.example.org", 5064, writes_enabled=True, readonly_run=True
     )
 
@@ -875,7 +875,7 @@ def test_selected_role_stays_read_only_in_a_readonly_run():
 def test_selected_role_follows_the_endpoint_that_was_actually_installed():
     # The rule would say read_only, but the environment names the write
     # gateway: the report describes what was used, not what was expected.
-    role = host._selected_role(
+    role = host._installed_role(
         GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=False, readonly_run=False
     )
 
@@ -883,7 +883,7 @@ def test_selected_role_follows_the_endpoint_that_was_actually_installed():
 
 
 def test_selected_role_is_none_when_no_gateway_was_configured():
-    role = host._selected_role(GATEWAYS, None, None, None, writes_enabled=True, readonly_run=False)
+    role = host._installed_role(GATEWAYS, None, None, None, writes_enabled=True, readonly_run=False)
 
     assert role is None
 
@@ -893,7 +893,7 @@ def test_a_gateway_without_a_port_matches_the_one_that_was_filled_in():
     # so the block never carries the number the environment ends up showing.
     gateways = {"read_only": {"address": "localhost", "use_name_server": True}}
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways, "name_server", "localhost", 5064, writes_enabled=False, readonly_run=False
     )
 
@@ -903,7 +903,7 @@ def test_a_gateway_without_a_port_matches_the_one_that_was_filled_in():
 def test_a_gateway_in_the_other_mode_is_not_a_match():
     gateways = {"read_only": {"address": "localhost", "port": 5064, "use_name_server": True}}
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways, "addr_list", "localhost", 5064, writes_enabled=False, readonly_run=False
     )
 
@@ -914,7 +914,7 @@ def test_a_gateway_in_the_other_mode_is_not_a_match():
 def test_a_resolved_off_placeholder_matches_the_address_list_mode(off):
     gateways = {"read_only": {"address": "localhost", "port": 5064, "use_name_server": off}}
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways, "addr_list", "localhost", 5064, writes_enabled=False, readonly_run=False
     )
 
@@ -1375,7 +1375,7 @@ def test_a_write_gateway_only_block_reports_the_write_gateway(monkeypatch, write
     gateways = {"write_access": {"address": "rw.example.org", "port": 5065}}
     _install_addr_list(monkeypatch, "rw.example.org", 5065)
 
-    role = host._selected_role(
+    role = host._installed_role(
         gateways,
         "addr_list",
         "rw.example.org",
@@ -1385,7 +1385,25 @@ def test_a_write_gateway_only_block_reports_the_write_gateway(monkeypatch, write
     )
 
     assert role == "write_access"
-    assert host._rule_role(gateways, writes_enabled, readonly_run=True) == "write_access"
+
+
+@pytest.mark.parametrize("writes_enabled", [False, True], ids=["off", "on"])
+def test_a_readonly_run_on_a_write_gateway_only_block_rules_the_read_role(writes_enabled):
+    # The read role has no endpoint on this block: connect() refuses rather than
+    # reading through the write gateway, so nothing is installed to report.
+    gateways = {"write_access": {"address": "rw.example.org", "port": 5065}}
+
+    assert host._rule_role(gateways, writes_enabled, readonly_run=True) == "read_only"
+    assert (
+        host._installed_role(
+            gateways, None, None, None, writes_enabled=writes_enabled, readonly_run=True
+        )
+        is None
+    )
+
+
+def test_an_empty_gateways_table_rules_no_role():
+    assert host._rule_role({}, writes_enabled=True, readonly_run=False) is None
 
 
 # ----------------------------------------- the deployment half of the report

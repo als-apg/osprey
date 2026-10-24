@@ -33,7 +33,7 @@ from osprey_connectors.control_system._limits_validator import (
     step_read_timeout_seconds,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import writes_enabled_key
+from osprey_connectors.types import machine_kind, writes_enabled_key
 
 logger = get_logger("epics_connector")
 
@@ -563,6 +563,8 @@ class EPICSConnector(ControlSystemConnector):
                 serves different ``EPICS_CA_*`` settings
             ValueError: If the block still carries ``timeout``, or if
                 ``timeout_s`` is not a positive, finite number
+            ConnectionError: If this is a readonly run and the block configures
+                a ``write_access`` gateway but no ``read_only`` one
         """
         # Import aioca here to give a clear error if it is not installed. It
         # loads libca from epicscorelibs, which ships one per architecture.
@@ -581,53 +583,65 @@ class EPICSConnector(ControlSystemConnector):
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects
-        # writes, so a deployment that arms writes for this connector's type
-        # must route through the write-capable gateway. Defense-in-depth: only
-        # use write_access when this type is armed, so a type left unarmed also
-        # has its writes rejected at the network layer (reinforcing the posture
-        # this connector runs under).
-        gateways = config.get("gateways", {})
-        # One posture rule, shared with the reference monitor: the per-type
-        # block when the factory stamped a type, the deployment-wide key when
-        # it did not, and never armed during a readonly run.
+        # writes, so a connector whose writes the verdict allows routes through
+        # the write-capable gateway; otherwise it stays on read_only, and a
+        # write it should not make is also refused by the gateway. A machine
+        # reached only through a write gateway reads through it while its
+        # writes are off, refused in software. A readonly run never routes
+        # through the write gateway, so a raw caput issued after read_channel()
+        # in the same process is refused by the gateway rather than trusted.
+        # The rule is the one _gateway_role._selected_role states for every
+        # caller; it is applied here, not restated.
+        from osprey_connectors.control_system._gateway_role import (
+            _selected_role,
+            readonly_gateway_refusal,
+        )
+
+        gateways = config.get("gateways", {}) or {}
+        # The whole write verdict, the same one the reference monitor takes.
         try:
             writes_enabled = self._writes_enabled
         except (FileNotFoundError, KeyError, RuntimeError):
             writes_enabled = False  # Can't tell -> assume the safe (read-only) path
 
-        # A readonly sandbox run stays on the read_only gateway even where the
-        # type is armed: the per-run claim is enforced at the network layer, so
-        # a raw caput issued after read_channel() in the same process is
-        # rejected by the gateway rather than trusted.
         readonly_run = is_readonly_run()
         write_gateway = gateways.get("write_access") or {}
-        read_gateway = gateways.get("read_only", {}) or {}
-        gateway_role = "read_only"
-        if writes_enabled and write_gateway:
-            gateway_role = "write_access"
-            gateway_config = write_gateway
-            logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
-        elif write_gateway and not read_gateway:
-            # A machine reached only through a write gateway still reads while
-            # its writes are off: reads go through the one gateway there is,
-            # and every write is refused in software by the write guard.
-            gateway_role = "write_access"
-            gateway_config = write_gateway
+        gateway_role = _selected_role(
+            gateways, writes_enabled=bool(writes_enabled), readonly_run=readonly_run
+        )
+        gateway_config = gateways.get(gateway_role) or {}
+        if write_gateway and not gateway_config:
+            # Only a readonly run selects no gateway while a write gateway is
+            # configured. Connecting with none would leave Channel Access to
+            # search the ambient network, so the run refuses instead.
+            # The kind comes from the configured section, as the pool's refusal
+            # takes it: a readonly run's verdict reads no config, so it would
+            # leave the real machine unnamed.
+            try:
+                from osprey_connectors.config import get_config_value
+
+                section = get_config_value("control_system", {})
+            except (FileNotFoundError, RuntimeError):
+                section = {}
+            raise ConnectionError(
+                readonly_gateway_refusal(machine_kind(section, self._control_target))
+            )
+        if gateway_role == "write_access" and not writes_enabled:
             logger.debug(
                 "EPICS connector: no read_only gateway; reading through write_access "
                 "with writes refused"
             )
-        else:
-            gateway_config = read_gateway
-            if readonly_run and write_gateway:
-                logger.debug("EPICS connector: readonly run, staying on read_only gateway")
-            elif writes_enabled and not write_gateway:
-                posture_key = writes_enabled_key(self._connector_type)
-                logger.warning(
-                    f"{posture_key} is true but no gateways.write_access "
-                    "is configured; routing through the read_only gateway, which may "
-                    "reject writes. Configure gateways.write_access to enable hardware writes."
-                )
+        elif gateway_role == "write_access":
+            logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
+        elif readonly_run and write_gateway:
+            logger.debug("EPICS connector: readonly run, staying on read_only gateway")
+        elif writes_enabled and not write_gateway:
+            posture_key = writes_enabled_key(self._connector_type)
+            logger.warning(
+                f"{posture_key} is true but no gateways.write_access "
+                "is configured; routing through the read_only gateway, which may "
+                "reject writes. Configure gateways.write_access to enable hardware writes."
+            )
 
         # The EPICS_CA_* settings this connector needs, planned against the
         # environment as it stands.

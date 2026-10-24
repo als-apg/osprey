@@ -8,6 +8,8 @@ allows *and* it is configured; otherwise the connector stays on ``read_only``,
 so a machine whose switch is off also has its writes rejected at the network
 layer. The one exception is a machine reached only through a write gateway: it
 reads through that gateway while off, and every write is refused in software.
+A readonly run never selects the write gateway, so on such a machine it refuses
+to connect.
 
 ``connect()`` stores the role it selected. A write the verdict allows is refused
 ``switching`` when a write gateway is configured and was not selected — the
@@ -30,6 +32,7 @@ from osprey_connectors.control_system._va_connector import VirtualAcceleratorCon
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     FakeChannel,
+    InlineCaLoop,
     clean_epics_env,
     install_fake_aioca,
 )
@@ -204,6 +207,42 @@ async def test_a_write_gateway_only_machine_reads_through_it_while_off(
     assert result.outcome is WriteOutcome.REFUSED
     assert refusal_phrase("switch_off", "simulator") in result.error_message
     assert aioca.puts == []
+
+
+@pytest.mark.parametrize("on", [False, True], ids=["off", "on"])
+async def test_a_readonly_run_on_a_write_gateway_only_machine_refuses_to_connect(
+    monkeypatch, record_root, on
+):
+    """A readonly run never reads through the write gateway, so it has nothing to connect to."""
+    _armed(monkeypatch, record_root, on=on)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    loop = InlineCaLoop()
+    monkeypatch.setattr(epics_connector_module, "get_ca_loop", lambda: loop)
+
+    connector = EPICSConnector()
+    with pytest.raises(ConnectionError) as caught:
+        await connector.connect({"gateways": {"write_access": dict(WRITE)}})
+
+    assert "no read-only gateway" in str(caught.value)
+    assert "deployment admin" in str(caught.value)
+    # A connect error, not a write refusal: the chip cannot fix it.
+    assert refusal_phrase("readonly_run") not in str(caught.value)
+    # Refused before Channel Access was pointed anywhere: no ambient-network fallback.
+    assert loop.pointed_at == []
+    assert "EPICS_CA_ADDR_LIST" not in os.environ
+    assert connector._selected_role is None
+
+
+async def test_a_readonly_run_with_no_gateways_still_connects(monkeypatch, record_root):
+    """A gateway-less block (the queue worker's config) is not a write-gateway-only one."""
+    _armed(monkeypatch, record_root, on=True)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+
+    connector = EPICSConnector()
+    await connector.connect({"timeout_s": 5.0})
+
+    assert connector._selected_role is None
+    assert connector._write_gateway_configured is False
 
 
 async def test_a_write_gateway_only_machine_writes_once_on(monkeypatch, record_root, aioca):
