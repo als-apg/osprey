@@ -25,7 +25,7 @@ TAIL = "RuntimeError: refusing to start writable: the limits database could not 
 def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "osprey.deployment.runtime_helper.verify_runtime_is_running",
-        lambda config=None: (True, ""),
+        lambda config=None, **_: (True, ""),
     )
 
 
