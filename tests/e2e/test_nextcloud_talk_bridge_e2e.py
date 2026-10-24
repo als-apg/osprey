@@ -84,9 +84,9 @@ modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085, 19
 20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118) and clear of the
 thousand-port block a deployment claims from ``deployment.port_base``
 (10000-10999 at the default base). The
-dispatcher/worker pair deliberately takes **free** ports instead (:func:`_free_port`):
-they are per-run subprocesses with no need to be predictable, and a pin would collide
-with a developer's own running stack.
+dispatcher/worker pair deliberately binds port 0 instead and reports the port it got
+(:func:`tests.e2e._server_port.bound_port`): they are per-run subprocesses with no need
+to be predictable, and a pin would collide with a developer's own running stack.
 
 Gating: needs a container runtime whose daemon is actually running (not just the CLI
 installed) and the fixture image in the local store. Runtime is ``docker`` by default;
@@ -101,7 +101,6 @@ import json
 import os
 import re
 import shutil
-import socket
 import struct
 import subprocess
 import sys
@@ -134,6 +133,7 @@ from osprey.bridges.nextcloud_talk.client import (
 )
 from osprey.bridges.nextcloud_talk.events import FILE_PARAM_TYPE
 from osprey.bridges.nextcloud_talk.ops import ACK_TEXT, EMPTY_ANSWER_TEXT, ERROR_TEXT
+from tests.e2e._server_port import UVICORN_STARTUP, bound_port
 
 # ---------------------------------------------------------------------------
 # Container runtime selection — ``docker`` by default, ``podman`` opt-in via
@@ -691,33 +691,24 @@ def rooms(nextcloud: TalkFixture) -> Rooms:
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    """Bind to :0, read the assigned port, release it (standard free-port trick)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _drain_output(proc: subprocess.Popen) -> str:
-    """Best-effort grab of a subprocess's combined output for failure messages."""
-    if proc.stdout is None:
-        return "(no captured output)"
+def _drain_output(log: Path) -> str:
+    """The tail of a subprocess's log, for failure messages."""
     try:
-        data = proc.stdout.read1(16384) if hasattr(proc.stdout, "read1") else b""
-    except Exception:
-        data = b""
-    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
-    return f"--- subprocess output (partial) ---\n{text}" if text else "(no captured output)"
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "(no captured output)"
+    tail = "\n".join(lines[-40:])
+    return f"--- subprocess log (tail) ---\n{tail}" if tail else "(no captured output)"
 
 
-def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
+def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen, log: Path) -> None:
     """Poll ``url`` until it returns HTTP 200, or fail with the captured output."""
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             raise AssertionError(
-                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(proc)}"
+                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(log)}"
             )
         try:
             req = urllib.request.Request(url, method="GET")  # localhost only
@@ -730,7 +721,7 @@ def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
         time.sleep(0.5)
     raise AssertionError(
         f"timed out after {timeout:.0f}s waiting for {url} (last error: {last_err}).\n"
-        f"{_drain_output(proc)}"
+        f"{_drain_output(log)}"
     )
 
 
@@ -862,23 +853,23 @@ def _write_triggers(dst: Path, worker_port: int) -> None:
 
 @pytest.fixture(scope="module")
 def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict]:
-    """A real worker + dispatcher pair as subprocesses on free ports.
+    """A real worker + dispatcher pair as subprocesses, each on the port it bound.
 
     Module-scoped: the bridge is what these tests exercise, and the pair carries no state
     any assertion reads (every observation is made through the bridge's own dedup/offset
     stores), so one pair serves the whole module. Task 5.4 should reuse it too.
     """
-    worker_port = _free_port()
-    dispatcher_port = _free_port()
-    triggers_path = tmp_path_factory.mktemp("nextcloud_talk_triggers") / "triggers.yml"
-    _write_triggers(triggers_path, worker_port)
+    run_dir = tmp_path_factory.mktemp("nextcloud_talk_triggers")
+    triggers_path = run_dir / "triggers.yml"
+    worker_log = run_dir / "worker.log"
+    dispatcher_log = run_dir / "dispatcher.log"
 
     worker_proc: subprocess.Popen | None = None
     dispatcher_proc: subprocess.Popen | None = None
     try:
         worker_env = {
             **os.environ,
-            "DISPATCH_WORKER_PORT": str(worker_port),
+            "DISPATCH_WORKER_PORT": "0",
             "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
             # Repo root + the render's config one level down, exactly as the
             # dispatch_worker compose template wires the deployed worker.
@@ -890,14 +881,22 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
             "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),
             "CLAUDECODE": "",
         }
-        worker_proc = subprocess.Popen(  # fixed argv, no shell
-            [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-            cwd=str(built_repo),
-            env=worker_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        with worker_log.open("w") as log_fh:
+            worker_proc = subprocess.Popen(  # fixed argv, no shell
+                [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
+                cwd=str(built_repo),
+                env=worker_env,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+            )
+        # The worker binds port 0 and names the port in uvicorn's startup line.
+        worker_port = bound_port(
+            worker_log, UVICORN_STARTUP, child=worker_proc, timeout=HEALTH_TIMEOUT_SEC
         )
-        _wait_for_health(f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc)
+        _wait_for_health(
+            f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc, worker_log
+        )
+        _write_triggers(triggers_path, worker_port)
 
         dispatcher_env = {
             **os.environ,
@@ -905,21 +904,28 @@ def dispatch_stack(built_repo: Path, tmp_path_factory: pytest.TempPathFactory) -
             "EVENT_DISPATCHER_TOKEN": DISPATCH_TOKEN,
             "DISPATCH_WORKER_TOKEN": DISPATCH_TOKEN,
             "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": str(dispatcher_port),
+            "FASTMCP_PORT": "0",
             "FASTMCP_HOST": "127.0.0.1",
             "MCP_TRANSPORT": "http",
-            "MCP_PORT": str(dispatcher_port),
+            "MCP_PORT": "0",
             "CLAUDECODE": "",
         }
-        dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
-            [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(built_repo),
-            env=dispatcher_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        with dispatcher_log.open("w") as log_fh:
+            dispatcher_proc = subprocess.Popen(  # fixed argv, no shell
+                [sys.executable, "-m", "osprey.dispatch"],
+                cwd=str(built_repo),
+                env=dispatcher_env,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+            )
+        dispatcher_port = bound_port(
+            dispatcher_log, UVICORN_STARTUP, child=dispatcher_proc, timeout=HEALTH_TIMEOUT_SEC
         )
         _wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health", HEALTH_TIMEOUT_SEC, dispatcher_proc
+            f"http://127.0.0.1:{dispatcher_port}/health",
+            HEALTH_TIMEOUT_SEC,
+            dispatcher_proc,
+            dispatcher_log,
         )
 
         yield {
