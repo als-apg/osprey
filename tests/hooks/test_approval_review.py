@@ -19,7 +19,7 @@ import nbformat
 import pytest
 
 from osprey.stores.artifact_store import ArtifactStore
-from tests._control_context_fixtures import pin_identity, state_dir_under
+from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
 HOOK = "osprey_approval.py"
 EXECUTE = "mcp__python__execute"
