@@ -331,7 +331,14 @@ def chat(
 
     import yaml
 
-    from osprey.agent_runner.launcher import build_claude_launch_argv, build_session_argv
+    from osprey.agent_runner.launcher import (
+        _locate_claude,
+        build_claude_launch_argv,
+        build_session_argv,
+        launch_cli_version,
+        resolve_thinking_display,
+        warn_thinking_flag_withheld,
+    )
     from osprey.agent_runner.provider_env import (
         detect_managed_policy_conflicts,
         format_managed_policy_conflicts,
@@ -372,6 +379,23 @@ def chat(
     cc_config: dict = config.get("claude_code", {}) or {}
     if not effort:
         effort = cc_config.get("effort")
+
+    # A --print run is the one chat launch that states its thinking display by
+    # flag; an interactive session reads it from the rendered settings. The
+    # version is the one this launch runs, looked up the way the launch prefix
+    # is, so an older CLI is never handed a flag it would refuse. Resolved here,
+    # before the proxy and the companion servers, so a bad value refuses first.
+    thinking_display = None
+    if print_mode:
+        try:
+            cli_version = launch_cli_version(cc_config, _locate_claude(), no_pin=no_pin)
+            thinking = resolve_thinking_display(cc_config, cli_version)
+        except ValueError as exc:
+            raise click.ClickException(f"{config_path}: {exc}") from exc
+        if thinking.flag_allowed:
+            thinking_display = thinking.value
+        else:
+            warn_thinking_flag_withheld(cli_version)
 
     # load_provider_spec re-reads the rendered config.yml and expands ${VAR} in
     # provider config (e.g. a custom provider's base_url: ${ARGO_PROD_URL})
@@ -449,6 +473,7 @@ def chat(
         resume_id=resume,
         print_mode=print_mode,
         effort=effort,
+        thinking_display=thinking_display,
         prompt=" ".join(prompt) if prompt else None,
     )
 
