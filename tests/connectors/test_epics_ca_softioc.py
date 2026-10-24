@@ -25,16 +25,21 @@ from pathlib import Path
 
 import pytest
 
+import osprey_connectors
+
 pytest.importorskip("aioca", reason="the EPICS connector's Channel Access client")
 pytest.importorskip("epicscorelibs.ioc", reason="serves the soft IOC")
 
 DRIVER = Path(__file__).with_name("_epics_ca_driver.py")
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
-        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        str(CONNECTORS_ROOT),
     ]
 )
 RESULT_MARKER = "__RESULT__"

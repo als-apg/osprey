@@ -14,6 +14,10 @@ license = {text = "BSD-3-Clause"}
 # installed without the framework, whose `osprey.runtime` it calls.
 dependencies = [
     "accelerator-middle-layer-apg==0.3.1.post1",
+    # The backend raises and catches the connectors' own errors (device.py,
+    # devices.py, _run.py, errors.py). The same floor as the framework's
+    # `osprey-connectors` dependency (a test holds them together).
+    "osprey-connectors>=2026.6.2",
 ]
 
 [project.entry-points."pyaml.schemas"]

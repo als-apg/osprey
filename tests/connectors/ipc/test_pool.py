@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import osprey_connectors
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.ipc import _pool as pool_module
@@ -43,11 +44,14 @@ from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
-        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        str(CONNECTORS_ROOT),
         # The connectors suite's test-support connectors (osprey_connectors_tests).
         str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
     ]

@@ -9637,7 +9637,7 @@ CONNECTORS_ENVIRONMENT = "pypi-connectors"
 CONNECTORS_VERSION_STEP = "Verify built versions match tag"
 LEAN_WALK_SCRIPT = "scripts/ci/connectors_lean_import_walk.py"
 #: The always-on lanes that prove the package. The backward-compatibility lanes
-#: join the gate the day ci.yml grows them; the test below fails until they do.
+#: join the gate whenever ci.yml carries them; the test below fails if one is missing.
 CONNECTORS_LANES = frozenset({"test", "lint", "package", "connectors-standalone"})
 CONNECTORS_COMPAT_LANES = frozenset({"connectors-compat", "framework-at-connectors-floor"})
 
@@ -9756,10 +9756,16 @@ def test_the_connectors_gate_requires_the_connectors_lanes(
 
 
 def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
-    workflow = _load_workflow()
-    _jobs(workflow)["connectors-compat"] = {"name": "Connectors against older frameworks"}
+    """ci.yml carries a compatibility lane the connectors gate does not list."""
+    release = _load_connectors_release()
+    step = _gate_step(release, CONNECTORS_GATE_JOB)
+    step["env"][GREEN_LANES_ENV] = "\n".join(
+        line
+        for line in step["env"][GREEN_LANES_ENV].splitlines()
+        if not line.strip().startswith("connectors-compat=")
+    )
     with pytest.raises(AssertionError, match="the connectors gate requires"):
-        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+        test_the_connectors_gate_requires_the_connectors_lanes(_load_workflow(), release)
 
 
 def test_the_connectors_gate__mutation_renames_a_lane() -> None:
@@ -11447,3 +11453,280 @@ def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_lev
     )
     with pytest.raises(AssertionError, match="below a top-level test directory"):
         test_the_unit_shards_cover_the_test_tree_exactly_once(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Connectors compatibility lanes: Lane A runs HEAD connectors under every
+# supported framework release, Lane B runs HEAD framework at its connectors
+# floor, and the nightly runs Lane A and each release's own tests. Each stands
+# down until the cut-over, and the stand-down has to lift by data alone
+# ---------------------------------------------------------------------------
+
+COMPAT_PLAN_JOB = "connectors-compat-plan"
+COMPAT_JOB = "connectors-compat"
+FLOOR_COMPAT_JOB = "framework-at-connectors-floor"
+COMPAT_LISTED = "matrix.framework != ''"
+COMPAT_UNLISTED = "matrix.framework == ''"
+FLOOR_ARMED = "needs.connectors-compat-plan.outputs.floor-applicable == 'true'"
+FLOOR_DISARMED = "needs.connectors-compat-plan.outputs.floor-applicable != 'true'"
+COMPAT_MATRIX_SCRIPT = REPO_ROOT / "scripts" / "ci" / "connectors_compat_matrix.py"
+COMPAT_LANE = "python3 scripts/ci/connectors_compat_lane.py"
+NIGHTLY_YML = REPO_ROOT / ".github" / "workflows" / "connectors-compat-nightly.yml"
+NIGHTLY_PLAN_JOB = "plan"
+NIGHTLY_LANE_JOBS = ("connectors-compat", "release-tests")
+NIGHTLY_REPORT_JOB = "report-failure"
+
+
+def _compat_matrix_module() -> Any:
+    spec = importlib.util.spec_from_file_location("connectors_compat_matrix", COMPAT_MATRIX_SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_nightly() -> dict[str, Any]:
+    with NIGHTLY_YML.open() as f:
+        return yaml.safe_load(f)
+
+
+@pytest.fixture()
+def nightly() -> dict[str, Any]:
+    return _load_nightly()
+
+
+def _on(wf: dict[str, Any]) -> dict[str, Any]:
+    # PyYAML reads the bare key `on` as the boolean True.
+    return wf.get("on", wf.get(True))
+
+
+def _stand_down_problems(wf: dict[str, Any], job_name: str, armed: str, disarmed: str) -> list[str]:
+    """Why the job's one stand-down step is not the only thing its gate decides.
+
+    The first step runs when disarmed and does nothing but say so; every other
+    step runs exactly when armed. Anything else is a lane that can report
+    success with part of it switched off once the gate lifts.
+    """
+    steps = _jobs(wf)[job_name]["steps"]
+    problems = []
+    if steps[0].get("if") != disarmed or "uses" in steps[0]:
+        problems.append(f"first step {steps[0].get('name')!r} is not the '{disarmed}' stand-down")
+    for step in steps[1:]:
+        if step.get("if") != armed:
+            problems.append(f"step {step.get('name')!r} runs on {step.get('if')!r}, not '{armed}'")
+    return problems
+
+
+def _runs(wf: dict[str, Any], job_name: str) -> str:
+    return " ".join(str(step.get("run", "")) for step in _jobs(wf)[job_name]["steps"])
+
+
+def test_the_compat_lanes_read_the_plan(workflow: dict[str, Any]) -> None:
+    jobs = _jobs(workflow)
+    assert jobs[COMPAT_JOB]["needs"] == COMPAT_PLAN_JOB
+    assert jobs[FLOOR_COMPAT_JOB]["needs"] == COMPAT_PLAN_JOB
+    assert jobs[COMPAT_JOB]["strategy"]["matrix"] == (
+        "${{ fromJSON(needs.connectors-compat-plan.outputs.matrix) }}"
+    )
+    plan_runs = [step.get("run", "") for step in jobs[COMPAT_PLAN_JOB]["steps"]]
+    assert "python3 scripts/ci/connectors_compat_matrix.py github-output" in plan_runs
+
+
+@pytest.mark.parametrize("source", ["ci", "nightly"])
+def test_the_plan_reads_the_full_history(source: str) -> None:
+    """The plan holds the declarations to every tag reachable from HEAD, which a
+    shallow checkout hides (the script refuses one)."""
+    wf, job = (
+        (_load_workflow(), COMPAT_PLAN_JOB)
+        if source == "ci"
+        else (_load_nightly(), NIGHTLY_PLAN_JOB)
+    )
+    checkout = _jobs(wf)[job]["steps"][0]
+    assert checkout["uses"].startswith("actions/checkout@")
+    assert checkout.get("with", {}).get("fetch-depth") == 0
+
+
+def test_the_compat_lanes_carry_no_job_level_condition(workflow: dict[str, Any]) -> None:
+    """A job-level ``if:`` would skip the lane, which the gate reads as red; the
+    stand-down is a step so the lane is green for the reason its log states."""
+    for job_name in (COMPAT_PLAN_JOB, COMPAT_JOB, FLOOR_COMPAT_JOB):
+        assert "if" not in _jobs(workflow)[job_name], job_name
+
+
+def test_lane_a_stands_down_only_on_the_empty_cell(workflow: dict[str, Any]) -> None:
+    assert _stand_down_problems(workflow, COMPAT_JOB, COMPAT_LISTED, COMPAT_UNLISTED) == []
+
+
+def test_lane_a_stands_down_only_on_the_empty_cell__mutation_gates_a_step_elsewhere() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[COMPAT_JOB]["steps"][-1]["if"] = "github.event_name == 'push'"
+    assert len(_stand_down_problems(mutated, COMPAT_JOB, COMPAT_LISTED, COMPAT_UNLISTED)) == 1
+
+
+def test_lane_b_stands_down_only_while_the_floor_predates_independence(
+    workflow: dict[str, Any],
+) -> None:
+    assert _stand_down_problems(workflow, FLOOR_COMPAT_JOB, FLOOR_ARMED, FLOOR_DISARMED) == []
+
+
+def test_lane_b_stands_down_only_while__mutation_ungates_a_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[FLOOR_COMPAT_JOB]["steps"][-1].pop("if")
+    assert len(_stand_down_problems(mutated, FLOOR_COMPAT_JOB, FLOOR_ARMED, FLOOR_DISARMED)) == 1
+
+
+def test_the_empty_cell_prints_the_reason_the_plan_gives() -> None:
+    """One wording, the script's: the stand-down step echoes the cell's reason."""
+    for wf, job in [(_load_workflow(), COMPAT_JOB)] + [
+        (_load_nightly(), j) for j in NIGHTLY_LANE_JOBS
+    ]:
+        step = _jobs(wf)[job]["steps"][0]
+        assert step["env"] == {"REASON": "${{ matrix.reason }}"}, job
+        assert step["run"].strip() == 'echo "$REASON"', job
+    assert _compat_matrix_module().matrix([])["include"][0]["reason"]
+
+
+def test_lane_a_runs_the_shared_steps(workflow: dict[str, Any]) -> None:
+    """The nightly's dry run exercises Lane A only if both run the same driver;
+    the driver runs every compat script ``python -I`` (test_connectors_compat_lane.py)."""
+    for wf, job in ((workflow, COMPAT_JOB), (_load_nightly(), "connectors-compat")):
+        runs = _runs(wf, job)
+        assert f"{COMPAT_LANE} install" in runs, job
+        assert f"{COMPAT_LANE} check" in runs, job
+        assert "osprey_connectors_tests/compat" not in runs, job
+
+
+def test_lane_a_installs_the_wheel_built_at_head(workflow: dict[str, Any]) -> None:
+    runs = _runs(workflow, COMPAT_JOB)
+    assert "uv build --package osprey-connectors --wheel --out-dir dist/" in runs
+    assert "--connectors head" in runs
+
+
+def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str, Any]) -> None:
+    """Only the connectors leave the workspace. ``--no-sources`` drops every
+    workspace source (``--no-sources-package osprey-connectors`` alone leaves the
+    root's pyaml-cs-osprey one, which ``uv pip install`` of the root refuses), so
+    the workspace pyaml-cs-osprey is named by its path or it would come from PyPI."""
+    install = _find_named_step(
+        workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
+    )["run"]
+    assert "--no-sources " in install
+    assert "-e ./packages/pyaml-cs-osprey " in install
+    assert '"osprey-connectors==$FLOOR"' in install
+
+
+def test_lane_b_holds_the_suites_to_the_floor(workflow: dict[str, Any]) -> None:
+    runs = _runs(workflow, FLOOR_COMPAT_JOB)
+    assert (
+        f"{COMPAT_LANE} assert-installed --python .venv/bin/python --module osprey_connectors "
+        '--connectors-version "$FLOOR"'
+    ) in runs
+    assert (
+        f"{COMPAT_LANE} pytest --python .venv/bin/python --installed osprey_connectors --" in runs
+    )
+    scan = _find_named_step(
+        workflow, FLOOR_COMPAT_JOB, "Scan the framework for connectors names the floor lacks"
+    )["run"]
+    assert scan.startswith(".venv/bin/python -I ")
+    assert "src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey" in scan
+
+
+def test_the_stand_down_lifts_once_the_floor_is_an_independent_release() -> None:
+    """The declarations agree with the tags this checkout carries. Only the plan
+    job is authoritative for the tag rules: a shallow checkout, or one with no
+    framework tag after the last paired release, checks what it can."""
+    compat = _compat_matrix_module()
+    try:
+        tags: list[str] | None = compat.reachable_tags()
+    except ValueError:
+        tags = None
+    if tags is not None and not compat.framework_releases(tags):
+        tags = None
+    assert (
+        compat.problems(
+            compat.supported_frameworks(),
+            compat.retired_frameworks(),
+            compat.connectors_floor(),
+            tags,
+        )
+        == []
+    )
+
+
+def test_the_stand_down_lifts__mutation_raises_the_floor_without_its_tag() -> None:
+    compat = _compat_matrix_module()
+    assert compat.problems([], [], compat.FIRST_INDEPENDENT_CONNECTORS, []) != []
+
+
+# -- the nightly ---------------------------------------------------------------
+
+
+def test_the_nightly_dispatch_names_a_release_and_the_connectors(nightly: dict[str, Any]) -> None:
+    inputs = _on(nightly)["workflow_dispatch"]["inputs"]
+    assert inputs["framework"]["default"] == ""
+    assert inputs["connectors"]["default"] == "head"
+    assert nightly["env"]["CONNECTORS"] == "${{ inputs.connectors || 'head' }}"
+    plan = _jobs(nightly)[NIGHTLY_PLAN_JOB]["steps"][-1]
+    assert plan["env"] == {"DISPATCHED": "${{ inputs.framework }}"}
+    assert plan["run"] == (
+        'python3 scripts/ci/connectors_compat_matrix.py github-output --framework "$DISPATCHED"'
+    )
+
+
+@pytest.mark.parametrize("job", NIGHTLY_LANE_JOBS)
+def test_the_nightly_lanes_stand_down_only_on_the_empty_cell(
+    nightly: dict[str, Any], job: str
+) -> None:
+    jobs = _jobs(nightly)
+    assert "if" not in jobs[job], job
+    assert jobs[job]["needs"] == NIGHTLY_PLAN_JOB
+    assert jobs[job]["strategy"]["matrix"] == "${{ fromJSON(needs.plan.outputs.matrix) }}"
+    assert _stand_down_problems(nightly, job, COMPAT_LISTED, COMPAT_UNLISTED) == []
+
+
+def test_the_nightly_lanes_stand_down__mutation_ungates_a_step() -> None:
+    mutated = _load_nightly()
+    _jobs(mutated)["release-tests"]["steps"][-1].pop("if")
+    assert len(_stand_down_problems(mutated, "release-tests", COMPAT_LISTED, COMPAT_UNLISTED)) == 1
+
+
+def test_the_release_tests_run_guarded_against_the_installed_packages(
+    nightly: dict[str, Any],
+) -> None:
+    runs = _runs(nightly, "release-tests")
+    assert f'{COMPAT_LANE} install --venv "$RELEASE_DIR/.venv"' in runs
+    assert "--extra dev" in runs
+    assert f"{COMPAT_LANE} replace-connectors-tree" in runs
+    assert "--installed osprey --installed osprey_connectors --" in runs
+    assert "rm -rf" not in runs, "the release's sources stay: its tests read them"
+
+
+def test_only_the_report_job_may_write_issues(nightly: dict[str, Any]) -> None:
+    assert nightly["permissions"] == {"contents": "read"}
+    jobs = _jobs(nightly)
+    for name, job in jobs.items():
+        if name != NIGHTLY_REPORT_JOB:
+            assert "issues" not in json.dumps(job.get("permissions", {})), name
+            assert "gh issue" not in json.dumps(job), name
+    assert jobs[NIGHTLY_REPORT_JOB]["permissions"] == {"actions": "read", "issues": "write"}
+
+
+def test_the_report_job_files_for_a_failed_scheduled_run(nightly: dict[str, Any]) -> None:
+    """Every other job is needed, the plan's failure included, and a dispatched
+    dry run files nothing."""
+    report = _jobs(nightly)[NIGHTLY_REPORT_JOB]
+    assert set(report["needs"]) == set(_jobs(nightly)) - {NIGHTLY_REPORT_JOB}
+    assert report["if"] == "failure() && github.event_name == 'schedule'"
+    assert all("uses" not in step for step in report["steps"]), "the report job checks nothing out"
+
+
+def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -> None:
+    checkouts = [
+        (name, step)
+        for name, job in _jobs(nightly).items()
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == 4
+    for name, step in checkouts:
+        assert step["with"]["persist-credentials"] is False, (name, step.get("name"))
