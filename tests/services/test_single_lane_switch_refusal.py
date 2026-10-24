@@ -45,8 +45,12 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
-from osprey_connectors import control_context, posture_store
-from osprey_connectors_tests._harness import owner, write_control_context
+from osprey_connectors import control_context
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    owner,
+    write_control_context,
+)
 from tests._control_system import IN_PROCESS, section_for
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
@@ -79,23 +83,25 @@ def deployment(tmp_path, monkeypatch):
     """
 
     def _stage(baseline: str) -> None:
-        control_system = {**section_for(_BASELINE_TYPES[baseline]), "writes_enabled": True}
+        control_system = {**section_for(_BASELINE_TYPES[baseline]), "writes": "allowed"}
 
         # The baseline comes from the shared resolver reading the deployment
         # config; the tool module reads the write posture separately.
         monkeypatch.setattr(
             target_banner, "load_osprey_config", lambda: {"control_system": control_system}
         )
+        # Stage 1 of approval reads the rendered config too. These cases call
+        # the tools with no approval hook in front of them, so approval is off
+        # (tests/mcp_server/bluesky/test_queue_approval_record.py has it on).
+        monkeypatch.setattr(
+            "osprey_connectors.workspace.load_osprey_config",
+            lambda: {"control_system": control_system, "approval": {"enabled": False}},
+        )
 
         def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            # The whole section, not only the deployment-wide flag: write
-            # posture is resolved per control target out of
-            # `control_system.connector`, so a stub serving one dotted key would
-            # answer "unarmed" for every lane whatever this deployment says.
-            return {
-                "control_system": control_system,
-                "control_system.writes_enabled": True,
-            }.get(key, default)
+            # The whole section: the write verdict reads the tier and resolves
+            # the lane's target out of it.
+            return {"control_system": control_system}.get(key, default)
 
         monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
@@ -103,7 +109,7 @@ def deployment(tmp_path, monkeypatch):
         # that at tmp_path is what keeps one test's deployment out of another's,
         # and out of whatever record this machine happens to be carrying.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+        isolate_verdict_environment(monkeypatch, tmp_path)
         control_context.invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _TOKEN)
@@ -166,8 +172,30 @@ async def test_queue_add_reaches_the_bridge_with_no_record(deployment, baseline)
 
 
 @pytest.mark.parametrize("baseline", ["live", "va"])
-async def test_queue_start_reaches_the_bridge_with_no_record(deployment, baseline):
+async def test_queue_start_with_no_record_passes_the_target_gate_to_the_verdict(
+    deployment, baseline
+):
+    """No record is no mismatch: the start reaches the write verdict, not this gate.
+
+    With no record every switch is off, so the verdict refuses ``switch_off``;
+    what this pins is that the refusal is the verdict's, never
+    ``control_target_mismatch``.
+    """
     deployment(baseline)
+    with patch(f"{_MOD}._http_post_json") as post:
+        with assert_raises_error(error_type="writes_disabled") as ctx:
+            await _start()
+
+    post.assert_not_called()
+    assert ctx["envelope"]["details"]["reason"] == "switch_off"
+
+
+@pytest.mark.parametrize("baseline", ["live", "va"])
+async def test_queue_start_on_the_baseline_reaches_the_bridge_when_switched_on(
+    deployment, baseline
+):
+    root = deployment(baseline)
+    _deployment_on(root, baseline, switch={baseline: "on"})
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as post:
         with patch(f"{_MOD}.notify_agent_activity_async"):
             await _start()

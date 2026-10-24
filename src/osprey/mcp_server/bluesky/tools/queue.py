@@ -27,23 +27,20 @@ the two answer the same bridge code the same way.
 guard them, both enforced BEFORE any HTTP call — but only the first is carried
 everywhere:
 
-1. A write-posture re-read for the control target the BOUND LANE serves, made
-   through the one rule every OSPREY write path shares
-   (``osprey_connectors.posture_store.effective_writes``): the deployment
-   ceiling ``control_system.connector.<type>.writes_enabled`` — inheriting the
-   deployment-wide ``control_system.writes_enabled`` where that type has no
-   block of its own — ANDed with ``is_readonly_run()`` and with the operator's
-   per-target narrowing from the header chip, read from the deployment's
-   control-context record. The ceiling half is
-   the same resolver ``ControlSystemConnector._writes_enabled`` reads, so the
-   queue agrees with every other write path about which targets a deployment
-   arms; the recorded half can only narrow that, never widen it, and it is what
-   lets an operator take one machine out of the agent's reach without
-   respawning the session. Re-read fresh on every call, never cached, so a
-   hook-bypassed invocation carrying a valid launch token is still refused.
-   Per target is the point of it: a deployment whose live machine is
-   deliberately unarmed still runs plans on its virtual-accelerator lane, and
-   the lane a call binds to is what decides which posture applies to it.
+1. The write verdict for the control target the BOUND LANE serves
+   (``osprey_connectors.posture_store.write_verdict``), the one verdict every
+   OSPREY write path shares: a read-only run, the deployment's tier, the target,
+   the owner, the record and the owner's switch, in one order, first refusal
+   wins. It is the same verdict ``ControlSystemConnector``'s reference monitor
+   asks, so the queue agrees with every other write path about which machines
+   may be written. A refusal is the verdict's phrase
+   (``osprey_connectors.refusals.refusal_phrase``), which says who can lift it
+   and names no config key. Asked fresh on every call, never cached, so a
+   hook-bypassed invocation carrying a valid launch token is still refused and
+   a switch turned off reaches the next call. Per target is the point of it: a
+   deployment whose real machine is switched off still runs plans on its
+   simulator lane, and the lane a call binds to is what decides which verdict
+   applies to it.
 2. A client-side launch-token presence check, so an unarmed server refuses
    locally with no network call.
 
@@ -115,7 +112,8 @@ an HTTP 4xx/5xx whose ``detail`` is ``{"code", "detail", ...extras}``, where
 tool that renamed a refusal would put the agent and the panel on different
 vocabularies for the same event. The only envelopes minted here are the three
 local refusals (``writes_disabled``, ``launch_token_required``,
-``control_target_mismatch``) and a last-resort ``bluesky_bridge_error`` for a
+``control_target_mismatch``), the two approval-record refusals
+(``approval_missing``, ``approval_config_invalid``) and a last-resort ``bluesky_bridge_error`` for a
 bridge response that carried no structured detail at all.
 
 **No reason-code constants are imported here, and exactly one is spelled out.**
@@ -177,12 +175,7 @@ from osprey.mcp_server.control_system.target_banner import (
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey_connectors import posture_store
-from osprey_connectors.control_system import is_readonly_run
-from osprey_connectors.types import (
-    WRITES_ENABLED_KEY,
-    baseline_target,
-    target_writes_enabled_key,
-)
+from osprey_connectors.types import baseline_target
 
 # The capability reason code for "the deployment is on a control target
 # its single plan lane does not serve". Defined as a constant in
@@ -342,263 +335,143 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
 }
 
 
-def _writes_enabled(lane_target: str | None) -> bool:
-    """Fail-closed re-read of the write posture for ONE lane's control target.
+def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
+    """The write verdict for ONE lane's control target, read fresh on every call.
 
     *lane_target* is the target the bound lane declares
     (:attr:`~osprey.mcp_server.bluesky.lanes.Lane.target`), so a deployment that
-    renders two lanes gets two answers: arming the virtual accelerator does not
-    arm the live machine, and a live machine left unarmed does not stop plans
-    running on the simulator.
+    renders two lanes gets two answers: switching the simulator on does not arm
+    the real machine, and a real machine left off does not stop plans running
+    on the simulator.
 
-    ``None`` means NO LANE IS BOUND, and it is defensive rather than reachable
-    from a bound lane: ``discover_lanes`` substitutes the deployment baseline
-    for a lane whose config block names no target, so a :class:`Lane` never
-    yields ``None`` here. It resolves the deployment baseline for the same
-    reason ``discover_lanes`` does — that is the target an unlabelled lane
-    serves by construction — so a future caller with no lane in hand gets the
-    baseline's posture rather than a fail-open read of nothing.
+    ``None`` means NO LANE IS BOUND. It resolves the deployment baseline, the
+    target an unlabelled lane serves by construction (``discover_lanes`` makes
+    the same substitution), so a caller with no lane in hand gets the
+    baseline's verdict rather than a fail-open read of nothing.
 
-    Asks the ONE rule every OSPREY write path shares,
-    :func:`osprey_connectors.posture_store.effective_writes`, so the queue's
-    arming gate cannot answer differently from the connector's reference
-    monitor, the executor's gate or the PreToolUse hook:
-
-        ceiling ∧ not is_readonly_run() ∧ (recorded narrowing ≠ sandbox)
-
-    The ceiling is the deployment's own posture, unchanged — the per-type key
-    ``control_system.connector.<type>.writes_enabled``, inheriting the
-    deployment-wide ``control_system.writes_enabled`` where a type has no block.
-    The read-only run is ANDed in because a sandbox session must be refused here
-    as it is at the connector rather than only by the hook chain. The third term
-    is the operator's per-target narrowing from the header chip, read from the
-    deployment's control-context record and indexed by THIS LANE's target: it
-    can only narrow the ceiling. Enforcing it here rather than at spawn is what
-    lets an operator take one machine out of the agent's reach without
-    respawning the session mid-conversation.
+    Asks the ONE verdict every OSPREY write path shares,
+    :func:`osprey_connectors.posture_store.write_verdict`, over the deployment's
+    ``control_system`` section, with the owner left to the verdict's own ladder
+    (:func:`~osprey_connectors.posture_store.current_owner`). So the queue's
+    arming gate refuses for the same reason, in the same order, as the
+    connector's reference monitor, the executor's gate and the PreToolUse hook:
+    a read-only run, a tier that allows nothing, a target this deployment does
+    not know, an owner it cannot name, a record it cannot read, a switch that
+    is off.
 
     Deliberately NOT cached on the BridgeContext singleton — the whole point is
     a fresh read on every call, so a hook-bypassed invocation holding a valid
-    launch token is still refused.
+    launch token is still refused, and a switch turned off reaches this server
+    at its next arming call.
 
-    The except clause is broad on purpose. Every way this answer can fail to be
-    computed — no config, an unreadable one, a resolver meeting a config shape
-    nobody anticipated — is a deployment whose posture is unknown, and unknown
-    posture must not arm hardware.
+    Never raises. ``write_verdict`` never raises by contract; reading the
+    section or naming the baseline can, and a verdict that cannot be reached
+    refuses as ``record_unavailable``.
     """
     try:
         from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
-        return posture_store.effective_writes(section, target)
-    except Exception:
-        return False
-
-
-def _any_lane_writes_enabled() -> bool:
-    """Whether ANY plan lane this deployment renders is armed for writes.
-
-    The gate ``queue_stop(cancel=True)`` needs, and the reason it is the union
-    rather than one lane's answer: withdrawing a halt is addressed to the lane
-    whose queue is actually draining, and finding that lane means asking every
-    bridge over the network — after this local gate has already had to decide.
-    A deployment with no armed target anywhere can never need to withdraw a
-    halt, so refusing there costs nothing; anything else falls through to
-    :func:`_refuse_unarmed`, which is per lane by construction because the
-    launch token is.
-
-    The union is over the targets the RENDERED LANES serve, and nothing else.
-    Two wider sets would both be wrong here. Unioning over the target *names*
-    would let a target the config never described — ``live`` on a
-    virtual-accelerator deployment — inherit the deployment-wide key and arm a
-    withdrawal on the only lane there is, the one the operator had explicitly
-    unarmed with its own block. Unioning over the targets the *deployment* could
-    be switched to would be a different question again: a halt is addressed to the
-    lane whose queue is draining, which is where the hardware is moving rather
-    than where the deployment is pointed, so the deployment's reach has no bearing
-    on it. The lanes are what a withdrawal can possibly land on, so they are what
-    this gate asks about. Nothing downstream re-checks: the bridge's stop
-    endpoint carries no posture check of its own, so this gate is the whole
-    defense.
-
-    Each term is :func:`_writes_enabled`'s whole rule for one target, session
-    narrowing included — withdrawing a halt RESUMES motion, so a session that
-    took every rendered lane's machine out of its own reach must not be able to
-    perform it. The union over narrowed terms is still a union: narrowing one
-    lane on a two-lane deployment leaves the other one able to withdraw.
-
-    Same broad except clause, and the same reason, as :func:`_writes_enabled`.
-    """
-    try:
-        from osprey_connectors.config import get_config_value
-
-        section = get_config_value("control_system", {})
-        # `discover_lanes`, not `resolve_lane_situation`: the rendered set is
-        # all this needs, and reading session state to answer a question about
-        # halting would tie the two together for no reason.
-        targets = {lane.target for lane in discover_lanes(baseline_target(section))}
-        return any(posture_store.effective_writes(section, target) for target in targets)
-    except Exception:
-        return False
-
-
-def _session_narrowed(lane_target: str | None) -> bool:
-    """Whether the SESSION's header chip is what unarmed the refused target.
-
-    Wording only: :func:`_writes_enabled` has already refused by the time this
-    is asked, and this decides which of the three sentences the refusal is. An
-    operator sent to ``profile.yml`` for a narrowing they set from the header
-    chip would be told to rebuild a deployment whose config already says
-    ``true`` — the one instruction guaranteed not to change anything.
-
-    ``None`` asks the question :func:`_any_lane_writes_enabled` refused on, not
-    the baseline's: EVERY rendered lane's target is narrowed. Falling back to
-    the baseline target here (as :func:`_writes_enabled` does, where it is the
-    posture of a lane nobody bound) would read the wrong entry entirely — a
-    single-lane deployment serving ``standin`` has a ``live`` baseline, and no
-    narrowing of the machine it never runs plans on is what refused anything.
-
-    Reads the store directly rather than differencing :func:`_writes_enabled`
-    against the ceiling: the entry either names the target or it does not, and
-    asking for it is the whole question.
-
-    Fails to ``False`` — the config-key sentence — for the same reason
-    :func:`_writes_enabled` fails to ``False``: an unreadable store is not
-    evidence that a narrowing exists, and the deployment key is the answer that
-    is true of every refusal here.
-    """
-    try:
-        if lane_target is not None:
-            targets: list[str] = [lane_target]
-        else:
-            from osprey_connectors.config import get_config_value
-
-            section = get_config_value("control_system", {})
-            targets = [lane.target for lane in discover_lanes(baseline_target(section))]
-        return bool(targets) and all(
-            posture_store.target_posture(target) == posture_store.POSTURE_SANDBOX
-            for target in targets
+        return posture_store.write_verdict(section, target)
+    except Exception:  # unknown posture must not arm hardware
+        logger.warning("Write verdict for lane target %r could not be reached", lane_target)
+        return posture_store.WriteVerdict(
+            allowed=False, reason="record_unavailable", target=lane_target, kind=None
         )
-    except Exception:
-        return False
 
 
-def _writes_enabled_key(lane_target: str | None) -> str:
-    """The config key an operator would set to arm writes for one lane's target.
+def _halt_lane_target(halt_lane: str | None) -> str | None:
+    """The control target the lane a halt is addressed to serves, or ``None``.
 
-    The RESOLVED per-type key, ``control_system.connector.<type>.writes_enabled``,
-    because that is where the posture for this lane's machine is read from.
-    Naming the deployment-wide key instead would send an operator to arm every
-    target at once, including the machine they deliberately left unarmed.
+    *halt_lane* is :func:`resolve_halt_lane`'s answer. A lane key is looked up
+    among the lanes this deployment RENDERS; ``None`` — the single-lane answer —
+    maps to the one lane there is. ``None`` comes back when nothing maps: a key
+    no rendered lane carries, or ``None`` on a deployment that renders more than
+    one lane. The caller refuses then, because a withdrawal whose machine cannot
+    be named cannot be given that machine's verdict.
 
-    :data:`~osprey_connectors.types.WRITES_ENABLED_KEY` is named only when the
-    target resolves to no connector type at all — an unknown target, or ``live``
-    on a deployment that has never described its real machine — where the
-    deployment-wide key IS the whole posture that deployment has.
+    Never raises: a config that cannot be read maps nothing.
     """
     try:
         from osprey_connectors.config import get_config_value
 
         section = get_config_value("control_system", {})
-        return target_writes_enabled_key(section, lane_target or baseline_target(section))
+        lanes = discover_lanes(baseline_target(section))
     except Exception:
-        return WRITES_ENABLED_KEY
+        logger.debug("Could not map the halt lane %r to a target", halt_lane, exc_info=True)
+        return None
+    if halt_lane is None:
+        return lanes[0].target if len(lanes) == 1 else None
+    for lane in lanes:
+        if lane.key == halt_lane:
+            return lane.target
+    return None
+
+
+def _refusal_text(verdict: posture_store.WriteVerdict) -> tuple[str, str]:
+    """The verdict's reason, and the phrase an operator reads for it.
+
+    A refused verdict always carries a reason; ``record_unavailable`` stands in
+    for one that somehow does not, so a refusal is never worded as nothing.
+    """
+    from osprey_connectors.refusals import refusal_phrase
+
+    reason = verdict.reason or "record_unavailable"
+    return reason, refusal_phrase(reason, verdict.kind)
 
 
 def _refuse_writes_disabled(
-    refused: str, key: str, *, lane: str | None = None, target: str | None = None
+    refused: str, verdict: posture_store.WriteVerdict, *, lane: str | None = None
 ) -> NoReturn:
-    """The local write-posture refusal: nothing here is armed, so this arms nothing.
+    """The local write-verdict refusal: the verdict refused, so this arms nothing.
 
-    *key* is the resolved posture key :func:`_writes_enabled_key` returned for
-    whatever was refused, and it is what makes the refusal actionable: an
-    operator sent to the deployment-wide key would arm every target rather than
-    the one lane whose plans they wanted to run.
-
-    Three refusals share this code, and they differ only in the sentence,
-    because the thing to do about each is different. A read-only run and a
-    deployment narrowed for this target from the header chip are both postures
-    the config cannot speak for: telling an operator to edit a key that may already
-    say ``true`` would send them to change something that is not what stopped
-    this. Only the third — the deployment never armed this target — is answered
-    by a config key.
+    The message is the verdict's phrase
+    (:func:`osprey_connectors.refusals.refusal_phrase`), which says who can lift
+    the refusal and names no config key, file or command: every reason the
+    verdict can give is lifted by a person (the chip, the deployment admin), never
+    by an edit the agent could attempt. ``details`` carries the reason and the
+    target the verdict was asked about, and the lane when one was bound, so a
+    caller branches on the reason rather than on the wording.
     """
-    if is_readonly_run():
-        make_error(
-            "writes_disabled",
-            f"This session runs in the read-only sandbox posture "
-            f"(OSPREY_EXECUTION_MODE=readonly), which refuses control-system writes "
-            f"whatever this deployment's config says, so {refused} is refused.",
-            [
-                f"Nothing in config.yml unblocks this: {refused} is an arming action, "
-                f"and this session gave up arming when it went read-only.",
-                f"Hand the action to the operator, who can perform {refused} from the "
-                f"BLUESKY queue panel.",
-            ],
-        )
-
-    if _session_narrowed(target):
-        if target:
-            served = f", which this deployment's {lane!r} plan lane serves" if lane else ""
-            subject = (
-                f"The deployment's posture (header chip) is read-only for the "
-                f"{target!r} control target{served}"
-            )
-            machine = f"{target!r}"
-        else:
-            subject = (
-                "The deployment's posture (header chip) is read-only for every control "
-                "target its plan lanes serve"
-            )
-            machine = "those targets"
-        make_error(
-            "writes_disabled",
-            f"{subject}, so {refused} is refused.",
-            [
-                "The deployment config is not the gate here: what refused is the "
-                "narrowing an operator set for THIS target, so no config edit, "
-                "rebuild or redeploy lifts it.",
-                f"An operator turning writes back on for {machine} on the header chip "
-                f"does lift it, and it reaches this session immediately — the session "
-                f"does not have to be restarted.",
-                f"Until then, hand the action to the operator, who can perform "
-                f"{refused} from the BLUESKY queue panel.",
-            ],
-        )
-
-    if lane and target:
-        subject = (
-            f"Control-system writes are not armed for the {target!r} target, which "
-            f"this deployment's {lane!r} plan lane serves"
-        )
-    elif target:
-        subject = f"Control-system writes are not armed for the {target!r} target"
-    else:
-        subject = (
-            "Control-system writes are not armed for any target this deployment's plan lanes serve"
-        )
-
-    suggestions = [
-        f"Enabling writes is an operator action: set {key}: true in the build "
-        f"profile (profile.yml on the host), then rebuild and redeploy, to allow "
-        f"{refused}."
-    ]
-    if target is None:
-        # No lane was bound, so no single target is being talked about. Say that
-        # the posture is per target all the same, or an operator who
-        # deliberately unarmed one machine reads the deployment-wide key as the
-        # whole story and cannot see why setting it changed nothing for them.
-        suggestions.append(
-            "Write posture is per control target: a target whose own "
-            "control_system.connector.<type>.writes_enabled says otherwise keeps "
-            "what it says, whatever the deployment-wide key is set to."
-        )
-
+    reason, phrase = _refusal_text(verdict)
     make_error(
         "writes_disabled",
-        f"{subject} ({key} is not true in config.yml), so {refused} is refused.",
-        suggestions,
+        f"{phrase} {refused} was refused before reaching the bridge.",
+        [
+            f"Hand the action to the operator, who can perform {refused} from the "
+            f"BLUESKY queue panel.",
+        ],
+        details={"reason": reason, "target": verdict.target, "lane": lane},
+    )
+
+
+def _require_approval_record(tool: str, *, lane: str | None) -> None:
+    """Refuse an arming call its approval prompt left no record of.
+
+    Stage 1 of approval
+    (:func:`~osprey.mcp_server.approval_record.require_approval_record`): where
+    the deployment's policy for *tool* asks, the call runs only on the ask stamp
+    the approval hook filed for it, so a call that reached this server without
+    passing the prompt is refused here before the bridge is called. The rendered
+    ``config.yml`` is read fresh on every call, as the verdict is. The refusal's
+    ``error_type`` is the record's (``approval_missing`` or
+    ``approval_config_invalid``) and its message the record's sentence.
+    """
+    from osprey.mcp_server.approval_record import require_approval_record
+    from osprey_connectors.workspace import load_osprey_config
+
+    refusal = require_approval_record(tool, load_osprey_config())
+    if refusal is None:
+        return
+    make_error(
+        refusal.error_type,
+        f"{refusal.message} {tool} was refused before reaching the bridge.",
+        [
+            f"Call {tool} again so the approval prompt can ask the human, or hand the "
+            f"action to the operator on the BLUESKY queue panel.",
+        ],
+        details={"lane": lane},
     )
 
 
@@ -1224,14 +1097,13 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     (``manager_state`` running/starting, or autostart observed on): the item
     would then execute with no further human action. In that case the bridge
     requires the launch token, and this tool attaches the token only while
-    writes are armed for the control target the bound lane serves —
-    ``control_system.connector.<type>.writes_enabled``, inheriting the
-    deployment-wide ``control_system.writes_enabled`` where that type has no
-    block of its own, re-read fresh on every call, and never armed at all in a
-    read-only session. So on a lane whose target is unarmed you can still
-    compose a queue, and are refused precisely at the point where adding would
-    mean executing. A deployment that arms one target and not the other gets
-    that answer per lane, not once for the whole deployment.
+    the write verdict allows writes to the control target the bound lane
+    serves, asked fresh on every call. So on a lane whose machine is switched
+    off you can still compose a queue: the item is added unarmed, the result
+    carries ``writes_refused`` with the verdict's reason and phrase, and you are
+    refused precisely at the point where adding would mean executing. A
+    deployment with one machine on and the other off gets that answer per lane,
+    not once for the whole deployment.
 
     A revision is consumable exactly once. Queuing the same plan twice — a
     repeat plan, a retry — needs a draft edit (set_draft) to mint a new
@@ -1272,13 +1144,19 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
           that made it armed. Either this server was not granted a token in
           this deployment, or the token it holds does not match the bridge's —
           hand the add to the operator either way — or this
-          server withheld it because the bound lane's target is not armed for
-          writes (then arming that target, an operator action, is what unblocks
-          it, and the suggestions name the exact key). Neither is
+          server withheld it because the write verdict refuses the bound lane's
+          target (then the suggestions carry the verdict's phrase, which says
+          who can lift it). Neither is
           agent-recoverable, and neither is a config
           edit for you to attempt. If ``details.item_left_behind`` is
           true, an item could NOT be withdrawn and is sitting in an armed queue
           — ``details.item_uid`` names it and a human must deal with it.
+        - approval_missing / approval_config_invalid: the write verdict
+          allows this add, so it may arm the queue, and the deployment's
+          approval policy asks about it, but its prompt left no record (or the
+          approval switch is malformed). Refused before the bridge is called;
+          call again so the prompt can ask. An add the verdict refuses is
+          posted unarmed and is never refused for this.
         - stale_draft_revision: the draft changed after you pinned it. Re-read
           get_draft and add the revision it reports now.
         - draft_revision_already_launched: this revision was already queued.
@@ -1322,18 +1200,23 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     # (lane, revision) the pin rather than the revision alone.
     bound = _bind_lane("Queuing a Bluesky PLAN", requested=lane)
 
-    # Read the posture ONCE, for the target the bound lane serves, and reuse the
-    # answer so the header decision and the refusal wording can never disagree
-    # about it.
-    writes_ok = _writes_enabled(bound.target)
+    # Ask the verdict ONCE, for the target the bound lane serves, and reuse the
+    # answer so the header decision and the wording can never disagree about it.
+    verdict = _lane_verdict(bound.target)
     token = get_server_context().launch_token_for(bound.key)
-    # The token is withheld while writes are disabled: the bridge then treats
-    # this as an unarmed add, permitting it onto an idle queue and refusing it
-    # (launch_token_required) the moment the queue is draining. That is the
-    # writes_enabled re-check applied to exactly the armed half of enqueue,
-    # with the live manager state read under the bridge's own lock rather than
-    # guessed here from a stale status.
-    headers = _with_owner({"X-Launch-Token": token} if token and writes_ok else None)
+    # The token is withheld while the verdict refuses, whatever the reason: the
+    # bridge then treats this as an unarmed add, permitting it onto an idle
+    # queue and refusing it (launch_token_required) the moment the queue is
+    # draining. That is the verdict applied to exactly the armed half of
+    # enqueue, with the live manager state read under the bridge's own lock
+    # rather than guessed here from a stale status. An unarmed add moves
+    # nothing, so it is still posted.
+    headers = _with_owner({"X-Launch-Token": token} if token and verdict.allowed else None)
+    # Stage 1 applies only to the add the verdict allows: an add it refuses is
+    # posted unarmed, and an unarmed add moves nothing, so it is not a write
+    # whose prompt must have run.
+    if verdict.allowed:
+        _require_approval_record("queue_add", lane=bound.key)
 
     status, body = await anyio.to_thread.run_sync(
         lambda: _http_post_json(
@@ -1346,45 +1229,15 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     if status != 200:
         # The bridge's code and sentence are relayed untouched, including when
         # the refusal is the armed-add one. What this server adds is the piece
-        # the bridge cannot know: the token was withheld by THIS deployment's
-        # posture for THIS lane's target, so chasing a token would change
-        # nothing — and the key named is the one that would change it.
+        # the bridge cannot know: the token was withheld by THIS lane's verdict,
+        # so chasing a token would change nothing — the phrase says who can.
         extra_hints = None
-        if not writes_ok and _code_of(body) == "launch_token_required":
-            if is_readonly_run():
-                # Same split as `_refuse_writes_disabled`: naming a config key
-                # here would send an operator to change something that may
-                # already say true and was never what withheld the token.
-                extra_hints = [
-                    "This server withheld the launch token because the session runs "
-                    "in the read-only sandbox posture (OSPREY_EXECUTION_MODE=readonly), "
-                    "which refuses control-system writes whatever this deployment's "
-                    "config says. No config edit unblocks adding to a running queue "
-                    "from this session; the operator can add the item from the BLUESKY "
-                    "queue panel instead.",
-                ]
-            elif _session_narrowed(bound.target):
-                # Same split again: this deployment arms the target, and the
-                # narrowing that withheld the token lives in the session, not in
-                # config.yml. Pointing at a key here would send an operator to
-                # rebuild for a setting that already says what they want.
-                extra_hints = [
-                    f"This server withheld the launch token because the deployment's "
-                    f"posture (header chip) is read-only for the {bound.target!r} "
-                    f"target that this deployment's {bound.key!r} plan lane serves. "
-                    f"No config edit and no different token unblocks it; an operator "
-                    f"turning writes back on for that target on the header chip does, and "
-                    f"it reaches this session immediately.",
-                ]
-            else:
-                extra_hints = [
-                    f"This server withheld the launch token because writes are not armed "
-                    f"for the {bound.target!r} target that this deployment's {bound.key!r} "
-                    f"plan lane serves ({_writes_enabled_key(bound.target)} is not true "
-                    f"here) — an operator arming that target in the build profile "
-                    f"(profile.yml on the host, then rebuild and redeploy), not a "
-                    f"different token, is what unblocks adding to a running queue.",
-                ]
+        if not verdict.allowed and _code_of(body) == "launch_token_required":
+            _reason, phrase = _refusal_text(verdict)
+            extra_hints = [
+                f"This server withheld the launch token for the {bound.key!r} plan lane: "
+                f"{phrase} A different token does not unblock adding to a running queue.",
+            ]
         return _relay_refusal(
             body,
             status,
@@ -1399,6 +1252,16 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     # read the lane it must name back.
     if isinstance(body, dict):
         body["lane"] = bound.key
+        if not verdict.allowed:
+            # Added unarmed: the item waits for a start, and the start is refused
+            # for the same reason until someone lifts it. Saying so here keeps
+            # the agent from reporting a plan that is on its way.
+            reason, phrase = _refusal_text(verdict)
+            body["writes_refused"] = {
+                "reason": reason,
+                "target": verdict.target,
+                "message": f"Added without the launch token. {phrase}",
+            }
 
     run_id = body.get("run_id") if isinstance(body, dict) else None
     await notify_agent_activity_async(
@@ -1537,14 +1400,13 @@ async def queue_start(lane: str | None = None) -> str:
 
     Three local gates run in this order, and the order is the contract: the
     LANE is bound first, so a two-lane deployment that named no lane hears
-    ``lane_required`` before anything else; then that lane's WRITE POSTURE is
-    re-read fresh from config — never cached, so a hook-bypassed invocation
-    holding a valid token is still refused while the lane's target is unarmed;
-    and only then does the start go to the bridge behind your approval prompt,
-    carrying this server's launch TOKEN. Posture is per target
-    (``control_system.connector.<type>.writes_enabled``), so a deployment can
-    arm its virtual-accelerator lane while leaving its live lane refused, and
-    which lane you name is what decides which answer you get. The bridge then
+    ``lane_required`` before anything else; then that lane's WRITE VERDICT is
+    asked fresh — never cached, so a hook-bypassed invocation holding a valid
+    token is still refused while the lane's machine is switched off; and only
+    then does the start go to the bridge behind your approval prompt, carrying
+    this server's launch TOKEN. The verdict is per target, so a deployment can
+    run its simulator lane while its real machine is switched off, and which
+    lane you name is what decides which answer you get. The bridge then
     re-verifies the token, re-checks every queued session plan's validation,
     and opens the worker environment if needed.
 
@@ -1572,11 +1434,20 @@ async def queue_start(lane: str | None = None) -> str:
         other success shape: this tool either arms the queue or refuses.
 
     Refusals (nothing started):
-        - writes_disabled: the control target the named lane serves is not
-          armed for writes, or this session is in the read-only sandbox
-          posture. Refused before the bridge is called at all, and refused per
-          LANE: the other lane may well be startable. Not agent-recoverable;
-          the refusal names the exact key an operator would set.
+        - writes_disabled: the write verdict refuses the control target the
+          named lane serves — its switch is off, the session is read-only, the
+          tier allows nothing, or the target, owner or record cannot be named.
+          ``details.reason`` is the verdict's reason and the message its phrase,
+          which says who can lift it. Refused before the bridge is called at
+          all, and refused per LANE: the other lane may well be startable. Not
+          agent-recoverable.
+        - approval_missing: the deployment's approval policy asks about this
+          start and its prompt left no record — the call did not pass the
+          approval prompt. Refused before the bridge is called; call again so
+          the prompt can ask.
+        - approval_config_invalid: the deployment's ``approval.enabled`` is
+          neither true nor false, so no call it guards runs. Not
+          agent-recoverable; tell the operator.
         - launch_token_required: this deployment did not grant the agent a
           launch token, the token it holds does not match the bridge's, or the
           bridge itself has none configured. Not agent-recoverable; contact
@@ -1636,13 +1507,12 @@ async def queue_start(lane: str | None = None) -> str:
     # there is no target to read a posture for until the lane is bound.
     bound = _bind_lane("Starting the Bluesky plan queue", requested=lane, require=True)
 
-    if not _writes_enabled(bound.target):
-        return _refuse_writes_disabled(
-            "queue_start",
-            _writes_enabled_key(bound.target),
-            lane=bound.key,
-            target=bound.target,
-        )
+    verdict = _lane_verdict(bound.target)
+    if not verdict.allowed:
+        return _refuse_writes_disabled("queue_start", verdict, lane=bound.key)
+    # Stage 1, after the verdict so an off lane is refused for being off: a
+    # start whose policy asks runs only on the record its prompt left.
+    _require_approval_record("queue_start", lane=bound.key)
 
     # A server without a token still goes to the bridge, sending no header:
     # the bridge is the one authority on arming, and it answers
@@ -1701,13 +1571,12 @@ async def queue_stop(cancel: bool = False) -> str:
     ``cancel=True`` is the opposite operation: it WITHDRAWS a stop that a human
     (or you) already requested and lets the queue keep draining toward
     hardware. Reversing someone's halt is an arming action, so it is gated
-    twice over locally: the write posture is re-read fresh, and a missing
-    launch token is refused here as well, both before any HTTP call — then the
-    bridge checks both again. The posture half asks whether ANY lane this
-    deployment renders is armed, not whether one lane's is, because a
-    withdrawal is addressed to whichever lane is actually draining and that
-    lane is found by asking the bridges — after this gate has had to decide.
-    The per-lane half is the token, which is per lane already. That local token
+    twice over locally: the lane being halted is found first, and that lane's
+    write verdict is asked fresh, then a missing launch token is refused here
+    as well, both before any POST — then the bridge checks both again. Finding
+    the lane reads the bridges (GETs only, and nothing on a single-lane
+    deployment); a withdrawal whose lane maps to no rendered target is refused,
+    since there is no machine to ask the verdict about. That local token
     check is MORE than ``queue_start`` does: a tokenless start goes to the
     bridge and relays the bridge's refusal, while a tokenless withdrawal never
     leaves this process. Only withdraw a stop when you know why it was
@@ -1727,10 +1596,11 @@ async def queue_stop(cancel: bool = False) -> str:
         stop request, false after a withdrawal.
 
     Refusals:
-        - writes_disabled (cancel=True only): no plan lane this deployment
-          renders is armed for writes, or this session is in the read-only
-          sandbox posture, so a pending stop cannot be withdrawn. A plain stop
-          is never refused for this reason.
+        - writes_disabled (cancel=True only): the write verdict refuses the
+          machine the halted lane serves (``details.reason``; the message is
+          the verdict's phrase), or no rendered lane could be found for the
+          halt (``target_unknown``), so a pending stop cannot be withdrawn. A
+          plain stop is never refused for this reason.
         - launch_token_required (cancel=True only): no launch token here or at
           the bridge, or the two do not match. This deployment did not grant
           this agent a usable token — ask the operator to withdraw the stop
@@ -1741,22 +1611,30 @@ async def queue_stop(cancel: bool = False) -> str:
         - queue_request_rejected: the manager refused (e.g. no stop is pending
           to withdraw).
     """
-    # The posture is read BEFORE anything reaches the network, so a withdrawal
-    # refused for writes-off is still refused with no request made at all — the
-    # ordering the local-refusal contract rests on. It is the UNION over the
-    # rendered lanes' targets, not one lane's answer, because a halt crosses
-    # the network to whichever lane's manager is actually draining and that
-    # lane is not known until `resolve_halt_lane` below has asked the bridges.
-    # The per-lane check is `_refuse_unarmed`, which is per lane already: the
-    # launch token is.
-    if cancel and not _any_lane_writes_enabled():
-        return _refuse_writes_disabled("queue_stop(cancel=True)", WRITES_ENABLED_KEY)
-
     # Halting follows the RUN, not the session: on a two-lane deployment the
     # stop is addressed to the lane whose queue is actually draining, so a stop
     # still reaches a plan started before the session switched targets. Never
     # gated by that comparison — see `resolve_halt_lane`.
+    #
+    # The lane is found FIRST, then a withdrawal is given THAT lane's verdict,
+    # because withdrawing a halt resumes motion on exactly that lane's machine.
+    # The order costs nothing local: finding the lane reads bridge state with
+    # GETs only (and nothing at all on a single-lane deployment), and both the
+    # verdict refusal and `_refuse_unarmed` still come before any POST. A
+    # withdrawal whose lane maps to no rendered target is refused
+    # `target_unknown`: there is no machine to ask the verdict about.
     halt_lane = await resolve_halt_lane()
+
+    if cancel:
+        halt_target = _halt_lane_target(halt_lane)
+        if halt_target is None:
+            verdict = posture_store.WriteVerdict(
+                allowed=False, reason="target_unknown", target=None, kind=None
+            )
+        else:
+            verdict = _lane_verdict(halt_target)
+        if not verdict.allowed:
+            return _refuse_writes_disabled("queue_stop(cancel=True)", verdict, lane=halt_lane)
 
     headers = None
     if cancel:
