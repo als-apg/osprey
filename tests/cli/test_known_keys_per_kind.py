@@ -48,6 +48,7 @@ _DEPLOYMENT_KEYS = frozenset(
         "environment",
         "dependencies",
         "exclude",
+        "agent_record",
     }
 )
 

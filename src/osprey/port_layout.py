@@ -200,6 +200,9 @@ LAYOUT: tuple[PortSlot, ...] = (
     # The collector's own counters. Published on loopback only, and moved by no
     # key: the series are labelled with roster names.
     PortSlot("telemetry_metrics", 52, "services", None),
+    # The agent record's service: every write and read of the record goes
+    # through it. Moved by the rendered ``agent_record.port``.
+    PortSlot("agent_record", 53, "services", "agent_record.port"),
     # One qmd sidecar per corpus, corpus i at offset 60 + i.
     PortSlot("qmd", 60, "services", "services.qmd.port"),
     PortSlot("tiled", 70, "services", "services.bluesky.tiled_port"),

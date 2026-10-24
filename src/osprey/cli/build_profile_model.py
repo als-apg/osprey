@@ -18,6 +18,10 @@ from typing import Any
 
 import yaml
 
+from osprey.agent_record.config import (
+    AgentRecordConfig,
+    agent_record_errors,
+)
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
@@ -439,6 +443,14 @@ class BuildProfile:
     present, the block carries every knob the store's shape depends on and the
     build derives the connector's connection keys from it (see
     :mod:`osprey.cli.build_profile_archiver`).
+    """
+    agent_record: AgentRecordConfig = field(default_factory=AgentRecordConfig)
+    """Where the deployment's one agent record lives (``agent_record:``).
+
+    Never ``None``: every deployment keeps a record, and a profile that spells
+    no block gets the defaults — the embedded backend, with no store container.
+    The resolved block is written into the rendered ``config.yml`` under the
+    top-level key ``agent_record`` (see :mod:`osprey.agent_record.config`).
     """
     provenance: ProfileProvenance | None = None
     """What ``osprey init`` materialized this profile from (``provenance:``).
@@ -1048,6 +1060,11 @@ class BuildProfile:
 
         if self.va_archiver is not None:
             claimed["va_archiver.port_host"] = self.va_archiver.port_host
+
+        # The record service is always deployed by a deploying profile, and
+        # publishes its port on loopback.
+        if self.deploy_services:
+            claimed["agent_record.port"] = self.agent_record.port
 
         if isinstance(self.artifact_server, dict):
             port = self.artifact_server.get("port")
@@ -1926,6 +1943,11 @@ class BuildProfile:
         # of the profile — see va_archiver_errors for why the rules live beside
         # the block but are reported from here.
         errors.extend(va_archiver_errors(self.va_archiver, self.config, bool(self.deploy_services)))
+
+        # The record's backend, retention, port and memory. The named readers
+        # are judged against the roster by the command surfaces' merged-config
+        # check, which holds the merged view the roster lives in.
+        errors.extend(agent_record_errors(self.agent_record, self.config))
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the

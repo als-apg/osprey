@@ -159,10 +159,40 @@ keys:
     rendered: false
     evidence: 'get\("host_identity"\)'
     note: >-
-      The identity host launches send telemetry and file their records under.
-      Unset in the presets: the build records the account that ran it.
+      The identity host launches send telemetry and file their records under,
+      and the identity the agent record reads the host's transcripts as.
+      Unset in the presets: every build records the account that ran it,
+      whether or not the old telemetry store is deployed.
     default: derived
     default_note: the account that ran `osprey build`
+  # The agent record's block, written by the build from the profile's
+  # top-level `agent_record:` block (defaults included) into the top-level
+  # `agent_record` key the record service reads. No preset spells it under
+  # `config:` — the profile parser refuses that spelling — so every row is
+  # `rendered: false`.
+  agent_record: {rendered: false, evidence: 'AGENT_RECORD_BLOCK = "agent_record"', default: {}}
+  agent_record.backend:
+    rendered: false
+    evidence: '"agent_record\.backend"'
+    note: >-
+      Where the record is kept: `embedded` in the agent-record service itself,
+      with no store container, or `clickhouse` in a ClickHouse store the
+      deployment runs. Any other value is refused at build.
+    default: embedded
+  agent_record.retention_days: {rendered: false, evidence: '"agent_record\.retention_days"', default: 14}
+  agent_record.readers:
+    rendered: false
+    evidence: '"agent_record\.readers"'
+    note: >-
+      The named readers: each entry's `name`, the `kinds` it may read (every
+      kind when left out), its `days_back` window (retention_days when left
+      out) and an optional `oidc_subject` for a reader not on the roster.
+    default: []
+  agent_record.port: {rendered: false, evidence: '"agent_record\.port"', default: derived, default_note: the layout's agent_record slot at this deployment's port base}
+  agent_record.memory: {rendered: false, evidence: '"agent_record\.memory"', default: 1g}
+  agent_record.clickhouse: {rendered: false, evidence: 'class ClickHouseConfig', default: {}}
+  agent_record.clickhouse.image: {rendered: false, evidence: '"agent_record\.clickhouse\.image"', default: 'clickhouse/clickhouse-server:26.8.18.2'}
+  agent_record.clickhouse.memory: {rendered: false, evidence: '"agent_record\.clickhouse\.memory"', default: 2g}
   deployment.port_base:
     rendered: false
     evidence: 'deployment\.get\("port_base"\)'
@@ -2051,6 +2081,13 @@ keys:
       startup, rendered as `cleanupPeriodDays` into the project settings
       every terminal and the dispatch worker load. Unset, Claude Code's own
       default (30) applies. 0 is refused.
+    default: null
+  claude_code.cli_version:
+    rendered: false
+    evidence: 'get\("cli_version"\)'
+    note: >-
+      Pins the Claude Code CLI every launch runs, as one exact version; OSPREY
+      then launches it through `npx`. Unset, the installed `claude` runs.
     default: null
   claude_code.thinking: {rendered: false, evidence: 'get\("thinking"\)', default: {}}
   claude_code.thinking.display:

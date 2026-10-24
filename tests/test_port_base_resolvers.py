@@ -320,6 +320,17 @@ def _simulation_archiver_store(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch)
     return store["port"], default_port("mongo", base=PORT_BASE)
 
 
+def _agent_record_port(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    """``parse_agent_record_block`` with no ``agent_record.port``, at the profile's base."""
+    from osprey.agent_record.config import parse_agent_record_block
+    from osprey.cli.build_profile_load import _profile_port_base
+
+    raw = {"config": dict(CONFIG), "agent_record": {"backend": "embedded"}}
+    parsed = parse_agent_record_block(raw, base=_profile_port_base(raw))
+    absent = parse_agent_record_block({"config": dict(CONFIG)}, base=_profile_port_base(raw))
+    return (parsed.port, absent.port), (default_port("agent_record", base=PORT_BASE),) * 2
+
+
 def _telemetry_ports(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """Every telemetry port reader with no port key of its own set."""
     from osprey.deployment import telemetry_config
@@ -600,6 +611,12 @@ CASES: tuple[Case, ...] = (
         "the config it is handed",
         _simulation_archiver_store,
         ("mongo",),
+    ),
+    Case(
+        "agent_record.config.parse_agent_record_block",
+        "base= keyword, from the loader's _profile_port_base(raw)",
+        _agent_record_port,
+        ("agent_record",),
     ),
     Case(
         "telemetry_config port readers",

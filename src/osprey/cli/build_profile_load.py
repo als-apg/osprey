@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from osprey.agent_record.config import parse_agent_record_block
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.build.claude_code_telemetry import TELEMETRY_AUTH_KEYS, TELEMETRY_KEYS
 from osprey.config_guards import is_positive_int
@@ -244,6 +245,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "gchat_bridge",
         "teams_bridge",
         "va_archiver",
+        "agent_record",
         "provenance",
     }
 )
@@ -266,6 +268,9 @@ ROOT_ONLY_KEYS = frozenset(
         "environment",
         "dependencies",
         "exclude",
+        # Where the deployment's one agent record lives: a fact about the whole
+        # deployment, never about one access level of its agent.
+        "agent_record",
     }
 )
 
@@ -1763,5 +1768,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
+        agent_record=parse_agent_record_block(raw, base=port_base),
         provenance=provenance,
     )

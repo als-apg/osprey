@@ -24,7 +24,7 @@ import difflib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAULT_TIER_KEY
 from osprey_connectors.connection import ENV_NAME_RE
@@ -41,6 +41,9 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     retired_type_message,
 )
+
+if TYPE_CHECKING:
+    from osprey.agent_record.config import AgentRecordConfig
 
 #: CI platforms with a shipped pipeline template. ``deploy.ci`` selects one of
 #: these by name; the scaffolding verbs key their template lookup off the same
@@ -400,6 +403,7 @@ def deploy_aware_config_errors(
     profile_root: Path | None = None,
     project_name: str | None = None,
     dispatch_tier: str | None = None,
+    agent_record: AgentRecordConfig | None = None,
 ) -> list[str]:
     """Lint a profile's web stack against the config the BUILD will render.
 
@@ -440,21 +444,28 @@ def deploy_aware_config_errors(
             :func:`build_lint_view` for what is derived from it.
         dispatch_tier: The profile's ``dispatch.tier``; see
             :func:`build_lint_view`.
+        agent_record: The profile's parsed ``agent_record:`` block. Its named
+            readers are judged here, against the roster and the sign-in method
+            of the merged view. ``None`` is a profile with no block, whose
+            defaults name no reader.
 
     Returns:
         The lint messages that must fail the command, empty when it passes.
     """
     # Imported in-function: this module is on `BuildProfile`'s import chain, and
     # the lint engine pulls in the whole web-terminals package behind it.
+    from osprey.agent_record.config import reader_errors
     from osprey.deployment.telemetry_lint import telemetry_errors
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
     view = build_lint_view(
         deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
+    nested = _nest_dotted(view)
     return [
         *profile_config_errors(view, profile_root=profile_root),
-        *telemetry_errors(_nest_dotted(view)),
+        *telemetry_errors(nested),
+        *(reader_errors(agent_record, nested) if agent_record is not None else []),
     ]
 
 
@@ -465,6 +476,7 @@ def deploy_aware_config_warnings(
     profile_root: Path | None = None,
     project_name: str | None = None,
     dispatch_tier: str | None = None,
+    agent_record: AgentRecordConfig | None = None,
 ) -> list[str]:
     """The advisory half of :func:`deploy_aware_config_errors`, on the same merged view.
 
@@ -476,15 +488,18 @@ def deploy_aware_config_warnings(
     ``none`` — in front of a privileged terminal) is deliberately not an error,
     so printing is the only way it reaches an operator at all.
     """
+    from osprey.agent_record.config import reader_warnings
     from osprey.deployment.telemetry_lint import telemetry_warnings
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
 
     view = build_lint_view(
         deploy, config, project_name, profile_root=profile_root, dispatch_tier=dispatch_tier
     )
+    nested = _nest_dotted(view)
     return [
         *profile_config_warnings(view, profile_root=profile_root),
-        *telemetry_warnings(_nest_dotted(view)),
+        *telemetry_warnings(nested),
+        *(reader_warnings(agent_record, nested) if agent_record is not None else []),
     ]
 
 

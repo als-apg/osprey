@@ -58,6 +58,7 @@ EXPECTED_PORTS_AT_DEFAULT_BASE = {
     "worker": 10011,
     "telemetry_gateway": 10051,
     "telemetry_metrics": 10052,
+    "agent_record": 10053,
     "qmd": 10060,
     "tiled": 10070,
     "bluesky_web": 10071,
