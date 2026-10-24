@@ -46,6 +46,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment.subprocess_capture import stop_group
+from osprey_connectors_tests._paths import TESTS_ROOT as HARNESS_ROOT
 
 #: How long a nested run may write nothing before it counts as hung. It spans
 #: the run's silent phases (interpreter start, collection, worker start-up, the
@@ -96,6 +97,16 @@ def outer_run_free_env(also_drop: Sequence[str] = ()) -> dict[str, str]:
     """
     prefixes = (*_OUTER_RUN_KEYS, *also_drop)
     return {k: v for k, v in os.environ.items() if not k.startswith(prefixes)}
+
+
+def with_harness_path(env: dict[str, str]) -> dict[str, str]:
+    """*env* with the shared test harness prepended to ``PYTHONPATH``.
+
+    The outer run reaches ``osprey_connectors_tests`` through the root
+    pyproject's ``pythonpath`` setting, which a child process does not read.
+    """
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, (str(HARNESS_ROOT), env.get("PYTHONPATH"))))
+    return env
 
 
 def run_nested_pytest(

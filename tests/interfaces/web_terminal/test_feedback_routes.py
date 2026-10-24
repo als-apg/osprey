@@ -118,6 +118,10 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Env:
     app.state.feedback_max_store_bytes = 256 * 1024 * 1024
     app.state.terminal_user = "operator"
     app.state.app_name = "OSPREY Test Rig"
+    # The key names its own transcript until a /clear moves it (routes/session.py reads
+    # the same map); an empty, non-provisional map keeps the test off the disk.
+    app.state.transcript_map = {}
+    app.state.transcript_map_provisional = False
 
     with TestClient(app) as client:
         yield _Env(client, reader, store, tmp_path)
@@ -271,6 +275,23 @@ def test_send_reports_transcript_not_found_for_a_dead_session(env: _Env) -> None
     assert env.contexts()[0]["text"] == _send_body()["text"]
     assert "## deployment" in env.contexts()[0]["context"]
     env.reader.read_session_by_id.assert_not_called()
+
+
+def test_send_reads_the_transcript_a_cleared_key_moved_to(env: _Env) -> None:
+    """After a ``/clear`` the key points at a new transcript; the report reads that
+    one, and is still tagged with the key the artifacts and the record carry."""
+    env.client.app.state.transcript_map[SESSION_ID] = OTHER_SESSION_ID
+
+    response = env.client.post("/api/feedback", json=_send_body())
+
+    assert response.status_code == 200
+    assert response.json()["context_status"] == CONTEXT_OK
+    env.reader.find_transcript_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    env.reader.read_session_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    env.reader.read_chat_history_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    header = env.headers()[0]
+    assert header["session_id"] == SESSION_ID
+    assert SESSION_ID in env.contexts()[0]["context"]
 
 
 def test_send_rejects_a_non_uuid_session_id_before_touching_the_transcript(env: _Env) -> None:
@@ -761,6 +782,19 @@ def test_bundle_uses_the_session_it_was_given(env: _Env) -> None:
     )
 
     env.reader.find_transcript_by_id.assert_called_once_with(OTHER_SESSION_ID)
+
+
+def test_bundle_reads_the_transcript_a_cleared_key_moved_to(env: _Env) -> None:
+    env.client.app.state.transcript_map[SESSION_ID] = OTHER_SESSION_ID
+
+    body = env.client.post(
+        "/api/feedback/bundle",
+        json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""},
+    ).json()
+
+    env.reader.find_transcript_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    env.reader.read_chat_history_by_id.assert_called_once_with(OTHER_SESSION_ID)
+    assert SESSION_ID in body["bundle"]
 
 
 # ---- Registration on the composite router ----

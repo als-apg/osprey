@@ -10,7 +10,16 @@
  */
 
 import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
-import { adoptIframe } from './dock-iframe.js';
+import { adoptIframe, setPanelReachable } from './dock-iframe.js';
+import { clockTime } from './panel-rail.js';
+
+/**
+ * How long a panel's page may take to load before its tile says the backend
+ * is not answering. An iframe reports no error for a page that never arrives
+ * (the request can sit in the browser's queue behind its per-host connection
+ * cap), so without this the tile is a blank rectangle with no explanation.
+ */
+const LOAD_NOTICE_MS = 15000;
 
 /**
  * Structural subset of panel-manager's records this factory needs. `state` is
@@ -46,7 +55,20 @@ export function createPanelIframe(panel, panelId, state, contentEl) {
   iframe.src = buildEmbedSrc(targetUrl);
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 
+  // Cleared by the first load; the notice it raised, if any, goes with it.
+  const loadStartedAt = Date.now();
+  let stalled = false;
+  const stallTimer = setTimeout(() => {
+    stalled = true;
+    setPanelReachable(panelId, false, clockTime(loadStartedAt));
+  }, LOAD_NOTICE_MS);
+
   iframe.addEventListener('load', () => {
+    clearTimeout(stallTimer);
+    if (stalled) {
+      stalled = false;
+      setPanelReachable(panelId, true);
+    }
     iframe.classList.add('loaded');
     // Sync theme + mode + session immediately so there's no flash of the wrong
     // theme/mode and the embedded app scopes to the active session.

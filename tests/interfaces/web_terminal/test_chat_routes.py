@@ -1,16 +1,17 @@
 """Tests for the REST chat endpoint (`routes/chat.py`).
 
-Task 1.4 (strip-for-chat): `_strip_for_chat` is the wire-hygiene filter applied
-to every event before it reaches the chat API client. It drops heavy or
-sensitive payloads (tool arguments, tool-result bodies, thinking text, and the
-cost/duration/turn metadata on `result`) while preserving each event's identity
-and light metadata.
+Task 1.4 (strip-for-chat): `_strip_for_chat` is the wire filter applied to every
+event before it reaches the chat API client. The chat renders tool traces,
+thinking and approval cards, so those payloads pass through, bounded: a tool
+input's long strings are cut to 2000 characters, and a tool result travels as
+its preview. What the filter drops is the cost and turn count of a ``result``;
+its outcome, duration and frame number stay.
 
 The table below is anchored to the real event shapes produced by
 `_event_to_wire` in ``operator_session.py`` (text / thinking / tool_use /
-result / system / error), a ``tool_result`` shape, plus the ``session_reset`` marker the
-control routes emit — so a change to those shapes that this filter should react
-to will surface here.
+result / system / error), a ``tool_result`` shape, the ``context`` frame sent as
+a response ends, plus the ``session_reset`` marker the control routes emit — so
+a change to those shapes that this filter should react to will surface here.
 
 Later tasks (chat-stream-route, chat-control-routes, integration) append their
 own route-level test classes to this module.
@@ -81,12 +82,12 @@ _STRIP_CASES = [
         {"type": "text", "content": "hello world"},
     ),
     (
-        "thinking_drops_content_keeps_marker",
+        "thinking_passes_through",
         {"type": "thinking", "content": "internal reasoning"},
-        {"type": "thinking"},
+        {"type": "thinking", "content": "internal reasoning"},
     ),
     (
-        "tool_use_drops_input_keeps_name",
+        "tool_use_keeps_its_input",
         {
             "type": "tool_use",
             "tool_name": "Channel Read",
@@ -99,6 +100,40 @@ _STRIP_CASES = [
             "tool_name": "Channel Read",
             "tool_name_raw": "mcp__osprey__channel_read",
             "tool_use_id": "tu_1",
+            "input": {"channel": "SR:BPM:1", "secret": "value"},
+        },
+    ),
+    (
+        "tool_use_clips_long_input_strings",
+        {
+            "type": "tool_use",
+            "tool_name": "Python Execute",
+            "tool_name_raw": "mcp__python__execute",
+            "tool_use_id": "tu_2",
+            "input": {"code": "x" * 2500, "notes": ["y" * 2000, "z"]},
+        },
+        {
+            "type": "tool_use",
+            "tool_name": "Python Execute",
+            "tool_name_raw": "mcp__python__execute",
+            "tool_use_id": "tu_2",
+            # Cut to 2000 characters and marked; a string at the limit is left whole.
+            "input": {"code": "x" * 2000 + "…", "notes": ["y" * 2000, "z"]},
+        },
+    ),
+    (
+        "permission_request_clips_long_input_strings",
+        {
+            "type": "permission_request",
+            "request_id": "r1",
+            "kind": "tool",
+            "input": {"command": "w" * 2100},
+        },
+        {
+            "type": "permission_request",
+            "request_id": "r1",
+            "kind": "tool",
+            "input": {"command": "w" * 2000 + "…"},
         },
     ),
     (
@@ -112,26 +147,28 @@ _STRIP_CASES = [
         {"type": "tool_result", "tool_use_id": "tu_1", "is_error": False},
     ),
     (
-        "result_reduces_to_type_and_is_error",
+        "result_keeps_outcome_and_duration_drops_cost_and_turns",
         {
             "type": "result",
             "is_error": False,
             "total_cost_usd": 0.0123,
             "duration_ms": 4567,
             "num_turns": 3,
+            "seq": 9,
         },
-        {"type": "result", "is_error": False},
+        {"type": "result", "is_error": False, "duration_ms": 4567, "seq": 9},
     ),
     (
-        "result_error_preserves_is_error_true",
+        "result_error_keeps_is_error_true",
         {
             "type": "result",
             "is_error": True,
             "total_cost_usd": 0.5,
             "duration_ms": 10,
             "num_turns": 1,
+            "seq": 2,
         },
-        {"type": "result", "is_error": True},
+        {"type": "result", "is_error": True, "duration_ms": 10, "seq": 2},
     ),
     (
         "system_passes_through",
@@ -155,6 +192,18 @@ _STRIP_CASES = [
         "session_reset_passes_through",
         {"type": "session_reset"},
         {"type": "session_reset"},
+    ),
+    (
+        "context_keeps_the_window_drops_any_cost",
+        {
+            "type": "context",
+            "used_tokens": 5,
+            "window_tokens": 10,
+            "percent": 50,
+            "seq": 3,
+            "apiUsage": {"total_cost_usd": 9.0},
+        },
+        {"type": "context", "used_tokens": 5, "window_tokens": 10, "percent": 50, "seq": 3},
     ),
     (
         "tool_result_list_content_error_keeps_is_error",
@@ -198,6 +247,17 @@ class TestStripForChat:
         before = copy.deepcopy(input_event)
         _strip_for_chat(input_event)
         assert input_event == before
+
+    def test_a_bottomless_input_is_cut_at_a_depth_the_wire_can_carry(self):
+        """A tool input nested past any sane depth cannot end the stream that carries it."""
+        nested: object = "leaf"
+        for _ in range(2000):
+            nested = [nested]
+        stripped = _strip_for_chat({"type": "tool_use", "input": {"deep": nested, "k": {"a": 1}}})
+        wire = _json.dumps(stripped)
+        assert "leaf" not in wire
+        assert "[…]" in _json.dumps(stripped, ensure_ascii=False)
+        assert stripped["input"]["k"] == {"a": 1}
 
 
 # ---- Route-level smoke tests for the SSE branch (task chat-stream-route) ----
@@ -347,7 +407,14 @@ class TestChatStreamRoute:
         session = _FakeChatSession(
             [
                 {"type": "text", "content": "hi"},
-                {"type": "result", "is_error": False, "total_cost_usd": 0.1},
+                {
+                    "type": "result",
+                    "is_error": False,
+                    "total_cost_usd": 0.1,
+                    "duration_ms": 900,
+                    "num_turns": 1,
+                    "seq": 4,
+                },
             ]
         )
         registry = _FakeRegistry(session=session)
@@ -359,9 +426,9 @@ class TestChatStreamRoute:
 
         assert frames[0] == {"type": "session_reset"}
         assert {"type": "text", "content": "hi"} in frames
-        # result reduced by _strip_for_chat — cost never reaches the client.
-        assert {"type": "result", "is_error": False} in frames
-        assert all("total_cost_usd" not in f for f in frames)
+        # The result keeps its outcome, duration and frame number; cost never reaches the client.
+        assert {"type": "result", "is_error": False, "duration_ms": 900, "seq": 4} in frames
+        assert all("total_cost_usd" not in f and "num_turns" not in f for f in frames)
         # Terminal exit releases the guard and does not quiesce.
         assert session.release_calls >= 1
         assert session.in_flight is False
@@ -376,6 +443,32 @@ class TestChatStreamRoute:
         resp = client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"})
         assert resp.status_code == 409
         assert resp.json()["detail"]["error"] == "turn_in_progress"
+
+    def test_an_accepted_prompt_marks_the_files_it_carries_as_sent(self, tmp_path, monkeypatch):
+        """The attachment block's paths under this chat's uploads go into its sent manifest,
+        so the sweep keeps them; the agent reads them from the conversation later."""
+        from osprey.interfaces.web_terminal.routes import chat_attachments
+
+        monkeypatch.setattr(
+            chat_attachments, "resolve_agent_data_root", lambda app=None: str(tmp_path)
+        )
+        chat = "aaaaaaaa-1111-2222-3333-444444444444"
+        chat_dir = tmp_path / "uploads" / chat
+        chat_dir.mkdir(parents=True)
+        stored = chat_dir / "0123456789abcdef-panel.png"
+        stored.write_bytes(b"png")
+        session = _FakeChatSession([{"type": "result", "is_error": False}])
+        client = TestClient(_make_chat_app(_FakeRegistry(session=session)))
+        prompt = (
+            "What is this?\n\nAttached files (read them with the Read tool):\n"
+            f"- {stored} (image/png, 3 B)"
+        )
+
+        resp = client.post("/api/chat", json={"prompt": prompt, "chat_id": chat})
+
+        assert resp.status_code == 200
+        manifest = _json.loads((chat_dir / chat_attachments.SENT_MANIFEST).read_text())
+        assert manifest == {"sent": [stored.name]}
 
     def test_empty_prompt_returns_422(self):
         registry = _FakeRegistry(session=_FakeChatSession([]))
@@ -415,7 +508,14 @@ class TestChatBufferedRoute:
             [
                 {"type": "text", "content": "hello "},
                 {"type": "text", "content": "world"},
-                {"type": "result", "is_error": False, "total_cost_usd": 0.9, "num_turns": 2},
+                {
+                    "type": "result",
+                    "is_error": False,
+                    "total_cost_usd": 0.9,
+                    "num_turns": 2,
+                    "duration_ms": 300,
+                    "seq": 3,
+                },
             ]
         )
         registry = _FakeRegistry(session=session)
@@ -431,9 +531,11 @@ class TestChatBufferedRoute:
         assert set(payload) == {"text", "events", "is_error"}
         assert payload["text"] == "hello world"
         assert payload["is_error"] is False
-        # session_reset prepended; result reduced by _strip_for_chat.
-        assert payload["events"][0] == {"type": "session_reset"}
-        assert {"type": "result", "is_error": False} in payload["events"]
+        # session_reset prepended; the result keeps its outcome, duration and frame number.
+        events = payload["events"]
+        assert events[0] == {"type": "session_reset"}
+        assert {"type": "result", "is_error": False, "duration_ms": 300, "seq": 3} in events
+        # Cost and turn counts never reach the chat client.
         for event in payload["events"]:
             assert "total_cost_usd" not in event and "num_turns" not in event
         # Terminal exit released the guard, no quiesce.
@@ -545,6 +647,17 @@ class TestInterruptEndpoint:
         assert resp.status_code == 204
 
 
+class TestChatEventsRoute:
+    """GET /api/chat/{chat_id}/events: a fresh chat has no agent yet, so 204, not an error."""
+
+    def test_a_chat_with_no_agent_yet_is_204_with_no_body(self):
+        client = TestClient(_make_chat_app(_FakeRegistry(session=None)))
+
+        resp = client.get("/api/chat/fresh/events")
+        assert resp.status_code == 204
+        assert resp.content == b""
+
+
 # ===========================================================================
 # Full route-level scenario matrix (task chat-route-integration-tests)
 # ===========================================================================
@@ -583,7 +696,7 @@ class _ScriptedSdkClient:
         self.interrupt_calls = 0
         self.aenter_calls = 0
         self.aexit_calls = 0
-        self._prompt: str | None = None
+        self._prompts: asyncio.Queue[str] = asyncio.Queue()
         self.interrupted = asyncio.Event()
         self.reached_hold = asyncio.Event()
 
@@ -602,19 +715,21 @@ class _ScriptedSdkClient:
         if self.query_error is not None:
             raise self.query_error
         self.prompts.append(prompt)
-        self._prompt = prompt
         # Reset (never replace) the per-turn events so a test that captured a
         # reference before the turn started still observes the current turn, and
         # a later turn is not pre-interrupted by an earlier turn's signal.
         self.interrupted.clear()
         self.reached_hold.clear()
+        self._prompts.put_nowait(prompt)
 
     async def interrupt(self) -> None:
         self.interrupt_calls += 1
         self.interrupted.set()
 
     async def receive_response(self):
-        async for message in self.responder(self, self._prompt):
+        # As the SDK's: a response is only ever read for a prompt that was sent.
+        prompt = await self._prompts.get()
+        async for message in self.responder(self, prompt):
             yield message
 
 
@@ -632,7 +747,7 @@ def _clean_responder(text: str = "ok"):
 
 
 def _rich_responder():
-    """A turn carrying every heavy/sensitive payload the strip filter must drop."""
+    """A turn carrying each payload the chat is sent, and the cost only the server keeps."""
 
     async def responder(_client, _prompt):
         yield assistant_message(
@@ -652,29 +767,29 @@ def _rich_responder():
 
 
 def _stall_responder():
-    """Never emits — models an SDK that goes silent until interrupted.
+    """Never emits until interrupted, then ends its response with a result.
 
-    Yields nothing (so the turn times out / stays in-flight) and, crucially,
-    yields nothing *after* the interrupt either, so no stale terminal event is
-    left in the queue for a subsequent turn on the same session to misread.
+    While the SDK is silent the turn times out or stays in flight. An interrupt is
+    answered as the CLI answers it: the response ends with a result, so the turn
+    closes and nothing is left behind for a later turn to misread.
     """
 
     async def responder(client, _prompt):
         client.reached_hold.set()
         await client.interrupted.wait()
-        if False:  # pragma: no cover - present only to make this an async generator
-            yield
+        yield result_message(is_error=False)
 
     return responder
 
 
 def _partial_then_hold_responder(text: str = "partial"):
-    """Emit one partial event, then park until interrupted (no terminal)."""
+    """Emit one partial event, then park until interrupted, then end with a result."""
 
     async def responder(client, _prompt):
         yield assistant_message([TextBlock(text)])
         client.reached_hold.set()
         await client.interrupted.wait()
+        yield result_message(is_error=False)
 
     return responder
 
@@ -1125,8 +1240,8 @@ class TestChatTurnRelease:
             make.created[0].responder = _clean_responder("recovered")
             r2 = await chat_module.chat(req, chat_module.ChatRequest(prompt="p2", chat_id="c"))
             f2 = await _collect_sse(r2)
-            assert {"type": "text", "content": "recovered"} in f2
-            assert {"type": "result", "is_error": False} in f2
+            assert any(f.get("type") == "text" and f.get("content") == "recovered" for f in f2)
+            assert any(f.get("type") == "result" and f.get("is_error") is False for f in f2)
 
             await registry.cleanup_all()
 
@@ -1144,10 +1259,11 @@ class TestChatTurnRelease:
                 )
             )
             await asyncio.wait_for(client.reached_hold.wait(), timeout=1.0)
-            # Ensure the handler has consumed the partial and re-parked on the queue.
-            for _ in range(20):
-                if session._queue.empty():
-                    break
+            # Let the handler take the partial and park on the queue again. A cancel that
+            # lands while the partial is being handed over is absorbed by asyncio.wait_for
+            # on CPython 3.11, so the cancel has to wait for the handler to be parked. That
+            # takes three passes of the event loop there; ten leave a margin, and no clock.
+            for _ in range(10):
                 await asyncio.sleep(0)
             assert session.in_flight is True
 
@@ -1156,12 +1272,15 @@ class TestChatTurnRelease:
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-            # Guard released in the finally despite the cancelled-scope exit.
+            # The consumer went away, the turn did not: it runs on as an orphan,
+            # and its guard is held until the turn ends.
+            assert session.in_flight is True
+
+            # The CLI answers the interrupt by ending the turn; that releases the guard.
+            await asyncio.wait_for(session.cancel(), timeout=2.0)
             assert session.in_flight is False
 
             # The session is reusable for a fresh, clean turn.
-            if session._quiesce_task is not None:
-                await asyncio.wait_for(asyncio.shield(session._quiesce_task), timeout=2.0)
             client.responder = _clean_responder("after-cancel")
             token2 = session.acquire_turn()
             resp = await chat_module._buffered_response(
@@ -1175,7 +1294,7 @@ class TestChatTurnRelease:
 
 
 class TestChatStripOnTheWire:
-    """Matrix 11: heavy/sensitive payloads are stripped on BOTH transport paths."""
+    """Matrix 11: the chat is sent bounded payloads on BOTH transport paths; cost never leaves."""
 
     def test_strip_applied_on_sse_path(self):
         with _seam(_rich_responder()):
@@ -1187,16 +1306,21 @@ class TestChatStripOnTheWire:
 
         tool_use = [f for f in frames if f.get("type") == "tool_use"]
         thinking = [f for f in frames if f.get("type") == "thinking"]
+        tool_result = [f for f in frames if f.get("type") == "tool_result"]
         result = [f for f in frames if f.get("type") == "result"]
 
-        assert tool_use and all("input" not in f for f in tool_use)
-        assert not any(f.get("type") == "tool_result" for f in frames)
-        assert thinking and all("content" not in f for f in thinking)
-        assert result and all(set(f) == {"type", "is_error"} for f in result)
-        # Cost/duration/turn metadata never reaches the wire on any frame.
+        # The trace shows a tool's input and the reasoning as the agent wrote them.
+        assert [f["input"] for f in tool_use] == [{"channel": "SR:BPM", "secret": "x"}]
+        assert [f["content"] for f in thinking] == ["secret chain of thought"]
+        # A tool result travels as its preview, never as a body.
+        assert [f["preview"] for f in tool_result] == ["large result body"]
+        assert all("content" not in f for f in tool_result)
+        # A result keeps its outcome, duration and frame number.
+        assert [f["duration_ms"] for f in result] == [42]
+        assert all(set(f) == {"type", "is_error", "duration_ms", "seq"} for f in result)
+        # Cost and turn counts never reach the wire on any frame.
         for f in frames:
             assert "total_cost_usd" not in f
-            assert "duration_ms" not in f
             assert "num_turns" not in f
 
     def test_strip_applied_on_buffered_path_including_top_level(self):
@@ -1216,14 +1340,19 @@ class TestChatStripOnTheWire:
             assert key not in payload
 
         events = payload["events"]
-        assert any(e.get("type") == "tool_use" and "input" not in e for e in events)
-        assert not any(e.get("type") == "tool_result" for e in events)
-        assert any(e.get("type") == "thinking" and "content" not in e for e in events)
+        assert [e["input"] for e in events if e.get("type") == "tool_use"] == [
+            {"channel": "SR:BPM", "secret": "x"}
+        ]
+        assert [e["preview"] for e in events if e.get("type") == "tool_result"] == [
+            "large result body"
+        ]
+        assert [e["content"] for e in events if e.get("type") == "thinking"] == [
+            "secret chain of thought"
+        ]
         result = [e for e in events if e.get("type") == "result"]
-        assert result and all(set(e) == {"type", "is_error"} for e in result)
+        assert result and all(set(e) == {"type", "is_error", "duration_ms", "seq"} for e in result)
         for e in events:
             assert "total_cost_usd" not in e
-            assert "duration_ms" not in e
             assert "num_turns" not in e
 
 

@@ -2,7 +2,7 @@
 
 Every child here is a real ``python -m osprey_connectors.ipc._host`` process
 serving a mock connector, loaded by dotted path from
-``tests/connectors/ipc/_pool_connectors.py`` so that each test can pick the one
+``packages/osprey-connectors/tests/osprey_connectors_tests/ipc/_pool_connectors.py`` so that each test can pick the one
 misbehaviour it needs: a hanging channel, a failing ``connect()``, a
 ``connect()`` that never returns. No network and no EPICS are involved; the
 two-IOC Channel Access suite beside this file covers the real protocol.
@@ -45,7 +45,7 @@ from osprey_connectors.ipc._pool import (
     PooledConnector,
 )
 from osprey_connectors.ipc._proxy import raised_by_child
-from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
+from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -54,10 +54,12 @@ PYTHONPATH = os.pathsep.join(
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
         str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        # The connectors suite's test-support connectors (osprey_connectors_tests).
+        str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
     ]
 )
 
-_HELPERS = "tests.connectors.ipc._pool_connectors"
+_HELPERS = "osprey_connectors_tests.ipc._pool_connectors"
 SLOW = f"{_HELPERS}.SlowInProcessConnector"
 FAILING = f"{_HELPERS}.FailingConnector"
 HANGING = f"{_HELPERS}.HangingConnector"

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.registry import reset_registry
 from tests.conftest import E2E_REFUSAL_KEY as _REFUSAL_KEY
 from tests.conftest import E2E_REFUSAL_RELAY_KEY as _RELAY_KEY
@@ -267,6 +268,34 @@ def _e2e_translation_proxy():
     finally:
         os.environ.pop("OSPREY_E2E_PROXY_BASE_URL", None)
         stop_proxy()
+
+
+@pytest.fixture(autouse=True)
+def _e2e_claude_config_dir(request, tmp_path_factory, monkeypatch):
+    """A Claude Code state directory of the test's own, for a test that reaches no model.
+
+    A test marked ``model_free`` runs with ``CLAUDE_CONFIG_DIR`` pointing into
+    its temp tree. Every ``claude`` it launches inherits the variable from this
+    process, and every in-process reader of its transcripts
+    (:func:`osprey.agent_runner.project_paths.claude_project_dir`) resolves the
+    same variable, so the two agree by construction. The run then writes
+    nothing into the developer's own ``~/.claude`` state, loads none of their
+    user-level settings, plugins or login, and the harness can trust a render
+    (:func:`tests.e2e.sdk_helpers.trust_render`) the way a deployment's
+    entrypoint does without touching anyone's file.
+
+    A test that reaches a model keeps the environment it was started in: the
+    developer's login and settings, and nothing seeded into their state
+    (:data:`tests.e2e.sdk_helpers.harness_config_dir` stays ``None``).
+    """
+    if request.node.get_closest_marker(MODEL_FREE_MARKER) is None:
+        return None
+    from tests.e2e import sdk_helpers
+
+    config_dir = tmp_path_factory.mktemp("claude-config")
+    monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(config_dir))
+    monkeypatch.setattr(sdk_helpers, "harness_config_dir", config_dir)
+    return config_dir
 
 
 @pytest.fixture

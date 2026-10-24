@@ -16,10 +16,10 @@ new tests.
 
 ```bash
 # Parallel — what CI runs, and what your change has to pass
-pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n 4 --dist loadgroup
+pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock" -n 4 --dist loadgroup
 
 # Serial — for debugging one failure, or reading full output in order
-pytest tests/ --ignore=tests/e2e
+pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
 ```
 
 The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`,
@@ -47,7 +47,7 @@ Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
 124 when a run passes its bound, after naming any process of its group that
 SIGKILL did not end, or saying the process table could not be read. A run stopped by its bound prints every
 process's Python stacks before it is killed. Every pytest process the suite
-starts carries an exit report (`tests/_live_threads.py`): after its last test it
+starts carries an exit report (the harness's `_live_threads.py`): after its last test it
 names the non-daemon threads and child processes keeping it alive, and a slow
 final garbage collection (`SLOW_CLEANUP_SECONDS`). A serial run or the xdist
 controller still running `EXIT_BOUND_SECONDS` after its summary, or an xdist
@@ -91,8 +91,8 @@ The two `flaky` markers in the unit suite rerun all failures and are unaffected.
 
 ### What `--dist loadgroup` does here
 
-`tests/conftest.py` installs a small scheduler (`FileOrGroupScheduling`) that
-changes how work is handed to workers:
+`tests/conftest.py` installs a small scheduler (`FileOrGroupScheduling`, from the
+harness's `_guards.py`) that changes how work is handed to workers:
 
 - **A file with no `xdist_group` marker** goes to one worker as a unit. Every
   test in the file runs on the same worker, in file order. This is the default
@@ -227,7 +227,10 @@ cover it, so do not add one.
 
 `tests/conftest.py` runs these around **every** test in the suite. You do not
 need to repeat them, but you should know they exist so you can tell "my test
-leaked" from "my test was leaked on".
+leaked" from "my test was leaked on". The framework-free ones live in the
+harness, `packages/osprey-connectors/tests/osprey_connectors_tests/_harness/`,
+whose `_guards.py` both conftests import by name, so the connectors suite runs
+the same guards without the framework installed.
 
 | Guard | Protects against |
 |---|---|
@@ -237,12 +240,14 @@ leaked" from "my test was leaked on".
 | `restore_root_logging` | Root log level, the OSPREY `RichHandler`, and the third-party logger levels `configure_logging()` raises. See section 3. |
 | `reset_health_offload_state` | The health runner's cumulative abandoned-thread counter. Left set, in-process `osprey health` calls take an `os._exit` branch that kills the whole xdist worker. |
 
-`restore_environ` is declared first in the file on purpose: same-scope autouse
-fixtures set up in declaration order, so its snapshot window encloses
-`monkeypatch`'s own undo rather than the other way round.
+Same-scope autouse fixtures set up in alphabetical order, not declaration
+order (`pytest --setup-plan <test>` prints the real sequence), so the guards'
+names are chosen for where they must sit: `restore_environ` sorts ahead of
+`session_posture_leak_guard`, whose `monkeypatch` undo its snapshot window
+therefore encloses.
 
-`restore_root_logging` compares against a baseline captured when `conftest.py`
-was imported — not a per-test snapshot. A per-test snapshot cannot see far
+`restore_root_logging` compares against a baseline captured when the harness
+module was imported — not a per-test snapshot. A per-test snapshot cannot see far
 enough back, because pytest sets up higher-scoped fixtures *before*
 function-scoped ones, so a module-scoped fixture that configures logging would
 already be baked into the snapshot and preserved instead of undone.
@@ -329,7 +334,7 @@ What this buys you when writing tests:
   The eager three are the stronger hazard, because collection alone can trigger
   them. Either way the value one test observes is not a valid expectation for
   the next, and WARNING is indistinguishable from what `configure_logging()`
-  itself sets. Compare against `tests.conftest._PRISTINE_LOGGING` instead; that
+  itself sets. Compare against the harness's `_guards._PRISTINE_LOGGING` instead; that
   is the guard's actual contract. `tests/utils/test_logging_guard.py` shows the
   pattern.
 

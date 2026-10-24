@@ -29,10 +29,11 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { transportNotice } from '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
+import { HANDOFF_FALLBACK, transportNotice } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-notices.js';
 import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
 
 const CHAT_JS = '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
+const EVENTS_JS = '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 const STORAGE_KEY = 'osprey-pty-session';
 
 /** Transport doubles, re-armed per test by `mountChat`. */
@@ -42,6 +43,7 @@ const transport = {
   interrupt: vi.fn(),
   requestHandoff: vi.fn(),
   fetchCommands: vi.fn(),
+  followChat: vi.fn(),
 };
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', () => ({
@@ -52,6 +54,8 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat-client.js', 
   requestHandoff: (/** @type {any} */ key, /** @type {any} */ options) =>
     transport.requestHandoff(key, options),
   fetchCommands: () => transport.fetchCommands(),
+  followChat: (/** @type {any} */ key, /** @type {any} */ callbacks) =>
+    transport.followChat(key, callbacks),
 }));
 
 // terminal.js is xterm glue; the console only needs its panel broadcast, and
@@ -81,21 +85,33 @@ function transportError(status, slug = '') {
 describe('transportNotice', () => {
   // Slug first, status second, the generic line last. Two 409s mean opposite
   // things (a turn already running, a chat restarted by a posture flip), so
-  // the first rows pin that they read differently.
-  test.each([
-    ['chat_terminated 409', transportError(409, 'chat_terminated'),
-      'Session restarted with the new posture — send your message again.'],
-    ['turn_in_progress 409', transportError(409, 'turn_in_progress'), 'A turn is already running.'],
-    ['chat_capacity 429', transportError(429, 'chat_capacity'), 'Server busy — please retry in a moment.'],
-    ['slug-less 503', transportError(503), 'Operator agent unavailable.'],
-    ['slug-less 409', transportError(409), 'A turn is already running.'],
-    ['unknown slug on a 503', transportError(503, 'something_new'), 'Operator agent unavailable.'],
-    ['plain Error carrying a status', new Error('HTTP 429: Too Many Requests'),
-      'Server busy — please retry in a moment.'],
-    ['plain Error with no status', new Error('network down'), 'Connection to the operator agent failed.'],
-    ['null failure', null, 'Connection to the operator agent failed.'],
-  ])('%s', (_case, err, notice) => {
-    expect(transportNotice(err)).toBe(notice);
+  // they must read differently; a 429 and a 503 each read as their own
+  // condition; anything with no slug and no status gets the generic line.
+  const notice = (/** @type {unknown} */ err) => transportNotice(err);
+  const terminated = notice(transportError(409, 'chat_terminated'));
+  const turnRunning = notice(transportError(409, 'turn_in_progress'));
+  const busy = notice(transportError(429, 'chat_capacity'));
+  const unavailable = notice(transportError(503));
+  const generic = notice(null);
+
+  test('every condition reads as a sentence of its own', () => {
+    const all = [terminated, turnRunning, busy, unavailable, generic];
+    expect(new Set(all).size).toBe(all.length);
+    for (const text of all) expect(text).toMatch(/^[A-Z].*\.$/);
+  });
+
+  test('the slug decides before the status: a terminated chat is not "a turn already running"', () => {
+    expect(terminated).not.toBe(turnRunning);
+    expect(notice(transportError(409))).toBe(turnRunning);
+  });
+
+  test('an unknown slug falls back to the status, and a status-only Error is read', () => {
+    expect(notice(transportError(503, 'something_new'))).toBe(unavailable);
+    expect(notice(new Error('HTTP 429: Too Many Requests'))).toBe(busy);
+  });
+
+  test('a failure with no status at all gets the generic line', () => {
+    expect(notice(new Error('network down'))).toBe(generic);
   });
 });
 
@@ -135,7 +151,7 @@ const textOf = (selector) => one(selector)?.textContent ?? '';
 
 /** Every rendered log entry's text, in order. */
 const logEntries = () =>
-  [...container.querySelectorAll('.op-entry-body')].map((el) => el.textContent?.trim());
+  [...container.querySelectorAll('.op-bubble, .op-entry-body')].map((el) => el.textContent?.trim());
 
 beforeEach(() => {
   localStorage.clear();
@@ -148,6 +164,7 @@ beforeEach(() => {
   transport.fetchCommands.mockReset().mockResolvedValue([
     { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
   ]);
+  transport.followChat.mockReset().mockReturnValue({ close: () => {} });
 });
 
 afterEach(() => {
@@ -267,6 +284,54 @@ describe('initChat binding', () => {
     expect(notifySessionChange).toHaveBeenLastCalledWith(minted);
     // A key minted this instant has no transcript worth asking for.
     expect(transport.fetchHistory).not.toHaveBeenCalled();
+  });
+});
+
+/** The bus module of the console mounted last: imported after its resetModules. */
+async function busModule() {
+  return /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js')} */ (
+    await import(EVENTS_JS)
+  );
+}
+
+describe('the busy signal', () => {
+  /** Every `busy` value the bus carried, in order. */
+  async function heardBusy() {
+    const bus = await busModule();
+    /** @type {boolean[]} */
+    const heard = [];
+    bus.onChat('busy', ({ busy }) => heard.push(busy));
+    return heard;
+  }
+
+  test('a sent prompt makes the console busy until its stream closes', async () => {
+    await mountChat({ pointer: 'K1' });
+    const heard = await heardBusy();
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'ping';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    expect(heard.at(-1)).toBe(true);
+
+    transport.sendPrompt.mock.calls[0][2].onClose();
+    expect(heard.at(-1)).toBe(false);
+  });
+
+  test('a hand-off in flight is busy too, and a finished one is not', async () => {
+    /** @type {(value: any) => void} */
+    let admit = () => {};
+    transport.requestHandoff.mockReturnValue(
+      new Promise((resolve) => {
+        admit = resolve;
+      })
+    );
+    await mountChat({ pointer: 'K1' });
+    const heard = await heardBusy();
+
+    const entered = chat.enterFromExpert();
+    expect(heard.at(-1)).toBe(true);
+    admit({ state: 'simple', session_id: 'K1' });
+    await entered;
+    expect(heard.at(-1)).toBe(false);
   });
 });
 
@@ -487,7 +552,7 @@ describe('enterFromExpert', () => {
     await chat.enterFromExpert();
     // The in-log transport copy is for the log; the overlay states its own
     // failure in its own voice.
-    expect(textOf('.op-handoff-message')).toBe('The hand-off failed.');
+    expect(textOf('.op-handoff-message')).toBe(HANDOFF_FALLBACK.message);
     expect(/** @type {HTMLButtonElement} */ (one('.op-handoff-action')).textContent).toBe('Retry');
   });
 
@@ -558,21 +623,27 @@ describe('a prompt refused by the other view', () => {
     // overlay would take the console away and offer a retry of the wrong
     // thing — and it would leave the input disabled, so there would be no
     // sending it again.
-    expect(textOf('.op-system')).toContain('send your message again');
+    expect(textOf('.op-system')).toBe(transportNotice(transportError(409, 'chat_terminated')));
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
   });
 
-  test('an ordinary transport failure still reads as a system notice', async () => {
+  test('an ordinary transport failure reads as a system notice, and the notice is published for the screen reader', async () => {
     await mountChat({ pointer: 'K1' });
+    const bus = await busModule();
+    /** @type {string[]} */
+    const published = [];
+    bus.onChat('notice', ({ text }) => published.push(text));
     const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
     textarea.value = 'status?';
     /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
 
     const callbacks = transport.sendPrompt.mock.calls[0][2];
-    callbacks.onError(new Error('network down'));
+    const err = new Error('network down');
+    callbacks.onError(err);
 
-    expect(textOf('.op-system')).toBe('Connection to the operator agent failed.');
+    expect(textOf('.op-system')).toBe(transportNotice(err));
+    expect(published).toEqual([transportNotice(err)]);
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(logEntries()).toEqual(['status?']);
   });

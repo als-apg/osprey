@@ -18,6 +18,7 @@ __all__ = [
     "ARCHIVE_DIR_RELPATH",
     "AUDIT_DIR_RELPATH",
     "BUILD_DIR_NAME",
+    "CHAT_UPLOADS_SUBDIR",
     "DEFAULT_AGENT_DATA_BASE_DIR",
     "IMAGE_DIR_NAME",
     "LAYER_DIRNAMES",
@@ -159,6 +160,12 @@ SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
 #: like one that was freshly cloned. Spelled once for exactly that reason: two
 #: commands agreeing by coincidence is how a reset and a clone start to differ.
 STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR, AUDIT_DIR_RELPATH)
+
+#: Subdirectory of the agent-data root holding the files operators attach in the
+#: Simple view's chat. The web terminal stores them there and hands the agent
+#: their absolute paths; the rendered permissions allow the agent to read exactly
+#: that directory. Spelled once so the store and the rule cannot name two places.
+CHAT_UPLOADS_SUBDIR = "uploads"
 
 #: Subdirectory of the agent-data root holding the simulation's mutable
 #: ``active_scenarios`` state file.

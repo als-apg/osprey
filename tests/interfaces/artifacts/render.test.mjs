@@ -311,6 +311,24 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     expect(section.classList.contains('collapsed')).toBe(true);
     expect(callbacks.onSelect).not.toHaveBeenCalled();
   });
+
+  // Every new artifact re-renders the sidebar; a section the user collapsed
+  // re-expanded each time the agent wrote another file into it.
+  test('a collapsed section stays collapsed when a new artifact re-renders the sidebar', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.renderSidebar();
+    qs(document, '.tree-section[data-type="visualization"] .tree-section-header').click();
+
+    setArtifacts([
+      ...makeFixtureArtifacts(),
+      { id: '5', title: 'New Plot', filename: 'new.png', artifact_type: 'plot_png', category: 'visualization', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 100 },
+    ]);
+    sidebarRenderer.renderSidebar();
+
+    expect(qs(document, '.tree-section[data-type="visualization"]').classList.contains('collapsed')).toBe(true);
+    expect(qs(document, '.tree-section[data-type="pinned"]').classList.contains('collapsed')).toBe(false);
+  });
 });
 
 describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {

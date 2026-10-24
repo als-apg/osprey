@@ -14,6 +14,9 @@ from osprey.interfaces.web_terminal.routes.agent_turn import router as agent_tur
 from osprey.interfaces.web_terminal.routes.audit import router as audit_router
 from osprey.interfaces.web_terminal.routes.bar_items import router as bar_items_router
 from osprey.interfaces.web_terminal.routes.chat import router as chat_router
+from osprey.interfaces.web_terminal.routes.chat_attachments import (
+    router as chat_attachments_router,
+)
 from osprey.interfaces.web_terminal.routes.config import router as config_router
 from osprey.interfaces.web_terminal.routes.feedback import router as feedback_router
 from osprey.interfaces.web_terminal.routes.files import router as files_router
@@ -42,6 +45,7 @@ router.include_router(memory_router)
 router.include_router(scaffold_router)
 router.include_router(websocket_router)
 router.include_router(chat_router)
+router.include_router(chat_attachments_router)
 router.include_router(proxy_router)
 
 __all__ = ["router"]

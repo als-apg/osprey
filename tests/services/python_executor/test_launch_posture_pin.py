@@ -34,11 +34,7 @@ import pytest
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import (
-    pin_identity,
-    state_dir_under,
-    write_control_context,
-)
+from osprey_connectors_tests._harness import pin_identity, state_dir_under, write_control_context
 
 #: A session key of the shape the web terminal writes.
 SESSION_KEY = "4f1c2a7e-0000-4000-8000-000000000042"

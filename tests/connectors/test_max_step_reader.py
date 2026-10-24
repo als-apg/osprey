@@ -28,7 +28,7 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
-from tests.connectors._epics_fakes import FakeChannel, ca_connector, ca_reading
+from osprey_connectors_tests._epics_fakes import FakeChannel, ca_connector, ca_reading
 from tests.facility.served_tree import in_process_config, served_tree
 
 _DOOCS_LIMITS_PATCH = (

@@ -612,8 +612,12 @@ minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"
 testpaths = [
     "tests",
+    "packages/osprey-connectors/tests",
     "src/applications/*/tests"
 ]
+# The connectors suite's helpers (osprey_connectors_tests) are imported by the
+# framework's own connector tests, which may be collected before that suite is.
+pythonpath = ["packages/osprey-connectors/tests"]
 python_files = [
     "test_*.py",
     "*_test.py"
@@ -728,6 +732,7 @@ src = [
     "interfaces",
     "deployment",
     "packages/osprey-connectors/src",
+    "packages/osprey-connectors/tests",
     "packages/pyaml-cs-osprey/src",
 ]
 # Executable Python scripts without a .py suffix. Ruff selects files by suffix and

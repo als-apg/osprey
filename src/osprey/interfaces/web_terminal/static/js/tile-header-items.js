@@ -297,7 +297,14 @@ function openPopover(btn) {
   const onKey = (/** @type {KeyboardEvent} */ e) => {
     if (e.key === 'Escape') closeMenu();
   };
-  const onReflow = () => closeMenu();
+  // Capture-phase scroll sees every scroll on the page -- the popover's own
+  // rows, the chat pane following new output -- so only one that moves the
+  // button closes it.
+  const onReflow = (/** @type {Event} */ e) => {
+    const t = e.target;
+    if (t instanceof Node && !t.contains(btn)) return;
+    closeMenu();
+  };
   document.addEventListener('pointerdown', onDocDown, true);
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('resize', onReflow);

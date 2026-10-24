@@ -57,7 +57,7 @@ import yaml
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: Absent from the limits database on purpose: the posture is the only thing

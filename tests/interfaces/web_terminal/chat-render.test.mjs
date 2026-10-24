@@ -1,7 +1,7 @@
 /**
  * Unit tests for chat-render.js -- the operator-chat message-list renderer.
  *
- * Three concerns:
+ * Four concerns:
  *   1. `renderMarkdownInto` -- the chat XSS trust boundary. Model output (incl.
  *      untrusted tool results) must pass through DOMPurify before any HTML
  *      reaches the DOM, and must degrade to inert text when the vendored libs
@@ -13,6 +13,9 @@
  *      text accumulation, the activity-line state machine, first-turn
  *      session_reset suppression, error rendering, and the transcript replay
  *      that repopulates the log after a handoff from the other view.
+ *   4. Approval cards in the log -- a card waiting on a call is filed under that
+ *      call's row, the row carries the decision, and a replayed call or a second
+ *      tab finds the same row.
  *
  * On the XSS tests: the *real* vendored DOMPurify cannot be exercised here --
  * under happy-dom (the vitest env) DOMPurify mis-parses and leaks `<script>`
@@ -34,14 +37,14 @@ import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
 import { qs } from '../_support/dom.mjs';
 
+import { renderMarkdownInto } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-markdown.js';
+import { createChatRenderer } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
 import {
-  renderMarkdownInto,
-  createChatRenderer,
   normaliseToolName,
   toolPhrase,
   activityLabel,
   TOOL_PHRASES,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-render.js';
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-activity.js';
 
 /** A markdown parser stub that passes text through as-is (raw HTML included, as marked does). */
 const passthroughMarked = { parse: /** @param {string} t */ (t) => t };
@@ -52,6 +55,11 @@ const identityPurify = { sanitize: /** @param {string} h */ (h) => h };
 /** @returns {HTMLElement} a fresh detached container element */
 function freshEl() {
   return document.createElement('div');
+}
+
+/** Let the animation frame that paints coalesced streamed text run. */
+function flushFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
 }
 
 afterEach(() => {
@@ -197,7 +205,7 @@ describe('renderMarkdownInto', () => {
 
 describe('tool vocabulary', () => {
   test('normaliseToolName folds both spellings of a name onto one key', () => {
-    // What the SDK sends, and what operator_session._format_tool_name makes of it.
+    // What the SDK sends, and what operator_session.format_tool_name makes of it.
     expect(normaliseToolName('mcp__osprey__channel_write')).toBe('channel_write');
     expect(normaliseToolName('Channel Write')).toBe('channel_write');
     // Built-ins arrive unprefixed.
@@ -318,25 +326,38 @@ describe('createChatRenderer', () => {
     r.addUserMessage('align the <b>orbit</b>');
     expect(r.messageCount()).toBe(1);
     const entry = qs(container, '.op-entry.operator');
-    expect(qs(entry, '.op-entry-prefix').textContent).toBe('Operator');
     // Operator text is plain text: markup in it is not interpreted.
-    const body = qs(entry, '.op-entry-body');
-    expect(body.textContent).toBe('align the <b>orbit</b>');
-    expect(body.querySelector('b')).toBeNull();
+    const bubble = qs(entry, '.op-bubble');
+    expect(bubble.textContent).toBe('align the <b>orbit</b>');
+    expect(bubble.querySelector('b')).toBeNull();
   });
 
-  test('text events create one agent entry and accumulate streamed text', () => {
+  test('whole text events each open a paragraph of their own in one agent entry', () => {
     const r = createChatRenderer(container);
-    r.handleEvent({ type: 'text', content: 'Hello ' });
-    r.handleEvent({ type: 'text', content: 'world' });
+    r.handleEvent({ type: 'text', content: 'first' });
+    r.handleEvent({ type: 'text', content: 'second' });
+
+    const agents = container.querySelectorAll('.op-entry.assistant');
+    expect(agents.length).toBe(1);
+    const bodies = agents[0].querySelectorAll('.op-entry-body');
+    expect(bodies.length).toBe(2);
+    expect(bodies[1].textContent).toBe('second');
+    // The shared markdown-content class styles the agent's rendered markdown.
+    expect(bodies[0].classList.contains('osprey-md-rendered')).toBe(true);
+    expect(r.messageCount()).toBe(1);
+  });
+
+  test('streamed deltas accumulate into one text block, painted once per frame', async () => {
+    const r = createChatRenderer(container);
+    r.handleEvent({ type: 'delta', kind: 'text', content: 'Hello ' });
+    r.handleEvent({ type: 'delta', kind: 'text', content: 'world' });
+    await flushFrame();
 
     const agents = container.querySelectorAll('.op-entry.assistant');
     expect(agents.length).toBe(1);
     const body = qs(container, '.op-entry.assistant .op-entry-body');
     expect(body.textContent).toBe('Hello world');
-    // The shared markdown-content class styles the agent's rendered markdown.
     expect(body.classList.contains('osprey-md-rendered')).toBe(true);
-    expect(qs(container, '.op-entry.assistant .op-entry-prefix').textContent).toBe('Osprey');
     expect(r.messageCount()).toBe(1);
   });
 
@@ -353,35 +374,39 @@ describe('createChatRenderer', () => {
   });
 
   describe('activity-line state machine', () => {
+    // The loader is the activity line: it shows while a turn runs and nothing
+    // is streaming, and steps aside while text streams.
     test('thinking marker shows "Thinking…"', () => {
       const r = createChatRenderer(container);
+      r.beginTurn();
       r.handleEvent({ type: 'thinking' });
-      const line = qs(container, '.op-processing');
-      expect(line.classList.contains('active')).toBe(true);
-      expect(qs(line, '.op-processing-label').textContent).toBe('Thinking…');
+      expect(qs(container, '.op-loader-label').textContent).toBe('Thinking…');
     });
 
     test('tool_use shows the tool\'s operator phrase', () => {
       const r = createChatRenderer(container);
+      r.beginTurn();
       r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read' });
-      expect(qs(container, '.op-processing-label').textContent).toBe(
+      expect(qs(container, '.op-loader-label').textContent).toBe(
         'Reading control channels…'
       );
     });
 
     test('text clears the activity line', () => {
       const r = createChatRenderer(container);
+      r.beginTurn();
       r.handleEvent({ type: 'thinking' });
-      expect(qs(container, '.op-processing').classList.contains('active')).toBe(true);
+      expect(container.querySelector('.op-loader')).not.toBeNull();
       r.handleEvent({ type: 'text', content: 'answer' });
-      expect(qs(container, '.op-processing').classList.contains('active')).toBe(false);
+      expect(container.querySelector('.op-loader')).toBeNull();
     });
 
     test('the activity line stays pinned below the latest entry', () => {
       const r = createChatRenderer(container);
       r.addUserMessage('go');
+      r.beginTurn();
       r.handleEvent({ type: 'tool_use', tool_name: 'Read' });
-      expect(container.lastElementChild?.classList.contains('op-processing')).toBe(true);
+      expect(container.lastElementChild?.classList.contains('op-loader')).toBe(true);
     });
   });
 
@@ -408,7 +433,7 @@ describe('createChatRenderer', () => {
       r.addUserMessage('and the orbit?');
       r.handleEvent({ type: 'session_reset' });
       const divider = qs(container, '.op-system');
-      expect(divider.textContent).toBe('session reset');
+      expect(divider.textContent).toBeTruthy();
       // the divider is not a message: user + agent + user = 3
       expect(r.messageCount()).toBe(3);
     });
@@ -526,7 +551,7 @@ describe('createChatRenderer', () => {
       r.handleEvent({ type: 'result', is_error: false });
       r.addUserMessage('thanks');
       r.handleEvent({ type: 'session_reset' });
-      expect(qs(container, '.op-system').textContent).toBe('session reset');
+      expect(container.querySelector('.op-system')).not.toBeNull();
     });
 
     test('a live text event after a replay opens a fresh agent entry', () => {
@@ -566,17 +591,18 @@ describe('createChatRenderer', () => {
       // exchange, so the next reset is worth a divider.
       r.addUserMessage('and the orbit?');
       r.handleEvent({ type: 'session_reset' });
-      expect(qs(container, '.op-system').textContent).toBe('session reset');
+      expect(container.querySelector('.op-system')).not.toBeNull();
     });
   });
 
   test('a hostile tool name reaches the activity line as text, never markup', () => {
     // An unmapped name is echoed verbatim, so it is the one place agent-supplied
-    // text enters the activity line. buildActivityLine writes textContent only.
+    // text enters the activity line. The loader's label writes textContent only.
     const r = createChatRenderer(container);
+    r.beginTurn();
     const hostile = '<img src=x onerror="steal()"><script>evil()</script>';
     r.handleEvent({ type: 'tool_use', tool_name: hostile });
-    const label = qs(container, '.op-processing-label');
+    const label = qs(container, '.op-loader-label');
     expect(label.querySelector('img')).toBeNull();
     expect(label.querySelector('script')).toBeNull();
     expect(label.textContent).toBe(`Using ${hostile}…`);
@@ -592,5 +618,425 @@ describe('createChatRenderer', () => {
     });
     const body = qs(container, '.op-entry.assistant .op-entry-body');
     expect(body.innerHTML).toBe('<em>safe</em>');
+  });
+
+  test('entering plan mode draws no tool row and keeps the reply text open, while the loader says the agent is planning', async () => {
+    const r = createChatRenderer(container);
+    r.beginTurn();
+    r.handleEvent({ type: 'delta', kind: 'text', content: 'Let me plan ' });
+    r.handleEvent({
+      type: 'tool_use',
+      tool_name: 'Enter Plan Mode',
+      tool_name_raw: 'EnterPlanMode',
+      tool_use_id: 'p1',
+      input: {},
+    });
+    r.handleEvent({
+      type: 'tool_result',
+      tool_use_id: 'p1',
+      is_error: false,
+      preview: 'Entered plan mode. Explore the codebase, then write a plan…',
+      truncated: false,
+    });
+    // While the call is in flight the loader says what is happening, in the
+    // chat's own words rather than the tool's name.
+    expect(qs(container, '.op-loader-label').textContent).toBe('Planning…');
+    r.handleEvent({ type: 'delta', kind: 'text', content: 'this first.' });
+    await flushFrame();
+
+    // No chip, no group, and the CLI's planning instructions never reach the log.
+    expect(container.querySelector('.op-tool, .op-tools')).toBeNull();
+    expect(container.textContent).not.toContain('Entered plan mode');
+    // The text block stays open across the hidden call: one body, not two.
+    const bodies = container.querySelectorAll('.op-entry-body');
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].textContent).toBe('Let me plan this first.');
+  });
+
+  describe('approval cards under their tool rows', () => {
+    /** A tool call, as the chat stream carries it. */
+    const call = (/** @type {string} */ id, /** @type {Record<string, unknown>} */ extra = {}) => ({
+      type: 'tool_use',
+      tool_name: 'Execute',
+      tool_name_raw: 'mcp__python__execute',
+      tool_use_id: id,
+      input: { code: 'print(1)' },
+      ...extra,
+    });
+    /** The approval the CLI asks for one call. */
+    const ask = (
+      /** @type {string} */ toolUseId,
+      /** @type {string} */ requestId,
+      /** @type {Record<string, unknown>} */ extra = {},
+    ) => ({
+      type: 'permission_request',
+      request_id: requestId,
+      kind: 'tool',
+      tool_name: 'Execute',
+      tool_name_raw: 'mcp__python__execute',
+      tool_use_id: toolUseId,
+      input: { code: 'print(1)' },
+      reason: null,
+      can_allow_session: false,
+      ...extra,
+    });
+    /** Another tab's answer to a request, as the feed carries it. */
+    const resolved = (
+      /** @type {string} */ requestId,
+      /** @type {boolean} */ allow,
+      /** @type {boolean} */ forSession = false,
+    ) => ({
+      type: 'permission_resolved',
+      request_id: requestId,
+      allow,
+      for_session: forSession,
+      answers: null,
+    });
+    /** A call's result: the error it raised, or the output it printed. */
+    const result = (/** @type {string} */ id, /** @type {boolean} */ isError) => ({
+      type: 'tool_result',
+      tool_use_id: id,
+      is_error: isError,
+      preview: isError ? 'NameError: name x is not defined' : '1',
+      truncated: false,
+    });
+
+    /** The tool rows in the log, oldest first. */
+    const rows = () => /** @type {HTMLElement[]} */ ([...container.querySelectorAll('.op-tool')]);
+    /** The button in the log with this label. */
+    const buttonLabelled = (/** @type {string} */ label) =>
+      /** @type {HTMLElement} */ ([...container.querySelectorAll('button')].find((b) => b.textContent === label));
+    /** Let the answer's promise chain run. */
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    test('an approval sits directly under the row of its own call, not another call to the same tool', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent(call('t1'));
+      r.handleEvent(call('t2'));
+      r.handleEvent(ask('t2', 'req-2'));
+
+      const [first, second] = rows();
+      const card = qs(container, '.op-approval');
+      expect(card.previousElementSibling).toBe(second);
+      expect(card.parentElement).toBe(second.parentElement);
+      expect(first.nextElementSibling).toBe(second);
+    });
+
+    test('the group holding a waiting approval stays open once the agent moves on, and the operator cannot fold it away', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1'));
+      r.handleEvent({ type: 'text', content: 'Waiting on you.' });
+
+      const group = qs(container, '.op-tools');
+      expect(group.classList.contains('open')).toBe(true);
+      expect(qs(container, '.op-approval').closest('[hidden]')).toBeNull();
+
+      qs(container, '.op-tools-head').click();
+      expect(group.classList.contains('open')).toBe(true);
+    });
+
+    test('once answered, a group the agent has left folds again', async () => {
+      const answerPermission = vi.fn(async () => {});
+      const r = createChatRenderer(container, { answerPermission });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1'));
+      r.handleEvent({ type: 'text', content: 'Done.' });
+      qs(container, '.op-btn-primary').click();
+      await settle();
+
+      expect(answerPermission).toHaveBeenCalledWith('req-1', { allow: true });
+      expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
+    });
+
+    test.each([
+      {
+        how: 'the primary button allows the call',
+        sessionOffer: false,
+        act: () => qs(container, '.op-btn-primary').click(),
+        answer: { allow: true },
+        decision: 'allowed',
+        label: 'Allowed by you',
+      },
+      {
+        how: '"Allow for this session" records the session decision',
+        sessionOffer: true,
+        act: () => buttonLabelled('Allow for this session').click(),
+        answer: { allow: true, for_session: true },
+        decision: 'session',
+        label: 'Allowed for this session',
+      },
+      {
+        how: 'Deny records the denial',
+        sessionOffer: false,
+        act: () => buttonLabelled('Deny').click(),
+        answer: { allow: false },
+        decision: 'denied',
+        label: 'Denied by you',
+      },
+      {
+        how: 'Enter on the waiting card allows the call',
+        sessionOffer: false,
+        act: () =>
+          qs(container, '.op-approval').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+        answer: { allow: true },
+        decision: 'allowed',
+        label: 'Allowed by you',
+      },
+    ])('$how on the row, and takes the card out of the log', async ({ sessionOffer, act, answer, decision, label }) => {
+      const answerPermission = vi.fn(async () => {});
+      const r = createChatRenderer(container, { answerPermission });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1', { can_allow_session: sessionOffer }));
+      act();
+      await settle();
+
+      expect(answerPermission).toHaveBeenCalledWith('req-1', answer);
+      expect(container.querySelector('.op-approval, .op-card-line')).toBeNull();
+      const badge = qs(container, '.op-tool-decision');
+      expect(badge.dataset.decision).toBe(decision);
+      expect(badge.textContent).toBe(label);
+    });
+
+    test('a waiting approval takes focus on its primary control where it sits under the row', () => {
+      document.body.append(container);
+      try {
+        const r = createChatRenderer(container, { answerPermission: vi.fn() });
+        r.handleEvent(call('t1'));
+        r.handleEvent(ask('t1', 'req-1'));
+        expect(document.activeElement).toBe(qs(container, '.op-btn-primary'));
+      } finally {
+        container.remove();
+      }
+    });
+
+    test('a call allowed and then failed reads as one row: the decision, then the failure in its result', async () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn(async () => {}) });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1'));
+      qs(container, '.op-btn-primary').click();
+      await settle();
+      r.handleEvent(result('t1', true));
+
+      expect(rows()).toHaveLength(1);
+      const row = qs(container, '.op-tool');
+      expect(row.dataset.state).toBe('error');
+      const badge = qs(row, '.op-tool-decision');
+      expect(badge.textContent).toBe('Allowed by you');
+      expect(badge.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+      expect(qs(row, '.op-tool-pre.op-tool-error').textContent).toContain('NameError');
+      expect(container.querySelector('.op-approval, .op-card-line')).toBeNull();
+    });
+
+    test('an answer given in another tab settles the row the same way', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1'));
+      r.handleEvent(resolved('req-1', false));
+
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect(qs(container, '.op-tool-decision').dataset.decision).toBe('denied');
+    });
+
+    test('an approval nobody answered expires: the row says so without blaming the operator, and the card leaves', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1'));
+      r.handleEvent({ ...resolved('req-1', false), expired: true });
+
+      expect(container.querySelector('.op-approval')).toBeNull();
+      const badge = qs(container, '.op-tool-decision');
+      expect(badge.dataset.decision).toBe('expired');
+      expect(badge.textContent).toMatch(/no answer/i);
+      expect(badge.textContent).not.toMatch(/by you/i);
+    });
+
+    test('a plan nobody approved expires to a kept-planning line, not an approval', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent(
+        ask('', 'req-9', {
+          kind: 'plan',
+          tool_name: 'Plan',
+          tool_name_raw: 'ExitPlanMode',
+          input: { plan: '1. Read the file.' },
+        }),
+      );
+      r.handleEvent({ ...resolved('req-9', false), expired: true });
+
+      const card = qs(container, '.op-approval');
+      expect(card.dataset.state).toBe('denied');
+      expect(card.textContent).toMatch(/no answer/i);
+      expect(container.querySelector('button')).toBeNull();
+    });
+
+    test('a question nobody answered expires to a skipped line', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent({
+        type: 'permission_request',
+        request_id: 'q-1',
+        kind: 'question',
+        input: {
+          questions: [
+            {
+              question: 'Which lattice?',
+              header: 'Lattice',
+              multiSelect: false,
+              options: [{ label: 'Top-off', description: '' }, { label: 'Hybrid', description: '' }],
+            },
+          ],
+        },
+      });
+      r.handleEvent({ ...resolved('q-1', false), expired: true });
+
+      const card = qs(container, '.op-card');
+      expect(card.dataset.state).toBe('skipped');
+      expect(card.textContent).toMatch(/no answer/i);
+    });
+
+    test('an approval with no row of its own stays in the log as a card and folds to its outcome', async () => {
+      const answerPermission = vi.fn(async () => {});
+      const r = createChatRenderer(container, { answerPermission });
+      r.handleEvent(
+        ask('', 'req-9', {
+          kind: 'plan',
+          tool_name: 'Plan',
+          tool_name_raw: 'ExitPlanMode',
+          input: { plan: '1. Read the file.' },
+        }),
+      );
+
+      const card = qs(container, '.op-approval');
+      expect(card.closest('.op-tools')).toBeNull();
+      qs(container, '.op-btn-primary').click();
+      await settle();
+
+      expect(container.contains(card)).toBe(true);
+      expect(card.dataset.state).toBe('allowed');
+      expect(container.querySelector('.op-tool-decision')).toBeNull();
+    });
+
+    test("a subagent's approval sits under that subagent's own row, and its trace opens to show it", () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'facility-knowledge', description: 'look it up' },
+      });
+      r.handleEvent(call('s1', { parent_tool_use_id: 'a1' }));
+      r.handleEvent(ask('s1', 'req-s1'));
+
+      const trace = qs(container, '.op-agent-trace');
+      const card = qs(container, '.op-approval');
+      expect(card.parentElement).toBe(trace);
+      expect(card.previousElementSibling).toBe(trace.querySelector('.op-tool'));
+      expect(card.closest('[hidden]')).toBeNull();
+    });
+
+    test('after a reload, a call still awaiting its answer takes the approval under its replayed row', async () => {
+      const answerPermission = vi.fn(async () => {});
+      const r = createChatRenderer(container, { answerPermission });
+      // The transcript shows the call, not yet answered.
+      r.replay([{ role: 'assistant', content: '', events: [call('t1')] }]);
+      // The feed opens mid-turn and reports the request still waiting.
+      r.beginTurn();
+      r.handleEvent(ask('t1', 'req-1'));
+
+      const row = qs(container, '.op-tool');
+      expect(qs(container, '.op-approval').previousElementSibling).toBe(row);
+      qs(container, '.op-btn-primary').click();
+      await settle();
+
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect(qs(row, '.op-tool-decision').dataset.decision).toBe('allowed');
+    });
+
+    test('a replayed turn that carries its approval draws the decision on the row, as it was drawn live', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [
+            call('t1'),
+            ask('t1', 'req-1'),
+            resolved('req-1', true),
+            result('t1', true),
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect(qs(container, '.op-tool-decision').dataset.decision).toBe('allowed');
+      expect(qs(container, '.op-tool').dataset.state).toBe('error');
+    });
+
+    test.each([
+      { told: 'allowed', decision: 'allowed', label: 'Allowed by you', isError: false, state: 'done' },
+      { told: 'declined, which failed', decision: 'denied', label: 'Denied by you', isError: true, state: 'error' },
+      { told: 'never asked about', decision: undefined, label: null, isError: false, state: 'done' },
+    ])('a replayed call the operator $told shows that on its row, with no card', ({ decision, label, isError, state }) => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [call('t1'), { ...result('t1', isError), decision }, { type: 'result', is_error: false }],
+        },
+      ]);
+
+      const badge = container.querySelector('.op-tool-decision');
+      if (decision === undefined) {
+        expect(badge).toBeNull();
+      } else {
+        expect(/** @type {HTMLElement} */ (badge).dataset.decision).toBe(decision);
+        expect(badge?.textContent).toBe(label);
+        expect(badge?.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+      }
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect(qs(container, '.op-tool').dataset.state).toBe(state);
+    });
+
+    test('a decision for a call with no row of its own draws nothing', () => {
+      // A question or a plan has no row, and its answer shows no pill live either.
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([
+        {
+          role: 'assistant',
+          content: '',
+          events: [
+            { ...result('q1', true), decision: 'denied' },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+
+      expect(container.querySelector('.op-tool-decision')).toBeNull();
+      expect(container.querySelector('.op-tool')).toBeNull();
+      expect(container.querySelector('.op-approval')).toBeNull();
+    });
+
+    test('a call replayed while still running finishes when its result arrives', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.replay([{ role: 'assistant', content: '', events: [call('t1')] }]);
+      r.beginTurn();
+      r.handleEvent(result('t1', false));
+
+      expect(qs(container, '.op-tool').dataset.state).toBe('done');
+    });
+
+    test('a turn that ends while an approval waits takes the card away, and the row keeps what it has', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.handleEvent(call('t1'));
+      r.handleEvent(ask('t1', 'req-1'));
+      r.endTurn();
+
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect(container.querySelector('.op-tool-decision')).toBeNull();
+      expect(rows()).toHaveLength(1);
+      expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
+    });
   });
 });

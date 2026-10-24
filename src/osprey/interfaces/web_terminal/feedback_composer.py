@@ -191,6 +191,8 @@ def collect_material(
     session_id: str | None,
     scrollback: str,
     metadata: dict[str, Any],
+    *,
+    transcript_id: str | None = None,
 ) -> Material:
     """Read every source once and return the material to render from.
 
@@ -218,6 +220,11 @@ def collect_material(
       there is neither a tag to match nor a set of events to derive a window
       from, so every entry in the store would be equally (un)related to this
       report and listing them would be noise, not context.
+
+    ``session_id`` is the session key: it tags the artifacts and names the
+    session in the report. ``transcript_id`` is the transcript the reads open,
+    for a key whose conversation moved (a ``/clear``); omitted, the key names
+    its own transcript.
     """
     material = Material(metadata=dict(metadata), scrollback=scrollback, session_id=session_id)
 
@@ -225,13 +232,14 @@ def collect_material(
         material.context_status = CONTEXT_NO_SESSION
         return material
 
-    if reader.find_transcript_by_id(session_id) is None:
+    transcript = transcript_id or session_id
+    if reader.find_transcript_by_id(transcript) is None:
         material.context_status = CONTEXT_TRANSCRIPT_NOT_FOUND
         return material
 
     material.context_status = CONTEXT_OK
-    material.events = reader.read_session_by_id(session_id)
-    material.chat = reader.read_chat_history_by_id(session_id)
+    material.events = reader.read_session_by_id(transcript)
+    material.chat = reader.read_chat_history_by_id(transcript)
     # Session material only; the shipped example is not evidence of anything.
     material.artifact_entries = store.list_entries(exclude_examples=True)
     return material

@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment.subprocess_capture import stop_group
-from tests import _ports
-from tests._ports import (
+from osprey_connectors_tests._harness import _ports
+from osprey_connectors_tests._harness._ports import (
     bound_socket,
     ephemeral_range_start,
     lock_path,

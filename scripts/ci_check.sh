@@ -120,7 +120,7 @@ echo "→ Running pytest with coverage..."
 # than the index, so leaving it in made this script red on every branch. It runs
 # on demand — `uv run pytest tests/services/channel_finder/graph_index/test_scale.py`
 # — and in the benchmark job.
-if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
+if ! uv run python scripts/run_bounded.py 3600 -- uv run pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty and not wallclock" -n auto --dist loadgroup -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else

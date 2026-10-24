@@ -28,7 +28,7 @@ from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.types import baseline_target, configured_targets, resolve_target
-from tests._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record

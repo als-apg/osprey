@@ -127,12 +127,6 @@ another tab or view.* means another browser tab holds it, so close that tab or
 work there instead. *The previous agent is still shutting down.* is the one
 worth retrying, and the card offers **Retry**.
 
-Running ``/clear`` in the terminal starts a new conversation without starting a
-new session: the write state and the machine you are standing on carry over,
-and the chat shows the cleared conversation too. A prompt you send in the chat
-while a turn is still running waits for that turn rather than being refused,
-and goes as soon as the agent is free.
-
 .. note::
 
    **Deployments built before this release.** The wait needs the
@@ -148,6 +142,40 @@ The two views run the same Claude Code version, the one
 ``claude_code.cli_version`` names. If the chat is refused because that version
 is not installed, the server log says which one to install; see
 :doc:`/getting-started/installation`.
+
+While a turn runs in the Simple view, the composer is disabled and **Send**
+becomes **Stop**. Send the next prompt when the agent finishes, or select
+**Stop** to end the turn.
+
+Clearing a conversation
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Run ``/clear`` in the terminal to start a new conversation under the same
+session. The write state and the machine you are standing on carry over, and
+the chat shows the cleared conversation too.
+
+Beneath the composer, a context meter shows how full the context window is.
+From 80 percent it suggests ``/compact`` or a new conversation.
+
+Attaching a file
+~~~~~~~~~~~~~~~~
+
+Attach a file to a message with the paperclip button. You can also paste an
+image, or drop a file on the composer. The file is uploaded when you attach
+it. The chip shows the file name and its size. To remove a chip, select its
+**x** button. Type your question, then send. The chat does not send a file by
+itself. The agent opens the file with its Read tool.
+
+The chat accepts images (PNG, JPEG, GIF, WebP), PDF files, and plain-text files
+(TXT, LOG, CSV, JSON, YAML, Markdown, Python). A file can be 20 MB at most. A
+message can carry 10 files. One chat can hold 200 MB of files. A file of
+another type, or a file that is too large, is refused. The chip shows the
+reason.
+
+The agent reads an attached file from the uploads directory under the agent
+data directory. The deployment allows the agent to read that directory, so the
+read raises no approval card. A file outside it can still raise one. A file
+that you attach but never send is deleted after 24 hours.
 
 .. _web-terminal-session-posture:
 

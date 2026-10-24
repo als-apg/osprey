@@ -2,19 +2,20 @@
 /**
  * OSPREY Web Terminal — Simple-mode operator chat: message-list renderer.
  *
- * View-model + DOM builders for the operator chat log (the `op-*` console
- * styled in operator.css). A {@link createChatRenderer} instance owns the
- * message-list state a single stream of SSE-style events would otherwise
- * scatter across the controller: the accumulating agent-text buffer, the
- * transient activity line, and the first-turn bookkeeping that decides
- * whether a `session_reset` is worth a divider.
+ * View-model for the operator chat log (the `op-*` console styled in
+ * operator.css). A {@link createChatRenderer} instance owns the message-list
+ * state a single stream of SSE-style events would otherwise scatter across the
+ * controller: the agent turn being written (its text, thinking, tool calls,
+ * plan and cards), the live loader, and the first-turn bookkeeping that decides
+ * whether a `session_reset` is worth a divider. The blocks are built by the
+ * chat-*.js modules it imports; markdown and math are rendered by chat-markdown.js.
  *
  * Trust boundary: chat renders *model* output — including verbatim tool
  * results from outside the trust boundary — so every markdown-to-HTML path
- * runs through {@link renderMarkdownInto}, which sanitises with DOMPurify
- * before anything reaches the DOM and degrades to inert `textContent` when the
- * vendored libraries are absent. The scaffold Preview renders agent-writable
- * `.claude/` files through the same function rather than a second copy.
+ * runs through {@link renderMarkdownInto} (chat-markdown.js), which sanitises
+ * with DOMPurify before anything reaches the DOM and degrades to inert
+ * `textContent` when the vendored libraries are absent. The scaffold Preview
+ * renders agent-writable `.claude/` files through the same function.
  *
  * The libraries (`marked`, `DOMPurify`, `hljs`) are vendored classic-script
  * globals loaded before this module; `DOMPurify` has no ambient declaration,
@@ -24,460 +25,124 @@
  * @module chat-render
  */
 
+import {
+  createAgentEntry,
+  createErrorBlock,
+  createLoader,
+  createNotice,
+  createSessionDivider,
+  createTextBlock,
+  createThinkingBlock,
+  createTurnFooter,
+  createUserEntry,
+} from './chat-blocks.js';
+import { createTaskCard } from './chat-plan.js';
+import { createToolGroup } from './chat-tool-cards.js';
+import { createApprovalCard } from './chat-approval.js';
+import { createQuestionCard } from './chat-question.js';
+import { HIDDEN_TOOL_KEYS, PLAN_TOOL_KEY, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
+import { activityLabel } from './chat-activity.js';
+import { renderMarkdownInto } from './chat-markdown.js';
+import { emitChat } from './chat-events.js';
+import { systemFrame } from './chat-system.js';
+
+export { elem } from './chat-dom.js';
+
+/** @typedef {import('./chat-blocks.js').LoaderHandle} LoaderHandle */
+/** @typedef {import('./chat-blocks.js').ThinkingBlock} ThinkingBlock */
+/** @typedef {import('./chat-tool-cards.js').ToolGroup} ToolGroup */
+/** @typedef {import('./chat-tool-cards.js').ToolRow} ToolRow */
+/** @typedef {import('./chat-tool-cards.js').Decision} Decision */
+/** @typedef {import('./chat-plan.js').TaskCard} TaskCard */
+/** @typedef {import('./chat-permission.js').PermissionBody} PermissionBody */
+
 /**
  * A chat event, post server-side stripping (see routes/chat.py
- * `_strip_for_chat`). Only the fields this renderer reads are typed; the
- * stripped wire objects carry a few more (`tool_use_id`, `error_type`, …).
+ * `_strip_for_chat`). Typed open on purpose: each event type carries its own
+ * fields, and the renderer reads the ones its type has. The fields read most
+ * are `type` (the discriminator: `text` | `delta` | `thinking` | `tool_use` |
+ * `tool_result` | `permission_request` | `permission_resolved` | `result` |
+ * `session_reset` | `error` | `system`), `content` (text, deltas and thinking),
+ * `tool_name` and `tool_name_raw` (`tool_use`; the raw name, prefix intact, is
+ * the preferred phrase key), `message` (`error`), `is_error`, and `decision` (a
+ * replayed `tool_result`: `allowed` or `denied`, when its call has one).
  *
- * @typedef {object} ChatEvent
- * @property {string} type - discriminator: `text` | `thinking` | `tool_use`
- *   | `tool_result` | `result` | `session_reset` | `error` | `system` | …
- * @property {string} [content] - incremental text (`text` events)
- * @property {string} [tool_name] - display name, prefix-stripped (`tool_use`)
- * @property {string} [tool_name_raw] - the SDK's own tool name, prefix intact
- *   (`tool_use`); the preferred {@link TOOL_PHRASES} key
- * @property {string} [message] - human-readable error text (`error` events)
- * @property {boolean} [is_error] - turn/tool errored (`result`, `tool_result`)
+ * @typedef {{ type: string, [key: string]: any }} ChatEvent
  */
 
 /**
  * One conversation turn as served by `GET /api/session-chat` (see
- * workspace/transcript_reader.py `read_chat_history`, which emits text turns
- * only — tool calls and their results never appear).
+ * routes/session.py). Without `events=1` an agent turn is its text alone; with
+ * it, the turn also carries the stream the live chat received, so a replay
+ * draws the same thinking, tool calls and plan.
  *
  * @typedef {object} ChatTurn
  * @property {string} role - `user` or `assistant`
  * @property {string} content - the turn's text; markdown for an agent turn
  * @property {string} [timestamp] - transcript timestamp; not rendered here
+ * @property {ChatEvent[]} [events] - an agent turn's stream, when `events=1` is asked for
  */
-
-/**
- * @returns {{ DOMPurify: any, hljs: any }} the vendored sanitiser/highlighter
- *   globals, each possibly `undefined`. (`marked` is reached via
- *   {@link chatMarkedParse}, which isolates chat from the shared singleton.)
- */
-function markdownGlobals() {
-  const g = /** @type {any} */ (globalThis);
-  return { DOMPurify: g.DOMPurify, hljs: g.hljs };
-}
-
-/**
- * Identity of the global `marked` the memoised {@link chatMarkedParse} was
- * last built against, and the parse function derived from it. Kept module-level
- * so the (stable) production singleton yields exactly one isolated instance,
- * while per-test global swaps — which change the identity — force a rebuild.
- * @type {any}
- */
-let lastMarked = null;
-/** @type {((text: string) => string) | null} */
-let chatParse = null;
-
-/**
- * A `parse(markdown) -> html` function isolated from the shared `marked`
- * singleton, or `null` when `marked` is absent.
- *
- * The global `marked` is a page-wide singleton that any script may
- * reconfigure with `marked.use(...)`. marked v12 exposes its `Marked` class
- * on the UMD global, so this module builds its own instance with a plain
- * config and parses through that, immune to whatever the rest of the page
- * does to the singleton. When the constructor is absent (an older or partial
- * vendored build) it falls back to the global `marked.parse`.
- *
- * Resolved lazily rather than at module load: the vendored global loads before
- * this module in the browser, but tests stub `globalThis.marked` per case, so
- * the instance is (re)built whenever the observed global changes identity.
- *
- * @returns {((text: string) => string) | null}
- */
-function chatMarkedParse() {
-  const marked = /** @type {any} */ (globalThis).marked;
-  if (marked === lastMarked) return chatParse;
-  lastMarked = marked;
-
-  if (!marked) {
-    chatParse = null;
-  } else if (typeof marked.Marked === 'function') {
-    try {
-      const instance = new marked.Marked({ gfm: true, breaks: false });
-      chatParse = (text) => instance.parse(text);
-    } catch {
-      chatParse =
-        typeof marked.parse === 'function' ? (text) => marked.parse(text) : null;
-    }
-  } else {
-    chatParse =
-      typeof marked.parse === 'function' ? (text) => marked.parse(text) : null;
-  }
-  return chatParse;
-}
-
-/**
- * Render markdown text into `el` as sanitised HTML, then syntax-highlight any
- * code blocks. This is the web terminal's one trust boundary for markdown:
- * the chat log and the scaffold Preview both render through it.
- *
- * HTML is produced only when BOTH `marked` and `DOMPurify` are available: the
- * marked output is untrusted HTML, so it must never reach `innerHTML` without
- * passing through `DOMPurify.sanitize` first. If either library is missing (or
- * either step throws), the text is written as inert `textContent` — never as
- * markup. `hljs` is a purely additive enhancement and is skipped when absent.
- *
- * @param {HTMLElement} el - target element; its contents are replaced
- * @param {string} text - raw markdown (model output)
- * @returns {void}
- */
-export function renderMarkdownInto(el, text) {
-  const { DOMPurify, hljs } = markdownGlobals();
-  const parse = chatMarkedParse();
-
-  // Fail safe: without a parser or a sanitiser we cannot emit HTML, so degrade
-  // to text.
-  if (!parse || !DOMPurify || typeof DOMPurify.sanitize !== 'function') {
-    el.textContent = text;
-    return;
-  }
-
-  let clean;
-  try {
-    clean = DOMPurify.sanitize(parse(text));
-  } catch {
-    // Any failure in parse/sanitise falls back to inert text rather than
-    // risking unsanitised markup reaching the DOM.
-    el.textContent = text;
-    return;
-  }
-  el.innerHTML = clean;
-
-  if (hljs && typeof hljs.highlightElement === 'function') {
-    el.querySelectorAll('pre code').forEach((block) => {
-      try {
-        hljs.highlightElement(/** @type {HTMLElement} */ (block));
-      } catch {
-        // A single block failing to highlight must not break the message.
-      }
-    });
-  }
-}
-
-// ---- Tool vocabulary ---- //
-
-// The vocabulary below is exported for its own unit suite; the chat itself
-// reaches it only through createChatRenderer's activity line.
-
-/**
- * Operator phrases for the tools a turn is likely to use, keyed by normalised
- * tool name (see {@link normaliseToolName}).
- *
- * In Simple mode the chat is the whole interface, so this line is the only
- * account an operator gets of what the agent is doing. Phrases say it in
- * control-room terms and share the activity strip's vocabulary (open/close/
- * focus/arrange for panels, "wrote" for channels).
- *
- * They are lower-case gerunds — "writing control channels" — so a caller can
- * drop one mid-sentence; {@link activityLabel} capitalises for the activity
- * line. Coverage is deliberately partial: a tool whose formatted name already
- * reads as plain English ("List Panels", "Session Summary") falls through to
- * the raw-name fallback instead of earning a row. Adding one is a single line.
- *
- * Phrases cannot name the specific panel, channel, or file involved: the chat
- * route (`_strip_for_chat`) drops a `tool_use` event's `input` before it leaves
- * the server, so no arguments reach this module.
- *
- * The keyspace is server-agnostic by design: keys are short tool names with
- * the `mcp__<server>__` prefix stripped, so a name owned by two servers
- * (e.g. `capabilities` on both ariel and osprey_facility_knowledge) would
- * share one phrase. Keep phrases generic enough to be true for every owner.
- *
- * @type {Readonly<Record<string, string>>}
- */
-export const TOOL_PHRASES = Object.freeze({
-  // Control system — the writes an operator most needs to see coming.
-  channel_write: 'writing control channels',
-  channel_read: 'reading control channels',
-  channel_limits: 'checking channel limits',
-  archiver_read: 'reading archived data',
-  archiver_downsample: 'thinning archived data',
-
-  // Python executor.
-  execute: 'running Python',
-  execute_file: 'running Python',
-
-  // Workspace panels. The synthetic panel activity uses these same names.
-  add_panel_to_rail: 'making a panel available',
-  remove_panel_from_rail: 'removing a panel',
-  open_panel: 'opening a panel',
-  close_panel: 'closing a panel',
-  arrange_workspace: 'arranging the workspace',
-  register_panel: 'adding a panel',
-  manage_window: 'arranging a window',
-  screenshot_capture: 'taking a screenshot',
-
-  // Workspace artifacts (plots, documents and stored datasets alike).
-  artifact_register: 'registering an artifact',
-  artifact_get: 'opening an artifact',
-  artifact_list: 'listing saved artifacts',
-  artifact_read: 'reading a saved artifact',
-  artifact_focus: 'showing an artifact',
-  artifact_pin: 'pinning an artifact',
-  artifact_export: 'exporting an artifact',
-  artifact_delete: 'deleting an artifact',
-  artifact_delete_all: 'deleting artifacts',
-  create_static_plot: 'drawing a plot',
-  create_interactive_plot: 'drawing an interactive plot',
-  create_dashboard: 'building a dashboard',
-  create_document: 'writing a document',
-
-  // Workspace project setup and session record.
-  setup_inspect: 'inspecting the project setup',
-  setup_patch: 'changing the project setup',
-  session_log: 'writing to the session log',
-
-  // Plan queue (bluesky).
-  queue_status: 'checking the plan queue',
-  queue_list: 'listing the plan queue',
-  queue_add: 'queueing a plan',
-  queue_start: 'starting the plan queue',
-  queue_stop: 'stopping the plan queue',
-  stop_run: 'stopping the running plan',
-  write_plan: 'drafting a plan',
-  validate_plan: 'checking the plan',
-  get_draft: 'reading the plan draft',
-  set_draft: 'editing the plan draft',
-  clear_draft: 'clearing the plan draft',
-  get_run: 'reading a plan run',
-  get_run_data: 'reading run data',
-  get_run_figure: 'reading a run figure',
-
-  // Phoebus displays.
-  phoebus_open_panel: 'opening a Phoebus display',
-  phoebus_open_databrowser: 'opening the data browser',
-  phoebus_list_displays: 'listing Phoebus displays',
-  phoebus_perceive: 'reading a Phoebus display',
-  phoebus_perceive_region: 'reading part of a Phoebus display',
-  phoebus_snapshot: 'capturing a Phoebus display',
-  phoebus_drive: 'operating a Phoebus display',
-
-  // Logbook (ARIEL).
-  browse: 'browsing the logbook',
-  keyword_search: 'searching the logbook',
-  semantic_search: 'searching the logbook',
-  hybrid_search: 'searching the logbook',
-  sql_query: 'querying the logbook',
-  filter_options: 'listing logbook filters',
-  entry_get: 'reading a logbook entry',
-  entries_by_ids: 'reading logbook entries',
-  attachment_view: 'viewing a logbook picture',
-  entry_open: 'showing a logbook entry',
-  attachment_to_artifact: 'saving a logbook picture',
-  entry_create: 'drafting a logbook entry',
-  entry_publish: 'publishing a logbook entry',
-
-  // Channel finder.
-  list_channels: 'looking up channels',
-  ask_channels: 'looking up channels',
-  run_sql: 'querying the channel database',
-  build_channels: 'building a channel list',
-  list_families: 'looking up channel families',
-  list_systems: 'looking up systems',
-  get_common_names: 'looking up channel names',
-  inspect_fields: 'inspecting channel fields',
-
-  // Facility knowledge.
-  list_concepts: 'browsing facility knowledge',
-  read_concept: 'reading facility knowledge',
-  draft_concept: 'drafting a facility note',
-
-  // Lattice model. The mutators are phrased; the getters fall back.
-  lattice_state: 'reading the lattice',
-  lattice_set_param: 'changing a lattice parameter',
-  lattice_set_baseline: 'setting the lattice baseline',
-  lattice_clear_baseline: 'clearing the lattice baseline',
-  lattice_update_settings: 'changing lattice settings',
-  lattice_refresh: 'refreshing the lattice view',
-
-  // Health.
-  health_check: 'checking system health',
-  health_check_full: 'checking system health',
-
-  // Built-in agent tools.
-  read: 'reading a file',
-  write: 'writing a file',
-  edit: 'editing a file',
-  bash: 'running a shell command',
-  glob: 'looking for files',
-  grep: 'searching files',
-  task: 'delegating to a helper agent',
-  todowrite: 'updating its plan',
-  webfetch: 'fetching a web page',
-  websearch: 'searching the web',
-});
-
-/**
- * Fold a tool name to a {@link TOOL_PHRASES} key: drop the `mcp__<server>__`
- * prefix, collapse whitespace and hyphens to underscores, lower-case.
- *
- * A `tool_use` event carries the name twice — `tool_name_raw`
- * (`mcp__osprey__channel_write`) and the server-formatted `tool_name`
- * (`Channel Write`, from operator_session `_format_tool_name`) — and both fold
- * to the same key, so the table works whichever spelling an event carries.
- * (Caveat: a tool name containing a literal `__` folds differently per
- * spelling — no framework tool is named that way.)
- *
- * @param {string} name
- * @returns {string}
- */
-export function normaliseToolName(name) {
-  return name
-    // Non-greedy: the FIRST `__` after the server name ends the prefix — the
-    // server name may itself contain single underscores (osprey_workspace,
-    // osprey_facility_knowledge, or a facility-declared server named that way).
-    .replace(/^mcp__.+?__/, '')
-    .trim()
-    .replace(/[\s-]+/g, '_')
-    .toLowerCase();
-}
-
-/**
- * The operator phrase for a `tool_use` event, or null when the tool has no
- * table entry. Lower-case and sentence-fragment shaped; capitalise at the
- * point of display.
- * @param {ChatEvent} event
- * @returns {string | null}
- */
-export function toolPhrase(event) {
-  for (const name of [event.tool_name_raw, event.tool_name]) {
-    if (!name) continue;
-    const phrase = TOOL_PHRASES[normaliseToolName(name)];
-    if (phrase) return phrase;
-  }
-  return null;
-}
-
-/**
- * The activity-line label for a `tool_use` event. A mapped tool reads as a
- * sentence ("Writing control channels…"); anything unmapped keeps its raw name
- * ("Using Queue Reorder…"), so a tool added elsewhere in the codebase is never
- * invisible here — only terse until it earns a phrase.
- * @param {ChatEvent} event
- * @returns {string}
- */
-export function activityLabel(event) {
-  const phrase = toolPhrase(event);
-  if (phrase !== null) return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}…`;
-  return `Using ${event.tool_name ?? event.tool_name_raw ?? 'tool'}…`;
-}
-
-// ---- Pure DOM builders ---- //
-
-/**
- * Create an element with a class and optional text. Shared with chat.js —
- * the chat modules never write markup through this builder.
- * @param {string} tag
- * @param {string} className
- * @param {string} [text] - assigned via textContent (never innerHTML)
- * @returns {HTMLElement}
- */
-export function elem(tag, className, text) {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-/**
- * Build an operator (user) log entry — plain text, no markdown.
- * @param {string} text
- * @returns {HTMLElement}
- */
-function buildUserEntry(text) {
-  const entry = elem('div', 'op-entry operator');
-  entry.appendChild(elem('div', 'op-entry-prefix', 'Operator'));
-  entry.appendChild(elem('div', 'op-entry-body', text));
-  return entry;
-}
-
-/**
- * Build an empty agent (assistant) log entry. The body carries both
- * `op-entry-body` (console styling) and `osprey-md-rendered` (the shared
- * markdown-content class), and is the element {@link renderMarkdownInto}
- * writes into as text streams in.
- * @returns {{ entry: HTMLElement, body: HTMLElement }}
- */
-function buildAgentEntry() {
-  const entry = elem('div', 'op-entry assistant');
-  entry.appendChild(elem('div', 'op-entry-prefix', 'Osprey'));
-  const body = elem('div', 'op-entry-body osprey-md-rendered');
-  entry.appendChild(body);
-  return { entry, body };
-}
-
-/**
- * Build an error block. Rendered from error events; text only.
- * @param {string} message
- * @returns {HTMLElement}
- */
-function buildErrorEntry(message) {
-  return elem('div', 'op-error-block', message);
-}
-
-/**
- * Build a session-reset divider (a centred system notice).
- * @returns {HTMLElement}
- */
-function buildSessionResetDivider() {
-  return elem('div', 'op-system', 'session reset');
-}
-
-/**
- * Build the transient activity line (LED + label). Created inactive; the
- * renderer toggles `.active` (which flips its `display`) as work starts/stops.
- * @param {string} label
- * @returns {{ line: HTMLElement, labelEl: HTMLElement }}
- */
-function buildActivityLine(label) {
-  const line = elem('div', 'op-processing');
-  line.appendChild(elem('span', 'op-processing-led'));
-  const labelEl = elem('span', 'op-processing-label', label);
-  line.appendChild(labelEl);
-  return { line, labelEl };
-}
 
 // ---- Stateful renderer ---- //
 
 /**
  * @typedef {object} ChatRenderer
  * @property {(text: string) => HTMLElement} addUserMessage - append an
- *   operator entry and return it
+ *   operator bubble and return it
  * @property {(markdown: string) => HTMLElement} addAgentMessage - append a
  *   finished agent entry rendered from markdown and return it
  * @property {(turns: ChatTurn[] | null | undefined) => number} replay - render
  *   prior conversation turns, leaving the session-reset divider state
  *   untouched; returns the number of entries rendered
+ * @property {() => void} beginTurn - start a turn: shows the live loader
  * @property {(event: ChatEvent) => void} handleEvent - dispatch one SSE event
+ * @property {() => void} endTurn - finish the turn: hides the loader and marks
+ *   any card still waiting on the operator as cancelled
  * @property {() => void} reset - clear the list and all per-conversation state
  * @property {() => number} messageCount - rendered message entries so far
- *   (excludes dividers/activity); primarily for tests
+ *   (excludes dividers and the loader); primarily for tests
+ */
+
+/**
+ * @typedef {object} RendererOptions
+ * @property {(requestId: string, body: PermissionBody) => Promise<unknown>} [answerPermission]
+ *   delivers a card's answer; rejects with `status` 404 once the request is gone
+ */
+
+/**
+ * The agent entry of the turn in flight, and the block it is writing into.
+ * @typedef {object} AgentTurn
+ * @property {HTMLElement} entry
+ * @property {HTMLElement | null} body - the open text block's body, or null
+ * @property {string[]} texts - raw markdown of each text block, in order
+ * @property {ThinkingBlock | null} thinking - the open thinking block, or null
+ * @property {ToolGroup | null} group - the open tool group, or null
+ * @property {TaskCard | null} tasks - the turn's one plan card, once it has one
+ * @property {boolean} streamed - the open text block was built from streamed pieces
+ * @property {boolean} thinkingStreamed - the open thinking block was, too
  */
 
 /**
  * Create a chat renderer bound to a message-list container (the `op-messages`
- * element). The renderer appends entries in arrival order and keeps the
- * activity line pinned to the bottom of the log.
+ * element). The renderer appends entries in arrival order, keeps the loader
+ * pinned to the bottom of the log while a turn runs, and routes each event to
+ * the block it belongs in.
  *
  * @param {HTMLElement} container - the `op-messages` scroll region
+ * @param {RendererOptions} [options]
  * @returns {ChatRenderer}
  */
-export function createChatRenderer(container) {
+export function createChatRenderer(container, options = {}) {
   /**
    * Count of rendered *message* entries (operator / agent / error) in the
-   * current conversation. Dividers and the activity line don't count. Reported
-   * by {@link messageCount} (primarily for tests).
+   * current conversation. Dividers and the loader don't count. Reported by
+   * {@link messageCount} (primarily for tests).
    */
   let count = 0;
 
   /**
-   * Whether a prior agent exchange — an agent message or a finalised turn —
-   * has been rendered in this conversation. Gates the session-reset divider.
+   * Whether a prior agent exchange — an agent message or a finished turn — has
+   * been rendered in this conversation. Gates the session-reset divider.
    *
    * The real turn sequence is: the controller appends the operator's bubble,
    * *then* opens the stream, and a fresh server session emits `session_reset`
@@ -489,99 +154,386 @@ export function createChatRenderer(container) {
    */
   let hasPriorExchange = false;
 
-  /** The in-progress agent entry's body, or null between turns. */
-  let agentBody = /** @type {HTMLElement | null} */ (null);
-  /** Text accumulated across `text` events for the current agent entry. */
-  let agentText = '';
-  /** The activity line, created lazily on first use and then reused. */
-  let activity = /** @type {{ line: HTMLElement, labelEl: HTMLElement } | null} */ (null);
+  /** Whether a turn is in flight: from beginTurn until endTurn. */
+  let running = false;
+  /** When the turn in flight began (epoch ms); the loader and footer count from here. */
+  let startedAt = 0;
+  /** The loader's label: the current activity. */
+  let activity = 'Working…';
+  /** Whether text is streaming now; the loader steps aside while it does. */
+  let streamingText = false;
+  /** The live loader, created on first use and then reused. */
+  let loader = /** @type {LoaderHandle | null} */ (null);
+  /** The agent entry of the turn in flight, or null before its first block. */
+  let turn = /** @type {AgentTurn | null} */ (null);
+  /** Tool rows of the conversation, by `tool_use_id`: kept across turns, so a replayed call's approval finds its row. */
+  const chips = new Map();
+  /** Permission cards of the turn in flight, keyed by `request_id`. */
+  const cards = new Map();
+  /** Subagent chips of the turn in flight, keyed by the call's `tool_use_id`. */
+  const agents = new Map();
 
   /**
-   * Append an entry, keeping the activity line (if present) last so it always
-   * reads as the current status beneath the latest message.
-   * @param {HTMLElement} node
+   * The agent chip a record belongs to, when it is a subagent's own. A record
+   * whose parent is not a chip here (a subagent of a subagent) has no place
+   * in the operator log and is dropped rather than shown as the main agent's.
+   * @param {Record<string, any>} event
+   * @returns {{ agent: any, nested: boolean }}
+   */
+  function ownerOf(event) {
+    const parent = event.parent_tool_use_id;
+    if (!parent) return { agent: null, nested: false };
+    return { agent: agents.get(String(parent)) ?? null, nested: true };
+  }
+
+  const answer =
+    options.answerPermission ??
+    (async () => {
+      throw new Error('Permission answers are not wired up.');
+    });
+
+  /**
+   * Append a node to the log, keeping the loader (when it is showing) last so
+   * it always reads as the current status beneath the latest message.
+   * @param {Node} node
    */
   function append(node) {
     container.appendChild(node);
-    if (activity && activity.line.parentNode === container) {
-      container.appendChild(activity.line);
+    if (loader?.el.isConnected) container.appendChild(loader.el);
+  }
+
+  /**
+   * The current turn's agent entry, created with the turn's first block.
+   * @returns {AgentTurn}
+   */
+  function ensureTurn() {
+    if (turn) return turn;
+    const entry = createAgentEntry();
+    count += 1;
+    hasPriorExchange = true;
+    turn = {
+      entry,
+      body: null,
+      texts: [],
+      thinking: null,
+      group: null,
+      tasks: null,
+      streamed: false,
+      thinkingStreamed: false,
+    };
+    append(entry);
+    return turn;
+  }
+
+  /**
+   * Text blocks with a render waiting, coalesced to one render per frame: a
+   * streamed reply re-renders its markdown as it grows, not once per piece.
+   */
+  const pendingRenders = new Map();
+  const nextFrame =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame
+      : (/** @type {() => void} */ fn) => setTimeout(fn, 16);
+
+  /**
+   * @param {HTMLElement} body
+   * @param {string} text
+   */
+  function scheduleRender(body, text) {
+    const queued = pendingRenders.has(body);
+    pendingRenders.set(body, text);
+    if (queued) return;
+    nextFrame(() => {
+      const latest = pendingRenders.get(body);
+      pendingRenders.delete(body);
+      if (latest !== undefined) renderMarkdownInto(body, latest, { math: true });
+    });
+  }
+
+  /**
+   * @param {HTMLElement} body
+   * @param {string} text
+   */
+  function renderNow(body, text) {
+    pendingRenders.delete(body);
+    renderMarkdownInto(body, text, { math: true });
+  }
+
+  /** @param {AgentTurn} t */
+  function closeText(t) {
+    t.body = null;
+    t.streamed = false;
+  }
+
+  /** @param {AgentTurn} t */
+  function closeThinking(t) {
+    if (t.thinking) {
+      t.thinking.finish();
+      t.thinking = null;
+      t.thinkingStreamed = false;
     }
   }
 
+  /** @param {AgentTurn} t */
+  function closeGroup(t) {
+    if (t.group) {
+      t.group.settle();
+      t.group = null;
+    }
+  }
+
+  /** @param {AgentTurn} t */
+  function closeAll(t) {
+    closeText(t);
+    closeThinking(t);
+    closeGroup(t);
+  }
+
   /**
-   * Show the activity line with `label`, creating it on first use.
-   * @param {string} label
+   * Open a text block in the turn, or return the one already open.
+   * @param {AgentTurn} t
+   * @returns {HTMLElement}
    */
-  function setActivity(label) {
-    if (!activity) activity = buildActivityLine(label);
-    else activity.labelEl.textContent = label;
-    activity.line.classList.add('active');
-    container.appendChild(activity.line); // move/keep at the bottom
-  }
-
-  /** Hide the activity line (kept in the DOM, inert, for reuse). */
-  function clearActivity() {
-    if (activity) activity.line.classList.remove('active');
+  function openText(t) {
+    closeThinking(t);
+    closeGroup(t);
+    if (!t.body) {
+      t.body = createTextBlock();
+      t.texts.push('');
+      t.entry.appendChild(t.body);
+    }
+    return t.body;
   }
 
   /**
-   * Ensure an agent entry exists for the current turn and stream `chunk` into
-   * it. The first `text` event of a turn creates the entry (and clears any
-   * activity line); subsequent events accumulate and re-render.
+   * A whole text block. When the block was streamed it is the authoritative
+   * copy and replaces what the pieces built; either way the block then ends,
+   * so the next one starts a paragraph of its own.
    * @param {string} chunk
    */
-  function appendAgentText(chunk) {
-    clearActivity();
-    if (!agentBody) {
-      const { entry, body } = buildAgentEntry();
-      agentBody = body;
-      agentText = '';
-      count += 1;
-      hasPriorExchange = true;
-      append(entry);
-    }
-    agentText += chunk;
-    renderMarkdownInto(agentBody, agentText);
+  function appendText(chunk) {
+    const t = ensureTurn();
+    const body = openText(t);
+    const i = t.texts.length - 1;
+    t.texts[i] = t.streamed ? chunk : t.texts[i] + chunk;
+    renderNow(body, t.texts[i]);
+    closeText(t);
   }
 
-  /** End the current agent turn: drop the streaming buffer and activity line. */
-  function finishTurn() {
-    clearActivity();
-    agentBody = null;
-    agentText = '';
+  /** @param {string} piece - a streamed piece of the text block being written */
+  function appendTextDelta(piece) {
+    const t = ensureTurn();
+    const body = openText(t);
+    t.streamed = true;
+    const i = t.texts.length - 1;
+    t.texts[i] += piece;
+    scheduleRender(body, t.texts[i]);
+  }
+
+  /**
+   * Reasoning: streamed pieces add up in the block, and the whole block, when
+   * it lands, replaces them.
+   * @param {string} chunk
+   * @param {boolean} [piece] - a streamed piece rather than the whole block
+   */
+  function appendThinking(chunk, piece = false) {
+    const t = ensureTurn();
+    closeText(t);
+    closeGroup(t);
+    if (!t.thinking) {
+      t.thinking = createThinkingBlock();
+      t.entry.appendChild(t.thinking.el);
+    }
+    if (piece) {
+      t.thinkingStreamed = true;
+      t.thinking.add(chunk);
+    } else if (t.thinkingStreamed) {
+      if (chunk) t.thinking.set(chunk);
+    } else {
+      t.thinking.add(chunk);
+    }
+  }
+
+  /** @param {Record<string, any>} event - a `tool_use` event */
+  function appendToolUse(event) {
+    const t = ensureTurn();
+    closeText(t);
+    closeThinking(t);
+    if (!t.group) {
+      t.group = createToolGroup();
+      t.entry.appendChild(t.group.el);
+    }
+    const raw = String(event.tool_name_raw ?? '');
+    const id = String(event.tool_use_id ?? '');
+    if (raw === 'Agent' || raw === 'Task') {
+      const agent = t.group.addAgent(event, (el, text) =>
+        renderMarkdownInto(el, text, { math: true }),
+      );
+      if (id) {
+        agents.set(id, agent);
+        chips.set(id, agent);
+      }
+      return;
+    }
+    const chip = t.group.addTool(event);
+    if (id) chips.set(id, chip);
+  }
+
+  /** @param {Record<string, any>} event - a `tool_use` event for TodoWrite */
+  function upsertPlan(event) {
+    const todos = event.input?.todos;
+    const items = Array.isArray(todos) ? todos.filter((item) => item && typeof item === 'object') : [];
+    const t = ensureTurn();
+    if (!t.tasks) {
+      closeAll(t);
+      t.tasks = createTaskCard();
+      t.entry.appendChild(t.tasks.el);
+    }
+    t.tasks.update(items);
+  }
+
+  /**
+   * The tool row a permission request is filed under: the row of the same call,
+   * wherever it sits, when that row has no card yet. Plans and questions have none.
+   * @param {Record<string, any>} request
+   * @returns {ToolRow | null}
+   */
+  function rowFor(request) {
+    if (request.kind !== 'tool' || !request.tool_use_id) return null;
+    const row = chips.get(String(request.tool_use_id)) ?? null;
+    return row && !row.hasCard ? row : null;
+  }
+
+  /**
+   * Draw a replayed call's decision on its row, the way an answer draws it live.
+   * The row's own placement takes the decision with a placeholder that leaves at
+   * once: no card is shown and nothing takes focus. A row that holds a card keeps it.
+   * @param {ToolRow | undefined} row
+   * @param {Decision} decision
+   */
+  function showDecision(row, decision) {
+    if (!row || row.hasCard) return;
+    row.file(document.createElement('div')).decide(decision);
+  }
+
+  /** @param {Record<string, any>} request - a `permission_request` event */
+  function appendPermission(request) {
+    const id = String(request.request_id ?? '');
+    const row = rowFor(request);
+    const hooks = {
+      answer: (/** @type {PermissionBody} */ body) => answer(id, body),
+      onSettled: () => syncLoader(),
+      renderText: (/** @type {HTMLElement} */ el, /** @type {string} */ text) =>
+        renderMarkdownInto(el, text, { math: true }),
+    };
+    let card;
+    if (row) {
+      // Under its own row the card belongs to the call, not to the message it came
+      // in: the text and reasoning around it close, and the group stays open.
+      if (turn) {
+        closeText(turn);
+        closeThinking(turn);
+      }
+      card = createApprovalCard(request, { ...hooks, row });
+    } else {
+      const t = ensureTurn();
+      closeAll(t);
+      card =
+        request.kind === 'question'
+          ? createQuestionCard(request, hooks)
+          : createApprovalCard(request, hooks);
+      t.entry.appendChild(card.el);
+    }
+    cards.set(id, card);
+    // A live card takes focus, but never from the composer's text box, and never while history is redrawn.
+    const typing = document.activeElement;
+    if (!replaying && !(typing instanceof HTMLTextAreaElement && !typing.disabled)) card.focus();
+  }
+
+  /** @param {Record<string, any>} event - the `result` event */
+  function appendFooter(event) {
+    if (!turn) return;
+    const durationMs =
+      typeof event.duration_ms === 'number' ? event.duration_ms : Date.now() - startedAt;
+    turn.entry.appendChild(createTurnFooter({ durationMs, isError: Boolean(event.is_error) }));
+  }
+
+  /**
+   * Show the loader while a turn runs and nothing is streaming or waiting on
+   * the operator. Otherwise stop its clock and take it out of the log.
+   */
+  function syncLoader() {
+    const waiting = [...cards.values()].some((card) => card.pending);
+    if (!running || streamingText || waiting) {
+      loader?.stop();
+      loader?.el.remove();
+      return;
+    }
+    if (!loader) loader = createLoader();
+    loader.setLabel(activity);
+    loader.start(startedAt);
+    if (container.lastElementChild !== loader.el) container.appendChild(loader.el);
+  }
+
+  /**
+   * Close the turn in flight: settle its open blocks, cancel every card still
+   * waiting (the server has moved on without those answers), and finish the
+   * subagents still running. Tool rows stay, so a later answer can still reach
+   * them. The running state is left alone — see {@link endTurn}.
+   */
+  function dropTurn() {
+    if (turn) closeAll(turn);
+    turn = null;
+    for (const card of cards.values()) card.cancel();
+    cards.clear();
+    for (const agent of agents.values()) agent.finish({ status: 'stopped' });
+    agents.clear();
+    streamingText = false;
+  }
+
+  /** The turn is over: a result, a terminal error, or a closed stream. */
+  function endTurn() {
+    const wasRunning = running;
+    dropTurn();
+    running = false;
+    syncLoader();
+    if (wasRunning) emitChat('turn-end', {});
   }
 
   /** @param {string} text */
   function addUserMessage(text) {
-    // A new operator message starts a new turn; abandon any dangling stream.
-    agentBody = null;
-    agentText = '';
-    const entry = buildUserEntry(text);
+    // A new operator message starts a new turn; abandon any dangling one.
+    endTurn();
+    const entry = createUserEntry(text);
     count += 1;
     append(entry);
+    emitChat('user-message', { text, replay: replaying });
     return entry;
   }
 
   /**
    * Append a finished agent entry rendered from `markdown` in one go — the
-   * whole-message counterpart to the streamed {@link appendAgentText} path,
-   * and through the same sanitising {@link renderMarkdownInto} boundary. Any
-   * in-progress stream is abandoned, so the next `text` event opens a fresh
-   * entry.
+   * whole-message counterpart to the streamed text path, through the same
+   * sanitising {@link renderMarkdownInto} boundary.
    * @param {string} markdown
    * @returns {HTMLElement}
    */
   function addAgentMessage(markdown) {
-    clearActivity();
-    agentBody = null;
-    agentText = '';
-    const { entry, body } = buildAgentEntry();
-    renderMarkdownInto(body, markdown);
+    dropTurn();
+    const entry = createAgentEntry();
+    const body = createTextBlock();
+    renderMarkdownInto(body, markdown, { math: true });
+    entry.appendChild(body);
     count += 1;
     hasPriorExchange = true;
     append(entry);
+    syncLoader();
+    emitChat('agent-message', { markdown, replay: replaying });
     return entry;
   }
+
+  /** True while {@link replay} redraws history; listeners on chat-events read it. */
+  let replaying = false;
 
   /**
    * Render prior conversation turns into the log, oldest first.
@@ -599,79 +551,179 @@ export function createChatRenderer(container) {
   function replay(turns) {
     const priorExchange = hasPriorExchange;
     let rendered = 0;
-    for (const turn of turns ?? []) {
-      const content = turn?.content ?? '';
-      if (!content) continue;
-      if ((turn.role ?? '').toLowerCase() === 'user') addUserMessage(content);
-      else addAgentMessage(content);
-      rendered += 1;
+    replaying = true;
+    try {
+      for (const turnItem of turns ?? []) {
+        const content = turnItem?.content ?? '';
+        const events = Array.isArray(turnItem?.events) ? turnItem.events : null;
+        if ((turnItem.role ?? '').toLowerCase() === 'user') {
+          if (!content) continue;
+          addUserMessage(content);
+        } else if (events?.length) {
+          // The same path a live stream takes, so thinking, tool chips and the
+          // plan come back exactly as they were drawn; `result` closes the turn.
+          for (const event of events) handleEvent(event);
+          endTurn();
+        } else if (content) {
+          addAgentMessage(content);
+        } else {
+          continue;
+        }
+        rendered += 1;
+      }
+    } finally {
+      replaying = false;
     }
     hasPriorExchange = priorExchange;
     return rendered;
   }
 
+  function beginTurn() {
+    running = true;
+    startedAt = Date.now();
+    activity = 'Working…';
+    streamingText = false;
+    syncLoader();
+  }
+
   /** @param {ChatEvent} event */
   function handleEvent(event) {
     switch (event.type) {
-      case 'text':
-        appendAgentText(event.content ?? '');
+      case 'text': {
+        const { agent, nested } = ownerOf(event);
+        if (nested) {
+          agent?.addText(event.content ?? '');
+          break;
+        }
+        streamingText = true;
+        appendText(event.content ?? '');
         break;
+      }
+      case 'delta': {
+        // A streamed piece of the main agent's reply or reasoning; a
+        // subagent's pieces are not drawn — its chip gets each whole block.
+        if (event.parent_tool_use_id) break;
+        if (event.kind === 'thinking') {
+          streamingText = false;
+          activity = 'Thinking…';
+          appendThinking(event.content ?? '', true);
+        } else {
+          streamingText = true;
+          appendTextDelta(event.content ?? '');
+        }
+        break;
+      }
       case 'thinking':
-        setActivity('Thinking…');
+        // A subagent's reasoning stays inside it; its chip shows its work.
+        if (ownerOf(event).nested) break;
+        streamingText = false;
+        activity = 'Thinking…';
+        appendThinking(event.content ?? '');
         break;
-      case 'tool_use':
-        setActivity(activityLabel(event));
+      case 'tool_use': {
+        const { agent, nested } = ownerOf(event);
+        if (nested) {
+          if (agent) {
+            const chip = agent.addTool(event);
+            if (event.tool_use_id) chips.set(String(event.tool_use_id), chip);
+            activity = `${agent.name} · ${activityLabel(event)}`;
+          }
+          break;
+        }
+        streamingText = false;
+        const key = toolKey(event.tool_name_raw ?? event.tool_name);
+        activity = key === QUESTION_TOOL_KEY ? 'Preparing a question…' : activityLabel(event);
+        if (key === PLAN_TOOL_KEY) upsertPlan(event);
+        else if (key !== QUESTION_TOOL_KEY && !HIDDEN_TOOL_KEYS.has(key)) appendToolUse(event);
         break;
-      case 'tool_result':
-        // Stripped of its body; nothing to render. The activity line stays as
-        // it is until the next text/thinking/tool_use event moves it.
+      }
+      case 'tool_result': {
+        streamingText = false;
+        const row = chips.get(String(event.tool_use_id ?? ''));
+        // Only a replayed call carries a decision; a live frame never does.
+        if (event.decision) showDecision(row, event.decision);
+        row?.finish(event);
+        break;
+      }
+      case 'permission_request':
+        streamingText = false;
+        appendPermission(event);
+        break;
+      case 'permission_resolved':
+        // Answered somewhere — another tab, or this one; a card still waiting
+        // here settles to the same outcome.
+        cards.get(String(event.request_id ?? ''))?.resolved(event);
         break;
       case 'result':
-        // Turn boundary. Errors surface via `error` events, so a result only
-        // finalises streaming state here — but it does mark a completed
-        // exchange, so a later reset earns its divider.
+        // Turn boundary. A result finalises the turn and earns the footer; it
+        // also marks a completed exchange, so a later reset earns its divider.
+        streamingText = false;
         hasPriorExchange = true;
-        finishTurn();
+        appendFooter(event);
+        endTurn();
         break;
       case 'session_reset':
-        // Show the divider only when a completed exchange already sits above
+        // The divider shows only when a completed exchange already sits above
         // this reset; the current turn's own user bubble is not enough (that is
-        // the fresh-session first turn). The divider is not a message, so it
-        // doesn't bump `count`.
+        // the fresh-session first turn). The divider is not a message.
         if (hasPriorExchange) {
-          finishTurn();
-          append(buildSessionResetDivider());
+          dropTurn();
+          append(createSessionDivider());
         }
         break;
       case 'error': {
-        clearActivity();
-        agentBody = null;
-        agentText = '';
+        streamingText = false;
         count += 1;
         hasPriorExchange = true;
-        append(buildErrorEntry(event.message ?? 'An error occurred.'));
+        const block = createErrorBlock(event.message ?? 'An error occurred.');
+        if (turn) turn.entry.appendChild(block);
+        else append(block);
+        // An assistant-message error leaves the turn streaming; anything else ends it.
+        if (event.error_type !== 'AssistantMessageError') endTurn();
+        break;
+      }
+      case 'system': {
+        // Most system frames draw nothing; chat-system.js says what the rest do.
+        const effect = systemFrame(event);
+        if (!effect) break;
+        if (effect.stopStreaming) streamingText = false;
+        if (effect.activity) activity = effect.activity;
+        if (effect.closeText && turn) closeText(turn);
+        if (effect.agentDone) agents.get(effect.agentDone.id)?.finish(effect.agentDone.outcome);
+        if (effect.notice) {
+          const notice = createNotice(effect.notice);
+          if (turn) turn.entry.appendChild(notice);
+          else append(notice);
+        }
         break;
       }
       default:
-        // `system` and any unknown types are not rendered in the operator log.
+        // Unknown types are not rendered in the operator log.
         break;
     }
+    syncLoader();
+    emitChat('frame', { event, replay: replaying });
   }
 
   function reset() {
+    dropTurn();
+    running = false;
+    loader?.stop();
+    loader = null;
     container.replaceChildren();
     count = 0;
     hasPriorExchange = false;
-    agentBody = null;
-    agentText = '';
-    activity = null;
+    chips.clear();
+    emitChat('reset', {});
   }
 
   return {
     addUserMessage,
     addAgentMessage,
     replay,
+    beginTurn,
     handleEvent,
+    endTurn,
     reset,
     messageCount: () => count,
   };

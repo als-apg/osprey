@@ -27,13 +27,32 @@ class SlashCommand:
         name: The command as typed after ``/``.
         description: A one-line summary, or ``""``.
         argument_hint: The frontmatter ``argument-hint``, or ``""``.
-        kind: ``"skill"`` for a project skill, ``"command"`` for a command file.
+        kind: ``"skill"`` for a project skill, ``"command"`` for a command file,
+            ``"builtin"`` for one of the CLI's own commands (:data:`BUILTIN_COMMANDS`).
     """
 
     name: str
     description: str
     argument_hint: str
-    kind: Literal["skill", "command"]
+    kind: Literal["skill", "command", "builtin"]
+
+
+#: The CLI's own commands the chat offers beside the project's. The chat sends
+#: them to the agent like any prompt, and the CLI runs them itself.
+BUILTIN_COMMANDS: tuple[SlashCommand, ...] = (
+    SlashCommand(
+        name="clear",
+        description="Start a new conversation",
+        argument_hint="",
+        kind="builtin",
+    ),
+    SlashCommand(
+        name="compact",
+        description="Summarise the conversation to free up context",
+        argument_hint="[instructions]",
+        kind="builtin",
+    ),
+)
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
@@ -163,3 +182,22 @@ def list_project_slash_commands(project_dir: Path) -> list[SlashCommand]:
     taken = {s.name for s in skills}
     commands = [c for c in _commands(claude_dir / "commands") if c.name not in taken]
     return sorted(skills + commands, key=lambda c: c.name)
+
+
+def list_chat_slash_commands(project_dir: Path) -> list[SlashCommand]:
+    """List the commands the chat offers in the project: its own and the CLI's built-ins.
+
+    The built-ins (:data:`BUILTIN_COMMANDS`) sit beside the project's commands,
+    sorted by name with them. A project command that shares a built-in's name is
+    listed once, under the project's entry.
+
+    Args:
+        project_dir: The directory the chat agent runs in.
+
+    Returns:
+        The commands, sorted by name.
+    """
+    project = list_project_slash_commands(project_dir)
+    taken = {c.name for c in project}
+    builtins = [c for c in BUILTIN_COMMANDS if c.name not in taken]
+    return sorted(project + builtins, key=lambda c: c.name)

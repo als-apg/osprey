@@ -32,12 +32,14 @@ def test_a_run_that_keeps_writing_is_not_stopped_by_its_length():
 
 def test_a_finished_run_reports_its_silence_before_exit():
     result = run_nested_pytest(
-        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(1)"],
+        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(2)"],
         cwd=None,
         env=None,
     )
     assert result.returncode == 0
-    assert result.quiet_before_exit >= 0.8
+    # The poll sees the line up to one interval late, later still on a loaded
+    # runner, so the bound leaves most of a second for that lag.
+    assert result.quiet_before_exit >= 1.0
 
 
 def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks():

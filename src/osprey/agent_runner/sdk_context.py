@@ -26,6 +26,7 @@ try:
     from claude_agent_sdk import (
         PermissionResultAllow,
         PermissionResultDeny,
+        PermissionUpdate,
     )
     from claude_agent_sdk.types import CanUseTool, SystemPromptPreset
 
@@ -34,6 +35,7 @@ except ImportError:
     CLAUDE_SDK_AVAILABLE = False
     PermissionResultAllow = object  # type: ignore[assignment,misc]
     PermissionResultDeny = object  # type: ignore[assignment,misc]
+    PermissionUpdate = None  # type: ignore[assignment,misc]
     CanUseTool = Any  # type: ignore[assignment,misc]
     SystemPromptPreset = dict  # type: ignore[assignment,misc]
 

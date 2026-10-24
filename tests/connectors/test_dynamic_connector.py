@@ -27,9 +27,9 @@ class TestDynamicConnectorImport:
     @pytest.mark.asyncio
     async def test_dynamic_import_connector(self):
         """Dotted module path resolves, instantiates and registers the connector."""
-        from tests.connectors._mock_dynamic_connector import MockDynamicConnector
+        from osprey_connectors_tests._mock_dynamic_connector import MockDynamicConnector
 
-        dotted = "tests.connectors._mock_dynamic_connector.MockDynamicConnector"
+        dotted = "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector"
         config = {"type": dotted, "connector": {}}
         connector = await ConnectorFactory.create_control_system_connector(config)
         result = await connector.read_channel("TEST:CH")
@@ -46,8 +46,8 @@ class TestDynamicConnectorImport:
                 id="module-not-importable",
             ),
             pytest.param(
-                "tests.connectors._mock_dynamic_connector.NoSuchClass",
-                "Module 'tests.connectors._mock_dynamic_connector' has no class 'NoSuchClass'",
+                "osprey_connectors_tests._mock_dynamic_connector.NoSuchClass",
+                "Module 'osprey_connectors_tests._mock_dynamic_connector' has no class 'NoSuchClass'",
                 id="class-missing",
             ),
             pytest.param(
@@ -138,7 +138,7 @@ class TestCustomConnectorConfirmDefault:
 
     async def _connector(self):
         config = {
-            "type": "tests.connectors._mock_dynamic_connector.MockDynamicConnector",
+            "type": "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector",
             "connector": {},
         }
         return await ConnectorFactory.create_control_system_connector(config)

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 
 import pytest
@@ -363,16 +364,20 @@ def test_declared_wiring_is_additive_and_leaves_the_framework_wiring_alone(tmp_p
     Compared against a build of the same profile with no declarations at all —
     drop the declared entries from the wired build and the two documents are
     identical, so nothing the framework emitted was replaced, reordered, or
-    shadowed.
+    shadowed. Both builds land at one path: an allow rule names the project's
+    own directory by absolute path (the chat's uploads directory), so two
+    projects would differ there and not in the wiring.
     """
     profile = tmp_path / "profile"
     _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
 
-    plain = _settings(_build(tmp_path, "plain", profile))
+    project = _build(tmp_path, "wiring", profile)
+    plain = _settings(project)
+    shutil.rmtree(project)
     wired = _settings(
         _build(
             tmp_path,
-            "wired",
+            "wiring",
             profile,
             declarations={
                 "claude_code.hooks.PreToolUse": [{"hook": "facility_guard.py"}],

@@ -56,3 +56,21 @@ version-file = "src/osprey_connectors/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey_connectors"]
+
+# The package suite's test dependencies: a group, not an extra, so they never
+# reach the wheel's metadata. `uv sync --package osprey-connectors` installs it.
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-timeout",
+    "pytest-xdist",
+    "cryptography",  # tests/osprey_connectors_tests/_loopback_https.py mints its certificates
+]
+
+# Read by the standalone lane; a run from the repository root uses the root's.
+[tool.pytest.ini_options]
+addopts = "-ra -v --tb=short --strict-markers --color=yes"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+tmp_path_retention_policy = "failed"
