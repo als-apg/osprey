@@ -68,15 +68,15 @@ DECLARED_SESSION_LIFETIME_ENV = "OSPREY_TERMINAL_SESSION_LIFETIME"
 #: name the serving process reads. ``test_web_session_lifetime.py`` pins the two
 #: spellings equal so this copy cannot drift.
 DECLARED_SESSION_STORE_DIR_ENV = "OSPREY_TERMINAL_SESSION_STORE_DIR"
-#: The carrier for THIS user's audit directory. The multi-user compose sets it
-#: on every per-user web container (``docker-compose.web.yml.j2``) alongside the
-#: ``var/audit/<identity>`` bind mount it names, so the value is a real,
+#: The carrier for THIS container's state directory. The multi-user compose sets
+#: it on every per-user web container (``docker-compose.web.yml.j2``) alongside
+#: the ``var/state/<identity>`` bind mount it names, so the value is a real,
 #: host-visible, group-writable directory inside the container. Spelled
 #: literally for the same reason the carriers above are — this module keeps its
 #: ``osprey`` imports function-local — and deliberately read, never written,
 #: here: ``osprey web`` is a consumer of the deployment's declaration.
-AUDIT_DIR_ENV = "OSPREY_AUDIT_DIR"
-#: File name of the pre-flight refusal marker inside :data:`AUDIT_DIR_ENV`.
+STATE_DIR_ENV = "OSPREY_STATE_DIR"
+#: File name of the pre-flight refusal marker inside :data:`STATE_DIR_ENV`.
 #: Exported so ``osprey status`` reads the same name this writes instead of
 #: duplicating the literal; the format is deliberately trivial (line 1 = an
 #: ISO-8601 UTC timestamp, the rest = the refusal findings verbatim) so the
@@ -89,13 +89,13 @@ _LOGGER = logging.getLogger(__name__)
 def _preflight_marker_path() -> Path | None:
     """Where this container's pre-flight refusal marker lives, or ``None``.
 
-    ``None`` means "nothing to record": no :data:`AUDIT_DIR_ENV` is declared,
+    ``None`` means "nothing to record": no :data:`STATE_DIR_ENV` is declared,
     which is the bare-laptop launch — no container, no supervisor restarting
     the process, and so nobody downstream to explain a refusal to. Under
     ``restart: unless-stopped`` the variable is always set, because the compose
     that supervises the container is the same file that declares it.
     """
-    declared = os.environ.get(AUDIT_DIR_ENV)
+    declared = os.environ.get(STATE_DIR_ENV)
     if not declared:
         return None
     return Path(declared) / PREFLIGHT_REFUSED_MARKER
@@ -118,14 +118,14 @@ def _write_preflight_marker(body: str) -> None:
     re-runs pre-flight, and the operator needs to know what is failing *now*,
     not the archaeology of every attempt since the deploy.
 
-    Strictly advisory. An audit directory that is absent, root-owned or on a
+    Strictly advisory. A state directory that is absent, root-owned or on a
     read-only mount must not turn one honest failure into a second, more
     confusing one, so every filesystem error here is logged and swallowed; the
     caller goes on to report the refusal and exit as it would have anyway.
     """
     marker = _preflight_marker_path()
     if marker is None:
-        _LOGGER.debug("no %s declared; skipping pre-flight refusal marker", AUDIT_DIR_ENV)
+        _LOGGER.debug("no %s declared; skipping pre-flight refusal marker", STATE_DIR_ENV)
         return
 
     from datetime import UTC, datetime

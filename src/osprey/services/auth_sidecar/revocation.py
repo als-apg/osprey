@@ -6,8 +6,8 @@ session id is dead", and the verify endpoint consults that record on every
 ``auth_request`` subrequest.
 
 **The file.** One owner-only JSON file, :data:`REVOCATION_FILE_NAME`, in the
-directory :data:`~osprey.services.auth_sidecar.audit.AUDIT_DIR_ENV` names — the
-subdirectory compose binds for this service and for nobody else. Its shape is
+directory :data:`STATE_DIR_ENV` names — this service's own ``var/state/sidecar``
+subdirectory, which compose binds for it and for nobody else. Its shape is
 ``{"v": 1, "revoked": {<sha256 hex of the session id>: <expiry epoch>}}``. It is
 loaded when the store is built, with every entry at or past its expiry dropped,
 and rewritten whole on every logout. A container recreate (``osprey users
@@ -35,6 +35,13 @@ write that fails keeps the revocation in memory, where it is enforced for the
 life of the process, and warns once for that process; later logouts keep trying
 to write, so a disk that frees up starts persisting again.
 
+**The one-time carry-over.** A deployment whose file still sits in the audit
+directory, where it was kept before the state zone existed, has it copied into
+the state directory when the store is built and finds no file there. The old
+file is never touched or removed; once the state file exists it is the only one
+read. A copy that fails is warned about once and the old file is read in its
+place, so a logout recorded before the move is refused after it either way.
+
 **The directory is never created.** One created inside the container would sit
 in its writable layer and vanish on the next recreate — the trap
 :func:`~osprey.services.auth_sidecar.audit.audit_directory` refuses a relative
@@ -59,9 +66,10 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -69,10 +77,13 @@ from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["REVOCATION_FILE_NAME", "RevocationStore"]
+__all__ = ["REVOCATION_FILE_NAME", "STATE_DIR_ENV", "RevocationStore", "state_directory"]
+
+STATE_DIR_ENV = "OSPREY_STATE_DIR"
+"""The variable naming this service's state directory, the file's home."""
 
 REVOCATION_FILE_NAME = ".revoked-sessions.json"
-"""The revoked-session file's name inside the audit directory.
+"""The revoked-session file's name inside the state directory.
 
 Dot-named so the archive leaves it alone and nobody reads it as a ledger: a
 ledger ends ``.jsonl``, and the archive skips dot-named ``.json`` files there.
@@ -105,6 +116,30 @@ def _warn(reason: str) -> None:
     )
 
 
+def state_directory(env: Mapping[str, str] | None = None) -> Path | None:
+    """The directory :data:`STATE_DIR_ENV` names, or ``None``.
+
+    Read from *env*, or from :data:`os.environ` when *env* is ``None``. ``None``
+    means the variable is missing or blank, or names a relative path, which is
+    refused for :func:`~osprey.services.auth_sidecar.audit.audit_directory`'s
+    reason: resolved against the working directory it names a path the host
+    binds nothing at, so the file would vanish with the container.
+    """
+    source = os.environ if env is None else env
+    raw = source.get(STATE_DIR_ENV)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    directory = Path(raw.strip())
+    if not directory.is_absolute():
+        logger.warning(
+            "%s is not an absolute path; this service keeps no state under it until it names "
+            "the directory compose binds for it",
+            STATE_DIR_ENV,
+        )
+        return None
+    return directory
+
+
 def _is_expiry(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
 
@@ -126,7 +161,10 @@ class RevocationStore:
     """
 
     def __init__(
-        self, directory: Path | None = None, clock: Callable[[], float] = time.time
+        self,
+        directory: Path | None = None,
+        clock: Callable[[], float] = time.time,
+        legacy_directory: Path | None = None,
     ) -> None:
         """Create a store, loading the file in *directory* when one is named.
 
@@ -137,10 +175,35 @@ class RevocationStore:
                 keeps the store in memory only.
             clock: Returns the current time as absolute epoch seconds. Injectable
                 so tests can advance time without sleeping.
+            legacy_directory: Where an older deployment kept the file; copied
+                into *directory* once, when *directory* holds no file yet (see
+                the module's carry-over note).
         """
         self._clock = clock
         self._path = None if directory is None else directory / REVOCATION_FILE_NAME
-        self._revoked: dict[str, float] = self._load()
+        self._revoked: dict[str, float] = self._load(self._carry_over(legacy_directory))
+
+    def _carry_over(self, legacy_directory: Path | None) -> Path | None:
+        """The file to load: the store's own, after copying a legacy one into it.
+
+        The legacy file is read, never written or removed. A copy that fails
+        leaves the legacy file as the one loaded, so its revocations still hold.
+        """
+        if self._path is None or legacy_directory is None:
+            return self._path
+        legacy = legacy_directory / REVOCATION_FILE_NAME
+        try:
+            if self._path.exists() or not legacy.is_file():
+                return self._path
+            data = legacy.read_bytes()
+        except OSError:
+            return self._path
+        try:
+            atomic_replace(self._path, data, mode=REVOCATION_FILE_MODE, sync="best_effort")
+        except OSError as exc:
+            _warn(f"cannot be carried over from {legacy_directory} ({exc.strerror or exc})")
+            return legacy
+        return self._path
 
     @property
     def path(self) -> Path | None:
@@ -209,12 +272,12 @@ class RevocationStore:
         """How many entries are held, including any not yet swept."""
         return len(self._revoked)
 
-    def _load(self) -> dict[str, float]:
-        """The unexpired, well-formed entries of the file; ``{}`` when there are none."""
-        if self._path is None:
+    def _load(self, path: Path | None) -> dict[str, float]:
+        """The unexpired, well-formed entries of *path*; ``{}`` when there are none."""
+        if path is None:
             return {}
         try:
-            text = self._path.read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return {}
         except (OSError, ValueError) as exc:

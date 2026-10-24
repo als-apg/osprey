@@ -71,11 +71,11 @@ from osprey.config_guards import is_positive_int
 # module; the terminal cookie and this sidecar share it.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
-from .audit import AUDIT_DIR_ENV, audit_directory
+from .audit import audit_directory
 from .identity_headers import same_domain, same_identity
 from .methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from .passwords import stored_hash_problem
-from .revocation import RevocationStore
+from .revocation import STATE_DIR_ENV, RevocationStore, state_directory
 from .roster_env import (
     HISTORY_ALL,
     HISTORY_ORIGIN_VAR,
@@ -1260,18 +1260,24 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
     # (`time.time` for the store, to match the absolute expiries in session
     # cookies; `time.monotonic` for the throttle, so a clock step cannot open a
     # window early) — deliberately not the codec's. The revocation store is the
-    # one of these that also keeps a copy on disk, in the audit directory, so a
+    # one of these that also keeps a copy on disk, in the state directory, so a
     # logout survives a restart; the in-process instance is still the
-    # authoritative one. The directory comes from this factory's `env`, so a test
-    # that configures the app with an explicit mapping never picks up a variable
-    # from the real process environment.
-    revocation_directory = audit_directory(env) if servable else None
-    app.state.revocation_store = RevocationStore(revocation_directory) if servable else None
+    # authoritative one. The audit directory is where an older deployment kept
+    # that copy, and is handed in for the store's one-time carry-over. Both
+    # directories come from this factory's `env`, so a test that configures the
+    # app with an explicit mapping never picks up a variable from the real
+    # process environment.
+    revocation_directory = state_directory(env) if servable else None
+    app.state.revocation_store = (
+        RevocationStore(revocation_directory, legacy_directory=audit_directory(env))
+        if servable
+        else None
+    )
     if servable and revocation_directory is None:
         logger.warning(
             "logouts are held in memory only: %s names no absolute directory, so a restart "
             "of this service forgets them",
-            AUDIT_DIR_ENV,
+            STATE_DIR_ENV,
         )
     app.state.attempt_throttle = (
         AttemptThrottle(**settings.throttle_parameters) if servable else None
