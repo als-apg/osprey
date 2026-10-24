@@ -10,8 +10,8 @@ credential is absent. For each token trigger this:
      ``dispatcher.dispatch_target`` to the local worker (the shipped value is a
      compose service name that does not resolve outside the deploy network).
   3. Starts the real worker (``python -m osprey.mcp_server.dispatch_worker``)
-     and dispatcher (``python -m osprey.dispatch``) as subprocesses on free
-     ports.
+     and dispatcher (``python -m osprey.dispatch``) as subprocesses, each
+     binding port 0 and naming the port it got in its startup line.
   4. Fires the trigger's webhook and polls the dispatcher run feed for the run
      matching the returned dispatch_id, then asserts a trigger-specific outcome.
 
@@ -34,7 +34,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import socket
 import subprocess
 import sys
 import time
@@ -47,6 +46,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e._server_port import UVICORN_STARTUP, bound_port
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
@@ -71,13 +71,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    """Bind to :0, read the assigned port, release it (standard free-port trick)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _http_get_json(
     url: str, timeout: float = 5.0, headers: dict[str, str] | None = None
 ) -> dict | list:
@@ -86,26 +79,24 @@ def _http_get_json(
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _drain_output(proc: subprocess.Popen) -> str:
-    """Best-effort grab of a subprocess's combined output for failure messages."""
-    if proc.stdout is None:
-        return "(no captured output)"
+def _drain_output(log: Path) -> str:
+    """The tail of a subprocess's log, for failure messages."""
     try:
-        data = proc.stdout.read1(16384) if hasattr(proc.stdout, "read1") else b""
-    except Exception:
-        data = b""
-    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
-    return f"--- subprocess output (partial) ---\n{text}" if text else "(no captured output)"
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "(no captured output)"
+    tail = "\n".join(lines[-40:])
+    return f"--- subprocess log (tail) ---\n{tail}" if tail else "(no captured output)"
 
 
-def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
+def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen, log: Path) -> None:
     """Poll ``url`` until it returns HTTP 200, or fail with captured stderr."""
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             raise AssertionError(
-                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(proc)}"
+                f"subprocess for {url} exited early (rc={proc.returncode}).\n{_drain_output(log)}"
             )
         try:
             req = urllib.request.Request(url, method="GET")  # localhost only
@@ -118,7 +109,7 @@ def _wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
         time.sleep(0.5)
     raise AssertionError(
         f"timed out after {timeout:.0f}s waiting for {url} (last error: {last_err}).\n"
-        f"{_drain_output(proc)}"
+        f"{_drain_output(log)}"
     )
 
 
@@ -234,17 +225,16 @@ def _write_local_triggers(dst: Path, worker_port: int) -> None:
 @pytest.fixture
 def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
     """Start a real worker + dispatcher as subprocesses; tear them down after."""
-    worker_port = _free_port()
-    dispatcher_port = _free_port()
     triggers_path = tmp_path / "triggers.yml"
-    _write_local_triggers(triggers_path, worker_port)
+    worker_log = tmp_path / "worker.log"
+    dispatcher_log = tmp_path / "dispatcher.log"
 
     worker_proc: subprocess.Popen | None = None
     dispatcher_proc: subprocess.Popen | None = None
     try:
         worker_env = {
             **os.environ,
-            "DISPATCH_WORKER_PORT": str(worker_port),
+            "DISPATCH_WORKER_PORT": "0",
             "DISPATCH_WORKER_TOKEN": TOKEN,
             # The repo root, exactly as the deployed worker gets it: the compose
             # template sets OSPREY_PROJECT_DIR to the project root and CONFIG_FILE
@@ -254,14 +244,22 @@ def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
             "CONFIG_FILE": str(built_repo / "build" / "config.yml"),
             "CLAUDECODE": "",
         }
-        worker_proc = subprocess.Popen(
-            [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
-            cwd=str(built_repo),
-            env=worker_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        with worker_log.open("w") as log_fh:
+            worker_proc = subprocess.Popen(
+                [sys.executable, "-m", "osprey.mcp_server.dispatch_worker"],
+                cwd=str(built_repo),
+                env=worker_env,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+            )
+        # The worker binds port 0 and names the port in uvicorn's startup line.
+        worker_port = bound_port(
+            worker_log, UVICORN_STARTUP, child=worker_proc, timeout=HEALTH_TIMEOUT_SEC
         )
-        _wait_for_health(f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc)
+        _wait_for_health(
+            f"http://127.0.0.1:{worker_port}/health", HEALTH_TIMEOUT_SEC, worker_proc, worker_log
+        )
+        _write_local_triggers(triggers_path, worker_port)
 
         dispatcher_env = {
             **os.environ,
@@ -269,21 +267,28 @@ def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
             "EVENT_DISPATCHER_TOKEN": TOKEN,
             "DISPATCH_WORKER_TOKEN": TOKEN,
             "FASTMCP_TRANSPORT": "http",
-            "FASTMCP_PORT": str(dispatcher_port),
+            "FASTMCP_PORT": "0",
             "FASTMCP_HOST": "127.0.0.1",
             "MCP_TRANSPORT": "http",
-            "MCP_PORT": str(dispatcher_port),
+            "MCP_PORT": "0",
             "CLAUDECODE": "",
         }
-        dispatcher_proc = subprocess.Popen(
-            [sys.executable, "-m", "osprey.dispatch"],
-            cwd=str(built_repo),
-            env=dispatcher_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+        with dispatcher_log.open("w") as log_fh:
+            dispatcher_proc = subprocess.Popen(
+                [sys.executable, "-m", "osprey.dispatch"],
+                cwd=str(built_repo),
+                env=dispatcher_env,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,
+            )
+        dispatcher_port = bound_port(
+            dispatcher_log, UVICORN_STARTUP, child=dispatcher_proc, timeout=HEALTH_TIMEOUT_SEC
         )
         _wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health", HEALTH_TIMEOUT_SEC, dispatcher_proc
+            f"http://127.0.0.1:{dispatcher_port}/health",
+            HEALTH_TIMEOUT_SEC,
+            dispatcher_proc,
+            dispatcher_log,
         )
 
         yield {
@@ -291,6 +296,7 @@ def dispatch_stack(built_repo: Path, tmp_path: Path) -> Iterator[dict]:
             "worker_url": f"http://127.0.0.1:{worker_port}",
             "repo": built_repo,
             "worker_proc": worker_proc,
+            "worker_log": worker_log,
         }
     finally:
         _terminate(dispatcher_proc)
@@ -320,7 +326,9 @@ def _fire_webhook(dispatcher_url: str, trigger: str, payload: dict) -> str:
     return dispatch_id
 
 
-def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess.Popen) -> dict:
+def _wait_for_run(
+    dispatcher_url: str, dispatch_id: str, worker_proc: subprocess.Popen, worker_log: Path
+) -> dict:
     """Poll the dispatcher run feed for the run with ``dispatch_id``; return it terminal.
 
     We correlate on the dispatch_id returned by firing rather than "any terminal
@@ -336,8 +344,7 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
     while time.monotonic() < deadline:
         if worker_proc.poll() is not None:
             raise AssertionError(
-                f"worker exited mid-run (rc={worker_proc.returncode}).\n"
-                f"{_drain_output(worker_proc)}"
+                f"worker exited mid-run (rc={worker_proc.returncode}).\n{_drain_output(worker_log)}"
             )
         runs = _http_get_json(
             f"{dispatcher_url}/dashboard/runs",
@@ -354,7 +361,7 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
         time.sleep(2.0)
     raise AssertionError(
         f"run for dispatch_id={dispatch_id} did not reach a terminal state within "
-        f"{RUN_TIMEOUT_SEC:.0f}s.\n{_drain_output(worker_proc)}"
+        f"{RUN_TIMEOUT_SEC:.0f}s.\n{_drain_output(worker_log)}"
     )
 
 
@@ -388,7 +395,10 @@ def test_tutorial_trigger_completes(dispatch_stack: dict, trigger: str, payload:
 
     dispatch_id = _fire_webhook(dispatch_stack["dispatcher_url"], trigger, payload)
     run = _wait_for_run(
-        dispatch_stack["dispatcher_url"], dispatch_id, dispatch_stack["worker_proc"]
+        dispatch_stack["dispatcher_url"],
+        dispatch_id,
+        dispatch_stack["worker_proc"],
+        dispatch_stack["worker_log"],
     )
 
     assert run["status"] == "completed", (
