@@ -205,6 +205,10 @@ dependencies = [
     # through dependabot so the adapter's contract tests gate them.
     "bluesky-queueserver-api==0.0.13",
     "duckdb>=1.5.4",
+    # agent-record decodes OTLP logs itself (http/protobuf and http/json). The
+    # range is the 1.x line of the locked opentelemetry-api/sdk, so the proto
+    # messages and the SDK stay one release.
+    "opentelemetry-proto>=1.44.0,<2",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
