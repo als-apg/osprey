@@ -654,6 +654,13 @@ class TestTheAuditRecord:
         assert detail_tokens(audit_records[0]["detail"]) == {"ca_user": CA_USER}
         assert audit_records[0]["reason"] == "control_target_changed"
 
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_subclass_of_a_refusal_files_under_its_class(self, shell, audit_records):
+        """A switch in flight is a moved target, so it files as one."""
+        fire(shell, SwitchInProgressError("switch_in_progress:4242"))
+
+        assert audit_records[0]["reason"] == "control_target_changed"
+
 
 class TestTheWriteRecord:
     """One record per channel a cell put on the wire, read back from the ledger."""
