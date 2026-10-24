@@ -320,7 +320,9 @@ def test_guard_reads_limits_enabled_from_the_lane_targets_own_block(
     # Assert
     message = str(excinfo.value)
     assert _VA_LIMITS_KEY in message
-    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    # The tier allows writes; the refusal says so and names no writes key.
+    assert "the write tier allows writes" in message
+    assert "writes_enabled" not in message
     assert f"lane {_VA_LANE} serves target va" in message
 
 

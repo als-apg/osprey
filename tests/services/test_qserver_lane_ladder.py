@@ -7,11 +7,12 @@ machine does this worker drive" on its own. The resolution ladder in
 baselines a switchable project can have — plus the fallbacks that keep every
 single-lane project rendered so far building exactly what it built before.
 
-The write posture rides along, because the type the ladder lands on is also the
-key of the block that arms it. The case worth being careful about is the one
-where the lane declares a target this deployment cannot resolve: it is built as
-the baseline type while addressing another machine, so its posture comes from
-``control_system.writes_enabled`` alone and NOT from the baseline type's block.
+Whether the worker could write rides along: the login's write tier
+(``tier_allows``), which is target-blind — a tier that allows writes allows
+them on every machine, and the person's switch picks which one on each write.
+The case worth being careful about is the one where the lane declares a target
+this deployment cannot resolve: it is built as the baseline type while
+addressing another machine, so it can never write, whatever the tier allows.
 """
 
 from __future__ import annotations
@@ -124,10 +125,10 @@ def test_the_va_lane_of_a_live_baseline_builds_the_virtual_accelerator(deploymen
 
 
 def test_the_va_lane_of_a_live_baseline_may_write(deployment) -> None:
-    """Armed by `control_system.connector.virtual_accelerator.writes_enabled`.
+    """The VA block's `writes_enabled` leaf is what makes this tier allow writes.
 
-    The deployment-wide key is false here, and that is the point: a facility
-    whose real machine is a live one arms its simulator alone.
+    The deployment-wide key is false here; an unmigrated config that arms any
+    one connector block arms the tier.
     """
     deployment(
         LIVE_BASELINE,
@@ -138,8 +139,13 @@ def test_the_va_lane_of_a_live_baseline_may_write(deployment) -> None:
     assert qserver_startup.worker_writes_enabled() is True
 
 
-def test_the_live_lane_of_a_live_baseline_may_not_write(deployment) -> None:
-    """The `epics` block says nothing, so it inherits the deployment-wide false."""
+def test_the_live_lane_of_a_live_baseline_passes_the_target_blind_tier(deployment) -> None:
+    """The tier is target-blind, so the live lane of the same config may write too.
+
+    The `epics` block says nothing, but the tier is a ceiling, not a selection:
+    which machine is written is the person's switch, read on each write by the
+    connector's verdict, not anything this startup answer decides.
+    """
     deployment(
         LIVE_BASELINE,
         lane="bluesky",
@@ -147,6 +153,18 @@ def test_the_live_lane_of_a_live_baseline_may_not_write(deployment) -> None:
     )
 
     assert qserver_startup.resolve_control_system_type() == "epics"
+    assert qserver_startup.worker_writes_enabled() is True
+
+
+@pytest.mark.parametrize("lane", ["bluesky", "bluesky_va"])
+def test_a_tier_of_never_disarms_every_lane(deployment, lane) -> None:
+    """`writes: never` refuses whatever any connector block's leaf says."""
+    deployment(
+        {**LIVE_BASELINE, "writes": "never"},
+        lane=lane,
+        targets={"bluesky": "live", "bluesky_va": "va"},
+    )
+
     assert qserver_startup.worker_writes_enabled() is False
 
 
@@ -200,17 +218,21 @@ def test_a_degraded_lane_names_what_it_declared_against_what_it_built(deployment
     assert "control_system.connector.epics" in lane_degraded
 
 
-def test_a_degraded_lane_may_not_write_on_the_baseline_types_arming(deployment) -> None:
-    """The safety property of rung 3, and the reason it is not the type's block.
+@pytest.mark.parametrize(
+    "section",
+    [VA_BASELINE, {**VA_BASELINE, "writes": "allowed"}],
+    ids=["armed-by-the-va-block", "tier-allowed"],
+)
+def test_a_degraded_lane_may_not_write_whatever_the_tier_allows(deployment, section) -> None:
+    """The safety property of rung 3.
 
-    This deployment armed `virtual_accelerator`, and this lane was BUILT as a
-    virtual accelerator — but it addresses the facility's live gateway. Reading
-    the VA block's arming here would point "you may write to the simulator" at
-    real hardware, so the only posture that applies is the deployment-wide one,
-    which is false.
+    This lane was BUILT as a virtual accelerator but addresses the facility's
+    live gateway, a machine this deployment cannot resolve. The connector
+    refuses each of its writes for that reason, so the startup answer is false
+    too — even on a tier that allows writes.
     """
     deployment(
-        VA_BASELINE,
+        section,
         lane="bluesky_live",
         targets={"bluesky": "va", "bluesky_live": "live"},
     )
@@ -219,7 +241,7 @@ def test_a_degraded_lane_may_not_write_on_the_baseline_types_arming(deployment) 
 
 
 def test_the_va_lane_of_a_va_baseline_is_not_degraded_and_may_write(deployment) -> None:
-    """The other lane of the same deployment resolves, and its block arms it."""
+    """The other lane of the same deployment resolves, and the tier allows it."""
     deployment(
         VA_BASELINE,
         lane="bluesky",

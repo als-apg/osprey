@@ -37,6 +37,11 @@ from pydantic import ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
+from osprey_connectors_tests._harness import (
+    isolate_verdict_environment,
+    reset_verdict_state,
+    write_control_context,
+)
 from tests.facility.served_tree import served_tree
 
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -573,12 +578,65 @@ def test_a_degraded_lane_is_built_unstamped_before_its_validator_is_loaded(
     assert qserver_startup.worker_writes_enabled() is False
 
 
+def test_a_degraded_live_lane_refuses_each_worker_write_target_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The degraded lane's left-alone target stamp is what refuses its writes.
+
+    The lane declares ``live`` on a deployment with no live connector block, so
+    it is built as the baseline simulator while stamped with a target nothing
+    resolves. The tier allows writes and the owner's record has ``live``
+    switched on, so the only term left to refuse is the target: the connector's
+    verdict answers ``target_unknown``, and the simulator never sees the put.
+    """
+    from osprey.services.bluesky_bridge import queue_backend
+    from osprey_connectors import config as connector_config
+    from osprey_connectors.errors import ChannelWriteBlockedError
+    from osprey_connectors.refusals import refusal_phrase
+
+    _posture_config(monkeypatch, tmp_path)
+    configured = connector_config.get_config_value
+
+    def with_live_lane(key: str, default: Any = None) -> Any:
+        if key == f"services.{queue_backend.DEFAULT_LANE}.target":
+            return "live"
+        return configured(key, default)
+
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", with_live_lane)
+    monkeypatch.delenv(queue_backend.LANE_ENV, raising=False)
+    root = tmp_path / "agent-data"
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target="live", switch={"live": "on"})
+    reset_verdict_state()
+
+    assert queue_backend.resolve_lane_connector_type()[1] is not None
+    connector = asyncio.run(qserver_startup.create_connector())
+    channel = "SR:MAG:HCM:01:CUR:SP"
+    before = asyncio.run(connector.read_channel(channel)).value
+
+    with pytest.raises(ChannelWriteBlockedError) as refused:
+        asyncio.run(connector.write_channel_checked(channel, before + 0.5))
+
+    assert refusal_phrase("target_unknown", None) in str(refused.value)
+    assert asyncio.run(connector.read_channel(channel)).value == before
+    assert qserver_startup.worker_writes_enabled() is False
+
+
 def test_a_resolved_lane_keeps_its_own_types_posture(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The non-degraded lane is the control: it reads the block for its type."""
+    """The non-degraded lane is the control: it reads the block for its type.
+
+    Its writes are decided by the verdict for the target it is stamped with,
+    so this login's record has that target switched on: what the connector
+    answers is then the tier and the stamp, not a switch left off.
+    """
     _posture_config(monkeypatch, tmp_path)
     _pin_lane(monkeypatch, None)
+    root = tmp_path / "agent-data"
+    isolate_verdict_environment(monkeypatch, root)
+    write_control_context(root, target="va", switch={"va": "on"})
+    reset_verdict_state()
 
     connector = asyncio.run(qserver_startup.create_connector())
 

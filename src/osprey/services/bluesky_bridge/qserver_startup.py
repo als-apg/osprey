@@ -132,44 +132,33 @@ def resolve_control_system_type() -> str:
 
 
 def worker_writes_enabled() -> bool:
-    """Whether this worker is armed to drive the machine its lane addresses.
+    """Whether this worker could be allowed to write to the machine its lane addresses.
 
-    The same answer the reference monitor inside the connector reaches, from
-    the same inputs — stated here because the type the ladder lands on is the
-    whole point of the lane axis (a VA lane beside a live baseline is armed by
-    the VA block alone), and a worker that comes up unarmed should say so at
-    startup rather than leave an operator to discover it on a refused write.
+    The startup half of the write verdict
+    (:func:`~osprey.services.bluesky_bridge.queue_backend.lane_tier_allows`):
+    :func:`osprey_connectors.posture_store.backstop_verdict` allows (the run is
+    not read-only and the login tier allows writes), and the lane is not
+    degraded. Stated at startup so a worker that can never write says so,
+    rather than leaving an operator to discover it on a refused write.
 
-    Which posture applies follows the rung the ladder stopped on:
+    It is not the decision on any write. Each write a plan makes is decided by
+    the connector's own verdict, for the owner the plan wrapper bound from the
+    queue item, with that owner's switch read at the moment of the write.
 
-    * a lane whose target resolved is armed by its own type's block,
-      ``control_system.connector.<type>.writes_enabled``, inheriting the
-      deployment-wide key when that block says nothing;
-    * a DEGRADED lane (rung 3) is armed by ``control_system.writes_enabled``
-      and nothing else. It was built as the deployment baseline while
-      addressing a different machine, so the baseline type's block describes a
-      machine this lane does not talk to — arming a facility gateway on the
-      strength of "you may write to the simulator" is exactly the confusion the
-      per-type posture exists to prevent. The deployment-wide key is the only
-      thing such a config has ever said about this lane.
+    A DEGRADED lane (rung 3 of the ladder) is always ``False``: it was built as
+    the deployment baseline while addressing a machine this deployment cannot
+    resolve, and the connector refuses each of its writes for that reason.
 
-    False whenever the config cannot be read, and False in a readonly run
-    whatever the deployment says.
+    False whenever the config cannot be read.
     """
-    from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
+    from osprey.services.bluesky_bridge.queue_backend import lane_tier_allows
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.control_system import is_readonly_run
-    from osprey_connectors.types import WRITES_ENABLED_KEY, type_writes_enabled
 
-    connector_type, lane_degraded = resolve_lane_connector_type()
     try:
-        if lane_degraded:
-            armed = get_config_value(WRITES_ENABLED_KEY, False) is True
-        else:
-            armed = type_writes_enabled(get_config_value("control_system", {}), connector_type)
+        section = get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
-    return armed and not is_readonly_run()
+    return lane_tier_allows(section)
 
 
 def build_connector_config(control_system_type: str, section: Any) -> dict[str, Any]:
@@ -248,32 +237,31 @@ async def create_connector() -> Any:
         control_target=resolve_lane_identity()[1],
     )
     if lane_degraded:
-        # The factory stamps the type it built, and the reference monitor keys
-        # this deployment's per-type write and limits postures on that stamp. A
-        # degraded lane was built as the baseline type while addressing a
-        # machine this config never tied to that type, so the type's block does
-        # not describe it: clearing the stamp is what makes the monitor read
-        # `control_system.writes_enabled` and the deployment-wide
-        # `limits_checking` block — the only postures the config has ever
-        # stated about this lane — which is also what `worker_writes_enabled`
-        # reports. EPICS gateway selection inside connect() is the stamp's third
-        # reader, so clearing it first moves that to the deployment-wide posture
-        # too; a no-op for this worker, whose type_config is gateway-less by
-        # construction, but it keeps all three readers on one answer.
+        # The factory stamps the type it built, and the limits validator keys
+        # this deployment's per-type limits posture on that stamp. A degraded
+        # lane was built as the baseline type while addressing a machine this
+        # config never tied to that type, so the type's block does not describe
+        # it: clearing the stamp is what makes the validator read the
+        # deployment-wide `limits_checking` block — the only limits posture the
+        # config has ever stated about this lane. EPICS gateway selection inside
+        # connect() is the stamp's other reader, so clearing it first moves that
+        # to the deployment-wide answer too; a no-op for this worker, whose
+        # type_config is gateway-less by construction.
         #
-        # The TARGET stamp is left alone. Degradation is a statement about the
-        # config's type table, not about the lane: rung 3 is reached precisely
-        # because the lane declared a target this deployment cannot resolve, so
-        # the declared target is still the honest answer to "which machine does
-        # this worker address", and it indexes the posture store rather than any
-        # config block.
+        # The TARGET stamp is left alone, and it is what refuses this lane's
+        # writes: rung 3 is reached precisely because the lane declared a
+        # target this deployment cannot resolve, so the connector's verdict
+        # answers each write `target_unknown`, which is also what
+        # `worker_writes_enabled` reports.
         connector._connector_type = None
     await connector.connect(type_config)
     logger.info(
-        "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, writes %s)",
+        "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, %s)",
         control_system_type,
         type(connector).__name__,
-        "enabled" if worker_writes_enabled() else "disabled",
+        "write tier allows writes; each write still needs its owner's switch"
+        if worker_writes_enabled()
+        else "cannot write (tier never, read-only run, or degraded lane)",
     )
     return connector
 
@@ -425,8 +413,8 @@ def _make_plan_function(
 
     **The whole body runs inside ``bind_owner``.** A queued item carries the
     person it belongs to as ``RESERVED_OWNER_KWARG``, and that key is what lets
-    the write monitor gate this run against *their* narrowing rather than
-    against the worker account's. ``bind_owner`` pops it before
+    the write monitor gate this run against *their* tier and switch rather
+    than against the worker account's. ``bind_owner`` pops it before
     ``model_validate`` ever sees the kwargs — so a plan is never handed an
     argument it does not declare — and holds it as context for the body.
 

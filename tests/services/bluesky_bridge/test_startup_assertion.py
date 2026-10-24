@@ -1,19 +1,20 @@
 """Tests for the fail-OPEN startup assertion.
 
 `app.py`'s `_lifespan` hook refuses to start *writable* against an unreadable
-limits source: it raises IFF ALL of writes are armed for the target THIS LANE
-serves, `control_system.limits_checking.enabled` is true, AND the limits
-database at `control_system.limits_checking.database_path` is missing,
+limits source: it raises IFF ALL of the write tier allows writes on a lane
+that is not degraded, `control_system.limits_checking.enabled` is true, AND the
+limits database at `control_system.limits_checking.database_path` is missing,
 unreadable, or unparseable. Every other combination starts normally — most
 importantly, writes disabled must start read-only REGARDLESS of limits
 readability, and must never even probe the database. See
 `_assert_limits_readable_if_writable`'s docstring in `validation.py` for the
 full condition and rationale.
 
-The posture is per connector type, so which lane the container is
-(`OSPREY_BLUESKY_LANE`) decides the answer: on a deployment that arms only its
-virtual accelerator, the `va` lane must refuse and the `live` lane of the same
-config must start.
+"Could write" is the write tier (`tier_allows`), which is target-blind: on a
+deployment whose tier allows writes, every lane that is not degraded must
+refuse, whichever connector block armed the tier. A degraded lane
+(`OSPREY_BLUESKY_LANE` declaring a target the config cannot resolve) can
+never write and must start.
 
 The guard runs on EVERY startup, not only when some wiring flag is set: the
 posture it refuses is a property of the project config, so a deployment that
@@ -30,10 +31,10 @@ Exercised here:
   configured at all.
 - writes_enabled=False -> starts read-only even with a missing database, and
   the probe (`LimitsValidator._load_limits_database`) is never called.
-- A mixed per-type config -> the armed lane refuses and the unarmed lane of
-  the same config starts; a read-only run needs no database at all.
-- The refusal message names the resolved per-type posture key and the lane it
-  refused for, but never leaks the database file's contents.
+- A mixed per-type config -> both lanes refuse, because the write tier is
+  target-blind; a degraded lane and a read-only run need no database at all.
+- The refusal message names the resolved limits key and the lane it refused
+  for, and no writes key, but never leaks the database file's contents.
 - The other boot-time refusals in the same hook: a `BLUESKY_DEVICE_PAGE_SIZE`,
   `BLUESKY_LIVE_MAX_RUNS` or `BLUESKY_LIVE_MAX_ROWS_PER_RUN` that is not a
   whole number >= 1 fails the start rather than the first request.
@@ -201,7 +202,8 @@ def test_writable_with_missing_limits_db_refuses_startup(
             pass
 
     message = str(excinfo.value)
-    assert "writes_enabled" in message
+    assert "the write tier allows writes" in message
+    assert "writes_enabled" not in message
     assert "limits_checking.enabled" in message
 
 
@@ -374,13 +376,13 @@ def test_refusal_message_never_leaks_db_contents(
 
 
 # =========================================================================
-# The posture checked is THIS LANE's, not the deployment's
+# The tier is target-blind; only a degraded lane is exempt
 # =========================================================================
 
 #: A live-baseline deployment that arms writes on its virtual accelerator only:
 #: the deployment-wide key is false, and the only `writes_enabled: true` in the
-#: config sits under the `virtual_accelerator` connector block. A bridge lane
-#: serving `va` is therefore writable while one serving `live` is not.
+#: config sits under the `virtual_accelerator` connector block. That arms the
+#: tier, and the tier is target-blind, so a lane serving `live` could write too.
 _MIXED_SECTION: dict[str, Any] = {
     "type": "epics",
     "writes_enabled": False,
@@ -417,20 +419,60 @@ def test_va_lane_requires_limits_db_when_only_the_va_block_is_armed(
 
     # Assert
     message = str(excinfo.value)
-    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    assert "the write tier allows writes" in message
+    assert "writes_enabled" not in message
     assert f"lane {_VA_LANE} serves target va" in message
 
 
-def test_live_lane_does_not_require_limits_db_when_its_block_is_unarmed(
+def test_live_lane_requires_limits_db_too_because_the_tier_is_target_blind(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The unarmed lane of the same config starts, and never probes the database."""
+    """The other lane of the same config refuses as well.
+
+    The write tier is target-blind: a deployment whose tier allows writes
+    allows them on every machine, and the person's switch picks which one at
+    run time. A live lane whose own block arms nothing can still be switched on
+    after it starts, so it needs working limits enforcement from the start.
+    """
     # Arrange
     monkeypatch.setenv(_LANE_ENV, _LIVE_LANE)
     missing = tmp_path / "does_not_exist.json"
     _patch_config(
         monkeypatch,
         section=_MIXED_SECTION,
+        lane_targets=_MIXED_LANE_TARGETS,
+        limits_enabled=True,
+        db_path=str(missing),
+    )
+
+    # Act
+    with pytest.raises(RuntimeError) as excinfo:
+        with TestClient(app):
+            pass
+
+    # Assert
+    assert f"lane {_LIVE_LANE} serves target live" in str(excinfo.value)
+
+
+def test_a_degraded_lane_does_not_require_the_limits_db(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A lane whose target this deployment cannot resolve can never write.
+
+    The connector refuses each of its writes for that reason, so the guard
+    counts it as unable to write and never probes the database, whatever the
+    tier allows.
+    """
+    # Arrange: a VA baseline with no live block, and a lane that declares live.
+    monkeypatch.setenv(_LANE_ENV, _LIVE_LANE)
+    missing = tmp_path / "does_not_exist.json"
+    _patch_config(
+        monkeypatch,
+        section={
+            "type": "virtual_accelerator",
+            "writes": "allowed",
+            "connector": {"virtual_accelerator": {}},
+        },
         lane_targets=_MIXED_LANE_TARGETS,
         limits_enabled=True,
         db_path=str(missing),

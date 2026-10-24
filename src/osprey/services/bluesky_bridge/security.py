@@ -21,8 +21,9 @@ the thing that stops a plan from moving hardware.
 **Where the security boundary is.** The control-system connector. Every
 setpoint a running plan writes goes through
 ``connector.write_channel_checked`` (``devices/connector.py``), which
-re-reads ``control_system.writes_enabled`` and applies the configured limits
-on each individual put, raising on refusal. A caller that stole or forged
+asks the write verdict (the login's tier, the owner the plan was queued for
+and that owner's switch) and applies the configured limits on each individual
+put, raising on refusal. A caller that stole or forged
 the token therefore still cannot drive a device past what policy allows. A
 writable bridge additionally refuses to start at all when limits checking is
 enabled but its database is missing or unparseable
@@ -30,7 +31,7 @@ enabled but its database is missing or unparseable
 
 **The approval prompt is best-effort UX defense, on both write paths.** The
 human approval prompt on the queue's arming tools and their in-tool
-``writes_enabled`` re-read (``osprey/mcp_server/bluesky/tools/queue.py``)
+write-verdict check (``osprey/mcp_server/bluesky/tools/queue.py``)
 are worth having, but they are not a boundary: code the agent authors and
 runs through the python executor can POST these routes directly, or drive
 channels directly, without any prompt. Both paths converge on the connector,
