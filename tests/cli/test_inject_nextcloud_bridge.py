@@ -377,7 +377,13 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     ):
         assert env[var] == f"${{{var}}}"
     assert env["TZ"] == "UTC"
-    assert svc["volumes"] == ["nextcloud_bridge_data:/data"]
+    # Beside it, the bridge's own spool (its agent-record entries) and its own
+    # per-container state directory, both bind-mounted under its identity.
+    assert svc["volumes"] == [
+        "nextcloud_bridge_data:/data",
+        "./var/spool/nextcloud-bridge:/app/var/spool/nextcloud-bridge",
+        "./var/state/nextcloud-bridge:/app/var/state/nextcloud-bridge",
+    ]
 
 
 def test_full_build_custom_trigger_reaches_rendered_compose(

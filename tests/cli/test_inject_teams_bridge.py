@@ -495,7 +495,13 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # The state volume stands alone. Unlike the Google Chat bridge there is no
     # credential FILE to bind-mount: every Azure secret is a variable, so the
     # only host-side object this service needs is its own named volume.
-    assert svc["volumes"] == ["teams_bridge_data:/data"]
+    # Beside it, the bridge's own spool (its agent-record entries) and its own
+    # per-container state directory, both bind-mounted under its identity.
+    assert svc["volumes"] == [
+        "teams_bridge_data:/data",
+        "./var/spool/teams-bridge:/app/var/spool/teams-bridge",
+        "./var/state/teams-bridge:/app/var/state/teams-bridge",
+    ]
 
 
 def test_full_build_custom_trigger_reaches_rendered_compose(
