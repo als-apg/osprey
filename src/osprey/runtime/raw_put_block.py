@@ -641,6 +641,12 @@ def _install_readonly(
     # is still allowed; the cached value answers every later lookup without
     # touching subprocess.
     platform.processor()
+    # ``ctypes.util`` loads the C library while it is imported on some
+    # platforms, and threadpoolctl imports it on the way into scipy — so the
+    # loader refusal below would kill the import of a simulation library over
+    # a load that is no control-system client. Import it now, while loads are
+    # still allowed; later imports take the cached module.
+    import ctypes.util  # noqa: F401
 
     def _osprey_readonly_refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError(refusal)
