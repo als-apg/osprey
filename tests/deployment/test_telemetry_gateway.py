@@ -55,6 +55,18 @@ RENDERS: dict[str, dict[str, Any]] = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _empty_working_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every render from an empty directory.
+
+    The template renders name a ``project_root`` that does not exist, so the
+    repo root resolves to the working directory and its ``var/audit`` feeds the
+    ledger receivers; an empty directory keeps a checkout's audit directories
+    out of the render.
+    """
+    monkeypatch.chdir(tmp_path)
+
+
 def _render(name: str) -> str:
     spec = RENDERS[name]
     return gw.render_collector_config(spec["config"], ledger_receivers=spec["ledger_receivers"])

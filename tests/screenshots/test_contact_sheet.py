@@ -782,7 +782,7 @@ def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
     assert len(page.functions) == 1
     expression, arg = page.functions[0]
     assert ".op-entry.operator" in expression
-    assert ".op-entry-body" in expression
+    assert ".op-bubble" in expression
     assert ".xterm-rows" not in expression
     assert "terminal-label" not in expression
     assert arg == DEMO_OPENING_PROMPT
