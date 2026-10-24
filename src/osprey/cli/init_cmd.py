@@ -3,7 +3,7 @@
 This is the one way an OSPREY deployment comes into existence. It writes a git
 repository that is the deployment: one directory, four zones.
 
-    als-assistant/
+    my-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  triggers.yml  README.md
     ├── data/  tiers/  apps/  web-terminal-context/
@@ -25,7 +25,7 @@ skeleton, the CI emission, and the initial commit.
 Usage::
 
     osprey init                              # in-place, into an empty directory
-    osprey init als-assistant --preset control-assistant
+    osprey init my-assistant --preset control-assistant
     osprey init demo --preset control-assistant --up -d --dev
 """
 
@@ -1325,9 +1325,9 @@ def init(
 
     \b
       $ osprey init --list-presets
-      $ osprey init als-assistant --preset control-assistant
+      $ osprey init my-assistant --preset control-assistant
       $ osprey init demo --preset control-assistant --up -d --dev
-      $ osprey init als-assistant --revalidate
+      $ osprey init my-assistant --revalidate
     """
     if revalidate:
         _revalidate(
