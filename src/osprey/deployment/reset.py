@@ -1284,10 +1284,13 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     Order, and why:
 
     1. ``down`` — stop the stack first, so nothing is holding a volume open and
-       nothing writes to ``var/agent_data`` while it is being deleted. A ``down``
-       that fails aborts the whole reset before anything is destroyed: a volume
-       removed out from under containers that would not stop just fails again
-       downstream while masking the real error.
+       nothing writes to ``var/agent_data`` while it is being deleted. The stop
+       acts on the project the plan printed, with the runtime *probe* holds; it
+       never re-reads the deployment record, so a record too damaged to read
+       does not block the reset that removes it. A ``down`` that fails aborts
+       the whole reset before anything is destroyed: a volume removed out from
+       under containers that would not stop just fails again downstream while
+       masking the real error.
     2. containers, then volumes, then images — dependents before dependencies,
        which is the only order the runtime will accept.
     3. the filesystem: ``var/agent_data``, ``build/``, the merged compose
@@ -1303,7 +1306,7 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     Raises:
         RuntimeError: When the ``down`` fails. Nothing has been removed.
     """
-    down_deployment(plan.repo_root)
+    down_deployment(plan.repo_root, runtime=probe.runtime, project=plan.project)
 
     for resource in plan.containers:
         probe.remove_container(resource.name)
@@ -1594,11 +1597,21 @@ def _default_probe(repo_root: Path) -> RuntimeProbe:
     with empty output — which reset would render as "no containers, no volumes"
     and an operator would read as "already clean". Checking first is what keeps
     a plan from stating an absence it never verified.
+
+    The runtime is the one the deployment record names, the one the last start
+    drove; with no readable record it is the one the as-built config selects.
+    The pinned compose project is the one the plan resolves
+    (:func:`resolve_reset_project_name`).
     """
     from osprey.deployment.runtime_helper import verify_runtime_is_running
 
     config = runtime_selection_config(repo_root)
-    is_running, error = verify_runtime_is_running(config)
+    try:
+        record = read_deployment_record(repo_root)
+    except DeploymentRecordError:
+        record = None
+    recorded_runtime = record.runtime if record is not None else None
+    is_running, error = verify_runtime_is_running(config, runtime=recorded_runtime)
     if not is_running:
         raise RuntimeError(
             f"{error}\n\nReset needs the container runtime to see what this deployment owns. "
@@ -1606,4 +1619,8 @@ def _default_probe(repo_root: Path) -> RuntimeProbe:
             "would look like a deployment that is already clean. Nothing was touched."
         )
 
-    return RuntimeProbe(get_runtime_command(config)[0], env=runtime_env(config, os.environ.copy()))
+    project = resolve_reset_project_name(repo_root, load_as_built_config(repo_root))[0]
+    return RuntimeProbe(
+        recorded_runtime or get_runtime_command(config)[0],
+        env=runtime_env(config, os.environ.copy(), project=project),
+    )
