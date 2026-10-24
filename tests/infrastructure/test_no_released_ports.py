@@ -2,16 +2,17 @@
 
 A port taken from ``bind(0)`` and closed again lies in the kernel's ephemeral
 range and is free for any ``connect()`` or ``bind(0)`` on the host until the
-server the test starts binds it. A test takes its port from ``tests._ports``
-instead: a server it controls binds port 0 itself and reports the number, a
+server the test starts binds it. A test takes its port from
+``osprey_connectors_tests._harness._ports`` instead: a server it controls binds port 0 itself and reports the number, a
 free port that is held is a ``reserved_port()`` / ``reserved_ports()``, and an
 occupied port is a ``bound_socket()``.
 
 A site is a ``.bind((<host>, 0))`` call, whatever expression the host is, or a
 test's use of a product helper that picks a port the same way: an import of
 ``osprey.interfaces._serving.free_port`` or a call of
-``osprey.infrastructure.proxy.lifecycle.find_free_port``. ``REMAINING_SITES``
-lists the files that still hold one. A file outside it fails the ratchet, and
+``osprey.infrastructure.proxy.lifecycle.find_free_port``. The walk covers both
+suites, ``tests/`` and the connectors suite. ``REMAINING_SITES`` lists the
+files that still hold one, relative to the repository root. A file outside it fails the ratchet, and
 so does a listed file that no longer holds one, so the list only shrinks.
 """
 
@@ -24,11 +25,15 @@ from pathlib import Path
 
 import pytest
 
-TESTS_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: Files under ``tests/`` the ratchet never reads: the reservation's own probes
-#: bind explicit ports.
-EXEMPT = frozenset({"_ports.py"})
+#: The trees walked, relative to the repository root: the framework's suite and
+#: the connectors suite.
+SUITES = ("tests", "packages/osprey-connectors/tests")
+
+#: Files the ratchet never reads, relative to the repository root: the
+#: reservation's own probes bind explicit ports.
+EXEMPT = frozenset({"packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_ports.py"})
 
 #: Product helpers that pick a port by binding port 0 and releasing it, by
 #: ``(module, name)``.
@@ -39,29 +44,29 @@ PORT_PICKERS = frozenset(
     }
 )
 
-#: Files under ``tests/`` that still pick a released port, sorted.
+#: Files that still pick a released port, relative to the repository root, sorted.
 REMAINING_SITES: tuple[str, ...] = (
-    "e2e/_ca_client_name_sniffer.py",
-    "e2e/_orm_stack.py",
-    "e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
-    "e2e/fixtures/gchat_pubsub_emulator.py",
-    "e2e/test_dispatch_tutorial.py",
-    "e2e/test_gchat_bridge_e2e.py",
-    "e2e/test_nextcloud_talk_bridge_e2e.py",
-    "e2e/test_teams_bridge_e2e.py",
-    "e2e/test_va_substrate_equivalence.py",
-    "e2e/web_terminals/test_loopback_chokepoint.py",
-    "e2e/web_terminals/test_terminal_auth_e2e.py",
-    "infrastructure/proxy/test_proxy_lifecycle.py",
-    "va/e2e/conftest.py",
-    "va/e2e/test_bluesky_lanes.py",
-    "va/e2e/test_live_standin.py",
-    "va/e2e/test_model_status_va.py",
-    "va/e2e/test_per_target_posture.py",
-    "va/e2e/test_planted_journal.py",
-    "va/e2e/test_substrate_parity.py",
-    "va/e2e/test_target_switch.py",
-    "va/e2e/test_va_put_surface.py",
+    "tests/e2e/_ca_client_name_sniffer.py",
+    "tests/e2e/_orm_stack.py",
+    "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
+    "tests/e2e/fixtures/gchat_pubsub_emulator.py",
+    "tests/e2e/test_dispatch_tutorial.py",
+    "tests/e2e/test_gchat_bridge_e2e.py",
+    "tests/e2e/test_nextcloud_talk_bridge_e2e.py",
+    "tests/e2e/test_teams_bridge_e2e.py",
+    "tests/e2e/test_va_substrate_equivalence.py",
+    "tests/e2e/web_terminals/test_loopback_chokepoint.py",
+    "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
+    "tests/infrastructure/proxy/test_proxy_lifecycle.py",
+    "tests/va/e2e/conftest.py",
+    "tests/va/e2e/test_bluesky_lanes.py",
+    "tests/va/e2e/test_live_standin.py",
+    "tests/va/e2e/test_model_status_va.py",
+    "tests/va/e2e/test_per_target_posture.py",
+    "tests/va/e2e/test_planted_journal.py",
+    "tests/va/e2e/test_substrate_parity.py",
+    "tests/va/e2e/test_target_switch.py",
+    "tests/va/e2e/test_va_put_surface.py",
 )
 
 _TOKEN = re.compile(r"\.bind\b|\bfree_port\b|\bfind_free_port\b")
@@ -119,13 +124,14 @@ def has_released_port(source: str) -> bool:
     return False
 
 
-def released_port_sites(root: Path) -> set[str]:
-    """Files under *root*, relative and POSIX, that pick a released port."""
+def released_port_sites(anchor: Path) -> set[str]:
+    """Files of the suites under *anchor*, relative to it and POSIX, that pick a released port."""
     return {
-        path.relative_to(root).as_posix()
-        for path in root.rglob("*.py")
+        path.relative_to(anchor).as_posix()
+        for suite in SUITES
+        for path in (anchor / suite).rglob("*.py")
         if "__pycache__" not in path.parts
-        and path.relative_to(root).as_posix() not in EXEMPT
+        and path.relative_to(anchor).as_posix() not in EXEMPT
         and has_released_port(path.read_text(encoding="utf-8"))
     }
 
@@ -135,7 +141,7 @@ def ratchet_failures(found: set[str], remaining: tuple[str, ...]) -> list[str]:
     listed = set(remaining)
     failures = [
         f"{path}: picks a port by binding 0 and releasing it; take the port from "
-        "tests._ports, which names each remedy"
+        "osprey_connectors_tests._harness._ports, which names each remedy"
         for path in sorted(found - listed)
     ]
     failures += [
@@ -148,7 +154,7 @@ def ratchet_failures(found: set[str], remaining: tuple[str, ...]) -> list[str]:
 
 
 def test_no_new_released_port_sites():
-    assert ratchet_failures(released_port_sites(TESTS_ROOT), REMAINING_SITES) == []
+    assert ratchet_failures(released_port_sites(REPO_ROOT), REMAINING_SITES) == []
 
 
 @pytest.mark.parametrize(
@@ -202,22 +208,24 @@ def test_a_held_or_explicit_port_is_no_site(source):
 
 
 def _copy_tree(tmp_path: Path) -> Path:
-    root = tmp_path / "tests"
+    root = tmp_path / "repo"
+    for suite in SUITES:
+        (root / suite).mkdir(parents=True)
     for relative in (*REMAINING_SITES, *EXEMPT):
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(TESTS_ROOT / relative, target)
+        shutil.copyfile(REPO_ROOT / relative, target)
     return root
 
 
 def test_a_planted_site_fails_the_ratchet(tmp_path):
     root = _copy_tree(tmp_path)
-    planted = root / "planted" / "test_planted.py"
+    planted = root / "packages/osprey-connectors/tests/planted/test_planted.py"
     planted.parent.mkdir()
     planted.write_text('import socket\nsocket.socket().bind(("127.0.0.1", 0))\n')
     failures = ratchet_failures(released_port_sites(root), REMAINING_SITES)
     assert len(failures) == 1
-    assert failures[0].startswith("planted/test_planted.py:")
+    assert failures[0].startswith("packages/osprey-connectors/tests/planted/test_planted.py:")
 
 
 def test_a_listed_file_without_its_site_fails_the_ratchet(tmp_path):
@@ -229,7 +237,9 @@ def test_a_listed_file_without_its_site_fails_the_ratchet(tmp_path):
 
 
 def test_the_exempt_reservation_module_is_never_a_site(tmp_path):
-    root = tmp_path / "tests"
-    root.mkdir()
-    (root / "_ports.py").write_text('import socket\nsocket.socket().bind(("127.0.0.1", 0))\n')
-    assert released_port_sites(root) == set()
+    for suite in SUITES:
+        (tmp_path / suite).mkdir(parents=True)
+    (exempt,) = EXEMPT
+    (tmp_path / exempt).parent.mkdir(parents=True)
+    (tmp_path / exempt).write_text('import socket\nsocket.socket().bind(("127.0.0.1", 0))\n')
+    assert released_port_sites(tmp_path) == set()
