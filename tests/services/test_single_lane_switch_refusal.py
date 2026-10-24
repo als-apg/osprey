@@ -237,7 +237,7 @@ async def test_queue_start_refuses_while_the_session_is_switched(deployment, bas
 
 
 async def test_the_refusal_carries_a_capability_record_in_the_queue_wire_shape(deployment):
-    """`{code, detail, capability}` — the shape every other queue refusal has.
+    """`{code, detail, retryable, capability}` — the shape every other queue refusal has.
 
     The bridge cannot compose this record (it never learns the recorded control
     target), so the host-side server composes it. Consumers that branch on
@@ -252,11 +252,14 @@ async def test_the_refusal_carries_a_capability_record_in_the_queue_wire_shape(d
             await _add()
 
     details = ctx["envelope"]["details"]
+    retryable = qb.REFUSAL_REASONS[qb.REASON_CONTROL_TARGET_MISMATCH].retryable
     assert details["code"] == qb.REASON_CONTROL_TARGET_MISMATCH
+    assert details["retryable"] is retryable
     assert details["capability"] == {
         "can_execute": False,
         "reason": qb.REASON_CONTROL_TARGET_MISMATCH,
         "detail": details["detail"],
+        "retryable": retryable,
     }
     assert details["detail"] == ctx["envelope"]["error_message"]
 
