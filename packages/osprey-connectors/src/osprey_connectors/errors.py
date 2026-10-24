@@ -4,15 +4,27 @@ Stability: the exception class names and ``reason`` codes defined here are
 public API. Removing or renaming any of them is a major version bump; adding
 new ones is a minor version bump.
 
-Three roots partition what a connector raises when a call fails, and no class
-lies under two of them: :class:`ChannelError`, a failure about one named
-channel that leaves the connector in place; :class:`ConnectorUnavailableError`,
-the connector itself is gone and its supervisor replaces it; and
-:class:`ConnectorInternalError`, a connector bug that nothing recovers from.
+This module is the connector failure vocabulary.
 
-``ChannelWriteFailedError``'s reason codes are the uppercased ``WriteOutcome``
-words for the outcomes that raise, so the reason a caller branches on and the
-outcome the result reports are one vocabulary.
+Three contract roots partition what a connector raises when a call fails, and
+no class lies under two of them: :class:`ChannelError`, a failure about one
+named channel that leaves the connector in place; every single-channel failure
+(a limits violation, a refused write, a failed write, an address that is not a
+channel, an unreachable channel) is one, and its ``channel_address`` names the
+channel. :class:`ConnectorUnavailableError`, the connector itself is gone and
+its supervisor replaces it. :class:`ConnectorInternalError`, a connector bug
+that nothing recovers from. :class:`ChannelReadFailedError` names several
+channels and lies under no root.
+
+:class:`RefusalReason` names why a write was refused, who refused it and what
+to do about it. ``ChannelWriteFailedError``'s reason codes are the uppercased
+``WriteOutcome`` words for the outcomes that raise, so the reason a caller
+branches on and the outcome the result reports are one vocabulary.
+
+The connector-host IPC registry is derived from this module: every class in
+``__all__`` under a contract root crosses the process boundary as itself,
+with its channel, and a new public failure is carried in the commit that adds
+it.
 """
 
 from enum import StrEnum
@@ -45,7 +57,22 @@ __all__ = [
 ]
 
 
-class ChannelLimitsViolationError(Exception):
+class ChannelError(Exception):
+    """A failure about one named channel; the connector that raised it stays in place.
+
+    ``channel_address`` names the channel, in process and across the
+    connector-host boundary alike. No supervisor recovers from a channel
+    error: it is reported against its channel and nothing is restarted. It has
+    no builtin base that another root shares, so no ``except ConnectionError``
+    or ``except TimeoutError`` reads it as a lost connector.
+    """
+
+    def __init__(self, channel_address: str, message: str):
+        self.channel_address = channel_address
+        super().__init__(message)
+
+
+class ChannelLimitsViolationError(ChannelError):
     """Raised when a channel write violates configured safety limits.
 
     Covers min/max range violations, read-only channel writes,
@@ -72,9 +99,7 @@ class ChannelLimitsViolationError(Exception):
         self.max_step = max_step
         self.current_value = current_value
 
-        message = self._format_violation_message()
-
-        super().__init__(message)
+        super().__init__(channel_address, self._format_violation_message())
 
     def _format_violation_message(self) -> str:
         """Format a user-friendly violation message with all relevant details."""
@@ -170,7 +195,7 @@ def _known_reason(reason: str | None) -> RefusalReason | None:
         return None
 
 
-class ChannelWriteBlockedError(Exception):
+class ChannelWriteBlockedError(ChannelError):
     """Raised when a channel write was refused and no value was written.
 
     Distinct from ChannelWriteFailedError, which means the write was attempted
@@ -205,7 +230,7 @@ class ChannelWriteBlockedError(Exception):
             fallback = f"Write to '{channel_address}' refused"
         else:
             fallback = f"Write to '{channel_address}' refused ({reason})"
-        super().__init__(message or fallback)
+        super().__init__(channel_address, message or fallback)
 
 
 #: Shared substring of every raw-client-write refusal message. Refusals raised
@@ -260,7 +285,7 @@ class ClientLibraryRefusedError(RuntimeError):
         )
 
 
-class ChannelWriteFailedError(Exception):
+class ChannelWriteFailedError(ChannelError):
     """Raised when a channel write was attempted but was not confirmed.
 
     The control system was asked to write but the write failed, the channel now
@@ -295,7 +320,7 @@ class ChannelWriteFailedError(Exception):
         self.outcome = outcome
         self.value_written = value_written
         self.observed_value = observed_value
-        super().__init__(message or self._default_message())
+        super().__init__(channel_address, message or self._default_message())
 
     def _default_message(self) -> str:
         """Name both values for a mismatch — the difference is the whole report.
@@ -353,21 +378,6 @@ class ChannelReadFailedError(Exception):
 
 #: What an address outside the facility is, in every message that names one.
 NOT_A_CHANNEL = "not a channel of this facility"
-
-
-class ChannelError(Exception):
-    """A failure about one named channel; the connector that raised it stays in place.
-
-    ``channel_address`` names the channel, in process and across the
-    connector-host boundary alike. No supervisor recovers from a channel
-    error: it is reported against its channel and nothing is restarted. It has
-    no builtin base that another root shares, so no ``except ConnectionError``
-    or ``except TimeoutError`` reads it as a lost connector.
-    """
-
-    def __init__(self, channel_address: str, message: str):
-        self.channel_address = channel_address
-        super().__init__(message)
 
 
 class ChannelNotFoundError(ChannelError, LookupError):

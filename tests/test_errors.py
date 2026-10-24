@@ -9,6 +9,7 @@ import osprey_connectors.errors as errors_module
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.errors import (
     ChannelError,
+    ChannelLimitsViolationError,
     ChannelNotFoundError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
@@ -223,6 +224,65 @@ class TestChannelWriteFailedError:
     def test_non_mismatch_reason_keeps_the_generic_message(self):
         err = ChannelWriteFailedError("chan", "UNCONFIRMED", value_written=1.7)
         assert str(err) == "Write to 'chan' failed (UNCONFIRMED)"
+
+
+#: One instance of each single-channel failure, by class, all about ``"SR:Q"``.
+SINGLE_CHANNEL_FAILURES = {
+    ChannelLimitsViolationError: lambda: ChannelLimitsViolationError(
+        "SR:Q", 9.0, "range", "Value 9.0 above maximum 5.0", min_value=0.0, max_value=5.0
+    ),
+    ChannelWriteBlockedError: lambda: ChannelWriteBlockedError("SR:Q", "WRITES_DISABLED"),
+    ChannelWriteFailedError: lambda: ChannelWriteFailedError("SR:Q", "FAILED"),
+    ChannelNotFoundError: lambda: ChannelNotFoundError("SR:Q"),
+    ChannelUnreachableError: lambda: ChannelUnreachableError("SR:Q"),
+}
+
+
+@pytest.mark.parametrize("cls", list(SINGLE_CHANNEL_FAILURES), ids=lambda cls: cls.__name__)
+def test_every_single_channel_failure_is_a_channel_error(cls):
+    failure = SINGLE_CHANNEL_FAILURES[cls]()
+    assert isinstance(failure, ChannelError)
+    assert failure.channel_address == "SR:Q"
+
+
+def test_a_channel_not_found_error_keeps_its_builtin_base():
+    assert isinstance(ChannelNotFoundError("SR:Q"), LookupError)
+
+
+@pytest.mark.parametrize(
+    ("cls", "text"),
+    [
+        (
+            ChannelLimitsViolationError,
+            "\n".join(
+                [
+                    "\n" + "=" * 70,
+                    "CHANNEL LIMITS VIOLATION DETECTED",
+                    "=" * 70,
+                    "Channel Address: SR:Q",
+                    "Attempted Value: 9.0",
+                    "Violation: Value 9.0 above maximum 5.0",
+                    "Allowed Range: [0.0, 5.0]",
+                    "=" * 70,
+                    "\u26a0\ufe0f  Write operation BLOCKED for safety",
+                    "=" * 70,
+                ]
+            ),
+        ),
+        (
+            ChannelWriteBlockedError,
+            "Write to 'SR:Q' refused by the reference monitor (WRITES_DISABLED)",
+        ),
+        (ChannelWriteFailedError, "Write to 'SR:Q' failed (FAILED)"),
+        (ChannelNotFoundError, "SR:Q is not a channel of this facility"),
+        (ChannelUnreachableError, "SR:Q did not answer"),
+    ],
+    ids=lambda item: item.__name__ if isinstance(item, type) else "text",
+)
+def test_a_channel_errors_text_is_unchanged(cls, text):
+    failure = SINGLE_CHANNEL_FAILURES[cls]()
+    assert str(failure) == text
+    assert failure.args == (text,)
 
 
 def test_the_readme_lists_every_refusal_reason():
