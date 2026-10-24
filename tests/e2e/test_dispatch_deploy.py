@@ -43,10 +43,10 @@ deployment's own trigger set and narrow the firing user on the host tree:
                          in ``OSPREY_CONTROL_OWNER``.
   O2 the owner's chip:   that job's first control-system write is refused,
                          because its owner is narrowed to read-only.
-  O3 the cron door:      the same two probes fired at the webhook carry no owner
-                         and are held to the deployment ceiling — the control
-                         without which O1 and O2 pass on a wire that stamps
-                         everyone.
+  O3 the cron door:      the same two probes fired at the webhook carry no owner,
+                         and the write probe is refused as ``owner_unscheduled``
+                         — the control without which O1 and O2 pass on a wire
+                         that stamps everyone.
   O4 the gate:           an uncredentialed call to ``/panel/events/mcp`` is
                          refused at the terminal and never reaches the dispatcher.
 
@@ -117,6 +117,7 @@ from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.posture_store import POSTURE_SANDBOX
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
@@ -166,7 +167,7 @@ DISPATCHER_CONTAINER = f"{PROJECT_NAME}-event-dispatcher"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 #: The tier this lane runs the dispatch workers at (``dispatch.tier``). The
 #: preset ships ``readonly``, under which a worker has no write or queue tool
-#: to call; the owner rows prove narrowing, the ceiling and plan enqueue, so
+#: to call; the owner rows prove narrowing, the owner-less refusal and plan enqueue, so
 #: their worker is one that may write. A tiered worker runs that tier's image,
 #: whose project is rooted at ``/app/<project_name>-<tier>``; the build is held
 #: to it before the deploy.
@@ -336,12 +337,14 @@ LIMITS_REFUSAL = "CHANNEL LIMITS VIOLATION"
 #: name — a run that failed to print anything must not read as "no owner".
 NO_OWNER_MARKER = "<none>"
 
-#: The closing clause of each store arm of the connector's refusal
-#: (``_writes_disabled_result``). The unavailable arm's prose CONTAINS the word
-#: "narrowing" ("This is not a narrowing anybody set"), so the arms are told
-#: apart by the clause each one CLOSES on and never by the bare word.
-NARROWING_CLAUSE = "The store answered narrowing."
-UNAVAILABLE_CLAUSE = "the store answered control_context_unavailable."
+#: The refusal phrases a judged write can come back with: the owner's switch is
+#: off for the machine (a record narrowed to read-only reads as off), the owner's
+#: record cannot be read, and a run that belongs to no login. Each is the
+#: refusals contract's phrase without its machine-kind suffix, so a row matches
+#: whichever kind the deployment's machine is.
+SWITCH_OFF_REFUSAL = refusal_phrase("switch_off")
+UNAVAILABLE_REFUSAL = refusal_phrase("record_unavailable")
+OWNER_UNSCHEDULED_REFUSAL = refusal_phrase("owner_unscheduled")
 
 pytestmark = [
     pytest.mark.e2e,
@@ -1604,14 +1607,14 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
     The point of carrying the owner at all. The firing user is narrowed to
     read-only on the host tree (the fixture wrote the record the header chip
     writes), the job runs as that user, and its first control-system write is
-    refused by the reference monitor before the control system is asked.
+    refused by the reference monitor before the control system is asked: the
+    record's narrowing reads as that user's switch being off.
 
     Which refusal is correct is a fact about the HOST rather than about this
     deployment: the tree reaches the container through a group, and a remapped
     bind ownership (Docker Desktop) makes it unreadable, which fails closed with
-    ``control_context_unavailable`` instead. The entrypoint's own access probe
-    says which, and this row asserts that one — by the clause each arm CLOSES on,
-    never by the word "narrowing", which the unavailable arm's prose also carries.
+    ``record_unavailable`` instead. The entrypoint's own access probe says which,
+    and this row asserts that one by its refusal phrase.
     """
     fired = _manual_fire_through_the_panel_proxy(WRITE_PROBE_PANEL_TRIGGER)
     assert (fired.get("call") or {}).get("status") == 200, (
@@ -1627,13 +1630,12 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
         f"was ever judged.\n{evidence}"
     )
     readable = _control_tree_is_readable_in_the_worker()
-    expected = NARROWING_CLAUSE if readable else UNAVAILABLE_CLAUSE
+    expected = SWITCH_OFF_REFUSAL if readable else UNAVAILABLE_REFUSAL
     why = (
-        f"{FIRING_USER} is narrowed to read-only, so the write must be refused with the "
-        "store's narrowing verdict"
+        f"{FIRING_USER} is narrowed to read-only, so the write must be refused as switch_off"
         if readable
         else "the worker's entrypoint reported it cannot read the control-context tree, "
-        "so every owned write must fail closed on control_context_unavailable"
+        "so every owned write must fail closed on record_unavailable"
     )
     joined = "\n".join(answers)
     assert LIMITS_REFUSAL not in joined, (
@@ -1648,14 +1650,14 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
 
 
 @pytest.mark.usefixtures("deployed_stack")
-def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling() -> None:
-    """O3b: the control for O2 — an owner-less job reads nobody's narrowing.
+def test_dispatch_owner_less_write_is_refused_as_unscheduled() -> None:
+    """O3b: the control for O2 — an owner-less job's write is refused for its own reason.
 
     The firing user is narrowed; a cron-shaped fire of the same probe must not
-    inherit that narrowing, because the run belongs to nobody and the deployment
-    ceiling is what governs it. Asserted as the absence of BOTH store clauses: an
-    owner-less run reads no record at all, so neither verdict can be its reason
-    for refusing.
+    inherit that narrowing, because the run belongs to nobody. Nobody's switch
+    covers it either, so its write is refused as ``owner_unscheduled`` — never as
+    the firing user's ``switch_off`` and never as an unreadable record, which
+    would mean the run was judged against somebody's record.
     """
     _fire(WRITE_PROBE_CRON_TRIGGER, {})
     run = _wait_for_terminal_run(WRITE_PROBE_CRON_TRIGGER)
@@ -1667,31 +1669,28 @@ def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling() -> None:
         f"was ever judged.\n{evidence}"
     )
     joined = "\n".join(answers)
-    for clause in (NARROWING_CLAUSE, UNAVAILABLE_CLAUSE):
-        assert clause not in joined, (
-            "an owner-less job's write was judged against a recorded write state — it "
-            "must be held to the deployment ceiling alone. The channel-write tool "
-            f"answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
-        )
-    # The absence of both clauses is not enough on its own: a probe refused for
-    # some unrelated reason — a read-only address, a limits violation, a
-    # transport error — carries neither clause and would let this row pass having
-    # judged nothing. The control is a control only if the write the narrowed
-    # firing user was refused actually SUCCEEDS when nobody owns the run, so the
-    # tool's own success envelope is asserted too (channel_write answers
-    # ``{"status": "success", "description": "Wrote N channel(s)", ...}``).
+    # A probe refused before the tool ran — a limits violation — judged nothing
+    # about the owner, so it must not read as the refusal this row expects.
     assert LIMITS_REFUSAL not in joined, (
         f"the write to {PROBE_CHANNEL} was refused by the limits hook before the tool "
         "ran, so this row judged nothing. Pick a channel this deployment's "
         "data/channel_limits.json marks writable and a value inside its range.\n"
         f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
-    assert any_answer_succeeded(answers), (
-        f"the owner-less write to {PROBE_CHANNEL} did not succeed. A cron-shaped fire "
-        "belongs to nobody, so no recorded write state governs it and the deployment "
-        "ceiling alone decides — which here permits the write. A refusal of ANY kind "
-        "means either the ceiling is not what this row assumes or the probe never "
-        f"reached the machine.\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
+    for phrase in (SWITCH_OFF_REFUSAL, UNAVAILABLE_REFUSAL):
+        assert phrase not in joined, (
+            "an owner-less job's write was judged against a recorded switch — it belongs "
+            "to no login, so no record governs it. The channel-write tool "
+            f"answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
+        )
+    assert not any_answer_succeeded(answers), (
+        f"the owner-less write to {PROBE_CHANNEL} succeeded. A cron-shaped fire runs "
+        "for no login, so no switch covers it and the write must be refused.\n"
+        f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
+    )
+    assert any(OWNER_UNSCHEDULED_REFUSAL in answer for answer in answers), (
+        "the owner-less write must be refused as owner_unscheduled. The channel-write "
+        f"tool answered:\n{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
 
 
