@@ -1089,6 +1089,13 @@ images carry your local checkout.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>build<span class="w">   </span><span class="c1"># or: pip install build</span>
 </pre></div>
 </div>
+<p>It also needs the checkout’s release tags. Each wheel takes its version from
+git tags: the framework from <code class="docutils literal notranslate"><span class="pre">v*</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> from its own
+<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code>. A checkout without a connectors tag reachable builds
+that package as <code class="docutils literal notranslate"><span class="pre">0.0.postN</span></code>, which the framework’s requirement on it refuses,
+and <code class="docutils literal notranslate"><span class="pre">--dev</span></code> stops before staging and says so. Run <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">fetch</span> <span class="pre">--tags</span></code>; a
+fork or an internal mirror must sync the <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags as well
+as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>

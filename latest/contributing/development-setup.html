@@ -458,6 +458,12 @@ Building the docs also needs <a class="reference external" href="https://graphvi
 <p><strong>1. Fork and Clone</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/YOUR-USERNAME/osprey.git
 <span class="nb">cd</span><span class="w"> </span>osprey
+
+<span class="c1"># The package versions come from the upstream release tags: the framework&#39;s</span>
+<span class="c1"># v* and osprey-connectors&#39; own osprey-connectors-v* tags. A fork or mirror</span>
+<span class="c1"># that lacks them builds osprey-connectors as 0.0.postN.</span>
+git<span class="w"> </span>remote<span class="w"> </span>add<span class="w"> </span>upstream<span class="w"> </span>https://github.com/als-apg/osprey.git
+git<span class="w"> </span>fetch<span class="w"> </span>--tags<span class="w"> </span>upstream
 </pre></div>
 </div>
 <p><strong>2. Install Dependencies</strong></p>
