@@ -39,8 +39,6 @@ REMAINING_SITES: tuple[str, ...] = (
     "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
     "tests/e2e/fixtures/gchat_pubsub_emulator.py",
     "tests/e2e/test_va_substrate_equivalence.py",
-    "tests/e2e/web_terminals/test_loopback_chokepoint.py",
-    "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
     "tests/va/e2e/conftest.py",
     "tests/va/e2e/test_bluesky_lanes.py",
     "tests/va/e2e/test_live_standin.py",

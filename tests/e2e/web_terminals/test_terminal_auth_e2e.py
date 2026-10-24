@@ -72,6 +72,9 @@ import pytest
 import websockets
 from websockets.sync.client import connect as ws_connect
 
+from osprey.cli.web_cmd import _STARTUP_LINE
+from tests.e2e._server_port import bound_port
+
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _READY_TIMEOUT = 20.0
@@ -89,17 +92,6 @@ _PANEL_TOKEN = "e2e-panel-token-vXnQ2p7Lr9"
 
 #: Matches the launcher's ``Open: http://<host>:<port>/?token=<secret>`` line.
 _OPEN_URL_RE = re.compile(r"Open:\s*(http://\S+\?token=\S+)")
-
-
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it.
-
-    Mirrors ``test_loopback_chokepoint.py::_free_port`` and
-    ``tests/cli/test_web_bind.py::_free_port``.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def _wait_for_port(host: str, port: int, proc: subprocess.Popen, timeout: float) -> bool:
@@ -344,8 +336,6 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
     Asserts, against one live process reached over real sockets, all five
     properties enumerated in the module docstring.
     """
-    port = _free_port()
-
     # `osprey web` serves a deployment repo's RENDER: it walks up to the nearest
     # `profile.yml` and refuses when the repo has no `build/config.yml` to serve,
     # so the run directory must be a real (if minimal) repo — same as
@@ -375,7 +365,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         "--host",
         "127.0.0.1",
         "--port",
-        str(port),
+        "0",  # the server binds a port the system chooses and names it
         "--shell",
         "true",  # never spawn `claude`; the PTY just runs /usr/bin/true
         "--skip-preflight",  # skip provider / companion-port pre-flight probes
@@ -406,6 +396,7 @@ def test_escalation_chain_is_broken_end_to_end(tmp_path: Path) -> None:
         )
 
     try:
+        port = bound_port(log_path, _STARTUP_LINE, child=proc, timeout=_READY_TIMEOUT)
         if not _wait_for_port("127.0.0.1", port, proc, timeout=_READY_TIMEOUT):
             pytest.fail(
                 f"server never became reachable on 127.0.0.1:{port} within "
