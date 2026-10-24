@@ -1029,7 +1029,9 @@ def test_nuke_compose_down_emits_the_podman_shape_on_a_podman_host(
     from osprey.deployment import container_lifecycle
 
     monkeypatch.setattr(
-        container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.PODMAN_COMPOSE
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, **_: ComposeProvider.PODMAN_COMPOSE,
     )
     down_envs: list[dict] = []
     fixture_run = lifecycle.subprocess.run

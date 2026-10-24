@@ -5081,3 +5081,138 @@ def test_restart_refuses_another_copys_containers_before_its_down(monkeypatch, t
         container_lifecycle.restart_deployment(tmp_path)
 
     assert steps == []
+
+
+# ---------------------------------------------------------------------------
+# down acts on what the last start drove: the deployment record's runtime and
+# compose project, whatever the setting or a later rebuild says now.
+# ---------------------------------------------------------------------------
+
+
+def _recorded_web_repo(tmp_path, record):
+    """A started web-terminal repo whose record holds ``record``."""
+    import yaml
+
+    from osprey.deployment.deployment_record import write_deployment_record
+    from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+    from tests.deployment.test_compose_invocation import _WEB_STACK_CONFIG, _started_repo
+
+    repo = _started_repo(tmp_path, config=_WEB_STACK_CONFIG)
+    config = yaml.safe_load(
+        container_lifecycle.as_built_config_path(repo).read_text(encoding="utf-8")
+    )
+    write_web_terminal_artifacts(config, repo)
+    if record is not None:
+        write_deployment_record(repo, record)
+    return repo
+
+
+def _host_whose_setting_says_docker(monkeypatch):
+    """Every runtime call recorded; the setting, asked, answers docker."""
+    from osprey.deployment.runtime_helper import ComposeProvider
+
+    runs: list[dict] = []
+    probed: list[str | None] = []
+    monkeypatch.delenv("CONTAINER_RUNTIME", raising=False)
+    monkeypatch.setattr(
+        container_lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, "")
+    )
+    for module in (container_lifecycle, provision):
+        monkeypatch.setattr(
+            module, "get_runtime_command", lambda config=None: ["docker", "compose"]
+        )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_compose_provider",
+        lambda config=None, runtime=None: probed.append(runtime) or ComposeProvider.DOCKER_V2,
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda cmd, env=None, **kwargs: (
+            runs.append({"cmd": list(cmd), "env": dict(env or {})})
+            or subprocess.CompletedProcess(list(cmd), 0, "", "")
+        ),
+    )
+    return runs, probed
+
+
+def test_down_targets_the_recorded_project_after_a_rename(monkeypatch, tmp_path):
+    from osprey.deployment.compose_generator import resolve_project_name
+    from osprey.deployment.deployment_record import DeploymentRecord
+
+    repo = _recorded_web_repo(tmp_path, DeploymentRecord("docker", "project-a"))
+    built = container_lifecycle.load_project_config(
+        str(container_lifecycle.as_built_config_path(repo))
+    )
+    assert resolve_project_name(built) != "project-a"
+    runs, _ = _host_whose_setting_says_docker(monkeypatch)
+
+    container_lifecycle.down_deployment(repo)
+
+    downs = [run for run in runs if run["cmd"][-1] == "down"]
+    assert len(downs) == 2, runs
+    assert [run["env"]["COMPOSE_PROJECT_NAME"] for run in downs] == ["project-a", "project-a"]
+
+
+def test_down_uses_the_recorded_runtime_in_a_fresh_shell(monkeypatch, tmp_path):
+    from osprey.deployment.deployment_record import DeploymentRecord
+
+    repo = _recorded_web_repo(tmp_path, DeploymentRecord("podman", "project-a"))
+    runs, probed = _host_whose_setting_says_docker(monkeypatch)
+
+    container_lifecycle.down_deployment(repo)
+
+    downs = [run for run in runs if run["cmd"][-1] == "down"]
+    assert len(downs) == 2, runs
+    assert [run["cmd"][0] for run in downs] == ["podman", "podman"]
+    assert probed and set(probed) == {"podman"}
+
+
+def test_down_with_no_record_sweeps_by_label_only(monkeypatch, tmp_path):
+    repo = _recorded_web_repo(tmp_path, None)
+    runs, _ = _host_whose_setting_says_docker(monkeypatch)
+    swept: list = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_down_by_label",
+        lambda config, root, **kwargs: swept.append((Path(root), kwargs)),
+    )
+
+    container_lifecycle.down_deployment(repo)
+
+    assert runs == []
+    assert swept == [(repo, {"missing": "deployment record"})]
+
+
+def test_down_refuses_an_unreadable_record_and_stops_nothing(monkeypatch, tmp_path):
+    from osprey.deployment.deployment_record import DEPLOYMENT_RECORD_RELPATH
+    from osprey.deployment.errors import DeploymentRecordError
+
+    repo = _recorded_web_repo(tmp_path, None)
+    (repo / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True, exist_ok=True)
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+    runs, _ = _host_whose_setting_says_docker(monkeypatch)
+
+    with pytest.raises(DeploymentRecordError, match=str(DEPLOYMENT_RECORD_RELPATH)) as refused:
+        container_lifecycle.down_deployment(repo)
+
+    assert "osprey reset" in str(refused.value)
+    assert runs == []
+
+
+def test_down_given_the_pair_stops_it_without_reading_the_record(monkeypatch, tmp_path):
+    from osprey.deployment.deployment_record import DEPLOYMENT_RECORD_RELPATH
+
+    repo = _recorded_web_repo(tmp_path, None)
+    (repo / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True, exist_ok=True)
+    (repo / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+    runs, probed = _host_whose_setting_says_docker(monkeypatch)
+
+    container_lifecycle.down_deployment(repo, runtime="podman", project="planned-name")
+
+    downs = [run for run in runs if run["cmd"][-1] == "down"]
+    assert len(downs) == 2, runs
+    assert [run["cmd"][0] for run in downs] == ["podman", "podman"]
+    assert [run["env"]["COMPOSE_PROJECT_NAME"] for run in downs] == ["planned-name"] * 2
+    assert set(probed) == {"podman"}

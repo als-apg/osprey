@@ -1,11 +1,11 @@
-"""``down`` acts on the runtime the as-built config names, or refuses.
+"""``down`` acts on the runtime the deployment record names, or refuses.
 
-The as-built ``build/config.yml`` records the runtime that served the build.
-A lifecycle verb reading ``docker`` there must talk to docker: when docker does
-not answer it refuses with docker's own remedy, and never lets detection fall
-through to a podman that is also installed. The alternative is the failure this
-pins: a ``down`` served by podman-compose finds no containers, exits 0, and
-reports a stack still running under docker as stopped.
+The record holds the runtime the last start drove. A ``down`` reading ``docker``
+there must talk to docker: when docker does not answer it refuses with docker's
+own remedy, and never lets detection fall through to a podman that is also
+installed. The alternative is the failure this pins: a ``down`` served by
+podman-compose finds no containers, exits 0, and reports a stack still running
+under docker as stopped.
 """
 
 from __future__ import annotations
@@ -16,11 +16,13 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle, runtime_helper
+from osprey.deployment.compose_generator import resolve_project_name
+from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 
 _RENDERED_CONFIG = """\
 project_name: pinned
 build_dir: ./build
-container_runtime: docker
+container_runtime: auto
 deployed_services:
   - event_dispatcher
 services:
@@ -39,6 +41,9 @@ def pinned_repo(tmp_path: Path) -> Path:
     (build / "services" / "docker-compose.yml").write_text("networks:\n  osprey-network:\n")
     (build / "services" / "event_dispatcher" / "docker-compose.yml").write_text(
         "services:\n  event-dispatcher:\n    image: x\n"
+    )
+    write_deployment_record(
+        repo, DeploymentRecord("docker", resolve_project_name({"project_name": "pinned"}))
     )
     return repo
 
