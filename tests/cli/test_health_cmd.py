@@ -54,7 +54,7 @@ check. What this module deliberately does not assert, and why:
   only assert these config-independent categories still render.
 * ``check_containers`` docker/podman ``--version`` mocking — owned by
   ``core/containers`` + the container probe tests; here we pin only the
-  no-runtime skip contract.
+  nothing-deployed contract.
 * ``check_api_providers`` registry mocking — owned by ``core/providers`` + the
   provider-canary tests.
 * ``_check_timezone`` UTC/configured/env-var unit calls — owned by
@@ -88,6 +88,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.health_cmd import health
+from osprey.deployment.deployment_record import NOTHING_DEPLOYED
 from osprey.health.core import CORE_CATEGORY_NAMES
 from osprey.health.models import CheckReport, CheckResult, Status
 
@@ -150,12 +151,9 @@ def _patch_suite(report: CheckReport):
     return patch("osprey.cli.health_cmd._run_suite", AsyncMock(return_value=report))
 
 
-def _no_container_runtime():
-    """Patch the containers category so it degrades to its no-runtime skip row."""
-    return patch(
-        "osprey.health.core.containers.get_runtime_command",
-        side_effect=RuntimeError("no container runtime"),
-    )
+def _no_deployment_record():
+    """Patch the containers category to find no deployment record, so no runtime is asked."""
+    return patch("osprey.health.core.containers.read_deployment_record", return_value=None)
 
 
 def _find(results: list[dict], name: str) -> dict | None:
@@ -320,7 +318,7 @@ class TestCategorySelection:
 
     def test_both_telemetry_categories_are_listed(self, cli_runner, valid_project):
         # A config that deploys neither: each name is accepted and contributes no rows.
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(
                 health,
                 [
@@ -346,7 +344,7 @@ class TestCategorySelection:
         # than raising a UsageError.
         project = tmp_path / "empty"
         project.mkdir()
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "does_not_exist"]
             )
@@ -391,7 +389,7 @@ class TestConfigFailureDegradation:
     def test_missing_config_yields_config_file_exists_error(self, cli_runner, tmp_path):
         project = tmp_path / "empty"
         project.mkdir()
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(health, ["--project", str(project), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
@@ -405,7 +403,7 @@ class TestConfigFailureDegradation:
     def test_malformed_yaml_yields_yaml_valid_error(self, cli_runner, tmp_path):
         project = tmp_path / "proj"
         _write_config(project, "invalid: yaml: content:\n")
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(health, ["--project", str(project), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
@@ -419,7 +417,7 @@ class TestConfigFailureDegradation:
             project,
             "project_name: bad_health\nhealth:\n  suite_timeout_s: not-a-number\n",
         )
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(health, ["--project", str(project), "--json"])
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
@@ -435,18 +433,18 @@ class TestConfigFailureDegradation:
 
 
 class TestContainerRuntime:
-    """Absent container runtime contributes a skip row, not an error."""
+    """A repo nothing was deployed from contributes one warning row, not an error."""
 
-    def test_no_container_runtime_is_skip(self, cli_runner, valid_project):
-        with _no_container_runtime():
+    def test_no_deployment_record_is_one_warning(self, cli_runner, valid_project):
+        with _no_deployment_record():
             result = cli_runner.invoke(
                 health, ["--project", str(valid_project), "--json", "--category", "containers"]
             )
-        assert result.exit_code == 0
         payload = json.loads(result.stdout)
-        row = _find(payload["results"], "container_runtime")
-        assert row is not None and row["status"] == "skip"
-        assert "no container runtime available" in row["message"]
+        rows = [r for r in payload["results"] if r.get("category") == "containers"]
+        assert [(r["name"], r["status"], r["message"]) for r in rows] == [
+            ("container_runtime", "warning", NOTHING_DEPLOYED)
+        ]
 
 
 # --------------------------------------------------------------------------- #
@@ -472,7 +470,7 @@ class TestTimezoneExitCode:
     def _run(self, cli_runner, tmp_path, zone):
         project = tmp_path / "proj"
         _write_config(project, _TIMEZONE_CONFIG.format(zone=zone))
-        with _no_container_runtime():
+        with _no_deployment_record():
             return cli_runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "configuration"]
             )
@@ -520,7 +518,7 @@ class TestProjectResolution:
         foreign.mkdir()
         monkeypatch.chdir(foreign)
 
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "configuration"]
             )
@@ -561,7 +559,7 @@ class TestThreeZoneAnchors:
         return repo
 
     def _configuration_rows(self, cli_runner, stance: Path) -> list[dict]:
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(
                 health, ["--project", str(stance), "--json", "--category", "configuration"]
             )
@@ -611,7 +609,7 @@ class TestThreeZoneAnchors:
         source_db.write_text("s" * 999)  # 999 B — the source tree it was built from
 
         project = repo if stance == "repo" else repo / "build"
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(
                 health, ["--project", str(project), "--json", "--category", "channel_finder"]
             )
@@ -652,7 +650,7 @@ class TestSubdirectoryStance:
         return repo
 
     def _configuration_rows(self, cli_runner) -> list[dict]:
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(health, ["--json", "--category", "configuration"])
         return json.loads(result.stdout)["results"]
 
@@ -675,7 +673,7 @@ class TestSubdirectoryStance:
         subdir.mkdir(parents=True)
         monkeypatch.chdir(subdir)
 
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(health, ["--category", "configuration"])
         assert result.exit_code != 2, result.output
 
@@ -744,7 +742,7 @@ class TestJsonOutput:
         # document, whichever stream the host has logging pointed at.
         project = tmp_path / "proj"
         _write_config(project, "invalid: yaml: content:\n")
-        with _no_container_runtime():
+        with _no_deployment_record():
             result = cli_runner.invoke(health, ["--project", str(project), "--json"])
         payload = json.loads(result.stdout)  # must not raise
         assert _find(payload["results"], "yaml_valid")["status"] == "error"

@@ -457,3 +457,76 @@ async def test_unfed_row_absent_without_a_rendered_collector_file(tmp_path):
 
 def test_baseline_file_lives_under_var_health():
     assert Path("var/health/telemetry_gateway.json") == BASELINE_FILE
+
+
+# --------------------------------------------------------------------------- #
+# The host tier reads the log of the deployment the last start recorded
+# --------------------------------------------------------------------------- #
+
+
+async def _host_run_reading_the_record(tmp_path, monkeypatch):
+    """A host run with no injected log reader; returns its rows and every exec argv."""
+    import asyncio
+
+    asked: list[tuple[object, ...]] = []
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def _exec(*argv, **_kw):
+        asked.append(argv)
+        return _Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _exec)
+    rows = await telemetry_gateway(
+        {**DEPLOYED, "project_name": "renamed-since"},
+        cwd=tmp_path,
+        transport=_transport(page()),
+        environ={},
+        now=lambda: T0,
+        in_container=lambda: False,
+    )()
+    return by_name(rows), asked
+
+
+async def test_the_host_tier_reads_the_recorded_gateway_with_the_recorded_runtime(
+    tmp_path, monkeypatch
+):
+    from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    record = DeploymentRecord("podman", "earlier-name")
+    write_deployment_record(tmp_path, record)
+
+    rows, asked = await _host_run_reading_the_record(tmp_path, monkeypatch)
+
+    assert [(argv[0], argv[-1]) for argv in asked] == [
+        (record.runtime, f"{record.compose_project}-telemetry-gateway")
+    ]
+    assert rows["telemetry_gateway_trend"].message == "Baseline taken"
+
+
+async def test_the_host_tier_with_no_record_says_nothing_is_deployed(tmp_path, monkeypatch):
+    from osprey.deployment.deployment_record import NOTHING_DEPLOYED
+
+    rows, asked = await _host_run_reading_the_record(tmp_path, monkeypatch)
+
+    assert asked == []
+    assert rows["telemetry_gateway_trend"].message == NOTHING_DEPLOYED
+    assert rows["telemetry_gateway_trend"].status == Status.WARNING
+
+
+async def test_the_host_tier_names_an_unreadable_record(tmp_path, monkeypatch):
+    from osprey.deployment.deployment_record import DEPLOYMENT_RECORD_RELPATH
+
+    (tmp_path / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True)
+    (tmp_path / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
+
+    rows, asked = await _host_run_reading_the_record(tmp_path, monkeypatch)
+
+    assert asked == []
+    assert "unreadable" in rows["telemetry_gateway_trend"].message
+    assert str(DEPLOYMENT_RECORD_RELPATH) in rows["telemetry_gateway_trend"].details

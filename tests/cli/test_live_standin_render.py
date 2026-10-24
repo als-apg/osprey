@@ -51,6 +51,7 @@ from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
 from osprey.cli.build_cmd import build as build_command
+from osprey.deployment.deployment_record import DeploymentRecord
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
@@ -536,7 +537,11 @@ async def test_live_standin_render_grows_a_container_health_row(
     stands up. Fed the REAL rendered config rather than a hand-built one, since
     the list is exactly what the build is being asked about.
     """
-    monkeypatch.setattr(containers_mod, "get_runtime_command", lambda *_a, **_k: ["docker"])
+    monkeypatch.setattr(
+        containers_mod,
+        "read_deployment_record",
+        lambda _root: DeploymentRecord("docker", "standin"),
+    )
 
     async def _fake_exec(*_a: object, **_k: object) -> _FakeProc:
         return _FakeProc(b"Docker version 27.0.0")

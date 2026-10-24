@@ -63,6 +63,12 @@ import httpx
 import yaml
 
 from osprey.deployment import telemetry_config as tc
+from osprey.deployment.deployment_record import (
+    NOTHING_DEPLOYED,
+    DeploymentRecord,
+    read_deployment_record,
+)
+from osprey.deployment.errors import DeploymentRecordError
 from osprey.deployment.telemetry_gateway import (
     COLLECTOR_CONFIG_FILE,
     ledger_include_identity,
@@ -474,21 +480,29 @@ def _trend(status: Status, message: str, *, details: str = "") -> CheckResult:
     return CheckResult("telemetry_gateway_trend", CATEGORY, status, message, details=details)
 
 
-def _default_log_reader(config: Mapping[str, Any] | None) -> LogReader:
-    """Read the gateway container's log through the deployment's container runtime."""
+def _recorded_log_reader(root: Path) -> tuple[LogReader | None, CheckResult | None]:
+    """The gateway log reader of the deployment recorded at *root*, or the row saying why not.
+
+    With no record nothing has been deployed from this repo, and a record that
+    cannot be read names no deployment either; in both cases no log is read.
+    """
+    try:
+        record = read_deployment_record(root)
+    except DeploymentRecordError as exc:
+        return None, _trend(Status.WARNING, "the deployment record is unreadable", details=str(exc))
+    if record is None:
+        return None, _trend(Status.WARNING, NOTHING_DEPLOYED)
+    return _default_log_reader(record), None
+
+
+def _default_log_reader(record: DeploymentRecord) -> LogReader:
+    """Read the gateway container's log through the runtime the last start recorded."""
 
     async def _read(since: datetime) -> str | None:
-        from osprey.deployment.compose_generator import resolve_project_name
-        from osprey.deployment.runtime_helper import get_runtime_command
-
-        try:
-            runtime = (await asyncio.to_thread(get_runtime_command, config))[0]
-        except (RuntimeError, FileNotFoundError, IndexError):
-            return None
-        container = f"{resolve_project_name(dict(config or {}))}-telemetry-gateway"
+        container = f"{record.compose_project}-telemetry-gateway"
         try:
             proc = await asyncio.create_subprocess_exec(
-                runtime,
+                record.runtime,
                 "logs",
                 "--since",
                 since.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -544,7 +558,9 @@ def telemetry_gateway(
             the health package's own detection.
         log_reader: Reads the gateway's log since a moment, ``None`` when the
             container runtime does not answer (which also keeps the host tier
-            off); defaults to the deployment's runtime.
+            off); defaults to reading the container of the project the
+            deployment record names, through the runtime it names. With no
+            readable record the host tier is a row saying so.
 
     Returns:
         A no-argument async callable returning the category's check results.
@@ -565,11 +581,13 @@ def telemetry_gateway(
         rows.extend(_audit_rows(root))
 
         if sample is not None and not contained and os.access(root, os.W_OK):
-            trend = await _host_tier(
-                root, sample, current, log_reader or _default_log_reader(config)
-            )
-            if trend is not None:
-                rows.append(trend)
+            reader, unrecorded = (log_reader, None) if log_reader else _recorded_log_reader(root)
+            if unrecorded is not None:
+                rows.append(unrecorded)
+            if reader is not None:
+                trend = await _host_tier(root, sample, current, reader)
+                if trend is not None:
+                    rows.append(trend)
         return rows
 
     return _run
