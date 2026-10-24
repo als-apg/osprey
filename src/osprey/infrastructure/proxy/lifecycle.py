@@ -1,9 +1,8 @@
-"""Proxy lifecycle management: start, stop, port allocation, auto-detection."""
+"""Proxy lifecycle management: start, stop, auto-detection."""
 
 from __future__ import annotations
 
 import logging
-import socket
 import threading
 import time
 from collections.abc import Iterable, Mapping
@@ -14,6 +13,8 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from osprey.profiles.providers import VALID_API_PROTOCOLS
 
 if TYPE_CHECKING:
+    import socket
+
     import uvicorn
 
     from osprey.agent_runner.provider_env import ClaudeCodeModelSpec
@@ -98,14 +99,6 @@ def is_proxy_needed(
 
     logger.info("Provider %r speaks OpenAI; routing through the translation proxy", provider_name)
     return True
-
-
-def find_free_port() -> int:
-    """Find a free port on localhost using OS allocation."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port: int = s.getsockname()[1]
-        return port
 
 
 def _request_shape(provider: str | None, supports_images: bool | None = None) -> dict[str, Any]:
