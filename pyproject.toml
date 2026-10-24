@@ -626,7 +626,7 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
 # A passing test's tmp_path is deleted at its teardown, and a green run removes the root it claimed
-# (tests/_run_temp.py), so a run leaves only what failed: a red run keeps its root and names it in
+# (the harness's _run_temp.py), so a run leaves only what failed: a red run keeps its root and names it in
 # the summary.
 tmp_path_retention_policy = "failed"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'

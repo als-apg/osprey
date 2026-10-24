@@ -1,8 +1,9 @@
 """A run of this suite owns its temporary root; nothing else on the host touches it.
 
-``tests/conftest.py`` gives every run a fresh ``osprey-tests-*`` directory of
-its own as pytest's base temporary directory, outside the shared
-``pytest-of-<user>`` that any pytest on the host numbers and prunes. Two runs
+``tests/conftest.py``, through the harness's ``_run_temp.py``, gives every run a
+fresh ``osprey-tests-*`` directory of its own as pytest's base temporary
+directory, outside the shared ``pytest-of-<user>`` that any pytest on the host
+numbers and prunes. Two runs
 on one temporary root therefore never delete each other's trees, an xdist
 run's workers live under their controller's root, and the run removes its root
 itself once it passed.
