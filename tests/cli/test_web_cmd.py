@@ -20,6 +20,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.web_cmd import (
+    _STARTUP_LINE,
     DECLARED_BIND_ENV,
     DECLARED_WEB_PORT_ENV,
     LOG_FILE,
@@ -33,6 +34,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import default_port
+from osprey_connectors_tests._harness._ports import bound_socket
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
@@ -1767,8 +1769,8 @@ class TestOperatorLoginUrl:
         The foreground path delegates the auto-open to run_web; web() must thread
         the token URL through as browser_url, or the most common launch shape
         auto-opens the bare URL and lands on the login-required page. Drives the
-        REAL run_web (create_app / uvicorn.run / the opener are stubbed) so the
-        browser_url wiring is exercised, not mocked away.
+        REAL run_web (create_app / the uvicorn server / the opener are stubbed)
+        so the browser_url wiring is exercised, not mocked away.
         """
         monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
@@ -1781,7 +1783,17 @@ class TestOperatorLoginUrl:
         monkeypatch.setattr("osprey.interfaces.web_terminal.app.create_app", lambda **_k: object())
         import uvicorn
 
-        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: None)
+        class _Server:
+            started = True
+
+            def __init__(self, _config):
+                pass
+
+            def run(self, sockets=None):
+                pass
+
+        monkeypatch.setattr(uvicorn, "Config", lambda *a, **k: None)
+        monkeypatch.setattr(uvicorn, "Server", _Server)
         own_port = reserve_port()
 
         result = runner.invoke(
@@ -1880,6 +1892,175 @@ class TestOperatorLoginUrl:
         assert not any("token" in str(arg) for arg in child_argv[1:])
         # Catch an EMBEDDED secret too, not just a standalone argv element.
         assert not any(secret in str(arg) for arg in child_argv)
+
+
+class TestPortZero:
+    """`osprey web --port 0` serves on a port the system chooses and names it.
+
+    The listening socket is bound before anything announces a port, so the
+    startup line, the login URL and ``OSPREY_WEB_PORT`` all name the socket the
+    server holds.
+    """
+
+    def _stub_launch(self, monkeypatch, served: dict) -> None:
+        def _run(**kw):
+            sock = kw["sock"]
+            served.update(kw, bound=sock.getsockname()[1], listening=sock.fileno() != -1)
+            # The socket accepts a connection: it is listening, not just bound.
+            with socket.create_connection(("127.0.0.1", served["bound"]), timeout=2):
+                pass
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _run)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        monkeypatch.delenv(DECLARED_WEB_PORT_ENV, raising=False)
+        # Recorded for undo, then absent: the launch publishes the port here.
+        monkeypatch.setenv("OSPREY_WEB_PORT", "unset-by-test")
+        monkeypatch.delenv("OSPREY_WEB_PORT")
+
+    def test_port_zero_serves_on_the_announced_port(self, runner, monkeypatch, deployment):
+        served: dict = {}
+        self._stub_launch(monkeypatch, served)
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", "0", "--shell", "true", "--skip-preflight"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        bound = served["bound"]
+        assert bound != 0
+        assert served["port"] == bound
+        assert f"{_STARTUP_LINE} http://127.0.0.1:{bound}\n" in result.output
+        assert os.environ["OSPREY_WEB_PORT"] == str(bound)
+        secret = os.environ["OSPREY_TERMINAL_SECRET"]
+        assert f"http://127.0.0.1:{bound}/?token={secret}" in result.output
+
+    def test_a_busy_default_moves_without_releasing_the_socket(
+        self, runner, monkeypatch, deployment
+    ):
+        served: dict = {}
+        self._stub_launch(monkeypatch, served)
+        with bound_socket("127.0.0.1") as held:
+            held.listen(1)
+            busy = held.getsockname()[1]
+            wt = {"host": "127.0.0.1", "port": busy}
+            monkeypatch.setattr(
+                "osprey.cli.web_cmd.get_config_value",
+                lambda key, default=None: (
+                    wt if key == "web_terminal" else ({} if default is None else default)
+                ),
+            )
+            result = runner.invoke(
+                web,
+                ["--repo", str(deployment), "--shell", "true", "--skip-preflight"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert served["listening"]
+        assert served["bound"] not in (0, busy)
+        assert served["port"] == served["bound"]
+        assert f"Port {busy} is in use, so this is on port {served['bound']} instead" in (
+            result.output
+        )
+        assert f"{_STARTUP_LINE} http://127.0.0.1:{served['bound']}" in result.output
+
+    def test_reload_with_port_zero_is_refused(self, runner, monkeypatch, deployment):
+        served: dict = {}
+        self._stub_launch(monkeypatch, served)
+        import uvicorn
+
+        reload_runs: list = []
+        monkeypatch.setattr(uvicorn, "run", lambda *a, **k: reload_runs.append(k))
+
+        result = runner.invoke(
+            web,
+            [
+                "--repo",
+                str(deployment),
+                "--port",
+                "0",
+                "--reload",
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "--reload needs a fixed port, not --port 0" in result.output
+        assert reload_runs == [] and served == {}
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch_subprocess("osprey.cli.web_cmd", popen=True)
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_detach_port_zero_reads_the_child_s_startup_line(
+        self,
+        _mock_config,
+        fake_subprocess,
+        mock_wait,
+        _mock_preflight,
+        _mock_resolve,
+        monkeypatch,
+        runner,
+        deployment,
+    ):
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        child_port = 54321
+        proc = MagicMock(pid=12345)
+        proc.poll.return_value = None
+
+        def _spawn(_argv, **kwargs):
+            # The child writes its startup line into the log it was handed.
+            kwargs["stdout"].write(f"{_STARTUP_LINE} http://127.0.0.1:{child_port}\n")
+            kwargs["stdout"].flush()
+            return proc
+
+        fake_subprocess.Popen.side_effect = _spawn
+        monkeypatch.chdir(deployment)
+
+        result = runner.invoke(web, ["--detach", "--port", "0"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        argv = fake_subprocess.Popen.call_args.args[0]
+        assert argv[argv.index("--port") + 1] == "0"
+        assert mock_wait.call_args.args[:2] == ("127.0.0.1", child_port)
+        secret = os.environ["OSPREY_TERMINAL_SECRET"]
+        assert f"http://127.0.0.1:{child_port}/?token={secret}" in result.output
+        assert ":0/" not in result.output
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+    @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
+    @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+    @patch_subprocess("osprey.cli.web_cmd", popen=True)
+    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    def test_detach_port_zero_child_that_exits_first_is_reported(
+        self,
+        _mock_config,
+        fake_subprocess,
+        mock_wait,
+        _mock_preflight,
+        _mock_resolve,
+        monkeypatch,
+        runner,
+        deployment,
+    ):
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        proc = MagicMock(pid=12345)
+        proc.poll.return_value = 3
+        fake_subprocess.Popen.return_value = proc
+        monkeypatch.chdir(deployment)
+
+        result = runner.invoke(web, ["--detach", "--port", "0"], catch_exceptions=False)
+
+        assert "exited immediately with code 3" in result.output
+        assert "?token=" not in result.output
+        mock_wait.assert_not_called()
+        assert not (deployment / PID_FILE).exists()
 
 
 class TestOperatorSecretDoesNotOutliveTheLaunch:
