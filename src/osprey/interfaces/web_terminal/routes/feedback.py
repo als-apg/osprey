@@ -36,6 +36,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.feedback_composer import (
     assemble_payload,
     bundle_for_copy,
@@ -155,6 +156,13 @@ def _validated_session(session_id: str | None) -> str | None:
         return validate_session_id(session_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"invalid session_id: {exc}") from exc
+
+
+def _transcript_of(request: Request, session_id: str | None) -> str | None:
+    """The transcript the session key points at: a ``/clear`` moves a key off its own."""
+    if session_id is None:
+        return None
+    return transcript_map.get(request.app, session_id)
 
 
 def _encodable(text: str | None) -> str:
@@ -393,6 +401,7 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
         _metadata(
             request, identity, now, include_metadata=body.include_metadata, session_id=session_id
         ),
+        transcript_id=_transcript_of(request, session_id),
     )
 
     record_context, context_truncated = render_bundle(material, RECORD_CONTEXT_BUDGET_BYTES)
@@ -477,6 +486,7 @@ def feedback_bundle(request: Request, body: BundleRequest) -> dict[str, str]:
             include_metadata=body.include_metadata,
             session_id=session_id,
         ),
+        transcript_id=_transcript_of(request, session_id),
     )
     return {"bundle": bundle_for_copy(material, body.text_len)}
 

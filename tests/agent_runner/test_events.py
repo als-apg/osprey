@@ -70,7 +70,7 @@ def test_text_and_thinking_blocks_become_text_and_thinking_events() -> None:
     )
 
     assert translate_message(message) == [
-        ThinkingEvent(text="considering"),
+        ThinkingEvent(text="considering", parent_tool_use_id="parent-1"),
         TextEvent(text="hello", parent_tool_use_id="parent-1"),
     ]
 

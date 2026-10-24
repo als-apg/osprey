@@ -3,7 +3,10 @@
 import { fetchJSON } from './api.js';
 import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession, setSessionLabel } from './terminal.js';
 import { escapeHtml } from '/design-system/js/dom.js';
+import { onModeChange } from '/design-system/js/frame-params.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
+import { onChat } from './chat-events.js';
+import { setPointer } from './session-pointer.js';
 
 /**
  * A session summary as returned by the (prefix-aware) `/api/sessions` endpoint.
@@ -24,6 +27,35 @@ let sessionsData = [];
  */
 let openPicker = null;
 
+/** The picker button, once {@link initSessionSelector} has built it. @type {HTMLButtonElement | null} */
+let pickerBtn = null;
+
+/** Whether the chat has a turn streaming or a hand-off in flight (its `busy` event). */
+let chatBusy = false;
+
+const isSimpleView = () => document.documentElement.getAttribute('data-ui-mode') === 'simple';
+
+/**
+ * In the Simple view the chat runs the session, so a pick while a turn streams
+ * would cut the turn off and leave the agent working on a conversation nobody
+ * is watching. The picker is withheld while the chat is busy, as the console's
+ * New button is. The Expert view's terminal has its own session controls, and
+ * a hidden console can stay busy there after a refused hand-off, so the mode
+ * is part of the verdict and a flip re-evaluates it.
+ */
+function syncPicker() {
+  if (!pickerBtn) return;
+  const blocked = chatBusy && isSimpleView();
+  pickerBtn.disabled = blocked;
+  if (blocked) closeDropdown();
+}
+
+onChat('busy', ({ busy }) => {
+  chatBusy = busy;
+  syncPicker();
+});
+onModeChange(syncPicker);
+
 /**
  * Initialize the session selector dropdown.
  * @param {string} containerId
@@ -42,7 +74,7 @@ export function initSessionSelector(containerId) {
     </button>
   `;
 
-  const btn = /** @type {HTMLElement} */ (document.getElementById('session-picker-btn'));
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('session-picker-btn'));
 
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -53,6 +85,9 @@ export function initSessionSelector(containerId) {
     await fetchSessions();
     openDropdown(btn);
   });
+
+  pickerBtn = btn;
+  syncPicker();
 }
 
 /* ---- dropdown popover ----
@@ -87,11 +122,20 @@ function openDropdown(btn) {
     closeDropdown();
   };
   const onKey = (/** @type {KeyboardEvent} */ e) => {
-    if (e.key === 'Escape') closeDropdown();
+    if (e.key !== 'Escape') return;
+    closeDropdown();
+    btn.focus();
   };
   // Close on reflow rather than running a reposition loop: the anchor lives in
   // a scrollable tab strip, so a stale popover would drift off its button.
-  const onReflow = () => closeDropdown();
+  // The scroll listener is capture-phase and sees every scroll on the page --
+  // the list's own, the chat pane following new output -- so only one that
+  // moves the button closes the picker.
+  const onReflow = (/** @type {Event} */ e) => {
+    const t = e.target;
+    if (t instanceof Node && !t.contains(btn)) return;
+    closeDropdown();
+  };
   document.addEventListener('pointerdown', onDown, true);
   document.addEventListener('keydown', onKey, true);
   window.addEventListener('resize', onReflow);
@@ -113,6 +157,12 @@ function openDropdown(btn) {
   dropdown.classList.add('open');
   place(dropdown, btn);
   btn.setAttribute('aria-expanded', 'true');
+  // Keyboard users arrive from the picker button, and the list sits at the end
+  // of the body: focus moves into it, or Tab would skip the sessions entirely.
+  const focusTarget =
+    dropdown.querySelector('.session-item.active') ??
+    dropdown.querySelector('.session-item[data-session-id]');
+  if (focusTarget instanceof HTMLElement) focusTarget.focus();
 }
 
 /** Tear down the open dropdown, if any. */
@@ -212,6 +262,14 @@ function renderSessionList() {
  * @param {string} sessionId
  */
 async function resumeSession(sessionId) {
+  // The Simple view has no terminal socket: the chat is the surface running the
+  // session. Moving the pointer is the whole switch, because the chat is
+  // subscribed to it and replays the key. Starting a terminal here would put a
+  // second surface on the session's agent.
+  if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
+    setPointer(sessionId);
+    return;
+  }
   if (switchSession(sessionId)) {
     // Fast path — server handles everything.
     // terminal.js onMessage updates UI on session_switched.

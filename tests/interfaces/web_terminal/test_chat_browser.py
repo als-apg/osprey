@@ -152,8 +152,9 @@ def _reset_fake_state() -> None:
 class _FakeSDKClient:
     """Stand-in for ``ClaudeSDKClient``, patched where the agent runner builds it.
 
-    ``receive_response`` replays the plan registered for the most recent prompt,
-    yielding the real SDK messages the agent runner translates into the records
+    ``receive_response`` answers only a prompt that was sent, as the SDK's does:
+    it waits for the next ``query`` and replays that prompt's plan, yielding the
+    real SDK messages the agent runner translates into the records
     ``_event_to_wire`` turns into chat events. Step vocabulary:
 
       ("text", md)      one text block (markdown) → a ``text`` event
@@ -172,11 +173,12 @@ class _FakeSDKClient:
     """
 
     def __init__(self, *args, **kwargs) -> None:
-        self._prompts: list[str] = []
         self.options = kwargs.get("options")
         self.open = False
         # Bound to the server loop (constructed inside session.start()).
         self._interrupted = asyncio.Event()
+        # The session-long reader calls receive_response before any prompt is sent.
+        self._pending: asyncio.Queue[str] = asyncio.Queue()
         _CLIENTS.append(self)
 
     async def __aenter__(self):
@@ -188,15 +190,16 @@ class _FakeSDKClient:
         return False
 
     async def query(self, prompt: str) -> None:
-        self._prompts.append(prompt)
         _OBSERVED_PROMPTS.append(prompt)
         self._interrupted.clear()
+        self._pending.put_nowait(prompt)
 
     async def interrupt(self) -> None:
         self._interrupted.set()
 
     async def receive_response(self):
-        plan = _PLANS.get(self._prompts[-1], _DEFAULT_PLAN)
+        prompt = await self._pending.get()
+        plan = _PLANS.get(prompt, _DEFAULT_PLAN)
         for step in plan:
             kind = step[0]
             if kind == "text":
@@ -823,9 +826,9 @@ def test_activity_line_shows_tool_then_clears_on_text(tmp_path, chromium_browser
         page = _open_chat_page(chromium_browser, base_url)
         _send(page, "run a tool")
 
-        activity = page.locator(f"{_OP} .op-processing")
+        activity = page.locator(f"{_OP} .op-loader")
         expect(activity).to_be_visible(timeout=10_000)
-        # chat-render maps tool names to operator phrases; Bash is a mapped name,
+        # chat-activity.js maps tool names to operator phrases; Bash is a mapped name,
         # so the line reads as a sentence rather than echoing the raw tool.
         expect(activity).to_contain_text("Running a shell command")
 
@@ -885,19 +888,14 @@ def test_stop_mid_stream_reenables_and_next_prompt_works(tmp_path, chromium_brow
 
 
 def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromium_browser):
-    """Send is pinned to the composer's right edge; only Stop moves, inboard of it.
+    """Send and Stop share one slot at the composer's right edge; a turn swaps one for the other.
 
-    The textarea takes all the slack (``flex: 1``), so the button cluster is
-    anchored to the row's right edge and a member's arrival shifts everything
-    BEFORE it and nothing after it. Stop is the conditional member, so it has to
-    come FIRST in the cluster or Send slides sideways on every turn.
-
-    The end of a turn is what makes this worth a browser test rather than a
-    child-order assertion: ``setStreaming(false)`` hides Stop and re-enables Send
-    in the same statement block, so the wrong order drops a live Send onto the
-    exact pixels a hand was already moving toward for Stop. Asserted on real
-    geometry, because the invariant is "the operator's target does not move" —
-    a future layout change could honour the child order and still break it.
+    The button cluster is anchored to the row's right edge (``margin-left: auto``).
+    ``applyControls`` hides Send and shows Stop in one statement block, and the
+    reverse when the turn ends, so the operator's target must sit on the same
+    pixels both ways. Asserted on real geometry, because the invariant is "the
+    operator's target does not move" — a future layout change could keep the
+    markup and still shift the slot.
     """
     with _live_chat_server(tmp_path) as (base_url, _app):
         _PLANS["long task"] = [("text", "starting…"), ("await_interrupt",), ("result",)]
@@ -910,7 +908,8 @@ def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromi
 
         _send(page, "long task")
         expect(stop_btn).to_be_visible(timeout=10_000)
-        streaming_x = send_btn.bounding_box()["x"]
+        expect(send_btn).to_be_hidden()
+        streaming_x = stop_btn.bounding_box()["x"]
 
         stop_btn.click()
         expect(stop_btn).to_be_hidden(timeout=10_000)
@@ -918,11 +917,10 @@ def test_send_button_does_not_move_when_stop_appears_and_leaves(tmp_path, chromi
         settled_x = send_btn.bounding_box()["x"]
 
         assert streaming_x == pytest.approx(idle_x, abs=1.0), (
-            "Send moved when Stop appeared — Stop must be the first child of "
-            ".op-input-controls so it opens inboard of Send"
+            "Stop opened away from Send's slot — the two share the composer's right edge"
         )
         assert settled_x == pytest.approx(idle_x, abs=1.0), (
-            "Send moved back when Stop went away, landing on the pixels Stop had "
+            "Send moved back when the turn ended, landing away from the slot Stop had "
             "occupied at the moment Send became clickable again"
         )
 

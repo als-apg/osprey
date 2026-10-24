@@ -1,0 +1,212 @@
+"""The connector-host pool over real Channel Access, against two soft IOCs.
+
+Two IOCs serve the SAME record names with DIFFERENT values on two ports of this
+host — the shape a facility's machine and its stand-in simulator have. The
+pool's ``live`` target reaches the first through the deployment's ``epics``
+block, and its ``standin`` target reaches the second through the
+``live_standin`` block, whose port is ``${EPICS_TESTING_PORT}`` and is only
+chosen at runtime.
+
+The IOCs are ``python -m epicscorelibs.ioc``: the minimal soft IOC that ships
+with ``epicscorelibs``, which the EPICS connector's stack already installs, so
+this suite needs no container and no EPICS base build. This test process never
+loads a Channel Access client itself: every read and write goes through a pool
+child, which is the only way one process can talk to both IOCs at once.
+"""
+
+import asyncio
+
+import pytest
+import yaml
+
+from osprey_connectors import control_context
+from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.ipc._pool import ConnectorHostPool
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
+from osprey_connectors_tests._paths import PACKAGE_SRC
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
+
+PYTHONPATH = str(PACKAGE_SRC)
+
+
+#: Seed values, deliberately far apart so a read from the wrong IOC is obvious.
+SEED_A = 1.0
+SEED_B = 100.0
+
+CA_TIMEOUT_S = 5.0
+
+
+@pytest.fixture
+def iocs(tmp_path, ioc_prefix):
+    """Two IOCs serving the SAME names — this test's prefix — with different seeds."""
+    first = SoftIOC(tmp_path, "machine", ioc_prefix, SEED_A)
+    try:
+        second = SoftIOC(tmp_path, "standin", ioc_prefix, SEED_B)
+    except BaseException:
+        first.stop()
+        raise
+    yield first, second
+    first.stop()
+    second.stop()
+
+
+def _gateways(address: str, port) -> dict:
+    endpoint = {"address": address, "port": port, "use_name_server": False}
+    return {"read_only": dict(endpoint), "write_access": dict(endpoint)}
+
+
+#: The switch each ``arm`` turns on: both machines, the live one alone, or none.
+_SWITCHED_ON = {"both": {"live": "on", "standin": "on"}, "live": {"live": "on"}, "none": None}
+
+
+def _control_system(machine_port: int) -> dict:
+    """The section tuning_scripts ships: a live machine and a runtime-port stand-in.
+
+    Its write tier allows writes; which machine may write is the login's switch.
+    """
+    return {
+        "type": "epics",
+        "writes": "allowed",
+        "connector": {
+            "epics": {
+                "timeout_s": CA_TIMEOUT_S,
+                "gateways": _gateways("127.0.0.1", machine_port),
+            },
+            "live_standin": {
+                "timeout_s": CA_TIMEOUT_S,
+                # A simulator's readbacks are often computed on get; see the
+                # EPICS connector's `fresh_reads`.
+                "fresh_reads": True,
+                "gateways": _gateways("127.0.0.1", "${EPICS_TESTING_PORT}"),
+            },
+        },
+    }
+
+
+@pytest.fixture
+def deployment(tmp_path, monkeypatch, iocs):
+    """Write the config to disk and return a factory for pools over it."""
+    machine, standin = iocs
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    monkeypatch.delenv("EPICS_TESTING_PORT", raising=False)
+    monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
+    root = tmp_path / "agent-data"
+    arm_switch(monkeypatch, root, None, stamp=False)
+
+    # Each test closes its own pool in its own event loop; see the pool's
+    # loop-affinity rule.
+    def make(arm: str) -> ConnectorHostPool:
+        """A pool over the deployment, with the switch on for the machines *arm* names."""
+        write_control_context(root, target="live", owned_by=None, switch=_SWITCHED_ON[arm])
+        section = _control_system(machine.port)
+        config_file = tmp_path / f"config-{arm}.yml"
+        config_file.write_text(yaml.safe_dump({"control_system": section}))
+        pool = ConnectorHostPool(section, config_file=config_file)
+        # Chosen after the pool exists, the way an integration run picks it.
+        monkeypatch.setenv("EPICS_TESTING_PORT", str(standin.port))
+        return pool
+
+    return make, machine, standin
+
+
+# ----------------------------------------------------------------- the wire
+
+
+async def test_two_targets_each_reach_only_their_own_ioc(deployment, ioc_prefix):
+    setpoint, readback = f"{ioc_prefix}:SP", f"{ioc_prefix}:RB"
+    make, machine, standin = deployment
+    pool = make("both")
+    try:
+        live, sim = await asyncio.gather(pool.connector("live"), pool.connector("standin"))
+        assert live.report["port"] == machine.port
+        assert live.report["connector_type"] == "epics"
+        assert sim.report["port"] == standin.port
+        assert sim.report["connector_type"] == "live_standin"
+
+        seeds = await asyncio.gather(
+            live.read_channel(readback, timeout=CA_TIMEOUT_S),
+            sim.read_channel(readback, timeout=CA_TIMEOUT_S),
+        )
+        assert [value.value for value in seeds] == [SEED_A, SEED_B]
+
+        written = await asyncio.gather(
+            live.write_channel_checked(setpoint, 11.0, confirm=True, timeout=CA_TIMEOUT_S),
+            sim.write_channel_checked(setpoint, 222.0, confirm=True, timeout=CA_TIMEOUT_S),
+        )
+        assert [result.outcome for result in written] == [WriteOutcome.CONFIRMED] * 2
+
+        after = await asyncio.gather(
+            live.read_channel(setpoint, timeout=CA_TIMEOUT_S),
+            sim.read_channel(setpoint, timeout=CA_TIMEOUT_S),
+        )
+        assert [value.value for value in after] == [11.0, 222.0]
+        assert await live.validate_channel(setpoint) is True
+    finally:
+        await pool.close()
+
+
+async def test_only_the_switched_on_target_can_write(deployment, ioc_prefix):
+    setpoint = f"{ioc_prefix}:SP"
+    make, _, _ = deployment
+    pool = make("live")
+    try:
+        live = await pool.connector("live")
+        live_ro = await pool.connector("live", execution_mode="readonly")
+        sim = await pool.connector("standin")
+        assert live.report["selected_role"] == "write_access"
+        assert live_ro.report["selected_role"] == "read_only"
+        assert sim.report["selected_role"] == "read_only"
+        assert sim.report["writes_enabled"] is False
+
+        # A readonly child refuses even on the armed target, before the IOC.
+        refused = await live_ro.write_channel(setpoint, 42.0, timeout=CA_TIMEOUT_S)
+        assert refused.outcome is WriteOutcome.REFUSED
+        assert (await live_ro.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_A
+
+        landed = await live.write_channel(setpoint, 5.0, confirm=True, timeout=CA_TIMEOUT_S)
+        assert landed.outcome is WriteOutcome.CONFIRMED
+
+        refused = await sim.write_channel(setpoint, 999.0, confirm=True, timeout=CA_TIMEOUT_S)
+        assert refused.outcome is WriteOutcome.REFUSED
+        assert refused.refusal_reason == "WRITES_DISABLED"
+        with pytest.raises(ChannelWriteBlockedError):
+            await sim.write_channel_checked(setpoint, 999.0, confirm=True)
+
+        assert (await sim.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_B
+        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == 5.0
+    finally:
+        await pool.close()
+
+
+async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment, ioc_prefix):
+    """The child does not follow the switch: its read gateway refuses, in software."""
+    setpoint = f"{ioc_prefix}:SP"
+    make, _, _ = deployment
+    pool = make("none")
+    try:
+        live = await pool.connector("live")
+        assert live.report["selected_role"] == "read_only"
+        assert live.report["writes_enabled"] is False
+
+        record = control_context.read_record()
+        control_context.set_switch(["live"], "on", epoch=record.switch_epoch)
+        control_context.invalidate_cache()
+        lagging = await live.write_channel(setpoint, 7.0, confirm=True, timeout=CA_TIMEOUT_S)
+
+        assert lagging.outcome is WriteOutcome.REFUSED
+        assert refusal_phrase("switching", "real") in lagging.error_message
+        assert (await live.read_channel(setpoint, timeout=CA_TIMEOUT_S)).value == SEED_A
+
+        # A fresh child for the key selects the write gateway and writes.
+        await live.disconnect()
+        fresh = await pool.connector("live")
+        assert fresh.report["selected_role"] == "write_access"
+        landed = await fresh.write_channel(setpoint, 8.0, confirm=True, timeout=CA_TIMEOUT_S)
+        assert landed.outcome is WriteOutcome.CONFIRMED
+    finally:
+        await pool.close()

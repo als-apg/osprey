@@ -3,8 +3,9 @@
 Import-time mutations are the one class of cross-test pollution a fixture
 cannot undo — they run during collection, in whichever worker happens to
 import the module, before any fixture of any scope gets a chance to snapshot
-what they overwrote. This audit walks every module under ``tests/`` and
-asserts that the set of import-time writes to ``os.environ``, ``sys.path``,
+what they overwrote. This audit walks every module under ``tests/`` and under
+the connectors suite (``packages/osprey-connectors/tests``), whose harness both
+suites import, and asserts that the set of import-time writes to ``os.environ``, ``sys.path``,
 ``sys.modules``, and sockets is *exactly* the whitelist below.
 
 The whitelist is deliberately exact rather than a minimum: a new import-time
@@ -23,55 +24,59 @@ from pathlib import Path
 
 import pytest
 
-TESTS_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: ``path relative to tests/`` -> the kinds of import-time mutation allowed there.
+#: The trees audited: the framework's suite and the connectors suite.
+AUDITED_ROOTS = (REPO_ROOT / "tests", REPO_ROOT / "packages" / "osprey-connectors" / "tests")
+
+#: ``path relative to the repository root`` -> the kinds of import-time mutation
+#: allowed there.
 WHITELIST: dict[str, set[str]] = {
     # libca latches EPICS_CA_* at C-library init, on the first import of
     # epics/softioc anywhere in the process; the ports are picked from free
     # ones at the same moment for the same reason.
-    "va/test_apply_fault.py": {"os.environ", "socket"},
-    "va/test_lume_pva_seam.py": {"os.environ", "socket"},
+    "tests/va/test_apply_fault.py": {"os.environ", "socket"},
+    "tests/va/test_lume_pva_seam.py": {"os.environ", "socket"},
     # Deploying suites reserve their CA / gallery ports at import: the value
     # binds into module-level constants and function default arguments (which
     # evaluate at import), so a fixture would run after those bindings exist.
-    "e2e/_orm_stack.py": {"socket"},
-    "e2e/test_va_substrate_equivalence.py": {"socket"},
-    "interfaces/_panel_launch.py": {"socket"},
+    "tests/e2e/_orm_stack.py": {"socket"},
+    "tests/e2e/test_va_substrate_equivalence.py": {"socket"},
+    "tests/interfaces/_panel_launch.py": {"socket"},
     # docs/source/_ext is not an installed package, and the extension under
     # test is imported at module top level.
-    "documentation/test_workflow_autodoc.py": {"sys.path"},
+    "tests/documentation/test_workflow_autodoc.py": {"sys.path"},
     # scripts/ is not a package: these scripts are loaded by path and
     # registered in sys.modules so their dataclasses resolve cls.__module__.
-    "benchmark/test_matrix.py": {"sys.modules"},
-    "benchmark/test_matrix_dashboard.py": {"sys.modules"},
-    "benchmark/test_matrix_dashboard_tiers_latency.py": {"sys.modules"},
-    "benchmark/test_matrix_lanes.py": {"sys.modules"},
-    "scripts/test_config_key_guard.py": {"sys.modules"},
-    "scripts/test_changelog_fragments.py": {"sys.modules"},
-    "scripts/test_docs_publish.py": {"sys.modules"},
-    "scripts/test_fusion_calibration.py": {"sys.modules"},
-    "scripts/test_bpm_polarity_picture.py": {"sys.modules"},
+    "tests/benchmark/test_matrix.py": {"sys.modules"},
+    "tests/benchmark/test_matrix_dashboard.py": {"sys.modules"},
+    "tests/benchmark/test_matrix_dashboard_tiers_latency.py": {"sys.modules"},
+    "tests/benchmark/test_matrix_lanes.py": {"sys.modules"},
+    "tests/scripts/test_config_key_guard.py": {"sys.modules"},
+    "tests/scripts/test_changelog_fragments.py": {"sys.modules"},
+    "tests/scripts/test_docs_publish.py": {"sys.modules"},
+    "tests/scripts/test_fusion_calibration.py": {"sys.modules"},
+    "tests/scripts/test_bpm_polarity_picture.py": {"sys.modules"},
     # The Teams relay ships as a service template, not a package: its
     # validation.py is loaded by path the same way, and the module-level load
     # feeds a parametrize decorator, which is evaluated at import.
-    "bridges/teams/test_relay_validation.py": {"sys.modules"},
+    "tests/bridges/teams/test_relay_validation.py": {"sys.modules"},
     # The demo facility's element table is a script loaded by path, and its rows
     # feed a parametrize decorator the same way.
-    "facility/test_element_table.py": {"sys.modules"},
-    "facility/test_mml_parse.py": {"sys.modules"},
-    "scripts/test_panel_rename.py": {"sys.modules"},
+    "tests/facility/test_element_table.py": {"sys.modules"},
+    "tests/facility/test_mml_parse.py": {"sys.modules"},
+    "tests/scripts/test_panel_rename.py": {"sys.modules"},
     # The demo facility's transfer-line scripts import their siblings by bare
     # name, as generate.py runs them: the loader holds the scripts folder on
     # sys.path only while one executes, and their sections feed parametrize.
-    "facility/test_gate_chain.py": {"sys.modules", "sys.path"},
-    "facility/test_transfer_decks.py": {"sys.modules", "sys.path"},
-    "facility/test_transfer_wiring.py": {"sys.modules", "sys.path"},
-    "va/e2e/conftest.py": {"socket", "sys.modules"},
-    # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
+    "tests/facility/test_gate_chain.py": {"sys.modules", "sys.path"},
+    "tests/facility/test_transfer_decks.py": {"sys.modules", "sys.path"},
+    "tests/facility/test_transfer_wiring.py": {"sys.modules", "sys.path"},
+    "tests/va/e2e/conftest.py": {"socket", "sys.modules"},
+    # the conftest harness scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
     # imports any osprey module: osprey.cli.styles builds its Console at import
     # time, so a fixture would un-force a console that already exists.
-    "conftest.py": {"os.environ"},
+    "packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_guards.py": {"os.environ"},
 }
 
 #: Marker every whitelisted site must carry, next to the mutation.
@@ -221,7 +226,9 @@ def import_time_mutations(source: str) -> set[str]:
 
 
 def _test_modules() -> list[Path]:
-    return sorted(p for p in TESTS_ROOT.rglob("*.py") if "__pycache__" not in p.parts)
+    return sorted(
+        p for root in AUDITED_ROOTS for p in root.rglob("*.py") if "__pycache__" not in p.parts
+    )
 
 
 def test_import_time_mutations_match_whitelist():
@@ -230,7 +237,7 @@ def test_import_time_mutations_match_whitelist():
     for path in _test_modules():
         mutations = import_time_mutations(path.read_text())
         if mutations:
-            actual[path.relative_to(TESTS_ROOT).as_posix()] = mutations
+            actual[path.relative_to(REPO_ROOT).as_posix()] = mutations
 
     unlisted = {
         path: sorted(kinds) for path, kinds in actual.items() if WHITELIST.get(path) != kinds
@@ -250,7 +257,7 @@ def test_whitelisted_sites_carry_justification():
     missing = [
         relative_path
         for relative_path in WHITELIST
-        if JUSTIFICATION_MARKER not in (TESTS_ROOT / relative_path).read_text()
+        if JUSTIFICATION_MARKER not in (REPO_ROOT / relative_path).read_text()
     ]
     assert not missing, (
         f"Whitelisted modules without a '{JUSTIFICATION_MARKER} ...' comment: {missing}\n"

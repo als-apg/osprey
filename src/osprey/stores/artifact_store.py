@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.stores.base_store import BaseStore, _sanitize_for_json
+from osprey_connectors.safety_file import atomic_replace
 
 logger = logging.getLogger("osprey.stores.artifact_store")
 
@@ -965,6 +966,36 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                     self._save_index()
                     return e
         return None
+
+    def replace_file(
+        self,
+        artifact_id: str,
+        file_content: bytes,
+        *,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ArtifactEntry | None:
+        """Rewrite one artifact's bytes in place, and its description and metadata if given.
+
+        The entry keeps its id, filename, title and timestamp, so it stays where it sits
+        in the gallery. The bytes are replaced whole through ``atomic_replace`` under the
+        index lock, so a reader sees the old file or the new one, never a partial file.
+        ``metadata`` is merged into the entry's existing metadata. Returns the updated
+        entry, or None when no entry has this id.
+        """
+        with self._with_index_lock():
+            entry = next((e for e in self._entries if e.id == artifact_id), None)
+            if entry is None:
+                return None
+            path = self._store_dir / entry.filename
+            atomic_replace(path, file_content, mode=path.stat().st_mode & 0o777, sync="best_effort")
+            entry.size_bytes = len(file_content)
+            if description is not None:
+                entry.description = description
+            if metadata is not None:
+                entry.metadata = {**entry.metadata, **metadata}
+            self._save_index()
+            return entry
 
     def get_entry(self, artifact_id: str) -> ArtifactEntry | None:
         self._refresh_if_stale()

@@ -380,12 +380,13 @@ def is_prerelease(version: str) -> bool:
 def pins_prerelease(requirement: str) -> bool:
     """Whether *requirement* pins osprey to a pre-release.
 
-    osprey-framework and osprey-connectors ship as a pair from one tag, so a
-    pre-release of one exists only beside a pre-release of the other. uv and
-    pip admit a pre-release for the requirement that names one and for nothing
-    else, so the framework's own connectors requirement, which names none,
-    resolves to nothing under a beta pin: a resolve driven by such a pin has
-    to admit pre-releases as a whole. An exclusion (``!=2026.6.2a0``) rules a
+    osprey-connectors releases on its own tags, and the framework declares
+    only a floor on it, which names no pre-release. uv and pip admit a
+    pre-release for the requirement that names one and for nothing else, so
+    under a beta pin that floor passes over the connectors pre-releases the
+    beta was tested with: a resolve driven by such a pin admits pre-releases
+    as a whole, which lets it take the newest connectors pre-release above
+    the floor. An exclusion (``!=2026.6.2a0``) rules a
     version out and pins nothing, so it does not count; neither does a source
     path, a URL, or a spec that is not a requirement.
 

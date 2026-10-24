@@ -387,3 +387,130 @@ def test_guarded_tools_are_exactly_the_frontmatter_matcher(memory_guard):
     meta = parse_hook_frontmatter(Path(memory_guard.__file__))
 
     assert memory_guard._GUARDED_TOOLS == frozenset(meta["tools"].split("|"))
+
+
+# -- Plan file --
+
+
+@pytest.fixture
+def plans_root(tmp_path, monkeypatch):
+    """A throwaway config dir, pinned as ``$CLAUDE_CONFIG_DIR``: the plans directory's parent."""
+    config_dir = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config_dir))
+    return config_dir
+
+
+def test_plans_dir_honours_claude_config_dir(plans_root, memory_guard):
+    """The CLI keeps plans under ``$CLAUDE_CONFIG_DIR``, and the hook names the same place."""
+    assert memory_guard.resolve_plans_dir() == plans_root / "plans"
+
+
+def test_plans_dir_defaults_under_home(memory_guard, hook_home, monkeypatch):
+    """With the variable unset the plans directory is ``~/.claude/plans``."""
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+    assert memory_guard.resolve_plans_dir() == hook_home / ".claude" / "plans"
+
+
+@pytest.mark.usefixtures("plans_root")
+def test_plan_predicate_allows_md_direct_child(memory_guard):
+    """A ``.md`` file directly inside the plans directory is a plan file."""
+    plans_dir = memory_guard.resolve_plans_dir()
+
+    assert memory_guard.is_allowed_plan_write(str(plans_dir / "fuzzy-moseying-quail.md"), plans_dir)
+
+
+@pytest.mark.parametrize(
+    ("build_path", "rejected_for"),
+    [
+        (lambda root: root / "plans" / "notes.txt", "not a .md file"),
+        (lambda root: root / "plans" / "sub" / "notes.md", "nested rather than a direct child"),
+        (lambda root: root / "plans-evil" / "notes.md", "a sibling sharing the plans prefix"),
+        (lambda root: root / "notes.md", "the config dir above the plans directory"),
+        (lambda root: root / "plans", "the plans directory itself"),
+        (lambda root: root / "plans" / ".." / "notes.md", "traversal in the raw input"),
+        (
+            lambda root: root / "plans" / ".." / "plans" / "notes.md",
+            "traversal that resolves back inside the plans directory",
+        ),
+        (
+            lambda root: root / "projects" / "enc" / "memory" / "notes.md",
+            "a memory file, which the plan allowance never reaches",
+        ),
+    ],
+    ids=[
+        "wrong-suffix",
+        "nested",
+        "sibling-prefix",
+        "config-dir",
+        "plans-dir-itself",
+        "traversal",
+        "traversal-back-in",
+        "memory-dir",
+    ],
+)
+def test_plan_predicate_rejects(plans_root, memory_guard, build_path, rejected_for):
+    """Each refused neighbour is refused on its own, so none rests on another's check."""
+    plans_dir = memory_guard.resolve_plans_dir()
+
+    assert not memory_guard.is_allowed_plan_write(str(build_path(plans_root)), plans_dir), (
+        f"should be rejected: {rejected_for}"
+    )
+
+
+def test_allows_plan_file_while_planning(plans_root, hook_runner, tmp_path):
+    """In plan mode the plan file is writable: that is how a plan reaches ExitPlanMode."""
+    target = str(plans_root / "plans" / "fuzzy-moseying-quail.md")
+
+    result = hook_runner(
+        "osprey_memory_guard.py",
+        "Write",
+        {"file_path": target, "content": "# Plan\n"},
+        cwd=tmp_path,
+        hook_input_extra={"permission_mode": "plan"},
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+def test_plan_file_is_refused_outside_planning(plans_root, hook_runner, tmp_path):
+    """The plan file is writable only while the session plans; any other mode refuses it.
+
+    The hook allows it only when ``permission_mode`` is ``plan``, so every other mode,
+    or none reported, takes one branch. ``acceptEdits`` stands for them: there the CLI
+    itself would let the write through, so the hook's refusal is the only gate.
+    """
+    target = str(plans_root / "plans" / "fuzzy-moseying-quail.md")
+
+    result = hook_runner(
+        "osprey_memory_guard.py",
+        "Write",
+        {"file_path": target, "content": "# Plan\n"},
+        cwd=tmp_path,
+        hook_input_extra={"permission_mode": "acceptEdits"},
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_planning_does_not_widen_the_write_allowance(plans_root, hook_runner, tmp_path):
+    """In plan mode a neighbour of the plans directory stays refused, and the refusal
+    tells the agent where a plan file goes.
+
+    Each neighbour shape is refused by the predicate in ``test_plan_predicate_rejects``;
+    this run shows the hook applies it, with a sibling that shares the plans prefix.
+    """
+    result = hook_runner(
+        "osprey_memory_guard.py",
+        "Write",
+        {"file_path": str(plans_root / "plans-evil" / "notes.md"), "content": "x"},
+        cwd=tmp_path,
+        hook_input_extra={"permission_mode": "plan"},
+    )
+
+    assert result is not None
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+    assert f"{plans_root / 'plans'}/<name>.md" in reason

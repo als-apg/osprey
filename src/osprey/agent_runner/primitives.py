@@ -615,6 +615,7 @@ def build_agent_options(
     can_use_tool: CanUseTool | None = None,
     pre_tool_use_hooks: Sequence[HookCallback] = (),
     stderr: Callable[[str], None] | None = None,
+    include_partial_messages: bool = False,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` for a run in *project_dir*.
 
@@ -670,6 +671,8 @@ def build_agent_options(
             told to allow.
         pre_tool_use_hooks: Callbacks run before every tool use.
         stderr: Sink for each line the agent process writes to stderr.
+        include_partial_messages: Stream text and reasoning as it is generated
+            (``DeltaEvent`` records) ahead of each whole block.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -764,6 +767,7 @@ def build_agent_options(
         can_use_tool=can_use_tool,
         stderr=stderr,
         cli_path=cli_path,
+        include_partial_messages=include_partial_messages,
     )
     if pre_tool_use_hooks:
         options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}

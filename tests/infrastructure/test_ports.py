@@ -11,8 +11,8 @@ import textwrap
 
 import pytest
 
-from tests import _ports
-from tests._ports import ephemeral_range_start, lock_path, reserved_port
+from osprey_connectors_tests._harness import _ports
+from osprey_connectors_tests._harness._ports import ephemeral_range_start, lock_path, reserved_port
 
 
 def test_the_port_lies_below_the_ephemeral_range():

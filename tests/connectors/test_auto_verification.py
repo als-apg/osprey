@@ -15,7 +15,7 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from tests.connectors._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: Every address this module writes.

@@ -24,7 +24,11 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context
-from tests._control_context_fixtures import data_root, race_record_writers, write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    data_root,
+    race_record_writers,
+    write_control_context,
+)
 
 __all__ = ["data_root"]
 
@@ -149,7 +153,7 @@ def test_a_write_keeps_the_switch_and_epoch_on_disk(data_root):
 @pytest.mark.usefixtures("data_root")
 def test_a_write_over_an_epoch_less_record_keeps_it_epoch_less():
     """A non-person write never stamps an epoch onto a readable record."""
-    from tests._control_context_fixtures import write_payload
+    from osprey_connectors_tests._harness._control_context_fixtures import write_payload
 
     path = control_context.record_path()
     write_payload(path, {"schema": 1, "target": "live", "generation": 1, "switch": {"live": "on"}})

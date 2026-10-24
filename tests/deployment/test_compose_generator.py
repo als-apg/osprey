@@ -3680,19 +3680,24 @@ def _write_dispatch_stack_config(project_path: Path, deployed: list[str]) -> Pat
     return config_path
 
 
+#: The version every fixture member wheel carries: a dev build descending from
+#: a beta tag, which the framework fixture's member requirements admit.
+_FIXTURE_MEMBER_VERSION = "2026.9.0b3.post12"
+
 # METADATA for the fixture wheel _write_fixture_wheel builds: two plain base
 # deps, one dep kept behind a non-extra (python_version) marker, two extra-gated
 # deps that must stay OUT of the local-requirements manifest, and one
 # requirement per workspace member that must ALSO stay out — each member wheel
 # is staged beside this one, so a PyPI requirement for it would fail until a
-# satisfying release exists there.
+# satisfying release exists there. The member wheels carry a version both
+# member requirements admit, as a checkout with its tags fetched builds them.
 _FIXTURE_WHEEL_METADATA = (
     "Metadata-Version: 2.1\n"
     "Name: osprey-framework\n"
     "Version: 0.0.0\n"
     "Requires-Dist: softioc>=4.5\n"
     "Requires-Dist: aiohttp\n"
-    "Requires-Dist: osprey-connectors<0.2.0,>=0.1.0\n"
+    "Requires-Dist: osprey-connectors>=2026.6.2\n"
     "Requires-Dist: pyaml-cs-osprey!=2026.6.2a0,>=2026.6.2\n"
     'Requires-Dist: tomli>=2; python_version < "3.11"\n'
     'Requires-Dist: pytest>=8; extra == "dev"\n'
@@ -3705,7 +3710,7 @@ _FIXTURE_WHEEL_METADATA = (
 _FIXTURE_CONNECTORS_WHEEL_METADATA = (
     "Metadata-Version: 2.1\n"
     "Name: osprey-connectors\n"
-    "Version: 0.0.0\n"
+    f"Version: {_FIXTURE_MEMBER_VERSION}\n"
     "Requires-Dist: numpy>=1.24\n"
     "Requires-Dist: aiohttp\n"
     'Requires-Dist: pytest>=8; extra == "dev"\n'
@@ -3730,7 +3735,7 @@ def _write_fixture_wheel(path: Path) -> None:
 
 def _member_wheel_name(member: str) -> str:
     """The wheel filename the spy builds for a workspace member."""
-    return f"{member.replace('-', '_')}-0.0.0-py3-none-any.whl"
+    return f"{member.replace('-', '_')}-{_FIXTURE_MEMBER_VERSION}-py3-none-any.whl"
 
 
 def _write_fixture_member_wheel(path: Path, member: str) -> None:
@@ -3744,10 +3749,11 @@ def _write_fixture_member_wheel(path: Path, member: str) -> None:
     metadata = (
         _FIXTURE_CONNECTORS_WHEEL_METADATA
         if member == "osprey-connectors"
-        else f"Metadata-Version: 2.1\nName: {member}\nVersion: 0.0.0\n"
+        else f"Metadata-Version: 2.1\nName: {member}\nVersion: {_FIXTURE_MEMBER_VERSION}\n"
     )
+    dist_info = f"{member.replace('-', '_')}-{_FIXTURE_MEMBER_VERSION}.dist-info"
     with zipfile.ZipFile(path, "w") as whl:
-        whl.writestr(f"{member.replace('-', '_')}-0.0.0.dist-info/METADATA", metadata)
+        whl.writestr(f"{dist_info}/METADATA", metadata)
 
 
 #: Every wheel a --dev staging must drop into a build context: the framework
@@ -8474,8 +8480,9 @@ class TestImagePinVersion:
         assert out["osprey_version"] == get_release_version()
 
     def test_a_prerelease_pin_asks_the_recipes_to_admit_prereleases(self, monkeypatch):
-        # The framework and its connectors ship as a pair from one tag, so a
-        # beta pin resolves only when the recipe's pip admits pre-releases.
+        # The framework's floor on its connectors names no pre-release, so a
+        # beta pin reaches the connectors pre-releases only when the recipe's
+        # pip admits pre-releases for the whole resolve.
         from osprey.deployment.compose_generator import _inject_project_metadata
 
         monkeypatch.setattr("osprey.version.get_image_pin_version", lambda dev: "2026.9.0b2")

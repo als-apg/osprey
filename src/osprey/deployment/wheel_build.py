@@ -154,6 +154,69 @@ def _is_workspace_requirement(line: str) -> bool:
     return canonicalize_name(Requirement(line).name) in members
 
 
+def _describe_glob(member_root: Path) -> str | None:
+    """The ``git describe --match`` glob *member_root*'s version is read from, if it names one."""
+    import shlex
+    import tomllib
+
+    try:
+        with (member_root / "pyproject.toml").open("rb") as handle:
+            command = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"][
+                "git_describe_command"
+            ]
+        argv = shlex.split(command)
+        return argv[argv.index("--match") + 1]
+    except (OSError, ValueError, KeyError, IndexError, TypeError):
+        return None
+
+
+def _require_members_satisfy_framework(
+    framework_wheel: Path, member_wheels: dict[str, tuple[Path, Path]]
+) -> None:
+    """Refuse a member wheel whose version the framework wheel's own requirement refuses.
+
+    Each member versions from git tags (``osprey-connectors`` from its own
+    ``osprey-connectors-v*`` tags), so a checkout missing them — a clone that
+    never fetched tags, a fork or mirror that synced only the framework's
+    ``v*`` tags — builds the member as ``0.0.postN``. The wheel layer would
+    then pass over the staged wheel for PyPI and fail late, inside the image
+    build; this names the cause before anything is staged. A pre-release
+    satisfies: a dev wheel descending from a beta tag is one.
+
+    :param framework_wheel: The built framework wheel
+    :type framework_wheel: pathlib.Path
+    :param member_wheels: Each member's distribution name mapped to its
+        checkout root and built wheel
+    :type member_wheels: dict[str, tuple[pathlib.Path, pathlib.Path]]
+    :raises DevModeUnavailableError: If a member wheel's version falls outside
+        the framework's requirement on it
+    """
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name, parse_wheel_filename
+
+    built = {canonicalize_name(member): entry for member, entry in member_wheels.items()}
+    for line in _wheel_base_requirements(framework_wheel):
+        requirement = Requirement(line)
+        entry = built.get(canonicalize_name(requirement.name))
+        if entry is None:
+            continue
+        member_root, wheel = entry
+        version = parse_wheel_filename(wheel.name)[1]
+        if requirement.specifier.contains(version, prereleases=True):
+            continue
+        glob = _describe_glob(member_root)
+        source = f"the newest git tag matching {glob}" if glob else "its git tags"
+        raise DevModeUnavailableError(
+            f"the {requirement.name} wheel built from the checkout is {version}, "
+            f"which the framework's requirement '{line}' refuses",
+            f"{requirement.name} takes its version from {source} reachable from "
+            "the checkout; with none it builds as 0.0.postN.\n"
+            "Fetch the tags:  git fetch --tags\n"
+            "A fork or mirror must sync the osprey-connectors-v* tags as well as "
+            "the framework's v* tags.",
+        )
+
+
 def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) -> None:
     """Write ``osprey-local-requirements.txt`` next to the staged dev wheels.
 
@@ -384,6 +447,7 @@ def _copy_local_framework_for_override(out_dir):
         # the Dockerfiles' wheel layer installs every staged wheel in one pip
         # call, so the requirements are satisfied locally.
         cached_wheels = [cached_wheel]
+        member_wheels: dict[str, tuple[Path, Path]] = {}
         for member in WORKSPACE_MEMBERS:
             member_root = osprey_source_root / "packages" / member
             if not (member_root / "pyproject.toml").exists():
@@ -393,7 +457,10 @@ def _copy_local_framework_for_override(out_dir):
                     "framework wheel because the framework requires them.\n"
                     f"Restore packages/{member} in the checkout.",
                 )
-            cached_wheels.append(_build_dev_wheel_cached(member_root))
+            member_wheel = _build_dev_wheel_cached(member_root)
+            member_wheels[member] = (member_root, member_wheel)
+            cached_wheels.append(member_wheel)
+        _require_members_satisfy_framework(cached_wheel, member_wheels)
 
         # Copy the cached wheels to this call's output directory
         dest_wheels = []

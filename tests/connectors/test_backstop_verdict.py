@@ -15,7 +15,7 @@ import pytest
 from osprey_connectors import control_context, posture_store, types
 from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, backstop_verdict
 from osprey_connectors.refusals import REASONS
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from tests._write_verdict_cases import case_environment
 
 __all__ = ["case_environment"]

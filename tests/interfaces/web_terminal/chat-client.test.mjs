@@ -607,7 +607,7 @@ describe('requestHandoff: rejection slugs', () => {
 });
 
 describe('fetchHistory', () => {
-  test('GETs the full transcript for the key and returns its turns', async () => {
+  test('GETs the full transcript, agent events included, for the key and returns its turns', async () => {
     const turns = [
       { role: 'user', content: 'hi', timestamp: '2026-09-05T00:00:00Z' },
       { role: 'assistant', content: 'hello' },
@@ -616,7 +616,7 @@ describe('fetchHistory', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(chat.fetchHistory('k-1')).resolves.toEqual(turns);
-    expect(fetchMock).toHaveBeenCalledWith('/api/session-chat?session_id=k-1&full=1', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/session-chat?session_id=k-1&full=1&events=1', {
       cache: 'no-store',
     });
   });
@@ -627,7 +627,7 @@ describe('fetchHistory', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await chat.fetchHistory('a/b');
-    expect(firstUrl(fetchMock)).toBe('/u/alice/api/session-chat?session_id=a%2Fb&full=1');
+    expect(firstUrl(fetchMock)).toBe('/u/alice/api/session-chat?session_id=a%2Fb&full=1&events=1');
   });
 
   test('a body without turns yields an empty list', async () => {
@@ -677,5 +677,39 @@ describe('fetchCommands', () => {
       vi.fn(async () => jsonResponse({}, { ok: false, status: 500, statusText: 'Server Error' }))
     );
     await expect(chat.fetchCommands()).rejects.toThrow();
+  });
+});
+
+describe('followChat', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test('a 204 (no agent yet) waits the slow interval before asking again', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 204, body: null }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onEvent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onEvent).not.toHaveBeenCalled();
+    feed.close();
+  });
+
+  test('a dropped connection retries sooner than a 204', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('network down');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const feed = chat.followChat('c', { onEvent: vi.fn() });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    feed.close();
   });
 });

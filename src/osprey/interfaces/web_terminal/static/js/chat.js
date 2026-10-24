@@ -2,13 +2,13 @@
 /* OSPREY Web Terminal — Simple-mode operator chat controller.
  *
  * Thin glue between the SSE transport (chat-client.js) and the message-list
- * renderer (chat-render.js). It builds the operator console DOM inside
- * #operator-container, binds it to the tab's session pointer, and owns the
- * streaming/idle UI state, turning user intent (submit, stop, switch view)
+ * renderer (chat-render.js). It mounts the console that chat-console.js builds
+ * inside #operator-container, binds it to the tab's session pointer, and owns
+ * the streaming/idle UI state, turning user intent (submit, stop, switch view)
  * into transport calls. All rendering and sanitisation live in the renderer;
- * all networking and SSE parsing live in the client — this file holds no
- * innerHTML and no parsing, so the interesting logic stays in the two
- * unit-tested modules.
+ * all networking and SSE parsing live in the client, and the copy for refusals
+ * and failures lives in chat-notices.js. This file holds no innerHTML and no
+ * parsing, so the interesting logic stays in the unit-tested modules.
  *
  * The console does not mint a conversation of its own. Both views are windows
  * onto one session key, held in the browser by session-pointer.js, and this
@@ -25,17 +25,31 @@
 import { pickUiMode } from '/design-system/js/frame-params.js';
 import { uuid4 } from '/design-system/js/uuid.js';
 
-import { fetchCommands, fetchHistory, interrupt, requestHandoff, sendPrompt } from './chat-client.js';
+import {
+  answerPermission,
+  fetchCommands,
+  fetchHistory,
+  followChat,
+  interrupt,
+  requestHandoff,
+  sendPrompt,
+} from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
+import { buildConsole } from './chat-console.js';
+import { emitChat } from './chat-events.js';
+import { initChatFeatures } from './chat-features.js';
+import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
 import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { notifySessionChange } from './terminal.js';
 import {
+  HANDOFF_INTERRUPT_LABEL,
   HANDOFF_PENDING_MESSAGE,
   HANDOFF_RESTART_BUDGET_MS,
   HANDOFF_RESTARTING_MESSAGE,
+  HANDOFF_RETRY_LABEL,
 } from './terminal-handoff.js';
 
 /** Max textarea height (px) before it scrolls — matches operator.css. */
@@ -43,211 +57,6 @@ const MAX_INPUT_HEIGHT = 120;
 
 /** Distance (px) from the bottom within which the log auto-follows new output. */
 const STICK_THRESHOLD = 40;
-
-/**
- * User-facing copy keyed on the endpoint's machine-readable `detail.error`
- * slug — the primary table, because the status alone cannot separate two
- * rejections that share one. `POST /api/chat` answers 409 both when a turn is
- * already streaming and when the chat was torn down mid-start by a posture
- * flip; only the second one has a remedy, and it is the operator resending the
- * prompt they just sent.
- * @type {Record<string, string>}
- */
-const TRANSPORT_NOTICES_BY_SLUG = {
-  chat_terminated: 'Session restarted with the new posture — send your message again.',
-  turn_in_progress: 'A turn is already running.',
-  chat_capacity: 'Server busy — please retry in a moment.',
-};
-
-/**
- * Status-keyed fallback for a rejection that carries no slug — a proxy's own
- * 503, say, or any error shape older than the slug contract. These are
- * distinct from server `error` events (which the renderer paints as red error
- * blocks); a transport failure renders as a centred system notice instead.
- * @type {Record<number, string>}
- */
-const TRANSPORT_NOTICES = {
-  409: 'A turn is already running.',
-  429: 'Server busy — please retry in a moment.',
-  503: 'Operator agent unavailable.',
-};
-
-/** Fallback copy for a transport failure with no recognised slug or status. */
-const TRANSPORT_FALLBACK = 'Connection to the operator agent failed.';
-
-/**
- * What the operator may do about a refused hand-off, keyed on the endpoint's
- * `detail.error` slug. A refusal is not a transport failure: it is the other
- * view still holding the session, so it belongs on the overlay that already
- * has the operator's attention rather than as a line in a log they cannot use.
- *
- * `interrupt` re-sends the same request with the operator's consent to cut a
- * running turn; `retry` re-sends it unchanged; a null action is a refusal
- * retrying does not change, and states the fact alone.
- * @type {Record<string, { message: string, action: 'interrupt'|'retry'|null }>}
- */
-const HANDOFF_REFUSALS = {
-  session_attached_elsewhere: {
-    message: 'This session is in use in another tab or view.',
-    action: null,
-  },
-  handoff_needs_interrupt: {
-    message: 'The other view may still be working.',
-    action: 'interrupt',
-  },
-  handoff_started_commands: {
-    message: 'The agent started a command that is still running.',
-    action: 'interrupt',
-  },
-  handoff_superseded: { message: 'Another request took over this session.', action: 'retry' },
-  outgoing_still_running: {
-    message: 'The previous agent is still shutting down.',
-    action: 'retry',
-  },
-  outgoing_vanished: { message: 'The session changed while switching.', action: 'retry' },
-  spawn_not_pooled: { message: 'The session did not start.', action: 'retry' },
-  chat_capacity: { message: 'No chat capacity right now.', action: 'retry' },
-  sdk_unavailable: { message: 'Operator agent unavailable.', action: null },
-};
-
-/**
- * The `handoff_started_commands` refusal when the server could not read what
- * the agent started: the overlay states that, not a command it never saw.
- * @type {{ message: string, action: 'interrupt' }}
- */
-const HANDOFF_STARTED_UNREAD = {
-  message: 'Could not check what the agent started.',
-  action: 'interrupt',
-};
-
-// `chat_terminated` is deliberately absent above. This table is consulted
-// before the notice tables, and that slug's one useful answer is the notice
-// it already has: the prompt the operator just sent needs sending again. A
-// hand-off refused with it falls to HANDOFF_FALLBACK, which offers the same
-// retry the overlay would have given it.
-
-/** Overlay copy for a hand-off that failed with no reason this view knows. */
-const HANDOFF_FALLBACK = { message: 'The hand-off failed.', action: /** @type {'retry'} */ ('retry') };
-
-/**
- * Build the operator console interior — session bar, message list, hand-off
- * overlay, and the command-line input row — and return the handles the
- * controller drives.
- */
-function buildConsole() {
-  const bar = elem('div', 'op-session-bar');
-  const led = elem('span', 'op-session-led');
-  const newBtn = /** @type {HTMLButtonElement} */ (
-    elem('button', 'op-session-new', 'New conversation')
-  );
-  newBtn.type = 'button';
-  bar.append(led, elem('span', 'op-session-label', 'Operator'), newBtn);
-
-  const messages = elem('div', 'op-messages');
-
-  // A state the operator is waiting on rather than one they opened: announced
-  // when it appears, never focus-trapped. Built with the console and hidden,
-  // because a flip has to paint it in the same frame it disables the input.
-  const overlay = elem('div', 'op-handoff');
-  overlay.hidden = true;
-  overlay.setAttribute('role', 'status');
-  overlay.setAttribute('aria-live', 'polite');
-  const overlayMessage = elem('p', 'op-handoff-message');
-  const overlayAction = /** @type {HTMLButtonElement} */ (elem('button', 'op-handoff-action'));
-  overlayAction.type = 'button';
-  const overlayCard = elem('div', 'op-handoff-card');
-  overlayCard.append(overlayMessage, overlayAction);
-  overlay.append(overlayCard);
-
-  const textarea = document.createElement('textarea');
-  textarea.placeholder = 'Message the operator agent…';
-  textarea.rows = 1;
-  textarea.setAttribute('aria-label', 'Operator message');
-
-  const sendBtn = /** @type {HTMLButtonElement} */ (elem('button', 'op-send-btn', 'Send'));
-  sendBtn.type = 'button';
-  const stopBtn = /** @type {HTMLButtonElement} */ (elem('button', 'op-stop-btn', 'Stop'));
-  stopBtn.type = 'button';
-  stopBtn.hidden = true;
-
-  // ORDER IS THE LAYOUT. The textarea takes all the slack (`flex: 1`), so this
-  // cluster is pinned to the row's right edge and a member's arrival moves
-  // everything BEFORE it and nothing after it. Stop is the conditional one —
-  // it exists only while a turn streams — so it goes FIRST and Send stays put.
-  //
-  // The other order is a control-substitution hazard, not just a jump: Stop
-  // hides and Send re-enables in the same statement block (see setStreaming),
-  // so Send would slide into the exact pixels Stop had occupied at the moment
-  // it becomes clickable again — a hand already moving toward Stop as the turn
-  // ends lands on Send instead.
-  const controls = elem('div', 'op-input-controls');
-  controls.append(stopBtn, sendBtn);
-
-  const inputArea = elem('div', 'op-input-area');
-  inputArea.append(elem('span', 'op-prompt-char', '›'), textarea, controls);
-
-  return {
-    bar,
-    led,
-    newBtn,
-    messages,
-    overlay,
-    overlayMessage,
-    overlayAction,
-    inputArea,
-    textarea,
-    sendBtn,
-    stopBtn,
-  };
-}
-
-/**
- * Extract an HTTP status from a transport error: the `status` the transport
- * attaches, else parsed out of an `HTTP 409: ...` message, else 0 when the
- * failure carries no status at all (a network or parse error).
- * @param {unknown} err
- * @returns {number}
- */
-function statusFromError(err) {
-  const status = /** @type {{ status?: unknown }} */ (err ?? {}).status;
-  if (typeof status === 'number' && Number.isFinite(status)) return status;
-  const message = err instanceof Error ? err.message : String(err ?? '');
-  const match = /^HTTP (\d+)/.exec(message);
-  return match ? Number(match[1]) : 0;
-}
-
-/**
- * The notice to show for a transport failure: its slug first, its status
- * second, the generic line last.
- *
- * Slug before status is the whole point — keying on the status alone told an
- * operator whose chat had just been restarted by their own posture flip that a
- * turn was already running, which is both false and unactionable.
- * @param {unknown} err
- * @returns {string}
- */
-export function transportNotice(err) {
-  const slug = /** @type {{ slug?: unknown }} */ (err ?? {}).slug;
-  if (typeof slug === 'string' && slug in TRANSPORT_NOTICES_BY_SLUG) {
-    return TRANSPORT_NOTICES_BY_SLUG[slug];
-  }
-  return TRANSPORT_NOTICES[statusFromError(err)] ?? TRANSPORT_FALLBACK;
-}
-
-/**
- * The hand-off refusal *err* describes, or null when it is an ordinary
- * transport failure. Slug-only by design: a bare 409 says nothing about who
- * holds the session, and offering "Stop and switch now" for a rejection that
- * is not about the other view would cut a turn for no reason.
- * @param {unknown} err
- * @returns {{ message: string, action: 'interrupt'|'retry'|null } | null}
- */
-function handoffRefusal(err) {
-  const { slug, unread } = /** @type {{ slug?: unknown, unread?: unknown }} */ (err ?? {});
-  if (slug === 'handoff_started_commands' && unread === true) return HANDOFF_STARTED_UNREAD;
-  if (typeof slug === 'string' && slug in HANDOFF_REFUSALS) return HANDOFF_REFUSALS[slug];
-  return null;
-}
 
 /**
  * The console's hand-off entry point, bound by {@link initChat}. Module-level
@@ -288,14 +97,45 @@ export function initChat(containerId = 'operator-container') {
 
   const handles = buildConsole();
   const { bar, led, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
-  const { inputArea, textarea, sendBtn, stopBtn } = handles;
+  const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
+  // The "/" button opens the command list as typing a slash would. Its press is
+  // swallowed so focus stays in the box: a blur would close the list the click
+  // is about to open.
+  cmdBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  cmdBtn.addEventListener('click', () => {
+    if (!textarea.value.trim()) textarea.value = '/';
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input'));
+  });
 
-  const renderer = createChatRenderer(messages);
+  const renderer = createChatRenderer(messages, {
+    answerPermission: (requestId, body) =>
+      answerPermission(boundKey, { request_id: requestId, ...body }),
+  });
+
+  /** Transforms the feature modules apply to each prompt as it is sent. */
+  const sendTransforms = /** @type {Array<(prompt: string) => string>} */ ([]);
 
   /** In-flight turn handle, or null when idle. */
   let handle = /** @type {import('./chat-client.js').ChatAbortHandle | null} */ (null);
+
+  /**
+   * The live feed of the bound chat (every tab's view of its agent), or null
+   * while this tab's own turn streams: that turn's stream already carries every
+   * frame the feed would (see {@link pauseFeed}).
+   */
+  let feed = /** @type {import('./chat-client.js').ChatFeed | null} */ (null);
+
+  /**
+   * How the console is following a turn it did not send: `live` saw it start
+   * (another tab's prompt, or the CLI's own response), `joined` came in part-way
+   * (a reload, a second tab opened mid-turn) and re-reads the transcript when
+   * it ends; null when it is not following one.
+   * @type {null | 'live' | 'joined'}
+   */
+  let mirroring = null;
 
   /** Whether a turn is streaming. */
   let streaming = false;
@@ -384,11 +224,14 @@ export function initChat(containerId = 'operator-container') {
   function applyControls() {
     const blocked = streaming || transitioning;
     textarea.disabled = blocked;
+    cmdBtn.disabled = blocked;
     sendBtn.disabled = blocked;
     newBtn.disabled = blocked;
+    sendBtn.hidden = streaming;
     stopBtn.hidden = !streaming;
     stopBtn.disabled = false;
     if (blocked) slash.close();
+    emitChat('busy', { busy: blocked });
   }
 
   /**
@@ -423,6 +266,7 @@ export function initChat(containerId = 'operator-container') {
   function showNotice(message) {
     messages.appendChild(elem('div', 'op-system', message));
     scrollToBottom();
+    emitChat('notice', { text: message });
   }
 
   /** Update the elapsed counter in place. */
@@ -526,7 +370,7 @@ export function initChat(containerId = 'operator-container') {
     setOverlayMessage(HANDOFF_PENDING_MESSAGE, true);
     renderElapsed();
     if (ticker === null) ticker = window.setInterval(renderElapsed, 1000);
-    setOverlayAction('Stop and switch now', () => {
+    setOverlayAction(HANDOFF_INTERRUPT_LABEL, () => {
       void runHandoff(true);
     });
   }
@@ -541,11 +385,11 @@ export function initChat(containerId = 'operator-container') {
     stopTicker();
     setOverlayMessage(refusal.message, false);
     if (refusal.action === 'interrupt') {
-      setOverlayAction('Stop and switch now', () => {
+      setOverlayAction(HANDOFF_INTERRUPT_LABEL, () => {
         void runHandoff(true);
       });
     } else if (refusal.action === 'retry') {
-      setOverlayAction('Retry', () => {
+      setOverlayAction(HANDOFF_RETRY_LABEL, () => {
         void runHandoff(false);
       });
     } else {
@@ -593,7 +437,7 @@ export function initChat(containerId = 'operator-container') {
    * @param {string} key
    * @returns {Promise<void>}
    */
-  async function bindTo(key) {
+  async function bindTo(key, { keepFeed = false } = {}) {
     boundKey = key;
     resetLog();
     if (isSimpleMode()) notifySessionChange(key);
@@ -604,13 +448,126 @@ export function initChat(containerId = 'operator-container') {
       turns = await fetchHistory(key);
     } catch (err) {
       if (boundKey === key) showNotice(transportNotice(err));
-      return;
     }
     // A newer bind landed while the transcript was in flight; it owns the log.
     if (boundKey !== key) return;
     renderer.replay(turns);
     inviteIfEmpty();
     scrollToBottom();
+    // Follow the agent from here on, so a turn still running — after a reload,
+    // or sent from another tab — keeps drawing.
+    if (!keepFeed) follow(key);
+  }
+
+  /**
+   * Open the live feed for *key*, closing any other.
+   * @param {string} key
+   */
+  function follow(key) {
+    feed?.close();
+    mirroring = null;
+    const mine = followChat(key, {
+      onEvent: (frame) => {
+        // A closed feed can still hand over a frame it had already read.
+        if (feed === mine && boundKey === key) onFeedFrame(frame);
+      },
+    });
+    feed = mine;
+  }
+
+  /**
+   * Close the feed while this tab's own turn streams; the turn's `onClose`
+   * reopens it. The turn's stream carries every frame the feed would, and each
+   * open stream holds one of the six connections a browser gives one host over
+   * HTTP/1.1. The panels keep event streams of their own open, so a seventh
+   * stream leaves every other request the page makes (panel config reads, panel
+   * pages, the gallery's listing) queued until one closes.
+   */
+  function pauseFeed() {
+    feed?.close();
+    feed = null;
+  }
+
+  /** @param {import('./chat-client.js').ChatEvent} event */
+  function draw(event) {
+    // Follow the tail only when the operator hasn't scrolled up to read back.
+    const pinned = isPinned();
+    renderer.handleEvent(event);
+    if (pinned) scrollToBottom();
+  }
+
+  /** @param {import('./chat-client.js').ChatEvent} frame */
+  const endsTurn = (frame) =>
+    frame.type === 'result' ||
+    (frame.type === 'error' && frame.error_type !== 'AssistantMessageError');
+
+  /** Frame types that belong to a response, as opposed to notices about one. */
+  const RESPONSE_FRAMES = new Set([
+    'text',
+    'delta',
+    'thinking',
+    'tool_use',
+    'tool_result',
+    'permission_request',
+  ]);
+
+  /**
+   * One frame from the feed: the snapshot it opens with, then everything the
+   * agent does. The feed is closed while this tab's own turn streams, so what
+   * it brings is a turn sent elsewhere (another tab) or never sent (the CLI
+   * answering a background agent's report).
+   * @param {import('./chat-client.js').ChatEvent} frame
+   */
+  function onFeedFrame(frame) {
+    if (frame.type === 'hello') {
+      if (frame.in_flight && !mirroring) {
+        startMirror('joined', null);
+        for (const pending of frame.pending ?? []) draw(pending);
+      }
+      // The window's last reading, so the meter is right on a tab that opens mid-session.
+      if (frame.context) draw(frame.context);
+      return;
+    }
+    if (frame.type === 'turn_start') {
+      if (!mirroring) startMirror('live', frame.prompt ?? null);
+      return;
+    }
+    if (!mirroring) {
+      // Part of a response this tab is not drawing yet (its start came before
+      // the feed connected); join it. A notice on its own just draws.
+      if (!RESPONSE_FRAMES.has(frame.type)) {
+        draw(frame);
+        return;
+      }
+      startMirror('joined', null);
+    }
+    draw(frame);
+    if (endsTurn(frame)) endMirror();
+  }
+
+  /**
+   * Start drawing a turn this tab did not send.
+   * @param {'live' | 'joined'} how
+   * @param {string | null} prompt - the operator's prompt, when the turn has one
+   */
+  function startMirror(how, prompt) {
+    mirroring = how;
+    emptyState?.remove();
+    emptyState = null;
+    if (prompt) renderer.addUserMessage(prompt);
+    setStreaming(true);
+    renderer.beginTurn();
+    scrollToBottom();
+  }
+
+  function endMirror() {
+    const joined = mirroring === 'joined';
+    mirroring = null;
+    setStreaming(false);
+    renderer.endTurn();
+    // A turn joined part-way missed what it said before the feed connected;
+    // the transcript has all of it.
+    if (joined) void bindTo(boundKey, { keepFeed: true });
   }
 
   /**
@@ -691,13 +648,13 @@ export function initChat(containerId = 'operator-container') {
     autoResize();
     scrollToBottom();
     setStreaming(true);
+    renderer.beginTurn();
 
-    handle = sendPrompt(boundKey, prompt, {
+    pauseFeed();
+    const sent = sendTransforms.reduce((text, transform) => transform(text), prompt);
+    const current = sendPrompt(boundKey, sent, {
       onEvent: (event) => {
-        // Follow the tail only when the operator hasn't scrolled up to read back.
-        const pinned = isPinned();
-        renderer.handleEvent(event);
-        if (pinned) scrollToBottom();
+        if (event.type !== 'turn_start') draw(event);
       },
       onError: (err) => {
         const refusal = handoffRefusal(err);
@@ -714,26 +671,34 @@ export function initChat(containerId = 'operator-container') {
         showHandoffRefused(refusal);
       },
       onClose: () => {
+        // A turn that a reset cut short can close after its successor has started;
+        // only the turn still current may touch the console.
+        if (handle !== current) return;
         handle = null;
         setStreaming(false);
+        renderer.endTurn();
+        follow(boundKey);
       },
     });
+    handle = current;
   }
 
   /** Stop the in-flight turn: interrupt server-side first, then abort locally. */
   async function stop() {
     const current = handle;
-    if (!current) return;
+    if (!current && !mirroring) return;
     stopBtn.disabled = true;
     // Interrupt the server turn first, then abort the local fetch. Either
     // arrival order is safe server-side; the abort makes the client stop
     // reading immediately. A failed interrupt still falls through to abort.
+    // A turn this tab is only following has no fetch of its own: the
+    // interrupt's result arrives on the feed and ends it here.
     try {
       await interrupt(boundKey);
     } catch {
       // Non-2xx or network failure — nothing to surface; abort regardless.
     }
-    current.abort();
+    current?.abort();
   }
 
   /**
@@ -749,7 +714,10 @@ export function initChat(containerId = 'operator-container') {
     setPointer(key);
     resetLog();
     inviteIfEmpty();
-    if (isSimpleMode()) notifySessionChange(key);
+    if (isSimpleMode()) {
+      notifySessionChange(key);
+      follow(key);
+    }
   }
 
   textarea.addEventListener('input', autoResize);
@@ -779,6 +747,14 @@ export function initChat(containerId = 'operator-container') {
   enterFromExpertBinding = ({ interrupt: cutRunningTurn = false } = {}) =>
     runHandoff(cutRunningTurn);
 
+  initChatFeatures({
+    ...handles,
+    container,
+    renderer,
+    getKey: () => boundKey,
+    onBeforeSend: (transform) => void sendTransforms.push(transform),
+  });
+
   // A page that opens in Simple mode never went through a flip: the terminal
   // does not connect here, so this console is the surface running the
   // session. That makes it the one to name the session the tab is on — it
@@ -789,6 +765,7 @@ export function initChat(containerId = 'operator-container') {
     else {
       setPointer(boundKey);
       notifySessionChange(boundKey);
+      follow(boundKey);
     }
   }
 }

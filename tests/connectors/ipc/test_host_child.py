@@ -51,8 +51,8 @@ from osprey_connectors.control_system._va_in_process_connector import VAInProces
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
 from osprey_connectors.refusals import refusal_phrase
-from tests._control_context_fixtures import write_control_context
-from tests.connectors._write_fakes import arm_switch
+from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._write_fakes import arm_switch
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -64,7 +64,7 @@ PYTHONPATH = os.pathsep.join(
 IN_PROCESS_TYPE = "osprey_connectors.control_system._va_in_process_connector.VAInProcessConnector"
 
 #: A connector whose ``connect()`` never returns, by dotted path.
-HANGING_TYPE = "tests.connectors.ipc._pool_connectors.HangingConnector"
+HANGING_TYPE = "osprey_connectors_tests.ipc._pool_connectors.HangingConnector"
 
 #: The addresses a spawned child writes, and the ones it only reads.
 SETPOINTS = ("SR:CORR:1:SP", "SR:CORR:2:SP")
@@ -1286,7 +1286,13 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         cwd=tmp_path,
         env_extra={
             host.START_MARKS_FD_ENV: str(write_fd),
-            "PYTHONPATH": os.pathsep.join([str(REPO_ROOT), PYTHONPATH]),
+            "PYTHONPATH": os.pathsep.join(
+                [
+                    str(REPO_ROOT),
+                    str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
+                    PYTHONPATH,
+                ]
+            ),
         },
         pass_fds=(write_fd,),
     )

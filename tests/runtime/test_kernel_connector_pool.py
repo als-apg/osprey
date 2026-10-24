@@ -30,9 +30,9 @@ from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutc
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import baseline_target, configured_targets, resolve_target
-from tests._control_context_fixtures import state_dir_under, write_control_context
-from tests.connectors._write_fakes import arm_switch, turn_switch
-from tests.connectors.ipc._pool_connectors import WRITE_LOG_ENV
+from osprey_connectors_tests._harness import state_dir_under, write_control_context
+from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
+from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record

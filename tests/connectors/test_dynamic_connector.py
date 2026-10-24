@@ -8,7 +8,7 @@ from osprey_connectors import types
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
-from tests.connectors._write_fakes import ARMED_TARGET, arm_switch
+from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +39,9 @@ class TestDynamicConnectorImport:
     @pytest.mark.asyncio
     async def test_dynamic_import_connector(self):
         """Dotted module path resolves, instantiates and registers the connector."""
-        from tests.connectors._mock_dynamic_connector import MockDynamicConnector
+        from osprey_connectors_tests._mock_dynamic_connector import MockDynamicConnector
 
-        dotted = "tests.connectors._mock_dynamic_connector.MockDynamicConnector"
+        dotted = "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector"
         config = {"type": dotted, "connector": {}}
         connector = await ConnectorFactory.create_control_system_connector(config)
         result = await connector.read_channel("TEST:CH")
@@ -58,8 +58,8 @@ class TestDynamicConnectorImport:
                 id="module-not-importable",
             ),
             pytest.param(
-                "tests.connectors._mock_dynamic_connector.NoSuchClass",
-                "Module 'tests.connectors._mock_dynamic_connector' has no class 'NoSuchClass'",
+                "osprey_connectors_tests._mock_dynamic_connector.NoSuchClass",
+                "Module 'osprey_connectors_tests._mock_dynamic_connector' has no class 'NoSuchClass'",
                 id="class-missing",
             ),
             pytest.param(
@@ -150,7 +150,7 @@ class TestCustomConnectorConfirmDefault:
 
     async def _connector(self):
         config = {
-            "type": "tests.connectors._mock_dynamic_connector.MockDynamicConnector",
+            "type": "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector",
             "connector": {},
         }
         # Built for the simulator target, whose switch the module's fixture

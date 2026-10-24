@@ -16,8 +16,12 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._write_fakes import (
+    RecordingConnector,
+    arm_switch,
+    writes_enabled_config,
+)
 from tests._vocabulary import REFUSAL_BAN_LIST
-from tests.connectors._write_fakes import RecordingConnector, arm_switch, writes_enabled_config
 
 #: The read-only phrase, for the simulator target the fixture arms.
 READONLY_PHRASE = refusal_phrase("readonly_run")

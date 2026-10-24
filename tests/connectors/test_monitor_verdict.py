@@ -24,10 +24,13 @@ from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.refusals import REASONS, refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA, VIRTUAL_ACCELERATOR
-from tests._control_context_fixtures import write_control_context, write_payload
+from osprey_connectors_tests._harness._control_context_fixtures import (
+    write_control_context,
+    write_payload,
+)
+from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
 from tests._vocabulary import REFUSAL_BAN_LIST
 from tests._write_verdict_cases import case_environment
-from tests.connectors._write_fakes import RecordingConnector, config_reader
 
 __all__ = ["case_environment"]
 

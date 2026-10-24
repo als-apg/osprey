@@ -3,6 +3,14 @@
 POST /api/chat?stream={true|false}
 Body: {"prompt": "...", "chat_id": "..."}
 
+POST /api/chat/{chat_id}/permission
+Body: {"request_id": "...", "allow": bool, "answers"?: {...}, "message"?: "..."}
+Answers a ``permission_request`` frame the in-flight turn is waiting on.
+
+GET /api/chat/{chat_id}/events
+A live SSE feed of every frame the chat's agent emits, opening with a ``hello``
+snapshot; how reloaded and second tabs follow a running turn.
+
 GET /api/chat/commands
 Answers {"commands": [{"name", "description", "argument_hint", "kind"}, ...]},
 the slash commands the chat agent accepts in this project.
@@ -40,6 +48,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
     is_terminal_event,
 )
+from osprey.interfaces.web_terminal.routes.chat_attachments import mark_sent
 from osprey.interfaces.web_terminal.session_handoff import (
     SURFACE_SIMPLE,
     ChannelClosed,
@@ -50,7 +59,7 @@ from osprey.interfaces.web_terminal.session_handoff import (
     acquire_surface,
 )
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.interfaces.web_terminal.slash_commands import list_project_slash_commands
+from osprey.interfaces.web_terminal.slash_commands import list_chat_slash_commands
 
 logger = logging.getLogger(__name__)
 
@@ -88,34 +97,90 @@ class ChatRequest(BaseModel):
     chat_id: str
 
 
+class PermissionAnswer(BaseModel):
+    """Body of ``POST /api/chat/{chat_id}/permission``.
+
+    ``answers`` (question text -> chosen label, several labels comma-joined)
+    answers an ``AskUserQuestion``; for a tool approval it is omitted.
+    ``for_session`` allows the tool for the rest of the session, where the
+    request offered that (``can_allow_session``).
+    """
+
+    request_id: str
+    allow: bool
+    answers: dict[str, str] | None = None
+    message: str | None = None
+    for_session: bool = False
+
+
+#: Longest string value of a tool input the chat client is sent. Inputs are
+#: shown as a one-line summary and an expandable detail, never edited.
+_INPUT_VALUE_CHARS = 2000
+#: Deepest nesting of a tool input the chat client is sent. A container nested
+#: deeper is replaced by a marker, so an input built to be bottomless cannot end
+#: the stream that carries it.
+_INPUT_DEPTH = 8
+
+
+def clip_input(value: Any, depth: int = 0) -> Any:
+    """Return *value* with every string inside it cut to ``_INPUT_VALUE_CHARS``
+    and every container below ``_INPUT_DEPTH`` replaced by a marker.
+
+    The live stream and the replay (``routes/session.py``) clip through this one
+    function, so a reloaded chat shows the inputs the live chat did.
+    """
+    if isinstance(value, str):
+        return value if len(value) <= _INPUT_VALUE_CHARS else value[:_INPUT_VALUE_CHARS] + "…"
+    if isinstance(value, dict):
+        if depth >= _INPUT_DEPTH:
+            return "{…}"
+        return {k: clip_input(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        if depth >= _INPUT_DEPTH:
+            return "[…]"
+        return [clip_input(v, depth + 1) for v in value]
+    return value
+
+
 def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     """Return a wire-hygiene copy of *event* for the chat API client.
 
-    The chat client renders a lightweight conversation view and never needs the
-    heavy or sensitive payloads the SDK produces. This filter drops them while
-    leaving the event's identity (``type``) and light metadata intact:
+    The chat renders tool chips, thinking traces and approval cards, so the
+    payloads those need pass through, bounded:
 
-    - ``tool_use``   drop ``input`` (arguments); keep ``tool_name`` etc.
-    - ``tool_result`` drop ``content`` (the result body); keep ``is_error`` etc.
-    - ``thinking``   drop ``content``; a bare ``{"type": "thinking"}`` marker survives.
-    - ``result``     reduce to exactly ``{"type", "is_error"}`` — cost/duration/
-                     turn counts never reach the chat client.
-    - every other type (``text``, ``system``, ``error``, ``session_reset``, …)
-      passes through unchanged.
+    - ``tool_use`` / ``permission_request``  ``input`` with long strings clipped.
+    - ``tool_result``  only the clipped ``preview`` the stream already carries.
+    - ``result``  reduce to ``{"type", "is_error"}`` plus ``duration_ms`` and
+                  ``seq`` when the frame carries them — cost and turn counts
+                  never reach the chat client.
+    - ``context``  reduce to the window's occupancy: ``used_tokens``,
+                   ``window_tokens`` and ``percent``.
+    - every other type (``text``, ``thinking``, ``system``, ``error``,
+      ``session_reset``, …) passes through unchanged.
 
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
     """
     etype = event.get("type")
 
-    if etype == "tool_use":
-        return {k: v for k, v in event.items() if k != "input"}
+    if etype in ("tool_use", "permission_request") and "input" in event:
+        return {**event, "input": clip_input(event["input"])}
     if etype == "tool_result":
         return {k: v for k, v in event.items() if k != "content"}
-    if etype == "thinking":
-        return {k: v for k, v in event.items() if k != "content"}
     if etype == "result":
-        return {"type": "result", "is_error": event.get("is_error")}
+        return {
+            "type": "result",
+            "is_error": event.get("is_error"),
+            **{k: event[k] for k in ("duration_ms", "seq") if k in event},
+        }
+    if etype == "context":
+        return {
+            "type": "context",
+            "used_tokens": event.get("used_tokens"),
+            "window_tokens": event.get("window_tokens"),
+            "percent": event.get("percent"),
+            "seq": event.get("seq"),
+        }
 
     return event
 
@@ -276,6 +341,8 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
         # The client hung up while the session key was being handed over.
         # Nothing is left holding anything; there is simply nobody to answer.
         return Response(status_code=204)
+    # The prompt is accepted: the files it carries are the conversation's now.
+    mark_sent(request.app, body.chat_id, prompt)
 
     turn_timeout_s = _turn_timeout_s(request)
 
@@ -320,8 +387,8 @@ async def _stream_events(
     except TurnSilenceTimeout:
         yield _sse(_strip_for_chat(_timeout_event()))
     except asyncio.CancelledError:
-        # Non-terminal: client disconnect / re-delivered cancellation. run_turn
-        # already quiesced + released; re-raise so Starlette sees the cancel.
+        # Non-terminal: client disconnect / re-delivered cancellation. The turn
+        # runs on as an orphan (see run_turn); re-raise so Starlette sees it.
         raise
     except Exception as exc:
         logger.exception("Chat stream error")
@@ -330,8 +397,7 @@ async def _stream_events(
             _strip_for_chat({"type": "error", "message": str(exc), "error_type": error_type})
         )
     finally:
-        if session.release_turn(token):
-            session.spawn_quiesce()
+        session.end_consumer(token)
 
 
 def _timeout_event() -> dict[str, Any]:
@@ -387,13 +453,12 @@ async def _buffered_response(
     except TurnSilenceTimeout:
         is_error, error_msg, status_code = True, "Timeout waiting for response", 504
     except asyncio.CancelledError:
-        # Abandoned request — run_turn already quiesced + released; re-raise so
-        # the server sees the cancellation.
+        # Abandoned request — the turn runs on as an orphan (see run_turn);
+        # re-raise so the server sees the cancellation.
         raise
     finally:
         # Safety net for the never-started case only (see _stream_events).
-        if session.release_turn(token):
-            session.spawn_quiesce()
+        session.end_consumer(token)
 
     payload: dict[str, Any] = {
         "text": "".join(text_parts),
@@ -407,21 +472,87 @@ async def _buffered_response(
 
 @router.post("/api/chat/{chat_id}/interrupt", status_code=204)
 async def interrupt_chat(chat_id: str, request: Request) -> Response:
-    """Signal-only interrupt of an in-flight streaming turn.
+    """Signal-only interrupt of whatever the chat's agent is doing.
 
-    Sends ``client.interrupt()`` iff a turn is currently in flight for
-    ``chat_id`` — nothing else. It never drains the reader and never releases
-    the turn guard; the handler running that turn owns quiesce and release. A
-    204 is returned whether or not there was anything to interrupt (idempotent).
+    A turn in flight, or a response the CLI started on its own — either can be
+    stopped from any tab. It never releases the turn guard; the turn's owner
+    (its consumer, or the pump for a turn whose tab went away) does that when
+    the interrupt's result arrives. A 204 is returned whether or not there was
+    anything to interrupt (idempotent).
     """
     registry = request.app.state.operator_registry
     session = registry.get_chat_session(chat_id)
-    if session is not None and session.in_flight:
+    if session is not None:
         try:
             await session.interrupt()
         except Exception:
             logger.debug("Interrupt signal failed for chat %s", chat_id, exc_info=True)
     return Response(status_code=204)
+
+
+@router.post("/api/chat/{chat_id}/permission", status_code=204)
+async def answer_chat_permission(
+    chat_id: str, body: PermissionAnswer, request: Request
+) -> Response:
+    """Answer a ``permission_request`` the chat's in-flight turn is waiting on.
+
+    404 ``no_pending_request`` when nothing waits under ``request_id`` — the
+    turn was stopped, or the request was already answered from another tab.
+    """
+    registry = request.app.state.operator_registry
+    session = registry.get_chat_session(chat_id)
+    if session is None or not await session.resolve_permission(
+        body.request_id,
+        allow=body.allow,
+        answers=body.answers,
+        message=body.message,
+        for_session=body.for_session,
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "no_pending_request",
+                "message": "No request is waiting under that id.",
+            },
+        )
+    return Response(status_code=204)
+
+
+@router.get("/api/chat/{chat_id}/events")
+async def chat_events(chat_id: str, request: Request) -> Response:
+    """A live feed of everything the chat's agent does, for any tab bound to it.
+
+    Opens with a ``hello`` snapshot — whether a turn is running, its prompt,
+    and the permission requests waiting — then carries every frame the agent
+    emits, whichever tab asked: a reloaded tab picks a running turn back up,
+    a second tab follows it, and a response the CLI starts on its own is seen.
+    Frames carry ``seq``, so a tab that also holds the turn's own stream draws
+    each frame once. 204 with no body while no agent runs for the chat yet: a fresh
+    chat has none until its first prompt starts one. That is a normal state, not an
+    error; the client retries slowly until a prompt starts one.
+    """
+    registry = request.app.state.operator_registry
+    session = registry.get_chat_session(chat_id)
+    if session is None or not session.is_active:
+        return Response(status_code=204)
+    feed, hello = session.subscribe()
+
+    async def stream():
+        try:
+            pending = [_strip_for_chat(frame) for frame in hello["pending"]]
+            context = _strip_for_chat(hello["context"]) if hello["context"] else None
+            yield _sse({**hello, "pending": pending, "context": context})
+            while session.feed_open(feed):
+                try:
+                    frame = await asyncio.wait_for(feed.get(), timeout=HEARTBEAT_INTERVAL_S)
+                except TimeoutError:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield _sse(_strip_for_chat(frame))
+        finally:
+            session.unsubscribe(feed)
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 @router.delete("/api/chat/{chat_id}", status_code=204)
@@ -443,10 +574,11 @@ def list_chat_commands(request: Request) -> dict[str, Any]:
     """The slash commands the chat agent accepts in this project.
 
     Read from the directory the chat agent is started in, so every name listed
-    is one the agent expands.
+    is one the agent expands. The CLI's own built-ins (``/clear``, ``/compact``)
+    are listed beside the project's commands.
     """
     cwd: str = request.app.state.project_cwd
-    return {"commands": [asdict(c) for c in list_project_slash_commands(Path(cwd))]}
+    return {"commands": [asdict(c) for c in list_chat_slash_commands(Path(cwd))]}
 
 
 def _sse(event: dict[str, Any]) -> str:

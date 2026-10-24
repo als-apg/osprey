@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn a CI diagnostics directory into a one-screen answer.
 
-``tests/ci_diagnostics.py`` writes an event log per xdist worker while the suite
+``_harness/ci_diagnostics.py`` writes an event log per xdist worker while the suite
 runs. When a lane is killed rather than failing — a step timeout, a runner OOM,
 a wedged worker — those logs hold the one fact the job log cannot show: which
 test each worker was inside at the moment everything stopped.

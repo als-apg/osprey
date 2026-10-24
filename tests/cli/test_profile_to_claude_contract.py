@@ -1995,6 +1995,11 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
     by its name alone — an undeclared convention, documented nowhere, that a
     deployer could neither find in a profile nor revoke through one. The
     supported seam is `claude_code.permissions.allow`.
+
+    The project's own name carries the word: a rule that names the project's
+    directory by absolute path (the chat's uploads directory does) spells it
+    without granting the sibling anything, so what is looked for is the sibling
+    tree itself, by any spelling of its path.
     """
     out_dir = tmp_path / "out"
     out_dir.mkdir()
@@ -2012,5 +2017,5 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
     _apply_preset_config(manager, project, "hello-world")
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
-    granted = [entry for entry in settings["permissions"]["allow"] if "textbooks" in entry]
+    granted = [entry for entry in settings["permissions"]["allow"] if "data/textbooks" in entry]
     assert granted == [], f"a directory name granted a Read permission: {granted}"

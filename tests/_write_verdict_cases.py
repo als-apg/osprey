@@ -11,7 +11,7 @@ Staging is environment and files only (never a patched package internal), so a
 row stages the same way for either side:
 
 * the host record is written under ``OSPREY_AGENT_DATA_ROOT`` through
-  :func:`tests._control_context_fixtures.write_control_context`;
+  :func:`osprey_connectors_tests._harness._control_context_fixtures.write_control_context`;
 * a tree is a directory bound through ``OSPREY_CONTROL_CONTEXT_TREE``, with one
   record per owner.
 
@@ -37,7 +37,7 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.posture_store import NO_OWNER
 from osprey_connectors.refusals import REASONS
-from tests._control_context_fixtures import (
+from osprey_connectors_tests._harness._control_context_fixtures import (
     VERDICT_ENV_VARS,
     isolate_verdict_environment,
     reset_verdict_state,

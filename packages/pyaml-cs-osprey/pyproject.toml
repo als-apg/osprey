@@ -24,8 +24,8 @@ pyaml_cs_osprey = "pyaml_cs_osprey"
 [tool.hatch.version]
 source = "vcs"
 # Versions with the framework's calendar stream, from the same v-tags and the
-# same describe command as osprey-connectors (see its pyproject.toml): every
-# wheel built from one checkout carries the same number.
+# same describe command as the framework (see the root pyproject.toml): the two
+# wheels built from one checkout carry the same number.
 raw-options = { root = "../..", version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
 
 [tool.hatch.build.hooks.vcs]

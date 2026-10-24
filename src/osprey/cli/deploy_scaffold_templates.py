@@ -282,10 +282,11 @@ class CIContext:
     def requirement_pins_prerelease(self) -> bool:
         """Whether the declared floor names a pre-release.
 
-        OSPREY and ``osprey-connectors`` ship as a pair from one tag, and pip
-        admits a pre-release for the requirement that names one but not for
-        that requirement's own dependencies — so an install driven by a
-        pre-release floor has to admit them for the whole resolve. An
+        ``osprey-connectors`` releases on its own tags and OSPREY declares
+        only a floor on it, and pip admits a pre-release for the requirement
+        that names one but not for that requirement's own dependencies — so
+        an install driven by a pre-release floor admits them for the whole
+        resolve, which lets it take the newest connectors pre-release. An
         exclusion (``!=``) names a version without pinning one and does not
         count, which is why this asks
         :func:`osprey.version.pins_prerelease` rather than reading the

@@ -66,6 +66,49 @@ def apply_agent_data_root(ctx: dict, project_dir: Path) -> None:
     ctx["agent_data_root"] = agent_data_base_dir(config)
 
 
+def chat_uploads_dir(config: dict, project_dir: Path) -> str:
+    """The directory the Simple view stores attachments in, as an absolute path.
+
+    The web terminal stores a file the operator attaches under
+    ``<agent-data root>/uploads`` and hands the agent its absolute path, with the
+    root anchored on the repo root the config's ``project_root`` names
+    (:func:`osprey_connectors.workspace.resolve_shared_data_root`). settings.json
+    allows the agent to read exactly that directory, so the rule has to name the
+    directory the stored paths are under, and a rule relative to the render would
+    not: the agent runs in ``build/``, the uploads sit beside it.
+
+    The anchor is taken as the config states it: a container render names the
+    root the container will run at, which exists only there. A config naming no
+    root anchors on the repo this render sits in. Resolved as the server resolves
+    it, so a symlinked repo path reads the same on both sides.
+    """
+    from osprey_connectors.workspace import (
+        CHAT_UPLOADS_SUBDIR,
+        agent_data_base_dir,
+        anchored_path,
+        dotted_config_str,
+        repo_root_for_config,
+    )
+
+    configured = dotted_config_str(config, "project_root")
+    anchor = (
+        Path(configured).expanduser()
+        if configured
+        else repo_root_for_config(project_dir.absolute() / "config.yml")
+    )
+    root = anchored_path(agent_data_base_dir(config), anchor).resolve()
+    uploads = str(root / CHAT_UPLOADS_SUBDIR)
+    # The path is interpolated into a JSON string and read as a glob: a quote would
+    # cut the string, and a wildcard would widen the rule past the one directory.
+    unspellable = set(uploads) & set('"*?[\\')
+    if unspellable:
+        raise ValueError(
+            f"The agent-data root {uploads!r} contains {sorted(unspellable)}, which a "
+            "permission rule cannot spell; move the deployment or its agent_data.base_dir."
+        )
+    return uploads
+
+
 def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[str, object] | None:
     """Hierarchy info to embed at render time, or ``None`` if there is none.
 
@@ -273,6 +316,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # the directory the moment a project relocated `agent_data.base_dir` —
         # and the agent would be refused the files it had just written.
         "agent_data_root": agent_data_base_dir(config),
+        # Where the Simple view stores the files operators attach, as the absolute
+        # path the agent reads them by; settings.json allows exactly that
+        # directory (see chat_uploads_dir).
+        "chat_uploads_dir": chat_uploads_dir(config, project_dir),
         # Write tools blocked by the writes kill switch (for hook_config.json)
         "control_system_write_tools": control_system.get("write_tools", []),
         # Write tools the kill switch stops short of gating on the session's
@@ -877,15 +924,15 @@ def build_claude_code_context(
     ctx["claude_code_model_spec"] = model_spec
 
     # Kill-switch hard-block: when control-system writes are disabled, render
-    # pure-write tools into permissions.deny so Claude Code's permissions layer
-    # blocks the call before can_use_tool ever fires. The osprey_writes_check
-    # PreToolUse hook is defense-in-depth but cannot suppress the permissions.ask
-    # → can_use_tool path: a static ask entry still drives the tool to the
-    # approval prompt even when the hook returns deny (observed under
-    # claude-agent-sdk 0.2.93). mcp__python__execute cannot be denied wholesale
-    # (it has a legitimate readonly path), so instead it is pulled OUT of
-    # permissions.ask — with no static ask entry, the writes_check hook's deny
-    # on a readwrite execute stands alone and blocks the call before the prompt.
+    # pure-write tools into permissions.deny. That takes the tool out of the agent's
+    # view, and the permission layer refuses any call to it, so it is never asked
+    # about. The osprey_writes_check PreToolUse hook is also a gate on its own: on
+    # the pinned Claude Code its deny wins even when a static ask names the tool, so
+    # no approval card is raised for the call (scenario b of
+    # tests/e2e/claude_code/test_chat_approval_gates_scripted.py).
+    # mcp__python__execute cannot be denied wholesale (it has a legitimate readonly
+    # path), so instead it is pulled OUT of permissions.ask: the writes_check deny on
+    # a readwrite execute then stands alone, with no prompt raised for it.
     #
     # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
     # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
@@ -913,11 +960,11 @@ def build_claude_code_context(
     #   osprey_writes_check (stage 1 the session posture, stage 2 the active
     #   target's posture), the approval hook's defer, and, for the lane-addressed
     #   `queue_*` tools that stage 2 deliberately skips, the lane-bound posture
-    #   re-read inside the bluesky queue tools themselves. Dropping the `ask` is
-    #   the load-bearing half: a static ask entry left in settings.json would
-    #   reopen the can_use_tool prompt none of those three can suppress (the SDK
-    #   aggregates any-ask-wins), and an operator would be prompted to approve a
-    #   write the target's posture forbids.
+    #   re-read inside the bluesky queue tools themselves. Dropping the `ask` keeps the
+    #   operator from being offered an approval for a write the target's posture forbids.
+    #   On the pinned Claude Code that is defense in depth, not the only gate: the
+    #   writes_check deny wins even over a static ask (scenario b of
+    #   tests/e2e/claude_code/test_chat_approval_gates_scripted.py).
     #
     # The postures come from `session_posture`, which yields both targets only
     # on a deployment that renders the switch and otherwise yields the built

@@ -146,6 +146,10 @@ export function createSidebarRenderer(callbacks) {
   let browseMode = "tree";
   /** @type {"list"|"gallery"} */
   let sidebarLayout = "list";
+  // Section types the user collapsed. Kept here, not only as a DOM class,
+  // because every new artifact rebuilds the sidebar via innerHTML.
+  /** @type {Set<string>} */
+  const collapsedSections = new Set();
 
   /** @returns {"tree"|"activity"} */
   function getBrowseMode() { return browseMode; }
@@ -246,7 +250,7 @@ export function createSidebarRenderer(callbacks) {
     const headerCls = isGallery ? "gallery-section-header" : "tree-section-header";
     const itemsCls = isGallery ? "tree-section-items sidebar-gallery" : "tree-section-items";
     return `
-          <div class="tree-section" data-type="${escapeHtml(type)}">
+          <div class="tree-section${collapsedSections.has(type) ? " collapsed" : ""}" data-type="${escapeHtml(type)}">
             <div class="${headerCls}" data-type="${escapeHtml(type)}">
               ${chevronSvg}
               <span class="tree-section-icon">${icon}</span>
@@ -392,7 +396,10 @@ export function createSidebarRenderer(callbacks) {
     // Tree/gallery section toggle
     sidebarBody.querySelectorAll(".tree-section-header, .gallery-section-header").forEach((header) => {
       header.addEventListener("click", () => {
-        /** @type {Element} */ (header.parentElement).classList.toggle("collapsed");
+        const section = /** @type {HTMLElement} */ (header.parentElement);
+        const type = section.dataset.type || "";
+        if (section.classList.toggle("collapsed")) collapsedSections.add(type);
+        else collapsedSections.delete(type);
       });
     });
 

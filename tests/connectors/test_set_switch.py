@@ -19,7 +19,7 @@ import pytest
 
 from osprey_connectors import control_context, posture_store, refusals
 from osprey_connectors.control_context import StoppedSince, set_switch
-from tests._control_context_fixtures import (
+from osprey_connectors_tests._harness._control_context_fixtures import (
     data_root,
     race_record_writers,
     write_control_context,

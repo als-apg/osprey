@@ -22,13 +22,13 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import TARGET_LIVE, TARGET_VA
-from tests._vocabulary import REFUSAL_BAN_LIST
-from tests.connectors._write_fakes import (
+from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     arm_switch,
     config_reader,
     writes_enabled_config,
 )
+from tests._vocabulary import REFUSAL_BAN_LIST
 from tests.facility.served_tree import in_process_config, served_tree
 
 

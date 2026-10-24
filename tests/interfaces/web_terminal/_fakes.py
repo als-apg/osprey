@@ -12,6 +12,13 @@ to build and start its first one. ``assistant_message``, ``user_message``,
 fake client yields, and ``sdk_seam`` patches the SDK boundary under
 ``operator_session`` so ``OperatorSession.start`` connects a test's client
 through the agent runner and nothing else.
+
+``started_session`` starts a session on a test's client through that seam.
+``collect_turn`` and ``start_turn`` run one turn through the chat's own
+consumer (``run_turn``), to its end or in the background, and ``unnumbered``
+drops the feed's ``seq`` from a frame. ``armed_chat`` starts a session on a
+render that arms writes, and its ``ask`` raises a permission request through
+the callback the SDK is handed, as the CLI does.
 """
 
 from __future__ import annotations
@@ -20,7 +27,10 @@ import asyncio
 import contextlib
 import inspect
 import time
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -31,6 +41,8 @@ from claude_agent_sdk import (
     SystemMessage,
     UserMessage,
 )
+
+from osprey.interfaces.web_terminal.operator_session import OperatorSession
 
 
 class FakePtySession:
@@ -259,6 +271,7 @@ def result_message(
     total_cost_usd: float = 0.01,
     duration_ms: int = 1200,
     num_turns: int = 1,
+    session_id: str = "sdk-session",
 ) -> ResultMessage:
     return ResultMessage(
         subtype="error_during_execution" if is_error else "success",
@@ -266,7 +279,7 @@ def result_message(
         duration_api_ms=duration_ms,
         is_error=is_error,
         num_turns=num_turns,
-        session_id="sdk-session",
+        session_id=session_id,
         total_cost_usd=total_cost_usd,
     )
 
@@ -275,11 +288,23 @@ def system_message(subtype: str = "init", data: dict | None = None) -> SystemMes
     return SystemMessage(subtype=subtype, data=data or {})
 
 
+async def _no_response() -> AsyncIterator[Any]:
+    """The SDK's response stream before any prompt: nothing, until the reader is cancelled."""
+    await asyncio.Event().wait()
+    yield  # never reached: the ``yield`` makes this an async generator, as the SDK's stream is
+
+
 def mock_sdk_client() -> AsyncMock:
-    """An ``AsyncMock`` client whose context manager enters and exits cleanly."""
+    """An ``AsyncMock`` client whose context manager enters and exits cleanly.
+
+    Its response stream is the SDK's with no prompt sent: it yields nothing and
+    waits. The session's reader starts with the session, and an ``AsyncMock``
+    method would hand it a coroutine that cannot be iterated and is never awaited.
+    """
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
+    client.receive_response = _no_response
     return client
 
 
@@ -318,3 +343,101 @@ def sdk_seam(client_or_factory: Any = None) -> Iterator[list[ClaudeAgentOptions]
         stack.enter_context(patch(seam + "build_system_prompt", return_value=PRESET_SYSTEM_PROMPT))
         stack.enter_context(patch(seam + "get_facility_timezone", return_value=None))
         yield captured
+
+
+@contextlib.asynccontextmanager
+async def started_session(
+    client: Any, *, session_key: str | None = None
+) -> AsyncIterator[OperatorSession]:
+    """A chat session started on *client* through :func:`sdk_seam`; stopped when the block ends."""
+    session = OperatorSession(cwd="/tmp", session_key=session_key)
+    with sdk_seam(client):
+        await session.start()
+        try:
+            yield session
+        finally:
+            await session.stop()
+
+
+async def collect_turn(
+    session: OperatorSession, prompt: str = "x", *, timeout_s: float = 5.0
+) -> list[dict[str, Any]]:
+    """Run one turn through the chat's own consumer and return every frame it yielded.
+
+    The turn is acquired here, as the chat route acquires it; *timeout_s* is
+    ``run_turn``'s silence deadline.
+    """
+    token = session.acquire_turn()
+    return [frame async for frame in session.run_turn(prompt, token, timeout_s=timeout_s)]
+
+
+def start_turn(
+    session: OperatorSession, prompt: str = "x", *, timeout_s: float = 5.0
+) -> tuple[asyncio.Task[None], list[dict[str, Any]]]:
+    """Start a turn's consumer in the background; return its task and the frames it collects.
+
+    For a test that acts while the turn is in flight: the list holds the frames
+    read so far, and the task ends when the consumer has read the turn's last one.
+    """
+    token = session.acquire_turn()
+    frames: list[dict[str, Any]] = []
+
+    async def consume() -> None:
+        async for frame in session.run_turn(prompt, token, timeout_s=timeout_s):
+            frames.append(frame)
+
+    return asyncio.create_task(consume()), frames
+
+
+def unnumbered(frame: dict[str, Any]) -> dict[str, Any]:
+    """*frame* without its ``seq`` number: what the chat renders, not the feed's counter."""
+    return {k: v for k, v in frame.items() if k != "seq"}
+
+
+@dataclass
+class ArmedChat:
+    """A session on a write-armed render, as :func:`armed_chat` hands it out.
+
+    ``can_use_tool`` is the permission callback the SDK was handed, and ``feed``
+    is one tab's live feed, opened before anything was asked.
+    """
+
+    session: OperatorSession
+    can_use_tool: Callable[..., Awaitable[Any]]
+    feed: asyncio.Queue[dict[str, Any]]
+
+    async def ask(
+        self, tool: str = "mcp__python__execute", tool_input: dict[str, Any] | None = None
+    ) -> tuple[asyncio.Future[Any], dict[str, Any]]:
+        """Raise one permission request as the CLI does; return its pending answer and its card.
+
+        The card is the ``permission_request`` frame every tab is shown. The context
+        carries no suggestions, so the card offers no session allow.
+        """
+        context = SimpleNamespace()
+        answer = asyncio.ensure_future(
+            self.can_use_tool(tool, {"code": "1"} if tool_input is None else tool_input, context)
+        )
+        card = await asyncio.wait_for(self.feed.get(), timeout=2.0)
+        return answer, card
+
+
+@contextlib.asynccontextmanager
+async def armed_chat(project: Path) -> AsyncIterator[ArmedChat]:
+    """Write a render that arms writes into *project* and start a session on it.
+
+    Armed, a tool call the project's rules leave at ``ask`` reaches the operator
+    as an approval card instead of a refusal. The session is stopped when the
+    block ends, which declines whatever is still waiting.
+    """
+    (project / "config.yml").write_text(
+        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
+    )
+    session = OperatorSession(cwd=str(project))
+    with sdk_seam() as captured:
+        await session.start()
+        try:
+            feed, _hello = session.subscribe()
+            yield ArmedChat(session, captured[0].can_use_tool, feed)
+        finally:
+            await session.stop()

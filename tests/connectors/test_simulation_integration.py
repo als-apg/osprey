@@ -14,8 +14,10 @@ import pytest
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
-from tests.connectors._write_fakes import arm_switch
-from tests.connectors._write_fakes import writes_enabled_config as _config_with_writes_enabled
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import (
+    writes_enabled_config as _config_with_writes_enabled,
+)
 from tests.facility.served_tree import in_process_config, served_tree
 
 #: The test rig's channels, in the facility schema's own spelling.

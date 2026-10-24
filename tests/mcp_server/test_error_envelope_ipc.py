@@ -62,13 +62,15 @@ from tests.mcp_server.conftest import assert_raises_error
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: The repo root is on the path too, so the child can import the test-support
-#: connector by its dotted ``tests.`` path.
+#: The repo root and the connectors suite's root are on the path too, so the
+#: child can import a test-support connector by its dotted path.
 PYTHONPATH = os.pathsep.join(
     [
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
         str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        # The connectors suite's test-support connectors (osprey_connectors_tests).
+        str(REPO_ROOT / "packages" / "osprey-connectors" / "tests"),
     ]
 )
 
@@ -423,7 +425,7 @@ async def test_the_seams_default_behaviour_is_still_a_context_invalidation(monke
 
 #: The pool tests' misbehaving mock, by dotted path: ``SLOW:`` reads hang in a
 #: child that still answers, ``WEDGE:`` reads block the child outright.
-SLOW_TYPE = "tests.connectors.ipc._pool_connectors.SlowInProcessConnector"
+SLOW_TYPE = "osprey_connectors_tests.ipc._pool_connectors.SlowInProcessConnector"
 
 #: The deadline the manager's children are given here, lowered from the
 #: reference value so a call that names no timeout misses it within the test.

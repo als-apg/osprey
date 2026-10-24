@@ -61,6 +61,7 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
+from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -2052,6 +2053,9 @@ def _create_lifespan(
         app.state.project_cwd = str(
             Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
         )
+        # Uploads nobody sent with a message are deleted once they are a day old;
+        # before any upload is counted, so the caps measure the swept tree.
+        await asyncio.to_thread(sweep_uploads_at_startup, app)
         # Which Claude Code the two views run, settled and named once at
         # startup. Off the event loop: the probe spawns a large binary.
         await asyncio.to_thread(_settle_agent_cli, app.state.shell_command, app.state.project_cwd)

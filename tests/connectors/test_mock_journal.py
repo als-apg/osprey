@@ -28,8 +28,8 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
-from tests.connectors._write_fakes import arm_switch
-from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled
+from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]

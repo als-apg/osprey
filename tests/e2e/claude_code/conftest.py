@@ -155,11 +155,12 @@ def safety_project_writes_off(tmp_path_factory):
     blocks all write operations when the master kill switch is off.
 
     Re-renders the Claude Code artifacts after flipping ``writes_enabled`` so the
-    rendered ``settings.json`` reflects the new flag. Without that, the
-    renderer's writes-aware permissions.deny augmentation (which moves
-    pure-write tools out of permissions.ask when writes are off) is bypassed,
-    and Claude Code's permissions.ask layer fires ``can_use_tool`` for
-    channel_write even though the writes_check hook denies it in parallel.
+    rendered ``settings.json`` reflects the new flag. Without that, the renderer's
+    writes-aware permissions.deny augmentation (which removes pure-write tools from
+    the agent's view when writes are off) is bypassed, and the agent is offered
+    channel_write. The writes_check hook would still refuse the call, and no approval
+    card is raised for it (tests/e2e/claude_code/test_chat_approval_gates_scripted.py,
+    scenario b).
     """
     tmp = tmp_path_factory.mktemp("safety-writes-off")
     repo = init_project(tmp, "safety-writes-off", provider="als-apg")

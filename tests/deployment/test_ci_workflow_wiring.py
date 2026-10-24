@@ -54,6 +54,8 @@ import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from osprey_connectors_tests._paths import TESTS_ROOT as CONNECTORS_TESTS_ROOT
+
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
 TILED_JOB = "tiled-roundtrip-e2e"
@@ -158,6 +160,9 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/web_terminals/test_session_restart_e2e.py",
     "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
     "tests/e2e/web_terminals/test_render_permissions_scripted.py",
+    "tests/e2e/claude_code/test_chat_approval_gates_scripted.py",
+    "tests/e2e/claude_code/test_chat_plan_mode_scripted.py",
+    "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
 )
 SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
 
@@ -173,7 +178,16 @@ PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_E
 # passing over an empty list. Raise this when probe lanes are added.
 EXPECTED_MIN_ALS_APG_PROBES = 10
 
-CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
+#: Where the scheduler override is defined. Both conftests import it by name
+#: from here (see ``test_both_conftests_import_the_scheduler_override``).
+SCHEDULER_SOURCE = CONNECTORS_TESTS_ROOT / "osprey_connectors_tests" / "_harness" / "_guards.py"
+#: The module both conftests import the override from.
+SCHEDULER_MODULE = "osprey_connectors_tests._harness._guards"
+#: The conftests that must carry the override for pytest to call it.
+SCHEDULER_CONFTESTS = (
+    Path(__file__).resolve().parents[1] / "conftest.py",
+    CONNECTORS_TESTS_ROOT / "conftest.py",
+)
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 
 #: The per-test hang-breaker on the unit lane. Both halves are load-bearing and
@@ -182,7 +196,7 @@ PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 #: minutes) while still ending a hang far inside the step cap, and the method
 #: has to be ``signal`` — ``thread`` ends a timed-out test with ``os._exit`` of
 #: the xdist worker, which is the "node down: Not properly terminated" wedge
-#: tests/ci_diagnostics.py documents.
+#: osprey_connectors_tests._harness.ci_diagnostics documents.
 PER_TEST_TIMEOUT_FLAGS = ("--timeout=600", "--timeout-method=signal")
 SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
 SCHEDULER_CLASS = "FileOrGroupScheduling"
@@ -1453,7 +1467,7 @@ def test_coverage_cell_pins__mutation_back_to_the_floor_version() -> None:
 
 
 def _conftest_source() -> str:
-    return CONFTEST.read_text(encoding="utf-8")
+    return SCHEDULER_SOURCE.read_text(encoding="utf-8")
 
 
 def _hook_source(source: str) -> str:
@@ -1484,7 +1498,7 @@ def _missing_scheduler_parts(source: str) -> list[str]:
 
 def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
     """Source-level counterpart to the ci.yml pin above. `--dist loadgroup` is
-    only safe for this suite because ``tests/conftest.py`` replaces stock
+    only safe for this suite because the conftests replace stock
     ``LoadGroupScheduling`` — which gives every unmarked nodeid its own scope
     — with one that falls back to file scope. Deleting the override while
     leaving the CI flag in place would parallelize the lane per-test again,
@@ -1493,13 +1507,30 @@ def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
     assert _missing_scheduler_parts(_conftest_source()) == []
 
 
+def test_both_conftests_import_the_scheduler_override() -> None:
+    """The override is defined in the harness, and pytest calls a hook only from
+    a conftest or a registered plugin. A conftest that stopped importing it
+    would hand its tree back to stock scheduling while the definition above
+    still passed."""
+    for conftest in SCHEDULER_CONFTESTS:
+        imported = {
+            alias.name
+            for node in ast.parse(conftest.read_text(encoding="utf-8")).body
+            if isinstance(node, ast.ImportFrom) and node.module == SCHEDULER_MODULE
+            for alias in node.names
+        }
+        assert SCHEDULER_HOOK in imported, f"{conftest} does not import {SCHEDULER_HOOK}"
+
+
 def test_conftest_scheduler_override__mutation_renames_hook() -> None:
     """A hook pytest never calls is the same as no hook at all: renaming the
     definition must be reported, not papered over by the class still being
     defined below it."""
     source = _conftest_source()
     mutated = source.replace(f"def {SCHEDULER_HOOK}(", f"def _disabled_{SCHEDULER_HOOK}(")
-    assert mutated != source, f"no `def {SCHEDULER_HOOK}(` in {CONFTEST} — mutation is stale"
+    assert mutated != source, (
+        f"no `def {SCHEDULER_HOOK}(` in {SCHEDULER_SOURCE} — mutation is stale"
+    )
     assert _missing_scheduler_parts(mutated) == [
         f"def {SCHEDULER_HOOK}",
         "loadgroup guard",
@@ -1514,7 +1545,7 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
     override's reach beyond the lane it was written for."""
     source = _conftest_source()
     mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
-    assert mutated != source, f"no dist-option guard in {CONFTEST} — mutation is stale"
+    assert mutated != source, f"no dist-option guard in {SCHEDULER_SOURCE} — mutation is stale"
     assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 
@@ -1580,18 +1611,19 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
     sharded unit lane counts as the whole-tree sweep it is. An invocation
     whose only path is a bare variable (``$E2E_FILTER``) is an operator-chosen
     debug path on a manual dispatch, not a lane, and reaches nothing here; an
-    invocation with no path at all collects ``testpaths``, which is ``tests``.
+    invocation with no path at all collects ``testpaths``, which is ``tests``
+    and the packages' own suites (:data:`PACKAGE_TEST_ROOTS`).
     """
     try:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
-    paths = [t for t in tokens if t == "tests" or t.startswith("tests/")]
+    paths = [t for t in tokens if t == "tests" or t.startswith(("tests/", "packages/"))]
     ignores = [t.removeprefix("--ignore=") for t in tokens if t.startswith("--ignore=")]
     if not paths:
         if any(t.startswith("$") for t in tokens):
             return False
-        paths = ["tests"]
+        paths = ["tests", *PACKAGE_TEST_ROOTS]
 
     def _covers(path: str) -> bool:
         path = path.split("::", 1)[0]
@@ -4234,6 +4266,10 @@ def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = TESTS_ROOT.parent
+#: Workspace packages' own suites, which the root ``testpaths`` lists beside
+#: ``tests``. Each is one entry of the unit shards' partition, like a top-level
+#: ``tests/<dir>``.
+PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 
 
 #: The marker a module applies to itself to say it drives a browser. It is
@@ -5245,8 +5281,8 @@ def test_unit_test_step_timeout_is_below_the_job_cap__mutation_raises_it_to_the_
 
 
 def test_unit_lane_arms_the_diagnostics_recorder(workflow: dict[str, Any]) -> None:
-    """``tests/ci_diagnostics.py`` installs nothing unless this variable is set,
-    so without it the lane runs exactly as blind as before."""
+    """``osprey_connectors_tests._harness.ci_diagnostics`` installs nothing unless
+    this variable is set, so without it the lane runs exactly as blind as before."""
     step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
     assert step.get("env", {}).get("OSPREY_CI_DIAG_DIR"), (
         "the unit lane must set OSPREY_CI_DIAG_DIR on the pytest step to enable the "
@@ -5335,8 +5371,9 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
     frames without holding the GIL. A sample landing inside one of the parsers
     this suite lives in — PyYAML, ruamel, Jinja2 — reads a frame that is being
     freed and takes the worker down with it, which xdist reports only as ``node
-    down: Not properly terminated``. ``tests/ci_diagnostics.py`` samples from an
-    ordinary Python thread for that reason, and setting this option would put
+    down: Not properly terminated``.
+    ``osprey_connectors_tests._harness.ci_diagnostics`` samples from an ordinary
+    Python thread for that reason, and setting this option would put
     the unsafe watchdog back, on a per-test timer.
 
     Its dumps would also reach only the job log, which is exactly what a
@@ -5347,7 +5384,7 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
         "the unit lane must not pass `-o faulthandler_timeout`: pytest implements it "
         "with faulthandler.dump_traceback_later, whose GIL-free watchdog segfaults "
         "workers that are inside a YAML or Jinja parser. See the docstring of "
-        "tests/ci_diagnostics.py."
+        "osprey_connectors_tests._harness.ci_diagnostics."
     )
 
 
@@ -5364,8 +5401,8 @@ def test_unit_lane_passes_per_test_timeout(workflow: dict[str, Any]) -> None:
     ``--timeout-method=signal`` is the other half. pytest-timeout's ``thread``
     method ends the test with ``os._exit`` of the worker, and a dead worker
     under ``--dist loadgroup`` takes the whole lane with it rather than one
-    test — see the docstring of tests/ci_diagnostics.py. The cost of ``signal``
-    is that it cannot interrupt a hang inside a C extension holding the GIL;
+    test — see the docstring of ``osprey_connectors_tests._harness.ci_diagnostics``.
+    The cost of ``signal`` is that it cannot interrupt a hang inside a C extension holding the GIL;
     for that case the step cap is still the backstop.
     """
     line = _unit_test_pytest_line(workflow)
@@ -10877,8 +10914,11 @@ def _shard_reaches(wf: dict[str, Any], shard: str, test_file: str) -> bool:
 def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
     """The top level of ``tests/`` as the shards see it: every directory that
     holds a test module somewhere below it, and every test module directly in
-    ``tests/``, as repo-relative posix paths."""
-    entries = set()
+    ``tests/``, as repo-relative posix paths, plus each package suite in
+    :data:`PACKAGE_TEST_ROOTS`."""
+    entries = {
+        package for package in PACKAGE_TEST_ROOTS if any((root.parent / package).rglob("test_*.py"))
+    }
     for pattern in ("test_*.py", "*_test.py"):
         for path in root.rglob(pattern):
             if "__pycache__" in path.parts:
@@ -10922,6 +10962,7 @@ def _shard_coverage_problems(wf: dict[str, Any], entries: list[str]) -> list[str
 def test_the_unit_shards_cover_the_test_tree_exactly_once(workflow: dict[str, Any]) -> None:
     entries = _test_tree_entries()
     assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
+    assert set(PACKAGE_TEST_ROOTS) <= set(entries), f"package suite scan broke: {entries}"
     problems = _shard_coverage_problems(workflow, entries)
     assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
 
