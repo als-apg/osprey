@@ -148,9 +148,9 @@ away, optionally in the background or in development mode.
 .. code-block:: bash
 
    osprey init --list-presets
-   osprey init als-assistant --preset control-assistant
+   osprey init my-assistant --preset control-assistant
    osprey init demo --preset control-assistant --up -d --dev
-   osprey init als-assistant --revalidate
+   osprey init my-assistant --revalidate
 
 osprey set
 ==========
@@ -247,7 +247,7 @@ is reported the same way — as a note, never a refusal.
 
    osprey validate
    osprey validate tiers/readonly.yml
-   osprey validate --repo ~/als-assistant
+   osprey validate --repo ~/my-assistant
 
 osprey config
 =============
@@ -389,7 +389,7 @@ a build whose output runs somewhere other than where it was made.
 .. code-block:: bash
 
    osprey build
-   osprey build --repo ~/deployments/als-assistant
+   osprey build --repo ~/deployments/my-assistant
    osprey build --skip-lifecycle --skip-deps          # CI: no venv, no hooks
 
 Lifecycle verbs
@@ -829,7 +829,7 @@ the build as it stands.
    osprey chat
    osprey chat --print "what is the stored beam current?"
    osprey chat --resume abc123
-   osprey chat --repo ~/als-assistant
+   osprey chat --repo ~/my-assistant
 
 osprey query
 ============
@@ -862,7 +862,7 @@ provider is not configured).
 .. code-block:: bash
 
    osprey query "What PVs are used for beam current?"
-   osprey query --repo ~/als-assistant "List vacuum sections"
+   osprey query --repo ~/my-assistant "List vacuum sections"
    osprey query --json "Summarise recent alarms"
 
 osprey eject
