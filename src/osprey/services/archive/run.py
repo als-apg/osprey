@@ -3,7 +3,8 @@
 The sources tree is ``<sources>/<kind>/<name>/…`` (``audit`` has no ``<name>``
 level); :data:`SOURCE_TABLE` and :data:`SOURCE_EXCLUDES` together decide what is
 copied from each kind. The destination is ``<dest>/<YYYY-MM-DD>/<kind>/<name>/<relpath>``,
-the date being the UTC date the pass started. Every file is copied into
+or :data:`SOURCE_DEST_PREFIX`'s prefix in place of ``<kind>/<name>``, the date
+being the UTC date the pass started. Every file is copied into
 ``<dest>/.incoming/`` first, hashed while it is copied, and moved to its final
 path only when whole, so a day directory never holds a torn copy.
 ``.incoming`` is the only place a pass ever deletes from; nothing is opened for
@@ -42,22 +43,36 @@ logger = logging.getLogger(__name__)
 #: Kind → the include globs, relative to one source of that kind. ``**`` spans
 #: directories, ``*`` stays within one path segment.
 SOURCE_TABLE: dict[str, tuple[str, ...]] = {
-    # A web terminal's `<user>-claude-config` volume: transcripts, subagent
-    # transcripts and tool results — never credentials, settings or caches.
-    "terminals": ("projects/**",),
+    # A web terminal's `<user>-claude-projects` volume: transcripts, subagent
+    # transcripts and tool results. It holds nothing else; the credentials,
+    # settings and caches beside it stay on the claude-config volume, which the
+    # archive never mounts.
+    "terminals": ("**",),
     # A web terminal's `<user>-agent-data` volume: the artifact store, files and index.
     "terminal_agent_data": ("artifacts/**",),
-    # A dispatch worker's agent-data volume: the agent's transcripts, the run
-    # records and the artifact store.
+    # A dispatch worker's agent-data volume: the run records and the artifact
+    # store. Its transcripts are their own kind below; the directory they lived
+    # in before they had a volume is left behind under the mount and is never
+    # copied, so no transcript is archived twice under one key.
     "dispatch": (
-        f"{DISPATCH_CLAUDE_CONFIG_DIRNAME}/projects/**",
         "dispatch/*.json",
         "artifacts/**",
     ),
+    # A dispatch worker's transcripts volume.
+    "dispatch_projects": ("**",),
     # A plan-queue lane's Redis volume, as Redis persistence files.
     "bluesky": ("appendonlydir/**", "dump.rdb"),
     # The audit ledger tree; its own first level is the identity.
     "audit": ("**",),
+}
+
+#: Kind → the destination prefix of one source of that kind, ``{name}`` being
+#: the source's name; a kind not listed keeps ``<kind>/<name>/``. Transcripts
+#: are archived where they were before they had a volume of their own, so an
+#: archive keeps one key per transcript across that move.
+SOURCE_DEST_PREFIX: dict[str, str] = {
+    "terminals": "terminals/{name}/projects",
+    "dispatch_projects": f"dispatch/{{name}}/{DISPATCH_CLAUDE_CONFIG_DIRNAME}/projects",
 }
 
 #: Kind → globs that are never copied even when :data:`SOURCE_TABLE` includes
@@ -281,7 +296,7 @@ def _read_chunks(fd: int) -> Iterator[bytes]:
 
 
 def _sources_of(sources: Path, result: PassResult) -> Iterator[tuple[str, str, Path]]:
-    """Every ``(kind, source prefix, directory)`` under *sources*."""
+    """Every ``(kind, destination prefix, directory)`` under *sources*."""
     try:
         kinds = sorted(p for p in sources.iterdir() if not p.name.startswith("."))
     except OSError as exc:
@@ -303,8 +318,9 @@ def _sources_of(sources: Path, result: PassResult) -> Iterator[tuple[str, str, P
         except OSError as exc:
             result.errors.append({"source": kind, "error": str(exc.strerror or exc)})
             continue
+        template = SOURCE_DEST_PREFIX.get(kind, f"{kind}/{{name}}")
         for name_dir in names:
-            prefix = f"{kind}/{name_dir.name}"
+            prefix = template.format(name=name_dir.name)
             if name_dir.is_symlink() or not name_dir.is_dir():
                 result.skipped.append(prefix)
                 continue

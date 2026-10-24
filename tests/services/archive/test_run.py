@@ -46,36 +46,49 @@ def trees(tmp_path):
 
 def test_first_pass_copies_every_included_file_verbatim(trees):
     sources, dest = trees
+    # Source path under the sources tree -> its path in the day.
     payloads = {
-        "terminals/alice/projects/p/s.jsonl": b'{"a":1}\n',
-        "terminal_agent_data/alice/artifacts/artifacts.json": b"[]",
-        "terminal_agent_data/alice/artifacts/files/plot.png": b"\x89PNG",
-        "dispatch/shared/claude-config/projects/p/r.jsonl": b"run\n",
-        "dispatch/shared/dispatch/abc.json": b"{}",
-        "dispatch/shared/artifacts/artifacts.json": b"[1]",
-        "bluesky/lane/dump.rdb": b"REDIS",
-        "bluesky/lane/appendonlydir/a.aof": b"*1\r\n",
-        "audit/ident/ledger.jsonl": b"{}\n",
+        "terminals/alice/p/s.jsonl": ("terminals/alice/projects/p/s.jsonl", b'{"a":1}\n'),
+        "terminal_agent_data/alice/artifacts/artifacts.json": (
+            "terminal_agent_data/alice/artifacts/artifacts.json",
+            b"[]",
+        ),
+        "terminal_agent_data/alice/artifacts/files/plot.png": (
+            "terminal_agent_data/alice/artifacts/files/plot.png",
+            b"\x89PNG",
+        ),
+        "dispatch_projects/shared/p/r.jsonl": (
+            "dispatch/shared/claude-config/projects/p/r.jsonl",
+            b"run\n",
+        ),
+        "dispatch/shared/dispatch/abc.json": ("dispatch/shared/dispatch/abc.json", b"{}"),
+        "dispatch/shared/artifacts/artifacts.json": (
+            "dispatch/shared/artifacts/artifacts.json",
+            b"[1]",
+        ),
+        "bluesky/lane/dump.rdb": ("bluesky/lane/dump.rdb", b"REDIS"),
+        "bluesky/lane/appendonlydir/a.aof": ("bluesky/lane/appendonlydir/a.aof", b"*1\r\n"),
+        "audit/ident/ledger.jsonl": ("audit/ident/ledger.jsonl", b"{}\n"),
     }
-    for rel, data in payloads.items():
+    for rel, (_key, data) in payloads.items():
         _put(sources / rel, data)
 
     result = run_pass(sources, dest, now=DAY1)
 
     assert result.files == len(payloads)
     assert result.errors == []
-    for rel, data in payloads.items():
-        copy = dest / "2026-09-24" / rel
+    for key, data in payloads.values():
+        copy = dest / "2026-09-24" / key
         assert copy.read_bytes() == data
     records = {r["source"]: r for r in _lines(dest) if r["kind"] == "file"}
-    for rel, data in payloads.items():
-        assert records[rel]["sha256"] == hashlib.sha256(data).hexdigest()
-        assert records[rel]["size"] == len(data)
+    for key, data in payloads.values():
+        assert records[key]["sha256"] == hashlib.sha256(data).hexdigest()
+        assert records[key]["size"] == len(data)
 
 
 def test_a_second_pass_with_nothing_changed_copies_nothing(trees):
     sources, dest = trees
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x\n")
+    _put(sources / "terminals/alice/p/s.jsonl", "x\n")
 
     run_pass(sources, dest, now=DAY1)
     before = _lines(dest)
@@ -89,7 +102,7 @@ def test_a_second_pass_with_nothing_changed_copies_nothing(trees):
 
 def test_a_grown_transcript_is_copied_whole_again_under_a_suffixed_name_the_same_day(trees):
     sources, dest = trees
-    src = _put(sources / "terminals/alice/projects/p/abc.jsonl", "one\n")
+    src = _put(sources / "terminals/alice/p/abc.jsonl", "one\n")
     run_pass(sources, dest, now=DAY1)
     with src.open("a") as handle:
         handle.write("two\n")
@@ -105,7 +118,7 @@ def test_a_grown_transcript_is_copied_whole_again_under_a_suffixed_name_the_same
 
 def test_a_touched_but_unchanged_file_is_not_copied(trees):
     sources, dest = trees
-    src = _put(sources / "terminals/alice/projects/p/abc.jsonl", "one\n")
+    src = _put(sources / "terminals/alice/p/abc.jsonl", "one\n")
     run_pass(sources, dest, now=DAY1)
     os.utime(src, ns=(src.stat().st_atime_ns, src.stat().st_mtime_ns + 10_000_000))
 
@@ -117,11 +130,12 @@ def test_a_touched_but_unchanged_file_is_not_copied(trees):
 
 def test_nothing_outside_the_include_table_is_copied(trees):
     sources, dest = trees
-    root = sources / "terminals" / "alice"
-    _put(root / ".credentials.json", "secret")
-    _put(root / "settings.json", "{}")
-    _put(root / ".claude.json", "{}")
-    _put(root / "projects/p/s.jsonl", "x\n")
+    _put(sources / "terminals/alice/p/s.jsonl", "x\n")
+    # What a dispatch workspace held before its transcripts had a volume of
+    # their own: session state, and the old transcripts directory, both left
+    # behind under the mount.
+    _put(sources / "dispatch/shared/claude-config/.credentials.json", "secret")
+    _put(sources / "dispatch/shared/claude-config/projects/p/old.jsonl", "old\n")
     _put(sources / "dispatch/shared/workspace/notebook.ipynb", "{}")
     _put(sources / "dispatch/shared/dispatch/nested/a.json", "{}")
 
@@ -202,7 +216,7 @@ def test_symlinks_are_not_followed(trees, tmp_path):
     outside = _put(tmp_path / "outside/secret.jsonl", "secret")
     (tmp_path / "outside/dir").mkdir()
     _put(tmp_path / "outside/dir/inner.jsonl", "inner")
-    projects = sources / "terminals/alice/projects"
+    projects = sources / "terminals/alice"
     projects.mkdir(parents=True)
     (projects / "link.jsonl").symlink_to(outside)
     (projects / "linkdir").symlink_to(tmp_path / "outside/dir")
@@ -233,7 +247,7 @@ def test_a_deleted_source_leaves_its_archive_copy(trees):
 def test_modes_follow_the_archive_root(trees, root_mode, dir_mode, file_mode):
     sources, dest = trees
     os.chmod(dest, root_mode)
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x\n")
+    _put(sources / "terminals/alice/p/s.jsonl", "x\n")
 
     run_pass(sources, dest, now=DAY1)
 
@@ -246,8 +260,8 @@ def test_modes_follow_the_archive_root(trees, root_mode, dir_mode, file_mode):
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads every file")
 def test_a_source_error_is_recorded_and_the_pass_goes_on(trees):
     sources, dest = trees
-    bad = _put(sources / "terminals/alice/projects/p/a.jsonl", "a")
-    _put(sources / "terminals/alice/projects/p/b.jsonl", "b")
+    bad = _put(sources / "terminals/alice/p/a.jsonl", "a")
+    _put(sources / "terminals/alice/p/b.jsonl", "b")
     os.chmod(bad, 0)
     try:
         result = run_pass(sources, dest, now=DAY1)
@@ -261,7 +275,7 @@ def test_a_source_error_is_recorded_and_the_pass_goes_on(trees):
 
 def test_a_missing_destination_refuses_before_copying(tmp_path):
     sources = tmp_path / "sources"
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x")
+    _put(sources / "terminals/alice/p/s.jsonl", "x")
 
     with pytest.raises(ArchiveDestinationError):
         run_pass(sources, tmp_path / "absent", now=DAY1)
@@ -271,7 +285,7 @@ def test_a_missing_destination_refuses_before_copying(tmp_path):
 
 def test_a_pass_line_that_cannot_be_written_refuses_the_pass(trees, monkeypatch):
     sources, dest = trees
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x")
+    _put(sources / "terminals/alice/p/s.jsonl", "x")
     append = archive_run.ArchiveTree.append
 
     def _full_disk_on_pass_line(self, record):
@@ -287,7 +301,7 @@ def test_a_pass_line_that_cannot_be_written_refuses_the_pass(trees, monkeypatch)
 
 def test_incoming_is_empty_after_a_pass(trees):
     sources, dest = trees
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x")
+    _put(sources / "terminals/alice/p/s.jsonl", "x")
     _put(dest / ".incoming/leftover-from-a-crash", "torn")
 
     run_pass(sources, dest, now=DAY1)
@@ -297,7 +311,7 @@ def test_incoming_is_empty_after_a_pass(trees):
 
 def test_a_pass_waits_while_another_pass_holds_the_archive(trees):
     sources, dest = trees
-    _put(sources / "terminals/alice/projects/p/s.jsonl", "x")
+    _put(sources / "terminals/alice/p/s.jsonl", "x")
     holder = archive_run.ArchiveTree(dest, DAY1)
     staged = _put(dest / ".incoming/staged-by-the-running-pass", "half")
     second = threading.Thread(target=run_pass, args=(sources, dest), kwargs={"now": LATER})

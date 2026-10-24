@@ -63,8 +63,9 @@ _CONTEXT_GLOB = "ctx-*.json"
 #: The feedback store's directory, relative to the agent-data root.
 _STORE_DIRNAME = "feedback"
 
-#: Volume-name suffix of the volume a user's agent data lives on. Its sibling
-#: ``-claude-config`` volume carries live session state and is never mounted.
+#: Volume-name suffix of the volume a user's agent data lives on. Its siblings,
+#: the ``-claude-config`` volume with live session state and the
+#: ``-claude-projects`` volume with transcripts, are never mounted.
 _AGENT_DATA_SUFFIX = "-agent-data"
 
 #: Where a volume is mounted inside the ephemeral reader container.
@@ -330,8 +331,8 @@ def _list_agent_data_volumes(
     The label filter scopes the listing to exactly this compose project -- the
     same value :func:`osprey.deployment.runtime_helper.runtime_env` pins as
     ``COMPOSE_PROJECT_NAME`` -- so a sibling deployment's volumes can never be
-    mistaken for this one's. ``-claude-config`` volumes are ignored: they hold
-    live session state, not feedback.
+    mistaken for this one's. ``-claude-config`` and ``-claude-projects`` volumes
+    are ignored: they hold live session state and transcripts, not feedback.
 
     :raises RuntimeError: If the listing itself fails. An empty listing from a
         failed command would read as "this deployment has no volumes".
@@ -500,7 +501,8 @@ def read_volume_headers(
 
     One ephemeral read-only container per volume. Nothing is mounted until the
     runtime has confirmed the volume exists (see :func:`_verified_volumes`),
-    and the ``-claude-config`` volumes are never mounted at all.
+    and the ``-claude-config`` and ``-claude-projects`` volumes are never
+    mounted at all.
 
     :param config: The deployment's rendered config.
     :param env: Environment for the runtime subprocesses. Defaults to the

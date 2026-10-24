@@ -85,10 +85,12 @@ services:
     volumes:
       - ./var/archive:/archive/dest
       - ./var/audit:/archive/sources/audit:ro
-      - alice-claude-config:/archive/sources/terminals/alice:ro
+      - alice-claude-projects:/archive/sources/terminals/alice:ro
       - alice-agent-data:/archive/sources/terminal_agent_data/alice:ro
       - dispatch_workspace_1:/archive/sources/dispatch/dispatch-worker-1:ro
       - dispatch_workspace_2:/archive/sources/dispatch/dispatch-worker-2:ro
+      - dispatch_claude_projects_1:/archive/sources/dispatch_projects/dispatch-worker-1:ro
+      - dispatch_claude_projects_2:/archive/sources/dispatch_projects/dispatch-worker-2:ro
       - bluesky_queueserver_redis:/archive/sources/bluesky/bluesky:ro
     networks:
       - osprey-network
@@ -100,7 +102,7 @@ services:
 # once, by their owner, in this slice; the archive only references them. The
 # archive creates no volume of its own and renames none.
 volumes:
-  alice-claude-config:
+  alice-claude-projects:
   alice-agent-data:
 
 networks:

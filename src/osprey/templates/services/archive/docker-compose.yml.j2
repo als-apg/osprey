@@ -124,6 +124,9 @@ services:
 {%- for worker in src.workers %}
       - {{ worker.volume }}:/archive/sources/dispatch/{{ worker.name }}:ro
 {%- endfor %}
+{%- for worker in src.workers %}
+      - {{ worker.projects_volume }}:/archive/sources/dispatch_projects/{{ worker.name }}:ro
+{%- endfor %}
 {%- for lane in src.lanes %}
       - {{ lane.volume }}:/archive/sources/bluesky/{{ lane.lane }}:ro
 {%- endfor %}

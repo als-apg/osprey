@@ -35,10 +35,11 @@ from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
     PROJECT_LABEL,
     REPO_ID_LABEL,
-    audit_identity_dir,
     repo_identity,
     resolve_project_name,
+    resolve_user_projects_volume_name,
     resolve_user_volume_names,
+    state_identity_dir,
 )
 from osprey.deployment.container_ownership import (
     ClaimBasis,
@@ -200,7 +201,7 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     """Why *identity*'s web terminal refused to start, when it just did.
 
     The read half of the contract ``osprey web`` writes: on a pre-flight refusal
-    it writes ``<audit dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
+    it writes ``<state dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
     line 1 and the findings, ``- `` prefixed, below it. Under
     ``restart: unless-stopped`` the container is then restarted forever, and a
     status table that says only "Restarting" makes an operator go read logs to
@@ -213,12 +214,12 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     that did not refuse. A marker whose timestamp cannot be parsed is treated as
     no marker at all.
 
-    Every failure — an unreadable audit zone, an identity that is not a legal
+    Every failure — an unreadable state zone, an identity that is not a legal
     path segment, a runtime that will not answer — degrades to ``None``. This is
     an annotation on a read-only report and must never be able to take it down.
 
-    :param repo_root: The deployment repo root, which the audit zone hangs off
-    :param identity: The roster username, which is also its audit identity
+    :param repo_root: The deployment repo root, which the state zone hangs off
+    :param identity: The roster username, which is also its state identity
     :param container: The user's decoded ``ps`` record
     :param config: Rendered config, for runtime selection; may be ``None``
     :return: The reason, truncated to :data:`PREFLIGHT_REASON_MAX_CHARS`, or ``None``
@@ -230,7 +231,7 @@ def _preflight_refusal_reason(repo_root, identity, container, config):
     from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
 
     try:
-        marker = audit_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
+        marker = state_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
         if not marker.is_file():
             return None
         lines = marker.read_text(encoding="utf-8").splitlines()
@@ -495,6 +496,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     table.add_column("User", style=Styles.ACCENT, no_wrap=True)
     table.add_column("Container", style=Styles.PRIMARY)
     table.add_column("Claude Config Volume", style=Styles.INFO)
+    table.add_column("Transcripts Volume", style=Styles.INFO)
     table.add_column("Agent Data Volume", style=Styles.INFO)
 
     output.report("")
@@ -516,6 +518,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
             if container is None
             else _format_state(container.get("State", "unknown"), preflight_reason),
             _format_volume_status(claude_config_volume),
+            _format_volume_status(resolve_user_projects_volume_name(config, user)),
             _format_volume_status(agent_data_volume),
         )
     output.table(table)

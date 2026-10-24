@@ -139,12 +139,14 @@ def test_one_mount_per_roster_user_worker_and_lane() -> None:
     )
 
     assert _mounts(_render(config))[2:] == [
-        "alice-claude-config:/archive/sources/terminals/alice:ro",
+        "alice-claude-projects:/archive/sources/terminals/alice:ro",
         "alice-agent-data:/archive/sources/terminal_agent_data/alice:ro",
-        "bob-claude-config:/archive/sources/terminals/bob:ro",
+        "bob-claude-projects:/archive/sources/terminals/bob:ro",
         "bob-agent-data:/archive/sources/terminal_agent_data/bob:ro",
         "dispatch_workspace_1:/archive/sources/dispatch/dispatch-worker-1:ro",
         "dispatch_workspace_2:/archive/sources/dispatch/dispatch-worker-2:ro",
+        "dispatch_claude_projects_1:/archive/sources/dispatch_projects/dispatch-worker-1:ro",
+        "dispatch_claude_projects_2:/archive/sources/dispatch_projects/dispatch-worker-2:ro",
         "bluesky_queueserver_redis:/archive/sources/bluesky/bluesky:ro",
         "bluesky_va_queueserver_redis:/archive/sources/bluesky/bluesky_va:ro",
     ]
@@ -157,7 +159,8 @@ def test_shared_workspace_mode_mounts_one_worker_volume() -> None:
     )
 
     assert _mounts(_render(config))[2:] == [
-        "dispatch_workspace:/archive/sources/dispatch/shared:ro"
+        "dispatch_workspace:/archive/sources/dispatch/shared:ro",
+        "dispatch_claude_projects:/archive/sources/dispatch_projects/shared:ro",
     ]
     assert list(_service(_render(config))["depends_on"]) == ["dispatch-worker-1"]
 
@@ -287,9 +290,9 @@ def test_declared_volumes_match_their_owner_templates_byte_for_byte(tmp_path: Pa
     web = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])["volumes"]
 
     assert set(archive) == {
-        "alice-claude-config",
+        "alice-claude-projects",
         "alice-agent-data",
-        "bob-claude-config",
+        "bob-claude-projects",
         "bob-agent-data",
     }
     for key, declaration in archive.items():
@@ -311,9 +314,24 @@ def test_worker_and_lane_volumes_are_their_owners_declarations_alone(
     mounted = {
         _source_volume(mount)
         for mount in archive["services"][SERVICE_KEY]["volumes"]
-        if "/archive/sources/dispatch/" in mount or "/archive/sources/bluesky/" in mount
+        if "/archive/sources/dispatch/" in mount
+        or "/archive/sources/dispatch_projects/" in mount
+        or "/archive/sources/bluesky/" in mount
     }
 
     assert mounted
     assert mounted <= owners
     assert not set(archive["volumes"]) & owners
+
+
+def test_the_archive_mounts_no_claude_config_volume(tmp_path: Path) -> None:
+    """Transcripts are read from their own volumes; the claude-config volumes,
+    with the credentials and session state beside them, are never mounted."""
+    _config_unused, context = _owner_context(tmp_path)
+
+    archive = _render_with(context, TEMPLATE)
+    mounts = archive["services"][SERVICE_KEY]["volumes"]
+
+    assert not [m for m in mounts if "claude-config" in _source_volume(m)]
+    assert not [key for key in archive["volumes"] if "claude-config" in key]
+    assert "alice-claude-projects:/archive/sources/terminals/alice:ro" in mounts
