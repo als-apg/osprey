@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from osprey_connectors.control_system._base import WriteOutcome
+    from osprey_connectors.control_system import WriteOutcome
 
 
 __all__ = [
@@ -300,7 +300,9 @@ class ChannelWriteFailedError(ChannelError):
 
     ``outcome``, ``value_written`` and ``observed_value`` carry the detail the
     result held, so a caller that only sees the exception can still say what was
-    sent and what the channel holds.
+    sent and what the channel holds. ``outcome`` is a ``WriteOutcome`` member on
+    either side of the connector-host boundary: the plain string the wire
+    carries is coerced on construction, as ``ChannelWriteResult`` coerces its own.
     """
 
     _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
@@ -315,6 +317,11 @@ class ChannelWriteFailedError(ChannelError):
         value_written: Any = None,
         observed_value: Any = None,
     ):
+        if outcome is not None:
+            from osprey_connectors.control_system import WriteOutcome
+
+            if not isinstance(outcome, WriteOutcome):
+                outcome = WriteOutcome(outcome)
         self.channel_address = channel_address
         self.reason = reason
         self.outcome = outcome

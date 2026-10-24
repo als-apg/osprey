@@ -17,9 +17,6 @@ resolved on access (PEP 562): the child runs as
 from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.ipc._exceptions import (
-    CHANNEL_LIMITS_VIOLATION_FIELDS,
-    CHANNEL_NOT_FOUND_FIELDS,
-    CHANNEL_WRITE_BLOCKED_FIELDS,
     EXCEPTION_SPECS,
     ExceptionSpec,
     decode_exception,
@@ -140,9 +137,6 @@ __all__ = [
     "subsection",
     "verify_child_report",
     "verify_host_report",
-    "CHANNEL_LIMITS_VIOLATION_FIELDS",
-    "CHANNEL_NOT_FOUND_FIELDS",
-    "CHANNEL_WRITE_BLOCKED_FIELDS",
     "EXCEPTION_SPECS",
     "ErrorFrame",
     "ExceptionSpec",
