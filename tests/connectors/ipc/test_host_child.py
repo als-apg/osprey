@@ -1308,6 +1308,10 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         marks = _marks_until(read_fd, "imports")
         assert [name for name, _ in marks] == ["main", "init", "imports"]
     finally:
+        # Killed, not closed: a child inside connect() never reads its stdin, so
+        # close() would wait out REPLY_TIMEOUT_S before killing it anyway. How a
+        # child stuck there ends is not what this test checks.
+        spawned.proc.kill()
         spawned.close()
         os.close(read_fd)
 
