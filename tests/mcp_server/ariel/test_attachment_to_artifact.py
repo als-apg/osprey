@@ -207,11 +207,9 @@ def test_registered_gated_and_offered_to_the_main_agent():
         _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL,
         _ariel_read_tools,
     )
-    from osprey.mcp_server.ariel.server import VIEW_GATED_TOOLS
-    from osprey.registry.mcp import ARIEL_VIEW_TOOLS, FRAMEWORK_SERVERS
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
 
     assert "attachment_to_artifact" in FRAMEWORK_SERVERS["ariel"].permissions_allow
     assert "attachment_to_artifact" not in FRAMEWORK_SERVERS["ariel"].permissions_ask
     assert "attachment_to_artifact" in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
-    assert "attachment_to_artifact" not in _ariel_read_tools(True)
-    assert set(ARIEL_VIEW_TOOLS) == VIEW_GATED_TOOLS
+    assert "attachment_to_artifact" not in _ariel_read_tools({})

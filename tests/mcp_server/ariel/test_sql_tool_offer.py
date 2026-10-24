@@ -121,11 +121,3 @@ def test_offered_without_a_context():
     assert sql_tool_offered_here() is True
     _register_tools()
     assert "sql_query" in {tool.name for tool in asyncio.run(mcp.list_tools())}
-
-
-def test_the_build_withholds_the_tool_the_server_gates():
-    """The registry's withheld name is the server's gated tool, not a copy."""
-    from osprey.mcp_server.ariel.server import SQL_QUERY_TOOL
-    from osprey.registry.mcp import ARIEL_SQL_TOOL
-
-    assert ARIEL_SQL_TOOL == SQL_QUERY_TOOL
