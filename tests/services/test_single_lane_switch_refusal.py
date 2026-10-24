@@ -26,8 +26,8 @@ Three things are pinned, and each is pinned at the layer that owns it:
 3. **That the reason code is one vocabulary.** The MCP tool module cannot
    import ``queue_backend`` (it pulls in ``bluesky-queueserver-api``), so the
    code string is spelled in both layers; these tests pin them equal, and pin
-   the JS queue client's exhaustive capability set as carrying it too. A code
-   one consumer has never seen is as useless to it as no code at all.
+   the host-minted ``retryable`` to the backend's reason table. A code one
+   consumer has never seen is as useless to it as no code at all.
 """
 
 from __future__ import annotations
@@ -407,17 +407,3 @@ def test_the_reason_has_an_entry_in_the_shared_refusal_hint_table():
     """So a lane-aware bridge relaying the same code answers the same way."""
     hints = queue._REFUSAL_HINTS[qb.REASON_CONTROL_TARGET_MISMATCH]
     assert hints and all(isinstance(hint, str) and hint for hint in hints)
-
-
-def test_the_reason_is_in_the_js_queue_clients_capability_vocabulary():
-    """The panel classifies on an exhaustive set; a code missing from it falls
-    through to the generic error branch and loses its capability rendering."""
-    from osprey.interfaces import bluesky_web
-
-    source = (
-        Path(bluesky_web.__file__).parent / "panels" / "bluesky" / "draft-client.js"
-    ).read_text(encoding="utf-8")
-    _, _, after = source.partition("const DEPLOYMENT_CAPABILITY_CODES = new Set([")
-    vocabulary, _, _ = after.partition("]);")
-
-    assert f"'{qb.REASON_CONTROL_TARGET_MISMATCH}'" in vocabulary

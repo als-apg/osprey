@@ -254,6 +254,9 @@ export function createPlansView({
     canExecute: false,
     reason: REASON_BRIDGE_UNREACHABLE,
     detail: 'Checking whether this deployment can execute plans…',
+    // Retryable like the unreachable sentinel it stands for: the first health
+    // read clears it.
+    retryable: true,
     // No lane has answered yet, and the boot record must not name one: which
     // lane this panel talks to is the bridge's to report, not the panel's to
     // assume.
@@ -261,11 +264,11 @@ export function createPlansView({
     laneTarget: null,
   };
 
-  // The capability record is re-read on a slow interval, not only at boot: the
-  // connector/config reasons are settled until a redeploy (which reloads this
-  // panel anyway), but `manager_unreachable` clears on its own the moment a
-  // restarted queueserver comes back — and an operator staring at a disabled
-  // button should not have to reload to find that out.
+  // The capability record is re-read on a slow interval, not only at boot: a
+  // reason retrying cannot clear is settled until a redeploy (which reloads
+  // this panel anyway), but a retryable reason clears on its own — and an
+  // operator staring at a disabled button should not have to reload to find
+  // that out.
   const CAPABILITY_REFRESH_MS = 30000;
 
   // ---- element lookups ----
@@ -812,6 +815,7 @@ export function createPlansView({
           canExecute: false,
           reason: outcome.reason,
           detail: outcome.detail,
+          retryable: outcome.retryable,
           lane: outcome.lane,
           laneTarget: outcome.laneTarget,
         };

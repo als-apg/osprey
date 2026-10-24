@@ -2011,23 +2011,25 @@ describe('classifyQueueAddResponse', () => {
     });
   });
 
-  test('every capability code — connector/config 409s and manager 503s — is cannot_execute', () => {
-    for (const [status, reason] of /** @type {Array<[number, string]>} */ ([
-      [409, 'browse_only_connector'],
-      [409, 'unsupported_connector'],
-      [409, 'config_unreadable'],
-      [503, 'manager_not_configured'],
-      [503, 'manager_unreachable'],
+  test('every refusal that carries a capability record is cannot_execute, retryable as the body says', () => {
+    for (const [status, reason, retryable] of /** @type {Array<[number, string, boolean]>} */ ([
+      [409, 'browse_only_connector', false],
+      [409, 'unsupported_connector', false],
+      [409, 'config_unreadable', false],
+      [409, 'manager_not_configured', false],
+      [503, 'manager_unreachable', true],
     ])) {
       expect(
         classifyQueueAddResponse(status, {
           detail: {
             code: reason,
             detail: 'refused',
+            retryable,
             capability: {
               can_execute: false,
               reason,
               detail: 'run `osprey config …`',
+              retryable,
               lane: 'bluesky_live',
               lane_target: 'live',
             },
@@ -2037,26 +2039,32 @@ describe('classifyQueueAddResponse', () => {
         type: 'cannot_execute',
         reason,
         detail: 'run `osprey config …`',
+        retryable,
         lane: 'bluesky_live',
         laneTarget: 'live',
       });
     }
   });
 
-  test('cannot_execute falls back to the refusal sentence when no capability rides along', () => {
+  test('a capability refusal with no retryable field is not retryable', () => {
+    const outcome = classifyQueueAddResponse(503, {
+      detail: {
+        code: 'manager_unreachable',
+        detail: 'refused',
+        capability: { can_execute: false, reason: 'manager_unreachable', detail: 'no manager' },
+      },
+    });
+    expect(outcome.type).toBe('cannot_execute');
+    expect(outcome).toHaveProperty('retryable', false);
+  });
+
+  test('a refusal with no capability record is never cannot_execute, whatever its code', () => {
+    const sentence = 'This deployment serves the simulator in process, which speaks no Channel Access';
     expect(
       classifyQueueAddResponse(409, {
-        detail: { code: 'browse_only_connector', detail: 'This deployment serves the simulator in process, which speaks no Channel Access' },
+        detail: { code: 'browse_only_connector', detail: sentence },
       })
-    ).toEqual({
-      type: 'cannot_execute',
-      reason: 'browse_only_connector',
-      detail: 'This deployment serves the simulator in process, which speaks no Channel Access',
-      // No capability record rode along, so no lane did either: the outcome
-      // reports what it was told, and was told nothing about a lane.
-      lane: null,
-      laneTarget: null,
-    });
+    ).toEqual({ type: 'error', detail: sentence });
   });
 
   test('both session-plan codes classify together and name the plan', () => {
@@ -2117,6 +2125,7 @@ describe('queueOutcomeBanner', () => {
         type: 'cannot_execute',
         reason: 'browse_only_connector',
         detail: '',
+        retryable: false,
         lane: 'bluesky',
         laneTarget: 'live',
       },
@@ -2182,6 +2191,7 @@ describe('queueOutcomeBanner', () => {
         type: 'cannot_execute',
         reason: 'browse_only_connector',
         detail,
+        retryable: false,
         lane: 'bluesky',
         laneTarget: 'live',
       }).message
@@ -2204,6 +2214,7 @@ describe('classifyCapability', () => {
           can_execute: true,
           reason: 'executable',
           detail: "Plans execute against the 'virtual_accelerator' connector.",
+          retryable: false,
           lane: 'bluesky_va',
           lane_target: 'va',
         },
@@ -2212,6 +2223,7 @@ describe('classifyCapability', () => {
       canExecute: true,
       reason: 'executable',
       detail: "Plans execute against the 'virtual_accelerator' connector.",
+      retryable: false,
       lane: 'bluesky_va',
       laneTarget: 'va',
     });
@@ -2231,6 +2243,7 @@ describe('classifyCapability', () => {
           can_execute: false,
           reason: 'browse_only_connector',
           detail,
+          retryable: false,
           lane: 'bluesky',
           lane_target: 'live',
         },
@@ -2239,6 +2252,7 @@ describe('classifyCapability', () => {
       canExecute: false,
       reason: 'browse_only_connector',
       detail,
+      retryable: false,
       lane: 'bluesky',
       laneTarget: 'live',
     });
@@ -2287,6 +2301,21 @@ describe('classifyCapability', () => {
     expect(classifyCapability(200, null).canExecute).toBe(false);
   });
 
+  test('retryable is read from the record, and a missing or truthy-but-not-true field is false', () => {
+    const read = (/** @type {unknown} */ retryable) =>
+      classifyCapability(200, {
+        capability: { can_execute: false, reason: 'manager_unreachable', detail: 'x', retryable },
+      }).retryable;
+    expect(read(true)).toBe(true);
+    expect(read(false)).toBe(false);
+    expect(read(undefined)).toBe(false);
+    expect(read('yes')).toBe(false);
+  });
+
+  test('an unreadable health surface is retryable — the panel re-reads it on its own', () => {
+    expect(classifyCapability(502, null).retryable).toBe(true);
+  });
+
   test('a truthy-but-not-true can_execute is not permission', () => {
     expect(
       classifyCapability(200, { capability: { can_execute: 'yes', reason: 'executable' } })
@@ -2299,12 +2328,14 @@ describe('capabilityBanner', () => {
   /**
    * @param {string} reason
    * @param {string} [detail]
+   * @param {boolean} [retryable]
    * @returns {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js').CapabilityRecord}
    */
-  const cannot = (reason, detail = 'because') => ({
+  const cannot = (reason, detail = 'because', retryable = false) => ({
     canExecute: false,
     reason,
     detail,
+    retryable,
     lane: 'bluesky',
     laneTarget: 'live',
   });
@@ -2315,22 +2346,23 @@ describe('capabilityBanner', () => {
         canExecute: true,
         reason: 'executable',
         detail: 'all good',
+        retryable: false,
         lane: 'bluesky',
         laneTarget: 'live',
       })
     ).toBeNull();
   });
 
-  test('connector/config reasons read as information — browse-only is a supported way to run', () => {
-    for (const reason of ['browse_only_connector', 'unsupported_connector', 'config_unreadable']) {
-      expect(capabilityBanner(cannot(reason))?.kind).toBe('info');
-    }
+  test('a reason that retrying cannot clear reads as information', () => {
+    expect(capabilityBanner(cannot('any_reason', 'because', false))?.kind).toBe('info');
   });
 
-  test('manager reasons and an unreadable health surface warn', () => {
-    for (const reason of ['manager_not_configured', 'manager_unreachable', REASON_BRIDGE_UNREACHABLE]) {
-      expect(capabilityBanner(cannot(reason))?.kind).toBe('warn');
-    }
+  test('a reason that can clear on its own warns', () => {
+    expect(capabilityBanner(cannot('any_reason', 'because', true))?.kind).toBe('warn');
+  });
+
+  test('the unreadable-health sentinel warns', () => {
+    expect(capabilityBanner(classifyCapability(502, null))?.kind).toBe('warn');
   });
 
   test('the bridge sentence is shown verbatim — it carries the flip command', () => {
