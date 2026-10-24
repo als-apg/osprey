@@ -270,8 +270,16 @@ def test_the_pin_is_probed_only_for_a_build_this_deploy_will_make(monkeypatch):
     monkeypatch.delenv("OSPREY_PIP_SPEC", raising=False)
     monkeypatch.setattr("osprey.version.is_release", lambda: False)
 
-    # No dispatch worker at all.
-    assert container_lifecycle._unreleased_pin_problem({"deployed_services": []}, {}, False) is None
+    # No dispatch worker at all, and agent-record (every deployment's
+    # project-image service) on a prebuilt image.
+    assert (
+        container_lifecycle._unreleased_pin_problem(
+            {"deployed_services": []},
+            {"OSPREY_WORKER_IMAGE": "registry.example.org/prebuilt:1"},
+            False,
+        )
+        is None
+    )
     # A worker pinned to a prebuilt image.
     assert (
         container_lifecycle._unreleased_pin_problem(
@@ -313,7 +321,18 @@ def test_an_operator_pin_answers_the_question_outright(monkeypatch):
 def test_the_build_target_is_the_gate_the_build_itself_uses():
     """5a's extraction has to answer the same question `_build_project_image`
     asks, or the probe and the build disagree about whether a build happens."""
-    assert container_lifecycle._project_image_build_target({"deployed_services": []}, {}) is None
+    # agent-record runs on the project image in every deployment, so even one
+    # naming no services builds it; only a prebuilt image skips the build.
+    assert (
+        container_lifecycle._project_image_build_target({"deployed_services": []}, {})
+        == "unnamed-project:local"
+    )
+    assert (
+        container_lifecycle._project_image_build_target(
+            {"deployed_services": []}, {"OSPREY_WORKER_IMAGE": "prebuilt:1"}
+        )
+        is None
+    )
     assert (
         container_lifecycle._project_image_build_target(
             _worker_config(), {"OSPREY_WORKER_IMAGE": "prebuilt:1"}

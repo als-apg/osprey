@@ -788,6 +788,9 @@ def test_the_web_stack_start_emits_the_podman_shape_in_argv_and_environment(
 
     container_lifecycle.up_as_built(repo, detached=True)
 
+    # The start also asks the runtime itself about volumes (the one-time
+    # transcript copy); only the compose invocations carry the compose shape.
+    runs = [run for run in runs if run["cmd"][1:2] == ["compose"]]
     assert runs, "the web path never reached a compose invocation"
     for run in runs:
         _assert_podman_shaped(run, repo)
@@ -1121,7 +1124,10 @@ def test_no_compose_or_nginx_artifact_lands_in_the_repo_root(
     write_web_terminal_artifacts(_web_config(["alice"]))
 
     new_at_root = set(tmp_path.iterdir()) - before
-    assert new_at_root == {tmp_path / BUILD_DIR_NAME}
+    # The agent record's credential files are secrets kept beside ``.env``, not
+    # renders: every deployment mints them at the root.
+    credentials = {p for p in new_at_root if p.name.startswith(".env.agent-record.")}
+    assert new_at_root - credentials == {tmp_path / BUILD_DIR_NAME}
     assert (web_artifacts_dir(tmp_path) / WEB_COMPOSE_FILENAME).is_file()
     assert (web_artifacts_dir(tmp_path) / "nginx" / "nginx.conf").is_file()
 

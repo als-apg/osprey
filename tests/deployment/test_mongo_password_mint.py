@@ -38,6 +38,8 @@ def captured_argv(monkeypatch, tmp_path):
         lambda *a, **k: ({"deployed_services": ["mongodb"]}, ["docker-compose.yml"]),
     )
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )

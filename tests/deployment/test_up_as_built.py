@@ -1238,6 +1238,8 @@ def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # Every start builds the project image agent-record runs on; no build here.
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
