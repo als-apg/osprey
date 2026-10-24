@@ -18,6 +18,8 @@ import time
 from collections.abc import Iterable
 from queue import Empty, Queue
 
+from osprey.deployment.subprocess_capture import stop_group
+
 #: One completed startup phase, as ``osprey.mcp_server.startup.run_mcp_server``
 #: reports it on stderr: ``[STARTUP-TIMING] <server> | <phase>: <n>ms``. The
 #: first lands within milliseconds of the spawn, which is what makes the marker
@@ -43,6 +45,9 @@ _STDERR_TAIL_LINES = 80
 #: pipe closes when the process exits, so this bounds only a pipe still held
 #: open by a descendant; it guards against a hang and decides nothing.
 _STDERR_DRAIN_JOIN_S = 2.0
+
+#: How long the server's group gets to exit on SIGTERM before it is killed.
+_STOP_GRACE_S = 2.0
 
 
 class MCPHandshakeError(RuntimeError):
@@ -91,13 +96,15 @@ def list_mcp_tools(
             env=full_env,
             text=True,
             bufsize=1,
+            process_group=0,
         )
     except FileNotFoundError as exc:
         raise MCPHandshakeError(f"command not found: {command}") from exc
 
     stdout_q: Queue = Queue()
     stderr_q: Queue = Queue()
-    threading.Thread(target=_drain, args=(proc.stdout, stdout_q), daemon=True).start()
+    stdout_drain = threading.Thread(target=_drain, args=(proc.stdout, stdout_q), daemon=True)
+    stdout_drain.start()
     stderr_drain = threading.Thread(target=_drain, args=(proc.stderr, stderr_q), daemon=True)
     stderr_drain.start()
 
@@ -198,6 +205,8 @@ def list_mcp_tools(
 
     spawned_at = time.monotonic()
     spawn_deadline = spawned_at + timeout
+    failure: MCPHandshakeError | None = None
+    other: BaseException | None = None
 
     try:
         _send(
@@ -220,18 +229,32 @@ def list_mcp_tools(
         resp = _recv(2)
         tools = resp.get("result", {}).get("tools", [])
         return [t["name"] for t in tools if isinstance(t, dict) and "name" in t]
+    except MCPHandshakeError as exc:
+        failure = exc
+        raise
+    except BaseException as exc:
+        other = exc
+        raise
     finally:
-        try:
-            proc.terminate()
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-        # Closing a text pipe flushes it; a dead child turns that into a
-        # BrokenPipeError that must not mask the handshake error.
-        if proc.stdin is not None:
-            with contextlib.suppress(OSError):
-                proc.stdin.close()
+        with contextlib.suppress(OSError):
+            proc.stdin.close()
+        survivors = stop_group(proc.pid, grace=_STOP_GRACE_S)
+        proc.wait()
+        stdout_drain.join(timeout=_STDERR_DRAIN_JOIN_S)
+        stderr_drain.join(timeout=_STDERR_DRAIN_JOIN_S)
+        if survivors is None:
+            left = "may still be running after stop: process table unreadable"
+        elif survivors:
+            left = f"still running after stop: pids {survivors}"
+        else:
+            left = None
+        if left is not None:
+            if failure is not None:
+                raise MCPHandshakeError(f"{failure}; {left}") from failure
+            if other is not None:
+                other.add_note(f"server group {proc.pid} {left}")
+            else:
+                raise MCPHandshakeError(f"server group {proc.pid} {left}")
 
 
 def assert_tools_superset(
