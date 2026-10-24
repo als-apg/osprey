@@ -18,7 +18,8 @@ full tool-call record (``audit.tool_call:``), the links from an answer to a
 logbook entry (``ariel.entry_url_template``), how much of each logbook entry
 the agent reads (``ariel.entry_text``), the signals the agent exports
 (``claude_code.telemetry.signals``), the collector token the agent sends
-(``claude_code.telemetry.auth.token_env``), the Phoebus display bridge
+(``claude_code.telemetry.auth.token_env``), whether the agent shows its
+thinking (``claude_code.thinking.display``), the Phoebus display bridge
 (``phoebus:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
 in. Settings that only
@@ -1066,6 +1067,45 @@ Every web terminal that exports telemetry receives the variable from the deploy
 refuses the key: every sender authenticates to the deployment's telemetry
 gateway with its own login. See
 :doc:`/how-to/health-and-monitoring/monitor-agent`.
+
+.. _config-thinking-display:
+
+``claude_code.thinking.display`` — whether the agent shows its thinking
+-----------------------------------------------------------------------
+
+``claude_code.thinking.display`` sets whether Claude Code shows a summary of
+its thinking. ``summarized``, the default, shows the summaries, and they are
+recorded with the session, where the Simple-view chat and the agent timeline
+display them. ``omitted`` leaves thinking out. Any other value stops
+``osprey build`` with a message naming the key.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.thinking.display: omitted
+
+The key reaches a launch by one of three routes:
+
+- Project settings: ``osprey build`` writes ``showThinkingSummaries`` into
+  the project's ``.claude/settings.json``. This route covers interactive
+  sessions only: the web terminals and ``osprey chat`` without ``--print``.
+- SDK runs: headless agent runs, such as the dispatch worker's, pass
+  ``--thinking-display`` to the CLI.
+- ``osprey chat --print``: the command line carries ``--thinking-display``.
+
+The two flag routes need Claude Code 2.1.228 or later. A launch through an
+older build, or one whose version cannot be read, starts without the flag,
+records no thinking, and logs one warning. The warning names the fix: pin the
+agent CLI to 2.1.228 or later under ``config:`` in ``profile.yml`` and run
+``osprey build``.
+
+.. code-block:: yaml
+
+   config:
+     claude_code.cli_version: "2.1.228"
+
+The key changes only how thinking is shown. Whether the model thinks, and how
+much, is unchanged.
 
 .. _config-phoebus:
 
