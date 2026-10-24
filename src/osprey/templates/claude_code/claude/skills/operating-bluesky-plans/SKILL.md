@@ -91,7 +91,7 @@ this deployment run plans at all? It reaches no hardware.
 
 It returns `{status, capability}`. `status` is bridge liveness and is
 deliberately independent of capability — `"ok"` never implies a deployment can
-run a plan. `capability` is `{can_execute, reason, detail}`:
+run a plan. `capability` is `{can_execute, reason, detail, retryable}`:
 
 - `can_execute: true` (`reason: "executable"`) — plans can run here.
 - `can_execute: false` — they cannot. `reason` is the machine-readable code
@@ -99,7 +99,12 @@ run a plan. `capability` is `{can_execute, reason, detail}`:
   `manager_not_configured`, `manager_unreachable`) and `detail` is the
   operator-facing sentence, which for a browse-only deployment names the exact
   command that flips it. **Relay `detail` to the human verbatim** rather than
-  paraphrasing it — the command in it is the answer they need.
+  paraphrasing it — the command in it is the answer they need. `retryable`
+  says whether the reason can clear on its own.
+- `manager_not_configured` — this deployment has no queue server. Hand it to
+  the operator; never retry.
+- `manager_unreachable` — the queue server did not answer. Check again later
+  only when `retryable` is true.
 
 A browse-only deployment is still fully useful: plans can be listed, authored,
 validated and staged into the draft. What it cannot do is run them, and the
@@ -378,10 +383,11 @@ on the code and relay the bridge's sentence to the operator as written.
 - **`browse_only_connector` / `unsupported_connector` / `config_unreadable`** —
   this deployment cannot run plans, so the queue holds none.
   `details.capability.detail` names the flip; relay it verbatim.
-- **`manager_not_configured` / `manager_unreachable` / `environment_unavailable`** —
-  the manager or its worker environment is not available. `manager_unreachable`
-  may just be a starting deployment, so a short retry is reasonable; a
-  persistent failure needs an operator.
+- **`manager_not_configured`** — this deployment has no queue server. Hand it
+  to the operator; never retry.
+- **`manager_unreachable` / `environment_unavailable`** — the manager or its
+  worker environment is not available. Retry only when `details.retryable` is
+  true; a persistent failure needs an operator.
 - **`queue_request_rejected`** — the manager answered and refused; the detail
   says what it objected to.
 
