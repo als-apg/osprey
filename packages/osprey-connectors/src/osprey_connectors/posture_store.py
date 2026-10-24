@@ -186,6 +186,7 @@ __all__ = [
     "CONTROL_CONTEXT_TREE_ENV_VAR",
     "CONTROL_OWNER_ENV_VAR",
     "CONTROL_TREE_MARKER_NAME",
+    "DISPATCH_RUN_ENV_VAR",
     "LAUNCH_POSTURE_ALL_TARGETS",
     "LAUNCH_POSTURE_ENV_VAR",
     "LOGIN_TIERS_KEY",
@@ -304,6 +305,14 @@ LAUNCH_POSTURE_ALL_TARGETS = "*"
 #: user's narrowing — or take one away.
 CONTROL_OWNER_ENV_VAR = "OSPREY_CONTROL_OWNER"
 
+#: The mark the dispatch worker's ``sdk_runner`` sets on every job it runs: a
+#: scheduled or triggered job, started by no login at a terminal. Only the value
+#: ``"1"`` marks a dispatch run; anything else, ``"0"`` included, is no dispatch.
+#: A dispatch run that names no owner resolves :data:`NO_OWNER` and is refused
+#: ``owner_unscheduled`` (:func:`write_verdict`): the process account it runs as
+#: is no login whose switch could cover it.
+DISPATCH_RUN_ENV_VAR = "OSPREY_DISPATCH_RUN"
+
 #: The read-only bind of the whole per-user control-state tree, named in the
 #: environment of a container that holds no chip of its own: a lane's
 #: queueserver, the dispatch worker. Only its PRESENCE is read here; the tree is
@@ -402,7 +411,7 @@ _owner_var: contextvars.ContextVar[str | NoOwner] = contextvars.ContextVar(
 
 
 def current_owner(owner: str | NoOwner | None = None) -> str | NoOwner:
-    """The owner a narrowing should be looked up for, by a four-rung ladder.
+    """The owner a narrowing should be looked up for, by a five-rung ladder.
 
     Most specific first:
 
@@ -423,7 +432,10 @@ def current_owner(owner: str | NoOwner | None = None) -> str | NoOwner:
        carries. Always answered as a ``str``; a blank or whitespace-only value is
        the unset case spelled differently — a rendered-but-empty ``environment:``
        entry — and falls through rather than naming an owner with no name.
-    4. Otherwise: :data:`NO_OWNER` when a tree is bound (:func:`_tree_is_bound`,
+    4. :data:`NO_OWNER` for a dispatch run (:data:`DISPATCH_RUN_ENV_VAR` is
+       ``"1"``) that none of the rungs above named an owner for. The account a
+       scheduled job runs as is not a person, so it never stands in for one.
+    5. Otherwise: :data:`NO_OWNER` when a tree is bound (:func:`_tree_is_bound`,
        the one spelling of that question), else
        :func:`~osprey_connectors.identity.acting_identity`. A container holding
        the tree holds no chip of its own, so the account it runs as is not an
@@ -446,10 +458,18 @@ def current_owner(owner: str | NoOwner | None = None) -> str | NoOwner:
     if isinstance(stamped, str) and stamped.strip():
         return stamped.strip()
 
+    if _is_dispatch_run():
+        return NO_OWNER
+
     if _tree_is_bound():
         return NO_OWNER
 
     return acting_identity()
+
+
+def _is_dispatch_run() -> bool:
+    """Whether this process is a dispatch job: :data:`DISPATCH_RUN_ENV_VAR` is ``"1"``."""
+    return os.environ.get(DISPATCH_RUN_ENV_VAR) == "1"
 
 
 def bound_owner() -> str | NoOwner:
@@ -1606,6 +1626,13 @@ def write_verdict(
     4. ``owner_unknown`` — the owner ladder (:func:`current_owner`) yields
        :data:`NO_OWNER` or anything that is not a non-empty name. A write with
        no owner is refused; nothing is governed by the ceiling alone here.
+       ``owner_unscheduled`` in its place for a dispatch run
+       (:data:`DISPATCH_RUN_ENV_VAR`), whether the caller passed
+       :data:`NO_OWNER` or the ladder resolved it: a scheduled or triggered
+       job that runs for no login has no switch to follow.
+       ``owner_foreign`` — with no tree bound, an owner that is not
+       :func:`~osprey_connectors.identity.acting_identity`: a host holds only
+       its own login's switch and never lends it to another owner.
     5. The owner rung (:func:`owner_tier_term`): a login the map does not name,
        or a map that cannot be read where the rung applies, is
        ``owner_unknown``; a login mapped ``never`` is ``tier_never``.
@@ -1704,8 +1731,14 @@ def _write_refusal(
         return "target_unknown"
 
     resolved = current_owner(owner)
+    if resolved is NO_OWNER and _is_dispatch_run():
+        return "owner_unscheduled"
     if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
         return "owner_unknown"
+    # A host holds one login's switch: an owner other than that login is refused
+    # before its tier or any record is read (a tree bind reads each owner's own).
+    if not _tree_is_bound() and resolved.strip() != acting_identity():
+        return "owner_foreign"
 
     rung = owner_tier_term(section, resolved)
     if rung == "unknown":

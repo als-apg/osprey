@@ -110,9 +110,10 @@ def pin_identity(monkeypatch: Any, identity: str = FIXTURE_IDENTITY) -> str:
 
 
 #: The variables that change a write verdict behind a test's back: a stamped
-#: owner, a bound tree or directory, a launch pin, a read-only run.
+#: owner, a dispatch run, a bound tree or directory, a launch pin, a read-only run.
 VERDICT_ENV_VARS: tuple[str, ...] = (
     posture_store.CONTROL_OWNER_ENV_VAR,
+    posture_store.DISPATCH_RUN_ENV_VAR,
     posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
     posture_store.CONTROL_CONTEXT_DIR_ENV_VAR,
     posture_store.LAUNCH_POSTURE_ENV_VAR,

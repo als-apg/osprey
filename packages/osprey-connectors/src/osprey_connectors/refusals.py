@@ -24,6 +24,8 @@ REASONS: tuple[str, ...] = (
     "tier_never",
     "target_unknown",
     "owner_unknown",
+    "owner_unscheduled",
+    "owner_foreign",
     "record_unavailable",
     "switch_off",
     "launch_pinned",
@@ -45,6 +47,14 @@ _PHRASES: dict[str, str] = {
     ),
     "owner_unknown": (
         "Writes are refused because this login's write tier is not known; ask the deployment admin."
+    ),
+    "owner_unscheduled": (
+        "Writes are refused because this scheduled or triggered job runs for no login, "
+        "so no switch covers it; ask the deployment admin."
+    ),
+    "owner_foreign": (
+        "Writes are refused because this machine's writes belong to another login; "
+        "only that login can write here."
     ),
     "record_unavailable": (
         "Writes are refused because the write switch cannot be read; "

@@ -47,6 +47,9 @@ from typing import Any
 
 import yaml
 
+# Framework-free, so it lives in the connectors suite's harness; re-exported here.
+from osprey_connectors_tests._harness._vocabulary import REFUSAL_BAN_LIST  # noqa: F401
+
 #: One agent-facing text: ``(source, name, field)``. The source is an MCP
 #: server, ``ariel_search`` for the ARIEL search descriptors, or ``rendered``
 #: for a file a build renders for the agent, named by its path under the
@@ -205,11 +208,3 @@ def hardcoded_vocabulary_hits(text: str) -> list[str]:
         elif re.search(rf"\b{re.escape(token)}\b", text, re.IGNORECASE):
             hits.append(token)
     return hits
-
-
-#: What no refusal phrase names: a config key, a config file, a build command or an
-#: environment variable. Matched against the text an operator or agent reads.
-REFUSAL_BAN_LIST = re.compile(
-    r"writes_enabled|control_system\.|profile\.yml|config\.yml|osprey build|\bOSPREY_[A-Z0-9_]+"
-    r"|\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b"
-)

@@ -18,11 +18,12 @@ import pytest
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, write_verdict
 from osprey_connectors.refusals import REASONS
-from osprey_connectors_tests._harness._control_context_fixtures import (
+from osprey_connectors_tests._harness import (
     write_control_context,
     write_payload,
 )
-from tests._write_verdict_cases import case_environment
+from osprey_connectors_tests._harness._control_context_fixtures import FIXTURE_IDENTITY
+from osprey_connectors_tests._harness._write_verdict_cases import case_environment
 
 __all__ = ["case_environment"]
 
@@ -30,6 +31,9 @@ LIVE = {"type": "epics", "writes": "allowed"}
 NEVER = {"type": "epics", "writes": "never"}
 
 EXECUTION_MODE = "OSPREY_EXECUTION_MODE"
+
+#: The host's own login: :func:`case_environment` pins the acting identity to it.
+ME = FIXTURE_IDENTITY
 
 
 @pytest.fixture(autouse=True)
@@ -143,7 +147,7 @@ def test_tree_with_nobody_bound_is_owner_unknown(tree):
 def test_owner_missing_from_the_map_is_owner_unknown(root):
     _host(root, switch={"live": "on"})
     section = {**LIVE, "login_tiers": {"alice": "allowed"}}
-    _refused(write_verdict(section, "live", owner="mallory"), "owner_unknown")
+    _refused(write_verdict(section, "live", owner=ME), "owner_unknown")
 
 
 def test_tree_with_no_map_is_owner_unknown(tree):
@@ -153,8 +157,8 @@ def test_tree_with_no_map_is_owner_unknown(tree):
 
 def test_mapped_never_is_tier_never(root):
     _host(root, switch={"live": "on"})
-    section = {**LIVE, "login_tiers": {"alice": "never"}}
-    _refused(write_verdict(section, "live", owner="alice"), "tier_never")
+    section = {**LIVE, "login_tiers": {ME: "never"}}
+    _refused(write_verdict(section, "live", owner=ME), "tier_never")
 
 
 def test_corrupt_host_record_is_record_unavailable(root):
@@ -258,8 +262,19 @@ def test_order_owner_beats_the_rung_and_the_record(root):
 
 def test_order_mapped_never_beats_the_record(root):
     write_payload(control_context.record_path_under(root), "{not json")
+    section = {**LIVE, "login_tiers": {ME: "never"}}
+    _refused(write_verdict(section, "live", owner=ME), "tier_never")
+
+
+def test_order_owner_unknown_beats_the_foreign_owner(root):
+    _host(root, switch={"live": "on"})
+    _refused(write_verdict(LIVE, "live", owner=NO_OWNER), "owner_unknown")
+
+
+def test_order_foreign_owner_beats_the_rung_and_the_record(root):
+    write_payload(control_context.record_path_under(root), "{not json")
     section = {**LIVE, "login_tiers": {"alice": "never"}}
-    _refused(write_verdict(section, "live", owner="alice"), "tier_never")
+    _refused(write_verdict(section, "live", owner="alice"), "owner_foreign")
 
 
 def test_order_record_beats_the_pin(root, monkeypatch):
@@ -274,14 +289,60 @@ def test_order_switch_beats_the_pin(root, monkeypatch):
     _refused(write_verdict(LIVE, "live"), "switch_off")
 
 
-# --- two owners on one host -----------------------------------------------
+# --- one login per host ---------------------------------------------------
 
 
 def test_two_owners_on_one_host_read_their_own_tiers(root):
+    """A host answers for its own login only; another owner is foreign, whatever its tier."""
     _host(root, switch={"live": "on"})
-    section = {**LIVE, "login_tiers": {"alice": "allowed", "bob": "never"}}
+    section = {**LIVE, "login_tiers": {ME: "allowed", "bob": "allowed"}}
+    assert write_verdict(section, "live", owner=ME).allowed is True
+    _refused(write_verdict(section, "live", owner="bob"), "owner_foreign")
+    demoted = {**LIVE, "login_tiers": {ME: "never", "bob": "allowed"}}
+    _refused(write_verdict(demoted, "live", owner=ME), "tier_never")
+    _refused(write_verdict(demoted, "live", owner="bob"), "owner_foreign")
+
+
+def test_a_foreign_owner_on_the_host_never_reads_the_record(root, monkeypatch):
+    _host(root, switch={"live": "on"})
+
+    def _unread(*args, **kwargs):
+        raise AssertionError("the host record was read for a foreign owner")
+
+    monkeypatch.setattr(control_context, "read_record_status", _unread)
+    _refused(write_verdict(LIVE, "live", owner="alice"), "owner_foreign")
+
+
+def test_a_stamped_foreign_owner_on_the_host_is_refused(root, monkeypatch):
+    _host(root, switch={"live": "on"})
+    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+    _refused(write_verdict(LIVE, "live"), "owner_foreign")
+
+
+def test_a_bound_foreign_owner_on_the_host_is_refused(root):
+    _host(root, switch={"live": "on"})
+    with posture_store.bind_owner({posture_store.RESERVED_OWNER_KWARG: "alice"}):
+        _refused(write_verdict(LIVE, "live"), "owner_foreign")
+
+
+@pytest.mark.parametrize("owner", [None, ME, f"  {ME} "])
+def test_the_hosts_own_login_is_unchanged(root, owner):
+    _host(root, switch={"live": "on"})
+    kwargs = {} if owner is None else {"owner": owner}
+    assert write_verdict(LIVE, "live", **kwargs).allowed is True
+
+
+def test_the_foreign_owner_follows_the_acting_identity(root, monkeypatch):
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "alice")
+    _host(root, switch={"live": "on"})  # under alice's own directory
+    assert write_verdict(LIVE, "live", owner="alice").allowed is True
+    _refused(write_verdict(LIVE, "live", owner=ME), "owner_foreign")
+
+
+def test_under_a_tree_the_owner_need_not_be_the_process_login(tree):
+    _tree_record(tree, "alice", switch={"live": "on"})
+    section = {**LIVE, "login_tiers": {"alice": "allowed"}}
     assert write_verdict(section, "live", owner="alice").allowed is True
-    _refused(write_verdict(section, "live", owner="bob"), "tier_never")
 
 
 def test_two_owners_in_one_tree_read_their_own_records(tree):

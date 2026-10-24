@@ -6,12 +6,14 @@ import pytest
 
 from osprey_connectors import refusals
 from osprey_connectors.refusals import KIND_WORDS, REASONS, STORE_PATH_MARKERS, refusal_phrase
-from tests._vocabulary import REFUSAL_BAN_LIST
+from osprey_connectors_tests._harness import REFUSAL_BAN_LIST
 
 LIFTERS = {
     "switch_off": "turn it on from the chip in the web terminal",
     "tier_never": "deployment admin",
     "owner_unknown": "deployment admin",
+    "owner_unscheduled": "ask the deployment admin",
+    "owner_foreign": "only that login can write here",
     "readonly_run": "the deployment is running read-only",
     "launch_pinned": "run it again without the pin",
     "stopped_since": "turn it on again from the chip",

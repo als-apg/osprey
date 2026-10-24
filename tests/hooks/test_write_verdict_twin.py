@@ -3,7 +3,7 @@
 ``osprey_target_state.write_verdict`` restates
 :func:`osprey_connectors.posture_store.write_verdict` for the hooks, which run
 outside the osprey venv. Both read one case table
-(``tests/fixtures/write_verdict_cases.json``); this module drives its ``twin``
+(``osprey_connectors_tests/_harness/fixtures/write_verdict_cases.json``); this module drives its ``twin``
 rows through the hook, and pins the restated words — ``REASONS``, every phrase
 and ``STORE_PATH_MARKERS`` — key by key against
 :mod:`osprey_connectors.refusals`. A drift between the two is a write refused
@@ -27,7 +27,7 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey_connectors import posture_store, refusals
-from tests._write_verdict_cases import (
+from osprey_connectors_tests._harness._write_verdict_cases import (
     Case,
     case_environment,
     cases_for,
@@ -88,6 +88,25 @@ def test_twin_and_package_agree_on_kind(case: Case, monkeypatch, tmp_path):
         package.target,
         package.kind,
     )
+
+
+def test_a_dispatch_run_resolves_no_owner_on_both_sides(monkeypatch, tmp_path):
+    """The dispatch rung sits below the stamp and above the tree and the account."""
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path))
+    monkeypatch.delenv("OSPREY_CONTROL_CONTEXT_TREE", raising=False)
+    monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
+    posture_store._owner_var.set(posture_store.NO_OWNER)
+    assert reader.current_owner() is reader.NO_OWNER
+    assert posture_store.current_owner() is posture_store.NO_OWNER
+
+    monkeypatch.setenv("OSPREY_CONTROL_OWNER", "alice")
+    assert reader.current_owner() == posture_store.current_owner() == "alice"
+
+    monkeypatch.delenv("OSPREY_CONTROL_OWNER")
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "0")
+    assert reader.current_owner() is not reader.NO_OWNER
+    assert posture_store.current_owner() is not posture_store.NO_OWNER
 
 
 def test_the_verdict_never_raises_on_a_hostile_section(monkeypatch):
@@ -159,6 +178,7 @@ def test_store_path_markers_match():
 
 def test_restated_store_names_match_the_package():
     assert reader.CONTROL_OWNER_ENV_VAR == posture_store.CONTROL_OWNER_ENV_VAR
+    assert reader.DISPATCH_RUN_ENV_VAR == posture_store.DISPATCH_RUN_ENV_VAR
     assert reader.CONTROL_CONTEXT_TREE_ENV_VAR == posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
     assert reader.CONTROL_TREE_MARKER_NAME == posture_store.CONTROL_TREE_MARKER_NAME
     assert reader.LAUNCH_POSTURE_ENV_VAR == posture_store.LAUNCH_POSTURE_ENV_VAR
@@ -168,6 +188,7 @@ def test_restated_store_names_match_the_package():
 
 def test_new_names_are_exported():
     for name in (
+        "DISPATCH_RUN_ENV_VAR",
         "KIND_WORDS",
         "NO_OWNER",
         "REASONS",
@@ -189,12 +210,16 @@ def test_new_names_are_exported():
 # -- the forwarded environment ----------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["OSPREY_CONTROL_OWNER", "OSPREY_CONTROL_CONTEXT_TREE"])
+@pytest.mark.parametrize(
+    "name", ["OSPREY_CONTROL_OWNER", "OSPREY_CONTROL_CONTEXT_TREE", "OSPREY_DISPATCH_RUN"]
+)
 def test_the_owner_ladder_vars_reach_a_hook_subprocess(name):
     assert name in _HOOK_VARS
 
 
-@pytest.mark.parametrize("name", ["OSPREY_CONTROL_OWNER", "OSPREY_CONTROL_CONTEXT_TREE"])
+@pytest.mark.parametrize(
+    "name", ["OSPREY_CONTROL_OWNER", "OSPREY_CONTROL_CONTEXT_TREE", "OSPREY_DISPATCH_RUN"]
+)
 def test_the_owner_ladder_vars_are_blank_by_default(name):
     assert not os.environ.get(name)
 
@@ -239,7 +264,12 @@ def test_the_module_imports_and_decides_without_site_packages(tmp_path):
         ")\n"
         "print(json.dumps([foreign, verdict.reason]))\n"
     )
-    env = {"PATH": os.environ.get("PATH", ""), "OSPREY_AGENT_DATA_ROOT": str(tmp_path)}
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "OSPREY_AGENT_DATA_ROOT": str(tmp_path),
+        # The host's own login, so the owner is not refused as foreign.
+        "OSPREY_AUDIT_IDENTITY": "alice",
+    }
     result = subprocess.run(
         [sys.executable, "-I", "-S", "-c", probe],
         capture_output=True,

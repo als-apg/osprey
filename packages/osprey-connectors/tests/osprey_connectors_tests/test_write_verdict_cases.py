@@ -1,6 +1,6 @@
 """Every ``package`` row of the write-verdict case table, through the package.
 
-The table (``tests/fixtures/write_verdict_cases.json``) is shared with the
+The table (``_harness/fixtures/write_verdict_cases.json``) is shared with the
 hook's stdlib twin; this module drives its ``package`` rows through
 :func:`~osprey_connectors.posture_store.write_verdict` and
 :func:`~osprey_connectors.posture_store.backstop_verdict`, and pins the
@@ -17,7 +17,7 @@ import pytest
 
 from osprey_connectors.posture_store import backstop_verdict, write_verdict
 from osprey_connectors.refusals import REASONS
-from tests._write_verdict_cases import (
+from osprey_connectors_tests._harness._write_verdict_cases import (
     CASES,
     CASES_PATH,
     LOGIN_TIERS_SHAPE_SOURCE,

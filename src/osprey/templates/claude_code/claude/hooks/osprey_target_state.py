@@ -199,7 +199,15 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import agent_data_root_at, get_repo_root, load_osprey_config
+from osprey_hook_log import (
+    agent_data_root_at,
+    get_repo_root,
+    is_write_call,
+    is_write_tool,
+    load_hook_config,
+    load_osprey_config,
+    write_tools,
+)
 
 #: Fixed subdirectory of the agent-data root, holding one directory per
 #: identity. Mirrors ``STATE_DIR_NAME`` on the writer; part of the greppable
@@ -333,6 +341,7 @@ __all__ = [
     "CONTROL_OWNER_ENV_VAR",
     "CONTROL_TARGETS",
     "CONTROL_TREE_MARKER_NAME",
+    "DISPATCH_RUN_ENV_VAR",
     "EXECUTION_MODE_ENV_VAR",
     "FALLBACK_BASELINE",
     "IDENTITY_ENV_LADDER",
@@ -367,6 +376,7 @@ __all__ = [
     "TIER_ALLOWED",
     "TIER_NEVER",
     "UNKNOWN_IDENTITY",
+    "UNRESOLVED",
     "VALID_POSTURES",
     "VIRTUAL_ACCELERATOR_TYPE",
     "WRITES_ENABLED_LEAF",
@@ -378,6 +388,7 @@ __all__ = [
     "baseline_result",
     "current_owner",
     "effective_writes_for",
+    "hook_write_target",
     "is_baseline",
     "is_readonly_run",
     "launch_pin_term",
@@ -1232,6 +1243,10 @@ def effective_writes_for(hook_input, section, target):
 #: ``posture_store.CONTROL_OWNER_ENV_VAR``; a blank value is the unset case.
 CONTROL_OWNER_ENV_VAR = "OSPREY_CONTROL_OWNER"
 
+#: The mark of a dispatch job. Mirrors ``posture_store.DISPATCH_RUN_ENV_VAR``;
+#: only ``"1"`` marks one.
+DISPATCH_RUN_ENV_VAR = "OSPREY_DISPATCH_RUN"
+
 #: The read-only bind of every login's control-context directory, carried by a
 #: container that holds no chip of its own. Mirrors
 #: ``posture_store.CONTROL_CONTEXT_TREE_ENV_VAR``. Its PRESENCE makes the
@@ -1276,6 +1291,8 @@ REASONS = (
     "tier_never",
     "target_unknown",
     "owner_unknown",
+    "owner_unscheduled",
+    "owner_foreign",
     "record_unavailable",
     "switch_off",
     "launch_pinned",
@@ -1298,6 +1315,14 @@ _PHRASES = {
     ),
     "owner_unknown": (
         "Writes are refused because this login's write tier is not known; ask the deployment admin."
+    ),
+    "owner_unscheduled": (
+        "Writes are refused because this scheduled or triggered job runs for no login, "
+        "so no switch covers it; ask the deployment admin."
+    ),
+    "owner_foreign": (
+        "Writes are refused because this machine's writes belong to another login; "
+        "only that login can write here."
     ),
     "record_unavailable": (
         "Writes are refused because the write switch cannot be read; "
@@ -1498,8 +1523,9 @@ def current_owner(owner=None):
     Mirrors ``posture_store.current_owner`` without the context-variable rung,
     which only a queueserver worker sets: an explicit *owner* (a string is
     stripped; :data:`NO_OWNER` or any other value is returned as is), else
-    :data:`CONTROL_OWNER_ENV_VAR` when non-blank, else :data:`NO_OWNER` when a
-    tree is bound, else :func:`acting_identity`. Never raises.
+    :data:`CONTROL_OWNER_ENV_VAR` when non-blank, else :data:`NO_OWNER` for a
+    dispatch run (:data:`DISPATCH_RUN_ENV_VAR` is ``"1"``) or when a tree is
+    bound, else :func:`acting_identity`. Never raises.
     """
     if isinstance(owner, str):
         return owner.strip()
@@ -1508,9 +1534,16 @@ def current_owner(owner=None):
     stamped = os.environ.get(CONTROL_OWNER_ENV_VAR)
     if isinstance(stamped, str) and stamped.strip():
         return stamped.strip()
+    if _is_dispatch_run():
+        return NO_OWNER
     if _tree_is_bound():
         return NO_OWNER
     return acting_identity()
+
+
+def _is_dispatch_run():
+    """Whether this process is a dispatch job. Mirrors ``posture_store._is_dispatch_run``."""
+    return os.environ.get(DISPATCH_RUN_ENV_VAR) == "1"
 
 
 def owner_tier_term(section, owner):
@@ -1689,8 +1722,13 @@ def _write_refusal(section, target, owner, ignore_launch_pin, hook_input):
         return "target_unknown"
 
     resolved = current_owner(owner)
+    if resolved is NO_OWNER and _is_dispatch_run():
+        return "owner_unscheduled"
     if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
         return "owner_unknown"
+    # Mirrors the package: a host never lends its login's switch to another owner.
+    if not _tree_is_bound() and resolved.strip() != acting_identity():
+        return "owner_foreign"
 
     rung = owner_tier_term(section, resolved)
     if rung == "unknown":
@@ -1730,7 +1768,9 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
 
     The stdlib twin of ``posture_store.write_verdict``, term for term:
     ``readonly_run``, ``tier_never`` (the section's tier), ``target_unknown``,
-    ``owner_unknown`` (the ladder found nobody), the login-tier rung
+    ``owner_unknown`` (the ladder found nobody; ``owner_unscheduled`` instead
+    for a dispatch run), ``owner_foreign`` (no tree
+    bound and an owner that is not :func:`acting_identity`), the login-tier rung
     (``owner_unknown`` / ``tier_never``), ``record_unavailable`` (the tree
     record under a bound tree, else this host's record — absent is not
     unavailable), ``switch_off`` (not ``"on"`` for *target*, or a recorded
@@ -1756,3 +1796,164 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
     except Exception:
         reason = "record_unavailable"
     return WriteVerdict(allowed=reason is None, reason=reason, target=named, kind=kind)
+
+
+# -- which machine a hooked call writes to ---------------------------------
+#
+# One classifier for both PreToolUse hooks: ``osprey_writes_check`` denies
+# exactly where ``osprey_approval`` defers, so the two must agree on which
+# machine a call writes to before either asks the verdict about it.
+
+
+class _Unresolved:
+    """A write whose machine could not be placed: one instance, compared by identity.
+
+    Distinct from ``None``, which :func:`hook_write_target` keeps for a call
+    that writes nothing. A write nobody can place is refused, never waved
+    through as if it were a read.
+    """
+
+    __slots__ = ()
+
+    def __str__(self):
+        return "<unresolved>"
+
+    __repr__ = __str__
+
+
+#: The answer for a write whose machine cannot be placed. See :class:`_Unresolved`.
+UNRESOLVED = _Unresolved()
+
+#: The hook_config key naming the tools a plan lane addresses, as short names.
+_LANE_ADDRESSED_KEY = "lane_addressed_tools"
+
+#: The hook_config key naming the ``control_system.write_tools`` entries the
+#: render appended to ``write_tools``: the deployment's own write tools.
+_FACILITY_EXTRAS_KEY = "control_system_write_tools"
+
+#: The wildcard a whole-server ``writes_check`` matcher ends in.
+_SERVER_MATCHER_WILDCARD = ".*"
+
+#: The service key of the default lane, and every service key that can name a
+#: lane, in render order. Restated from ``osprey.bluesky_bridge_connection``
+#: for the reason every literal here is: a hook cannot import the framework.
+_LANE_ONE = "bluesky"
+_LANE_KEYS = (_LANE_ONE, "bluesky_va", "bluesky_live", "bluesky_standin")
+
+
+def _is_facility_tool(tool_name, hook_config):
+    """Whether *tool_name* is a write tool the deployment declared, not the framework.
+
+    Two producers, both read from the render: a whole-server ``writes_check``
+    matcher (``mcp__<name>__.*``), which only a facility-custom server carries,
+    and a ``control_system.write_tools`` entry the render appended. An extra
+    that names a framework tool was not appended, and stays a framework tool.
+    """
+    for entry in hook_config.get("write_tools") or ():
+        if (
+            isinstance(entry, str)
+            and entry.endswith(_SERVER_MATCHER_WILDCARD)
+            and is_write_tool(tool_name, [entry])
+        ):
+            return True
+    extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
+    return tool_name in [extra for extra in extras if isinstance(extra, str)]
+
+
+def _lane_block(config, lane_key):
+    """A lane's ``services.<lane>`` block, or ``{}``."""
+    services = config.get("services") if isinstance(config, dict) else None
+    block = services.get(lane_key) if isinstance(services, dict) else None
+    return block if isinstance(block, dict) else {}
+
+
+def _rendered_lanes(config):
+    """``[(lane key, the target it serves)]`` in render order.
+
+    Restates ``osprey_approval._rendered_lanes``: a lane block that declares no
+    ``target`` serves the deployment baseline, and lane one is reported even
+    when the config does not name it.
+    """
+    section = config.get("control_system") if isinstance(config, dict) else None
+    baseline = _baseline_target(section)
+    lanes = []
+    for key in _LANE_KEYS:
+        block = _lane_block(config, key)
+        if not block:
+            continue
+        declared = block.get("target")
+        lanes.append((key, declared if isinstance(declared, str) and declared else baseline))
+    if not any(key == _LANE_ONE for key, _ in lanes):
+        lanes.insert(0, (_LANE_ONE, baseline))
+    return lanes
+
+
+def _lane_machine(config, tool_input):
+    """The target the call's lane serves, or :data:`UNRESOLVED`.
+
+    A call naming no lane binds to the one lane a single-lane deployment has.
+    No lane on a two-lane render, a lane the render does not carry, or a lane
+    serving no known target cannot be placed.
+    """
+    lanes = _rendered_lanes(config)
+    lane = tool_input.get("lane") if isinstance(tool_input, dict) else None
+    if not lane:
+        target = lanes[0][1] if len(lanes) == 1 else None
+    else:
+        target = next((served for key, served in lanes if key == lane), None)
+    return target if target in CONTROL_TARGETS else UNRESOLVED
+
+
+def _session_machine(config, hook_input):
+    """The target the session is pointed at, or :data:`UNRESOLVED`.
+
+    The record's target when it is readable. With no record at all, the
+    baseline: nobody has switched, and with no record no switch is on, so the
+    verdict refuses whichever target is named. :data:`UNRESOLVED` when the
+    record cannot be read, and when the root was guessed and holds no record
+    (:func:`posture_unknown`), where an absent record proves nothing.
+    """
+    result = read_target(hook_input)
+    if not is_baseline(result):
+        return result.get("target")
+    if result.get("reason") != REASON_NO_STATE or posture_unknown(hook_input):
+        return UNRESOLVED
+    section = config.get("control_system") if isinstance(config, dict) else None
+    return _baseline_target(section)
+
+
+def hook_write_target(config, tool_name, short_name, hook_input):
+    """The machine a hooked call writes to. Never raises.
+
+    * ``None`` for a call that writes nothing: a tool outside the render's
+      ``write_tools``, or a readonly execution.
+    * :data:`TARGET_LIVE` for a facility write tool (:func:`_is_facility_tool`):
+      the deployment declared it, and only the real machine's switch covers it.
+    * The lane's target for a lane-addressed tool (:func:`_lane_machine`).
+    * The session's target for every other framework write tool
+      (:func:`_session_machine`).
+
+    :data:`UNRESOLVED` wherever a write cannot be placed, including any failure
+    while answering: a write nobody can place is refused, never read as a read.
+
+    Args:
+        config: The loaded ``config.yml``, for the lane map and the baseline.
+        tool_name: The full tool name from the hook payload.
+        short_name: *tool_name* without its server prefix.
+        hook_input: The hook's stdin payload: the call's ``tool_input`` and
+            the repo root for the record.
+    """
+    try:
+        tool_input = hook_input.get("tool_input") if isinstance(hook_input, dict) else None
+        if not is_write_tool(tool_name, write_tools()):
+            return None
+        if not is_write_call(tool_name, tool_input, short_name):
+            return None
+        hook_config = load_hook_config()
+        if _is_facility_tool(tool_name, hook_config):
+            return TARGET_LIVE
+        if short_name in tuple(hook_config.get(_LANE_ADDRESSED_KEY) or ()):
+            return _lane_machine(config, tool_input)
+        return _session_machine(config, hook_input)
+    except Exception:
+        return UNRESOLVED
