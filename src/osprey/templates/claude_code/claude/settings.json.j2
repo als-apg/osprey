@@ -25,7 +25,12 @@
       }
 {%- endmacro -%}
 {
-  "showThinkingSummaries": true,
+{#- The deployment's `claude_code.thinking.display`: "summarized" (the default)
+    shows thinking summaries, "omitted" hides them. The key is always stated,
+    true or false, so a missing value never falls back silently. This setting
+    reaches interactive sessions only; `--print` and SDK runs take the display
+    as a launch argument instead. #}
+  "showThinkingSummaries": {{ "true" if show_thinking_summaries else "false" }},
 {%- if terminal_theme %}
 {#- The terminal follows the deployment's `web.theme`, and only when that
     value PINS a mode (a concrete theme id like "desy-light"). A family pins

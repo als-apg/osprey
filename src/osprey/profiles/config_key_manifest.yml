@@ -2052,6 +2052,20 @@ keys:
       every terminal and the dispatch worker load. Unset, Claude Code's own
       default (30) applies. 0 is refused.
     default: null
+  claude_code.thinking: {rendered: false, evidence: 'get\("thinking"\)', default: {}}
+  claude_code.thinking.display:
+    rendered: false
+    evidence: '_thinking_display'
+    note: >-
+      How Claude Code shows its thinking: `summarized` shows the thinking
+      summaries, `omitted` leaves thinking out. It reaches every launch by
+      three routes: `showThinkingSummaries` in the project settings the
+      terminals load, the SDK options' `--thinking-display` extra argument
+      for headless runs, and `--thinking-display` on `osprey chat --print`.
+      The flag is sent only to Claude Code 2.1.228 or newer; an older or
+      unknown version gets the settings route alone. Any other value is
+      refused at build.
+    default: summarized
   claude_code.telemetry.log_tool_content: {evidence: 'log_tool_content', default: true}
   claude_code.telemetry.content_max_length:
     evidence: '_content_max_length'

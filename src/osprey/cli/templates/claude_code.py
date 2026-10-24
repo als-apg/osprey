@@ -19,6 +19,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
     BuildArtifactCatalog,
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
+from osprey.agent_runner.launcher import resolve_thinking_display
 from osprey.agent_runner.tool_names import DENY_DEFAULTS, WRITE_CAPABLE_BUILTINS
 from osprey.ariel_attachment_view import attachment_view_enabled
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
@@ -412,6 +413,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # How long Claude Code keeps session transcripts — settings.json.j2
         # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
         "transcripts_retention_days": _transcripts_retention_days(config),
+        # Whether Claude Code shows its thinking summaries — settings.json.j2
+        # renders it as `showThinkingSummaries`, true unless the deployment
+        # sets `claude_code.thinking.display: omitted`.
+        "show_thinking_summaries": _thinking_display(config) == "summarized",
     }
 
 
@@ -594,6 +599,22 @@ def _transcripts_retention_days(config: dict) -> int | None:
         f"1 or more (got {value!r}). Claude Code refuses 0, and deletes transcripts "
         f"older than this at startup."
     )
+
+
+def _thinking_display(config: dict) -> str:
+    """The ``claude_code.thinking.display`` value: ``"summarized"`` (default) or ``"omitted"``.
+
+    The key path is walked by :func:`~osprey.agent_runner.launcher.resolve_thinking_display`
+    alone, so the build reads the key exactly as every launch does.
+
+    Raises:
+        BuildProfileError: If the value is neither ``summarized`` nor
+            ``omitted``, or the ``thinking`` block is not a mapping.
+    """
+    try:
+        return resolve_thinking_display(config.get("claude_code") or {}, None).value
+    except ValueError as exc:
+        raise BuildProfileError(str(exc)) from exc
 
 
 def _terminal_theme(config: dict) -> str | None:
