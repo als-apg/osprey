@@ -441,8 +441,8 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     }
 
 
-def drive_served_recipe(tree: str, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export of ``tree``.
+def drive_served_recipe(tree: str, root: Path) -> dict[str, Any]:
+    """The control-assistant recipe over a 2.0 export of ``tree``, in ``root/<tree>``.
 
     The exports enter the facility description through ``facility import
     mml``, past the stop it makes over the preset's authored sources. The
@@ -459,7 +459,8 @@ def drive_served_recipe(tree: str, tmp_path_factory: pytest.TempPathFactory) -> 
     assert exports, f"{tree} commits no export"
 
     runner = CliRunner()
-    repo = tmp_path_factory.mktemp(f"recipe-served-{tree}") / "demo"
+    (root / tree).mkdir()
+    repo = root / tree / "demo"
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, exports)
@@ -503,6 +504,17 @@ def drive_served_recipe(tree: str, tmp_path_factory: pytest.TempPathFactory) -> 
 
 
 @pytest.fixture(scope="module")
+def served_recipes_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The directory the driven recipes live in, removed when the module ends.
+
+    Made here rather than per tree in ``served_repo``: that fixture is set up
+    again on every parameter change, and what its setup made would go with
+    each teardown while ``served_recipes`` still hands the tree out.
+    """
+    return tmp_path_factory.mktemp("recipe-served")
+
+
+@pytest.fixture(scope="module")
 def served_recipes() -> dict[str, dict[str, Any]]:
     """The driven recipe of each tree this module has requested, by tree."""
     return {}
@@ -511,7 +523,7 @@ def served_recipes() -> dict[str, dict[str, Any]]:
 @pytest.fixture(scope="module", params=BUILT_TREES)
 def served_repo(
     request: pytest.FixtureRequest,
-    tmp_path_factory: pytest.TempPathFactory,
+    served_recipes_root: Path,
     served_recipes: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """The control-assistant recipe over a 2.0 export, driven once per supported tree.
@@ -523,7 +535,7 @@ def served_repo(
     """
     tree = str(request.param)
     if tree not in served_recipes:
-        served_recipes[tree] = drive_served_recipe(tree, tmp_path_factory)
+        served_recipes[tree] = drive_served_recipe(tree, served_recipes_root)
     return served_recipes[tree]
 
 
