@@ -78,6 +78,8 @@ from osprey_connectors.factory import ConnectorFactory, isolated_connector_regis
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import derive_endpoints
+from osprey_connectors_tests._harness import isolate_verdict_environment
+from osprey_connectors_tests._harness import write_control_context as harness_write_control_context
 from tests.fixtures.control_context import context_for
 from tests.integration._mock_pair_connectors import (
     BATCH_CHANNELS,
@@ -140,8 +142,9 @@ def raw_config() -> dict[str, Any]:
         "control_system": {
             "type": LIVE_TYPE,
             # The limits violation below is raised by the connector, one layer
-            # under the base class's writes_enabled guard: with writes off the
+            # under the base class's write guard: with the write refused the
             # guard returns a blocked result and the raise is never reached.
+            # This is the tier; the switch is turned on by ``state_root``.
             "writes_enabled": True,
             "connector": {
                 LIVE_TYPE: {"probe_channel": LIVE_PROBE},
@@ -179,9 +182,16 @@ def state_root(tmp_path, monkeypatch):
     control-context record, which every other reader reaches through the
     ``OSPREY_AGENT_DATA_ROOT`` stamp. Anchoring only one of them is how a test
     reads a record left behind by whatever last ran on this machine.
+
+    The write verdict's environment is isolated under the root, with the acting
+    identity pinned in the real environment so the children name the same
+    owner, and both machines' switches are turned on: the config's tier allows
+    writes, and the limits violation below is raised one layer under the
+    write guard, which only an allowed write reaches.
     """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    isolate_verdict_environment(monkeypatch, tmp_path)
+    harness_write_control_context(tmp_path, owned_by=None, switch={"live": "on", "va": "on"})
     control_context.invalidate_cache()
     yield tmp_path
     control_context.invalidate_cache()
@@ -582,6 +592,8 @@ SANDBOX_VA_PORT = 5099
 
 SANDBOX_SECTION: dict[str, Any] = {
     "type": "epics",
+    # The tier; the record ``state_root`` writes has the switch on for 'va'.
+    "writes": "allowed",
     "connector": {
         "epics": {
             "probe_channel": LIVE_PROBE,

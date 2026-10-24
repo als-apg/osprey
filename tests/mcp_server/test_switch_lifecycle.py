@@ -52,6 +52,7 @@ from osprey_connectors.ipc._verification import (
     TargetDerivation,
     verify_host_report,
 )
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._harness import state_dir_under
 from tests.facility.served_tree import in_process_config
@@ -69,6 +70,7 @@ from tests.mcp_server._switch_harness import (
     SLOW_CHANNEL,
     VA_PROBE,
     VA_WRITE_GATEWAY_PORT,
+    arm,
     gateway_config,
     narrow,
     project_config,
@@ -411,7 +413,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         self, make_manager, monkeypatch
     ):
         manager = await started_on(make_manager, "live")
-        real_writes = connector_host_manager.effective_writes_for_target
+        real_writes = connector_host_manager._writes_allowed
 
         def writes(section, target):
             # The parent derives 'va' armed; the child, handed no project
@@ -419,7 +421,7 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
             # gateways, so only the posture check can tell the two apart.
             return True if target == "va" else real_writes(section, target)
 
-        monkeypatch.setattr(connector_host_manager, "effective_writes_for_target", writes)
+        monkeypatch.setattr(connector_host_manager, "_writes_allowed", writes)
 
         with pytest.raises(SwitchError) as raised:
             await manager.switch("va")
@@ -483,35 +485,46 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
 
 
 @pytest.fixture
-def write_armed_project(tmp_path):
-    """A project config file that arms writes deployment-wide."""
-    return project_config(tmp_path, {"writes_enabled": True})
+def write_armed_project(tmp_path, state_root):
+    """A project config whose tier allows writes, with both machines switched on."""
+    arm(state_root, "live", "va")
+    return project_config(tmp_path, {"type": GATEWAY_TYPE, "writes_enabled": True})
 
 
 @pytest.fixture
-def live_armed_project(tmp_path):
-    """A project config that arms writes on the live type's block alone.
+def live_armed_project(tmp_path, state_root):
+    """A project config whose tier is allowed by the live type's block, live switched on.
 
-    The deployment-wide key is false, so a child resolving posture from it
-    would stay on the read gateway — and the write role whose failure the
-    fallback answers would never be selected in the first place.
+    The deployment-wide key is false; the live block's ``writes_enabled`` is
+    what makes the tier allow writes, and the switch is on for ``live`` alone,
+    so the write role whose failure the fallback answers is the one selected.
     """
+    arm(state_root, "live")
     return project_config(
         tmp_path,
-        {"writes_enabled": False, "connector": {GATEWAY_TYPE: {"writes_enabled": True}}},
+        {
+            "type": GATEWAY_TYPE,
+            "writes_enabled": False,
+            "connector": {GATEWAY_TYPE: {"writes_enabled": True}},
+        },
     )
 
 
 @pytest.fixture
-def va_armed_project(tmp_path):
-    """A project config that arms the simulator and leaves the machine unarmed.
+def va_armed_project(tmp_path, state_root):
+    """A project config whose tier allows writes, with only the simulator switched on.
 
     The shape this feature exists for: a deployment whose baseline is a real
     machine, arming writes on its virtual accelerator only.
     """
+    arm(state_root, "va")
     return project_config(
         tmp_path,
-        {"writes_enabled": False, "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}}},
+        {
+            "type": GATEWAY_TYPE,
+            "writes_enabled": False,
+            "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
+        },
     )
 
 
@@ -742,12 +755,9 @@ class TestPerTargetPosture:
     async def test_the_write_gate_moves_with_the_session(self, make_manager, va_armed_project):
         """The same write, permitted on one target and refused on the other.
 
-        The refusal names the block an operator would have to edit — the live
-        type's own block rather than the deployment-wide key — because that is
-        the posture the connector serving this target actually read. This
-        fixture's type is a dotted module path, so the block is named in the
-        mapping form a build profile applies verbatim: a dotted key would be
-        split on every dot into a nest the posture lookup never reads.
+        The tier allows writes on every machine; the switch is on for ``va``
+        alone, so the write to the real machine is refused with the switch-off
+        phrase for it — the words the person acts on, never a config key.
         """
         manager = await mixed_session(make_manager, va_armed_project)
         await manager.switch("va")
@@ -759,11 +769,104 @@ class TestPerTargetPosture:
         assert armed.outcome is not WriteOutcome.REFUSED
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "WRITES_DISABLED"
-        assert (
-            f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" not in refused.error_message
+        assert refusal_phrase("switch_off", "real") in refused.error_message
+        assert "writes_enabled" not in refused.error_message
+
+
+@pytest.fixture
+def tier_project(tmp_path):
+    """A project config whose tier allows writes, with no machine switched on yet."""
+    return project_config(
+        tmp_path,
+        {
+            "type": GATEWAY_TYPE,
+            "writes_enabled": False,
+            "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
+        },
+    )
+
+
+class TestTheSwitchGovernsWrites:
+    """The login's switch decides the write, and never the target switch.
+
+    The tier allows writes on every machine here, so the switch for ``va`` is
+    the only thing that differs between the two cases: on, the write lands
+    through the child; off, the child's write guard refuses it with the
+    switch-off phrase. The target switch succeeds either way — on the write
+    gateway with the switch on, on the read gateway with it off.
+    """
+
+    async def _on_va(self, make_manager, tier_project):
+        manager = make_manager(
+            raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+            config_path=tier_project,
         )
-        assert "control_system.connector:" in refused.error_message
-        assert f"{GATEWAY_TYPE}:" in refused.error_message
+        await manager.ensure_started()
+        return manager, await manager.switch("va")
+
+    async def test_the_switch_on_lets_a_write_land_through_the_child(
+        self, make_manager, tier_project, state_root
+    ):
+        arm(state_root, "va")
+        manager, result = await self._on_va(make_manager, tier_project)
+
+        written = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert result["target"] == "va"
+        assert result["selected_role"] == "write_access"
+        assert written.outcome is not WriteOutcome.REFUSED
+
+    async def test_the_switch_off_refuses_the_write_with_the_off_phrase(
+        self, make_manager, tier_project, state_root
+    ):
+        arm(state_root)
+        manager, result = await self._on_va(make_manager, tier_project)
+
+        refused = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert result["target"] == "va"
+        assert result["selected_role"] == "read_only"
+        assert refused.outcome is WriteOutcome.REFUSED
+        assert refused.refusal_reason == "WRITES_DISABLED"
+        assert refusal_phrase("switch_off", "simulator") in refused.error_message
+
+    async def test_a_verdict_that_moves_while_the_child_connects_is_re_derived_once(
+        self, make_manager, tier_project, state_root
+    ):
+        """The parent derives 'va' armed; the switch goes off before the child connects.
+
+        The child then reports writes off, which is the verdict that moved, not
+        a disagreement: the parent takes the verdict again, finds it equal to
+        the report, discards the candidate and launches once more under the new
+        derivation instead of refusing a switch nobody got wrong.
+        """
+        arm(state_root, "va")
+        manager = make_manager(
+            raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+            config_path=tier_project,
+        )
+        await manager.ensure_started()
+        spawned_before = len(manager.spawned)
+        recording_spawn = manager._spawn
+        flipped = []
+
+        async def spawn_after_turn_off(target):
+            if not flipped:
+                flipped.append(target)
+                arm(state_root)
+            return await recording_spawn(target)
+
+        manager._spawn = spawn_after_turn_off
+
+        result = await manager.switch("va")
+
+        assert flipped == ["va"]
+        assert result["target"] == "va"
+        assert result["selected_role"] == "read_only"
+        assert manager.status()["selected_role"] == "read_only"
+        assert len(manager.spawned) == spawned_before + 2
+        discarded = manager.spawned[spawned_before]
+        assert await wait_for(lambda: discarded.returncode is not None)
 
 
 # --------------------------------------------------- republished identity
@@ -808,6 +911,7 @@ class TestRepublishedDisplayMetadata:
         has to name that gateway rather than the write-capable one the
         deployment still permits.
         """
+        arm(posture_root, "live")
         manager = make_manager(
             raw=gateway_config(writes_enabled=True), config_path=write_armed_project
         )

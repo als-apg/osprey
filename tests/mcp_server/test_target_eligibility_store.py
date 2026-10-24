@@ -49,12 +49,15 @@ from osprey_connectors.types import VIRTUAL_ACCELERATOR
 # real per-type posture, with no Channel Access anywhere. That connector and the
 # two-target setup it comes with live in the harness module, and this
 # directory's conftest is what resolves the harness's fixtures here.
+from osprey_connectors_tests._harness import isolate_verdict_environment
 from tests.mcp_server._switch_harness import (
     GATEWAY_HOST,
+    GATEWAY_TYPE,
     SPAWN_TIMEOUT_S,
     VA_PROBE,
     VA_READ_GATEWAY_PORT,
     VA_WRITE_GATEWAY_PORT,
+    arm,
     gateway_config,
     narrow,
     project_config,
@@ -132,11 +135,12 @@ def store_root(tmp_path, monkeypatch):
     """A scratch agent-data root this process is stamped at, caches cleared.
 
     The root is the anchor: the record beneath it is what every process on this
-    deployment reads its narrowings from.
+    deployment reads its switch and its narrowings from. The write verdict's
+    environment is isolated under it, with the acting identity pinned in the
+    real environment, so the connector-host children name the same owner.
     """
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    isolate_verdict_environment(monkeypatch, tmp_path)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION)
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
     yield tmp_path
     posture_store.invalidate_cache()
@@ -148,30 +152,31 @@ def store_root(tmp_path, monkeypatch):
 
 
 class TestEffectiveWritesForTarget:
-    @pytest.mark.usefixtures("store_root")
-    def test_an_unnarrowed_target_keeps_the_deployments_own_answer(self):
+    def test_an_unnarrowed_target_keeps_the_deployments_own_answer(self, store_root):
+        arm(store_root, LIVE, VA)
         section = _config()["control_system"]
 
         assert te.effective_writes_for_target(section, LIVE) is True
         assert te.effective_writes_for_target(section, VA) is True
 
     def test_a_narrowing_takes_arming_away_from_that_target_alone(self, store_root):
+        arm(store_root, LIVE, VA)
         section = _config()["control_system"]
         narrow(store_root, VA)
 
         assert te.effective_writes_for_target(section, VA) is False
         assert te.effective_writes_for_target(section, LIVE) is True
 
-    @pytest.mark.usefixtures("store_root")
-    def test_the_store_never_widens_a_deployment_that_arms_nothing(self):
-        """Nothing in the store can arm a target the config left unarmed."""
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, store_root):
+        """A switch on cannot arm a target whose tier never allows writes."""
+        arm(store_root, LIVE, VA)
         section = _config(live_writes=False, va_writes=False)["control_system"]
 
         assert te.effective_writes_for_target(section, LIVE) is False
         assert te.effective_writes_for_target(section, VA) is False
 
-    @pytest.mark.usefixtures("store_root")
-    def test_a_readonly_run_answers_no_before_the_store_is_consulted(self, monkeypatch):
+    def test_a_readonly_run_answers_no_before_the_store_is_consulted(self, monkeypatch, store_root):
+        arm(store_root, LIVE, VA)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         section = _config()["control_system"]
 
@@ -222,23 +227,22 @@ class TestEligibilityFollowsTheStore:
         assert toward.reason is None
         assert away.available_now is True
 
-    def test_a_write_only_gateway_narrowed_reports_selected_role_missing(self, store_root):
-        """The one case where narrowing really does cost the target.
+    def test_a_write_only_gateway_narrowed_stays_on_its_write_gateway(self, store_root):
+        """A narrowing no longer costs a write-only block the target.
 
-        A block that configures ``write_access`` alone has no ``read_only`` row
-        to fall back to, so the narrowed session selects a role this deployment
-        never configured — and that is the reason it is told, in the eligibility
-        module's own words.
+        A block that configures ``write_access`` alone reads through it while
+        writes are off and refuses every write in software (the one gateway
+        rule, ``_selected_role``), so the narrowed session still selects the
+        role this deployment configured and stays switchable.
         """
         config = _config(va_gateways=_gateways(None, 5075))
         narrow(store_root, VA)
 
         verdict = te.evaluate_eligibility(config, VA)
 
-        assert verdict.eligible is False
-        assert verdict.reason == te.REASON_SELECTED_ROLE_MISSING
-        assert "'read_only'" in verdict.detail
-        assert "control_system.connector.virtual_accelerator.gateways.read_only" in verdict.detail
+        assert verdict.eligible is True
+        assert verdict.reason is None
+        assert "'write_access'" in verdict.detail
 
     @pytest.mark.usefixtures("store_root")
     def test_the_same_write_only_block_is_eligible_while_the_session_is_armed(self):
@@ -252,14 +256,11 @@ class TestNarrowingRefusal:
     """The pre-flight a surface offering the narrowing owes the operator."""
 
     @pytest.mark.usefixtures("store_root")
-    def test_it_names_what_a_write_only_block_would_lose(self):
+    def test_a_write_only_block_loses_nothing_either(self):
+        """With writes off a write-only block reads through its write gateway."""
         config = _config(va_gateways=_gateways(None, 5075))
 
-        refusal = te.narrowing_refusal(config, VA)
-
-        assert refusal is not None
-        assert refusal.reason == te.REASON_SELECTED_ROLE_MISSING
-        assert "'read_only'" in refusal.detail
+        assert te.narrowing_refusal(config, VA) is None
 
     @pytest.mark.usefixtures("store_root")
     def test_an_ordinary_block_loses_nothing(self):
@@ -271,12 +272,14 @@ class TestNarrowingRefusal:
 
         The target here is already narrowed, and the answer is the same one an
         armed session gets — otherwise a surface could only warn about a
-        narrowing after the operator had already taken it.
+        narrowing after the operator had already taken it. A block with no
+        gateway for either role is the shape a narrowing does cost.
         """
-        config = _config(va_gateways=_gateways(None, 5075))
+        config = _config(va_gateways={})
+        unnarrowed = te.narrowing_refusal(config, VA)
         narrow(store_root, VA)
 
-        assert te.narrowing_refusal(config, VA).reason == te.REASON_SELECTED_ROLE_MISSING
+        assert te.narrowing_refusal(config, VA) == unnarrowed
 
     @pytest.mark.usefixtures("store_root")
     def test_a_readonly_run_does_not_answer_it_for_every_target(self, monkeypatch):
@@ -302,6 +305,7 @@ class TestNarrowingRefusal:
 class TestRosterRows:
     def test_a_narrowed_rows_role_and_flag_are_the_same_answer(self, store_root):
         config = _config()
+        arm(store_root, LIVE, VA)
         narrow(store_root, VA)
 
         rows = control_target.target_rows(config, control_target=LIVE, baseline=LIVE)
@@ -313,8 +317,8 @@ class TestRosterRows:
         assert rows[LIVE]["writes_permitted"] is True
         assert rows[LIVE]["selected_role"] == "write_access"
 
-    @pytest.mark.usefixtures("store_root")
-    def test_an_unnarrowed_roster_is_the_deployments_own_picture(self):
+    def test_an_unnarrowed_roster_is_the_deployments_own_picture(self, store_root):
+        arm(store_root, LIVE, VA)
         rows = control_target.target_rows(_config(), control_target=LIVE, baseline=LIVE)
 
         assert rows[VA]["writes_permitted"] is True
@@ -323,14 +327,15 @@ class TestRosterRows:
     def test_writes_permitted_routes_through_the_store(self, store_root):
         """The roster's flag is the store-aware helper, not a second reading."""
         config = _config()
+        arm(store_root, LIVE, VA)
 
         assert control_target._writes_permitted(config, VA) is True
         narrow(store_root, VA)
         assert control_target._writes_permitted(config, VA) is False
         assert control_target._writes_permitted(config, LIVE) is True
 
-    @pytest.mark.usefixtures("store_root")
-    def test_writes_permitted_still_refuses_a_readonly_run(self, monkeypatch):
+    def test_writes_permitted_still_refuses_a_readonly_run(self, monkeypatch, store_root):
+        arm(store_root, LIVE, VA)
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
         assert control_target._writes_permitted(_config(), VA) is False
@@ -377,11 +382,16 @@ async def make_manager(store_root, child_environment, monkeypatch):  # noqa: ARG
 
 
 @pytest.fixture
-def mixed_project(tmp_path):
-    """A project config arming the simulator and leaving the machine unarmed."""
+def mixed_project(tmp_path, store_root):
+    """A project config whose tier allows writes, with only the simulator switched on."""
+    arm(store_root, VA)
     return project_config(
         tmp_path,
-        {"writes_enabled": False, "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}}},
+        {
+            "type": GATEWAY_TYPE,
+            "writes_enabled": False,
+            "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}},
+        },
     )
 
 
