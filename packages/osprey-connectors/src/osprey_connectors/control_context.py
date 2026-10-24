@@ -31,7 +31,7 @@ absent, of the wrong type, or unrecognised, there is no record: this is a
 file that decides whether a real machine is written to, so a hand-edited or
 future-version payload must not be honoured in part.
 
-The other three fields are annotations on that identity and degrade on their
+The other fields are annotations on that identity and degrade on their
 own, because each has a meaningful "not stated" value that a reader can act
 on safely:
 
@@ -51,13 +51,41 @@ on safely:
   write that moves nothing else**: the same target, the same generation, the
   same posture, a new ``last_switch``. That is the whole of how a refusal is
   reported.
+* ``switch`` → ``{}``, every machine's writes off. A per-target map of which
+  only ``"on"`` leaves survive; any other value is dropped on parse, so a
+  degraded switch can only refuse.
+* ``switch_epoch`` → ``None``, a record written before epochs existed. An
+  epoch is a ``time.time_ns()`` stamp that only moves forward; the person who
+  turns a switch on names the epoch they saw, so a stop or a lost record in
+  between makes their gesture stale. ``None`` is never "older" than anything.
+
+The schema stays :data:`SCHEMA_VERSION` with the two switch fields added:
+every pre-existing reader, the stdlib hooks included, ignores keys it does
+not know, so a record written by this version reads unchanged through them.
 
 **3. How it is written.** :func:`write_json_atomic` replaces a file rather
 than rewriting it, whole through ``safety_file.atomic_replace``, so no reader ever sees half of one and two writers never interleave into one.
 Every file in this directory is written through it, the record
 (:func:`write_record`) and the per-server reports and requests alike.
-Serialising the read-modify-write around a write is the owner's job, not this
-module's.
+
+The record is written only under its lock: an exclusive ``fcntl.flock`` on
+the sibling file ``<record path>.lock``, derived from the path being written
+(so ``path=`` moves the lock with the file), waited on for a bounded time and
+then refused with ``RuntimeError``. Inside the lock :func:`write_record`
+re-reads the file on disk and writes the caller's record with the on-disk
+``switch`` and ``switch_epoch`` substituted: whatever a caller read earlier,
+no writer but the person's own switch gesture (:func:`set_switch`,
+which reads, compares and writes in one hold) moves either field, so a
+target switch or a refusal terminus racing a stop cannot turn a machine
+back on. A write that finds the record missing or unreadable writes the
+switch empty and stamps a fresh epoch, never 0. What a caller changes in
+the other fields, and whether it is still entitled to, remains the owner's
+business.
+
+The exclusion holds among processes sharing one kernel — one host, or
+containers on a Linux host over a bind mount. Across a macOS host and a VM
+file share ``flock`` is not guaranteed to exclude anything; that residual is
+closed by the sandboxed connector host, not here.
 
 **4. When a change is seen.** Every read re-stats the file and re-parses on
 ``(st_mtime_ns, st_size, st_ino)``, the same signature the posture store uses
@@ -95,18 +123,22 @@ is one-way — the posture store below it, never the reverse at module scope.
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import logging
 import os
 import threading
-from collections.abc import Callable, Iterable
+import time
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from osprey_connectors import posture_store
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.types import CONTROL_TARGETS
 
@@ -131,6 +163,7 @@ __all__ = [
     "ControlContext",
     "Owner",
     "ServerReport",
+    "StoppedSince",
     "applied_detail",
     "blocking_pids",
     "invalidate_cache",
@@ -145,12 +178,14 @@ __all__ = [
     "parse_record",
     "parse_report",
     "read_record",
+    "read_record_status",
     "read_report",
     "record_path",
     "record_path_under",
     "report_path",
     "report_path_under",
     "report_paths",
+    "set_switch",
     "state_dir",
     "sweep_dead",
     "terminus",
@@ -217,6 +252,23 @@ _CACHE: dict[str, tuple[tuple[int, int, int], Any]] = {}
 #: stale, because every read re-stats before it trusts what it holds.
 _CACHE_MAX_ENTRIES = 128
 
+#: The one switch value that arms a machine. Every other value a payload
+#: carries under ``switch`` is dropped on parse (rule 2).
+_SWITCH_ON = "on"
+
+#: The record lock's file, beside the record: ``<record path>`` plus this.
+#: Rule 3. Not one of the PID-named families, so :func:`sweep_dead` never
+#: touches it.
+_LOCK_SUFFIX = ".lock"
+
+#: How long a record write waits for the lock before it refuses. A holder
+#: does one read and one atomic replace; seconds of contention is a wedged
+#: process, and a write path must answer rather than hang behind it.
+_LOCK_TIMEOUT_S = 5.0
+
+#: How often a waiting writer retries the lock.
+_LOCK_POLL_S = 0.01
+
 
 # -- the record -------------------------------------------------------------
 
@@ -262,6 +314,12 @@ class ControlContext:
             refuses; the deployment ceiling is elsewhere.
         last_switch: The terminus of the last switch request, verbatim, or
             ``None`` when no request has reached one.
+        switch: Which machines the person has switched writes on for,
+            ``{target: "on"}``; an absent target is off. :func:`write_record`
+            never changes it — it keeps whatever the file on disk says.
+        switch_epoch: The ``time.time_ns()`` stamp of the last stop or loss
+            of the record, or ``None`` for a record written before epochs
+            existed. Kept by :func:`write_record` like ``switch``.
     """
 
     target: str
@@ -269,11 +327,13 @@ class ControlContext:
     owner: Owner | None = None
     posture: dict[str, str] = field(default_factory=dict)
     last_switch: dict[str, Any] | None = None
+    switch: Mapping[str, str] = field(default_factory=dict)
+    switch_epoch: int | None = None
 
     def to_payload(self) -> dict[str, Any]:
         """This record as the JSON object :func:`write_record` stores.
 
-        The five contract fields and the schema, and nothing else: a payload
+        The seven contract fields and the schema, and nothing else: a payload
         round-trips through :func:`parse_record` unchanged, and a key some
         future version added does not survive a rewrite by this one.
         """
@@ -284,6 +344,8 @@ class ControlContext:
             "generation": self.generation,
             "posture": dict(self.posture),
             "last_switch": None if self.last_switch is None else dict(self.last_switch),
+            "switch": dict(self.switch),
+            "switch_epoch": self.switch_epoch,
         }
 
 
@@ -391,6 +453,29 @@ def parse_posture(value: Any) -> dict[str, str]:
     return posture_store.parse_posture_value(value)
 
 
+def _parse_switch(value: Any) -> dict[str, str]:
+    """One ``switch`` value as ``{target: "on"}`` — rule 2: only ``"on"`` arms.
+
+    Keys are kept whether or not they name a known target, so a turn-off of
+    every machine can see and clear them; a reader only ever asks about the
+    target it is writing to.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: _SWITCH_ON
+        for key, state in value.items()
+        if isinstance(key, str) and isinstance(state, str) and state == _SWITCH_ON
+    }
+
+
+def _parse_epoch(value: Any) -> int | None:
+    """One ``switch_epoch`` as a non-negative integer, or ``None`` (epoch-less)."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return int(value)
+
+
 def parse_record(raw: Any) -> ControlContext | None:
     """Decode a record, or ``None`` when it states no usable context.
 
@@ -425,6 +510,8 @@ def parse_record(raw: Any) -> ControlContext | None:
         owner=_parse_owner(raw.get("owner")),
         posture=parse_posture(raw.get("posture")),
         last_switch=dict(last_switch) if isinstance(last_switch, dict) else None,
+        switch=_parse_switch(raw.get("switch")),
+        switch_epoch=_parse_epoch(raw.get("switch_epoch")),
     )
 
 
@@ -475,19 +562,26 @@ def _read_cached(path: Path, parse: Callable[[Path], Any]) -> Any:
     return value
 
 
-def _read(path: Path) -> ControlContext | None:
+#: How a record read ended: a usable record, no file, or a file (or root)
+#: that states nothing usable.
+_RecordStatus = Literal["ok", "missing", "unreadable"]
+
+
+def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
+    """*path* parsed, with how the read ended. Uncached; never raises."""
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return None
+        return None, "missing"
     except (OSError, UnicodeDecodeError):
         # ``UnicodeDecodeError`` is a ``ValueError`` rather than an ``OSError``
         # and so needs naming: a record that is not UTF-8 is unreadable for the
         # same reason a corrupt one is, and every reader here answers that with
         # "no record" instead of an exception raised inside a write path.
         logger.warning("Could not read the control-context record at %s", path, exc_info=True)
-        return None
-    return parse_record(raw)
+        return None, "unreadable"
+    record = parse_record(raw)
+    return (None, "unreadable") if record is None else (record, "ok")
 
 
 def read_record(*, path: Path | None = None) -> ControlContext | None:
@@ -505,11 +599,41 @@ def read_record(*, path: Path | None = None) -> ControlContext | None:
         path: Read this file instead of :func:`record_path`. For a caller that
             has already resolved a root, and for tests.
     """
+    record, _status = read_record_status(path=path)
+    return record
+
+
+def read_record_status(
+    *, path: Path | None = None
+) -> tuple[ControlContext | None, Literal["ok", "missing", "unreadable"]]:
+    """The record and how reading it ended — for a caller that must tell why.
+
+    :func:`read_record` answers ``None`` for "nobody has written one yet" and
+    for "something broke it" alike; a write verdict refuses both but names
+    them differently. ``"missing"`` is no file at the path; ``"unreadable"``
+    is every other way of having no usable record — an unresolvable
+    agent-data root, an OS or decode failure, invalid JSON, a foreign schema,
+    an unusable identity. ``"ok"`` comes with the record. Cached like
+    :func:`read_record` (rule 4); never raises.
+
+    Args:
+        path: Read this file instead of :func:`record_path`.
+    """
     target_path = record_path() if path is None else path
     if target_path is None:
-        return None
-    record: ControlContext | None = _read_cached(target_path, _read)
-    return record
+        return None, "unreadable"
+    cached: tuple[ControlContext | None, _RecordStatus] | None = _read_cached(target_path, _read)
+    if cached is not None:
+        return cached
+    # No signature: absent, or a stat that failed for another reason.
+    try:
+        target_path.stat()
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError:
+        return None, "unreadable"
+    # It appeared between the two stats; this read answers for that instant.
+    return _read(target_path)
 
 
 def invalidate_cache() -> None:
@@ -546,7 +670,14 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     Raises:
         OSError: The write itself failed.
     """
-    directory = path.parent
+    _ensure_directory(path.parent)
+    atomic_replace(
+        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o640, sync="best_effort"
+    )
+
+
+def _ensure_directory(directory: Path) -> None:
+    """Create *directory* and the levels above it at 0o2770. See :func:`write_json_atomic`."""
     # ``mkdir(parents=True)`` reports the leaf and says nothing about the levels
     # it creates on the way, so they are named before the call: the tree root is
     # one of them whenever this writer is the first to reach a deployment's tree,
@@ -564,18 +695,74 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
         created = []
     for level in created:
         os.chmod(level, 0o2770)
-    atomic_replace(
-        path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o640, sync="best_effort"
-    )
+
+
+def _lock_path(path: Path) -> Path:
+    """The lock file for the record at *path*: ``<path>.lock``. Rule 3."""
+    return path.with_name(path.name + _LOCK_SUFFIX)
+
+
+@contextlib.contextmanager
+def _record_lock(path: Path) -> Iterator[None]:
+    """Hold the exclusive lock on the record at *path*. Rule 3.
+
+    A bounded wait: a holder that does not let go inside
+    :data:`_LOCK_TIMEOUT_S` is a wedged process, and the write refuses rather
+    than hanging a route behind it. The lock file is given 0o660 like the
+    record is given 0o640: writers under other uids reach it through the
+    state directory's setgid group.
+
+    Raises:
+        RuntimeError: The lock was not acquired in time.
+        OSError: The lock file could not be created or opened.
+    """
+    _ensure_directory(path.parent)
+    fd = os.open(_lock_path(path), os.O_RDWR | os.O_CREAT, 0o660)
+    try:
+        with contextlib.suppress(OSError):  # not this uid's file to set a mode on
+            os.fchmod(fd, 0o660)
+        deadline = time.monotonic() + _LOCK_TIMEOUT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"The control-context record at {path} stayed locked for "
+                        f"{_LOCK_TIMEOUT_S:g} s; nothing was written"
+                    ) from None
+                time.sleep(_LOCK_POLL_S)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _write_record_unlocked(record: ControlContext, path: Path) -> None:
+    """Store *record* exactly as given. The caller holds :func:`_record_lock`.
+
+    The one place the record's bytes are written. Private, and called only
+    from inside this module with the lock held: a write that skipped the lock,
+    or that wrote a ``switch`` it did not read, is the race rule 3 closes.
+    """
+    write_json_atomic(path, record.to_payload())
 
 
 def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
     """Store *record*, replacing any existing one atomically. Rule 3.
 
-    This is a bare write. It does not read the file first, does not check who
-    owns it, and does not serialise against a concurrent writer: the owner
-    does all three around this call, because only the owner knows what it is
-    changing and whether it is still entitled to.
+    Under the record lock, this re-reads the file on disk and stores *record*
+    with the on-disk ``switch`` and ``switch_epoch`` in place of its own: no
+    caller of this function changes either, whatever it read before. A file
+    that is missing or unreadable is replaced with the switch empty and a
+    fresh ``time.time_ns()`` epoch, never 0, so a turn-on begun before the
+    record was lost names an older epoch and is refused.
+
+    It does not check who owns the record: the owner decides what it is
+    changing and whether it is still entitled to, around this call.
 
     Args:
         record: The context to store.
@@ -586,7 +773,8 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
 
     Raises:
         RuntimeError: The agent-data root does not resolve, so there is
-            nowhere a reader would look for what this call would write.
+            nowhere a reader would look for what this call would write; or
+            the record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
     target_path = record_path() if path is None else path
@@ -594,8 +782,159 @@ def write_record(record: ControlContext, *, path: Path | None = None) -> Path:
         raise RuntimeError(
             "No agent-data root: the control-context record has nowhere to be written"
         )
-    write_json_atomic(target_path, record.to_payload())
+    with _record_lock(target_path):
+        on_disk, _status = _read(target_path)
+        if on_disk is None:
+            stored = replace(record, switch={}, switch_epoch=time.time_ns())
+        else:
+            stored = replace(record, switch=dict(on_disk.switch), switch_epoch=on_disk.switch_epoch)
+        _write_record_unlocked(stored, target_path)
     return target_path
+
+
+#: The keyword a person's gesture uses for "every machine": only ever off.
+_ALL_TARGETS = "all"
+
+#: The gesture's two states. ``"on"`` is also the only value stored (rule 2).
+_SWITCH_STATES = (_SWITCH_ON, "off")
+
+
+class StoppedSince(Exception):
+    """A turn-on refused because a stop, or a lost record, came after it began.
+
+    Rule 3: a person turning a machine on names the epoch they saw. A record
+    whose epoch is newer, a record that has no epoch, and no record at all each
+    mean that what they saw is no longer what is on disk, so nothing is armed.
+    The gesture is retried, from the chip, with :attr:`epoch`.
+
+    Not a ``RuntimeError``: a caller that answers ``RuntimeError`` with "the
+    store is unavailable" must not answer a stale gesture the same way.
+
+    Attributes:
+        epoch: The record's epoch now — the one a retried gesture names — or
+            ``None`` when there is no usable record to retry against.
+        reason: Always ``"stopped_since"``, a member of
+            :data:`osprey_connectors.refusals.REASONS`.
+    """
+
+    def __init__(self, *, epoch: int | None) -> None:
+        self.epoch = epoch
+        self.reason = "stopped_since"
+        super().__init__(refusal_phrase(self.reason))
+
+
+def _gesture_targets(targets: Sequence[str] | Literal["all"], state: str) -> list[str] | None:
+    """*targets* checked as named machines, or ``None`` for ``"all"``.
+
+    Raises:
+        ValueError: Anything that is not ``"all"`` or a non-empty sequence of
+            names; ``"all"`` with ``"on"``; a turn-on of a name outside
+            :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+    """
+    if targets == _ALL_TARGETS:
+        if state == _SWITCH_ON:
+            raise ValueError('set_switch("all", "on"): machines are turned on one at a time')
+        return None
+    if isinstance(targets, str) or not isinstance(targets, Sequence):
+        raise ValueError(
+            f'set_switch targets must be "all" or a sequence of names, not {targets!r}'
+        )
+    names = list(targets)
+    if not names or not all(isinstance(name, str) for name in names):
+        raise ValueError(
+            f"set_switch targets must be a non-empty sequence of names, not {targets!r}"
+        )
+    if state == _SWITCH_ON:
+        unknown = [name for name in names if name not in CONTROL_TARGETS]
+        if unknown:
+            raise ValueError(f"set_switch cannot turn on unknown targets {unknown!r}")
+    return names
+
+
+def set_switch(
+    targets: Sequence[str] | Literal["all"],
+    state: Literal["on", "off"],
+    *,
+    epoch: int | None = None,
+    path: Path | None = None,
+) -> ControlContext | None:
+    """The person's switch gesture — the one writer of ``switch``. Rule 3.
+
+    Reads, compares and writes in one hold of the record lock, through the
+    same private writer :func:`write_record` uses, so no other write lands
+    between what this compared and what it stored.
+
+    * ``"on"`` arms each named target. It requires *epoch*, the
+      ``switch_epoch`` the person saw, and raises :class:`StoppedSince` when
+      the record's epoch is newer, when the record has no epoch (``None`` is
+      never older; one is stamped, so the retried gesture succeeds), or when
+      there is no usable record.
+    * ``"off"`` disarms each named target — any key, known target or not —
+      and never refuses.
+    * ``"all"`` (with ``"off"``) clears every key and moves the epoch to
+      ``max(old + 1, time.time_ns())``, which makes every turn-on begun
+      before it stale.
+
+    Only a stop moves an existing epoch; a gesture on an epoch-less record
+    stamps a fresh ``time.time_ns()``. Every other field is kept as on disk.
+
+    Args:
+        targets: The machines, or ``"all"``.
+        state: ``"on"`` or ``"off"``.
+        epoch: The epoch a turn-on was begun against. Ignored for ``"off"``.
+        path: Write this file instead of :func:`record_path`.
+
+    Returns:
+        The record as stored, or ``None`` when ``"off"``/``"all"`` found no
+        usable record — nothing is on, so nothing was written.
+
+    Raises:
+        ValueError: ``("all", "on")``, ``"on"`` without *epoch*, an unknown
+            *state*, or malformed *targets*. Nothing is written.
+        StoppedSince: A turn-on that is stale, as above.
+        RuntimeError: The agent-data root does not resolve, or the record
+            stayed locked past the bounded wait.
+        OSError: The write itself failed.
+    """
+    if state not in _SWITCH_STATES:
+        raise ValueError(f'set_switch state must be "on" or "off", not {state!r}')
+    names = _gesture_targets(targets, state)
+    if state == _SWITCH_ON and (isinstance(epoch, bool) or not isinstance(epoch, int)):
+        raise ValueError('set_switch(..., "on") requires the epoch the turn-on was begun against')
+    target_path = record_path() if path is None else path
+    if target_path is None:
+        raise RuntimeError(
+            "No agent-data root: the control-context record has nowhere to be written"
+        )
+    with _record_lock(target_path):
+        current, _status = _read(target_path)
+        if current is None:
+            if state == _SWITCH_ON:
+                raise StoppedSince(epoch=None)
+            return None
+        on_disk_epoch = current.switch_epoch
+        if names is None:
+            stored = replace(
+                current,
+                switch={},
+                switch_epoch=max((on_disk_epoch or 0) + 1, time.time_ns()),
+            )
+        elif state == _SWITCH_ON:
+            if on_disk_epoch is None:
+                stamped = replace(current, switch_epoch=time.time_ns())
+                _write_record_unlocked(stamped, target_path)
+                raise StoppedSince(epoch=stamped.switch_epoch)
+            if epoch is None or on_disk_epoch > epoch:  # epoch is checked above
+                raise StoppedSince(epoch=on_disk_epoch)
+            stored = replace(current, switch={**current.switch, **dict.fromkeys(names, _SWITCH_ON)})
+        else:
+            stored = replace(
+                current,
+                switch={key: value for key, value in current.switch.items() if key not in names},
+                switch_epoch=time.time_ns() if on_disk_epoch is None else on_disk_epoch,
+            )
+        _write_record_unlocked(stored, target_path)
+    return stored
 
 
 # -- process liveness -------------------------------------------------------
@@ -770,6 +1109,9 @@ def write_terminus(updated: ControlContext, request_id: str) -> bool:
     outright to a new owner between the write and the read. A lost update has
     to be discovered here rather than reported to an agent as a switch that
     happened.
+
+    The write goes through :func:`write_record`, so it holds the record lock
+    and keeps the on-disk switch: a terminus never turns a machine on or off.
 
     Three things have to hold for the answer to be believed: the record is
     still readable, this process still owns it, and the block in it is the one
