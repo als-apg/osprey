@@ -21,7 +21,11 @@ from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
+from osprey.agent_record.identities import BRIDGE_IDENTITIES, OPERATOR_IDENTITY
+from osprey.agent_runner.claude_state import (
+    CLAUDE_CONFIG_VOLUME_SUFFIX,
+    CLAUDE_PROJECTS_VOLUME_SUFFIX,
+)
 from osprey.bluesky_bridge_connection import LANE_KEYS, LANE_ONE, lane_env_prefix
 from osprey.config_guards import is_positive_int
 from osprey.deployment import telemetry_config, telemetry_credentials
@@ -105,6 +109,8 @@ from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_D
 from osprey_connectors.workspace import (
     AUDIT_DIR_RELPATH,
     SIMULATOR_LOG_DIR_RELPATH,
+    SPOOL_DIR_RELPATH,
+    STATE_DIR_RELPATH,
     agent_data_base_dir,
 )
 
@@ -739,6 +745,27 @@ def _audit_mount_source(identity: str) -> str:
     return repo_relative_mount_source(f"{AUDIT_DIR_RELPATH}/{identity}")
 
 
+def _zone_mounts(container_root: str, identity: str) -> dict[str, str]:
+    """Both ends of *identity*'s spool and state binds.
+
+    ``spool_mount_source``/``container_spool_dir`` and
+    ``state_mount_source``/``container_state_dir``: the host side
+    ``./var/<zone>/<identity>`` and the container side
+    ``<container_root>/var/<zone>/<identity>``, which is also the value the
+    container's ``OSPREY_SPOOL_DIR``/``OSPREY_STATE_DIR`` carries. Derived from
+    one identity and the zone constants for :func:`_container_audit_dir`'s
+    reason: the path a container is mounted at and the path its writer
+    resolves cannot be spelled apart.
+    """
+    mounts: dict[str, str] = {}
+    for zone, relpath in (("spool", SPOOL_DIR_RELPATH), ("state", STATE_DIR_RELPATH)):
+        mounts[f"{zone}_mount_source"] = repo_relative_mount_source(f"{relpath}/{identity}")
+        mounts[f"container_{zone}_dir"] = (
+            PurePosixPath(container_root) / relpath / identity
+        ).as_posix()
+    return mounts
+
+
 def _container_control_context_dir(container_agent_data_dir: str, identity: str) -> str:
     """Where *identity*'s terminal writes its control-context record, INSIDE its container.
 
@@ -1150,6 +1177,8 @@ def render_web_terminals(
                 # so the two cannot be spelled apart; the name is live state on
                 # every deployed host.
                 "claude_config_volume": f"{entry['name']}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
+                # The transcripts volume nested over it, consumed the same way.
+                "claude_projects_volume": f"{entry['name']}{CLAUDE_PROJECTS_VOLUME_SUFFIX}",
                 "extra_mounts": entry["extra_mounts"],
                 # This user's audit identity, and the two ends of the bind that
                 # gives it somewhere to write. All three are derived from the
@@ -1164,6 +1193,10 @@ def render_web_terminals(
                 "container_audit_dir": _container_audit_dir(
                     entry["container_project_dir"], entry["name"]
                 ),
+                # This user's spool and state binds, from the same name:
+                # `spool_mount_source`, `container_spool_dir`,
+                # `state_mount_source`, `container_state_dir`.
+                **_zone_mounts(entry["container_project_dir"], entry["name"]),
                 # The two ends of this user's control-context bind, derived here
                 # for the same reason the audit pair above is: they are one
                 # fact — the directory this terminal writes the record that
@@ -1648,6 +1681,15 @@ def render_web_terminals(
         "auth_audit_dir": _container_audit_dir(
             _AUTH_SIDECAR_CONTAINER_ROOT, AUTH_SIDECAR_AUDIT_IDENTITY
         ),
+        # The sidecar's spool and state binds: `auth_spool_mount_source`,
+        # `auth_container_spool_dir`, `auth_state_mount_source`,
+        # `auth_container_state_dir`.
+        **{
+            f"auth_{key}": value
+            for key, value in _zone_mounts(
+                _AUTH_SIDECAR_CONTAINER_ROOT, AUTH_SIDECAR_AUDIT_IDENTITY
+            ).items()
+        },
         # The parsed authorization tables (see `_authorization_context`).
         # Emitted unconditionally, like every other key here; a deployment
         # that declares no roles carries the inert empty ones.
@@ -3214,6 +3256,9 @@ def _scope_list(value: Any) -> str | None:
 #:   yet — the telemetry gateway trusts what a queueserver's directory says
 #:   about whose plan it ran;
 #: * the history page's;
+#: * every bridge's (``teams-bridge``, ...), whose spool and state directories
+#:   sit beside the users' own, and ``operator``, the agent record's host
+#:   credential, which reads every identity's record;
 #: * every name the telemetry store's own accounts, roles, profiles and quotas
 #:   carry, and the ``view_`` prefix of its view users.
 _QUEUESERVER_AUDIT_IDENTITIES = tuple(
@@ -3230,6 +3275,10 @@ _RESERVED_AUDIT_IDENTITY_RE = re.compile(
             *(re.escape(identity) for identity in _QUEUESERVER_AUDIT_IDENTITIES),
             r".+-queueserver",
             *(re.escape(name) for name in sorted({HISTORY_SERVICE, *RESERVED_ACCOUNT_NAMES})),
+            *(
+                re.escape(identity)
+                for identity in sorted({OPERATOR_IDENTITY, *BRIDGE_IDENTITIES.values()})
+            ),
             rf"{re.escape(RESERVED_ACCOUNT_PREFIX)}.*",
         ]
     )
@@ -3292,7 +3341,10 @@ def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
             "collide with a service's own audit identity (the auth sidecar writes "
             f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, worker <n> writes "
             f"var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a queueserver writes "
-            "var/audit/[<lane>-]queueserver/) or with a name the telemetry store "
+            "var/audit/[<lane>-]queueserver/, a bridge writes "
+            f"var/spool/{{{','.join(sorted(BRIDGE_IDENTITIES.values()))}}}/), with "
+            f"the agent record's {OPERATOR_IDENTITY!r} credential, or with a name the "
+            "telemetry store "
             f"keeps for its own accounts ({RESERVED_ACCOUNT_PREFIX}*, "
             f"{', '.join(sorted(RESERVED_ACCOUNT_NAMES))}). Each user's container "
             "binds var/audit/<user>/ read-write, so such a user could read and "

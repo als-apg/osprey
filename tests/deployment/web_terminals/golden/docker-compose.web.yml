@@ -47,6 +47,8 @@ services:
       - OSPREY_TERMINAL_USER=alice
       - OSPREY_AUDIT_IDENTITY=alice
       - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/alice
+      - OSPREY_SPOOL_DIR=/app/dls_controls-assistant/var/spool/alice
+      - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/alice
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/alice
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run
@@ -65,8 +67,11 @@ services:
       - OSPREY_HEALTH_PORT=10700
     volumes:
       - alice-claude-config:/data/claude-config
+      - alice-claude-projects:/data/claude-config/projects
       - alice-agent-data:/app/dls_controls-assistant/var/agent_data
       - ./var/audit/alice:/app/dls_controls-assistant/var/audit/alice
+      - ./var/spool/alice:/app/dls_controls-assistant/var/spool/alice
+      - ./var/state/alice:/app/dls_controls-assistant/var/state/alice
       - ./var/agent_data/control_target/alice:/app/dls_controls-assistant/var/agent_data/control_target/alice
       # The DEPLOYMENT's simulator model logs, read-write: the in-process
       # composite appends `<model>.log` here, beside the records the Virtual
@@ -113,6 +118,8 @@ services:
       - OSPREY_TERMINAL_USER=bob
       - OSPREY_AUDIT_IDENTITY=bob
       - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/bob
+      - OSPREY_SPOOL_DIR=/app/dls_controls-assistant/var/spool/bob
+      - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/bob
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/bob
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run
@@ -131,8 +138,11 @@ services:
       - OSPREY_HEALTH_PORT=10701
     volumes:
       - bob-claude-config:/data/claude-config
+      - bob-claude-projects:/data/claude-config/projects
       - bob-agent-data:/app/dls_controls-assistant/var/agent_data
       - ./var/audit/bob:/app/dls_controls-assistant/var/audit/bob
+      - ./var/spool/bob:/app/dls_controls-assistant/var/spool/bob
+      - ./var/state/bob:/app/dls_controls-assistant/var/state/bob
       - ./var/agent_data/control_target/bob:/app/dls_controls-assistant/var/agent_data/control_target/bob
       # The DEPLOYMENT's simulator model logs, read-write: the in-process
       # composite appends `<model>.log` here, beside the records the Virtual
@@ -179,6 +189,8 @@ services:
       - OSPREY_TERMINAL_USER=logbook
       - OSPREY_AUDIT_IDENTITY=logbook
       - OSPREY_AUDIT_DIR=/app/dls_controls-logbook/var/audit/logbook
+      - OSPREY_SPOOL_DIR=/app/dls_controls-logbook/var/spool/logbook
+      - OSPREY_STATE_DIR=/app/dls_controls-logbook/var/state/logbook
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-logbook/var/agent_data/control_target/logbook
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-logbook/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-logbook/var/guarded_run
@@ -198,8 +210,11 @@ services:
       - OSPREY_HEALTH_PORT=10799
     volumes:
       - logbook-claude-config:/data/claude-config
+      - logbook-claude-projects:/data/claude-config/projects
       - logbook-agent-data:/app/dls_controls-logbook/var/agent_data
       - ./var/audit/logbook:/app/dls_controls-logbook/var/audit/logbook
+      - ./var/spool/logbook:/app/dls_controls-logbook/var/spool/logbook
+      - ./var/state/logbook:/app/dls_controls-logbook/var/state/logbook
       - ./var/agent_data/control_target/logbook:/app/dls_controls-logbook/var/agent_data/control_target/logbook
       # The DEPLOYMENT's simulator model logs, read-write: the in-process
       # composite appends `<model>.log` here, beside the records the Virtual
@@ -233,11 +248,14 @@ services:
 volumes:
 
   alice-claude-config:
+  alice-claude-projects:
   alice-agent-data:
 
   bob-claude-config:
+  bob-claude-projects:
   bob-agent-data:
 
   logbook-claude-config:
+  logbook-claude-projects:
   logbook-agent-data:
 

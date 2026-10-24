@@ -34,6 +34,8 @@ from osprey.deployment.compose_generator import (
     ensure_audit_dir,
     ensure_control_target_dir,
     ensure_shared_corpus_dir,
+    ensure_spool_dir,
+    ensure_state_dir,
     resolve_ariel_mirror_dir,
     resolve_facility_bundle_dir,
     resolve_project_name,
@@ -1603,8 +1605,14 @@ def deploy_up_web_terminals(
     # it needs no directory, and refusing here would move the strict resolve's
     # error (raised below, with its own explanation) to a place that cannot
     # explain it.
+    #
+    # Each of those containers binds its own spool and state directories beside
+    # its audit one, so they are provisioned in the same pass for the same
+    # reason.
     for identity in _audit_identities(config):
         ensure_audit_dir(repo_root, identity, relative_to=repo_root)
+        ensure_spool_dir(repo_root, identity, relative_to=repo_root)
+        ensure_state_dir(repo_root, identity, relative_to=repo_root)
 
     # The control-context tree, and one directory in it per roster user: the
     # other per-identity bind this stack is about to declare, provisioned here

@@ -60,7 +60,7 @@ POSTURE_FLOOR: dict[str, Any] = {
 #: ``tiers/<name>.yml`` file :func:`_write_profile` lays down beside it.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "users": [{"name": "operator", "index": 0, "tier": "readwrite"}],
+    "users": [{"name": "console", "index": 0, "tier": "readwrite"}],
     "default_tier": "readwrite",
 }
 

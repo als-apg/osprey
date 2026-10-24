@@ -29,7 +29,8 @@
 #                 other by-name step keep working. After the join, so the
 #                 identity inherits the mount groups created on this boot.
 #   4. Hand back  Return the state zone to the `osprey` user, because steps 1
-#                 and 2 wrote into it as root.
+#                 and 2 wrote into it as root, and the transcripts mount's root
+#                 when a fresh volume left it root-owned.
 #   5. Drop       Hand the container's real command to the unprivileged
 #                 `osprey` user and get out of the way.
 #
@@ -512,6 +513,18 @@ join_mounted_groups() {
 
     join_mounted_group OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}"
     probe_mounted_dir OSPREY_GUARDED_RUN_DIR "${OSPREY_GUARDED_RUN_DIR:-}" write
+
+    join_mounted_group OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}"
+    probe_mounted_dir OSPREY_AGENT_RECORD_SPOOL_ROOT "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}" write
+
+    join_mounted_group OSPREY_AGENT_RECORD_DIR "${OSPREY_AGENT_RECORD_DIR:-}"
+    probe_mounted_dir OSPREY_AGENT_RECORD_DIR "${OSPREY_AGENT_RECORD_DIR:-}" write
+
+    join_mounted_group OSPREY_SPOOL_DIR "${OSPREY_SPOOL_DIR:-}"
+    probe_mounted_dir OSPREY_SPOOL_DIR "${OSPREY_SPOOL_DIR:-}" write
+
+    join_mounted_group OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}"
+    probe_mounted_dir OSPREY_STATE_DIR "${OSPREY_STATE_DIR:-}" write
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
@@ -542,7 +555,7 @@ join_mounted_groups() {
 # a container that will not start is worse than one whose audit log needs a
 # manual chown.
 #
-# FIVE deliberate exceptions, pruned by name — every bind whose contents the
+# NINE deliberate exceptions, pruned by name — every bind whose contents the
 # dropped process reaches through GROUP MEMBERSHIP (the join above) and never
 # through ownership, so there is nothing to hand back:
 #
@@ -563,6 +576,17 @@ join_mounted_groups() {
 #   * OSPREY_GUARDED_RUN_DIR      `var/guarded_run/`: the per-target locks
 #                                 every container running the agent takes,
 #                                 each under its own uid.
+#   * OSPREY_AGENT_RECORD_SPOOL_ROOT
+#                                 `var/spool/`: the spool every source appends
+#                                 to under its own uid, and agent-record
+#                                 ingests from and deletes.
+#   * OSPREY_AGENT_RECORD_DIR     `var/agent_record/`: the embedded record
+#                                 store agent-record writes.
+#   * OSPREY_SPOOL_DIR            `var/spool/<identity>/`: this container's own
+#                                 spool, which agent-record ingests from and
+#                                 deletes under its own uid.
+#   * OSPREY_STATE_DIR            `var/state/<identity>/`: this container's own
+#                                 state, which the host reads.
 #
 # Chowning any of them rewrites a host directory the operator owns and drops
 # the setgid group that the whole shared-group design rests on; the next
@@ -587,7 +611,9 @@ hand_back_state_zone() {
     set --
     for _hb_dir in "${OSPREY_AUDIT_DIR:-}" "${OSPREY_CONTROL_CONTEXT_DIR:-}" \
         "${OSPREY_CONTROL_CONTEXT_TREE:-}" "${OSPREY_SIMULATOR_LOG_DIR:-}" \
-        "${OSPREY_GUARDED_RUN_DIR:-}"; do
+        "${OSPREY_GUARDED_RUN_DIR:-}" "${OSPREY_AGENT_RECORD_SPOOL_ROOT:-}" \
+        "${OSPREY_AGENT_RECORD_DIR:-}" "${OSPREY_SPOOL_DIR:-}" \
+        "${OSPREY_STATE_DIR:-}"; do
         # Unset is an ordinary topology — a dispatch worker writes no owner
         # directory, a bare `docker run` mounts none of them. A name that
         # points at a path this container does not have is the misconfigured
@@ -601,6 +627,35 @@ hand_back_state_zone() {
 
     find "$STATE_DIR" "$@" ! -user osprey -exec chown osprey:osprey {} + 2> /dev/null \
         || log "WARNING: could not hand $STATE_DIR back to the osprey user; the app may be unable to write it"
+}
+
+# ── transcripts mount ────────────────────────────────────────────────────────
+# Claude Code's transcripts live on a named volume of their own, nested at
+# `<claude-config>/projects`: a terminal's over its claude-config volume, a
+# dispatch worker's inside its workspace. A fresh named volume's root, and a
+# mount-point directory the runtime had to create inside the parent, are
+# root-owned, and the dropped `osprey` process could then write no transcript
+# at all. Found by the mount table rather than by a variable, because only the
+# terminal names its claude-config directory in the environment.
+#
+# The same rule as the state-zone hand-back above: only a path whose owner is
+# wrong is touched, and only the mount root and its parent — never the
+# transcripts below, which are the user's. Fails open for the same reason.
+# The mount table is /proc/self/mountinfo unless one is passed as $1.
+hand_back_transcript_mounts() {
+    _tm_table="${1:-/proc/self/mountinfo}"
+    [ -r "$_tm_table" ] || return 0
+    # mountinfo's fifth field is the mount point.
+    while read -r _ _ _ _ _tm_dir _; do
+        case "$_tm_dir" in
+            */claude-config/projects) ;;
+            *) continue ;;
+        esac
+        for _tm_path in "$(dirname -- "$_tm_dir")" "$_tm_dir"; do
+            find "$_tm_path" -maxdepth 0 ! -user osprey -exec chown osprey:osprey {} + 2> /dev/null \
+                || log "WARNING: could not hand $_tm_path to the osprey user; no transcript can be written there"
+        done
+    done < "$_tm_table"
 }
 
 # ── control identity ─────────────────────────────────────────────────────────
@@ -707,6 +762,7 @@ main() {
     apply_control_identity
 
     hand_back_state_zone
+    hand_back_transcript_mounts
 
     # Belt to the per-command prefix on the maintenance invocation: nothing
     # below this line may carry the writer marker across the drop, because the

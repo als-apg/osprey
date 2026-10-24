@@ -85,6 +85,14 @@
           "audit_mount_source": str,    # the host directory backing it, spelled as a compose
                                         #   bind source (`./var/audit/<identity>`,
                                         #   render._audit_mount_source()).
+          "container_spool_dir": str,   # where this container appends its agent-record
+                                        #   events (`<container_project_dir>/var/spool/<identity>`,
+                                        #   OSPREY_SPOOL_DIR, render._zone_mounts()).
+          "spool_mount_source": str,    # the host directory backing it (`./var/spool/<identity>`).
+          "container_state_dir": str,   # where this container keeps its own state
+                                        #   (`<container_project_dir>/var/state/<identity>`,
+                                        #   OSPREY_STATE_DIR, render._zone_mounts()).
+          "state_mount_source": str,    # the host directory backing it (`./var/state/<identity>`).
           "extra_mounts": [str, ...],   # resolved by resolve_cards() from the render's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
@@ -750,6 +758,12 @@ services:
          iterate, and this image has no root phase to read it. #}
       - OSPREY_AUDIT_IDENTITY={{ auth_audit_identity }}
       - OSPREY_AUTH_AUDIT_DIR={{ auth_audit_dir }}
+      {#- Where the sidecar appends its agent-record events, and where it keeps
+         the state it must not lose across a restart — the revoked sessions.
+         Plain config this app reads; there is no entrypoint here to join
+         their groups. #}
+      - OSPREY_SPOOL_DIR={{ auth_container_spool_dir }}
+      - OSPREY_STATE_DIR={{ auth_container_state_dir }}
       - OSPREY_AUTH_METHOD={{ auth_method }}
       - OSPREY_AUTH_SESSION_LIFETIME={{ auth_session_lifetime }}
 {%- if auth_throttle.initial_delay is defined %}
@@ -981,6 +995,10 @@ services:
          it could read or edit it. Provisioned host-side before this mount
          exists, for the usual root-owned-bind-source reason. #}
       - {{ auth_audit_mount_source }}:{{ auth_audit_dir }}
+      {#- Its spool and state directories, and only its own, provisioned the
+         same way. #}
+      - {{ auth_spool_mount_source }}:{{ auth_container_spool_dir }}
+      - {{ auth_state_mount_source }}:{{ auth_container_state_dir }}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://{{ bind_host }}:{{ auth_port }}/health').status==200 else 1)\""]
       interval: 15s
@@ -1071,6 +1089,11 @@ services:
          the directory it can actually see. #}
       - OSPREY_AUDIT_IDENTITY={{ svc.audit_identity }}
       - OSPREY_AUDIT_DIR={{ svc.container_audit_dir }}
+      {#- WHERE this terminal appends its agent-record events and keeps its own
+         state, from the same roster name as the binds below. Both are also
+         directories the entrypoint's root phase joins the group of. #}
+      - OSPREY_SPOOL_DIR={{ svc.container_spool_dir }}
+      - OSPREY_STATE_DIR={{ svc.container_state_dir }}
       {#- WHERE this terminal writes its control-context record — the chip
          every lane and the dispatch worker read to decide whether a write
          this user owns is narrowed. Named explicitly rather than left to the
@@ -1401,6 +1424,11 @@ services:
 {%- endfor %}
     volumes:
       - {{ svc.claude_config_volume }}:/data/claude-config
+      {#- The transcripts, on a volume of their own nested over the
+         claude-config one, so a reader can mount them read-only without the
+         credentials and session state beside them. Listed after its parent:
+         the nested mount is made inside the parent's. #}
+      - {{ svc.claude_projects_volume }}:/data/claude-config/projects
       {#- Mount target comes from render.py's _container_agent_data_dir, which
          reads `agent_data.base_dir` — the same key the agent inside this
          container resolves its own agent-data root from. Never a literal: a
@@ -1426,6 +1454,11 @@ services:
          what keeps the records the container writes purgeable on the host by
          the operator who deployed it. #}
       - {{ svc.audit_mount_source }}:{{ svc.container_audit_dir }}
+      {#- This user's spool and state directories, and ONLY this user's, for
+         the audit bind's reasons. agent-record binds the spool root whole and
+         ingests what lands here. #}
+      - {{ svc.spool_mount_source }}:{{ svc.container_spool_dir }}
+      - {{ svc.state_mount_source }}:{{ svc.container_state_dir }}
       {#- This user's control-context record directory, and ONLY this user's.
 
          Both ends arrive finished from render.py — `control_context_mount_source`
@@ -1663,6 +1696,7 @@ services:
 volumes:
 {% for svc in services %}
   {{ svc.claude_config_volume }}:
+  {{ svc.claude_projects_volume }}:
   {{ svc.user }}-agent-data:
 {% endfor %}
 {% endif %}

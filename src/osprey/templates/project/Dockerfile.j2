@@ -322,9 +322,18 @@ COPY . /app/{{ project_name }}/
 #                                   (workspace.AUDIT_DIR_RELPATH). A refusal
 #                                   nobody can record is a refusal only the
 #                                   agent's own transcript ever saw.
+#   var/spool                       the agent-record spool every source
+#                                   appends to (workspace.SPOOL_DIR_RELPATH);
+#                                   a container binds its own identity's
+#                                   directory under it.
+#   var/state                       per-container state the host reads
+#                                   (workspace.STATE_DIR_RELPATH), one
+#                                   identity directory per container.
 RUN mkdir -p /app/{{ project_name }}/var/agent_data/api_calls \
              /app/{{ project_name }}/var/agent_data/config-backups \
-             /app/{{ project_name }}/var/audit
+             /app/{{ project_name }}/var/audit \
+             /app/{{ project_name }}/var/spool \
+             /app/{{ project_name }}/var/state
 
 # The privilege split.
 #

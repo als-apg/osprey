@@ -491,6 +491,29 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # terminal run with it whatever the method, and it carries no account,
         # role or claim. Count 3 = nginx + alice + bob.
         '    security_opt: ["no-new-privileges:true"]': 3,
+        # The transcripts volume — the TWELFTH exception to SC6. Each terminal's
+        # Claude Code transcripts sit on a volume of their own, nested over the
+        # claude-config volume, whatever the method: it moves where existing
+        # state is stored and carries no account, role or claim.
+        "      - alice-claude-projects:/data/claude-config/projects": 1,
+        "      - bob-claude-projects:/data/claude-config/projects": 1,
+        "  alice-claude-projects:": 1,
+        "  bob-claude-projects:": 1,
+        # The spool and state directories — the THIRTEENTH exception to SC6, on
+        # the same argument as the audit pair at the top of this list. Each
+        # per-user container appends its agent-record entries to its own spool
+        # directory and keeps its restart state in its own state directory,
+        # whatever the method: the identity in both paths is the roster name
+        # OSPREY_AUDIT_IDENTITY already spells, so no account, role or claim
+        # reaches this render.
+        "      - OSPREY_SPOOL_DIR=/app/dls_controls-assistant/var/spool/alice": 1,
+        "      - OSPREY_SPOOL_DIR=/app/dls_controls-assistant/var/spool/bob": 1,
+        "      - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/alice": 1,
+        "      - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/bob": 1,
+        "      - ./var/spool/alice:/app/dls_controls-assistant/var/spool/alice": 1,
+        "      - ./var/spool/bob:/app/dls_controls-assistant/var/spool/bob": 1,
+        "      - ./var/state/alice:/app/dls_controls-assistant/var/state/alice": 1,
+        "      - ./var/state/bob:/app/dls_controls-assistant/var/state/bob": 1,
     }
 )
 
@@ -769,6 +792,8 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     assert "/app/dls_controls-assistant/var/audit/bob" not in compose
     assert "OSPREY_CONTROL_CONTEXT_DIR" not in compose
     assert "/var/agent_data/control_target/alice" not in compose
+    assert "OSPREY_SPOOL_DIR" not in compose
+    assert "OSPREY_STATE_DIR" not in compose
     for line in _REPLACED_COMPOSE_LINES:
         assert line in compose, (
             f"the frozen baseline lacks the interim bind it is said to carry: {line!r}"

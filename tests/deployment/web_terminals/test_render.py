@@ -275,8 +275,8 @@ def test_render_is_deterministic() -> None:
     assert first == second
 
 
-def test_compose_parses_as_yaml_with_one_service_and_one_volume_pair_per_user() -> None:
-    """The compose overlay is valid YAML: one web-<user> service + nginx, one volume pair per user."""
+def test_compose_parses_as_yaml_with_one_service_and_its_volumes_per_user() -> None:
+    """The compose overlay is valid YAML: one web-<user> service + nginx, three volumes per user."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     users = config["modules"]["web_terminals"]["users"]
@@ -288,7 +288,9 @@ def test_compose_parses_as_yaml_with_one_service_and_one_volume_pair_per_user() 
     # Assert
     assert set(compose["services"].keys()) == {"nginx", *(f"web-{u}" for u in users)}
     assert set(compose["volumes"].keys()) == {
-        volume for u in users for volume in (f"{u}-claude-config", f"{u}-agent-data")
+        volume
+        for u in users
+        for volume in (f"{u}-claude-config", f"{u}-claude-projects", f"{u}-agent-data")
     }
 
 
@@ -1653,8 +1655,8 @@ def test_theme_value_is_yaml_quoted_and_round_trips() -> None:
 def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     """A render's `extra_mounts` render as additional `volumes:` entries on every
     user of that render, after the framework mounts (claude-config, agent-data,
-    this user's audit subdirectory, its control-context record directory, the
-    simulator logs and the guarded-run directory)."""
+    this user's audit, spool and state subdirectories, its control-context
+    record directory, the simulator logs and the guarded-run directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -1683,12 +1685,15 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the six default mounts plus the render's two
+    # Assert — bob (gui) carries the nine default mounts plus the render's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
+        "bob-claude-projects:/data/claude-config/projects",
         "bob-agent-data:/app/dls-gui/var/agent_data",
         "./var/audit/bob:/app/dls-gui/var/audit/bob",
+        "./var/spool/bob:/app/dls-gui/var/spool/bob",
+        "./var/state/bob:/app/dls-gui/var/state/bob",
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
         "./var/guarded_run:/app/dls-gui/var/guarded_run",
@@ -1696,11 +1701,14 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "shared-cache:/app/cache",
     ]
     # alice (default tier, no extra_mounts) keeps exactly the framework's own
-    # six mounts — the render's list adds to them, never reorders them.
+    # nine mounts — the render's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
+        "alice-claude-projects:/data/claude-config/projects",
         "alice-agent-data:/app/dls_controls-assistant/var/agent_data",
         "./var/audit/alice:/app/dls_controls-assistant/var/audit/alice",
+        "./var/spool/alice:/app/dls_controls-assistant/var/spool/alice",
+        "./var/state/alice:/app/dls_controls-assistant/var/state/alice",
         (
             "./var/agent_data/control_target/alice"
             ":/app/dls_controls-assistant/var/agent_data/control_target/alice"
@@ -1711,9 +1719,10 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the six
-    framework per-user volume lines — claude-config, agent-data, this user's own
-    audit subdirectory, its own control-context record directory, the simulator
+    """A render with no `extra_mounts` emits exactly the nine
+    framework per-user volume lines — claude-config, the transcripts volume
+    nested in it, agent-data, this user's own
+    audit, spool and state subdirectories, its own control-context record directory, the simulator
     logs of its mock target and the guarded-run directory — and the extra_mounts
     loop adds nothing."""
     # Arrange
@@ -1727,8 +1736,11 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
     for user in config["modules"]["web_terminals"]["users"]:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
+            f"{user}-claude-projects:/data/claude-config/projects",
             f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data",
             f"./var/audit/{user}:/app/dls_controls-assistant/var/audit/{user}",
+            f"./var/spool/{user}:/app/dls_controls-assistant/var/spool/{user}",
+            f"./var/state/{user}:/app/dls_controls-assistant/var/state/{user}",
             (
                 f"./var/agent_data/control_target/{user}"
                 f":/app/dls_controls-assistant/var/agent_data/control_target/{user}"
@@ -3614,7 +3626,11 @@ def test_web_volumes_carry_no_checkout_label() -> None:
     a volume whose labels disagree with its compose file. Services keep it."""
     compose = _compose(_config(["alice"]))
 
-    assert compose["volumes"] == {"alice-claude-config": None, "alice-agent-data": None}
+    assert compose["volumes"] == {
+        "alice-claude-config": None,
+        "alice-claude-projects": None,
+        "alice-agent-data": None,
+    }
     assert "com.osprey.repo-id" in compose["services"]["web-alice"]["labels"]
 
 
@@ -3760,6 +3776,10 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
         # `sidecar`, the other a container path.
         "OSPREY_AUDIT_IDENTITY",
         "OSPREY_AUTH_AUDIT_DIR",
+        # Its spool and state directories: container paths, like the audit
+        # directory. The state directory holds the logout revocations.
+        "OSPREY_SPOOL_DIR",
+        "OSPREY_STATE_DIR",
         ENV_METHOD,
         ENV_SESSION_LIFETIME,
         ENV_TLS_ENABLED,

@@ -529,6 +529,10 @@ def test_the_build_gate_carries_the_telemetry_errors_and_warnings() -> None:
         "views",
         "views_own",
         "default",
+        "operator",
+        "teams-bridge",
+        "gchat-bridge",
+        "nextcloud-bridge",
     ],
 )
 def test_a_roster_user_may_not_take_a_reserved_name(name: str) -> None:
@@ -542,7 +546,7 @@ def test_a_roster_user_may_not_take_a_reserved_name(name: str) -> None:
         _check_roster_audit_identities([{"user": name}])
 
 
-@pytest.mark.parametrize("name", ["alice", "carol", "operator", "jean-luc", "2nd-shift", "viewer"])
+@pytest.mark.parametrize("name", ["alice", "carol", "jean-luc", "2nd-shift", "viewer"])
 def test_an_ordinary_roster_name_is_not_reserved(name: str) -> None:
     assert _RESERVED_AUDIT_IDENTITY_RE.fullmatch(name) is None
     _check_roster_audit_identities([{"user": name}])

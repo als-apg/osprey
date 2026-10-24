@@ -112,6 +112,11 @@ services:
       # finds nothing else to do — no special case needed for it.
       OSPREY_AUDIT_IDENTITY: dispatch-worker-1
       OSPREY_AUDIT_DIR: /app/golden-project/var/audit/dispatch-worker-1
+      # WHERE this worker appends its agent-record events and keeps its own
+      # state: its own directories in the two zones, bound below. Named for
+      # the writer and for the entrypoint, which joins each one's group.
+      OSPREY_SPOOL_DIR: /app/golden-project/var/spool/dispatch-worker-1
+      OSPREY_STATE_DIR: /app/golden-project/var/state/dispatch-worker-1
 
       # WHO this worker is to the control system. Per worker, from the same
       # loop index as the audit identity above, so a write traced to
@@ -203,6 +208,7 @@ services:
       # concatenation here could not tell apart from a relative one.
 
       - dispatch_workspace_1:/app/golden-project/var/agent_data
+      - dispatch_claude_projects_1:/app/golden-project/var/agent_data/claude-config/projects
 
       # This worker's audit subdirectory, and only its own. A bind rather than a
       # named volume, unlike the workspace above: the records are the operator's
@@ -216,6 +222,11 @@ services:
       # creates the source root-owned and the dropped `osprey` process inside
       # can write nothing to it.
       - ./var/audit/dispatch-worker-1:/app/golden-project/var/audit/dispatch-worker-1
+      # This worker's spool and state directories, and only its own, for the
+      # audit bind's reasons; agent-record binds the spool root whole and
+      # ingests what lands here.
+      - ./var/spool/dispatch-worker-1:/app/golden-project/var/spool/dispatch-worker-1
+      - ./var/state/dispatch-worker-1:/app/golden-project/var/state/dispatch-worker-1
 
       # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
       # the audit bind above, for the opposite reason. Audit isolation is the
@@ -266,6 +277,7 @@ volumes:
 
 
   dispatch_workspace_1:
+  dispatch_claude_projects_1:
 
 
 

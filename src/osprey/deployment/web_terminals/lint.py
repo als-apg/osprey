@@ -29,6 +29,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.agent_record.identities import BRIDGE_IDENTITIES, OPERATOR_IDENTITY
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
@@ -4909,6 +4910,8 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
     that one subdirectory read-write, so a user named ``sidecar`` (the auth
     sidecar's fixed identity) or ``dispatch-worker-<n>`` (a worker's) would hold
     a read-write mount onto the audit trail of the component that records them.
+    A bridge's identity and ``operator`` are refused for the same reason in the
+    spool and state zones and in the agent record's logins.
 
     render.py refuses this outright
     (:func:`~osprey.deployment.web_terminals.render._check_roster_audit_identities`,
@@ -4936,8 +4939,10 @@ def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
                     "service's own audit identity (the auth sidecar writes "
                     f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, dispatch worker <n> "
                     f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a "
-                    "queueserver writes var/audit/[<lane>-]queueserver/) or with a "
-                    "name the telemetry store keeps for its own accounts "
+                    "queueserver writes var/audit/[<lane>-]queueserver/, a bridge "
+                    f"writes var/spool/{{{','.join(sorted(BRIDGE_IDENTITIES.values()))}}}/), "
+                    f"with the agent record's {OPERATOR_IDENTITY!r} credential, or "
+                    "with a name the telemetry store keeps for its own accounts "
                     f"({RESERVED_ACCOUNT_PREFIX}*, "
                     f"{', '.join(sorted(RESERVED_ACCOUNT_NAMES))}). Each "
                     "user's container binds var/audit/<user>/ read-write, so this user "

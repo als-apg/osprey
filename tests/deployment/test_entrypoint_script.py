@@ -80,6 +80,14 @@ CONTROL_DIR_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
 #: The control-target bind this container only READS: the whole tree, bound
 #: read-only, out of which lanes and the dispatch worker resolve owners.
 CONTROL_TREE_VAR = "OSPREY_CONTROL_CONTEXT_TREE"
+#: The agent record's spool, appended to by every source under its own uid,
+#: and the embedded record directory beside it.
+AGENT_RECORD_SPOOL_VAR = "OSPREY_AGENT_RECORD_SPOOL_ROOT"
+AGENT_RECORD_DIR_VAR = "OSPREY_AGENT_RECORD_DIR"
+#: This container's own spool directory (``var/spool/<identity>``) and state
+#: directory (``var/state/<identity>``).
+SPOOL_VAR = "OSPREY_SPOOL_DIR"
+STATE_VAR = "OSPREY_STATE_DIR"
 RENDER_NAMED_VARS = frozenset(
     {
         AUDIT_VAR,
@@ -89,6 +97,10 @@ RENDER_NAMED_VARS = frozenset(
         MIRROR_VAR,
         SIMULATOR_LOG_VAR,
         GUARDED_RUN_VAR,
+        AGENT_RECORD_SPOOL_VAR,
+        AGENT_RECORD_DIR_VAR,
+        SPOOL_VAR,
+        STATE_VAR,
     }
 )
 
@@ -293,6 +305,10 @@ class TestScriptShape:
             CONTROL_TREE_VAR,
             SIMULATOR_LOG_VAR,
             GUARDED_RUN_VAR,
+            AGENT_RECORD_SPOOL_VAR,
+            AGENT_RECORD_DIR_VAR,
+            SPOOL_VAR,
+            STATE_VAR,
         ):
             assert f'"${{{var}:-}}"' in body, var
 
@@ -315,6 +331,10 @@ class TestScriptShape:
             CONTROL_TREE_VAR,
             SIMULATOR_LOG_VAR,
             GUARDED_RUN_VAR,
+            AGENT_RECORD_SPOOL_VAR,
+            AGENT_RECORD_DIR_VAR,
+            SPOOL_VAR,
+            STATE_VAR,
         ):
             assert var in comment, var
         assert "membership" in comment.lower()
