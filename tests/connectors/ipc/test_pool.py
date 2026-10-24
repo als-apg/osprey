@@ -40,11 +40,14 @@ from osprey_connectors.ipc._pool import (
     PooledConnector,
 )
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
     [
+        # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+        str(CHILD_STUBS),
         str(REPO_ROOT),
         str(REPO_ROOT / "src"),
         str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),

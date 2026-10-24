@@ -51,11 +51,17 @@ from osprey_connectors.control_system._va_in_process_connector import VAInProces
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
 from osprey_connectors_tests._harness import write_control_context
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
-    [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
+    [
+        # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+        str(CHILD_STUBS),
+        str(REPO_ROOT / "src"),
+        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+    ]
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
@@ -1284,6 +1290,7 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         cwd=tmp_path,
         env_extra={
             host.START_MARKS_FD_ENV: str(write_fd),
+            # Neither test root has a beamphysics package, so the stand-in still applies.
             "PYTHONPATH": os.pathsep.join(
                 [
                     str(REPO_ROOT),
