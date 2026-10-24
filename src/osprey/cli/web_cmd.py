@@ -30,6 +30,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +83,10 @@ AUDIT_DIR_ENV = "OSPREY_AUDIT_DIR"
 #: ISO-8601 UTC timestamp, the rest = the refusal findings verbatim) so the
 #: reader needs no parser and no schema version.
 PREFLIGHT_REFUSED_MARKER = "preflight-refused"
+#: How the startup line opens, before ``http://<host>:<port>``. Printed only once
+#: the listening socket is bound, so the port it names is the one being served;
+#: a ``--detach`` parent reads its child's port from this line in the log.
+_STARTUP_LINE = "Starting OSPREY Web Terminal on"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -231,13 +236,17 @@ def resolve_web_port(
             one; tests pass a mapping.
 
     Returns:
-        The declared port when one is declared, else the first of ``cli_port``,
-        ``config_port`` and the layout's ``web`` port at ``base``.
+        The declared port when one is declared, else ``cli_port`` when one was
+        asked for, else the first of ``config_port`` and the layout's ``web``
+        port at ``base``. An explicit 0 stays 0: the server binds a port the
+        system chooses and names it in its startup line.
     """
     declared = env.get(DECLARED_WEB_PORT_ENV)
     if declared:
         return int(declared)
-    return cli_port or config_port or default_port("web", 0, base=base)
+    if cli_port is not None:
+        return cli_port
+    return config_port or default_port("web", 0, base=base)
 
 
 def _refuse_session_lifetime(value: object, source: str) -> click.ClickException:
@@ -782,6 +791,27 @@ def _preflight(repo_root: Path, build_dir: Path, config_path: Path) -> tuple[lis
     return failures, warnings
 
 
+def _wait_for_announced_port(
+    log_path: Path, proc: subprocess.Popen, timeout: float = 10.0
+) -> int | None:
+    """The port a detached child names in its startup line, read from its log.
+
+    Returns ``None`` when the child exits, or the line does not appear within
+    *timeout*.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        with suppress(OSError):
+            for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith(f"{_STARTUP_LINE} "):
+                    # ``http://<host>:<port>``; the port follows the last colon
+                    # whatever the host, an IPv6 literal included.
+                    return int(line.split()[-1].rsplit(":", 1)[1])
+        if proc.poll() is not None or time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
 def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: float = 10.0) -> bool:
     """Poll server port until connection succeeds or timeout.
 
@@ -915,7 +945,10 @@ def _resolve_web_shell_command(
     type=int,
     default=None,
     envvar="OSPREY_WEB_PORT",
-    help="Port to run on (default: from config, else the layout's web slot)",
+    help=(
+        "Port to run on; 0 lets the system choose "
+        "(default: from config, else the layout's web slot)"
+    ),
 )
 @click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
@@ -1035,6 +1068,10 @@ def web(
     # default would land in the other deployment's block.
     port_base = resolve_port_base({"deployment": get_config_value("deployment", {})})
     port = resolve_web_port(port, wt_config.get("port"), base=port_base)
+    if reload and port == 0:
+        # The reload supervisor binds its socket itself, from a number.
+        output.fail("--reload needs a fixed port, not --port 0")
+        raise SystemExit(1)
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn
     try:
@@ -1076,31 +1113,29 @@ def web(
 
     # -- foreground (original behavior) ------------------------------------
 
-    # Pre-flight: check if port is already in use. SO_REUSEADDR matches
-    # uvicorn's own bind semantics — without it, TIME_WAIT sockets from a
-    # just-killed server fail this check for ~60s even though uvicorn
-    # itself would bind fine.
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind((host, port))
-        except OSError as exc:
-            if port_pinned:
-                output.fail(
-                    f"Port {port} is already in use",
-                    f"Find the process holding it with: lsof -i :{port}",
-                    f"or start on another port with: osprey web --port {port + 1}",
-                )
-                raise SystemExit(1) from exc
-            # Port was left unspecified and the default is taken — let the OS
-            # assign a free one instead of hard-failing (single-user QoL). A
-            # pinned port never reaches here, so nginx's per-user routing table
-            # cannot be desynced by a silent move.
-            busy_port = port
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free_sock:
-                free_sock.bind((host, 0))
-                port = free_sock.getsockname()[1]
-            output.warn(f"Port {busy_port} is in use, so this is on port {port} instead")
+    from osprey.interfaces._serving import listening_socket
+
+    # The server's own socket, bound before anything names a port: the URL,
+    # OSPREY_WEB_PORT and the startup line all read the port from it.
+    try:
+        sock = listening_socket(host, port)
+    except OSError as exc:
+        if port_pinned:
+            output.fail(
+                f"Port {port} is already in use",
+                f"Find the process holding it with: lsof -i :{port}",
+                f"or start on another port with: osprey web --port {port + 1}",
+            )
+            raise SystemExit(1) from exc
+        # Port was left unspecified and the default is taken — serve on one
+        # the system chooses instead of hard-failing (single-user QoL). A
+        # pinned port never reaches here, so nginx's per-user routing table
+        # cannot be desynced by a silent move.
+        busy_port = port
+        sock = listening_socket(host, 0)
+        port = sock.getsockname()[1]
+        output.warn(f"Port {busy_port} is in use, so this is on port {port} instead")
+    port = sock.getsockname()[1]
 
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and
@@ -1121,7 +1156,7 @@ def web(
     # live in the launcher, not the factory.
     login_url, announce = _mint_operator_url(host, port)
 
-    output.report(f"Starting OSPREY Web Terminal on http://{host}:{port}")
+    output.report(f"{_STARTUP_LINE} http://{host}:{port}")
     if announce:
         # The one line that carries the secret. Printed only when this process
         # minted it; a secret inherited from upstream was already announced
@@ -1167,7 +1202,8 @@ def web(
             # mint above, before this spawn — to recognise that same token. That
             # worker is a fresh process, so its own _populate does the pop;
             # close_env_carriers then keeps the carrier shut on every later app
-            # the worker builds.
+            # the worker builds. The reload supervisor binds the port itself.
+            sock.close()
             uvicorn.run(
                 "osprey.interfaces.web_terminal.app:create_app",
                 factory=True,
@@ -1189,10 +1225,13 @@ def web(
                 config_path=str(project_config),
                 project_dir=str(build_dir),
                 browser_url=login_url,
+                sock=sock,
             )
     except KeyboardInterrupt:
         output.report("")
         output.report("Shutting down...")
+    finally:
+        sock.close()
 
 
 def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) -> None:
@@ -1279,6 +1318,17 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
 
     _write_pid(repo_root, proc.pid)
 
+    if port == 0:
+        # The child binds a port the system chooses and names it in its log.
+        announced = _wait_for_announced_port(log_path, proc)
+        if announced is None:
+            _report_unready_child(proc, port, log_path, repo_root)
+            return
+        port = announced
+        # The secret is settled already, so this mints the same token for the
+        # port the child serves on.
+        login_url, _ = _mint_operator_url(host, port)
+
     if _wait_for_server(host, port, proc):
         output.report(f"Web terminal started (PID {proc.pid}).")
         output.section(
@@ -1292,20 +1342,31 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
             # detached child, whose stdout is the log file.
             output.report(f"Open: {login_url}")
     else:
-        exit_code = proc.poll()
-        if exit_code is not None:
-            output.fail(
-                f"The web terminal exited immediately with code {exit_code}",
-                None,
-                f"read what it wrote to {log_path}",
-            )
-            (repo_root / PID_FILE).unlink(missing_ok=True)
-        else:
-            output.warn(
-                f"The web terminal started with PID {proc.pid} "
-                f"but is not answering on port {port} yet",
-                f"Log:  {log_path}\nStop: osprey web stop",
-            )
+        _report_unready_child(proc, port, log_path, repo_root)
+
+
+def _report_unready_child(
+    proc: subprocess.Popen, port: int, log_path: Path, repo_root: Path
+) -> None:
+    """Say why a detached child is not serving: it exited, or it is not up yet."""
+    exit_code = proc.poll()
+    if exit_code is not None:
+        output.fail(
+            f"The web terminal exited immediately with code {exit_code}",
+            None,
+            f"read what it wrote to {log_path}",
+        )
+        (repo_root / PID_FILE).unlink(missing_ok=True)
+    elif port == 0:
+        output.warn(
+            f"The web terminal started with PID {proc.pid} but has not named its port yet",
+            f"Log:  {log_path}\nStop: osprey web stop",
+        )
+    else:
+        output.warn(
+            f"The web terminal started with PID {proc.pid} but is not answering on port {port} yet",
+            f"Log:  {log_path}\nStop: osprey web stop",
+        )
 
 
 @web.command("stop")

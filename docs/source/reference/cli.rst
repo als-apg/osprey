@@ -1276,6 +1276,7 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    valid for the life of the process — treat it like a password.
 
    ``-p, --port INTEGER`` — Port (default: from config, else the port layout's ``10100``).
+   0 lets the system choose; the startup line names the port; not with ``--reload``.
 
    ``--host TEXT`` — Host to bind to (default: ``127.0.0.1``).
 
