@@ -1455,7 +1455,8 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     its ledger under another unless both are told the same one. The name is
     fixed at build — the account building, unless the profile states one — so a
     repo built by one account and run by another still agrees with itself.
-    Only where the telemetry store is deployed: nothing else reads the key.
+    Every deployment records it: the agent record is always deployed, and it
+    reads the host's transcripts and spool under this name.
 
     Returns:
         Whether the render's ``config.yml`` was changed.
@@ -1465,8 +1466,6 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     from osprey.deployment import telemetry_config
     from osprey.utils.config_writer import config_update_fields
 
-    if not telemetry_config.store_deployed(rendered):
-        return False
     if telemetry_config.host_identity(rendered) is not None:
         return False
     try:
@@ -1495,6 +1494,25 @@ def _ensure_telemetry_credentials(repo_root: Path, rendered: dict[str, Any]) -> 
         logger.debug("telemetry credential file created: %s", name)
     for name in report.purged:
         logger.debug("telemetry credential file removed: %s", name)
+
+
+def _ensure_agent_record_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
+    """Mint the agent record's login files and regenerate its service file.
+
+    A sibling of :func:`_ensure_telemetry_credentials`, not a part of it: the
+    record is always deployed and keeps its files under its own prefix. Reader
+    keys are left to ``osprey up``, as the telemetry store's are.
+    """
+    from osprey.agent_record.credentials import ensure_agent_record_credentials
+
+    try:
+        report = ensure_agent_record_credentials(repo_root, rendered, reader_keys=False)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    for name in report.minted:
+        logger.debug("agent record credential file created: %s", name)
+    for name in report.purged:
+        logger.debug("agent record credential file removed: %s", name)
 
 
 def _rendered_config(render_dir: Path) -> dict[str, Any]:
@@ -1986,6 +2004,7 @@ def _render_project(
     Returns:
         The rendered project directory.
     """
+    from osprey.agent_record.config import agent_record_config_overrides
     from osprey.agent_runner.provider_env import load_provider_spec
     from osprey.deployment.reach import reach_errors
 
@@ -2176,6 +2195,9 @@ def _render_project(
                 dispatch_tier=profile_dispatch_tier(build_profile) if deployment else None,
             ),
             "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
+            # The resolved record block, defaults included, rendered as the
+            # top-level `agent_record` key the record service reads.
+            "agent_record": agent_record_config_overrides(build_profile.agent_record),
             # Reads the render because the stand-in's probe channel is the sandbox
             # VA's: whatever the template put there is the fallback for a profile
             # that named none of its own.
@@ -3330,6 +3352,7 @@ def _build_repo(
             profile_root=repo_root,
             project_name=name,
             dispatch_tier=dispatch_tier,
+            agent_record=build_profile.agent_record,
         )
         # A sibling call, exactly as `osprey validate` makes it — see the note
         # beside the same line in `validate_cmd.py`. Raising here, profile-side,
@@ -3350,6 +3373,7 @@ def _build_repo(
             profile_root=repo_root,
             project_name=name,
             dispatch_tier=dispatch_tier,
+            agent_record=build_profile.agent_record,
         )
         # An authored `web.bar_items` entry the served default will not carry:
         # the server filters a panel-gated item whose panel this profile does
@@ -3598,6 +3622,7 @@ def _build_repo(
             # files belong to the host that deploys.
             if not runtime_root:
                 _ensure_telemetry_credentials(zones.repo_root, rendered)
+                _ensure_agent_record_credentials(zones.repo_root, rendered)
 
             config = _render_compose_files(zones, runtime_root, dev_mode=dev)
             phase.step("compose files")

@@ -1008,6 +1008,15 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             "nothing in a render container dials it"
         ),
     ),
+    "agent_record": ReachContract(
+        service="agent_record",
+        no_client_reach=True,
+        note=(
+            "render containers append to their own spool, which agent-record reads; "
+            "only the chat bridges call its API, at the address their compose "
+            "service is rendered with"
+        ),
+    ),
     "bluesky": ReachContract(
         service="bluesky",
         consumers=(

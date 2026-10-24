@@ -13,8 +13,12 @@ is deleted.
 **What survives is kept deliberately, and the printed plan says so out loud.**
 ``var/audit/`` — the safety audit log, the record of what the agent was asked to
 do and what it did — survives a reset, because the reason to keep an audit trail
-is strongest exactly when someone is wiping the thing it describes.
-``--purge-audit`` destroys it under the same typed gate. And ``.env`` keeps
+is strongest exactly when someone is wiping the thing it describes. The agent
+record survives on the same principle, on either backend: ``var/agent_record/``
+and the spool feeding it, ``var/spool/``, and the record store's data volume
+(:data:`~osprey.deployment.compose_generator.AGENT_RECORD_CLICKHOUSE_VOLUME`)
+when the record lives in ClickHouse. ``--purge-audit`` destroys all of them
+under the same typed gate. And ``.env`` keeps
 every value that was not minted by a deploy: the provider keys an operator
 supplied are theirs, not this deployment's, and a reset that silently took them
 would make a re-deploy impossible for reasons the operator could not see. The
@@ -102,6 +106,7 @@ from enum import Enum
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
+    AGENT_RECORD_CLICKHOUSE_VOLUME,
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
     repo_identity,
@@ -144,7 +149,7 @@ from osprey.deployment.web_terminals.env_production import (
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
 from osprey_connectors.dotenv import parse_dotenv_text
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import STATE_DIR_NAME
+from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH, STATE_DIR_NAME
 
 logger = get_logger("deployment.reset")
 
@@ -529,6 +534,9 @@ class ResetPlan:
     project_name_source: str
     containers: list[Resource] = field(default_factory=list)
     volumes: list[Resource] = field(default_factory=list)
+    #: Volumes of this project a plain reset keeps on purpose — the record
+    #: store's data volume. Disclosed under WILL BE KEPT, never removed.
+    kept_volumes: list[Resource] = field(default_factory=list)
     images: list[Resource] = field(default_factory=list)
     unidentified: list[Resource] = field(default_factory=list)
     paths: list[Path] = field(default_factory=list)
@@ -547,6 +555,11 @@ class ResetPlan:
     def audit_dir(self) -> Path:
         """The safety audit log — kept unless ``--purge-audit`` was passed."""
         return self.repo_root / STATE_DIR_NAME / "audit"
+
+    @property
+    def record_dirs(self) -> tuple[Path, Path]:
+        """The agent record and its spool — kept unless ``--purge-audit`` was passed."""
+        return (self.repo_root / RECORD_DIR_RELPATH, self.repo_root / SPOOL_DIR_RELPATH)
 
     @property
     def removes_anything(self) -> bool:
@@ -648,15 +661,27 @@ class ResetPlan:
         kept = []
         if self.purge_audit:
             kept.append(
-                f"    (nothing under {STATE_DIR_NAME}/ — --purge-audit was passed, so the "
-                "audit log is in the removal list above)"
+                "    (--purge-audit was passed, so the audit log and the agent record are in "
+                "the removal list above)"
             )
         else:
             kept.append(
                 f"    {STATE_DIR_NAME}/audit/  the safety audit log — what the agent was "
                 "asked to do and what it did."
             )
-            kept.append("      `osprey reset --purge-audit` destroys this too, under this gate.")
+            record, spool = self.record_dirs
+            if record.exists():
+                kept.append(
+                    f"    {RECORD_DIR_RELPATH}/  the agent record, as the embedded backend keeps it."
+                )
+            if spool.exists():
+                kept.append(
+                    f"    {SPOOL_DIR_RELPATH}/  entries the sources appended that the record has "
+                    "not ingested yet."
+                )
+            for resource in self.kept_volumes:
+                kept.append(f"    volume {resource.name}  the agent record's ClickHouse store.")
+            kept.append("      `osprey reset --purge-audit` destroys these too, under this gate.")
         env_note = f"{len(self.env_kept_keys)} entr{'y' if len(self.env_kept_keys) == 1 else 'ies'}"
         kept.append(
             f"    {COMPOSE_ENV_FILENAME}  everything that was not minted by a deploy, "
@@ -684,6 +709,19 @@ class ResetPlan:
             kept.append(
                 "      Each is written once and never rewritten. Delete one and the next "
                 "`osprey up` creates it again with a new secret."
+            )
+        from osprey.agent_record.credentials import (
+            existing_credential_files as existing_record_files,
+        )
+
+        record_files = existing_record_files(self.repo_root)
+        for filename, holds in record_files:
+            kept.append(f"    {filename}  {holds}.")
+        if record_files:
+            kept.append(
+                "      Logins and keys are written once and never rewritten; the service file "
+                "is rebuilt from them on every `osprey build` and `osprey up`. Delete a login "
+                "and the next `osprey up` creates it again with a new secret."
             )
         kept.append(
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
@@ -733,6 +771,11 @@ class ResetPlan:
             )
         if path == self.audit_dir:
             return "  the safety audit log — not recoverable"
+        record, spool = self.record_dirs
+        if path == record:
+            return "  the agent record — not recoverable"
+        if path == spool:
+            return "  entries the sources appended that the record has not ingested yet"
         return ""
 
     def _external_path_lines(self) -> list[str]:
@@ -1161,7 +1204,9 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     Args:
         repo_root: The deployment repo.
         probe: The runtime seam. Its listings are label-filtered reads.
-        purge_audit: Extend the wipe to ``var/audit`` (same typed gate).
+        purge_audit: Extend the wipe to ``var/audit``, the agent record
+            (``var/agent_record``, ``var/spool``) and the record store's data
+            volume (same typed gate).
 
     Returns:
         The plan, ready to render and to execute.
@@ -1188,7 +1233,12 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         )
     # Volumes belong to the project by name (see the module docstring), so with
     # no other copy's container holding the name, every one of them is ours.
+    # The record store's data volume is kept with the rest of the record unless
+    # --purge-audit was passed.
     volumes = probe.volumes_for_project(project)
+    record_volume = f"{project}_{AGENT_RECORD_CLICKHOUSE_VOLUME}"
+    kept_volumes = [] if purge_audit else [v for v in volumes if v.name == record_volume]
+    volumes = [v for v in volumes if v.name not in {k.name for k in kept_volumes}]
 
     images = [
         image
@@ -1213,7 +1263,13 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     if contained:
         paths.insert(0, agent_data)
     if purge_audit:
-        paths.append(repo_root / STATE_DIR_NAME / "audit")
+        paths.extend(
+            [
+                repo_root / STATE_DIR_NAME / "audit",
+                repo_root / RECORD_DIR_RELPATH,
+                repo_root / SPOOL_DIR_RELPATH,
+            ]
+        )
     paths = [path for path in paths if path.exists()]
 
     # An agent-data root outside the repo is reported and never removed. It is
@@ -1230,6 +1286,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         project_name_source=source,
         containers=containers.ours,
         volumes=volumes,
+        kept_volumes=kept_volumes,
         images=images,
         unidentified=containers.unidentified,
         paths=paths,
@@ -1268,7 +1325,8 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     2. containers, then volumes, then images — dependents before dependencies,
        which is the only order the runtime will accept.
     3. the filesystem: ``var/agent_data``, ``build/`` and the merged compose
-       document (and ``var/audit`` under ``--purge-audit``), each removed and —
+       document (and ``var/audit``, ``var/agent_record`` and ``var/spool`` under
+       ``--purge-audit``), each removed and —
        for the state directories — left behind empty, so the repo has the shape
        a fresh ``osprey init`` gives it.
     4. ``.env`` last. It is the one file here that is edited rather than deleted,
@@ -1375,7 +1433,8 @@ def reset_deployment(
         repo_root: The deployment repo.
         dry_run: Print the plan and stop. Nothing is confirmed and nothing runs.
         assume_yes: Skip the typed confirmation — the scripted path.
-        purge_audit: Destroy ``var/audit`` too, under the same gate.
+        purge_audit: Destroy ``var/audit`` and the agent record (its
+            directories and its store's data volume) too, under the same gate.
         emit: Where the plan is written. The CLI passes its own printer.
             Required rather than defaulted, so no caller can fall through to a
             raw write that lands inside a mounted live region.

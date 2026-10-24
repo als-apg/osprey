@@ -2699,7 +2699,9 @@ class TestCopyServiceTemplates:
         assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
         # Declared-but-not-deployed add-on is bundled too.
         assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
-        assert count == 2
+        # The agent record is derived and always bundled.
+        assert (project_path / "services" / "agent_record" / "docker-compose.yml.j2").exists()
+        assert count == 3
 
     def test_declared_only_service_bundles_without_deployed_services(self, tmp_path: Path) -> None:
         """With an empty deployed_services, a declared service with a package
@@ -2720,7 +2722,8 @@ class TestCopyServiceTemplates:
         count = _copy_service_templates(project_path)
 
         assert (project_path / "services" / "telemetry_store" / "docker-compose.yml.j2").exists()
-        assert count == 1
+        # The agent record is derived and always bundled.
+        assert count == 2
 
     def test_declared_service_without_package_template_skipped_silently(
         self, tmp_path: Path, caplog
@@ -2744,7 +2747,8 @@ class TestCopyServiceTemplates:
         with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
             count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only the always-bundled agent record.
+        assert count == 1
         assert not (project_path / "services" / "typesense").exists()
         assert not any("typesense" in r.getMessage() for r in caplog.records), (
             "declared-only service without a template must not warn"
@@ -2770,7 +2774,8 @@ class TestCopyServiceTemplates:
         with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
             count = _copy_service_templates(project_path)
 
-        assert count == 0
+        # Only the always-bundled agent record.
+        assert count == 1
         assert any("typesense" in r.getMessage() for r in caplog.records), (
             "a deployed service without a template must warn"
         )

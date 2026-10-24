@@ -68,14 +68,17 @@ def test_a_stated_host_identity_is_left_as_stated(tmp_path: Path, monkeypatch) -
     assert _config(render)["deployment"]["host_identity"] == "ops"
 
 
-def test_a_deployment_without_the_store_records_nothing(tmp_path: Path, monkeypatch) -> None:
+def test_a_deployment_without_the_store_still_records_the_builder(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # The agent record is deployed everywhere and reads the host's transcripts
+    # under this name, so a deployment with no telemetry store records it too.
     monkeypatch.setattr("getpass.getuser", lambda: "builder")
     render = _render(tmp_path, {"deployed_services": []})
-    before = (render / "config.yml").read_bytes()
 
-    assert build_cmd._record_host_identity(render, _config(render)) is False
+    assert build_cmd._record_host_identity(render, _config(render)) is True
 
-    assert (render / "config.yml").read_bytes() == before
+    assert _config(render)["deployment"]["host_identity"] == "builder"
 
 
 def test_an_account_with_no_name_records_nothing(tmp_path: Path, monkeypatch) -> None:

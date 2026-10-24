@@ -31,10 +31,12 @@ from osprey.cli.phase_reporter import report_step as _report_step
 from osprey.deployment import telemetry_config
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
+    AGENT_RECORD_TEMPLATE_DIR,
     COMPOSE_ENV_FILENAME,
     REPO_ID_LABEL,
     _copy_local_framework_for_override,
     _dedupe_compose_files,
+    agent_record_host_projects_dir,
     clean_deployment,
     compose_base_cmd,
     compose_provider_env,
@@ -71,6 +73,7 @@ from osprey.deployment.runtime_helper import (
     ComposeProvider,
     UnsupportedComposeProviderError,
     buildkit_missing,
+    copy_transcripts_once,
     detect_compose_provider,
     get_runtime_command,
     podman_compose_provider_advisory,
@@ -2342,14 +2345,17 @@ _PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
 def _deployed_project_image_services(config: dict) -> list[str]:
     """Every service this deployment renders on the project image's compose line.
 
-    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the history
-    page, which is never a ``deployed_services`` entry: it is rendered exactly
-    when :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds.
+    The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the two derived
+    services, which are never ``deployed_services`` entries: the history page,
+    rendered exactly when
+    :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds, and
+    agent-record (``services.agent_record``), which every deployment runs.
     """
     deployed = {str(s) for s in (config.get("deployed_services") or [])}
     services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
     if telemetry_config.history_page_deployed(config):
         services.append(telemetry_config.HISTORY_SERVICE)
+    services.append(AGENT_RECORD_TEMPLATE_DIR)
     return services
 
 
@@ -5675,6 +5681,74 @@ def _stage_telemetry_store(config, compose_files, env, project_dir, *, provider=
     _report_step("telemetry store schema and accounts applied")
 
 
+def _stage_agent_record_clickhouse(
+    config, compose_files, env, project_dir, *, provider=None
+) -> None:
+    """Start the agent record's ClickHouse store alone and stage its schema and account.
+
+    Runs only when the record's backend is ``clickhouse``. The account
+    agent-record writes and reads with gets ``INSERT`` and ``SELECT`` on both
+    tables, plus ``ALTER DELETE`` on the record table for retention's
+    ``DROP PARTITION``, and nothing else (see
+    :mod:`osprey.agent_record.backends.clickhouse_stage`). The client runs in
+    the store container as its admin, whose credential the container reads
+    from its own env file, so no admin secret is on a host command line. A
+    failure stops ``osprey up``: agent-record cannot write a store short of
+    its schema or its account.
+
+    :param config: Raw deploy config.
+    :param compose_files: Rendered compose file paths for this deploy.
+    :param env: The environment the deploy hands compose.
+    :param project_dir: Root of the built project (holds the credential files).
+    :param provider: The compose provider this deploy resolved. ``None`` is the
+        docker shape.
+    :raises AgentRecordStoreError: The account's password file is missing or
+        empty, or the store refused a statement.
+    """
+    from osprey.agent_record.backends import clickhouse_stage
+    from osprey.agent_record.config import uses_clickhouse
+    from osprey.agent_record.credentials import (
+        CLICKHOUSE_FILE,
+        CLICKHOUSE_PASSWORD_ENV,
+        CLICKHOUSE_SERVICE,
+        read_env_value,
+    )
+
+    if not uses_clickhouse(config):
+        return
+    password = read_env_value(Path(project_dir) / CLICKHOUSE_FILE, CLICKHOUSE_PASSWORD_ENV)
+    if not password:
+        raise clickhouse_stage.AgentRecordStoreError(
+            f"{CLICKHOUSE_FILE} holds no {CLICKHOUSE_PASSWORD_ENV}: the agent record "
+            "account cannot be staged without it; remove the file and run `osprey up` "
+            "again to mint a fresh one"
+        )
+
+    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
+    base_cmd = compose_base_cmd(
+        get_runtime_command(config),
+        compose_files,
+        project_dir,
+        _env_file_args(project_dir, provider),
+        provider,
+    )
+
+    _report_group("agent record store")
+    up_cmd = base_cmd + ["up", "-d", CLICKHOUSE_SERVICE]
+    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
+    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
+        run_captured(
+            up_cmd,
+            env=run_env,
+            spool_name="agent-record-clickhouse-up",
+            repo_root=project_dir,
+            **bounds,
+        )
+    _report_step("agent record store started")
+    clickhouse_stage.stage(clickhouse_stage.compose_executor(base_cmd, run_env), password)
+    _report_step("agent record store schema and account applied")
+
+
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:
     """Start the graph store, bootstrap it, and seed it whenever its marker differs.
 
@@ -5978,6 +6052,43 @@ def _ensure_telemetry_credentials(config: dict, repo_root: Path | str) -> None:
         _report_fact(f"telemetry credential files removed: {', '.join(report.purged)}")
 
 
+def _ensure_agent_record_credentials(config: dict, repo_root: Path | str) -> None:
+    """Provision the agent record's credential files, and say what changed.
+
+    The sibling of :func:`_ensure_telemetry_credentials` for the record, which
+    every deployment runs. Everything said is a file name: a reader's key is
+    minted here and nowhere else, never printed, and handed over out of band.
+    The service file (the verifier and the ingest secret set) is regenerated
+    on every start, and its digest label recreates agent-record when it moved.
+
+    Args:
+        config: Raw deploy config.
+        repo_root: The deployment repo, where the files live.
+
+    Raises:
+        RuntimeError: If two identities claim one login, or a name cannot be one.
+    """
+    from osprey.agent_record.credentials import (
+        ensure_agent_record_credentials,
+        reader_file,
+    )
+
+    try:
+        report = ensure_agent_record_credentials(repo_root, config, reader_keys=True)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    for name, set_aside in report.withdrawn:
+        _report_fact(f"record reader {name}: withdrawn, key file set aside → {set_aside}")
+    for name in report.reader_keys:
+        _report_fact(f"record reader {name}: key minted → {reader_file(name)}")
+    reader_files = {reader_file(name) for name in report.reader_keys}
+    service_files = [name for name in report.minted if name not in reader_files]
+    if service_files:
+        _report_fact(f"agent record credential files created: {', '.join(service_files)}")
+    if report.purged:
+        _report_fact(f"agent record credential files removed: {', '.join(report.purged)}")
+
+
 def _collect_unmet_preconditions(
     config: dict,
     repo_root: Path | str,
@@ -6096,6 +6207,46 @@ def _preflight_legacy_ariel_mirror(config: dict, repo_root: Path) -> None:
     )
 
 
+def _report_unmounted_host_transcripts(
+    config: dict, compose_files: list[str], repo_root: Path | str
+) -> None:
+    """Say once when agent-record was rendered without the host's transcripts.
+
+    A deployment that records its host sessions (``deployment.host_identity``)
+    has agent-record mount the host build's Claude Code project directory, but
+    only when that directory existed at build time: the bind is never created.
+    Read from the rendered agent-record compose file, so the answer is the one
+    the stack is about to start with; a build with no agent-record compose file
+    rendered no bind to miss, so it says nothing.
+    """
+    from osprey.agent_record.credentials import RECORD_SERVICE
+
+    host_dir = agent_record_host_projects_dir(config, repo_root)
+    if host_dir is None:
+        return
+    rendered = [
+        Path(repo_root) / path
+        for path in compose_files
+        if Path(path).parent.name == AGENT_RECORD_TEMPLATE_DIR
+    ]
+    if not rendered:
+        return
+    for path in rendered:
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            return
+        service = (document.get("services") or {}).get(RECORD_SERVICE) or {}
+        for mount in service.get("volumes") or []:
+            if isinstance(mount, dict) and mount.get("source") == host_dir.as_posix():
+                return
+    _report_fact(
+        f"host sessions are not recorded yet: {host_dir} did not exist when this "
+        "deployment was built. Run `osprey build`, then `osprey up`, after the first "
+        "host session to record them."
+    )
+
+
 def _start_stack(
     config: dict,
     compose_files: list[str],
@@ -6166,18 +6317,8 @@ def _start_stack(
     """
     web_terminals_enabled = _web_terminals_enabled(config)
 
-    # A web-terminals-only deploy (no backend services) is valid, so the
-    # early-return below must not fire on empty deployed_services in that case.
-    if not config.get("deployed_services") and not web_terminals_enabled:
-        _report_fact(
-            "No services are configured for this project: deployed_services is empty in "
-            "config.yml. Skipping osprey up."
-        )
-        # Still say what is (not) reachable — an unexpectedly empty deploy is
-        # the classic stale-render shape, and "web terminal (not configured)"
-        # is the line that makes it diagnosable.
-        log_endpoint_summary(config, compose_files)
-        return
+    # There is no empty stack: agent-record is rendered for every deployment,
+    # so even one with no deployed_services and no web terminals starts it.
 
     # Shared-disk host path (if configured) must exist before either path
     # below reaches a compose invocation -- see _check_shared_disk_preflight.
@@ -6316,6 +6457,9 @@ def _start_stack(
     # the readers' keys, which only a start mints. A provisioning step of its
     # own, above the reporting pass below, which only reads them.
     _ensure_telemetry_credentials(config, repo_root)
+    # The agent record's, as a sibling step: every login the build minted,
+    # again, the readers' keys, and the service file regenerated from them.
+    _ensure_agent_record_credentials(config, repo_root)
 
     # Refuse a chain that is not the one this project was rendered against:
     # membership is fixed at build time, so a file added or removed since then
@@ -6433,6 +6577,14 @@ def _start_stack(
     if web_terminals_enabled:
         preflight_web_terminals(config, repo_root=Path(repo_root))
 
+    # Transcripts that predate their own volume are copied into it, once, before
+    # any compose invocation below can create that volume empty and start a
+    # container on it. Both start paths reach here, and so do the single-service
+    # ups of the staging steps that follow.
+    for volume in copy_transcripts_once(config, runtime=get_runtime_command(config)[0], env=env):
+        _report_fact(f"copied the existing transcripts into {volume}")
+    _report_unmounted_host_transcripts(config, compose_files, repo_root)
+
     # Stage the archiver store and seed its history BEFORE the branch split, so
     # both deploy paths inherit it and the recorder — started by whichever `up`
     # follows — finds a collection that already exists with the right indexes.
@@ -6491,6 +6643,11 @@ def _start_stack(
     # Before the branch because the attached `up` never returns. Fatal: a
     # store short of its accounts could leave a withdrawn reader able to read.
     _stage_telemetry_store(config, compose_files, env, Path(repo_root), provider=provider)
+    # And the agent record's ClickHouse store, when it is the record's backend:
+    # its schema and agent-record's account must exist before agent-record
+    # starts writing. Before the branch for the same reason, and fatal: a
+    # store short of either cannot take the record.
+    _stage_agent_record_clickhouse(config, compose_files, env, Path(repo_root), provider=provider)
     # And the gateway's ledger directories, before compose recreates it: a
     # planted FIFO or symlink is moved out of the readers' glob, and a
     # directory no receiver reads is named. Fatal only when a path cannot be

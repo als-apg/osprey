@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
+from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
     GRAPHDB_SERVICE_NAME,
@@ -409,6 +410,11 @@ def _copy_service_templates(project_path: Path) -> int:
     if history_page_deployed(config) and HISTORY_SERVICE not in names:
         names.append(HISTORY_SERVICE)
         deployed.append(HISTORY_SERVICE)
+    # The agent record is derived and always deployed: it is never a
+    # deployed_services entry, and every deployment renders it.
+    if AGENT_RECORD_TEMPLATE_DIR not in names:
+        names.append(AGENT_RECORD_TEMPLATE_DIR)
+        deployed.append(AGENT_RECORD_TEMPLATE_DIR)
 
     if not names:
         return 0

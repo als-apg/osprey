@@ -27,7 +27,11 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.agent_runner.claude_state import CLAUDE_CONFIG_VOLUME_SUFFIX
+from osprey.agent_runner.claude_state import (
+    CLAUDE_CONFIG_VOLUME_SUFFIX,
+    CLAUDE_PROJECTS_VOLUME_SUFFIX,
+    dispatch_claude_projects_volume,
+)
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
@@ -98,6 +102,9 @@ OUT_SRC_DIR = "repo_src"
 TEMPLATE_FILENAME = "docker-compose.yml.j2"
 #: The history page's template directory under ``services/``.
 HISTORY_TEMPLATE_DIR = HISTORY_SERVICE
+#: The agent-record service's template directory under ``services/``. Its
+#: compose service key is ``agent-record``.
+AGENT_RECORD_TEMPLATE_DIR = "agent_record"
 COMPOSE_FILE_NAME = "docker-compose.yml"
 
 #: The deployment's one secret store, at the repo root. Compose is pointed at it
@@ -774,6 +781,130 @@ def resolve_user_volume_names(config, user):
     return f"{project}_{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}", f"{project}_{user}-agent-data"
 
 
+def resolve_user_projects_volume_name(config, user):
+    """The real runtime name of a web terminal user's transcripts volume.
+
+    ``<project>_<user>-claude-projects``, namespaced exactly as
+    :func:`resolve_user_volume_names` namespaces the user's other two volumes.
+    It mounts inside the claude-config volume, so it is kept and removed
+    together with that one.
+
+    :param config: Configuration dictionary (``None`` is treated as empty)
+    :type config: dict
+    :param user: Web terminal username the volume belongs to
+    :type user: str
+    :return: The runtime volume name
+    :rtype: str
+    """
+    project = resolve_project_name(config or {})
+    return f"{project}_{user}{CLAUDE_PROJECTS_VOLUME_SUFFIX}"
+
+
+def claude_projects_volumes(config):
+    """Every transcripts volume this config renders, with the volume it moved out of.
+
+    One entry per web-terminal user (when the web terminals are enabled) and per
+    dispatch workspace (when the dispatch worker is deployed): one for the shared
+    workspace, one per worker in isolated mode. Each entry carries bare compose
+    names, which the runtime namespaces with the project:
+
+    * ``kind`` -- ``"terminal"`` or ``"dispatch"``
+    * ``name`` -- the user, or the dispatch source name the archive uses
+      (``shared`` or ``dispatch-worker-<i>``)
+    * ``volume`` -- the transcripts volume
+    * ``parent`` -- the volume the transcripts sit inside: the user's
+      claude-config volume, or the worker's workspace
+    * ``parent_dir`` -- where they sat in the parent before they had a volume
+      of their own (``projects``, or ``claude-config/projects``)
+    * ``containers`` -- the containers that mount the pair, by their
+      ``container_name``
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The entries, terminals first
+    :rtype: list[dict]
+    """
+    from osprey.agent_runner.artifact_resolve import DISPATCH_CLAUDE_CONFIG_DIRNAME
+    from osprey.deployment.web_terminals.naming import web_container_name
+
+    config = config or {}
+    project = resolve_project_name(config)
+    sources = _transcript_volume_sources(config)
+    entries = []
+    for terminal in sources["terminals"]:
+        user = terminal["user"]
+        entries.append(
+            {
+                "kind": "terminal",
+                "name": user,
+                "volume": terminal["volume"],
+                "parent": f"{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
+                "parent_dir": "projects",
+                "containers": [web_container_name(project, user)],
+            }
+        )
+    for worker in sources["workers"]:
+        entries.append(
+            {
+                "kind": "dispatch",
+                "name": worker["name"],
+                "volume": worker["projects_volume"],
+                "parent": worker["volume"],
+                "parent_dir": f"{DISPATCH_CLAUDE_CONFIG_DIRNAME}/projects",
+                "containers": [f"{project}-{service}" for service in worker["services"]],
+            }
+        )
+    return entries
+
+
+def _dispatch_workspaces(config):
+    """The dispatch worker's workspace volumes, as the dispatch template renders them.
+
+    Empty unless the worker is deployed with a count of at least one: the
+    template renders no worker below one, and a volume no worker declares would
+    be created empty. Shared mode has one workspace every worker mounts;
+    isolated mode one per worker.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: ``name``, ``volume``, ``projects_volume``, ``service`` (the first
+        worker mounting it) and ``services`` (every worker mounting it), per workspace
+    :rtype: list[dict]
+    """
+    deployed = {str(name) for name in config.get("deployed_services") or []}
+    if "dispatch_worker" not in deployed:
+        return []
+    worker = (config.get("services") or {}).get("dispatch_worker")
+    worker = worker if isinstance(worker, dict) else {}
+    try:
+        count = int(worker.get("worker_count", 1))
+    except (TypeError, ValueError):
+        count = 1
+    if count < 1:
+        return []
+    services = [f"{DISPATCH_WORKER_SERVICE_PREFIX}-{i}" for i in range(1, count + 1)]
+    if worker.get("workspace_mode", "isolated") == "shared":
+        return [
+            {
+                "name": "shared",
+                "volume": "dispatch_workspace",
+                "projects_volume": dispatch_claude_projects_volume(),
+                "service": services[0],
+                "services": services,
+            }
+        ]
+    return [
+        {
+            "name": service,
+            "volume": f"dispatch_workspace_{i}",
+            "projects_volume": dispatch_claude_projects_volume(i),
+            "service": service,
+            "services": [service],
+        }
+        for i, service in enumerate(services, start=1)
+    ]
+
+
 def repo_relative_mount_source(
     raw: str | os.PathLike[str], repo_root: str | os.PathLike[str] | None = None
 ) -> str:
@@ -1204,13 +1335,42 @@ def _resolve_qmd_render_context(config, repo_root):
 ARCHIVE_DEFAULT_INTERVAL_SECONDS = 86400
 
 
+def _transcript_volume_sources(config):
+    """The transcripts volumes the deployment renders, for the services that read them.
+
+    Derived from the inputs their owner templates render from, whether or not
+    any reader is deployed: the web-terminal roster (one ``<user>-claude-projects``
+    volume per user) and the dispatch worker's workspaces (one projects volume
+    per workspace). A volume is named only when its owner renders it, because
+    naming one no service declares would create an empty volume.
+
+    The one place the transcripts volumes are named: :func:`claude_projects_volumes`
+    and every reader's render context derive from it.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: ``terminals`` (``user``, ``volume``) and ``workers`` (the
+        :func:`_dispatch_workspaces` entries: ``name``, ``volume``,
+        ``projects_volume``, ``service``, ``services``)
+    :rtype: dict
+    """
+    from osprey.deployment.web_terminals.roster import roster_user_names
+
+    config = config or {}
+    terminals = [
+        {"user": user, "volume": f"{user}{CLAUDE_PROJECTS_VOLUME_SUFFIX}"}
+        for user in roster_user_names((config.get("modules") or {}).get("web_terminals"))
+    ]
+    return {"terminals": terminals, "workers": _dispatch_workspaces(config)}
+
+
 def _resolve_archive_render_context(config):
     """Build the ``osprey_archive`` render context for the archive service template.
 
     The archive reads other services' named volumes by declaring the same bare
     keys their owner templates declare, so the list of volumes it mounts is
     derived here from the same inputs the owners render from: the web-terminal
-    roster (two volumes per user), the dispatch worker's count and workspace
+    roster (two volumes per user: transcripts and agent data), the dispatch worker's count and workspace
     mode, and the deployed plan-queue lanes that run their own Redis. A volume
     is named only when its owner renders it, because naming one no service
     declares would create an empty volume.
@@ -1224,7 +1384,6 @@ def _resolve_archive_render_context(config):
     """
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
     from osprey.deployment import telemetry_config as tc
-    from osprey.deployment.web_terminals.roster import roster_user_names
     from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
 
     config = config or {}
@@ -1235,41 +1394,17 @@ def _resolve_archive_render_context(config):
         block = services.get(key)
         return block if isinstance(block, dict) else {}
 
+    sources = _transcript_volume_sources(config)
     terminals = []
     if "archive" in deployed:
-        for user in roster_user_names((config.get("modules") or {}).get("web_terminals")):
-            terminals.append(
-                {
-                    "user": user,
-                    "volume": f"{user}{CLAUDE_CONFIG_VOLUME_SUFFIX}",
-                    "agent_data_volume": f"{user}-agent-data",
-                }
-            )
-
-    workers = []
-    if "dispatch_worker" in deployed:
-        worker = _block("dispatch_worker")
-        try:
-            count = int(worker.get("worker_count", 1))
-        except (TypeError, ValueError):
-            count = 1
-        # No `max(count, 1)`: the template renders no worker for a count below
-        # one, and a volume no worker declares would be created empty.
-        if count >= 1:
-            if worker.get("workspace_mode", "isolated") == "shared":
-                workers.append(
-                    {
-                        "name": "shared",
-                        "volume": "dispatch_workspace",
-                        "service": f"{DISPATCH_WORKER_SERVICE_PREFIX}-1",
-                    }
-                )
-            else:
-                for i in range(1, count + 1):
-                    service = f"{DISPATCH_WORKER_SERVICE_PREFIX}-{i}"
-                    workers.append(
-                        {"name": service, "volume": f"dispatch_workspace_{i}", "service": service}
-                    )
+        terminals = [
+            {**terminal, "agent_data_volume": f"{terminal['user']}-agent-data"}
+            for terminal in sources["terminals"]
+        ]
+    workers = [
+        {key: worker[key] for key in ("name", "volume", "projects_volume", "service")}
+        for worker in sources["workers"]
+    ]
 
     lanes = []
     if LANE_ONE in deployed:
@@ -1305,6 +1440,184 @@ def _resolve_archive_render_context(config):
 
 #: The port the history page listens on inside its container.
 HISTORY_CONTAINER_PORT = 8000
+
+#: The port agent-record listens on inside its container.
+AGENT_RECORD_CONTAINER_PORT = 8000
+
+#: The data volume of the record's ClickHouse store (``backend: clickhouse``).
+#: A plain ``osprey reset`` keeps it; ``--purge-audit`` removes it.
+AGENT_RECORD_CLICKHOUSE_VOLUME = "agent_record_clickhouse_data"
+
+#: The record store's hard ceiling of concurrent SELECTs. agent-record is its
+#: one client: the read API, the ingest and the retention share these slots.
+AGENT_RECORD_CLICKHOUSE_QUERY_SLOTS = 8
+
+#: Days the record store's own logs (``query_log``, ``part_log``,
+#: ``asynchronous_insert_log``) are kept.
+AGENT_RECORD_CLICKHOUSE_SYSTEM_LOG_TTL_DAYS = 30
+
+
+def agent_record_host_projects_dir(config, repo_root=None):
+    """The host build's Claude Code project directory, which agent-record reads.
+
+    ``<claude config dir>/projects/<encoded build dir>/`` for a deployment that
+    records its host sessions (``deployment.host_identity``), else ``None``.
+    The build directory is the config's ``build_dir`` under the repo root,
+    which is where a host session runs.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: The deployment repo root; resolved from *config* when
+        ``None``
+    :type repo_root: str | pathlib.Path | None
+    :return: The directory, whether or not it exists, or ``None``
+    :rtype: pathlib.Path | None
+    """
+    from osprey.agent_record.identities import host_identity
+    from osprey.agent_runner.project_paths import claude_project_dir
+
+    config = config or {}
+    if host_identity(config) is None:
+        return None
+    root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
+    return claude_project_dir(root / str(config.get("build_dir") or "./build"))
+
+
+def _resolve_agent_record_render_context(config, repo_root=None):
+    """Build the ``osprey_agent_record`` render context for the agent-record template.
+
+    agent-record is rendered for every deployment, so this is computed for every
+    config. It mounts each terminal and dispatch transcripts volume whole and
+    read-only under its transcripts directory, as the transcript root the record
+    names it by, and the host build's project directory when
+    :func:`agent_record_host_projects_dir` names one that exists at render time:
+    the bind is never created, so a directory absent now is mounted by the first
+    build after it appears.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: The deployment repo root; resolved from *config* when
+        ``None``
+    :type repo_root: str | pathlib.Path | None
+    :return: ``port``, ``container_port``, ``env_files``, ``spool_source``,
+        ``spool_dir``, ``record_source``, ``record_dir``, ``transcripts_dir``,
+        ``volume_roots`` (``volume``, ``root``), ``terminal_volumes`` (the
+        volumes this slice re-declares), ``host`` (``source``, ``target``,
+        or ``None``) and ``clickhouse`` (see
+        :func:`_resolve_agent_record_clickhouse_context`)
+    :rtype: dict
+    """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record.config import parse_agent_record_block
+    from osprey.agent_record.identities import HOST_TRANSCRIPT_ROOT
+    from osprey.agent_record.service import DEFAULT_TRANSCRIPTS_DIR
+    from osprey.port_layout import resolve_port_base
+    from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
+
+    config = config or {}
+    container_project_dir = PurePosixPath(_CONTAINER_APP_ROOT) / resolve_project_name(config)
+    sources = _transcript_volume_sources(config)
+    terminal_volumes = [terminal["volume"] for terminal in sources["terminals"]]
+    volume_roots = [
+        {"volume": volume, "root": volume}
+        for volume in (
+            *terminal_volumes,
+            *(worker["projects_volume"] for worker in sources["workers"]),
+        )
+    ]
+    host = None
+    host_dir = agent_record_host_projects_dir(config, repo_root)
+    if host_dir is not None and host_dir.is_dir():
+        host = {
+            "source": host_dir.as_posix(),
+            "target": f"{DEFAULT_TRANSCRIPTS_DIR}/{HOST_TRANSCRIPT_ROOT}/{host_dir.name}",
+        }
+    env_files = list(creds.owner_files(config)[creds.RECORD_SERVICE])
+    return {
+        "port": parse_agent_record_block(config, base=resolve_port_base(config)).port,
+        "container_port": AGENT_RECORD_CONTAINER_PORT,
+        "env_files": env_files,
+        "spool_source": repo_relative_mount_source(SPOOL_DIR_RELPATH),
+        "spool_dir": (container_project_dir / SPOOL_DIR_RELPATH).as_posix(),
+        "record_source": repo_relative_mount_source(RECORD_DIR_RELPATH),
+        "record_dir": (container_project_dir / RECORD_DIR_RELPATH).as_posix(),
+        "transcripts_dir": DEFAULT_TRANSCRIPTS_DIR,
+        "volume_roots": volume_roots,
+        "terminal_volumes": terminal_volumes,
+        "host": host,
+        "clickhouse": _resolve_agent_record_clickhouse_context(config),
+    }
+
+
+def _agent_record_source_keys(record_port):
+    """The render keys a bridge reads to reach and log in to the agent record.
+
+    ``osprey_agent_record_url`` (the API's compose service, from the bridge
+    network), ``osprey_agent_record_host_url`` (its loopback publish, from the
+    host namespace: the API is published on loopback only) and
+    ``osprey_agent_record_bridge_logins``: each bridge's login file and the
+    ``${VAR:-}`` reference its credential digest label is interpolated from,
+    keyed by its ``deployed_services`` name. Every bridge is keyed, because a
+    bridge's template renders only when it is deployed, which is when
+    ``osprey build`` writes its login file.
+
+    :param record_port: The record API's published port
+    :type record_port: int
+    :rtype: dict
+    """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record.identities import BRIDGE_IDENTITIES
+
+    return {
+        "osprey_agent_record_url": f"http://{creds.RECORD_SERVICE}:{AGENT_RECORD_CONTAINER_PORT}",
+        "osprey_agent_record_host_url": f"http://127.0.0.1:{record_port}",
+        "osprey_agent_record_bridge_logins": {
+            service: {
+                "env_files": [creds.login_file(identity)],
+                "digest_ref": f"${{{creds.digest_env_name(service)}:-}}",
+            }
+            for service, identity in BRIDGE_IDENTITIES.items()
+        },
+    }
+
+
+def _resolve_agent_record_clickhouse_context(config):
+    """The record's ClickHouse store, as its compose service and config files read it.
+
+    ``None`` unless ``agent_record.backend`` is ``clickhouse``: the embedded
+    backend renders no store. The store publishes no host port. ``osprey up``
+    stages it through ``compose exec`` and agent-record dials it over the
+    bridge at ``url``, so agent-record is the record's only read path.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: ``service``, ``url``, ``image``, ``mem_limit``,
+        ``container_port``, ``volume``, ``env_files`` (the admin file alone),
+        ``admin_user``, ``memory_ratio``,
+        ``max_concurrent_select_queries`` and ``system_log_ttl_days``, or
+        ``None``
+    :rtype: dict | None
+    """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record.config import BACKEND_CLICKHOUSE, parse_agent_record_block
+    from osprey.deployment.telemetry_config import STORE_HTTP_CONTAINER_PORT, STORE_MEMORY_RATIO
+
+    block = parse_agent_record_block(config or {})
+    if block.backend != BACKEND_CLICKHOUSE:
+        return None
+    return {
+        "service": creds.CLICKHOUSE_SERVICE,
+        "url": f"http://{creds.CLICKHOUSE_SERVICE}:{STORE_HTTP_CONTAINER_PORT}",
+        "image": block.clickhouse.image,
+        "mem_limit": block.clickhouse.memory,
+        "container_port": STORE_HTTP_CONTAINER_PORT,
+        "volume": AGENT_RECORD_CLICKHOUSE_VOLUME,
+        "env_files": list(creds.owner_files(config)[creds.CLICKHOUSE_SERVICE]),
+        "admin_user": creds.CLICKHOUSE_ADMIN_USER,
+        "memory_ratio": STORE_MEMORY_RATIO,
+        "max_concurrent_select_queries": AGENT_RECORD_CLICKHOUSE_QUERY_SLOTS,
+        "system_log_ttl_days": AGENT_RECORD_CLICKHOUSE_SYSTEM_LOG_TTL_DAYS,
+    }
 
 
 def _resolve_history_render_context(config):
@@ -2068,6 +2381,34 @@ def _inject_project_metadata(config):
         PurePosixPath(_CONTAINER_PROJECT_ROOT) / AUDIT_DIR_RELPATH
     ).as_posix()
 
+    # The spool and state zones, in the spellings the audit zone has above:
+    # the HOST-side bind source, and the container-side root for a project
+    # image (`container`), a dispatch worker (`worker`), a service image
+    # (`service_container`) and a bridge, whose image runs from `/app` with no
+    # project of its own (`bridge`). Each container appends its own identity
+    # to both ends, binds only that directory, and is told the container end
+    # in `OSPREY_SPOOL_DIR` / `OSPREY_STATE_DIR`, so the path it is mounted at
+    # and the path its writer resolves cannot be spelled apart. The state
+    # zone's source is `osprey_state_zone_mount_source`: the simulator's
+    # scenario directory already holds `osprey_state_mount_source`.
+    from osprey_connectors.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
+
+    for zone, relpath, source_key in (
+        ("spool", SPOOL_DIR_RELPATH, "osprey_spool_mount_source"),
+        ("state", STATE_DIR_RELPATH, "osprey_state_zone_mount_source"),
+    ):
+        config_with_labels[source_key] = repo_relative_mount_source(relpath)
+        config_with_labels[f"osprey_container_{zone}_dir"] = (
+            container_project_dir / relpath
+        ).as_posix()
+        config_with_labels[f"osprey_worker_{zone}_dir"] = (worker_project_dir / relpath).as_posix()
+        config_with_labels[f"osprey_service_container_{zone}_dir"] = (
+            PurePosixPath(_CONTAINER_PROJECT_ROOT) / relpath
+        ).as_posix()
+        config_with_labels[f"osprey_bridge_{zone}_dir"] = (
+            PurePosixPath(_CONTAINER_APP_ROOT) / relpath
+        ).as_posix()
+
     # The control-context TREE, in the two spellings a compose template needs:
     # the HOST-side bind source — the ``control_target/`` root under whatever
     # agent-data root this project configured — and the fixed container path
@@ -2168,6 +2509,15 @@ def _inject_project_metadata(config):
     # same roster, worker and lane inputs their owner templates render from —
     # and its two binds. Injected unconditionally, like every derived key here.
     config_with_labels["osprey_archive"] = _resolve_archive_render_context(config)
+    # agent-record's transcript roots, its spool and record binds, its
+    # credential files and its loopback port. Every deployment renders it.
+    config_with_labels["osprey_agent_record"] = _resolve_agent_record_render_context(
+        config, repo_root
+    )
+    # How a bridge reaches the record's API and which login it presents.
+    config_with_labels.update(
+        _agent_record_source_keys(config_with_labels["osprey_agent_record"]["port"])
+    )
     # The history page's ports, store address and origin, and the URL the
     # dispatch dashboard links a run to (empty when the page is not deployed,
     # which renders no link).
@@ -2779,6 +3129,166 @@ def ensure_audit_dir(repo_root, identity, relative_to=None):
             "invisible to the operator on the host."
         ),
     )
+
+
+def _zone_identity_dir(repo_root, zone_relpath, identity, zone):
+    """``<repo>/<zone>/<identity>``, with the identity validated as a path segment.
+
+    The seam :func:`spool_identity_dir` and :func:`state_identity_dir` share,
+    validating for :func:`audit_identity_dir`'s reason: an unvalidated
+    ``../../x`` would provision or mount a directory outside the zone.
+    """
+    from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
+
+    if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
+        raise ValueError(
+            f"{zone} identity {identity!r} must match {USERNAME_CHARSET_RE.pattern!r}: "
+            f"it names a subdirectory of the {zone} zone, so anything else provisions "
+            "or mounts a directory outside it"
+        )
+    return Path(repo_root) / zone_relpath / identity
+
+
+def spool_identity_dir(repo_root, identity):
+    """Where *identity* appends its agent-record spool on the HOST.
+
+    ``<repo>/var/spool/<identity>``: the directory a container binds at
+    ``<container project>/var/spool/<identity>`` and names in
+    ``OSPREY_SPOOL_DIR``, and the one agent-record ingests from under the
+    spool root it binds whole.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The writing container's identity (its audit identity)
+    :type identity: str
+    :return: The identity's spool directory
+    :rtype: pathlib.Path
+    :raises ValueError: If *identity* is outside the username charset
+    """
+    from osprey_connectors.workspace import SPOOL_DIR_RELPATH
+
+    return _zone_identity_dir(repo_root, SPOOL_DIR_RELPATH, identity, "spool")
+
+
+def state_identity_dir(repo_root, identity):
+    """Where *identity* keeps its per-container state on the HOST.
+
+    ``<repo>/var/state/<identity>``: the directory a container binds at
+    ``<container project>/var/state/<identity>`` and names in
+    ``OSPREY_STATE_DIR`` — the preflight-refused marker, the sidecar's
+    revocations.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The container's identity (its audit identity)
+    :type identity: str
+    :return: The identity's state directory
+    :rtype: pathlib.Path
+    :raises ValueError: If *identity* is outside the username charset
+    """
+    from osprey_connectors.workspace import STATE_DIR_RELPATH
+
+    return _zone_identity_dir(repo_root, STATE_DIR_RELPATH, identity, "state")
+
+
+def ensure_spool_dir(repo_root, identity, relative_to=None):
+    """Provision one identity's spool directory before its bind mount exists.
+
+    Group-shared like :func:`ensure_audit_dir`, for its two reasons: a bind
+    source the runtime creates is root-owned under rootful docker, and the
+    container's writer and agent-record (which deletes what it ingested) run
+    under different uids and meet through the directory's group. Never fatal;
+    an identity outside the username charset is skipped with a warning.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The identity owning this directory
+    :type identity: str
+    :param relative_to: Root to spell the directory against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The directory's group id, or ``None`` when not provisioned
+    :rtype: int | None
+    """
+    try:
+        target = spool_identity_dir(repo_root, identity)
+    except ValueError as e:
+        logger.warning(f"Skipping spool directory provisioning: {e}")
+        return None
+    return _ensure_group_shared_dir(
+        target,
+        relative_to=relative_to,
+        label="Spool dir",
+        noun="spool directory",
+        consequence="Agent-record events written inside the container may be lost.",
+    )
+
+
+def ensure_state_dir(repo_root, identity, relative_to=None):
+    """Provision one identity's state directory before its bind mount exists.
+
+    Group-shared like :func:`ensure_audit_dir`, for its reasons: a bind source
+    the runtime creates is root-owned under rootful docker, and the host reads
+    what the container writes there. Never fatal; an identity outside the
+    username charset is skipped with a warning.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The identity owning this directory
+    :type identity: str
+    :param relative_to: Root to spell the directory against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The directory's group id, or ``None`` when not provisioned
+    :rtype: int | None
+    """
+    try:
+        target = state_identity_dir(repo_root, identity)
+    except ValueError as e:
+        logger.warning(f"Skipping state directory provisioning: {e}")
+        return None
+    return _ensure_group_shared_dir(
+        target,
+        relative_to=relative_to,
+        label="State dir",
+        noun="state directory",
+        consequence="State the container keeps across restarts may not persist.",
+    )
+
+
+def ensure_agent_record_dirs(repo_root, relative_to=None):
+    """Provision agent-record's two writable binds before its container starts.
+
+    ``var/spool`` with its ``.otlp/`` directory, and ``var/agent_record``, each
+    setgid and group-writable like :func:`ensure_audit_dir`: every source
+    appends to the spool under its own uid, agent-record ingests and deletes
+    there, and the image's entrypoint joins each directory's group. Created
+    here rather than left to the container runtime for the audit directory's
+    reason: a bind source the runtime creates is root-owned under rootful
+    docker. Every deployment runs agent-record, so every build provisions them.
+
+    Never fatal: a failure warns and the build goes on.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell each directory against in the INFO line;
+        ``None`` names it absolutely
+    :type relative_to: str | pathlib.Path | None
+    :return: The directories, in provisioning order
+    :rtype: list[pathlib.Path]
+    """
+    from osprey.agent_record.contract import OTLP_SPOOL_DIR
+    from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
+
+    spool = Path(repo_root) / SPOOL_DIR_RELPATH
+    targets = [spool, spool / OTLP_SPOOL_DIR, Path(repo_root) / RECORD_DIR_RELPATH]
+    for target in targets:
+        _ensure_group_shared_dir(
+            target,
+            relative_to=relative_to,
+            label="Agent-record dir",
+            noun="agent-record directory",
+            consequence="agent-record may be unable to ingest or keep the record.",
+        )
+    return targets
 
 
 #: Mode the agent-record archive root is created at: its copies are verbatim,
@@ -3683,6 +4193,27 @@ def _ensure_agent_data_structure(config):
     ):
         ensure_audit_dir(project_root, identity, relative_to=project_root)
 
+    # Each such container's spool and state directories beside its audit one,
+    # and each deployed bridge's, which records into the spool but keeps no
+    # audit trail: the same before-the-container reason, and agent-record —
+    # another uid — deletes what it ingested from the spool.
+    from osprey.agent_record.identities import bridge_identities, host_identity
+
+    for identity in (
+        *dispatch_worker_audit_identities(config),
+        *service_audit_identities(config),
+        *lane_queueserver_audit_identities(config),
+        *bridge_identities(config),
+    ):
+        ensure_spool_dir(project_root, identity, relative_to=project_root)
+        ensure_state_dir(project_root, identity, relative_to=project_root)
+    # The host build's sessions append under the identity the deployment
+    # records them as; a host process runs as the deploying account, but
+    # agent-record in its container must still be able to delete there.
+    recorded_host = host_identity(config)
+    if recorded_host is not None:
+        ensure_spool_dir(project_root, recorded_host, relative_to=project_root)
+
     # The agent-record archive root, for the same before-the-container reason:
     # the archive service binds it, and a runtime-created bind source is
     # root-owned under rootful docker.
@@ -4585,7 +5116,26 @@ def derived_compose_dirs(config):
     dirs = []
     if history_page_deployed(config):
         dirs.append(HISTORY_TEMPLATE_DIR)
+    dirs.append(AGENT_RECORD_TEMPLATE_DIR)
     return dirs
+
+
+def _derived_service_renders_config_files(config, service_dir):
+    """Whether a derived service's container mounts rendered config files.
+
+    agent-record's directory holds its ClickHouse store's server config beside
+    its compose template; those files are rendered only for the backend that
+    runs the store.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param service_dir: A name :func:`derived_compose_dirs` returned
+    :type service_dir: str
+    :rtype: bool
+    """
+    if service_dir != AGENT_RECORD_TEMPLATE_DIR:
+        return False
+    return _resolve_agent_record_clickhouse_context(config) is not None
 
 
 def find_existing_compose_files(config, deployed_services, quiet=False, base=None):
@@ -4973,8 +5523,19 @@ def prepare_compose_files(
             raise RuntimeError(f"Service '{service_name}' not found in configuration")
 
     # Derived services are never deployed_services entries. Each reads its
-    # settings from the environment its compose file sets, so only the compose
-    # file is rendered: no config copy beside it.
+    # settings from the environment its compose file sets, so no config copy is
+    # placed beside its compose file; the only other files rendered are the
+    # server config the record's ClickHouse store mounts. agent-record is always one of
+    # them, and its binds are provisioned before its compose file exists. The
+    # build scaffolds the root template into every project that deploys its own
+    # stack; an attached project has no service tree, and the stack it
+    # attaches to runs these services for it.
+    if not os.path.isfile(os.path.join(SERVICES_DIR, TEMPLATE_FILENAME)):
+        deduped = _dedupe_compose_files(compose_files)
+        write_labels_override(config.get("build_dir", "./build"), deduped, config)
+        return config, deduped
+    repo_root = resolve_repo_root(config)
+    ensure_agent_record_dirs(repo_root, relative_to=repo_root)
     for service_dir in derived_compose_dirs(config):
         derived_template = os.path.join(SERVICES_DIR, service_dir, TEMPLATE_FILENAME)
         if not os.path.isfile(derived_template):
@@ -4983,6 +5544,8 @@ def prepare_compose_files(
             )
         out_dir = os.path.join(config.get("build_dir", "./build"), SERVICES_DIR, service_dir)
         compose_files.append(render_template(derived_template, config, out_dir))
+        if _derived_service_renders_config_files(config, service_dir):
+            render_service_templates(os.path.dirname(derived_template), config, out_dir)
 
     deduped = _dedupe_compose_files(compose_files)
     write_labels_override(config.get("build_dir", "./build"), deduped, config)

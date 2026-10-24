@@ -153,7 +153,10 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
 
     result = _copy_service_templates(tmp_path)
 
-    assert result == 0, "no per-service templates should be copied"
+    # The agent record is derived and always deployed, so its template is the
+    # one service template a project with no deployed_services still gets.
+    assert result == 1, "only the agent-record template should be copied"
+    assert (tmp_path / "services" / "agent_record" / "docker-compose.yml.j2").is_file()
     root_template = tmp_path / "services" / "docker-compose.yml.j2"
     assert root_template.is_file(), (
         "root services/docker-compose.yml.j2 must be copied even when "
@@ -245,11 +248,16 @@ def test_prepare_compose_files_names_a_shared_template_once(
     assert compose_files == [
         str(build / "docker-compose.yml"),
         str(build / "virtual_accelerator" / "docker-compose.yml"),
+        str(build / "agent_record" / "docker-compose.yml"),
     ]
 
     bindings = host_ports.parse_host_port_bindings(compose_files)
-    # The one file still describes both containers.
-    assert {binding.service for binding in bindings} == {"virtual-accelerator", "live-standin"}
+    # The one file still describes both containers; agent-record publishes its own.
+    assert {binding.service for binding in bindings} == {
+        "virtual-accelerator",
+        "live-standin",
+        "agent-record",
+    }
 
     # And the preflight sees each published port once. Probes answer "free" so
     # only the intra-deploy check can speak.
@@ -1879,7 +1887,8 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
     checks for presence.
     """
     _write_config(tmp_path, deployed_services=["bluesky"])
-    assert _copy_service_templates(tmp_path) == 1
+    # bluesky, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     permissions_path = tmp_path / "services" / "bluesky" / "user_group_permissions.yaml"
     assert permissions_path.is_file()
@@ -2231,9 +2240,9 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
-    assert container_lifecycle._project_image_build_target(dict(config), {}) is None, (
-        "the plan-stack lanes deploy no service on the project image, so `osprey up` "
-        f"builds none: {config.get('deployed_services')}"
+    assert container_lifecycle._deployed_project_image_services(dict(config)) == ["agent_record"], (
+        "the plan-stack lanes deploy no service on the project image; only the "
+        f"always-deployed agent record runs on it: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
@@ -4510,12 +4519,18 @@ def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["nextcloud-bridge"]
 
-    assert service["volumes"] == ["nextcloud_bridge_data:/data"]
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == "nextcloud_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/nextcloud-bridge",
+        "/nextcloud-bridge",
+    ]
     assert "nextcloud_bridge_data" in parsed["volumes"], (
         "the /data mount names nextcloud_bridge_data, so the compose file must "
         "declare it as a top-level named volume or `compose up` errors"
     )
-    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
         "bridge state must not be a host bind mount — a named volume is what "
         "keeps it project-namespaced and portable across runtimes"
     )
@@ -5004,7 +5019,8 @@ def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path:
     """
     _write_config(tmp_path, deployed_services=["nextcloud_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "nextcloud_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -5754,7 +5770,8 @@ def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     """
     _write_config(tmp_path, deployed_services=["gchat_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "gchat_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -6020,12 +6037,18 @@ def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
     parsed = yaml.safe_load(rendered)
     service = parsed["services"]["teams-bridge"]
 
-    assert service["volumes"] == ["teams_bridge_data:/data"]
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == "teams_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/teams-bridge",
+        "/teams-bridge",
+    ]
     assert "teams_bridge_data" in parsed["volumes"], (
         "the /data mount names teams_bridge_data, so the compose file must "
         "declare it as a top-level named volume or `compose up` errors"
     )
-    assert not any(str(v).startswith((".", "/", "$")) for v in service["volumes"]), (
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
         "bridge state must not be a host bind mount — a named volume is what "
         "keeps it project-namespaced and portable across runtimes"
     )
@@ -6558,7 +6581,8 @@ def test_teams_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Pat
     """
     _write_config(tmp_path, deployed_services=["teams_bridge"])
 
-    assert _copy_service_templates(tmp_path) == 1
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
 
     service_dir = tmp_path / "services" / "teams_bridge"
     assert (service_dir / "docker-compose.yml.j2").is_file()
@@ -6803,8 +6827,13 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     """
     rendered = _render_bridge_with_axis(config_key)
 
-    # Service-level membership, in place directly after the state volume.
-    assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
+    # Service-level membership, in place directly after the volumes: the
+    # state volume, then the bridge's own spool and state binds.
+    assert re.search(
+        r"_data:/data\n(?:      #.*\n)*(?:      - .*-bridge\n){2}"
+        r"    networks:\n      - osprey-network\n\nvolumes:\n",
+        rendered,
+    ), rendered
 
     # The file-level stanza still closes the file, still one blank line after
     # the volumes block, which ends at the bare volume name: a volume carries
@@ -8533,6 +8562,11 @@ def test_an_armed_lane_that_checks_no_limits_builds_with_a_staged_device_set(
     # A render that is not refused goes on to the root compose file, which the
     # packaged templates supply at deploy time; a stand-in is enough here.
     (repo / "services" / "docker-compose.yml.j2").write_text(
+        "networks:\n  osprey-network:\n", encoding="utf-8"
+    )
+    # So does the always-rendered agent record.
+    (repo / "services" / "agent_record").mkdir()
+    (repo / "services" / "agent_record" / "docker-compose.yml.j2").write_text(
         "networks:\n  osprey-network:\n", encoding="utf-8"
     )
     _write_view(repo)

@@ -1027,6 +1027,11 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
 
     ensure_telemetry_credentials(root, config, reader_keys=False)
     inputs["telemetry_cred_digests"] = sender_digests(root, config)
+    # The agent record's logins likewise, so a terminal added by a roster verb
+    # has its record login (and the verifier names it) before the overlay does.
+    from osprey.agent_record.credentials import ensure_agent_record_credentials
+
+    ensure_agent_record_credentials(root, config, reader_keys=False)
     artifacts = render_web_terminals(config, **inputs)
     dest = web_artifacts_dir(root)
     # Before the first write, never after: a render that raised above must not

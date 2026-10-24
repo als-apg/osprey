@@ -540,6 +540,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/agent_record",
+            template_path="agent_record",
+            output_path="services/agent_record",
+            description="Agent record service compose template + ClickHouse config",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/bluesky",
             template_path="bluesky",
             output_path="services/bluesky",
