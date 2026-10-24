@@ -536,9 +536,12 @@ per corpus. Two parts of OSPREY use them:</p>
 <li><p>the <a class="reference internal" href="../facility-knowledge/okf-bundle.html"><span class="doc">facility-knowledge (OKF) bundle</span></a>
 — its panel and its MCP <code class="docutils literal notranslate"><span class="pre">search</span></code> tool.</p></li>
 </ul>
-<p>One query fans out into a keyword and a vector sub-query, merges them into a
-bounded candidate pool, and optionally re-scores that pool with a small language
-model before returning hits:</p>
+<p>qmd can fan one query out into keyword and vector sub-queries, merge them into a
+bounded candidate pool, and optionally re-score that pool with a small language
+model before returning hits. That is ARIEL’s default <code class="docutils literal notranslate"><span class="pre">qmd</span></code> hybrid strategy.
+The optional <code class="docutils literal notranslate"><span class="pre">rrf</span></code> strategy instead asks qmd only for lexical BM25, gets the
+dense ranking from ARIEL’s configured PostgreSQL semantic search, and applies
+equal-weight RRF itself. This diagram shows qmd’s combined-query path:</p>
 <figure class="only-light align-default" id="id1">
 <a class="only-light reference internal image-reference" href="../../_images/qmd_query_pipeline_light.png"><img alt="A qmd query: lex and vec sub-queries merge into a bounded candidate pool, optionally reranked by a small language model before returning top hits." class="only-light" src="../../_images/qmd_query_pipeline_light.png" style="width: 100%;" />
 </a>
