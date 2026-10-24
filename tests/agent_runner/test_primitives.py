@@ -610,6 +610,7 @@ class TestBuildAgentOptions:
             mcp_servers=str(tmp_path / ".mcp.json"),
             strict_mcp_config=True,
             cli_path=STUB_AGENT_CLI,
+            extra_args={"thinking-display": "summarized"},
         )
 
     @pytest.mark.parametrize("config", [None, "claude_code: {}\n"], ids=["no-config", "unpinned"])
@@ -761,6 +762,7 @@ class TestBuildAgentOptions:
             ({"max_turns": None}, "max_turns", None),
             ({"max_budget_usd": None}, "max_budget_usd", None),
             ({"permission_mode": None}, "permission_mode", None),
+            ({}, "extra_args", {"thinking-display": "summarized"}),
         ],
         ids=[
             "allowed_tools",
@@ -774,6 +776,7 @@ class TestBuildAgentOptions:
             "max_turns-omitted",
             "max_budget_usd-omitted",
             "permission_mode-omitted",
+            "thinking-display",
         ],
     )
     @pytest.mark.usefixtures("routing")
@@ -787,6 +790,39 @@ class TestBuildAgentOptions:
         options = primitives.build_agent_options(tmp_path, disallowed_tools=[], **kwargs)
 
         assert getattr(options, field_name) == expected
+
+    @pytest.mark.parametrize(
+        ("display", "expected"),
+        [
+            (("omitted", True), {"thinking-display": "omitted"}),
+            (("summarized", False), {}),
+            (("omitted", False), {}),
+        ],
+        ids=["omitted", "withheld-summarized", "withheld-omitted"],
+    )
+    @pytest.mark.usefixtures("routing")
+    def test_the_thinking_display_flag_is_passed_only_when_the_cli_accepts_it(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        display: tuple[str, bool],
+        expected: dict[str, str],
+    ) -> None:
+        """A Claude Code too old for the flag gets no flag rather than a refused launch."""
+        from osprey.agent_runner import launcher
+
+        seen: list[Path] = []
+
+        def _display(project_dir: Path) -> launcher.ThinkingDisplay:
+            seen.append(project_dir)
+            return launcher.ThinkingDisplay(*display)
+
+        monkeypatch.setattr(launcher, "project_thinking_display", _display)
+
+        options = primitives.build_agent_options(tmp_path, disallowed_tools=[])
+
+        assert options.extra_args == expected
+        assert seen == [tmp_path]
 
     @pytest.mark.usefixtures("routing")
     def test_a_preset_system_prompt_reaches_the_agent_options(self, tmp_path: Path) -> None:

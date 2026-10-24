@@ -333,6 +333,7 @@ class TestRunSdkQueryOnTheRunner:
             disallowed_tools=[],
             strict_mcp_config=True,
             cli_path=STUB_AGENT_CLI,
+            extra_args={"thinking-display": "summarized"},
         )
         harness.sdk_env.assert_called_once_with(project, provider="p")
 

@@ -710,6 +710,9 @@ def build_agent_options(
             "so the run was refused: without an absolute path the Agent SDK would run "
             "the copy bundled inside its own package."
         )
+    # From the same resolution as the path, so the flag is judged against the
+    # binary that runs; a build too old for it gets none (the resolver warns).
+    thinking = launcher.project_thinking_display(project_dir)
 
     if env is not None:
         run_env = dict(env)
@@ -768,6 +771,7 @@ def build_agent_options(
         stderr=stderr,
         cli_path=cli_path,
         include_partial_messages=include_partial_messages,
+        extra_args={"thinking-display": thinking.value} if thinking.flag_allowed else {},
     )
     if pre_tool_use_hooks:
         options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}
