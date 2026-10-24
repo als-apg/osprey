@@ -102,6 +102,9 @@ async def test_each_tool_hands_the_approved_fields_to_the_gate_sequence(
         from osprey.mcp_server.python_executor.tools import python_execute_file as module
 
         monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
+        # execute_file asks the write verdict before the gate sequence, and this
+        # test is about what reaches the gate sequence, not about the verdict.
+        monkeypatch.setattr(module, "enforce_posture_clamp", lambda execution_mode, *, tool: None)
         script = tmp_path / "probe.py"
         script.write_text("x = 1\n", encoding="utf-8")
         kwargs = {"file_path": str(script)}
@@ -196,13 +199,12 @@ def _gate(
         executor._check_approved_call(mode, config, tool, approved, control_target=control_target)
 
 
-def test_the_executor_spells_the_ask_stamp_like_the_hook() -> None:
+def test_the_approved_fields_are_named_like_the_hook() -> None:
+    from osprey.mcp_server.approval_record import APPROVED_FIELDS
     from tests.hooks.conftest import import_hook
 
     approval = import_hook("osprey_approval")
-    assert executor.APPROVAL_ASK_PREFIX == approval.APPROVAL_ASK_PREFIX
-    assert executor.APPROVAL_ASK_SUFFIX == approval.APPROVAL_ASK_SUFFIX
-    assert all(name.startswith(approval.APPROVED_FIELD_PREFIX) for name in executor.APPROVED_FIELDS)
+    assert all(name.startswith(approval.APPROVED_FIELD_PREFIX) for name in APPROVED_FIELDS)
 
 
 #: The tool modules whose calls the approval prompt binds to their target.

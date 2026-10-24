@@ -195,10 +195,6 @@ FAILURE_KIND_APPROVAL_CONFIG_INVALID = "approval_config_invalid"
 #: Spelled like the sandbox wrapper's failure kind for the same refusal.
 FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 
-#: The call fields the approval prompt binds a guarded call to. Every one the
-#: call carries must equal the value the approval hook recorded for the call.
-APPROVED_FIELDS: tuple[str, ...] = ("approved_target", "approved_view_sha256")
-
 #: The approved fields an asking guarded call must carry.
 _REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_target",)
 
@@ -207,14 +203,6 @@ _REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_target",)
 _TOOL_REQUIRED_APPROVED_FIELDS: Mapping[str, tuple[str, ...]] = {
     "pyaml_measure": ("approved_view_sha256",),
 }
-
-#: The ask stamp the approval hook leaves for a call it put to an approver,
-#: restated from ``osprey_approval.py`` (a hook script this package cannot
-#: import);
-#: ``tests/mcp_server/python_executor/test_approved_call_forwarding.py`` pins the
-#: spellings equal.
-APPROVAL_ASK_PREFIX = "approval_ask_"
-APPROVAL_ASK_SUFFIX = ".json"
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
@@ -677,33 +665,38 @@ def _target_is_resolvable(target: str) -> bool:
 def _launch_posture(target: str | None) -> str:
     """The :data:`ENV_LAUNCH_POSTURE` value for a run about to start on *target*.
 
-    The store answers "may this session write to this machine" at the instant
-    of launch, and that answer is pinned into the run rather than left to be
-    re-asked. The store read inside the sandbox still follows the operator, so
-    a narrowing lands on the very next write; this pin is the other direction —
-    a WIDENING must not reach a run that started narrow, because the script is
-    already running and nobody re-consented to what it does next.
+    The write verdict
+    (:func:`~osprey_connectors.posture_store.write_verdict`) for *target* at the
+    instant of launch, asked with the launch pin ignored — this IS the pin, and
+    a pin that consulted itself would only ever echo the one this process
+    inherited. That answer is pinned into the run rather than left to be
+    re-asked. The verdict inside the sandbox still follows the operator, so a
+    turn-off lands on the very next write; this pin is the other direction — a
+    turn-on must not reach a run that started off, because the script is
+    already running and nobody re-consented to what it does next. It reaches
+    the next run.
 
     ``target`` is ``None`` for a run this executor could not place on a target,
-    and the stamp then covers every target: the most restrictive answer, for the
-    same reason :func:`~osprey_connectors.posture_store.store_permits` takes it
-    when it is handed no target.
+    and the stamp then covers every target, sandboxed: the most restrictive
+    answer, since there is no machine to ask the verdict about.
 
-    Fails CLOSED. Every way of not being able to read the store lands on
+    Fails CLOSED. Every way of not being able to reach the verdict lands on
     ``sandbox``, which costs a readwrite run its control-system writes and
     costs a readonly run nothing — the trade every other reader in this
     contract makes.
     """
-    try:
-        permitted = posture_store.store_permits(target)
-    except Exception:  # an unreadable store must not grant writes
-        logger.warning(
-            "Could not resolve the session write posture for target %r; "
-            "the run is launched sandboxed",
-            target,
-            exc_info=True,
-        )
-        permitted = False
+    permitted = False
+    if target is not None:
+        try:
+            permitted = posture_store.write_verdict(
+                posture.control_system_section(), target, ignore_launch_pin=True
+            ).allowed
+        except Exception:  # write_verdict never raises; an unreachable one grants nothing
+            logger.warning(
+                "Could not reach the write verdict for target %r; the run is launched sandboxed",
+                target,
+                exc_info=True,
+            )
     value = posture_store.POSTURE_WRITES if permitted else posture_store.POSTURE_SANDBOX
     return posture_store.launch_posture_stamp(target, value)
 
@@ -777,26 +770,6 @@ class _ApprovalConfigInvalid(Exception):
     """
 
 
-def _approved_call_stamp(tool_use_id: str | None) -> dict | None:
-    """The approval hook's ask stamp for the call *tool_use_id*, or ``None``.
-
-    ``None`` without an id, without a stamp, and when the state directory
-    cannot be resolved: each is a call nobody can show was asked.
-    """
-    if not tool_use_id:
-        return None
-    try:
-        from osprey.mcp_server.control_system import target_state
-
-        stamp = target_state.read_file(
-            target_state.state_dir() / f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
-        )
-    except Exception:
-        logger.debug("Could not read the ask stamp for %s", tool_use_id, exc_info=True)
-        return None
-    return stamp if isinstance(stamp, dict) else None
-
-
 def _check_approved_call(
     execution_mode: str,
     osprey_config: Mapping[str, Any],
@@ -813,13 +786,17 @@ def _check_approved_call(
     names *tool*, and records every approved field the call carries with the
     same value; the call must carry the target, ``pyaml_measure`` the view
     digest too, and that target must name the guarded-run directory
-    *control_target* does. Nothing of the stamp reaches the sandbox.
+    *control_target* does. Nothing of the stamp reaches the sandbox. The
+    record check is :func:`~osprey.mcp_server.approval_record.require_approval_record`;
+    the guarded-run target check is this executor's own.
 
     Args:
         execution_mode: ``"readonly"`` or ``"readwrite"``.
         osprey_config: The rendered ``config.yml``.
         tool: The tool's short name, as ``approval.tools`` keys it.
-        approved: The call's :data:`APPROVED_FIELDS`, ``None`` for an absent one.
+        approved: The call's
+            :data:`~osprey.mcp_server.approval_record.APPROVED_FIELDS`, ``None`` for an
+            absent one.
         control_target: The target this run is stamped with.
 
     Raises:
@@ -831,31 +808,21 @@ def _check_approved_call(
     """
     if execution_mode != "readwrite":
         return
-    from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
+    from osprey.cli.build_posture_check import ask_capable
+    from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, require_approval_record
 
-    fault = approval_enabled_fault(osprey_config)
-    if fault is not None:
-        raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
+    refusal = require_approval_record(
+        tool,
+        osprey_config,
+        approved=approved,
+        required=(*_REQUIRED_APPROVED_FIELDS, *_TOOL_REQUIRED_APPROVED_FIELDS.get(tool, ())),
+    )
+    if refusal is not None:
+        if refusal.error_type == APPROVAL_CONFIG_INVALID:
+            raise _ApprovalConfigInvalid(refusal.message)
+        raise _ApprovalMissing(refusal.message)
     if not ask_capable(osprey_config, tool):
         return
-    from osprey.audit.call import current_tool_use_id
-
-    stamp = _approved_call_stamp(current_tool_use_id())
-    if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
-        raise _ApprovalMissing(
-            "not run: this call's approval prompt left no record (approval_missing). "
-            "Call the tool again so the approval prompt can ask."
-        )
-    required = (*_REQUIRED_APPROVED_FIELDS, *_TOOL_REQUIRED_APPROVED_FIELDS.get(tool, ()))
-    for name in APPROVED_FIELDS:
-        value = approved.get(name)
-        if value is None and name not in required:
-            continue
-        if value is None or stamp.get(name) != value:
-            raise _ApprovalMissing(
-                f"not run: `{name}` differs from what the approval prompt recorded "
-                "(approval_missing). Call the tool again."
-            )
     approved_target = str(approved["approved_target"])
     approved_name = _guarded_run_name(approved_target)
     if approved_name is None or approved_name != _guarded_run_name(control_target):
@@ -863,6 +830,66 @@ def _check_approved_call(
             f"not run: this call was approved for target `{approved_target}`; the run is on "
             f"`{control_target}` (approval_missing). Call the tool again."
         )
+
+
+#: The tools whose code :func:`_check_store_path` reads: the code ``execute``
+#: was given, and the file text ``execute_file`` is about to run.
+STORE_PATH_TOOLS: frozenset[str] = frozenset({"execute", "execute_file"})
+
+#: The refusal for store-naming code no person approved. The approval hook
+#: denies with the same words (``osprey_approval._STORE_PATH_REASON``).
+STORE_PATH_REFUSAL = (
+    "not run: this code names the posture store, which only a call a person "
+    "approves may touch, and no person is asked here (approval_missing). Remove "
+    "the store's name from the code, or run it where approval asks."
+)
+
+
+def names_store(code: str) -> bool:
+    """Whether *code* spells a path of the posture store, anywhere in its text.
+
+    A plain, case-sensitive substring match on
+    :data:`~osprey_connectors.refusals.STORE_PATH_MARKERS`: a marker in a string
+    literal or a comment counts, and a path assembled at run time does not.
+    """
+    from osprey_connectors.refusals import STORE_PATH_MARKERS
+
+    return isinstance(code, str) and any(marker in code for marker in STORE_PATH_MARKERS)
+
+
+def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) -> None:
+    """Refuse store-naming code no person approved, in every execution mode.
+
+    Separate from :func:`_check_approved_call`, which leaves readonly runs
+    alone. Code that names the posture store (:func:`names_store`) runs only
+    when the tool's policy asks and the approval hook's ask stamp for this call
+    names *tool*. An approval switch that is not a bool refuses first, as
+    everywhere; then a dispatch run, whose stamp no person filed, is refused
+    before any stamp is read; then a policy that asks nobody. Code that names
+    no store is not checked here.
+
+    Args:
+        code: The code the run would execute (for ``execute_file``, the file's text).
+        osprey_config: The rendered ``config.yml``.
+        tool: The tool's short name, as ``approval.tools`` keys it.
+
+    Raises:
+        _ApprovalMissing: Store-naming code no person approved.
+        _ApprovalConfigInvalid: The config's approval switch is not true or false.
+    """
+    if tool not in STORE_PATH_TOOLS or not names_store(code):
+        return
+    from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
+    from osprey.mcp_server.approval_record import require_approval_record
+
+    fault = approval_enabled_fault(osprey_config)
+    if fault is not None:
+        raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
+    dispatch_run = os.environ.get(posture_store.DISPATCH_RUN_ENV_VAR) == "1"
+    if dispatch_run or not ask_capable(osprey_config, tool):
+        raise _ApprovalMissing(STORE_PATH_REFUSAL)
+    if require_approval_record(tool, osprey_config) is not None:
+        raise _ApprovalMissing(STORE_PATH_REFUSAL)
 
 
 def _guarded_run_name(target: str) -> str | None:
@@ -1081,8 +1108,10 @@ async def _execute_via_local(
         )
     # Whether this call was put to a human is decided here, by the process
     # that launches the script, from the record the approval hook left for
-    # this tool call; the sandbox is handed nothing of it.
+    # this tool call; the sandbox is handed nothing of it. Code that names the
+    # posture store is checked first, readonly runs included.
     try:
+        _check_store_path(code, osprey_config, tool)
         _check_approved_call(
             execution_mode,
             osprey_config,

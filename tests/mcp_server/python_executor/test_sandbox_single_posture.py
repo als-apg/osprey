@@ -208,9 +208,13 @@ def _publish_target(root: Path, target: str) -> None:
     """Write the control-context record that puts this deployment on *target*.
 
     The record is what the executor stamps its sandbox from, and the generation
-    it carries is the one the run pins against.
+    it carries is the one the run pins against. Its switch is on for *target*:
+    the run's writes are armed by the write verdict, so with the switch off the
+    launch pin would refuse both paths before either reached a limits decision.
     """
-    write_control_context(root / "var" / "agent_data", target=target, generation=0)
+    write_control_context(
+        root / "var" / "agent_data", target=target, generation=0, switch={target: "on"}
+    )
 
 
 def _run_sandbox(root: Path, target: str) -> dict:

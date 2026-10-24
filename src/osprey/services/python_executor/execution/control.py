@@ -20,9 +20,12 @@ Key Components:
     - **Configuration Utilities**: Helper functions for creating and validating
       execution control configurations
 
-The write gate reads ``control_system_writes_enabled`` off this config and
-combines it with what static analysis found in the code: write access needs
-both the configured permission and explicit write intent in the code itself.
+No executor gate reads this config. Whether a run may write is the write
+verdict's to decide (:func:`osprey_connectors.posture_store.write_verdict`):
+the executor's entry gate, its launch pin and the connector's reference
+monitor all ask it about the control target the run is on, and refuse in its
+words. ``control_system_writes_enabled`` reports the deployment config's own
+per-target key and nothing more; it arms nothing.
 
 .. note::
    The posture is about control-system access in general; it reads no
@@ -107,15 +110,9 @@ class ExecutionMode(Enum):
 class ExecutionControlConfig:
     """Configuration class for control system execution control and security policy management.
 
-    This configuration class encapsulates the security policies and settings that
-    determine how Python code execution is controlled within the system. It
-    carries the answer; the write gate that acts on it lives with the executor
-    tools.
-
-    The configuration implements a conservative security approach where write
-    operations are only permitted when explicitly enabled and detected in the
-    code. This ensures that potentially dangerous operations require both
-    configuration permission and explicit code intent.
+    This configuration class reports what the deployment config says about one
+    control target. It decides nothing: the executor's gates ask the write
+    verdict instead.
 
     :param control_system_writes_enabled: Whether control system write operations are permitted for :attr:`active_target`
     :type control_system_writes_enabled: bool
