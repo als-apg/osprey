@@ -148,7 +148,7 @@ _USERS_KEY_PATH = ["modules", "web_terminals", "users"]
 _ARCHIVE_DIR_NAME = f"{STATE_DIR_NAME}/web_terminal_archives"
 
 
-def _require_running_runtime(config: dict[str, Any]) -> None:
+def _require_running_runtime(config: dict[str, Any], *, runtime: str | None = None) -> None:
     """Refuse to proceed when the container runtime daemon is unreachable.
 
     The same preflight ``deploy_up``/``deploy_restart``/``rebuild_deployment``
@@ -156,8 +156,11 @@ def _require_running_runtime(config: dict[str, Any]) -> None:
     :func:`prune_users`: discovery-by-listing (``ps -a``/``volume ls``) against
     a downed daemon yields empty output, which would misreport as "no
     off-roster resources found; nothing to do" instead of the real cause.
+
+    ``runtime``, when given, is the runtime checked instead of the one
+    ``config`` decides; an observer passes the runtime the last start recorded.
     """
-    is_running, error_msg = verify_runtime_is_running(config)
+    is_running, error_msg = verify_runtime_is_running(config, runtime=runtime)
     if not is_running:
         raise RuntimeError(error_msg)
 

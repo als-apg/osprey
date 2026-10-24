@@ -686,6 +686,7 @@ def runtime_env(
     base_env: dict[str, str] | None = None,
     *,
     ignore_orphans: bool = False,
+    project: str | None = None,
 ) -> dict[str, str]:
     """Build the environment for a runtime (docker/podman compose) invocation.
 
@@ -747,6 +748,9 @@ def runtime_env(
         ignore_orphans: Set ``COMPOSE_IGNORE_ORPHANS=1`` for a compose
             invocation that shares its project with another one by design.
             Never combine with a ``--remove-orphans`` argv.
+        project: The compose project to pin instead of the one ``config``
+            resolves. An observer passes the project the last start recorded;
+            a start leaves it unset and decides through ``config``.
 
     Returns:
         A new environment dict with ``COMPOSE_PROJECT_NAME``,
@@ -758,7 +762,7 @@ def runtime_env(
     from osprey.deployment.compose_generator import resolve_project_name, resolve_repo_root
 
     env = dict(base_env if base_env is not None else os.environ)
-    env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
+    env["COMPOSE_PROJECT_NAME"] = project or resolve_project_name(config or {})
     # Derived from the repo compose_base_cmd pins as --project-directory, so the
     # digest covers the same chain files compose itself resolves ./.env* against.
     repo_root = resolve_repo_root(config)
@@ -829,11 +833,15 @@ def with_plain_progress(cmd: list[str], *, provider: ComposeProvider | None) -> 
     return cmd
 
 
-def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[bool, str]:
+def verify_runtime_is_running(
+    config: Mapping[str, Any] | None = None, *, runtime: str | None = None
+) -> tuple[bool, str]:
     """Verify that the detected container runtime is actually running.
 
     Args:
         config: Optional configuration mapping
+        runtime: The runtime to check instead of the one ``config`` decides;
+            an observer passes the runtime the last start recorded.
 
     Returns:
         Tuple of (is_running: bool, error_message: str)
@@ -843,11 +851,10 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
         message saying it did not answer, never that the runtime is not running)
     """
     try:
-        cmd = get_runtime_command(config)
-        runtime = cmd[0]  # 'docker' or 'podman'
+        binary = runtime if runtime is not None else get_runtime_command(config)[0]
 
         # Try a simple ps command to verify daemon is accessible
-        result = _await_runtime_answer([runtime, "ps"], text=True)
+        result = _await_runtime_answer([binary, "ps"], text=True)
 
         if result.returncode == 0:
             return True, ""
@@ -862,10 +869,10 @@ def verify_runtime_is_running(config: Mapping[str, Any] | None = None) -> tuple[
             return False, _get_podman_not_running_message()
 
         # Generic error
-        return False, f"`{runtime} ps` exited {result.returncode}:\n{result.stderr}"
+        return False, f"`{binary} ps` exited {result.returncode}:\n{result.stderr}"
 
     except subprocess.TimeoutExpired as exc:
-        return False, f"{_no_answer([runtime, 'ps'], exc.timeout)}. {_retry_hint(runtime)}"
+        return False, f"{_no_answer([binary, 'ps'], exc.timeout)}. {_retry_hint(binary)}"
     except RuntimeError as e:
         # No runtime found at all
         return False, str(e)
@@ -940,19 +947,24 @@ def _get_podman_not_running_message() -> str:
 
 
 def get_ps_command(
-    config: Mapping[str, Any] | None = None, all_containers: bool = False
+    config: Mapping[str, Any] | None = None,
+    all_containers: bool = False,
+    *,
+    runtime: str | None = None,
 ) -> list[str]:
     """Get container ps command.
 
     Args:
         config: Optional configuration mapping
         all_containers: Include stopped containers (-a flag)
+        runtime: The runtime to run instead of the one ``config`` decides;
+            an observer passes the runtime the last start recorded.
 
     Returns:
         Command list for ps operation with JSON format
     """
-    cmd = get_runtime_command(config)
-    runtime = cmd[0]  # 'docker' or 'podman'
+    if runtime is None:
+        runtime = get_runtime_command(config)[0]
 
     ps_cmd = [runtime, "ps"]
     if all_containers:

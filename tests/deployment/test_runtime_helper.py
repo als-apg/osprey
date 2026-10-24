@@ -47,6 +47,35 @@ def test_runtime_env_pins_default_project_name_for_falsy_config() -> None:
     assert runtime_env({}, base_env={})["COMPOSE_PROJECT_NAME"] == "unnamed-project"
 
 
+def test_runtime_env_pins_the_observed_project_over_the_config() -> None:
+    """An observer's project wins over the one the config would decide."""
+    env = runtime_env({"project_name": "proj-b"}, base_env={}, project="proj-a")
+    assert env["COMPOSE_PROJECT_NAME"] == "proj-a"
+
+
+def test_get_ps_command_runs_the_observed_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A given runtime is the ps argv's binary, whatever the setting decides."""
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    cmd = runtime_helper.get_ps_command({}, all_containers=True, runtime="podman")
+    assert cmd == ["podman", "ps", "-a", "--format", "json"]
+
+
+def test_verify_runtime_is_running_asks_the_observed_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A given runtime is the one asked, whatever the setting decides."""
+    monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
+    asked: list[list[str]] = []
+
+    def _answer(cmd, **_kwargs):
+        asked.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(runtime_helper, "_await_runtime_answer", _answer)
+    assert runtime_helper.verify_runtime_is_running({}, runtime="podman") == (True, "")
+    assert asked == [["podman", "ps"]]
+
+
 # ---------------------------------------------------------------------------
 # COMPOSE_IGNORE_ORPHANS -- opt-in, and the default matters as much as the
 # opt-in.
