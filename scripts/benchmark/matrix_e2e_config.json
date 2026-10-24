@@ -151,6 +151,10 @@
       "reason": "Model-free: telemetry gateway and store deploy with synthetic ledger lines and OTLP — no LLM call anywhere."
     },
     {
+      "path": "tests/e2e/test_thinking_display_live.py",
+      "reason": "Launch-wiring check: the pinned CLI on each launch route (interactive settings, `osprey chat --print`, SDK) is asked to record thinking, and the transcripts are checked for thinking text; the answers are never judged, so it measures nothing about the model-under-test."
+    },
+    {
       "path": "tests/e2e/test_tiled_roundtrip.py",
       "reason": "Deploy/persistence smoke: demo grid_scan over HTTP, bridge container restart, identical-data assertion via the Tiled catalog — no LLM call anywhere."
     },
