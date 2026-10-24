@@ -471,7 +471,9 @@ async def _get_connector():
     target instead of for the config's baseline type, and the same target is
     stamped onto the instance so the reference monitor inside it reads the
     session posture for the target this run was launched against. An unstamped
-    process names no target, exactly as before.
+    process is built for the deployment's baseline target
+    (:func:`osprey_connectors.types.baseline_target`), the machine the pooled
+    path serves it as, so its writes are decided by that machine's switch.
 
     A sandbox reaches the build once and reuses it for its whole life. A
     notebook kernel does not: it is re-stamped from the deployment's record
@@ -524,6 +526,7 @@ async def _get_connector():
 
         if _runtime_connector is None:
             from osprey_connectors.factory import ConnectorFactory
+            from osprey_connectors.types import baseline_target
 
             config = _target_connector_config()
             if config is None:
@@ -534,8 +537,14 @@ async def _get_connector():
                     stamp[0],
                     config["type"],
                 )
+            # An unstamped process is on the deployment's baseline target, as the
+            # pooled path serves it: the monitor then decides its writes by that
+            # machine's switch rather than refusing a machine it cannot name.
+            target = (
+                stamp[0] if stamp[0] is not None else baseline_target(_control_system_section())
+            )
             _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=stamp[0]
+                config=config, control_target=target
             )
             _connector_stamp = stamp
 
