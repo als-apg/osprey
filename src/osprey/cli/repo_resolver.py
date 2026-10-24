@@ -109,6 +109,8 @@ SELF_DISCOVERING_COMMANDS: frozenset[str] = frozenset(
 #: the operator names — and discovers no deployment.
 #: ``history`` serves the store it is handed through the environment its
 #: service renders (address, account, gate secret) and discovers no deployment.
+#: ``agent-record`` likewise serves the record from the environment its service
+#: renders (verifier, secrets, spool, record and transcript locations).
 #:
 #: The entry names a GROUP, and one verb under it does not need the exemption:
 #: ``profile card`` reports on the deployment the operator is standing in, so it
@@ -123,6 +125,7 @@ EXPLICIT_TARGET_COMMANDS: frozenset[str] = frozenset(
         "audit",
         "archive",
         "history",
+        "agent-record",
     }
 )
 

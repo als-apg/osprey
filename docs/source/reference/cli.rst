@@ -45,6 +45,7 @@ names another one explicitly.
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy the agent record into var/archive
    osprey history            # Serve the history page (the history service's entry)
+   osprey agent-record       # Serve the agent record (the agent-record service's entry)
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
    osprey theme-lab          # Design and preview a theme in the browser
@@ -794,6 +795,34 @@ The page reads the store at ``OSPREY_HISTORY_STORE_URL`` as the ``history``
 account, with ``OSPREY_TELEMETRY_HISTORY_PASSWORD`` from the environment, and
 runs every query as the viewer's own store view user. It admits only requests
 that carry the gate secret nginx presents (``OSPREY_TERMINAL_SECRET_HISTORY``).
+
+osprey agent-record
+===================
+
+The agent record: the one store of every session fact the deployment's agents
+produce. Every deployment renders it as the ``agent-record`` service; see
+:doc:`/how-to/health-and-monitoring/monitor-agent`.
+
+osprey agent-record serve
+-------------------------
+
+Serve agent-record: it ingests the spool every source appends to and the
+Claude Code transcripts mounted into it, writes them to the configured backend
+(``agent_record.backend``), and answers reads for the credentials the
+deployment minted. The command is the service's entry and is not run by hand.
+
+.. code-block:: bash
+
+   osprey agent-record serve [--host HOST] [--port PORT]
+
+``--host HOST`` -- Interface to listen on (default ``127.0.0.1``; the service
+listens on every interface of its container).
+
+``--port PORT`` -- Port to serve on (default: the configured
+``agent_record.port``).
+
+It reads the verifier and the secret set, and the spool, record and transcript
+locations, from the environment its compose service renders.
 
 osprey chat
 ===========
