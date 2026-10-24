@@ -1,5 +1,14 @@
 agent_data:
   base_dir: var/agent_data
+agent_record:
+  backend: embedded
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.8.18.2
+    memory: 2g
+  memory: 1g
+  port: 10053
+  readers: []
+  retention_days: 14
 api:
   providers:
   - als-apg
