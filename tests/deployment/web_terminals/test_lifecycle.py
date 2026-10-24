@@ -170,7 +170,7 @@ def fake_runtime(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls
 
 
@@ -206,7 +206,7 @@ def fake_runtime_prune(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls, listing
 
 
@@ -269,7 +269,7 @@ def fake_runtime_nuke(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return calls, listing, down_result, image_labels
 
 
@@ -598,7 +598,7 @@ def test_downed_runtime_raises_instead_of_touching_anything(tmp_path, monkeypatc
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(
-        lifecycle, "verify_runtime_is_running", lambda config=None: (False, "daemon is down")
+        lifecycle, "verify_runtime_is_running", lambda config=None, **_: (False, "daemon is down")
     )
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _config(["alice"]))
@@ -1676,7 +1676,9 @@ def test_passwd_refuses_before_writing_when_the_runtime_is_down(tmp_path, monkey
     """Gate on the runtime BEFORE the write: otherwise the operator is handed a
     password the deployment was never told about."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (False, "down"))
+    monkeypatch.setattr(
+        lifecycle, "verify_runtime_is_running", lambda config=None, **_: (False, "down")
+    )
     config_path = _write_config(tmp_path, _auth_config(["alice"]))
 
     with pytest.raises(RuntimeError, match="down"):

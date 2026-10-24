@@ -121,7 +121,7 @@ def fake_runtime(monkeypatch: pytest.MonkeyPatch) -> _FakeRuntime:
         feedback_cmd, "get_runtime_command", lambda config=None: ["docker", "compose"]
     )
     monkeypatch.setattr(feedback_cmd, "runtime_env", lambda config, *args, **kwargs: {"E": "1"})
-    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None, **_: (True, ""))
     return runtime
 
 
@@ -403,7 +403,7 @@ class TestVolumeReader:
         monkeypatch.setattr(
             lifecycle,
             "verify_runtime_is_running",
-            lambda config=None: (False, "Docker daemon is not running"),
+            lambda config=None, **_: (False, "Docker daemon is not running"),
         )
 
         with pytest.raises(RuntimeError, match="Docker daemon is not running"):
