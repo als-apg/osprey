@@ -43,6 +43,7 @@ from osprey.cli.build_posture_check import (
     REQUIRED_ALWAYS,
     REQUIRED_WITH_APPROVAL_HOOK,
     REQUIRED_WITH_CONTROLS,
+    STAGE1_TOOLS,
     approval_enabled_fault,
     ask_capable,
     check_approval_enabled,
@@ -286,6 +287,9 @@ class TestEffectivePolicy:
     def test_the_guarded_tools(self) -> None:
         assert GUARDED_TOOLS == ("execute", "execute_file", "pyaml_measure")
 
+    def test_the_stage1_tools(self) -> None:
+        assert STAGE1_TOOLS == ("channel_write", "queue_start", "queue_add", "phoebus_drive")
+
     def test_a_tool_entry_wins_over_the_default(self) -> None:
         rendered = _rendered(approval=_approval(execute="selective"))
         assert effective_policy(rendered, "execute") == "selective"
@@ -414,6 +418,53 @@ class TestApprovalHookSelected:
         message = stop.value.format_message()
         assert "guarded tool `execute` is put to a human under `approval.tools.execute`" in message
         assert "add `approval` to `hooks:` in profile.yml" in message
+
+    @pytest.mark.parametrize(
+        ("tool", "server"),
+        [
+            ("channel_write", "controls"),
+            ("queue_start", "bluesky"),
+            ("queue_add", "bluesky"),
+            ("phoebus_drive", "phoebus"),
+        ],
+    )
+    def test_an_asking_stage1_tool_on_an_enabled_server_stops(self, tool: str, server: str) -> None:
+        skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
+        rendered = _rendered(
+            approval=_approval(**{**skipped, tool: "always"}),
+            claude_code={"servers": {server: {"enabled": True}}},
+        )
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, ["error-guidance"])
+        assert f"guarded tool `{tool}` is put to a human under `approval.tools.{tool}`" in (
+            stop.value.format_message()
+        )
+        check_approval_hook_selected(rendered, [APPROVAL_HOOK])
+
+    @pytest.mark.parametrize(
+        ("tool", "server"),
+        [
+            ("channel_write", "controls"),
+            ("queue_start", "bluesky"),
+            ("queue_add", "bluesky"),
+            ("phoebus_drive", "phoebus"),
+        ],
+    )
+    def test_an_asking_stage1_tool_on_a_disabled_server_passes(
+        self, tool: str, server: str
+    ) -> None:
+        skipped = dict.fromkeys((*GUARDED_TOOLS, *STAGE1_TOOLS), "skip")
+        rendered = _rendered(
+            approval=_approval(**{**skipped, tool: "always"}),
+            claude_code={"servers": {server: {"enabled": False}}},
+        )
+        check_approval_hook_selected(rendered, ["error-guidance"])
+
+    def test_a_guarded_tool_is_named_before_a_stage1_tool(self) -> None:
+        rendered = _rendered(approval=_approval(execute="always"))
+        with pytest.raises(FacilityBuildError) as stop:
+            check_approval_hook_selected(rendered, [])
+        assert "guarded tool `execute`" in stop.value.format_message()
 
     def test_an_unstated_approval_block_without_the_hook_stops(self) -> None:
         rendered = _rendered()
