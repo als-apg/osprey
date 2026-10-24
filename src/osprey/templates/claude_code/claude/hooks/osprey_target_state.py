@@ -329,17 +329,27 @@ __all__ = [
     "AGENT_DATA_ROOT_ENV_VAR",
     "AUDIT_IDENTITY_ENV",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
+    "CONTROL_CONTEXT_TREE_ENV_VAR",
+    "CONTROL_OWNER_ENV_VAR",
     "CONTROL_TARGETS",
+    "CONTROL_TREE_MARKER_NAME",
     "EXECUTION_MODE_ENV_VAR",
     "FALLBACK_BASELINE",
     "IDENTITY_ENV_LADDER",
+    "KIND_WORDS",
+    "LAUNCH_POSTURE_ALL_TARGETS",
+    "LAUNCH_POSTURE_ENV_VAR",
     "LIVE_STANDIN_TYPE",
+    "LOGIN_TIERS_LEAF",
+    "NO_OWNER",
     "POSTURE_SANDBOX",
     "POSTURE_SESSION_ENV_VAR",
     "POSTURE_WRITES",
+    "REASONS",
     "REASON_NO_STATE",
     "REASON_UNREADABLE",
     "RECORD_FILENAME",
+    "RECORD_READ_LIMIT",
     "REPORT_FILE_GLOB",
     "REPORT_FILE_PREFIX",
     "REPORT_FILE_SUFFIX",
@@ -348,30 +358,46 @@ __all__ = [
     "SIMULATED_TYPES",
     "STANDIN_TYPES",
     "STATE_DIR_NAME",
+    "STORE_PATH_MARKERS",
+    "SWITCH_ON",
     "TARGET_LIVE",
     "TARGET_STANDIN",
     "TARGET_VA",
     "TERMINAL_USER_ENV",
+    "TIER_ALLOWED",
+    "TIER_NEVER",
     "UNKNOWN_IDENTITY",
     "VALID_POSTURES",
     "VIRTUAL_ACCELERATOR_TYPE",
     "WRITES_ENABLED_LEAF",
+    "WRITES_LEAF",
+    "NoOwner",
+    "WriteVerdict",
     "acting_identity",
     "agent_data_root",
     "baseline_result",
+    "current_owner",
     "effective_writes_for",
     "is_baseline",
     "is_readonly_run",
+    "launch_pin_term",
+    "machine_kind",
     "most_restrictive_posture",
+    "owner_tier_term",
     "parse_posture",
     "parse_record",
+    "parse_switch",
+    "parse_switch_record",
     "posture_unknown",
     "read_json_file",
     "read_record",
+    "read_record_status",
     "read_target",
     "read_target_view",
+    "read_tree_record",
     "record_path",
     "recorded_posture",
+    "refusal_phrase",
     "resolve_state_dir",
     "selected_target",
     "session_key",
@@ -380,7 +406,10 @@ __all__ = [
     "target_posture",
     "target_sandboxed",
     "target_type",
+    "tier_allows",
+    "tier_writes",
     "type_posture",
+    "write_verdict",
     "writes_posture",
 ]
 
@@ -1187,3 +1216,543 @@ def effective_writes_for(hook_input, section, target):
     if is_readonly_run():
         return False
     return not target_sandboxed(hook_input, target)
+
+
+# -- the write verdict -----------------------------------------------------
+#
+# The stdlib twin of ``posture_store.write_verdict``: the same terms in the same
+# order, so a write the connector refuses is refused here for the same reason
+# and in the same words. Every name below restates a package symbol and says
+# which; ``tests/hooks/test_write_verdict_twin.py`` drives the shared case table
+# through both and compares the word tables key by key. The older readers above
+# are untouched: they answer the questions the hooks ask today, and this
+# section answers the one they will ask once the switch replaces the posture.
+
+#: The stamped owner of a dispatch job's work. Mirrors
+#: ``posture_store.CONTROL_OWNER_ENV_VAR``; a blank value is the unset case.
+CONTROL_OWNER_ENV_VAR = "OSPREY_CONTROL_OWNER"
+
+#: The read-only bind of every login's control-context directory, carried by a
+#: container that holds no chip of its own. Mirrors
+#: ``posture_store.CONTROL_CONTEXT_TREE_ENV_VAR``. Its PRESENCE makes the
+#: process owned-or-nothing; its value is read only by the tree reader.
+CONTROL_CONTEXT_TREE_ENV_VAR = "OSPREY_CONTROL_CONTEXT_TREE"
+
+#: The marker ``osprey build`` writes at the tree's root. Mirrors
+#: ``posture_store.CONTROL_TREE_MARKER_NAME``: a bind without it is an
+#: unprovisioned tree, which refuses rather than reads as "nothing narrowed".
+CONTROL_TREE_MARKER_NAME = ".osprey-control-tree"
+
+#: The executor's launch-time pin, ``"<target>=<posture>"``. Mirrors
+#: ``posture_store.LAUNCH_POSTURE_ENV_VAR`` and its all-targets spelling.
+LAUNCH_POSTURE_ENV_VAR = "OSPREY_LAUNCH_POSTURE"
+LAUNCH_POSTURE_ALL_TARGETS = "*"
+
+#: The most a tree record may be and still be read. Mirrors
+#: ``posture_store._RECORD_READ_LIMIT``.
+RECORD_READ_LIMIT = 64 * 1024
+
+#: The tier key's leaf, its two values, and the login→tier map's leaf. Mirror
+#: ``types._WRITES_LEAF``/``_TIER_ALLOWED`` and ``posture_store._LOGIN_TIERS_LEAF``.
+WRITES_LEAF = "writes"
+TIER_ALLOWED = "allowed"
+TIER_NEVER = "never"
+LOGIN_TIERS_LEAF = "login_tiers"
+_LOGIN_TIERS = (TIER_ALLOWED, TIER_NEVER)
+
+#: The one switch value that arms a target. Mirrors ``control_context._SWITCH_ON``.
+SWITCH_ON = "on"
+
+#: The kind of machine each target names. Mirrors ``types._MACHINE_KINDS``.
+_MACHINE_KINDS = {TARGET_LIVE: "real", TARGET_STANDIN: "rehearsal", TARGET_VA: "simulator"}
+
+# What makes an owner name unusable as one directory of the tree. Mirrors
+# ``posture_store._TREE_UNSAFE``.
+_TREE_UNSAFE = frozenset({"/", "\\", "\x00"})
+
+#: The closed set of refusal reasons. Mirrors ``refusals.REASONS``, in order.
+REASONS = (
+    "readonly_run",
+    "tier_never",
+    "target_unknown",
+    "owner_unknown",
+    "record_unavailable",
+    "switch_off",
+    "launch_pinned",
+    "switching",
+    "stopped_since",
+)
+
+# Mirrors ``refusals._PHRASES`` word for word.
+_PHRASES = {
+    "readonly_run": (
+        "Writes are refused because the deployment is running read-only; the chip cannot lift this."
+    ),
+    "tier_never": (
+        "Writes are refused because this login's write tier does not allow them; "
+        "ask the deployment admin."
+    ),
+    "target_unknown": (
+        "Writes are refused because the machine this connector writes to is not known; "
+        "retry, then ask the deployment admin."
+    ),
+    "owner_unknown": (
+        "Writes are refused because this login's write tier is not known; ask the deployment admin."
+    ),
+    "record_unavailable": (
+        "Writes are refused because the write switch cannot be read; "
+        "retry, then ask the deployment admin."
+    ),
+    "switch_off": "Writes are off; turn it on from the chip in the web terminal.",
+    "launch_pinned": (
+        "Writes are refused because this run was started with writes held off; "
+        "run it again without the pin."
+    ),
+    "switching": (
+        "Writes are refused because the write gateway has not yet followed the switch; "
+        "retry, then ask the deployment admin."
+    ),
+    "stopped_since": (
+        "Writes are off because a stop came after the turn-on began; "
+        "turn it on again from the chip."
+    ),
+}
+
+#: The words a machine kind adds to a phrase. Mirrors ``refusals.KIND_WORDS``.
+KIND_WORDS = {
+    "real": "the real machine",
+    "rehearsal": "the rehearsal machine",
+    "simulator": "the simulator",
+}
+
+#: Path spellings of the posture store. Mirrors ``refusals.STORE_PATH_MARKERS``.
+STORE_PATH_MARKERS = (STATE_DIR_NAME, RECORD_FILENAME)
+
+
+def refusal_phrase(reason, kind=None):
+    """The phrase for *reason*; a known *kind* names the machine it concerns.
+
+    Mirrors ``refusals.refusal_phrase``: ``ValueError`` for a reason outside
+    :data:`REASONS` — the one thing in this module that raises, because a
+    caller passing an unknown reason is a bug, not a degraded state.
+    """
+    try:
+        phrase = _PHRASES[reason]
+    except (KeyError, TypeError):
+        raise ValueError(f"unknown refusal reason: {reason!r}") from None
+    words = KIND_WORDS.get(kind) if isinstance(kind, str) else None
+    return f"{phrase} (Concerns {words}.)" if words else phrase
+
+
+class NoOwner:
+    """The absence of an owner: one instance, compared by identity only.
+
+    Mirrors ``posture_store.NoOwner``. ``None`` already means "the caller named
+    nobody, walk the ladder", and every string is a name some deployment may
+    give an account, so neither can say "this work belongs to nobody".
+    """
+
+    __slots__ = ()
+
+    def __str__(self):
+        return "<no owner>"
+
+    __repr__ = __str__
+
+
+#: The answer every owner-less path gives. See :class:`NoOwner`.
+NO_OWNER = NoOwner()
+
+
+class WriteVerdict:
+    """Whether one write may go ahead, and the one reason when it may not.
+
+    The same four fields as ``posture_store.WriteVerdict``: *allowed*, *reason*
+    (a member of :data:`REASONS` or ``None``), *target* (verbatim when it was a
+    string) and *kind* (``real``/``rehearsal``/``simulator`` or ``None``).
+    A plain slotted class rather than a dataclass: a hook pays every
+    module-level import on every tool call.
+    """
+
+    __slots__ = ("allowed", "reason", "target", "kind")
+
+    def __init__(self, allowed, reason, target, kind):
+        self.allowed = allowed
+        self.reason = reason
+        self.target = target
+        self.kind = kind
+
+    def __eq__(self, other):
+        if not isinstance(other, WriteVerdict):
+            return NotImplemented
+        return (self.allowed, self.reason, self.target, self.kind) == (
+            other.allowed,
+            other.reason,
+            other.target,
+            other.kind,
+        )
+
+    # Defining __eq__ already sets __hash__ to None: a verdict is unhashable.
+
+    def __repr__(self):
+        return (
+            f"WriteVerdict(allowed={self.allowed!r}, reason={self.reason!r}, "
+            f"target={self.target!r}, kind={self.kind!r})"
+        )
+
+
+def tier_writes(section):
+    """The login tier's write ceiling: ``"allowed"`` or ``"never"``. Never raises.
+
+    Mirrors ``types.tier_writes``: the ``writes`` leaf decides when present and
+    only the literal ``"allowed"`` arms; absent, a literal ``True`` in the flat
+    ``writes_enabled`` or in any connector block's ``writes_enabled`` is
+    ``allowed``. A section that is not a mapping is ``never``.
+    """
+    if not isinstance(section, dict):
+        return TIER_NEVER
+    if WRITES_LEAF in section:
+        value = section[WRITES_LEAF]
+        return TIER_ALLOWED if isinstance(value, str) and value == TIER_ALLOWED else TIER_NEVER
+    if section.get(WRITES_ENABLED_LEAF) is True:
+        return TIER_ALLOWED
+    connector = section.get("connector")
+    if isinstance(connector, dict) and any(
+        isinstance(block, dict) and block.get(WRITES_ENABLED_LEAF) is True
+        for block in connector.values()
+    ):
+        return TIER_ALLOWED
+    return TIER_NEVER
+
+
+def tier_allows(section):
+    """Whether :func:`tier_writes` answers ``allowed``."""
+    return tier_writes(section) == TIER_ALLOWED
+
+
+def machine_kind(section, target):
+    """The kind of machine *target* names here, or ``None`` when it does not resolve.
+
+    Mirrors ``types.machine_kind``; :func:`target_type` is ``None`` exactly where
+    the package's ``resolve_target`` raises. Never raises.
+    """
+    try:
+        if target_type(section, target) is None:
+            return None
+        return _MACHINE_KINDS.get(target)
+    except Exception:
+        return None
+
+
+def launch_pin_term(target):
+    """The launch pin as a verdict term: ``"none"``, ``"pinned"`` or ``"unreadable"``.
+
+    Mirrors ``posture_store.launch_pin_term``: no stamp is ``none``; a
+    ``<t>=sandbox`` stamp pins *target* when ``<t>`` is it, is ``*``, or
+    *target* is empty; a ``<t>=writes`` stamp is ``none``; anything unparseable
+    is ``unreadable``, which refuses like a pin.
+    """
+    text = (os.environ.get(LAUNCH_POSTURE_ENV_VAR) or "").strip()
+    if not text:
+        return "none"
+    stamped, separator, launch_posture = text.partition("=")
+    stamped = stamped.strip()
+    launch_posture = launch_posture.strip()
+    if (
+        not separator
+        or launch_posture not in VALID_POSTURES
+        or (stamped != LAUNCH_POSTURE_ALL_TARGETS and stamped not in CONTROL_TARGETS)
+    ):
+        return "unreadable"
+    if launch_posture != POSTURE_SANDBOX:
+        return "none"
+    if stamped == LAUNCH_POSTURE_ALL_TARGETS or not target or stamped == target:
+        return "pinned"
+    return "none"
+
+
+def _tree_is_bound():
+    """Whether a control-context tree is bound at all, usable or not.
+
+    Mirrors ``posture_store._tree_is_bound``: presence of a non-blank value.
+    """
+    return bool((os.environ.get(CONTROL_CONTEXT_TREE_ENV_VAR) or "").strip())
+
+
+def _control_context_tree():
+    """The tree bind as an absolute path, or ``None`` when it names none.
+
+    Mirrors ``posture_store._control_context_tree``: stripped, expanded with
+    ``os.path.expanduser``, and ``None`` unless absolute.
+    """
+    raw = (os.environ.get(CONTROL_CONTEXT_TREE_ENV_VAR) or "").strip()
+    if not raw:
+        return None
+    expanded = os.path.expanduser(raw)
+    return expanded if os.path.isabs(expanded) else None
+
+
+def current_owner(owner=None):
+    """The owner whose record governs a write, by the package's ladder minus one rung.
+
+    Mirrors ``posture_store.current_owner`` without the context-variable rung,
+    which only a queueserver worker sets: an explicit *owner* (a string is
+    stripped; :data:`NO_OWNER` or any other value is returned as is), else
+    :data:`CONTROL_OWNER_ENV_VAR` when non-blank, else :data:`NO_OWNER` when a
+    tree is bound, else :func:`acting_identity`. Never raises.
+    """
+    if isinstance(owner, str):
+        return owner.strip()
+    if owner is not None:
+        return owner
+    stamped = os.environ.get(CONTROL_OWNER_ENV_VAR)
+    if isinstance(stamped, str) and stamped.strip():
+        return stamped.strip()
+    if _tree_is_bound():
+        return NO_OWNER
+    return acting_identity()
+
+
+def owner_tier_term(section, owner):
+    """The owner's tier from the login→tier map: ``skip``/``allowed``/``never``/``unknown``.
+
+    Mirrors ``posture_store.owner_tier_term``: the rung applies when the
+    section carries ``login_tiers`` or a tree is bound; a map that is not one
+    render's well-formed output, an owner that is not a non-empty string, or an
+    owner the map does not name is ``unknown``. Logins match exactly. Never
+    raises.
+    """
+    try:
+        carries = isinstance(section, dict) and LOGIN_TIERS_LEAF in section
+        if not carries:
+            return "unknown" if _tree_is_bound() else "skip"
+        login_tiers = section[LOGIN_TIERS_LEAF]
+        if not isinstance(login_tiers, dict) or not all(
+            isinstance(login, str) and login and isinstance(tier, str) and tier in _LOGIN_TIERS
+            for login, tier in login_tiers.items()
+        ):
+            return "unknown"
+        if not isinstance(owner, str) or not owner:
+            return "unknown"
+        tier = login_tiers.get(owner)
+    except Exception:
+        return "unknown"
+    if tier == TIER_ALLOWED:
+        return TIER_ALLOWED
+    if tier == TIER_NEVER:
+        return TIER_NEVER
+    return "unknown"
+
+
+def parse_switch(value):
+    """One record's ``switch`` as ``{target: "on"}``: only the string ``"on"`` arms.
+
+    Mirrors ``control_context._parse_switch``: string keys are kept whether or
+    not they name a known target. Anything that is not a mapping is ``{}``.
+    """
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: SWITCH_ON
+        for key, state in value.items()
+        if isinstance(key, str) and isinstance(state, str) and state == SWITCH_ON
+    }
+
+
+def parse_switch_record(raw):
+    """A record as ``{target, generation, posture, switch}``, or ``None``.
+
+    :func:`parse_record` with the switch beside the three fields it answers —
+    a separate function so that one's shape, which hooks rely on, stays as it
+    is. The same all-or-nothing identity filter. Never raises.
+    """
+    try:
+        record = parse_record(raw)
+        if record is None:
+            return None
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        record["switch"] = parse_switch(raw.get("switch"))
+        return record
+    except Exception:
+        return None
+
+
+def read_record_status(hook_input=None):
+    """``(record, status)`` for this host's record, where status tells why there is none.
+
+    Mirrors ``control_context.read_record_status``: ``"ok"`` with the record
+    (switch included); ``"missing"`` for no file at the path; ``"unreadable"``
+    for every other way of having none — an unresolvable root, an OS or decode
+    failure, a payload this version cannot read. :func:`_read_record` folds a
+    missing file and an unreadable one together, which a write verdict must
+    not. Never raises.
+    """
+    try:
+        path = record_path(hook_input)
+        if not path:
+            return None, "unreadable"
+        try:
+            with open(path, encoding="utf-8") as handle:
+                raw = handle.read()
+        except FileNotFoundError:
+            return None, "missing"
+        except (OSError, ValueError):
+            return None, "unreadable"
+        record = parse_switch_record(raw)
+        return (None, "unreadable") if record is None else (record, "ok")
+    except Exception:  # pragma: no cover - defensive; every step above is total
+        return None, "unreadable"
+
+
+def _read_no_follow(path):
+    """*path*'s text, refusing a symbolic link at its last component and an over-long file.
+
+    Mirrors ``posture_store._read_no_follow``: ``O_NOFOLLOW`` makes the kernel
+    refuse a link at the open (``ELOOP``), and a file past
+    :data:`RECORD_READ_LIMIT` raises ``EFBIG`` rather than being truncated into
+    a parse. Raises ``OSError`` or ``UnicodeDecodeError``.
+    """
+    import errno
+
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        with os.fdopen(fd, encoding="utf-8", closefd=False) as handle:
+            text = handle.read(RECORD_READ_LIMIT + 1)
+    finally:
+        os.close(fd)
+    if len(text) > RECORD_READ_LIMIT:
+        raise OSError(errno.EFBIG, "the file is larger than a record may be")
+    return text
+
+
+def read_tree_record(tree, owner):
+    """``(record, unavailable)`` for *owner*'s record in the read-only *tree*.
+
+    Mirrors ``posture_store._read_tree_context``, and fails closed the same
+    way: *unavailable* is ``True`` for a tree that is not a directory, not
+    readable, carries no marker (or a link or non-file there), an owner that
+    is not one directory name, a link at the owner's directory or record, and
+    every failure to read or parse a record that is THERE. Exactly one absence
+    is an answer — no directory or no record for the owner — and returns
+    ``(None, False)``: an owner who has switched nothing on. Never raises.
+    """
+    import stat
+
+    try:
+        if not os.path.isdir(tree):
+            return None, True
+        if not os.access(tree, os.R_OK | os.X_OK):
+            return None, True
+        try:
+            marker_mode = os.lstat(os.path.join(tree, CONTROL_TREE_MARKER_NAME)).st_mode
+        except OSError:
+            return None, True
+        if stat.S_ISLNK(marker_mode) or not stat.S_ISREG(marker_mode):
+            return None, True
+        if (
+            not isinstance(owner, str)
+            or owner.strip() in {"", ".", ".."}
+            or _TREE_UNSAFE & set(owner)
+        ):
+            return None, True
+        owner_dir = os.path.join(tree, owner)
+        try:
+            owner_mode = os.lstat(owner_dir).st_mode
+        except FileNotFoundError:
+            return None, False
+        except OSError:
+            return None, True
+        if stat.S_ISLNK(owner_mode):
+            return None, True
+        try:
+            text = _read_no_follow(os.path.join(owner_dir, RECORD_FILENAME))
+        except FileNotFoundError:
+            return None, False
+        except Exception:
+            return None, True
+        record = parse_switch_record(text)
+        return (None, True) if record is None else (record, False)
+    except Exception:  # pragma: no cover - defensive; refuse rather than allow
+        return None, True
+
+
+def _write_refusal(section, target, owner, ignore_launch_pin, hook_input):
+    """The first term of :func:`write_verdict` that refuses, or ``None``. May raise."""
+    if is_readonly_run():
+        return "readonly_run"
+    if not tier_allows(section):
+        return "tier_never"
+    if target_type(section, target) is None:
+        return "target_unknown"
+
+    resolved = current_owner(owner)
+    if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
+        return "owner_unknown"
+
+    rung = owner_tier_term(section, resolved)
+    if rung == "unknown":
+        return "owner_unknown"
+    if rung == TIER_NEVER:
+        return "tier_never"
+
+    if _tree_is_bound():
+        tree = _control_context_tree()
+        if tree is None:
+            return "record_unavailable"
+        record, unavailable = read_tree_record(tree, resolved)
+        if unavailable:
+            return "record_unavailable"
+    else:
+        record, status = read_record_status(hook_input)
+        if status == "unreadable":
+            return "record_unavailable"
+        if status != "ok":
+            record = None
+
+    if record is None:
+        return "switch_off"
+    if (
+        record["switch"].get(target) != SWITCH_ON
+        or record["posture"].get(target) == POSTURE_SANDBOX
+    ):
+        return "switch_off"
+
+    if not ignore_launch_pin and launch_pin_term(target) != "none":
+        return "launch_pinned"
+    return None
+
+
+def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_input=None):
+    """The verdict on one write to *target*: one total order, first refusal wins.
+
+    The stdlib twin of ``posture_store.write_verdict``, term for term:
+    ``readonly_run``, ``tier_never`` (the section's tier), ``target_unknown``,
+    ``owner_unknown`` (the ladder found nobody), the login-tier rung
+    (``owner_unknown`` / ``tier_never``), ``record_unavailable`` (the tree
+    record under a bound tree, else this host's record — absent is not
+    unavailable), ``switch_off`` (not ``"on"`` for *target*, or a recorded
+    ``sandbox`` for it), and ``launch_pinned`` unless *ignore_launch_pin*.
+
+    Args:
+        section: The ``control_system:`` config section, as loaded.
+        target: The control target the write lands on.
+        owner: Whose record governs the write; ``None`` walks
+            :func:`current_owner`.
+        ignore_launch_pin: Skip the last term.
+        hook_input: The hook's stdin payload, for repo-root resolution of the
+            host record.
+
+    Returns:
+        A :class:`WriteVerdict`. Never raises: an exception in any term
+        refuses as ``record_unavailable``, as the package does.
+    """
+    named = target if isinstance(target, str) else None
+    kind = machine_kind(section, target)
+    try:
+        reason = _write_refusal(section, target, owner, ignore_launch_pin, hook_input)
+    except Exception:
+        reason = "record_unavailable"
+    return WriteVerdict(allowed=reason is None, reason=reason, target=named, kind=kind)
