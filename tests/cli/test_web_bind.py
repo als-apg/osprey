@@ -33,7 +33,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import DEFAULT_PORT_BASE
-from tests._ports import bound_socket
+from osprey_connectors_tests._harness._ports import bound_socket
 from tests.cli._lifecycle_build import stub_build
 
 

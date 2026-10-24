@@ -56,7 +56,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests._ports import hold_ports, reserved_ports
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
 
 pytest.importorskip(
     "lume_pva_apg",

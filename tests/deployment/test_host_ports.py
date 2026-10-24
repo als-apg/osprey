@@ -36,7 +36,7 @@ from osprey.port_layout import (
     block_range,
     default_port,
 )
-from tests._ports import bound_socket
+from osprey_connectors_tests._harness._ports import bound_socket
 
 #: A second base, far from the default, for the two-deployments-on-one-host
 #: scenario. Every expectation below is derived from it rather than written out,

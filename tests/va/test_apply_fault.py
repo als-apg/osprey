@@ -42,7 +42,7 @@ from typing import Any
 
 import pytest
 
-from tests._ports import hold_ports, reserved_ports
+from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
 
 # import-time required because libca latches the EPICS_CA_* environment when
 # the CA context is created, which happens on the first Channel Access call

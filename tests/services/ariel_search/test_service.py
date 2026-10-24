@@ -248,7 +248,7 @@ class TestARIELSearchService:
         """After ``aclose()`` the exit report names no search-call worker."""
         import io
 
-        from tests._live_threads import report_live_threads
+        from osprey_connectors_tests._harness._live_threads import report_live_threads
 
         service = self._create_mock_service()
         assert await run_search_call(service._search_calls, lambda: 42) == 42

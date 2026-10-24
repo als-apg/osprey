@@ -15,7 +15,7 @@ from enum import Enum
 from typing import Any
 
 from osprey.registry.web import panel_url_state_attr
-from tests._ports import hold_ports
+from osprey_connectors_tests._harness._ports import hold_ports
 
 
 class Unserved(Enum):

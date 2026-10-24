@@ -41,7 +41,7 @@ from osprey.registry.web import (
     framework_web_port_default,
     resolve_web_server_address,
 )
-from tests._ports import bound_socket, require_ipv6_loopback
+from osprey_connectors_tests._harness._ports import bound_socket, require_ipv6_loopback
 
 
 def _make_launcher(host: str, port: int) -> ServerLauncher:

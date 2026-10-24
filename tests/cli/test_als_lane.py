@@ -110,7 +110,7 @@ import pytest  # noqa: E402
 import yaml  # noqa: E402
 from click.testing import CliRunner, Result  # noqa: E402
 
-from tests._ports import reserved_port  # noqa: E402
+from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
 
 #: The facility's profiles checkout.
 ALS_PROFILES_ENV = "OSPREY_ALS_PROFILES"

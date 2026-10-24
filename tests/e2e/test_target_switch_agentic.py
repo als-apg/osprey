@@ -102,7 +102,7 @@ from osprey_connectors.control_context import (
     write_json_atomic,
 )
 from osprey_connectors.workspace import TIERS_DIRNAME
-from tests._ports import reserved_port
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests.e2e._facility_select import repo_view
 from tests.e2e.judge import LLMJudge
 from tests.e2e.profile_edits import set_pairs

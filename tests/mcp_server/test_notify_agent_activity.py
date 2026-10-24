@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.mcp_server.http import notify_agent_activity
-from tests._ports import bound_socket
+from osprey_connectors_tests._harness._ports import bound_socket
 
 _MODULE = "osprey.mcp_server.http"
 

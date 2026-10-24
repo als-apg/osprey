@@ -9,7 +9,6 @@ import socket
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
 
 import pytest
 
@@ -24,6 +23,7 @@ from osprey_connectors_tests._harness._ports import (
     reserved_port,
     reserved_ports,
 )
+from tests._nested_pytest import with_harness_path
 
 #: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
 _HOLDER_GRACE_S = 1.0
@@ -125,20 +125,15 @@ def test_the_lock_is_released_when_the_block_ends():
         os.close(fd)
 
 
-def _repo_root() -> str:
-    return str(Path(__file__).resolve().parents[2])
-
-
 def test_the_lock_directory_ignores_tmpdir(tmp_path):
     with reserved_port() as port:
         probe = subprocess.run(
             [
                 sys.executable,
                 "-c",
-                f"from tests._ports import _lock; print(_lock({port}))",
+                f"from osprey_connectors_tests._harness._ports import _lock; print(_lock({port}))",
             ],
-            cwd=_repo_root(),
-            env={**os.environ, "TMPDIR": str(tmp_path)},
+            env=with_harness_path({**os.environ, "TMPDIR": str(tmp_path)}),
             capture_output=True,
             text=True,
             timeout=60,
@@ -153,9 +148,9 @@ def _lockable_elsewhere(ports: list[int]) -> list[bool]:
         [
             sys.executable,
             "-c",
-            f"from tests._ports import _lock; print([_lock(p) is not None for p in {ports!r}])",
+            f"from osprey_connectors_tests._harness._ports import _lock; print([_lock(p) is not None for p in {ports!r}])",
         ],
-        cwd=_repo_root(),
+        env=with_harness_path(dict(os.environ)),
         capture_output=True,
         text=True,
         timeout=60,
@@ -194,13 +189,13 @@ def test_hold_ports_keeps_the_locks_until_exit():
             textwrap.dedent(
                 """
                 import sys
-                from tests._ports import hold_ports
+                from osprey_connectors_tests._harness._ports import hold_ports
                 print(hold_ports(2), flush=True)
                 sys.stdin.read()
                 """
             ),
         ],
-        cwd=_repo_root(),
+        env=with_harness_path(dict(os.environ)),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,

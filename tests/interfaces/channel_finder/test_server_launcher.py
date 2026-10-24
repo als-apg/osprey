@@ -15,7 +15,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
-from tests._ports import bound_socket
+from osprey_connectors_tests._harness._ports import bound_socket
 
 
 def _make_launcher(host: str, port: int):

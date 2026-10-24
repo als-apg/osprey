@@ -51,7 +51,7 @@ from typing import Any
 
 import pytest
 
-from tests._ports import reserved_port
+from osprey_connectors_tests._harness._ports import reserved_port
 
 # ---------------------------------------------------------------------------
 # The image, and what it serves

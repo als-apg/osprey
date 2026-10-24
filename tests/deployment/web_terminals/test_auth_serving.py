@@ -122,8 +122,8 @@ from osprey_connectors.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from osprey_connectors_tests._harness._ports import reserved_port
 from tests._container_support import docker_cli_unavailable_reason_once
-from tests._ports import reserved_port
 from tests._renders import tier_render
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
