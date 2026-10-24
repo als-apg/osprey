@@ -417,32 +417,6 @@ export function buildDraftReplaceBody({ planName, planArgs, draftArgKeys, client
   return { plan_name: planName, plan_args_patch: planArgs, remove, client_id: clientId };
 }
 
-/**
- * The capability reason codes that mean "this deployment cannot execute
- * plans, and retrying changes nothing" — the connector/config half of
- * queue_backend's reason constants (409s on the queue surface). The manager
- * half (`manager_not_configured`, `manager_unreachable`) is a 503: genuinely
- * retryable, so it is classified separately below.
- *
- * `control_target_mismatch` belongs to this half for the same reason, even
- * though it is about the session rather than the build: a deployment renders
- * one plan lane bound to one control target, and while the agent session is
- * switched to the other one the lane cannot run the session's plans. Retrying
- * does not help — the session has to move back, or the operator has to add a
- * second lane — so it reads as a settled property, not as an outage.
- *
- * @type {ReadonlySet<string>}
- */
-const DEPLOYMENT_CAPABILITY_CODES = new Set([
-  'browse_only_connector',
-  'unsupported_connector',
-  'config_unreadable',
-  'control_target_mismatch',
-]);
-
-/** @type {ReadonlySet<string>} */
-const MANAGER_CAPABILITY_CODES = new Set(['manager_not_configured', 'manager_unreachable']);
-
 /** @type {ReadonlySet<string>} */
 const SESSION_PLAN_CODES = new Set(['session_plan_unvalidated', 'session_plan_not_in_namespace']);
 
@@ -473,8 +447,8 @@ export function queueRefusalDetail(body) {
  *   | {type: 'stale_draft_revision'}
  *   | {type: 'draft_revision_already_launched'}
  *   | {type: 'not_armed', detail: string, managerState: string|null, itemLeftBehind: boolean}
- *   | {type: 'cannot_execute', reason: string, detail: string, lane: string|null,
- *      laneTarget: string|null}
+ *   | {type: 'cannot_execute', reason: string, detail: string, retryable: boolean,
+ *      lane: string|null, laneTarget: string|null}
  *   | {type: 'session_plan_not_ready', detail: string, plan: string|null}
  *   | {type: 'queue_rejected', detail: string}
  *   | {type: 'bridge_unreachable'}
@@ -532,13 +506,14 @@ export function classifyQueueAddResponse(status, body) {
       itemLeftBehind: Boolean(refusal && refusal.item_left_behind),
     };
   }
-  if (DEPLOYMENT_CAPABILITY_CODES.has(code) || MANAGER_CAPABILITY_CODES.has(code)) {
-    // The bridge attaches the whole capability record to these; prefer its
+  const capability = refusal ? refusal.capability : null;
+  if (refusal && capability && typeof capability === 'object' && !Array.isArray(capability)) {
+    // The bridge attaches the whole capability record exactly to the refusals
+    // that mean "this deployment cannot execute plans"; prefer its
     // operator-facing `detail` (it carries the flip command) over the
-    // refusal's own sentence.
-    const capability = refusal && refusal.capability;
-    const capabilityDetail =
-      capability && typeof capability.detail === 'string' ? capability.detail : '';
+    // refusal's own sentence. `retryable` is the body's own answer, and an
+    // absent one reads as "retrying will not help".
+    const capabilityDetail = typeof capability.detail === 'string' ? capability.detail : '';
     // The lane fields travel with it for the same reason the detail does: the
     // panel adopts this record as its live capability, and a refusal that
     // dropped the lane would leave the adopted record claiming less than the
@@ -547,9 +522,9 @@ export function classifyQueueAddResponse(status, body) {
       type: 'cannot_execute',
       reason: code,
       detail: capabilityDetail || sentence,
-      lane: capability && typeof capability.lane === 'string' ? capability.lane : null,
-      laneTarget:
-        capability && typeof capability.lane_target === 'string' ? capability.lane_target : null,
+      retryable: refusal.retryable === true,
+      lane: typeof capability.lane === 'string' ? capability.lane : null,
+      laneTarget: typeof capability.lane_target === 'string' ? capability.lane_target : null,
     };
   }
   if (SESSION_PLAN_CODES.has(code)) {
@@ -577,6 +552,10 @@ export function classifyQueueAddResponse(status, body) {
  *   not be read.
  * @property {string} detail  The operator-facing sentence, shown VERBATIM —
  *   it carries the flip command for a browse-only deployment.
+ * @property {boolean} retryable  Whether the reason can clear on its own, so
+ *   retrying can help — the record's own `retryable`, `false` when absent.
+ *   The `bridge_unreachable` sentinel is retryable: the panel's own re-read
+ *   clears it.
  * @property {string|null} lane  Which plan lane answered, by its service key
  *   as `GET /lanes` reports it. `null` when the health surface itself could
  *   not be read — no lane spoke, so naming one would be a guess.
@@ -617,6 +596,7 @@ export function classifyCapability(status, body) {
       canExecute: false,
       reason: REASON_BRIDGE_UNREACHABLE,
       detail: 'Could not read the bridge capability, so plans cannot be queued from here yet.',
+      retryable: true,
       lane: null,
       laneTarget: null,
     };
@@ -625,6 +605,7 @@ export function classifyCapability(status, body) {
     canExecute: capability.can_execute === true,
     reason: typeof capability.reason === 'string' ? capability.reason : REASON_BRIDGE_UNREACHABLE,
     detail: typeof capability.detail === 'string' ? capability.detail : '',
+    retryable: capability.retryable === true,
     // Carried through, never defaulted to a lane name: an older bridge that
     // publishes no lane fields is "unknown", and unknown is a different claim
     // from "the single lane" — the panel would otherwise label a two-lane
@@ -704,11 +685,12 @@ export function queueOutcomeBanner(outcome) {
  * is nothing to say), else the tone and the sentence explaining the disabled
  * Add-to-queue button.
  *
- * Tone: a connector/config reason is a settled property of how this
- * deployment was built — browse-only is a legitimate, fully-supported way to
- * run the panel, so it reads as information, not breakage. A manager reason
- * (or an unreadable health surface) is an outage or a missing piece of the
- * deployment: something the operator may well need to act on, so it warns.
+ * Tone comes from the record's `retryable`. A reason retrying cannot clear is
+ * a settled property of how this deployment was built or configured —
+ * browse-only is a legitimate, fully-supported way to run the panel — so it
+ * reads as information, not breakage. A retryable reason (or an unreadable
+ * health surface) is a passing outage the operator may need to watch, so it
+ * warns.
  *
  * The message is the bridge's own `detail` VERBATIM — it carries the command
  * that flips a browse-only deployment, and paraphrasing it would strand the
@@ -720,7 +702,7 @@ export function queueOutcomeBanner(outcome) {
 export function capabilityBanner(capability) {
   if (capability.canExecute) return null;
   return {
-    kind: DEPLOYMENT_CAPABILITY_CODES.has(capability.reason) ? 'info' : 'warn',
+    kind: capability.retryable ? 'warn' : 'info',
     message: capability.detail || 'This deployment cannot execute plans right now.',
   };
 }
