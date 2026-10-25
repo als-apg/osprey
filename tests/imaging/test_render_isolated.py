@@ -6,9 +6,12 @@ launched exactly like the real worker (``-I``, ``env={}``, ``cwd='/'``), so they
 can import nothing from the test environment and carry their reply bytes inline.
 
 Timing constants are scaled (a 1 s task clock against a 3 s sleeper, a 0.5 s
-idle close, a 2 s ready wait), so each case keeps its production meaning. The
-cancellation cases hold their worker on a file the test controls and run on the
-shipped clocks, so only the cancel ends the render.
+idle close), so each case keeps its production meaning. A worker gets the shipped
+ready wait to write its ready line, since how long a fresh interpreter takes to
+start is the host's load, not the case; only the case that proves the ready wait
+scales it, against a worker that never writes the line in time. The cancellation
+cases hold their worker on a file the test controls and run on the shipped
+clocks, so only the cancel ends the render.
 """
 
 from __future__ import annotations
@@ -111,14 +114,14 @@ def _stub(
 
 @pytest.fixture(autouse=True)
 async def _scaled(monkeypatch):
-    """Scaled clocks, and no worker left over between tests.
+    """Scaled task clocks, the shipped ready wait, and no worker left over between tests.
 
     A worker the test left running is closed while its loop is still alive;
     one owned by a loop that is gone (``asyncio.run``) is killed by pid.
     """
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 1.0)
     monkeypatch.setattr(render, "RENDER_WORKER_IDLE_S", 30.0)
-    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 2.0)
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", _READY_TIMEOUT_S)
     render._forget_worker()
     yield
     await render.close_render_worker()
@@ -269,6 +272,7 @@ async def test_worker_exiting_at_import_is_unavailable(monkeypatch, tmp_path):
 
 
 async def test_no_ready_within_the_ready_wait_is_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 2.0)
     monkeypatch.setattr(
         render,
         "WORKER_ARGV",
