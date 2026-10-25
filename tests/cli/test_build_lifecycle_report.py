@@ -115,7 +115,9 @@ def _results_step(
 
 def test_the_phase_header_is_phase_record(tmp_path: Path, recorder: _RecordingReporter) -> None:
     """The header naming the phase goes through the reporter, not the renderer."""
-    build_lifecycle._run_lifecycle_phase("post_build", [], tmp_path, tmp_path)
+    build_lifecycle._run_lifecycle_phase(
+        "post_build", [], tmp_path, tmp_path, venv=None, repo_root=tmp_path
+    )
 
     assert recorder.emitted() == ["  Running post_build commands..."]
 
@@ -126,7 +128,9 @@ def test_a_streamed_step_is_named_on_the_record(
     """The line opening a streamed step is record too, and comes after the header."""
     steps = [LifecycleStep(name="stream me", run="echo hello", timeout=30, stream=True)]
 
-    build_lifecycle._run_lifecycle_phase("validate", steps, tmp_path, tmp_path)
+    build_lifecycle._run_lifecycle_phase(
+        "validate", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+    )
 
     assert recorder.emitted() == ["  Running validate commands...", "  > stream me"]
 
@@ -136,7 +140,7 @@ def test_a_passing_step_reports_through_the_renderer(
 ) -> None:
     """The pass line carries the step, its cost and the tail of its output."""
     build_lifecycle._run_lifecycle_phase(
-        "post_build", [_echo_step("quiet step")], tmp_path, tmp_path
+        "post_build", [_echo_step("quiet step")], tmp_path, tmp_path, venv=None, repo_root=tmp_path
     )
 
     printed = capsys.readouterr().out
@@ -150,7 +154,7 @@ def test_a_pass_line_survives_the_verbose_reporter(
 ) -> None:
     """``osprey -v build`` still gets the step's own result: it is not record."""
     build_lifecycle._run_lifecycle_phase(
-        "post_build", [_echo_step("quiet step")], tmp_path, tmp_path
+        "post_build", [_echo_step("quiet step")], tmp_path, tmp_path, venv=None, repo_root=tmp_path
     )
 
     printed = capsys.readouterr().out
@@ -165,7 +169,9 @@ def test_a_failing_step_fails_on_stderr_and_still_raises(
     steps = [LifecycleStep(name="bad step", run="sh -c 'echo the reason; exit 3'", timeout=30)]
 
     with pytest.raises(BuildProfileError) as raised:
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        build_lifecycle._run_lifecycle_phase(
+            "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+        )
 
     captured = capsys.readouterr()
     assert re.search(
@@ -189,7 +195,7 @@ def test_a_tolerated_failure_warns_instead(
     ]
 
     build_lifecycle._run_lifecycle_phase(
-        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+        "validate", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path, abort_on_failure=False
     )
 
     captured = capsys.readouterr()
@@ -208,7 +214,9 @@ def test_a_timed_out_step_is_cut_off_and_named(
     steps = [LifecycleStep(name="slow step", run="sleep 30", timeout=1)]
 
     with pytest.raises(BuildProfileError) as raised:
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        build_lifecycle._run_lifecycle_phase(
+            "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+        )
 
     captured = capsys.readouterr()
     assert "✗ Lifecycle post_build step 'slow step' timed out" in captured.err
@@ -236,7 +244,9 @@ def test_a_timed_out_step_reports_its_last_output(
 
     with patch_subprocess("osprey.cli.build_lifecycle", side_effect=timed_out_run):
         with pytest.raises(BuildProfileError) as raised:
-            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+            build_lifecycle._run_lifecycle_phase(
+                "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+            )
 
     assert [call["timeout"] for call in seen] == [1]
     assert seen[0]["capture_output"] is True
@@ -254,7 +264,9 @@ def test_a_step_that_cannot_start_reports_the_reason(
     steps = [LifecycleStep(name="missing tool", run="osprey-no-such-command", timeout=30)]
 
     with pytest.raises(BuildProfileError) as raised:
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        build_lifecycle._run_lifecycle_phase(
+            "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+        )
 
     captured = capsys.readouterr()
     assert "✗ Lifecycle post_build step 'missing tool' failed to start" in captured.err
@@ -269,7 +281,12 @@ def test_the_test_results_table_prints_through_the_renderer(
 ) -> None:
     """A step that left JUnit results gets them summarised under its pass line."""
     build_lifecycle._run_lifecycle_phase(
-        "post_build", [_results_step(tmp_path, "checks")], tmp_path, tmp_path
+        "post_build",
+        [_results_step(tmp_path, "checks")],
+        tmp_path,
+        tmp_path,
+        venv=None,
+        repo_root=tmp_path,
     )
 
     printed = capsys.readouterr().out
@@ -287,7 +304,12 @@ def test_the_test_results_table_survives_the_verbose_reporter(
 ) -> None:
     """The table is the step's report, so ``--verbose`` does not swallow it."""
     build_lifecycle._run_lifecycle_phase(
-        "post_build", [_results_step(tmp_path, "checks")], tmp_path, tmp_path
+        "post_build",
+        [_results_step(tmp_path, "checks")],
+        tmp_path,
+        tmp_path,
+        venv=None,
+        repo_root=tmp_path,
     )
 
     assert "Integration Test Results" in capsys.readouterr().out
@@ -329,7 +351,13 @@ def test_a_step_that_writes_results_at_the_project_root_gets_the_table(
     )
 
     build_lifecycle._run_lifecycle_phase(
-        "validate", [step], default_cwd, project_path, abort_on_failure=False
+        "validate",
+        [step],
+        default_cwd,
+        project_path,
+        venv=None,
+        repo_root=project_path,
+        abort_on_failure=False,
     )
 
     printed = capsys.readouterr().out
@@ -386,7 +414,7 @@ def test_a_step_that_writes_no_results_prints_no_table(
     ]
 
     build_lifecycle._run_lifecycle_phase(
-        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+        "validate", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path, abort_on_failure=False
     )
 
     assert capsys.readouterr().out.count(_TABLE_TITLE) == 1
@@ -403,7 +431,9 @@ def test_an_aborting_step_that_writes_no_results_prints_no_table(
     ]
 
     with pytest.raises(BuildProfileError):
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        build_lifecycle._run_lifecycle_phase(
+            "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+        )
 
     assert capsys.readouterr().out.count(_TABLE_TITLE) == 1
 
@@ -420,7 +450,7 @@ def test_every_step_that_writes_results_gets_its_table(
     ]
 
     build_lifecycle._run_lifecycle_phase(
-        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+        "validate", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path, abort_on_failure=False
     )
 
     assert capsys.readouterr().out.count(_TABLE_TITLE) == 2
@@ -440,7 +470,7 @@ def test_results_replaced_by_rename_get_their_table(
     ]
 
     build_lifecycle._run_lifecycle_phase(
-        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+        "validate", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path, abort_on_failure=False
     )
 
     assert capsys.readouterr().out.count(_TABLE_TITLE) == 2
@@ -454,7 +484,7 @@ def test_a_tolerated_failure_that_wrote_results_gets_its_table(
     steps = [_results_step(tmp_path, "tests", then="; exit 1", stream=stream)]
 
     build_lifecycle._run_lifecycle_phase(
-        "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+        "validate", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path, abort_on_failure=False
     )
 
     captured = capsys.readouterr()
@@ -470,7 +500,9 @@ def test_an_aborting_step_that_wrote_results_gets_its_table(
     steps = [_results_step(tmp_path, "tests", then="; exit 2", stream=stream)]
 
     with pytest.raises(BuildProfileError):
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        build_lifecycle._run_lifecycle_phase(
+            "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+        )
 
     assert capsys.readouterr().out.count(_TABLE_TITLE) == 1
 
@@ -482,7 +514,9 @@ def test_results_left_before_the_phase_print_nothing(
     results = tmp_path / build_lifecycle.JUNIT_RESULTS_FILENAME
     results.write_text(_JUNIT_XML)
 
-    build_lifecycle._run_lifecycle_phase("post_build", [_echo_step("checks")], tmp_path, tmp_path)
+    build_lifecycle._run_lifecycle_phase(
+        "post_build", [_echo_step("checks")], tmp_path, tmp_path, venv=None, repo_root=tmp_path
+    )
 
     assert _TABLE_TITLE not in capsys.readouterr().out
     assert results.read_text() == _JUNIT_XML
@@ -516,11 +550,19 @@ def test_a_timed_out_step_prints_only_results_it_wrote(
     with patch_subprocess("osprey.cli.build_lifecycle", side_effect=timed_out_run):
         if abort_on_failure:
             with pytest.raises(BuildProfileError):
-                build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+                build_lifecycle._run_lifecycle_phase(
+                    "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+                )
             assert len(calls) == 1
         else:
             build_lifecycle._run_lifecycle_phase(
-                "validate", steps, tmp_path, tmp_path, abort_on_failure=False
+                "validate",
+                steps,
+                tmp_path,
+                tmp_path,
+                venv=None,
+                repo_root=tmp_path,
+                abort_on_failure=False,
             )
             assert len(calls) == 2
 

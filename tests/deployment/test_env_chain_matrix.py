@@ -324,7 +324,7 @@ def resolve_via_build_lifecycle(repo: Path, _monkeypatch: pytest.MonkeyPatch) ->
     # The pipe is what makes the runner use a shell, which is what makes the
     # redirect-free `tee` land the environment in a file we can read back.
     step = LifecycleStep(name="dump environment", run=f"env | tee {dump}")
-    _run_lifecycle_phase("post_build", [step], repo, repo)
+    _run_lifecycle_phase("post_build", [step], repo, repo, venv=None, repo_root=repo)
     return chain_keys_of(parse_dotenv_text(dump.read_text(encoding="utf-8")))
 
 

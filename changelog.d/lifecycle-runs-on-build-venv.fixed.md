@@ -1,0 +1,1 @@
+``post_build`` and ``validate`` steps run on the project venv, as documented; ``pre_build`` steps and ``--skip-deps`` builds see the shell's ``PATH``. Lifecycle steps read the repository's env chain (``.env`` over ``.env.shared``), not the staged tree's.

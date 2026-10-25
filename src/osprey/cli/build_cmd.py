@@ -3709,6 +3709,8 @@ def _build_repo(
                 build_profile.lifecycle.pre_build,
                 repo_root,
                 zones.stage,
+                venv=None,
+                repo_root=repo_root,
                 stream=stream,
             )
 
@@ -3742,6 +3744,9 @@ def _build_repo(
         # workspace-member spec, which only the venv install reads.
         plan = _plan_project_venv(build_profile, install=not skip_deps)
         project_deps = plan.extra_deps
+        # The venv the post_build and validate steps run on: the one installed
+        # below, at the path it is used from; none when no install runs.
+        build_venv: Path | None = None if skip_deps else zones.build_dir / ".venv"
         if not skip_deps:
             # Reported on its own, not folded into the render below: it is the
             # longest thing a first build does by a wide margin, and a build
@@ -3907,6 +3912,8 @@ def _build_repo(
                 build_profile.lifecycle.post_build,
                 zones.stage,
                 zones.stage,
+                venv=build_venv,
+                repo_root=repo_root,
                 stream=stream,
             )
         if build_profile.lifecycle.validate and not skip_lifecycle:
@@ -3915,6 +3922,8 @@ def _build_repo(
                 build_profile.lifecycle.validate,
                 zones.stage,
                 zones.stage,
+                venv=build_venv,
+                repo_root=repo_root,
                 abort_on_failure=False,
                 stream=stream,
             )

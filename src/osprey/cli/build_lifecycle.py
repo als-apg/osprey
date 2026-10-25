@@ -1,9 +1,10 @@
 """Build lifecycle-phase execution helpers.
 
 Runs the ``pre_build`` / ``post_build`` / ``validate`` command phases declared
-in a build profile, with the shared subprocess environment (the project's
-merged env chain, project venv on ``PATH``, ``_mcp_servers`` on ``PYTHONPATH``), streaming
-and quiet output modes, timeout handling, and the JUnit test-results summary.
+in a build profile, with the shared subprocess environment (the repository's
+merged env chain, the venv the build names on ``PATH`` when it names one,
+``_mcp_servers`` on ``PYTHONPATH``), streaming and quiet output modes, timeout
+handling, and the JUnit test-results summary.
 
 Output here splits two ways. What a step's run looks like from outside -- the
 phase header, the line naming a streamed step as it starts -- is phase record,
@@ -247,6 +248,8 @@ def _run_lifecycle_phase(
     default_cwd: Path,
     project_path: Path,
     *,
+    venv: Path | None,
+    repo_root: Path,
     abort_on_failure: bool = True,
     stream: bool = False,
 ) -> None:
@@ -258,14 +261,18 @@ def _run_lifecycle_phase(
         default_cwd: Default working directory for steps without explicit cwd.
         project_path: Project root path, substituted for `{project_root}` and the
             directory the JUnit results file is read from.
+        venv: The venv whose ``bin/`` leads ``PATH``, or None to leave ``PATH``
+            as the shell has it.
+        repo_root: The repository root, the home of the env chain every step
+            sees.
         abort_on_failure: If True, raise BuildProfileError on failure.
             If False, warn and continue (used for validate phase).
         stream: If True, stream stdout/stderr in real-time instead of capturing.
     """
-    # Apply the project's env chain to the subprocess environment through the
-    # one loader every launch path uses: `.env` wins over `.env.shared`, and
-    # the shell-only launch variables keep the shell's value.
-    env_files = chain_files(project_path)
+    # Apply the repository's env chain to the subprocess environment through
+    # the one loader every launch path uses: `.env` wins over `.env.shared`,
+    # and the shell-only launch variables keep the shell's value.
+    env_files = chain_files(repo_root)
     sub_env = dict(os.environ)
     applied = apply_env_chain(sub_env, env_files)
     if env_files:
@@ -275,10 +282,10 @@ def _run_lifecycle_phase(
             ", ".join(str(path) for path in env_files),
         )
 
-    # Prepend project venv to PATH so `python` resolves to the project's
-    # Python (with profile deps) rather than OSPREY's Python.
-    venv_bin = project_path / ".venv" / "bin"
-    if venv_bin.is_dir():
+    # The caller names the venv, and nothing here looks for one: with a venv
+    # named, its `bin/` leads PATH so `python` is that venv's interpreter.
+    if venv is not None:
+        venv_bin = venv / "bin"
         sub_env["PATH"] = f"{venv_bin}{os.pathsep}{sub_env.get('PATH', '')}"
         logger.info("Prepended project venv to lifecycle PATH: %s", venv_bin)
 
