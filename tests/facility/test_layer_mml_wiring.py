@@ -129,10 +129,14 @@ class _Imported:
 def imports(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], _Imported]:
     """Each tree imported on its first request, then served to every reader."""
     done: dict[str, _Imported] = {}
+    # Made during setup, so the trees imported on demand belong to this fixture.
+    parent = tmp_path_factory.mktemp("imports")
 
     def imported(tree: str) -> _Imported:
         if tree not in done:
-            done[tree] = _Imported(tmp_path_factory.mktemp(tree), tree)
+            root = parent / tree
+            root.mkdir()
+            done[tree] = _Imported(root, tree)
         return done[tree]
 
     return imported

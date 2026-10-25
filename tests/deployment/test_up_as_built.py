@@ -1353,13 +1353,13 @@ def test_minting_targets_the_repo_env_from_any_directory(lifecycle_repo, started
 
 
 @pytest.fixture(scope="module")
-def _real_build():
-    """Holds the one real build the ``built_repo`` tests share."""
-    return {}
+def _real_build(tmp_path_factory):
+    """Holds the one real build the ``built_repo`` tests share, and its parent."""
+    return {"parent": tmp_path_factory.mktemp("real-build")}
 
 
 @pytest.fixture
-def built_repo(_real_build, tmp_path_factory):
+def built_repo(_real_build):
     """A deployment repo with a REAL ``osprey build`` behind it.
 
     Slower than the stub every other test here uses, and the point: the defect
@@ -1373,8 +1373,8 @@ def built_repo(_real_build, tmp_path_factory):
 
     Built once per module, on first use: every test taking it only reads the
     tree. The build runs inside that first test, so the function-scoped autouse
-    seams apply to it as before, and under ``tmp_path_factory`` so it outlives
-    that test's ``tmp_path``.
+    seams apply to it as before, and under the module fixture's directory so
+    it lives as long as the module.
     """
     if "repo" in _real_build:
         return _real_build["repo"]
@@ -1383,7 +1383,7 @@ def built_repo(_real_build, tmp_path_factory):
 
     from osprey.cli.build_cmd import build as build_cmd
 
-    repo = build_exemplar_repo(tmp_path_factory.mktemp("real-build") / EXEMPLAR_DIRNAME)
+    repo = build_exemplar_repo(_real_build["parent"] / EXEMPLAR_DIRNAME)
     result = _CliRunner().invoke(
         build_cmd,
         ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
