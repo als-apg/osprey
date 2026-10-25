@@ -124,6 +124,11 @@ from osprey.audit.call import (
 from osprey.audit.dedup import decision_scope, mark_recorded, recorded_decision
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, utc_timestamp
 from osprey.audit.writer import record
+from osprey.mcp_server.approval_stamp import (
+    APPROVAL_ASK_PREFIX,
+    APPROVAL_ASK_SUFFIX,
+    read_ask_stamp,
+)
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.identity import acting_identity
 
@@ -588,13 +593,6 @@ def _request_meta(context: MiddlewareContext[Any]) -> dict[str, Any]:
     return {}
 
 
-#: The ask stamp the approval hook leaves for a call it put in front of an
-#: approver, restated from ``osprey_approval.py`` (a hook script this package
-#: cannot import) and pinned against it by a test.
-APPROVAL_ASK_PREFIX: str = "approval_ask_"
-APPROVAL_ASK_SUFFIX: str = ".json"
-
-
 def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None] | None:
     """``(approver, permission_mode)`` when an approval prompt let this call through.
 
@@ -604,18 +602,8 @@ def _approval_answered(tool_use_id: str | None) -> tuple[str, str | None] | None
     ``PostToolUse`` owns the stamp's removal. ``None`` without a stamp, and on
     any error.
     """
-    if tool_use_id is None:
-        return None
-    try:
-        from osprey.mcp_server.control_system import target_state
-
-        stamp = target_state.read_file(
-            target_state.state_dir() / f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
-        )
-    except Exception:
-        logger.debug("Could not read the ask stamp for %s", tool_use_id, exc_info=True)
-        return None
-    if not isinstance(stamp, dict):
+    stamp = read_ask_stamp(tool_use_id)
+    if stamp is None:
         return None
     approver = stamp.get("approver")
     mode = stamp.get("permission_mode")
