@@ -582,6 +582,7 @@ class TestBoundedRun:
 
     def test_past_its_limit_the_child_and_its_grandchild_are_stopped(self, tmp_path):
         pid_file = tmp_path / "grandchild.pid"
+        reached: list[bool] = []
 
         def started(_elapsed, spool):
             # The runner judges the limit only after the watch returns, so holding the first
@@ -593,6 +594,7 @@ class TestBoundedRun:
                 timeout=30.0,
                 interval=0.02,
             )
+            reached.append(True)
 
         with pytest.raises(CapturedProcessTimeout) as excinfo:
             run_captured(
@@ -604,6 +606,9 @@ class TestBoundedRun:
                 watch_interval=0.05,
             )
 
+        assert reached, (
+            "the watch never saw the child say 'started' (the runner swallows a watch's failure)"
+        )
         assert excinfo.value.timeout == 1.5
         assert excinfo.value.returncode is None
         assert "started" in excinfo.value.spool_path.read_text()
