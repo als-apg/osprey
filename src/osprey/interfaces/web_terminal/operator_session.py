@@ -50,7 +50,11 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey.interfaces.web_terminal.tool_preview import tool_result_preview, tool_result_text
+from osprey.interfaces.web_terminal.tool_preview import (
+    tool_result_preview,
+    tool_result_refusal,
+    tool_result_text,
+)
 from osprey.utils.tool_rules import matches_denylist
 from osprey_connectors.config import get_facility_timezone
 
@@ -335,30 +339,87 @@ _ASYNC_LAUNCH_MARK = "Async agent launched"
 _TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "stopped", "killed"})
 
 
-def _render_arms_writes(project_dir: str) -> bool:
-    """Whether the render the chat child runs in arms writes on any control target.
+#: The deny for an ask that is not a write on a render whose tier allows no writes:
+#: nobody can approve a tool call on it, and it is not a write to refuse by reason.
+_NOT_ARMED_MESSAGE = "This deployment does not arm writes, so the operator cannot approve it."
 
-    Read from ``<project_dir>/config.yml``, the file the child's own
-    ``OSPREY_CONFIG`` names (:func:`~osprey.agent_runner.clean_env.build_clean_env`),
-    not from whichever config the server process resolves. Fails closed: a render
-    that cannot be read or parsed, or that states no control section, arms nothing.
-    BLOCKING.
 
-    The chat offers tool approvals only on a write-enabled render (a readwrite
-    or admin tier); a readonly render keeps declining every ask, which is
-    what a chat without a permission callback already did.
+@dataclass(frozen=True)
+class _RenderFacts:
+    """What the chat reads from the render its child runs in, once at start.
+
+    ``config`` is ``<project_dir>/config.yml`` and ``hook_config`` the render's
+    ``.claude/hooks/hook_config.json``, each ``{}`` when it cannot be read.
+    ``tier_allows`` is the tier term of the write verdict
+    (:func:`osprey_connectors.types.tier_allows`) over the config's control
+    section; it fails closed with the config.
     """
+
+    config: dict[str, Any]
+    hook_config: dict[str, Any]
+    tier_allows: bool
+
+
+#: The facts of a render that could not be read: no writes, no placement.
+_NO_RENDER = _RenderFacts(config={}, hook_config={}, tier_allows=False)
+
+
+def _read_render(project_dir: str) -> _RenderFacts:
+    """The render facts of *project_dir*. BLOCKING; never raises.
+
+    Read from ``<project_dir>``, the files the child's own ``OSPREY_CONFIG`` and
+    hooks read (:func:`~osprey.agent_runner.clean_env.build_clean_env`), not
+    whichever config the server process resolves. A render whose config cannot
+    be read, or that states no control section, allows no writes; an unreadable
+    hook_config places writes from the hooks' fallback list.
+    """
+    import json
+
+    import yaml
+
+    from osprey_connectors.types import tier_allows
+
     try:
-        import yaml
-
-        from osprey_connectors.types import any_target_writes_enabled
-
         config = yaml.safe_load((Path(project_dir) / "config.yml").read_text(encoding="utf-8"))
-        section = config.get("control_system") if isinstance(config, dict) else None
-        return bool(any_target_writes_enabled(section))
     except Exception:
-        logger.warning("Could not read the write posture; chat approvals stay off", exc_info=True)
-        return False
+        logger.warning("Could not read the render's config; chat approvals stay off", exc_info=True)
+        return _NO_RENDER
+    if not isinstance(config, dict):
+        return _NO_RENDER
+    try:
+        hook_path = Path(project_dir) / ".claude" / "hooks" / "hook_config.json"
+        hook_config = json.loads(hook_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.debug("No readable hook_config in %s", project_dir, exc_info=True)
+        hook_config = {}
+    return _RenderFacts(
+        config=config,
+        hook_config=hook_config if isinstance(hook_config, dict) else {},
+        tier_allows=tier_allows(config.get("control_system")),
+    )
+
+
+def _place_write(
+    render: _RenderFacts, tool_name: str, tool_input: dict[str, Any], stamped: bool | None
+) -> tuple[bool, dict[str, str] | None]:
+    """Whether a call writes, and C-FRAME's ``target`` for it. BLOCKING; never raises.
+
+    Placed as the hooks place it (:func:`osprey_connectors.write_target.write_target_for_tool`):
+    a call that writes nothing answers ``(False, None)``, a write nobody can place
+    ``(True, None)``.
+    """
+    from osprey_connectors.write_target import frame_target, write_target_for_tool
+
+    placed = write_target_for_tool(
+        render.config, tool_name, tool_input, hook_config=render.hook_config, stamped=stamped
+    )
+    if placed is None:
+        return False, None
+    try:
+        return True, frame_target(placed)
+    except Exception:
+        logger.debug("Could not name the machine of %s", tool_name, exc_info=True)
+        return True, None
 
 
 def _main_agent_active(event: AgentEvent) -> bool:
@@ -571,13 +632,16 @@ def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
         frame.update(_notice_fields(event))
         return frame
     if isinstance(event, ToolResultEvent):
-        preview, truncated = tool_result_preview(tool_result_text(event.content))
+        # The refusal trailer ends the text, so it is read before the preview cut.
+        refusal, shown = tool_result_refusal(tool_result_text(event.content), event.is_error)
+        preview, truncated = tool_result_preview(shown)
         return {
             "type": "tool_result",
             "tool_use_id": event.tool_use_id,
             "is_error": event.is_error,
             "preview": preview,
             "truncated": truncated,
+            "refusal": refusal,
         }
     if isinstance(event, DeltaEvent):
         return {
@@ -848,8 +912,9 @@ class OperatorSession:
         # ``_can_use_tool``; drained by ``resolve_permission`` or, on interrupt
         # and teardown, by ``_deny_pending``.
         self._permissions: dict[str, _PendingAsk] = {}
-        # Whether tool approvals are offered at all; read from the render at start.
-        self._approvals = False
+        # The render the child runs in, read at start: its config, hook_config and
+        # whether its tier allows writes at all.
+        self._render = _NO_RENDER
         # The side-effect surface this render refuses headless, read at start. No session
         # allow is ever offered for one: its approval is per call.
         self._side_effect_tools: tuple[str, ...] = ()
@@ -984,7 +1049,7 @@ class OperatorSession:
         # turn cap or budget, and waits for no MCP server. Every ask the
         # project's settings and hooks raise reaches ``_can_use_tool``, which
         # puts it in front of the operator on a write-enabled render.
-        self._approvals = await asyncio.to_thread(_render_arms_writes, self._cwd)
+        self._render = await asyncio.to_thread(_read_render, self._cwd)
         # The side-effect surface, read from the render the child runs in, plus every
         # prefix the render's approval hook asks about: the hook asks on each call, so
         # a standing allow there would do nothing or skip its ask. If either cannot be
@@ -1040,10 +1105,20 @@ class OperatorSession:
         An ``ExitPlanMode`` whose input carries no plan is refused here without a card.
         """
         kind = {_QUESTION_TOOL: "question", _PLAN_TOOL: "plan"}.get(tool_name, "tool")
-        if kind == "tool" and not self._approvals:
-            return PermissionResultDeny(
-                message="This deployment does not arm writes, so the operator cannot approve it."
+        target: dict[str, str] | None = None
+        if kind == "tool":
+            writes, target = await asyncio.to_thread(
+                _place_write, self._render, tool_name, tool_input, self._child_stamped()
             )
+            if not self._render.tier_allows:
+                if not writes:
+                    return PermissionResultDeny(message=_NOT_ARMED_MESSAGE)
+                # The tier verdict (C-FRAME): the refusal text carries the trailer,
+                # so the tool_result this deny becomes carries ``refusal``.
+                from osprey_connectors.refusals import refusal_text
+
+                machine = target["machine_kind"] if target else None
+                return PermissionResultDeny(message=refusal_text("tier_never", machine))
         plan = tool_input.get("plan")
         if kind == "plan" and not (isinstance(plan, str) and plan.strip()):
             return PermissionResultDeny(message=_NO_PLAN_MESSAGE)
@@ -1062,6 +1137,9 @@ class OperatorSession:
             "reason": getattr(context, "decision_reason", None),
             "title": getattr(context, "title", None),
             "description": getattr(context, "description", None),
+            # The machine a write lands on (C-FRAME); None for a call that writes
+            # nothing and for a write that cannot be placed.
+            "target": target,
             # Whether "Allow for this session" is offered (see _standing_rules).
             "can_allow_session": bool(standing),
         }
@@ -1075,6 +1153,16 @@ class OperatorSession:
                 return await self._expire(request_id, kind)
         finally:
             self._permissions.pop(request_id, None)
+
+    def _child_stamped(self) -> bool | None:
+        """Whether the child's agent-data root is stamped; ``None`` asks this process.
+
+        The hooks in the child decide "no record" by their own environment, so
+        the placement asks the env the child was handed.
+        """
+        if self._env is None:
+            return None
+        return bool(str(self._env.get(OSPREY_AGENT_DATA_ROOT) or "").strip())
 
     async def _expire(self, request_id: str, kind: str) -> Any:
         """Decline a request the operator never answered, and tell every tab so.
