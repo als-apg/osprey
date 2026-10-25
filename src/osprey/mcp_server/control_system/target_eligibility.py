@@ -363,12 +363,10 @@ def _selected_role_missing(
 ) -> Eligibility | None:
     """Check 3's verdict: the role selected here has no endpoint to select.
 
-    Factored out of :func:`evaluate_eligibility` because a second caller asks
-    the same question about writes the session has not turned off yet:
-    :func:`narrowing_refusal`, which is what a surface offering the switch
-    consults before offering it. A refusal, or ``None`` when the selected role
-    is configured — the same "a verdict is a refusal" shape the switch gate
-    uses, so no caller can mistake a pass for a check it forgot to read.
+    Factored out of :func:`evaluate_eligibility`, where it is the target-switch
+    check. A refusal, or ``None`` when the selected role is configured — the
+    same "a verdict is a refusal" shape the switch gate uses, so no caller can
+    mistake a pass for a check it forgot to read.
     """
     selected_role = derivation.selected_role
     if selected_role in derivation.endpoints:
@@ -384,44 +382,6 @@ def _selected_role_missing(
         f"{target!r}, but '{block_key}.gateways.{selected_role}' is missing or "
         f"empty. Configured roles: {sorted(gateways) or 'none'}.",
     )
-
-
-def narrowing_refusal(
-    config: Any, target: str, *, config_path: str | None = None
-) -> Eligibility | None:
-    """What turning writes off for *target* would cost the deployment, if anything.
-
-    Turning writes off can move the selected gateway role. A block that
-    configures ``write_access`` alone does not strand anything when it does: it
-    reads through its write gateway while writes are off
-    (:func:`~osprey_connectors.ipc._verification._selected_role`), and every
-    write is refused in software. So the ordinary answer is ``None``, and a
-    refusal here means a block whose read role has no endpoint at all — which
-    a surface offering the switch owes the operator *before* they flip it.
-
-    Read-only and hypothetical: it asks what the target would derive with
-    writes off, whatever the verdict actually is. It reads no record and
-    changes nothing.
-
-    Args:
-        config: The full rendered config mapping.
-        target: The target the operator is considering turning writes off for.
-        config_path: See :func:`derive_endpoints`.
-
-    Returns:
-        The refusal turning writes off would earn, or ``None`` when the target
-        stays usable with writes off.
-    """
-    try:
-        # ``readonly_run`` is pinned false rather than read: the question is
-        # what turning writes off costs, and a run that is already read-only would
-        # otherwise answer it for every target at once.
-        derivation = derive_endpoints(
-            config, target, writes_enabled=False, readonly_run=False, config_path=config_path
-        )
-    except ValueError as exc:
-        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
-    return _selected_role_missing(config, derivation, target)
 
 
 def _acknowledged(config: Any) -> bool:

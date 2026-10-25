@@ -2,11 +2,19 @@
 
 The record at ``<agent-data root>/control_target/<identity>/control_context.json``
 has a single writer — its owner — and when a web terminal is running, that owner
-is the web terminal. Three parts of the server need to change the record: the
-posture route, the target route, and the owner task that claims the record and
-consumes switch requests. All three go through :meth:`ControlContextOwner.mutate_record`,
-and this module exists so that there is exactly one implementation of what
-"changing the record" means.
+is the web terminal. Two parts of the server change the record's context: the
+target route, and the owner task that claims the record and consumes switch
+requests. Both go through :meth:`ControlContextOwner.mutate_record`, and this
+module exists so that there is exactly one implementation of what "changing the
+record" means.
+
+The person's write switch is not one of them. ``POST /api/terminal/posture``
+writes the record's ``switch`` through
+:func:`osprey_connectors.control_context.set_switch`, its one writer, without
+this primitive's owner check: the switch is the login's, so a terminal that is
+following another one acts on it exactly as the holder would. Every write made
+here keeps the on-disk ``switch`` and ``switch_epoch`` (``write_record``'s rule),
+so neither writer can undo the other.
 
 **Why a primitive at all.** Every change is a read-modify-write: what gets
 written depends on what is already there. Two of those interleaving is a lost
@@ -102,8 +110,8 @@ class Mutation(Generic[T]):
     Attributes:
         record: The record to write, or ``None`` to write nothing. ``None`` is
             an ordinary outcome rather than a failure — a switch the gate
-            refuses on facts read inside the job, a posture toggle that asks
-            for the posture already stored, an owner tick with no request to
+            refuses on facts read inside the job, a mutation that asks for
+            what is already stored, an owner tick with no request to
             consume. Nothing changed, so nothing is written, and the file's
             signature does not move for the readers watching it.
         result: Returned to the caller of :meth:`ControlContextOwner.mutate_record`
@@ -813,7 +821,7 @@ class ControlContextOwnerTask:
         """Broadcast the context frame when the record or a report has changed.
 
         Watched by signature rather than pushed at each write, so that a record
-        written by a route — the posture toggle, the target switch — reaches
+        written by a route — the switch gesture, the target switch — reaches
         the browsers without every writer having to remember to push. The cost
         is up to one tick of latency on a change this task did not make itself.
 

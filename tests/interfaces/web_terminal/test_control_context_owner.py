@@ -6,8 +6,9 @@ exists to provide, which the code it replaces could not have both of:
 
 * **No lost update.** The read, the caller's change and the write are one
   serialised unit. Two mutations submitted together are applied one after the
-  other, and the second one *reads what the first one wrote* — so a posture
-  toggle and a target switch arriving in the same tick both survive.
+  other, and the second one *reads what the first one wrote* — so a claim
+  and a target switch arriving in the same tick both survive. The person's
+  write switch has its own writer and survives every mutation made here.
 * **Nothing on the event loop.** That unit runs in a worker thread, so a slow
   or blocked disk cannot stop the terminal serving. The predecessor bought
   serialisation by staying synchronous on the loop; this one buys it with a
@@ -44,6 +45,10 @@ from osprey_connectors.control_context import ControlContext, Owner
 TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=4242, port=8080)
 OTHER_TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=9999, port=8090)
 SERVER = Owner(kind=control_context.OWNER_CONTROLS_SERVER, pid=7777)
+
+#: A sample change for a mutation to make. ``last_switch`` is carried verbatim;
+#: ``posture`` is no longer one — every write derives it from ``switch``.
+MARK = {"request_id": "req-1", "status": "applied", "generation": 3}
 
 
 @pytest.fixture(autouse=True)
@@ -84,14 +89,14 @@ def read(path: Path) -> ControlContext | None:
 
 
 async def test_the_returned_record_is_written(context_owner, record_file):
-    def narrow(record):
-        return Mutation(record=replace(record, posture={"live": "sandbox"}), result=None)
+    def mark(record):
+        return Mutation(record=replace(record, last_switch=dict(MARK)), result=None)
 
-    await context_owner.mutate_record(narrow)
+    await context_owner.mutate_record(mark)
 
     stored = read(record_file)
     assert stored is not None
-    assert stored.posture == {"live": "sandbox"}
+    assert stored.last_switch == MARK
     assert stored.target == "live"
     assert stored.generation == 3
 
@@ -163,6 +168,56 @@ async def test_a_foreign_owner_refuses_the_mutation(record_file):
     assert stored is not None and stored.owner == OTHER_TERMINAL
 
 
+def _turn_on(path: Path, target: str) -> ControlContext:
+    """The person's turn-on, as the posture route makes it: null epoch, then retry."""
+    with pytest.raises(control_context.StoppedSince) as refused:
+        control_context.set_switch([target], "on", epoch=0, path=path)
+    stored = control_context.set_switch([target], "on", epoch=refused.value.epoch, path=path)
+    assert stored is not None
+    return stored
+
+
+async def test_a_mutation_keeps_the_switch_the_gesture_wrote(context_owner, record_file):
+    """The switch has its own writer; a target move through the primitive keeps it.
+
+    The posture route writes ``switch`` with ``set_switch`` and never through
+    this primitive, so the two writers must not undo each other: a later
+    mutation, read before or after the gesture, stores the on-disk switch.
+    """
+    switched = _turn_on(record_file, "standin")
+
+    def move(record):
+        return Mutation(record=replace(record, target="va", generation=4), result=None)
+
+    await context_owner.mutate_record(move)
+
+    stored = read(record_file)
+    assert stored is not None
+    assert (stored.target, stored.generation) == ("va", 4)
+    assert stored.switch == {"standin": "on"}
+    assert stored.switch_epoch == switched.switch_epoch
+
+
+async def test_the_switch_gesture_needs_no_ownership(record_file):
+    """A follower's gesture lands, and the record still names its holder.
+
+    The primitive refuses a terminal the record does not name; the switch is
+    the login's, so its writer asks no such question and changes no owner.
+    """
+    control_context.write_record(
+        ControlContext(target="live", generation=3, owner=OTHER_TERMINAL), path=record_file
+    )
+    with pytest.raises(ContextOwnedElsewhere):
+        await ControlContextOwner(TERMINAL).mutate_record(lambda r: Mutation.unchanged(None))
+
+    _turn_on(record_file, "va")
+
+    stored = read(record_file)
+    assert stored is not None
+    assert stored.switch == {"va": "on"}
+    assert stored.owner == OTHER_TERMINAL
+
+
 async def test_a_vanished_record_refuses_the_mutation(context_owner, record_file):
     record_file.unlink()
 
@@ -219,9 +274,7 @@ async def test_web_terminal_claim_follows_baseline_at_generation_zero(
 ):
     """The terminal's claim applies the same rule as the controls server's."""
     control_context.write_record(
-        ControlContext(
-            target="live", generation=generation, owner=None, posture={"live": "sandbox"}
-        ),
+        ControlContext(target="live", generation=generation, owner=None, last_switch=dict(MARK)),
         path=record_file,
     )
     task = owner_module.ControlContextOwnerTask(SimpleNamespace(state=SimpleNamespace()))
@@ -234,7 +287,7 @@ async def test_web_terminal_claim_follows_baseline_at_generation_zero(
     assert stored is not None
     assert stored.owner == task.identity
     assert (stored.target, stored.generation) == (expected, generation)
-    assert stored.posture == {"live": "sandbox"}
+    assert stored.last_switch == MARK
 
 
 # -- when there is nowhere to write -----------------------------------------
@@ -331,17 +384,17 @@ async def test_both_changes_land_when_the_pool_is_blocked_mid_job(context_owner,
     second_entered = threading.Event()
     second_saw: list[ControlContext | None] = []
 
-    def narrow(record):
+    def mark(record):
         entered.set()
         assert release.wait(5), "the first job was never released"
-        return Mutation(record=replace(record, posture={"live": "sandbox"}), result="first")
+        return Mutation(record=replace(record, last_switch=dict(MARK)), result="first")
 
     def bump(record):
         second_entered.set()
         second_saw.append(record)
         return Mutation(record=replace(record, generation=record.generation + 1), result="second")
 
-    first = asyncio.create_task(context_owner.mutate_record(narrow))
+    first = asyncio.create_task(context_owner.mutate_record(mark))
     await _until(entered.is_set)
 
     second = asyncio.create_task(context_owner.mutate_record(bump))
@@ -356,11 +409,11 @@ async def test_both_changes_land_when_the_pool_is_blocked_mid_job(context_owner,
 
     # The second job read the first job's write rather than the seeded record.
     assert second_saw[0] is not None
-    assert second_saw[0].posture == {"live": "sandbox"}
+    assert second_saw[0].last_switch == MARK
 
     stored = read(record_file)
     assert stored is not None
-    assert stored.posture == {"live": "sandbox"}
+    assert stored.last_switch == MARK
     assert stored.generation == 4
 
 
