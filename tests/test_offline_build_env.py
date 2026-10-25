@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from tests._builds import install_osprey_into, uv_path
+from tests import _builds
+from tests._builds import fill_uv_cache, install_osprey_into, uv_path
 
 # Any request a subprocess makes goes to a port nothing listens on.
 NO_ROUTE = dict.fromkeys(
@@ -31,6 +32,17 @@ def test_a_build_installs_osprey_with_no_route_to_an_index(offline_build_env, tm
         [str(venv / "bin" / "python"), "-c", "import osprey"], capture_output=True, text=True
     )
     assert probe.returncode == 0, probe.stderr
+
+
+def test_the_cache_fill_leaves_nothing_behind(tmp_path, monkeypatch):
+    def failing_install(venv, _env):
+        venv.mkdir(exist_ok=True)
+        return subprocess.CompletedProcess([], 1, "", "no index")
+
+    monkeypatch.setattr(_builds, "install_osprey_into", failing_install)
+    with pytest.raises(AssertionError):
+        fill_uv_cache(tmp_path)
+    assert list(tmp_path.iterdir()) == []
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
