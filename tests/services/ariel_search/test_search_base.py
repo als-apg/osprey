@@ -250,7 +250,8 @@ _HYBRID_SNAPSHOT = [
         "name": "candidate_limit",
         "label": "Candidate Limit",
         "description": (
-            "How many candidates the reranker considers. Lowering it trades recall for latency."
+            "How many candidates each RRF lane considers, or qmd's candidate pool for its "
+            "native strategy. Lowering it trades recall for latency."
         ),
         "type": "int",
         "default": 40,

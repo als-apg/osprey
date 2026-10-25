@@ -478,8 +478,9 @@ def _auth_sidecar_build_args(monkeypatch, tmp_path, _reporter, pin_version: str)
 def test_auth_sidecar_build_admits_prereleases_for_a_prerelease_pin(
     monkeypatch, tmp_path, reporter
 ):
-    """A beta framework pin exists only beside a beta connectors, which plain
-    pip never picks unasked — so the sidecar build says so with the same arg
+    """The framework's connectors floor names no pre-release, and plain pip
+    never picks a connectors pre-release for it unasked — so under a beta
+    framework pin the sidecar build says so with the same arg
     every other framework-primed image takes."""
     args = _auth_sidecar_build_args(monkeypatch, tmp_path, reporter, "2026.9.0b2")
     assert args["OSPREY_VERSION"] == "2026.9.0b2"

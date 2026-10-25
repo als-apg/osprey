@@ -233,34 +233,52 @@ The explorer is read-only. To correct a channel, edit
 
 The explorer browses a channel database. On the graph pipeline there is no such
 file, so its Explore view is a finder over the store instead. Type words into
-the search box and it keeps the channels that match all of them — against the
-address, the description, the device or signal name, and the name or synonyms
-of the device's class or any class above it. A facet rail narrows further:
-Section, System and Signal count matching channels, Device class counts devices
-and rolls each class up over its subclasses, and Direction splits them into
-read, write, read/write and undirected. A class that groups devices without
-being a kind of device itself is shown in muted italic. Every facet is counted with its own
-filter lifted, so a number says what a second pick in that facet would add.
-Active filters show as chips you can click to remove, and when a facet list is
-capped the panel says so.
+the search box (``/`` focuses it) and it keeps the channels that match all of
+them — against the address, the description, the device or signal name, and the
+name or synonyms of the device's class or any class above it. When the panel
+runs inside the terminal, the search box and the view's ⋯ menu sit in the
+panel's tile bar.
+
+A facet rail narrows further: Section, System and Signal count matching
+channels, Device class counts devices and rolls each class up over its
+subclasses, and Direction splits them into read, write, read/write and
+undirected. A class that groups devices without being a kind of device itself
+is shown in muted italic. Every facet is counted with its own filter lifted, so
+a number says what a second pick in that facet would add. Each facet folds from
+its heading and clears with its ✕. Active filters show as chips you can click
+to remove, and when a facet list is capped the panel says so. The ⋯ menu hides
+the rail, switches row density and clears filters or the selection.
 
 Results come fifty to a page: device, section, address, direction, signal and
-description. Clicking a device name opens a card for it — where it sits in the
-machine, and every channel bound to it grouped by signal. Tick the rows you
-want, and **Copy addresses** puts them on the clipboard one per line, while
-**Send to assistant**, offered only when the panel runs inside the terminal,
-puts them into the prompt on one line for you to send. The panel never submits
-anything itself.
+description. Click a header to sort on it, drag it to move the column, drag its
+right edge to resize it, and double-click that edge to fit it to its content.
+The header's right-click menu also hides a column, fits all of them, or resets
+the layout. Order, widths and hidden columns are remembered per browser.
 
-The badge naming the corpus file and the store it was loaded into, the chips
-naming the tools the OSPREY agent queries that same store with, and the header
-counts of devices, channels, classes, signals and sections read live from the
-store are all unchanged. If the store is unreachable the view says so and
-offers a Retry, and if it is reachable but empty it names the ``osprey build &&
-osprey up`` command that fills it. Channel validation is not offered
-on this pipeline. The channel-suggestion typeahead in the web panels still
-works in graph mode: ``osprey build`` reads the channel names from the facility
-file and writes them into the snapshot the panels use.
+Clicking a device name opens its card beside the results — where it sits in
+the machine, and every channel bound to it grouped by signal — and marks its
+rows; Escape closes it. Tick the rows you want, and **Copy addresses** puts
+them on the clipboard one per line, while **Send to assistant**, offered only
+when the panel runs inside the terminal, puts them into the prompt on one line
+for you to send. The panel never submits anything itself.
+
+Right-click a row, a facet value, a chip or a channel in the card for the
+actions that apply there: copy the address, device name or row, send to the
+assistant, open the device, or narrow the search to that row's section, system
+or signal. Shift+F10 or the menu key opens the same menu from the keyboard. The
+table is one Tab stop: arrows, Home and End move between rows, Space selects,
+Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
+on Enter and moves with Alt+←/→.
+
+The strip above the results names the corpus file and the store it was loaded
+into, the tools the OSPREY agent queries that same store with, and the counts
+of devices, channels, classes, signals and sections read live from the store.
+If the store is unreachable the view says so and offers a Retry, and if it is
+reachable but empty it names the ``osprey build && osprey up`` command that
+fills it. Channel validation is not offered on this pipeline. The
+channel-suggestion typeahead in the web panels still works in graph mode:
+``osprey build`` reads the channel names from the facility file and writes them
+into the snapshot the panels use.
 
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to

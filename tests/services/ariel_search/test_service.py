@@ -987,6 +987,30 @@ class TestAdvancedParamsWiring:
         assert hybrid_search.call_args.kwargs["rerank"] is False
 
     @pytest.mark.asyncio
+    async def test_hybrid_never_builds_the_embedder(self):
+        """The default qmd strategy depends on the sidecar alone.
+
+        A broken semantic provider must not reach a hybrid query: only the rrf
+        strategy embeds, and it resolves its own provider.
+        """
+        service = self._create_mock_service(search_modules={"hybrid": {"enabled": True}})
+
+        with (
+            patch(
+                "osprey.services.ariel_search.search.semantic.semantic_provider_class",
+                side_effect=AssertionError("hybrid built the semantic provider"),
+            ),
+            patch(
+                "osprey.services.ariel_search.search.qmd.hybrid_search",
+                new=AsyncMock(return_value=[]),
+            ) as hybrid_search,
+        ):
+            await service.search("test", mode="hybrid")
+
+        assert len(hybrid_search.call_args.args) == 3
+        assert service._embedder is None
+
+    @pytest.mark.asyncio
     async def test_advanced_params_default_empty(self):
         """With no advanced params, only the request's own fields are passed."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})

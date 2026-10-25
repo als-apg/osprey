@@ -292,14 +292,14 @@ function renderChannelsPanel(body, fieldNames) {
 
         innerHtml += group.shown.map(item =>
           `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
-            <span class="pv-name" style="font-size: var(--cf-text-sm);">${esc(item.name)}</span>${
+            <span class="pv-name" style="font-size: var(--text-base);">${esc(item.name)}</span>${
               item.commonName ? `<span class="common-name">${esc(item.commonName)}</span>` : ''
             }
           </div>`
         ).join('');
 
         if (group.hidden > 0) {
-          innerHtml += `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--cf-text-xs);">... and ${group.hidden} more</div>`;
+          innerHtml += `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--text-sm);">... and ${group.hidden} more</div>`;
         }
       }
 
@@ -319,12 +319,12 @@ function renderChannelsPanel(body, fieldNames) {
       const channelItems = channels.slice(0, 50).map((/** @type {any} */ ch) => {
         const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
         return `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
-          <span class="pv-name" style="font-size: var(--cf-text-sm);">${esc(name)}</span>
+          <span class="pv-name" style="font-size: var(--text-base);">${esc(name)}</span>
         </div>`;
       }).join('');
 
       const overflow = channels.length > 50
-        ? `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--cf-text-xs);">... and ${channels.length - 50} more</div>`
+        ? `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--text-sm);">... and ${channels.length - 50} more</div>`
         : '';
 
       html += `

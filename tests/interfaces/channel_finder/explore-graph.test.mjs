@@ -180,12 +180,14 @@ test('the graph paradigm reaches its renderer and not the unknown pane', () => {
   expect(document.body.textContent).not.toContain('Unknown pipeline');
 });
 
-test('the graph header keeps the paradigm subtitle', () => {
+test('the graph paradigm draws no section header — its finder carries its own toolbar', () => {
   const container = mountWith('graph');
 
-  expect(container.querySelector('.section-subtitle')?.textContent).toBe(
-    'Channels are resolved from the facility graph'
-  );
+  // The page header (or the hub's tile bar) names the panel and the corpus
+  // strip names the store, so the full-height finder starts at its toolbar.
+  expect(container.querySelector('.section-header')).toBeNull();
+  expect(container.querySelector('#explore-content.explore-content-graph')).not.toBeNull();
+  expect(mocks.mountGraph).toHaveBeenCalledWith(container.querySelector('#explore-content'));
 });
 
 test('the graph header shows no db-source badge \u2014 the renderer names the store', () => {

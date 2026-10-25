@@ -2562,9 +2562,9 @@ def _project_image_build_cmd(
         f"OSPREY_PIP_SPEC={pip_spec}",
     ]
     if pins_prerelease(pip_spec):
-        # A beta framework exists only beside a beta connectors, which pip
-        # never picks for a requirement that names none: the recipe's deps
-        # layer resolves with --pre under this arg. See pins_prerelease.
+        # The framework's floor on osprey-connectors names no pre-release,
+        # which pip then never picks unasked: the recipe's deps layer
+        # resolves with --pre under this arg. See pins_prerelease.
         cmd.extend(["--build-arg", "OSPREY_PIP_PRE=1"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])

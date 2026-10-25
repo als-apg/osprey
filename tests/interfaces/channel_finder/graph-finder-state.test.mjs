@@ -20,6 +20,14 @@ import {
   clearSelection,
   sendText,
   copyText,
+  setSort,
+  cycleSort,
+  onlyFacet,
+  clearFacet,
+  clearFilters,
+  facetCount,
+  hasFacet,
+  SORT_KEYS,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-state.js';
 
 test('createFinderState starts empty on page 1', () => {
@@ -429,4 +437,101 @@ test('a single selection produces no separator', () => {
   toggleSelection(s, 'SR:BPM1');
   expect(sendText(s)).toBe('SR:BPM1');
   expect(copyText(s)).toBe('SR:BPM1');
+});
+
+// ---- sort ----
+
+test('a sort travels as sort and order, and no sort sends neither', () => {
+  const s = createFinderState();
+  expect(toSearchParams(s).has('sort')).toBe(false);
+  setSort(s, { key: 'description', dir: 'desc' });
+  const params = toSearchParams(s);
+  expect(params.get('sort')).toBe('description');
+  expect(params.get('order')).toBe('desc');
+});
+
+test('a new order starts over at page 1; the same order changes nothing', () => {
+  const s = createFinderState();
+  s.page = 4;
+  expect(setSort(s, { key: 'section', dir: 'asc' })).toBe(true);
+  expect(s.page).toBe(1);
+  s.page = 3;
+  expect(setSort(s, { key: 'section', dir: 'asc' })).toBe(false);
+  expect(s.page).toBe(3);
+  expect(setSort(s, null)).toBe(true);
+  expect(setSort(s, null)).toBe(false);
+});
+
+test('the header click cycles ascending, descending, then address order', () => {
+  const s = createFinderState();
+  cycleSort(s, 'device');
+  expect(s.sort).toEqual({ key: 'device', dir: 'asc' });
+  cycleSort(s, 'device');
+  expect(s.sort).toEqual({ key: 'device', dir: 'desc' });
+  cycleSort(s, 'device');
+  expect(s.sort).toBeNull();
+  cycleSort(s, 'device');
+  cycleSort(s, 'signal');
+  expect(s.sort).toEqual({ key: 'signal', dir: 'asc' });
+});
+
+test('the sortable columns are the ones the server orders by', () => {
+  expect([...SORT_KEYS].sort()).toEqual(['address', 'description', 'device', 'dir', 'section', 'signal', 'system']);
+});
+
+// ---- facet verbs ----
+
+test('only keeps one value of a multi facet, and replaces the class', () => {
+  const s = createFinderState();
+  toggleFacet(s, 'section', 'SR01C');
+  toggleFacet(s, 'section', 'SR02C');
+  s.page = 2;
+  expect(onlyFacet(s, 'section', 'SR03C')).toBe(true);
+  expect([...s.section]).toEqual(['SR03C']);
+  expect(s.page).toBe(1);
+  expect(onlyFacet(s, 'section', 'SR03C')).toBe(false);
+  expect(onlyFacet(s, 'cls', 'urn:Quadrupole')).toBe(true);
+  expect(s.cls).toBe('urn:Quadrupole');
+  expect(() => onlyFacet(s, /** @type {any} */ ('bogus'), 'x')).toThrow(TypeError);
+});
+
+test('facetCount and hasFacet read one facet, the class included', () => {
+  const s = createFinderState();
+  toggleFacet(s, 'signal', 'current');
+  toggleFacet(s, 'signal', 'pressure');
+  toggleFacet(s, 'cls', 'urn:Dipole');
+  expect(facetCount(s, 'signal')).toBe(2);
+  expect(facetCount(s, 'cls')).toBe(1);
+  expect(facetCount(s, 'dir')).toBe(0);
+  expect(hasFacet(s, 'signal', 'pressure')).toBe(true);
+  expect(hasFacet(s, 'cls', 'urn:Dipole')).toBe(true);
+  expect(hasFacet(s, 'cls', 'urn:Other')).toBe(false);
+});
+
+test('clearFacet empties one facet and reports whether it held anything', () => {
+  const s = createFinderState();
+  toggleFacet(s, 'system', 'MG');
+  toggleFacet(s, 'section', 'SR01C');
+  s.page = 5;
+  expect(clearFacet(s, 'system')).toBe(true);
+  expect(s.system.size).toBe(0);
+  expect(s.section.size).toBe(1);
+  expect(s.page).toBe(1);
+  expect(clearFacet(s, 'system')).toBe(false);
+});
+
+test('clearFilters drops the query and every facet but keeps selection and sort', () => {
+  const s = createFinderState();
+  setQuery(s, 'qfa');
+  toggleFacet(s, 'dir', 'R');
+  toggleFacet(s, 'cls', 'urn:Magnet');
+  toggleSelection(s, 'SR01C:PV');
+  setSort(s, { key: 'device', dir: 'asc' });
+  expect(clearFilters(s)).toBe(true);
+  expect(s.q).toBe('');
+  expect(s.dir.size).toBe(0);
+  expect(s.cls).toBeNull();
+  expect([...s.selected]).toEqual(['SR01C:PV']);
+  expect(s.sort).toEqual({ key: 'device', dir: 'asc' });
+  expect(clearFilters(s)).toBe(false);
 });

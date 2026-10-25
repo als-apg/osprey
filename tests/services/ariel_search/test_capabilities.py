@@ -404,14 +404,14 @@ class TestModeParametersFollowTheConfig:
             return get_capabilities(config)["categories"]["direct"]["modes"]
 
     def test_hybrid_defaults_mirror_the_deployment(self):
-        """The panel opens hybrid's knobs on the deployment's settings block."""
+        """The panel omits a hard-disabled reranker and keeps RRF depth."""
         config = self._make_config(
             {"hybrid": {"enabled": True, "settings": {"rerank": False, "candidate_limit": 12}}}
         )
 
         defaults = self._mode_defaults(config, "hybrid")
 
-        assert defaults["rerank"] is False
+        assert "rerank" not in defaults
         assert defaults["candidate_limit"] == 12
 
     def test_semantic_default_mirrors_the_deployment(self):

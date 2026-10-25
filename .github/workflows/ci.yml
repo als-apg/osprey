@@ -650,6 +650,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from its own
+      # osprey-connectors-v* tags, and test_version.py fails a full checkout
+      # that cannot describe one.
+      with:
+        fetch-depth: 0
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -1254,6 +1259,7 @@ jobs:
           tests/interfaces/web_terminal/test_osprey_drawer.py \
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
+          tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/lattice_dashboard/test_retheme_browser.py \

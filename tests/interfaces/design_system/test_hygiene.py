@@ -553,7 +553,9 @@ def test_scale_literal_scanner() -> None:
 #: --radius-*, --duration-*), then adds its directory name to this set to lock
 #: the migration in place and prevent new scale literals. Interfaces not yet
 #: listed are subject to the color-hygiene check (a) only.
-SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset({"web_terminal", "design_system", "ariel"})
+SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset(
+    {"web_terminal", "design_system", "ariel", "channel_finder"}
+)
 
 
 def test_scale_literal_zero_tolerance() -> None:
@@ -850,6 +852,55 @@ def test_ariel_scale_layer_stays_retired() -> None:
         "use the fleet scales instead (var(--text-*/--weight-*/--leading-*/"
         "--radius-*/--space-*/--z-*/--duration-*)); --ariel-score-* is the only "
         "sanctioned --ariel- name:\n" + "\n".join(offenders)
+    )
+
+
+# --- Check (e2): Channel Finder's retired scale layer stays retired ---------------
+
+#: The same three prohibitions as check (e), for the second follower. Only the
+#: type, radius and transition families were retired: ``--cf-space-*``, the
+#: ``--cf-warning-tint-*`` composites and ``--cf-strip-h`` are legitimate local
+#: survivors (DESIGN.md §6, "What legitimately stays local").
+_CHANNEL_FINDER_GROUP = "channel_finder"
+_CF_SCALE_DEFINITION_RE = re.compile(r"--(?:cf-(?:text|radius)|transition)-[a-zA-Z0-9-]+\s*:")
+_CF_VAR_USE_RE = re.compile(r"var\(\s*--(?:cf-(?:text|radius)|transition)-[a-zA-Z0-9-]+")
+
+
+def test_channel_finder_retired_name_scanners() -> None:
+    """Definitions and references of the retired families only; survivors never."""
+    assert _CF_SCALE_DEFINITION_RE.findall("  --cf-text-xs: 0.7rem;") == ["--cf-text-xs:"]
+    assert _CF_SCALE_DEFINITION_RE.findall("  --transition-fast: 120ms;") == ["--transition-fast:"]
+    assert _CF_SCALE_DEFINITION_RE.findall("  --cf-space-2: 0.5rem;") == []
+    assert _CF_SCALE_DEFINITION_RE.findall("  color: var(--cf-text-xs);") == []
+    assert _CF_VAR_USE_RE.findall("font-size: var(--cf-radius-md);") == ["var(--cf-radius-md"]
+    assert _CF_VAR_USE_RE.findall("padding: var(--cf-space-1);") == []
+
+
+def test_channel_finder_scale_layer_stays_retired() -> None:
+    """Channel Finder's retired ``--cf-text-*``/``--cf-radius-*``/``--transition-*``
+    layer may not grow back: no definition in its CSS, no reference in its JS,
+    and no font-size/font-weight/border-radius literal inside a JS string.
+    """
+    files = [p for p in _in_scope_files() if _interface_group(p) == _CHANNEL_FINDER_GROUP]
+    offenders: list[str] = []
+    for path in (p for p in files if p.suffix == ".css"):
+        text = _CSS_COMMENT_RE.sub(
+            lambda m: "\n" * m.group(0).count("\n"), path.read_text(encoding="utf-8")
+        )
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for match in _CF_SCALE_DEFINITION_RE.findall(line):
+                offenders.append(f"{_relpath(path)}:{lineno}: retired scale definition {match}")
+    for path in (p for p in files if p.suffix == ".js"):
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for match in _CF_VAR_USE_RE.findall(line):
+                offenders.append(f"{_relpath(path)}:{lineno}: retired scale reference {match})")
+        for lineno, hit in _js_scale_literals(text):
+            offenders.append(f"{_relpath(path)}:{lineno}: inline-style scale literal {hit}")
+    assert not offenders, (
+        "Channel Finder's retired --cf-text-*/--cf-radius-*/--transition-* layer is "
+        "growing back — use var(--text-*/--weight-*/--radius-*/--duration-*):\n"
+        + "\n".join(offenders)
     )
 
 

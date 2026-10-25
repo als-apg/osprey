@@ -240,11 +240,11 @@ def test_pipeline_pins_the_version_floor_the_profile_declares(rendered_ci: str) 
 def test_a_prerelease_floor_adds_pre_to_the_install(exemplar: dict[str, Any]) -> None:
     """A floor naming a beta installs with ``--pre``, and the file says why.
 
-    OSPREY and its connectors ship as a pair from one tag. pip admits a
-    pre-release for the requirement that names one and not for that
-    requirement's own dependencies, so the resolve is widened as a whole
-    or the job can install a pre-release framework beside the older
-    stable connectors.
+    osprey-connectors releases on its own tags, and OSPREY declares only a
+    floor on it. pip admits a pre-release for the requirement that names one
+    and not for that requirement's own dependencies, so the resolve is
+    widened as a whole or the job can install a pre-release framework beside
+    an older stable connectors than the newest pre-release it was tested with.
     """
     profile = copy.deepcopy(exemplar)
     profile["requires_osprey_version"] = ">=2026.9.0b3"

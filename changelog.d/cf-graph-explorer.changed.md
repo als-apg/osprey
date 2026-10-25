@@ -1,0 +1,1 @@
+Channel Finder: the graph-mode Explore view follows the fleet layout. The device card opens beside the results, the corpus provenance sits in the strip above them, facets fold and clear one at a time, and inside the terminal the search box and ⋯ menu move into the panel's tile bar.

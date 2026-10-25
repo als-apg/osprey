@@ -1,11 +1,11 @@
 """A pre-release framework pin reaches every image build as a pre-release resolve.
 
-osprey-framework and osprey-connectors ship as a pair from one tag, so a beta
-of one exists only beside a beta of the other. The framework's own connectors
-requirement names no pre-release, and plain ``pip`` — what every shipped image
-recipe installs with — never picks one for such a requirement. A beta pin
-therefore resolves to nothing inside an image unless the build says the whole
-resolve may admit pre-releases. The ``osprey build`` venv already does this for
+osprey-connectors releases on its own tags, and the framework declares only a
+floor on it, which names no pre-release. Plain ``pip`` — what every shipped
+image recipe installs with — never picks a pre-release for such a requirement,
+so inside an image a beta pin passes over the connectors pre-releases the beta
+was tested with unless the build says the whole resolve may admit pre-releases;
+then it can take the newest one. The ``osprey build`` venv already does this for
 ``uv`` (tests/cli/test_build_prerelease_pin.py); these tests pin the same
 decision on the image side: the version helpers that make it, and the two
 build commands that hand it to a Dockerfile as ``OSPREY_PIP_PRE=1``.

@@ -31,9 +31,13 @@ from osprey.services.ariel_search.search.qmd import (
     ARIEL_COLLECTION,
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_RERANK,
+    DEFAULT_STRATEGY,
     MAX_FETCH_LIMIT,
     OVERFETCH_FACTOR,
+    RRF_K,
     HybridSearchSettings,
+    _RankedTextHit,
+    _rrf_hits,
     format_qmd_result,
     get_parameter_descriptors,
     get_tool_descriptor,
@@ -95,6 +99,36 @@ class StubRepository:
         """No caption matches anything; records the call."""
         self.caption_calls.append({"entry_ids": list(entry_ids), "model_id": model_id, **kwargs})
         return {}
+
+
+class StubEmbedder:
+    """Small provider double for the real semantic-search path."""
+
+    truncates_to_dimensions = False
+
+    @classmethod
+    def effective_base_url(cls, configured: str | None) -> str | None:
+        return configured
+
+    def execute_embedding(self, **kwargs: Any) -> list[list[float]]:
+        return [[0.1, 0.2, 0.3]]
+
+
+class SemanticRepository(StubRepository):
+    """Repository double that exposes a pre-ranked pgvector result list."""
+
+    def __init__(
+        self,
+        entries: list[dict[str, Any]],
+        semantic_results: list[tuple[dict[str, Any], float]],
+    ) -> None:
+        super().__init__(entries)
+        self.semantic_results = semantic_results
+        self.semantic_calls: list[dict[str, Any]] = []
+
+    async def semantic_search(self, **kwargs: Any) -> list[tuple[dict[str, Any], float]]:
+        self.semantic_calls.append(kwargs)
+        return self.semantic_results[: kwargs["max_results"]]
 
 
 #: The English stop words the captions and queries below exercise.
@@ -215,6 +249,17 @@ def make_config(settings: dict[str, Any] | None = None) -> ARIELConfig:
     return config
 
 
+def make_semantic_config(settings: dict[str, Any] | None = None) -> ARIELConfig:
+    """Build the hybrid config with the UITF Nomic semantic lane enabled."""
+    config = make_config(settings)
+    config.search_modules["semantic"] = SearchModuleConfig(
+        enabled=True,
+        model="nomic-embed-text",
+        settings={"embedding_dimension": 768, "similarity_threshold": 0.5},
+    )
+    return config
+
+
 # --------------------------------------------------------------------------
 # Descriptor
 # --------------------------------------------------------------------------
@@ -240,15 +285,19 @@ class TestDescriptor:
         assert by_name["candidate_limit"].default == DEFAULT_CANDIDATE_LIMIT
 
     def test_parameter_descriptors_report_the_configured_values(self):
-        """The panel opens on what a query would do, not on what ships."""
+        """A deployment that disables reranking does not offer its toggle."""
         by_name = {
             p.name: p
             for p in get_parameter_descriptors(
                 make_config({"rerank": False, "candidate_limit": 12})
             )
         }
-        assert by_name["rerank"].default is False
+        assert "rerank" not in by_name
         assert by_name["candidate_limit"].default == 12
+
+    def test_rrf_hides_the_rerank_toggle(self):
+        by_name = {p.name: p for p in get_parameter_descriptors(make_config({"strategy": "rrf"}))}
+        assert "rerank" not in by_name
 
     def test_malformed_config_falls_back_instead_of_raising(self):
         """Describing the module survives a key the query path would refuse."""
@@ -284,16 +333,19 @@ class TestDescriptor:
 class TestSettings:
     """``search_modules.hybrid.settings`` resolution."""
 
-    def test_shipped_defaults_are_rerank_on_and_forty_candidates(self):
+    def test_shipped_defaults_keep_qmd_reranked_and_forty_candidates(self):
         """Pinned here because the descriptors no longer pin them by construction."""
         assert DEFAULT_RERANK is True
         assert DEFAULT_CANDIDATE_LIMIT == 40
+        assert DEFAULT_STRATEGY == "qmd"
+        assert HybridSearchSettings().strategy == "qmd"
         assert HybridSearchSettings().rerank is True
         assert HybridSearchSettings().candidate_limit == 40
 
     def test_defaults_when_unconfigured(self):
         settings = HybridSearchSettings.from_ariel_config(make_config())
         assert settings.rerank is DEFAULT_RERANK is True
+        assert settings.strategy == DEFAULT_STRATEGY
         assert settings.candidate_limit == DEFAULT_CANDIDATE_LIMIT
         assert settings.collection == ARIEL_COLLECTION
 
@@ -304,6 +356,17 @@ class TestSettings:
     def test_config_turns_reranking_off(self):
         settings = HybridSearchSettings.from_ariel_config(make_config({"rerank": False}))
         assert settings.rerank is False
+
+    def test_config_selects_rrf(self):
+        assert (
+            HybridSearchSettings.from_ariel_config(make_config({"strategy": "rrf"})).strategy
+            == "rrf"
+        )
+
+    @pytest.mark.parametrize("bad", [None, "RRF", "other", 1])
+    def test_invalid_strategy_is_refused(self, bad):
+        with pytest.raises(ValueError, match="search_modules.hybrid.settings.strategy"):
+            HybridSearchSettings.from_ariel_config(make_config({"strategy": bad}))
 
     def test_config_sets_candidate_limit(self):
         settings = HybridSearchSettings.from_ariel_config(make_config({"candidate_limit": 12}))
@@ -344,6 +407,8 @@ class TestQueryKnobs:
         )
         assert client.calls[0]["rerank"] is False
         assert client.calls[0]["candidate_limit"] == 12
+        assert [call["search_types"] for call in client.calls] == [("lex", "vec")]
+        assert [call["limit"] for call in client.calls] == [10]
 
     @pytest.mark.asyncio
     async def test_default_is_reranked(self):
@@ -366,6 +431,81 @@ class TestQueryKnobs:
         )
         assert client.calls[0]["rerank"] is False
         assert client.calls[0]["candidate_limit"] == 5
+
+    @pytest.mark.asyncio
+    async def test_request_cannot_enable_a_deployment_disabled_reranker(self):
+        client = StubClient([])
+
+        await hybrid_search(
+            "beam",
+            StubRepository([]),
+            make_config({"rerank": False}),
+            client=client,
+            rerank=True,
+        )
+
+        assert [call["rerank"] for call in client.calls] == [False]
+        assert [call["search_types"] for call in client.calls] == [("lex", "vec")]
+
+    @pytest.mark.asyncio
+    async def test_rrf_never_calls_the_qmd_reranker(self, search_calls):
+        client = StubClient([])
+        await hybrid_search(
+            "beam",
+            SemanticRepository([], []),
+            make_semantic_config({"strategy": "rrf"}),
+            StubEmbedder(),
+            client=client,
+            rerank=True,
+            search_calls=search_calls,
+        )
+        assert [call["rerank"] for call in client.calls] == [False]
+        assert [call["search_types"] for call in client.calls] == [("lex",)]
+
+    @pytest.mark.asyncio
+    async def test_qmd_strategy_never_resolves_the_embedder(self, monkeypatch):
+        """A broken semantic provider cannot reach the default qmd strategy."""
+        from osprey.services.ariel_search.search import semantic
+
+        def broken(_config: ARIELConfig) -> Any:
+            raise AssertionError("qmd strategy resolved the semantic provider")
+
+        monkeypatch.setattr(semantic, "semantic_provider_class", broken)
+        client = StubClient([make_hit("1")])
+
+        results = await hybrid_search(
+            "beam",
+            SemanticRepository([make_entry("1")], []),
+            make_semantic_config(),
+            client=client,
+        )
+
+        assert [entry["entry_id"] for entry, _, _ in results] == ["1"]
+
+    @pytest.mark.asyncio
+    async def test_rrf_resolves_the_configured_embedder_when_none_is_passed(
+        self, monkeypatch, search_calls
+    ):
+        from osprey.services.ariel_search.search import semantic
+
+        resolved: list[ARIELConfig] = []
+
+        def provider_class(config: ARIELConfig) -> Any:
+            resolved.append(config)
+            return StubEmbedder
+
+        monkeypatch.setattr(semantic, "semantic_provider_class", provider_class)
+        config = make_semantic_config({"strategy": "rrf"})
+
+        await hybrid_search(
+            "beam",
+            SemanticRepository([], []),
+            config,
+            client=StubClient([]),
+            search_calls=search_calls,
+        )
+
+        assert resolved == [config]
 
     @pytest.mark.asyncio
     async def test_query_is_scoped_to_the_ariel_collection(self):
@@ -946,6 +1086,82 @@ class RerankFaultClient(StubClient):
         return super().query(collection, text, **kwargs)
 
 
+class TestReciprocalRankFusion:
+    """The fast path combines qmd BM25 and ARIEL/Nomic ranks, not raw scores."""
+
+    @staticmethod
+    def hit(entry_id: str, *, score: float = 1.0, snippet: str = "") -> _RankedTextHit:
+        return _RankedTextHit(entry_id, score, snippet)
+
+    def test_agreement_between_lanes_beats_a_single_lane_first_place(self):
+        lexical = [self.hit("both", score=0.01), self.hit("lexical", score=0.99)]
+        semantic = [
+            self.hit("semantic", score=999.0),
+            self.hit("both", score=-10.0),
+        ]
+
+        fused = _rrf_hits(lexical, semantic)
+
+        assert [hit.entry_id for hit in fused] == ["both", "semantic", "lexical"]
+        assert fused[0].score == 1.0
+        expected_second = (1 / (RRF_K + 1)) / (1 / (RRF_K + 1) + 1 / (RRF_K + 2))
+        assert fused[1].score == pytest.approx(expected_second)
+
+    def test_lexical_hit_supplies_the_snippet_for_a_shared_document(self):
+        lexical = [self.hit("both", snippet="lexical words", score=0.001)]
+        semantic = [self.hit("both", snippet="semantic passage", score=1000.0)]
+
+        (hit,) = _rrf_hits(lexical, semantic)
+
+        assert hit.snippet == "lexical words"
+        assert hit.score == 1.0
+
+    def test_equal_single_lane_scores_use_lexical_then_semantic_order(self):
+        fused = _rrf_hits([self.hit("lexical")], [self.hit("semantic")])
+
+        assert [hit.entry_id for hit in fused] == ["lexical", "semantic"]
+
+    def test_a_duplicate_within_one_lane_contributes_only_once(self):
+        duplicate = self.hit("duplicate")
+
+        fused = _rrf_hits([duplicate, duplicate], [self.hit("other")])
+
+        assert [hit.entry_id for hit in fused] == ["duplicate", "other"]
+        assert fused[0].score == fused[1].score == 1.0
+
+    def test_k_must_be_positive(self):
+        with pytest.raises(ValueError, match="RRF k"):
+            _rrf_hits([], [], k=0)
+
+    @pytest.mark.asyncio
+    async def test_fast_hybrid_fuses_qmd_bm25_with_ariel_nomic(self, search_calls):
+        entries = [make_entry(entry_id) for entry_id in ("both", "lexical", "semantic")]
+        by_id = {entry["entry_id"]: entry for entry in entries}
+        repository = SemanticRepository(
+            entries,
+            [(by_id["semantic"], 0.99), (by_id["both"], 0.51)],
+        )
+        client = StubClient([make_hit("both"), make_hit("lexical")])
+
+        results = await hybrid_search(
+            "beam problem",
+            repository,
+            make_semantic_config({"strategy": "rrf", "candidate_limit": 40}),
+            StubEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert [entry["entry_id"] for entry, _score, _snippet in results] == [
+            "both",
+            "semantic",
+            "lexical",
+        ]
+        assert [call["search_types"] for call in client.calls] == [("lex",)]
+        assert repository.semantic_calls[0]["model_name"] == "nomic-embed-text"
+        assert repository.semantic_calls[0]["similarity_threshold"] == 0.0
+
+
 class TestRerankFallback:
     """A reranked-query failure degrades the ranking; it never breaks search."""
 
@@ -958,6 +1174,10 @@ class TestRerankFallback:
 
         assert isinstance(result, ModuleOutput)
         assert [call["rerank"] for call in client.calls] == [True, False]
+        assert [call["search_types"] for call in client.calls] == [
+            ("lex", "vec"),
+            ("lex", "vec"),
+        ]
         ((entry, _, _),) = result.entries
         assert entry["entry_id"] == "1"
 
@@ -975,10 +1195,13 @@ class TestRerankFallback:
             candidate_limit=11,
         )
 
-        first, retry = client.calls
-        assert {key: value for key, value in first.items() if key != "rerank"} == {
-            key: value for key, value in retry.items() if key != "rerank"
-        }
+        first, fallback = client.calls
+        shared = {"collection", "text", "candidate_limit"}
+        assert {key: first[key] for key in shared} == {key: fallback[key] for key in shared}
+        assert first["limit"] == 7
+        assert fallback["limit"] == 7
+        assert first["search_types"] == ("lex", "vec")
+        assert fallback["search_types"] == ("lex", "vec")
 
     @pytest.mark.asyncio
     async def test_the_degraded_ranking_is_reported_as_a_warning(self):
@@ -1948,6 +2171,23 @@ class TestPictureLaneOff:
 
         assert lane.calls == []
         assert image_lane._breaker_until is None
+
+    async def test_hybrid_search_with_the_rrf_strategy_and_no_search_calls_refuses_before_the_lane(
+        self,
+    ):
+        client = StubClient([make_hit("a")])
+
+        with pytest.raises(TypeError, match="search_calls"):
+            await hybrid_search(
+                "q",
+                SemanticRepository([make_entry("a")], []),
+                make_semantic_config({"strategy": "rrf"}),
+                StubEmbedder(),
+                client=client,
+                include_images=False,
+            )
+
+        assert client.calls == []
 
     async def test_lane_off_keeps_the_early_stop_at_max_results(self):
         hits = [make_hit(e) for e in ["a", "b", "c"]]

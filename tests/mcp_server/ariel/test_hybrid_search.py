@@ -740,7 +740,8 @@ def test_docstring_gives_the_rerank_speed_tradeoff():
     flat = " ".join(doc.split())
 
     assert "rerank" in flat
-    assert "judge relevance yourself when speed matters" in flat
+    assert "deployment configured with rerank=false" in flat
+    assert "cannot be overridden" in flat
 
 
 # --- include_images ---------------------------------------------------------
