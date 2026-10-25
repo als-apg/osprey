@@ -606,3 +606,35 @@ def test_a_wire_with_no_block_stops():
 def test_every_transport_the_seam_returns_has_a_block(cs_type):
     """A transport the connector seam gains without a block here fails this."""
     _render_template_directly(cs_type, set())
+
+
+def _render_switch_section() -> str:
+    """The switch-aware rule, whitespace-normalised (the prose is hard-wrapped)."""
+    template = TemplateManager().jinja_env.get_template(
+        "claude_code/claude/rules/control-system-safety.md.j2"
+    )
+    raw = template.render(
+        control_system_transport="ca",
+        enabled_servers={"controls"},
+        target_switch_enabled=True,
+    )
+    return " ".join(raw.split())
+
+
+def test_the_stand_in_is_described_in_the_owner_facing_machine_words():
+    """The rule says what the chip and the approval card say: the rehearsal's
+    "nothing moves" holds only while the stand-in is actually stood up, and a
+    ``standin`` that is not reads as the real machine."""
+    content = _render_switch_section()
+
+    assert "**Rehearsal — nothing moves** only while this deployment has actually stood" in content
+    assert "shows as **Real machine — writes move hardware**" in content
+
+
+def test_the_stand_in_is_no_longer_called_a_live_machine():
+    """The retired label words: a rule naming them sends the agent looking for
+    a label no surface prints any more."""
+    content = _render_switch_section()
+
+    assert "LIVE MACHINE" not in content
+    assert "(stand-in)" not in content
