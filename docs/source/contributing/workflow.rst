@@ -143,11 +143,13 @@ escape hatch.
 Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eight CI lanes drive real agent sessions against a live model endpoint: the
-agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
-and control-target-switch agentic lanes, and the two chat bridges. Together they
-cost about $15 per run — and they used to run on every push of every pull
-request, which at this repository's pace was the group's whole model bill.
+The CI lanes named in ``SPENDING_LANES`` (``tests/deployment/test_ci_workflow_wiring.py``,
+which holds the set against the workflow) drive real agent sessions against a
+live model endpoint. Together they cost about $15 per run (measured on the
+gateway ledger, week of 2026-09-01: ~150 runs a week, ~$2,300, on pace for $10k
+a month, 95% of the group's model spend) — and they used to run on every push of
+every pull request, which at this repository's pace was the group's whole model
+bill.
 
 They now run on exactly two events:
 
@@ -188,6 +190,12 @@ merged in the two weeks before this landed, 86–91 % touched something under
 ``src/`` that the broad lanes cover, so a filter map would have saved about a
 fifth and needed maintaining. The label is the whole mechanism; the stop-loss
 behind it is a daily budget on the CI gateway key.
+
+Every PR and ``main`` push keeps one live run per ref: a new push cancels the
+run for the previous head. Before that grouping, superseded runs kept running
+and queued ahead of the live one on a saturated concurrent-job allowance:
+measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
+CI wall-clock.
 
 Dependency Update Pull Requests
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
