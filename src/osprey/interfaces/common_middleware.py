@@ -110,15 +110,22 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     """Control browser caching for static assets and API responses.
 
     Vendor assets (versioned filenames like plotly-3.3.1.min.js) are cached
-    aggressively — they never change without a filename bump.  All other
+    aggressively — they never change without a filename bump. That holds for
+    any ``/vendor/`` path segment, whether an interface's ``/static/`` tree or a
+    service panel's own ``vendor/`` beside its page, but never under an API
+    path, and only for a 200: an error or redirect on a vendor path is
+    uncached, so it cannot outlive the deploy that produced it. All other
     static/API paths are uncached to avoid stale code after updates.
     """
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if "/vendor/" in path and path.startswith("/static/"):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        if "/vendor/" in path and "/api/" not in path:
+            if response.status_code == 200:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         elif path.startswith("/static/") or path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response

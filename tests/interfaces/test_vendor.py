@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import re
 import ssl
@@ -393,3 +394,138 @@ def test_html_has_plotly_bundle(html: bytes, expected: bool) -> None:
 )
 def test_html_needs_plotly(html: bytes, expected: bool) -> None:
     assert html_needs_plotly(html) is expected
+
+
+# --- Package-relative targets and the target filter ---------------------------
+
+#: A package-based target, relative to the ``osprey`` package: a panel that
+#: loads Plotly from ``vendor/`` beside its own page. The shipped manifest names
+#: none, so :func:`package_manifest` adds it to Plotly's targets.
+PACKAGE_TARGET = "services/example/panel/vendor/"
+
+
+@pytest.fixture
+def package_manifest(monkeypatch) -> None:
+    """The shipped manifest with :data:`PACKAGE_TARGET` added to Plotly's targets."""
+    manifest = copy.deepcopy(_load_manifest())
+    plotly = next(a for a in manifest["assets"] if a["name"] == "Plotly.js")
+    plotly["targets"].append({"dir": PACKAGE_TARGET, "base": "package"})
+    monkeypatch.setattr(vendor_mod, "_load_manifest", lambda: manifest)
+
+
+def _recording_fetch(calls: list[Path]):
+    def fake(_url, dest, _sha, insecure=False):  # noqa: ARG001
+        calls.append(dest)
+
+    return fake
+
+
+@pytest.mark.usefixtures("package_manifest")
+class TestPackageRelativeTarget:
+    def test_a_package_target_lands_under_package_dir(self, tmp_path) -> None:
+        package = tmp_path / "p"
+        interfaces = tmp_path / "i"
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(
+                base_dir=interfaces, package_dir=package, quiet=True, targets=[PACKAGE_TARGET]
+            )
+        assert calls == [package / PACKAGE_TARGET / "plotly-3.3.1.min.js"]
+
+    def test_the_default_package_dir_is_the_installed_osprey_package(self) -> None:
+        import osprey
+
+        assert vendor_mod.PACKAGE_DIR == Path(osprey.__file__).parent
+
+    def test_verify_all_reports_the_package_target(self, tmp_path) -> None:
+        ok, problems = vendor_mod.verify_all(base_dir=tmp_path / "i", package_dir=tmp_path / "p")
+        assert not ok
+        assert f"MISSING: {Path(PACKAGE_TARGET) / 'plotly-3.3.1.min.js'}" in problems
+
+
+@pytest.mark.usefixtures("package_manifest")
+class TestTargetFilter:
+    def test_the_filter_fetches_only_the_named_target(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            downloaded = vendor_mod.fetch_all(
+                base_dir=tmp_path / "i",
+                package_dir=tmp_path / "p",
+                quiet=True,
+                targets=["services/example/panel/vendor"],
+            )
+        assert calls == [tmp_path / "p" / PACKAGE_TARGET / "plotly-3.3.1.min.js"]
+        assert downloaded == [str(calls[0])]
+
+    def test_an_interfaces_target_still_resolves_against_base_dir(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(
+                base_dir=tmp_path / "i",
+                package_dir=tmp_path / "p",
+                quiet=True,
+                targets=["tuning/static/vendor/"],
+            )
+        assert calls == [tmp_path / "i" / "tuning/static/vendor/plotly-3.3.1.min.js"]
+
+    def test_a_font_bundle_target_is_filtered_like_an_asset_target(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(
+                base_dir=tmp_path / "i",
+                package_dir=tmp_path / "p",
+                quiet=True,
+                targets=["artifacts/static/css/vendor/fonts/"],
+            )
+        assert calls and all(
+            p.parent == tmp_path / "i/artifacts/static/css/vendor/fonts" for p in calls
+        )
+
+    def test_no_filter_fetches_every_target(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            vendor_mod.fetch_all(base_dir=tmp_path / "i", package_dir=tmp_path / "p", quiet=True)
+        assert tmp_path / "p" / PACKAGE_TARGET / "plotly-3.3.1.min.js" in calls
+        assert tmp_path / "i" / "tuning/static/vendor/plotly-3.3.1.min.js" in calls
+
+    def test_an_unknown_target_fails_before_fetching_anything(self, tmp_path) -> None:
+        calls: list[Path] = []
+        with patch.object(vendor_mod, "_fetch_one", _recording_fetch(calls)):
+            with pytest.raises(ValueError, match="services/example/panel/vendor"):
+                vendor_mod.fetch_all(
+                    base_dir=tmp_path / "i",
+                    package_dir=tmp_path / "p",
+                    quiet=True,
+                    targets=[PACKAGE_TARGET, "services/example/panel/vendr/"],
+                )
+        assert calls == []
+
+
+class TestFetchCommand:
+    def test_the_target_option_reaches_fetch_all(self) -> None:
+        from click.testing import CliRunner
+
+        from osprey.cli.vendor_cmd import vendor
+
+        with patch.object(vendor_mod, "fetch_all", return_value=[]) as fetch_all:
+            result = CliRunner().invoke(vendor, ["fetch", "--quiet", "--target", PACKAGE_TARGET])
+        assert result.exit_code == 0, result.output
+        assert fetch_all.call_args.kwargs["targets"] == (PACKAGE_TARGET,)
+
+    def test_no_target_option_fetches_everything(self) -> None:
+        from click.testing import CliRunner
+
+        from osprey.cli.vendor_cmd import vendor
+
+        with patch.object(vendor_mod, "fetch_all", return_value=[]) as fetch_all:
+            result = CliRunner().invoke(vendor, ["fetch", "--quiet"])
+        assert result.exit_code == 0, result.output
+        assert fetch_all.call_args.kwargs["targets"] is None
+
+    def test_an_unknown_target_exits_nonzero(self) -> None:
+        from click.testing import CliRunner
+
+        from osprey.cli.vendor_cmd import vendor
+
+        result = CliRunner().invoke(vendor, ["fetch", "--quiet", "--target", "no/such/dir/"])
+        assert result.exit_code == 1
