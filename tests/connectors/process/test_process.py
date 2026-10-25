@@ -164,7 +164,12 @@ async def test_a_child_that_ignores_sigterm_is_killed():
 
 @posix_only
 async def test_terminate_returns_the_reaped_code():
-    exited = await asyncio.create_subprocess_exec(sys.executable, "-c", "import os; os._exit(3)")
+    """The child's stream ends only when the child does, so it has exited before
+    it is put down, however long it took to start."""
+    exited = await asyncio.create_subprocess_exec(
+        sys.executable, "-c", "import os; os._exit(3)", stdout=asyncio.subprocess.PIPE
+    )
+    assert await exited.stdout.read() == b""
     assert await terminate(exited, 0.5) == 3
 
     sleeping = await asyncio.create_subprocess_exec(
