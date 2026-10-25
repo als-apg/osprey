@@ -58,6 +58,7 @@ PROMOTED_PRIMITIVE_GROUPS: tuple[str, ...] = (
     "radius",
     "z",
     "duration",
+    "control",
 )
 
 

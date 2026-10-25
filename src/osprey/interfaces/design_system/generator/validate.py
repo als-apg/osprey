@@ -23,7 +23,7 @@ system's actual contract is enforced:
 - **Promoted-primitive collisions** — no theme or interface extension
   token's emitted CSS name may collide with a promoted primitive scale
   (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
-  leading, space, radius, z, duration), which is theme-independent and
+  leading, space, radius, z, duration, control), which is theme-independent and
   cannot be overridden.
 - **Theme metadata** — every theme document's root ``$extensions`` must
   declare ``mode`` as ``"dark"`` or ``"light"`` (plus non-empty string
@@ -974,7 +974,7 @@ def check_promoted_primitive_collisions(tree: TokenTree) -> list[TokenFinding]:
 
     ``emit_css.py`` promotes an ordered tuple of core.json primitive groups
     (``naming.py``'s ``PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
-    leading, space, radius, z, duration) directly to root-level CSS custom properties,
+    leading, space, radius, z, duration, control) directly to root-level CSS custom properties,
     emitted once in the default ``:root`` block and never per-theme. These
     scales are theme-independent by construction, so no theme's semantic
     token and no interface's extension token may emit the same CSS custom

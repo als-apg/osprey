@@ -242,6 +242,11 @@
     "base": { "$value": "200ms", "$type": "duration" },
     "slow": { "$value": "300ms", "$type": "duration" }
   },
+  "control": {
+    "$description": "Control-height scale for the shared components (components.css): the height of a button, field, segmented control or search box. `h` is the default control, `h-sm` the dense-row variant (.btn-sm, .field-input.sm, .seg.sm). The same two heights as the Canopy host contract's control-h-sm/-xs. Emitted as --control-h / --control-h-sm.",
+    "h": { "$value": "28px", "$type": "dimension" },
+    "h-sm": { "$value": "24px", "$type": "dimension" }
+  },
   "text": {
     "$description": "Type-scale PRIMITIVE (font-size steps) — distinct from the semantic color group also named 'text' in tokens/themes/*.json (bg/text/accent/...). No path collision: this lives under core.json's primitive tree and is emitted as --text-* (2xs/xs/sm/base/...); the semantic 'text.*' color group lives in the theme files and is emitted under different names (--text-primary etc, only primary/secondary/muted steps). Flagged here for the generator/validator author since the shared name is easy to misread. Steps grounded in observed font-size frequency across web-terminal CSS (10px/11px/9px/12px most common); the 7px and 15px singleton outliers are not represented.",
     "2xs": { "$value": "8px", "$type": "dimension" },

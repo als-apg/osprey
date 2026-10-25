@@ -11,6 +11,9 @@
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
+<!-- The shared components (buttons, field rows, chips, step list, ...):
+     DESIGN.md §9. Link it after base.css. -->
+<link rel="stylesheet" href="/design-system/css/components.css">
 <!-- Self-hosted brand fonts (Outfit / JetBrains Mono). Root-absolute so it
      resolves against the serving host in every embedding context; without it
      the canonical copy-source panel — and everything copied from it — falls
@@ -45,9 +48,12 @@
     color: var(--text-primary);
     line-height: 1.6;
   }
+  /* base.css pins the page to the viewport for app shells; this page is a
+     long specimen sheet, so it grows and scrolls. */
+  html, body { height: auto; overflow: auto; }
 
   .panel {
-    max-width: 720px;
+    max-width: 960px;
     margin: 0 auto;
   }
 
@@ -87,25 +93,28 @@
     margin: 0 0 24px;
   }
 
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    border-radius: 8px;
-    padding: 16px 18px;
-    margin-bottom: 16px;
-    box-shadow: var(--shadow-panel);
-  }
-  .card h2 {
-    margin: 0 0 8px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .card p {
+  /* Specimen layout only: the components themselves come from
+     components.css. */
+  .panel > .card,
+  .panel > .stack,
+  .panel > .edge-demo { margin-bottom: 16px; }
+  .card-body > p {
     margin: 0;
     font-size: 13px;
     color: var(--text-secondary);
   }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .row + .row { margin-top: 10px; }
+  .stack { display: flex; flex-direction: column; gap: 12px; }
+  .browser-demo { height: 520px; }
+  .browser-demo .sidebar { flex-basis: 300px; max-width: 300px; }
+  .edge-demo { display: flex; height: 220px; }
+  .edge-demo .card { flex: 1 1 auto; }
 
   .metric {
     display: flex;
@@ -200,23 +209,283 @@
   </p>
 
   <section class="card">
-    <h2>Beam status</h2>
-    <p>Representative content on an elevated surface with a tokened border.</p>
-    <div class="metric">
-      <span class="value">1.902</span>
-      <span class="unit">GeV</span>
+    <header class="card-head"><span class="card-title">Beam status</span>
+      <span class="card-sub">an elevated card with a head and a body</span></header>
+    <div class="card-body">
+      <p>Representative content on an elevated surface with a tokened border.</p>
+      <div class="metric">
+        <span class="value">1.902</span>
+        <span class="unit">GeV</span>
+      </div>
     </div>
   </section>
 
   <section class="card">
-    <h2>Signal states</h2>
-    <p>Semantic status colors, each drawn from success / accent-secondary / error / accent tokens.</p>
-    <div class="badges">
-      <span class="badge ok">nominal</span>
-      <span class="badge warn">degraded</span>
-      <span class="badge err">fault</span>
-      <span class="badge info">standby</span>
+    <header class="card-head"><span class="card-title">Signal states</span></header>
+    <div class="card-body">
+      <p>Semantic status colors, each drawn from success / accent-secondary / error / accent tokens.</p>
+      <div class="badges">
+        <span class="badge ok">nominal</span>
+        <span class="badge warn">degraded</span>
+        <span class="badge err">fault</span>
+        <span class="badge info">standby</span>
+      </div>
     </div>
+  </section>
+
+  <section class="card" id="buttons">
+    <header class="card-head"><span class="card-title">Buttons</span>
+      <span class="card-sub">one primary per region</span></header>
+    <div class="card-body">
+      <div class="row">
+        <button class="btn" type="button">Run selected <span class="kbd">3 steps</span></button>
+        <button class="btn btn-quiet" type="button">Revert</button>
+        <button class="btn btn-ghost" type="button">Select all</button>
+        <button class="btn btn-danger" type="button">Stop</button>
+        <button class="btn" type="button" disabled>Apply</button>
+      </div>
+      <div class="row">
+        <button class="btn btn-sm" type="button">Apply</button>
+        <button class="btn btn-quiet btn-sm" type="button">Run</button>
+        <button class="btn btn-ghost btn-sm" type="button">Flush</button>
+        <button class="btn btn-ghost btn-sm btn-icon" type="button" aria-label="Previous"><span class="chev left"></span></button>
+        <button class="btn btn-ghost btn-sm btn-icon" type="button" aria-label="Next"><span class="chev"></span></button>
+      </div>
+      <div class="row"><button class="btn btn-block" type="button">Start continuous</button></div>
+    </div>
+  </section>
+
+  <section class="card" id="fields">
+    <div class="section-label">Shot<span class="aside">field rows</span></div>
+    <div class="card-body">
+      <div class="form-grid" style="--cols: 2">
+        <div class="param-row">
+          <div class="field-label"><span class="field-name">Readout</span></div>
+          <select class="field-input"><option>Turn by turn</option><option>Single pass</option></select>
+        </div>
+        <div class="param-row">
+          <div class="field-label"><span class="field-name">Shots</span><span class="field-unit">n</span><span class="field-required">*</span></div>
+          <input class="field-input" type="number" value="1">
+        </div>
+        <div class="param-row">
+          <div class="field-label"><span class="field-name">Turns</span></div>
+          <input class="field-input" type="number" value="1" disabled>
+          <p class="field-help">Fixed by the readout.</p>
+        </div>
+        <div class="param-row">
+          <div class="field-label"><span class="field-name">Gain</span><span class="field-unit">dB</span></div>
+          <input class="field-input is-pending" type="number" value="12">
+        </div>
+        <div class="param-row span-all">
+          <label class="switch"><input class="switch-input" type="checkbox" checked>
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+            <span class="switch-text">Record each shot</span></label>
+        </div>
+        <div class="param-row span-all">
+          <span class="field-inline"><span class="field-name">From</span><input class="field-input sm" type="number" value="0"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="segmented-control">
+    <header class="card-head"><span class="card-title">Segmented control</span></header>
+    <div class="card-body">
+      <div class="row">
+        <div class="seg" role="group" aria-label="Run as" data-demo-seg>
+          <button type="button" data-value="manual" aria-pressed="true">Manual</button>
+          <button type="button" data-value="continuous" aria-pressed="false">Continuous</button>
+        </div>
+        <div class="seg sm" role="group" aria-label="Sum" data-demo-seg>
+          <button type="button" data-value="raw" aria-pressed="true">Raw counts</button>
+          <button type="button" data-value="calibrated" aria-pressed="false">Calibrated</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="seg block" role="group" aria-label="Family" data-demo-seg>
+          <button type="button" data-value="a" aria-pressed="true">Monitors<span class="seg-count">7/8</span></button>
+          <button type="button" data-value="b" aria-pressed="false">Correctors<span class="seg-count">16/16</span></button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="status-chips">
+    <header class="card-head"><span class="card-title">Status chips</span></header>
+    <div class="card-body">
+      <div class="row">
+        <span class="chip" data-state="done" title="done">done</span>
+        <span class="chip" data-state="running" title="running">running</span>
+        <span class="chip" data-state="pending" title="pending">pending</span>
+        <span class="chip" data-state="stale" title="stale">stale</span>
+        <span class="chip" data-state="failed" title="failed">failed</span>
+        <span class="chip" data-state="skipped" title="skipped">skipped</span>
+        <span class="chip no-dot">neutral</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="tabs">
+    <header class="card-head">
+      <div class="tabs" role="tablist" aria-label="Views">
+        <button class="tab" role="tab" type="button" aria-selected="true">Threading</button>
+        <button class="tab" role="tab" type="button" aria-selected="false">Setup<span class="tab-badge">2</span></button>
+      </div>
+    </header>
+    <div class="card-body"><p>One strip for view tabs and in-card tabs.</p></div>
+  </section>
+
+  <section class="stack" id="status-strip">
+    <div class="status-strip">
+      <span class="fact"><span class="strip-kicker">Target</span><span class="fact-value">simulation</span></span>
+      <span class="fact"><span class="strip-kicker">Stream</span><span class="fact-value"><span class="dot"></span> live</span></span>
+      <span class="fact is-run"><span class="strip-kicker">Mode</span><span class="fact-value">Continuous</span></span>
+      <span class="fact opt"><span class="strip-kicker">Writes</span><span class="fact-value">allowed</span></span>
+      <span class="spacer"></span>
+      <button class="btn btn-danger btn-sm" type="button">Stop</button>
+    </div>
+    <div class="banner banner-info" id="banner">
+      <span class="banner-text"><b>Notice.</b> A dismissible information banner.</span>
+      <button class="btn btn-ghost btn-sm btn-icon" type="button" aria-label="Dismiss">&times;</button>
+    </div>
+    <div class="banner banner-ok"><span class="banner-text">Applied.</span></div>
+    <div class="banner banner-warn"><span class="banner-text">Two settings are pending.</span></div>
+    <div class="banner banner-err"><span class="banner-text">The write was refused.</span></div>
+  </section>
+
+  <section class="card" id="disclosure">
+    <header class="card-head"><span class="card-title">Disclosure</span></header>
+    <div class="card-body">
+      <details class="folder" open>
+        <summary class="folder-summary">Recent<span class="aside">3</span></summary>
+        <p>Native details: the marker is hidden and a chevron drawn.</p>
+      </details>
+      <div class="row">
+        <button class="disclosure-btn" type="button" aria-expanded="false" aria-controls="demo-more">More</button>
+      </div>
+      <p id="demo-more" hidden>Opened by a disclosure button.</p>
+    </div>
+  </section>
+
+  <section class="card" id="step-list">
+    <div class="section-label">Steps<span class="aside">step list</span></div>
+    <div class="step-list">
+      <div class="step" id="step-1">
+        <div class="step-row">
+          <span class="step-index">1</span>
+          <label class="switch" title="Include in the run"><input class="switch-input" type="checkbox" checked>
+            <span class="switch-track"><span class="switch-thumb"></span></span></label>
+          <span class="step-name"><span class="name">Prepare</span><span class="meta">once per run</span></span>
+          <span class="chip" data-state="done" title="done">done</span>
+          <button class="btn btn-quiet btn-sm" type="button">Run</button>
+          <button class="disclosure-btn btn-icon" type="button" aria-expanded="false" aria-controls="step-1-opts" aria-label="Prepare options"></button>
+        </div>
+        <div class="step-options" id="step-1-opts" hidden>
+          <p class="field-help lead">What the step does, in one sentence.</p>
+          <div class="form-grid">
+            <div class="param-row"><div class="field-label"><span class="field-name">Delay</span><span class="field-unit">ms</span></div><input class="field-input" type="number" value="0"></div>
+          </div>
+        </div>
+      </div>
+      <div class="step is-off" id="step-2">
+        <div class="step-row">
+          <span class="step-index">2</span>
+          <label class="switch" title="Include in the run"><input class="switch-input" type="checkbox">
+            <span class="switch-track"><span class="switch-thumb"></span></span></label>
+          <span class="step-name"><span class="name">Measure</span><span class="meta">left out</span></span>
+          <span class="chip" data-state="skipped" title="skipped">skipped</span>
+          <button class="btn btn-quiet btn-sm" type="button">Run</button>
+          <button class="disclosure-btn btn-icon" type="button" aria-expanded="false" aria-controls="step-2-opts" aria-label="Measure options"></button>
+        </div>
+        <div class="step-options" id="step-2-opts" hidden><p class="field-help lead">Left out of the run.</p></div>
+      </div>
+    </div>
+    <div class="section-label">Pipeline<span class="aside">.step-list.no-switch</span></div>
+    <div class="step-list no-switch">
+      <div class="step"><div class="step-row">
+        <span class="step-index">1</span>
+        <span class="step-name"><span class="name">Calculate</span><span class="meta">inputs changed</span></span>
+        <span class="chip" data-state="stale" title="stale">stale</span>
+        <button class="btn btn-quiet btn-sm" type="button">Calculate</button>
+        <span></span>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="card" id="browser">
+    <header class="card-head"><span class="card-title">Browser</span>
+      <span class="card-sub">sidebar · splitter · detail, with the machine map</span></header>
+    <div class="card-body">
+      <div class="browser browser-demo">
+        <aside class="sidebar" id="demo-sidebar">
+          <div class="sidebar-head">
+            <div class="seg block" role="group" aria-label="Family" data-demo-seg>
+              <button type="button" data-value="a" aria-pressed="true">Monitors<span class="seg-count">7/8</span></button>
+              <button type="button" data-value="b" aria-pressed="false">Correctors</button>
+            </div>
+            <input class="search" type="search" placeholder="Filter" aria-label="Filter">
+          </div>
+          <div class="tree" id="machine-map">
+            <osprey-machine-map id="demo-map" style="--sector-w: 64px"></osprey-machine-map>
+          </div>
+          <div class="sidebar-foot">
+            <button class="btn btn-ghost btn-sm" type="button">Select all</button>
+            <button class="btn btn-ghost btn-sm" type="button">Select none</button>
+            <span class="count">7 / 8</span>
+          </div>
+        </aside>
+        <div class="osprey-splitter" id="demo-splitter" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+        <section class="detail">
+          <header class="detail-head">
+            <span class="detail-title" id="demo-sector">Sector 1</span>
+            <span class="detail-desc">devices at their position</span>
+          </header>
+          <div class="detail-body">
+            <div class="detail-section" id="device-rows">
+              <span class="strip-kicker">Devices</span>
+              <div class="dev-table">
+                <div class="dev-row head"><span></span><span>Device</span><span>s</span><span>State</span></div>
+                <div class="dev-row">
+                  <label class="switch"><input class="switch-input" type="checkbox" checked><span class="switch-track"><span class="switch-thumb"></span></span></label>
+                  <span class="dev-name">Monitor 1</span><span class="dev-pos">3.0</span>
+                  <span class="chip" data-state="done" title="in use">in use</span>
+                </div>
+                <div class="dev-row is-out is-pending">
+                  <label class="switch"><input class="switch-input" type="checkbox"><span class="switch-track"><span class="switch-thumb"></span></span></label>
+                  <span class="dev-name">Monitor 2</span><span class="dev-pos">11.0</span>
+                  <span class="chip" data-state="pending" title="pending">pending</span>
+                </div>
+              </div>
+            </div>
+            <div class="detail-section">
+              <span class="strip-kicker">All monitors</span>
+              <div class="form-grid">
+                <div class="param-row"><div class="field-label"><span class="field-name">Attenuation</span><span class="field-unit">dB</span></div><input class="field-input" type="number" value="10"></div>
+                <div class="param-row"><div class="field-label"><span class="field-name">Mode</span></div><select class="field-input"><option>Turn by turn</option></select></div>
+              </div>
+            </div>
+          </div>
+          <footer class="detail-foot">
+            <span class="pending-line">1 pending</span>
+            <span class="spacer"></span>
+            <button class="btn btn-quiet" type="button">Revert</button>
+            <button class="btn" type="button">Apply</button>
+          </footer>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="edge-demo" id="edge-tab">
+    <section class="card">
+      <header class="card-head"><span class="card-title">Edge tab</span></header>
+      <div class="card-body"><p>The collapsed handle that opens an &lt;osprey-drawer&gt; through its data-drawer trigger.</p></div>
+    </section>
+    <button class="edge-tab" type="button" data-drawer="demo-drawer" aria-expanded="false">
+      <span class="edge-dot" title="pending"></span>
+      <span class="chev left"></span>
+      <span class="edge-label">Device control</span>
+    </button>
   </section>
 
   <p class="footnote">
@@ -224,5 +493,54 @@
     token-only — see the OSPREY design-system panel authoring guide.
   </p>
 </div>
+<script type="module">
+  // Behaviour for the specimens above: the segmented controls, the
+  // disclosures, the browser splitter and the machine map.
+  import { initSplitter } from '/design-system/js/splitter.js';
+  import { wireDisclosures } from '/design-system/js/components/disclosure.js';
+  import { wireSegmented } from '/design-system/js/components/segmented.js';
+  import '/design-system/js/components/osprey-machine-map.js';
+
+  document.querySelectorAll('[data-demo-seg]').forEach((seg) => wireSegmented(seg, () => {}));
+  wireDisclosures(document.body);
+  initSplitter({
+    handle: document.getElementById('demo-splitter'),
+    pane: document.getElementById('demo-sidebar'),
+    min: 240,
+    max: 420,
+  });
+
+  const regions = [1, 2, 3, 4].map((n) => ({
+    id: n, label: `Sector ${n}`, mapLabel: String(n), start: (n - 1) * 30, end: n * 30,
+  }));
+  const devices = [];
+  for (let n = 1; n <= 8; n++) {
+    devices.push({
+      id: `m${n}`, label: `Monitor ${n}`, position: n * 15 - 12,
+      region: Math.ceil(n / 2), state: n === 2 ? 'out' : 'in', pending: n === 2,
+    });
+  }
+  const map = document.getElementById('demo-map');
+  const render = (focus) => {
+    const used = devices.filter((d) => d.state === 'in').length;
+    map.model = {
+      label: 'Monitors', length: 120, regions, devices, focus,
+      marker: { position: 1, label: 'IN' },
+      center: { value: `${used} / ${devices.length}`, caption: 'in use' },
+      key: true,
+    };
+  };
+  map.addEventListener('machine-map:toggle', (event) => {
+    const device = devices.find((d) => d.id === event.detail.device);
+    if (!device) return;
+    device.state = device.state === 'in' ? 'out' : 'in';
+    device.pending = !device.pending;
+    render(map.model.focus);
+  });
+  map.addEventListener('machine-map:focus', (event) => {
+    document.getElementById('demo-sector').textContent = `Sector ${event.detail.region}`;
+  });
+  render(1);
+</script>
 </body>
 </html>
