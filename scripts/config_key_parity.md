@@ -1,11 +1,11 @@
 # Config key parity classification
 
 Input to the resurrection-guard manifest. Every dotted key the config-honesty
-ledger touched is classified as **all-presets** (must appear in both shipped
-root presets' resolved `config:`) or **per-preset** (deliberately present in
+ledger touched is classified as **all-presets** (must appear in every shipped
+root preset's resolved `config:`) or **per-preset** (deliberately present in
 some and absent from others, with the reason). Value equality is a third,
 separate classification, carried by the manifest's `same-value` mark and
-described below. Parity is a claim about the two root presets only; the bundled
+described below. Parity is a claim about the root presets only; the bundled
 apps are union sources, never parity subjects.
 
 ## The sources
@@ -21,7 +21,7 @@ of the split.
 | `src/osprey/profiles/presets/*.yml` (`render_contexts.presets`) | the preset's stem | everything else, as dotted `config:` keys with a comment on the line that sets each one |
 | `src/osprey/profiles/presets/apps/*.yml` (`render_contexts.apps`) | the app's stem | each app's `config:` composed over `render_contexts.host` through the resolver's app branch: the host's facts, the app's keys over them, every write switch pinned off |
 
-The two root presets, which are what `osprey init --preset <name>` copies out as
+The root presets, which are what `osprey init --preset <name>` copies out as
 the operator's own `profile.yml`:
 
 | id | path |
@@ -60,7 +60,7 @@ and — for MCP/approval claims — feeding the resulting `claude_code` section 
 ## Scope caveat — read before deriving guard rules
 
 This document covers the keys the **config-honesty ledger touched**. It is *not*
-an exhaustive enumeration of every key in the two presets, and the
+an exhaustive enumeration of every key in the presets, and the
 "all-presets" table is *not* automatically the complete set of keys that happen
 to appear in both.
 
@@ -86,9 +86,9 @@ Three rules follow for anything consuming this list:
 
 ## All-presets (parity-required)
 
-Present in both presets' resolved `config:`. A guard fires if one goes
+Present in every root preset's resolved `config:`. A guard fires if one goes
 missing. A row reading "`X` everywhere" carries `same-value: true` beside
-`all-templates: true` in the manifest, and the guard compares the two presets'
+`all-templates: true` in the manifest, and the guard compares the presets'
 stated values for it. A row reading "diverges" carries `all-templates` only. The
 value column is prose for the reader, because the presets are the one place a
 value is written, and
@@ -101,7 +101,7 @@ holds this table and the marks to one set of keys.
 | `system.timezone` | `UTC` everywhere | pinned for reproducibility |
 | `approval.enabled` | `true` everywhere | |
 | `approval.default_policy` | `always` everywhere | fail-closed for hook-wired tools not listed |
-| `claude_code.telemetry.enabled` | diverges | `true` in both shipped presets, which each deploy a telemetry store; a deployment that runs none states `false`, since telemetry would have nowhere local to land. Presence is required because it is a posture-floor key |
+| `claude_code.telemetry.enabled` | diverges | `true` in every shipped preset, each of which deploys a telemetry store; a deployment that runs none states `false`, since telemetry would have nowhere local to land. Presence is required because it is a posture-floor key |
 | `hooks.debug` | diverges | `false` in `hello-world`, `true` in `control-assistant`. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
 | `artifact_server.host` | `127.0.0.1` everywhere | |
 | `artifact_server.auto_launch` | `true` everywhere | |
@@ -124,11 +124,11 @@ agreement among the presets that state the key.
   preset lists only tools its servers gate
   (`tests/profiles/test_approval_tools_parity.py`), and an unlisted tool falls to
   `approval.default_policy`. `entry_create` and `entry_publish` carry no mark:
-  `control-assistant` is the one root preset that states them (the `logbook`
+  `control-assistant` is the only root preset that states them (the `logbook`
   app states them too, and apps are not parity subjects), so the mark would
   compare nothing.
 - `claude_code.telemetry.log_{user_prompts,assistant_responses,tool_details,raw_api_bodies}`:
-  the capture posture of the bundled store. Both presets ship it and each
+  the capture posture of the bundled store. Every root preset ships it and each
   states every content gate on (each opens its gate block with "Content gates,
   all on"), so the posture is one claim about one store.
 
@@ -153,7 +153,7 @@ Present only where the deployment has the capability.
 
 | dotted key | present in | rationale |
 |---|---|---|
-| `control_system.*` | `hello-world`, `control-assistant` | both shipped presets reach a control system; a deployment that disables the `controls` server has no hardware surface and states none |
+| `control_system.*` | `hello-world`, `control-assistant` | every shipped preset reaches a control system; a deployment that disables the `controls` server has no hardware surface and states none |
 | `archiver.*` | `hello-world`, `control-assistant` | rides with `control_system` |
 | `ariel.*` | `control-assistant` | logbook deployments only |
 | `logbook.*` | `control-assistant` | rides with `ariel` |
@@ -206,7 +206,7 @@ per-type entry carries `rendered: false`.
 ### Keys nothing ships (`rendered: false`)
 
 The manifest keys marked `rendered: false` have real readers, real spellings and
-no writer among the framework template, the two root presets or the apps. They are marked `rendered: false` so
+no writer among the framework template, the root presets or the apps. They are marked `rendered: false` so
 the phantom-key check does not read them as manifest rot.
 
 The flag is checked in **both** directions. A key carrying it that IS in the

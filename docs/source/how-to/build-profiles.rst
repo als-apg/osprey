@@ -33,9 +33,8 @@ Preset → Profile → Build
    :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
-  (``src/osprey/profiles/presets/``). The two presets are ``hello-world`` and
-  ``control-assistant``.
-  Run ``osprey profile presets`` to list them.
+  (``src/osprey/profiles/presets/``). Run ``osprey profile presets`` to list
+  the presets that ship.
 - **Profile** — the ``profile.yml`` at the root of your deployment repository,
   with the material it names beside it. Created once from a preset, then edited
   and kept in version control. Everything the preset configured is written out
