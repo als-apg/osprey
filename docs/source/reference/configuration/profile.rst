@@ -1256,9 +1256,10 @@ Lifecycle commands
 
 Lifecycle commands run shell commands at three phases of the build:
 
-- **pre_build** — before rendering (cwd: profile directory)
-- **post_build** — after git init (cwd: project directory)
-- **validate** — advisory checks that warn but don't abort (cwd: project directory)
+- **pre_build** — before the project venv exists (cwd: the repository root)
+- **post_build** — after the render, on the project venv (cwd: the built project)
+- **validate** — advisory checks that warn but don't abort, on the project venv
+  (cwd: the built project)
 
 .. code-block:: yaml
 
@@ -1277,9 +1278,15 @@ Each step requires ``name`` and ``run``. Optional: ``cwd`` (relative to the phas
 default), ``timeout`` (seconds, default 120), and ``stream`` (print output live;
 also available for all steps via ``--stream``).
 
-``{project_root}`` is replaced with the built project's absolute path. The
-project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
-resolve to the project's own Python.
+``{project_root}`` is replaced with the built project's absolute path.
+
+In ``post_build`` and ``validate`` the project venv's ``bin/`` leads ``PATH``, so
+``python`` and ``pytest`` resolve to the project's own Python. ``pre_build`` runs
+before that venv exists, and under ``--skip-deps`` no step gets one: those steps
+see the shell's ``PATH``.
+
+``post_build`` and ``validate`` steps see the repository's env chain, ``.env``
+over ``.env.shared``, secrets in ``.env`` included; so do ``pre_build`` steps.
 
 A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
 tests printed as an **Integration Test Results** table when it finishes: each

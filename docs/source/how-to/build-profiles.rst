@@ -985,7 +985,7 @@ What the build does
     ``osprey up`` compares the profile against before it starts anything.
 13. Re-render the agent artifacts against the complete config, and validate that
     every tool an agent declares is backed by a permission.
-14. Initialize git, then run ``post_build`` and ``validate`` commands.
+14. Run ``post_build`` and ``validate`` commands on the project venv.
 
 The venv is created before rendering so templates can reference the resolved
 Python path. The generated project runs standalone — nothing reaches back to the
