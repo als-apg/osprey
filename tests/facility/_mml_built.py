@@ -157,10 +157,14 @@ def mml_built(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str, str], 
     from osprey.facility.views.simulator import simulator_wiring
 
     built: dict[str, tuple[dict[str, Any], Path]] = {}
+    # Made during setup, so the trees built on demand belong to this fixture.
+    parent = tmp_path_factory.mktemp("mml")
 
     def model(tree: str, stem: str) -> BuiltModel:
         if tree not in built:
-            built[tree] = build_tree(tree, tmp_path_factory.mktemp(f"mml-{tree}"))
+            root = parent / tree
+            root.mkdir()
+            built[tree] = build_tree(tree, root)
         document, facility = built[tree]
         name = model_name(document, stem)
         (record,) = [entry for entry in document["models"] if entry["name"] == name]
