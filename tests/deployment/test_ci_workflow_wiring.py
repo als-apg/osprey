@@ -9409,10 +9409,10 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # Model-spending lanes: `full-ci` on a pull request, on demand on main
 # ---------------------------------------------------------------------------
 #
-# Nine jobs drive real Claude sessions through the gateway. Measured on its
-# ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
-# every push of every same-repo PR (~150 a week, on pace for $10k a month).
-# The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
+# The SPENDING_LANES jobs drive real Claude sessions through the gateway.
+# Their cost scales as turns x context times push volume (the measurement is
+# recorded in docs/source/contributing/workflow.rst, "Model-Spending Lanes"),
+# so the lever is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
 # the revalidation dispatch — and on nothing else. Both arms are pinned
 # below, and so is the absence of a third: a schedule arm (or a `schedule`
 # trigger on the workflow) spends model tokens with nobody watching and
