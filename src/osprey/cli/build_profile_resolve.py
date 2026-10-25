@@ -28,6 +28,7 @@ Two things reach a profile, and they mean different things:
 from __future__ import annotations
 
 import copy
+import dataclasses
 import io
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -54,6 +55,7 @@ from .build_profile_load import (
 from .build_profile_merge import (
     _deep_merge,
     _resolve_extends,
+    refuse_inputs_outside_repository,
     resolve_profile_document,
     seal_app_render,
 )
@@ -615,6 +617,11 @@ def resolve_build_document(
         # is sealed again: no edit arms it or opens a deployment-edit door.
         if document.app_rel is not None and set_pairs:
             raw = seal_app_render(raw, document.app_rel)
+        # Checked on the edited document, so a `--set` edit cannot name an
+        # input the repository does not hold.
+        refuse_inputs_outside_repository(
+            profile_path.resolve(), dataclasses.replace(document, raw=raw)
+        )
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset

@@ -57,7 +57,7 @@ from .build_profile_document import (
     _normalize_empty_collections,
     _read_profile_document,
 )
-from .build_profile_merge import resolve_profile_document
+from .build_profile_merge import refuse_inputs_outside_repository, resolve_profile_document
 from .build_profile_model import SERVICE_AXES, BuildProfile
 from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
 from .build_profile_schema import (
@@ -163,6 +163,7 @@ def load_profile_document(path: Path) -> LoadedProfile:
     # packaged data bundle this profile's tree came from. Stamped here rather
     # than parsed, because no key of the resolved document says it.
     profile.inherited_preset = document.inherited_preset
+    refuse_inputs_outside_repository(path, document)
     profile.validate(document.root_dir)
     return LoadedProfile(
         profile=profile,

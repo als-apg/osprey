@@ -32,6 +32,7 @@ from .build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
+    is_bundled_preset_dir,
     list_presets,
     resolve_triggers_path,
 )
@@ -432,7 +433,7 @@ def _resolve_extends(
             every layer, mutated in place. ``None`` skips recording.
         preset_lineage: List collecting the bundled presets the chain extends,
             nearest layer first, mutated in place. ``None`` skips recording.
-        local_bases: List collecting the repo-local files the chain extends,
+        local_bases: List collecting the non-preset files the chain extends,
             nearest layer first, mutated in place. ``None`` skips recording.
 
     Returns:
@@ -1525,8 +1526,9 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
-        extends_files: The repo-local files the ``extends`` chain read, nearest
-            first; bundled presets are not listed.
+        extends_files: The non-preset files the ``extends`` chain read, nearest
+            first; bundled presets are not listed. A repository's profile admits
+            only files under its root (:func:`refuse_inputs_outside_repository`).
         app_rel: The app file's repo-relative label when the document was
             composed as an app render (:func:`compose_app_render`), else
             ``None``.
@@ -1889,7 +1891,7 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
 class ProfileInputRole(StrEnum):
     """What part a file plays in a profile's build."""
 
-    #: ``profile.yml`` and every repo-local file its ``extends`` chain reads.
+    #: ``profile.yml`` and every non-preset file its ``extends`` chain reads.
     DOCUMENT = "document"
     #: The ``data:`` tree, the convention directories, the trigger file and the
     #: layer files.
@@ -1947,8 +1949,8 @@ def profile_inputs(
 
     Entries come in this order:
 
-    1. documents — the root ``profile.yml``, then the repo-local ``extends``
-       files nearest first (:attr:`ResolvedProfileDocument.extends_files`);
+    1. documents — the root ``profile.yml``, then the non-preset files the
+       ``extends`` chain read, nearest first (:attr:`ResolvedProfileDocument.extends_files`);
     2. material — the ``data:`` root (``data``), each existing convention
        directory (``convention:<name>``, sorted by name), the trigger file that
        lives with the profile (``triggers``) and each layer file
@@ -2032,11 +2034,81 @@ def profile_inputs(
 
 
 def _document_key(path: Path, root: Path) -> str:
-    """A document's key: its path relative to *root* when inside it, else absolute."""
+    """A document's key: its path relative to *root* when inside it, else absolute.
+
+    The absolute key is for a profile the repository rule
+    (:func:`refuse_inputs_outside_repository`) has not admitted: the hash is
+    defined for a profile at any path.
+    """
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+#: The remedy every repository-boundary refusal line ends with.
+_MOVE_INSIDE = "Move it into the repository."
+
+
+def inputs_outside_repository(
+    profile_path: Path, document: ResolvedProfileDocument
+) -> tuple[ProfileInput, ...]:
+    """The inputs of *document* whose resolved path is not under its root.
+
+    The repository is the profile root, ``document.root_dir``. Both sides are
+    resolved, so a symlink whose target lies outside counts as outside: a clone
+    does not carry it. A bundled preset is package content, not a repository,
+    and has none.
+
+    Args:
+        profile_path: The profile file that was resolved.
+        document: Its resolution, from :func:`resolve_profile_document`.
+
+    Returns:
+        The outside entries of :func:`profile_inputs`, in enumeration order.
+    """
+    if is_bundled_preset_dir(document.root_dir):
+        return ()
+    root = document.root_dir.resolve()
+    return tuple(
+        entry
+        for entry in profile_inputs(profile_path, document)
+        if not entry.path.resolve().is_relative_to(root)
+    )
+
+
+def refuse_inputs_outside_repository(profile_path: Path, document: ResolvedProfileDocument) -> None:
+    """Refuse a repository profile that reads any input outside the repository.
+
+    Called by the profile loaders before validation, so a repository builds
+    from a clone or is refused before anything is installed.
+
+    Args:
+        profile_path: The profile file that was resolved.
+        document: Its resolution, with any command-line edits applied.
+
+    Raises:
+        BuildProfileError: One line per outside input, in enumeration order,
+            naming the profile key, the resolved path and the remedy.
+    """
+    outside = inputs_outside_repository(profile_path, document)
+    if not outside:
+        return
+    root_document = (document.root_dir / PROFILE_FILENAME).resolve()
+    lines = []
+    for entry in outside:
+        resolved = entry.path.resolve().as_posix()
+        if entry.role is ProfileInputRole.DOCUMENT and entry.path.resolve() != root_document:
+            lines.append(f"extends: {resolved} is outside the repository. {_MOVE_INSIDE}")
+            continue
+        if entry.label == "data":
+            key = f"data: {document.raw['data']}"
+        elif entry.label == "triggers":
+            key = f"dispatch.triggers: {entry.key}"
+        else:
+            key = entry.key
+        lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")
+    raise BuildProfileError("\n".join(lines))
 
 
 def layer_fold_label(layer: Path) -> str:
