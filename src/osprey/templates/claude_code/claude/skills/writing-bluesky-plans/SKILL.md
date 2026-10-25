@@ -458,15 +458,20 @@ rows the figure is being built from, and how much of the run they are:
 | `window.total_seen` | how many rows the source has actually seen — never fewer than `len(window.rows)` |
 | `window.units` | the unit the run declared for each column; a column it does not name declared none |
 
-A render takes its panels' units from `window.units` — `shared_unit(window,
-columns)` gives the one unit a set of columns shares, or `None` — never from a
-unit typed into the plan.
+Each axis names the columns it plots, never a unit. A `Panel` takes
+`x_columns` and `y_columns`, a `HeatmapMark` takes `value_columns`: each is a
+`Columns([...])` of names from `window.columns` — `Columns(bpms, per=correctors)`
+for a slope — or `None` when the axis plots no column (a row index, a
+category). All three are required. The bridge states each axis's unit from what
+those columns declare in `window.units`; never set `x_units`, `y_units` or
+`value_units` — a render that does is served as `render_failed`.
 
 `params` are the parameters the run was launched with, and the return value is
 a `Figure` from
 `osprey.services.bluesky_bridge.figure` — a list of `Panel`s, each carrying a
-title, axis labels and units, `annotations` (short sentences saying what the
-panel does *not* show), and exactly **one** mark: `LinesMark` (named x/y
+title, axis labels, the columns each axis plots (`x_columns`/`y_columns`),
+`annotations` (short sentences saying what the panel does *not* show), and
+exactly **one** mark: `LinesMark` (named x/y
 series), `BarsMark` (one value per named category), or `HeatmapMark` (a
 labelled 2-D grid). A panel showing two things is two panels. The bridge serves
 that figure from `GET /runs/{id}/figure`, the operator's BLUESKY panel draws
@@ -478,6 +483,7 @@ load time and takes the plan out of the catalog with it.
 
 ```python
 from osprey.services.bluesky_bridge.figure import (
+    Columns,
     Figure,
     LinesMark,
     Panel,
@@ -509,7 +515,8 @@ Six rules govern one:
   `window.rows_complete` is true. Fall back to something position-free
   otherwise, and say so in an annotation.
 - **`render()` must never raise.** A figure is a view, not a result. If it
-  raises — or returns anything other than a `Figure` — the run's data is
+  raises — or returns anything other than a `Figure`, or a figure that sets a
+  unit or binds a column the rows do not hold — the run's data is
   untouched and the bridge quietly serves the default view with the reason
   `render_failed`, but the plan's own view is gone for everyone watching until
   the code is fixed. Write it to degrade instead: guard the parts that can
