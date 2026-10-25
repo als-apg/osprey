@@ -53,7 +53,7 @@ LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
 
 #: How the two targets are spoken of, everywhere on the prompt.
-LIVE_PHRASE = f"LIVE MACHINE ({LIVE_ENDPOINT})"
+LIVE_PHRASE = f"Real machine — writes move hardware ({LIVE_ENDPOINT})"
 VA_PHRASE = "virtual accelerator (simulation)"
 
 #: Lane 1's bridge, as the rendered config names it, and lane 2's, as the
@@ -423,10 +423,10 @@ def test_a_second_lane_with_no_published_port_shows_no_queue_rather_than_lane_on
 
 def test_a_lane_target_no_server_publishes_is_called_unpublished(approval, fake_bridge, state_dir):
     """Silence in the reports must not read as "simulation". A lane whose target
-    carries no `real_machine` claim is named with its target string and an
-    explicit statement that no live server publishes an identity for it."""
+    no live server publishes anything about is named with its target string and
+    an explicit statement that no live server publishes an identity for it."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE})
-    write_state(state_dir, target="va", targets={"va": {"label": "Virtual accelerator"}})
+    write_state(state_dir, target="va", targets={"live": published_targets()["live"]})
 
     lines = approval._describe_queue_add({"draft_revision": 3}, two_lane_config(), None)
 

@@ -627,20 +627,33 @@ def _sanitize_label(text) -> str:
 _TARGET_BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 
 
-def _real_machine_claim(meta):
-    """Whether *meta* CLAIMS a real machine: ``True``, ``False``, or ``None``.
+#: The words each machine kind is spoken of by on this prompt, keyed by the
+#: kind the twin's :func:`published_machine_kind` answers. These are the
+#: owner-facing literals every surface in scope uses for the three machines —
+#: the rehearsal and the real machine are restated here because this hook is
+#: deployed standalone and cannot import them — and they are deliberately NOT
+#: the refusal words (``KIND_WORDS``), which complete a refusal sentence rather
+#: than name a machine. The simulator keeps the phrase it always had.
+_KIND_WORDS = {
+    "real": "Real machine — writes move hardware",
+    "rehearsal": "Rehearsal — nothing moves",
+    "simulator": "virtual accelerator (simulation)",
+}
 
-    Three states, not two. A ``real_machine`` key that is absent, null, or not a
-    boolean is a record this hook cannot read — an older or newer writer, or a
-    truncated one — and coercing that to ``False`` would print "virtual
-    accelerator (simulation)" over a record that never said so. ``None`` sends
-    the caller to the explicit baseline line, which is the honest answer: the
-    identity is unknown, and unknown is not the same claim as simulated.
+
+def _target_kind(target, hook_input=None):
+    """The kind of machine *target* is, from the twin's C-KIND reader only.
+
+    Never the ``real_machine`` claim and never the label string: a label is
+    display text a writer minted, and a claim is a second source that can
+    disagree with the one every other surface reads. The reader answers
+    ``rehearsal`` only while a live controls server publishes *target* as this
+    deployment's stand-in; every other answer — no live report, a ``standin``
+    pointing anywhere else, a name the reader does not know — is ``real``, so
+    the one direction a wrong answer can go is towards the louder words.
     """
-    if not isinstance(meta, dict):
-        return None
-    claim = meta.get("real_machine")
-    return claim if isinstance(claim, bool) else None
+    kind = _target_state.published_machine_kind(target, hook_input=hook_input)
+    return kind if kind in _KIND_WORDS else "real"
 
 
 #: "the caller did not pass a record", which is a different thing from a caller
@@ -1129,41 +1142,39 @@ def _session_state_record(hook_input=None):
     return state.read_target_view(hook_input)
 
 
-def _target_identity_phrase(record: dict | None, target: str) -> str | None:
+def _target_identity_phrase(record: dict | None, target: str, hook_input=None) -> str | None:
     """How one target is SPOKEN OF on this prompt, or ``None`` if it cannot be.
 
-    The single place the two identity phrasings live, because more than one
-    surface now names a target: the ``Target:`` line names the deployment's, and
-    the plan-lane lines name the target a lane is wired to. A second spelling of
-    "virtual accelerator (simulation)" would eventually drift from this one, and
-    two different phrasings for one machine on one prompt is exactly the
-    ambiguity the line exists to remove.
+    The single place the identity phrasings live, because more than one surface
+    names a target: the ``Target:`` line names the deployment's, and the
+    plan-lane lines name the target a lane is wired to. A second spelling of a
+    machine's words would eventually drift from this one, and two different
+    phrasings for one machine on one prompt is exactly the ambiguity the line
+    exists to remove.
 
-    ``None`` means no live server states a readable claim about *target* — the
-    tri-state of :func:`_real_machine_claim`, propagated rather than flattened,
-    so every caller renders its own explicit "unknown" instead of inheriting a
-    silent "simulation".
+    The words come from the machine KIND (:func:`_target_kind`), never from the
+    writer's label or its ``real_machine`` claim: the rehearsal reads "Rehearsal
+    — nothing moves" only while the stand-in really is this deployment's, and a
+    ``standin`` pointing anywhere else reads as the real machine.
+
+    ``None`` means no live server publishes anything about *target*, so every
+    caller renders its own explicit "unknown" instead of naming a machine no
+    running process stands behind.
     """
     if _target_state is None or record is None or not target:
         return None
     meta = _target_state.target_metadata(record, target)
-    claim = _real_machine_claim(meta)
-    if claim is None:
+    if not isinstance(meta, dict):
         return None
-    if claim:
-        # The endpoint is the role the writer selected under the session's
-        # effective posture, republished whenever that posture changes.
-        # Rendered verbatim: picking a role here would be a second opinion
-        # about which gateway this deployment actually holds.
-        endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
-        # The label is the writer's too, for the same reason the destination
-        # line below reads it rather than re-deriving one: a deployment may put
-        # a stand-in behind the live role, and only the writer knows that. The
-        # fallback covers a record from a writer that recorded no label at all;
-        # it never softens the claim, which stays `real_machine`'s to make.
-        label = _sanitize_label(meta.get("label") or "LIVE MACHINE")
-        return f"{label} ({endpoint})"
-    return "virtual accelerator (simulation)"
+    kind = _target_kind(target, hook_input)
+    label = _KIND_WORDS[kind]
+    if kind == "simulator":
+        return label
+    # The endpoint is the role the writer selected, republished whenever it
+    # changes, and rendered verbatim: picking a role here would be a second
+    # opinion about which gateway this deployment actually holds.
+    endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
+    return f"{label} ({endpoint})"
 
 
 def _target_line(hook_input=None, record=_UNREAD) -> str:
@@ -1188,7 +1199,7 @@ def _target_line(hook_input=None, record=_UNREAD) -> str:
             record = _session_state_record(hook_input)
         if record is None:
             return _TARGET_BASELINE_LINE
-        phrase = _target_identity_phrase(record, state.selected_target(record))
+        phrase = _target_identity_phrase(record, state.selected_target(record), hook_input)
         if phrase is None:
             return _TARGET_BASELINE_LINE
         return f"Target: {phrase}"
@@ -1202,8 +1213,8 @@ def _describe_control_target_set(
     """Render where a prospective target switch would leave the session.
 
     The identity line above names where the session is NOW; for a switch, where
-    it would be is the whole decision, so this names the destination's label,
-    the endpoint it would hold, and the channel the switch will probe to prove
+    it would be is the whole decision, so this names the destination's machine
+    kind in the identity line's words, the endpoint it would hold, and the channel the switch will probe to prove
     the destination is really there.
 
     Everything comes from the same control context as the identity line, and —
@@ -1239,21 +1250,17 @@ def _describe_control_target_set(
         ]
 
     lines = []
-    claim = _real_machine_claim(meta)
-    if claim is None:
-        # Same tri-state as the identity line: silence about a destination's
-        # nature must not read as "simulation". Saying so keeps the endpoint and
-        # probe lines below useful without attaching a safety claim to them.
-        lines.append(
-            "⚠️  No controls server records whether this destination is the real "
-            "machine — treat it as unknown."
-        )
-    elif claim:
+    # The destination's words come from its kind, exactly as the identity
+    # line's do, so "where you are" and "where you would be" name one machine
+    # one way. Only the real machine carries the warning: the rehearsal moves
+    # nothing, and the simulator is not the alarming direction.
+    kind = _target_kind(destination, hook_input)
+    if kind == "real":
         lines.append(
             "⚠️  THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE — every write "
             "approved afterwards moves real hardware."
         )
-    label = _sanitize_label(meta.get("label") or destination)
+    label = _KIND_WORDS[kind]
     endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
     lines.append(f"Destination: {label} ({endpoint})")
     probe = meta.get("probe_channel")
@@ -1962,6 +1969,7 @@ class _LaneSituation(TypedDict):
     record: dict | None
     control_target: str | None
     active: str | None
+    hook_input: dict | None
 
 
 def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSituation:
@@ -1969,7 +1977,8 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSit
 
     Keys: ``lanes`` (the rendered map), ``multi`` (whether there is anything to
     address at all), ``record`` (the deployment's control context, or ``None``),
-    ``control_target`` and ``active`` (the lane serving it, or ``None``).
+    ``control_target`` and ``active`` (the lane serving it, or ``None``), and
+    ``hook_input`` (the payload the machine kinds are resolved from).
 
     Never raises: an unreadable config is a single-lane deployment and an
     unreadable record is an unknown control target, which are the two
@@ -2004,6 +2013,7 @@ def _lane_situation(config: dict, hook_input=None, read_record=None) -> _LaneSit
         "record": record,
         "control_target": control_target,
         "active": matches[0] if len(matches) == 1 else None,
+        "hook_input": hook_input,
     }
 
 
@@ -2031,7 +2041,7 @@ def _lane_target_phrase(situation: _LaneSituation, lane_target) -> str:
     """
     if not lane_target:
         return "target unknown to this prompt"
-    phrase = _target_identity_phrase(situation["record"], lane_target)
+    phrase = _target_identity_phrase(situation["record"], lane_target, situation.get("hook_input"))
     if phrase:
         return phrase
     return f"{_sanitize_label(lane_target)} (identity not published by any live server)"
