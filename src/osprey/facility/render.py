@@ -77,6 +77,7 @@ def render_facility_outputs(
     facility_dir: Path,
     *,
     omitted_reported: set[str] | None = None,
+    built_databases: dict[str, Path] | None = None,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -90,6 +91,10 @@ def render_facility_outputs(
             written, and the view notes it has printed; one in it is not
             printed again and each one printed is added. ``None`` prints every
             one.
+        built_databases: The view databases this build has already written,
+            keyed by the sha256 of the view bytes each was imported from; a
+            view whose bytes match copies the database, and each one imported
+            is added. ``None`` imports every one.
 
     Each view whose predicate is false is named on stderr, one line each, once
     per build, unless a selector picks it from among its alternatives: a view
@@ -112,6 +117,7 @@ def render_facility_outputs(
         facility_dir=facility_dir,
         served=resolve_served(rendered_config, doc),
         reported=omitted_reported,
+        built_databases=built_databases,
     )
     check_served_probes(rendered_config, doc)
     target = render_dir / FACILITY_FILE
