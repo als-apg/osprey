@@ -24,7 +24,7 @@
 
 import { fileUrl } from "./state.js";
 import { escapeHtml } from "./types.js";
-import { configureMarked, renderMathInMarkdown } from "./md-render.js";
+import { configureMarked, markdownSanitizer, renderMathInMarkdown } from "./md-render.js";
 
 // ---- Markdown Rendering ---- //
 
@@ -49,9 +49,9 @@ export async function renderMarkdownView(container, artifact) {
 
     const mdDiv = document.createElement("div");
     mdDiv.className = "osprey-md-rendered";
-    if (typeof marked !== "undefined") {
-      // Uses innerHTML with marked.parse() + katex.renderToString() output,
-      // both of which produce sanitized HTML from trusted local artifact files.
+    if (typeof marked !== "undefined" && markdownSanitizer()) {
+      // The artifact is agent-written: renderMathInMarkdown returns only
+      // DOMPurify-sanitized HTML, so no script in it reaches this page.
       mdDiv.innerHTML = renderMathInMarkdown(text);
     } else {
       mdDiv.textContent = text;

@@ -10,9 +10,11 @@
  *
  * Both exports here take a container element and an artifact object as
  * plain args (no shared mutable state with preview.js, no DOM fixture
- * beyond a bare `document.createElement('div')`). `marked`/`hljs`/`katex`
- * are vendored classic-script globals (see vendor-globals.d.ts); tests stub
- * them via vi.stubGlobal.
+ * beyond a bare `document.createElement('div')`). `marked`/`hljs`/`katex`/
+ * `DOMPurify` are vendored classic-script globals (see vendor-globals.d.ts);
+ * tests stub them via vi.stubGlobal. The markdown pipeline emits HTML only
+ * through `DOMPurify.sanitize`, so the stub here is a recording pass-through;
+ * security_render.test.mjs drives the real sanitizer.
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
@@ -122,13 +124,28 @@ describe('renderJsonView', () => {
   });
 });
 
+/**
+ * Stub DOMPurify with a pass-through sanitizer that records what it was given,
+ * so a test sees exactly the string the pipeline hands it. The real sanitizer
+ * is driven in security_render.test.mjs.
+ * @returns {import('vitest').Mock<(html: string) => string>}
+ */
+function stubSanitizer() {
+  const sanitize = vi.fn((/** @type {string} */ html) => html);
+  vi.stubGlobal('DOMPurify', { sanitize });
+  return sanitize;
+}
+
 describe('renderMathInMarkdown', () => {
-  test('delegates straight to marked.parse when katex is undefined', () => {
+  test('sanitizes marked.parse output when katex is undefined', () => {
+    const sanitize = stubSanitizer();
     vi.stubGlobal('marked', { parse: vi.fn((t) => `<p>${t}</p>`) });
     expect(renderMathInMarkdown('hello')).toBe('<p>hello</p>');
+    expect(sanitize).toHaveBeenCalledWith('<p>hello</p>');
   });
 
   test('renders display ($$...$$) and inline ($...$) math via katex, then runs marked on the rest', () => {
+    stubSanitizer();
     const renderToString = vi.fn((expr, opts) => `<math data-display="${opts.displayMode}">${expr}</math>`);
     vi.stubGlobal('katex', { renderToString });
     vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => `<p>${t}</p>` });
@@ -142,17 +159,60 @@ describe('renderMathInMarkdown', () => {
     expect(html).not.toContain('\x00MATH');
   });
 
+  test('sanitizes the final string, after the KaTeX markup is swapped in', () => {
+    const sanitize = stubSanitizer();
+    vi.stubGlobal('katex', { renderToString: () => '<span class="katex">k</span>' });
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => `<p>${t}</p>` });
+
+    renderMathInMarkdown('a $x$ b');
+
+    expect(sanitize).toHaveBeenCalledTimes(1);
+    expect(sanitize).toHaveBeenCalledWith('<p>a <span class="katex">k</span> b</p>');
+  });
+
   test('falls back to an escaped error span when katex.renderToString throws', () => {
+    stubSanitizer();
     vi.stubGlobal('katex', { renderToString: vi.fn(() => { throw new Error('bad expr'); }) });
     vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
 
     const html = renderMathInMarkdown('$broken$');
     expect(html).toContain('katex-error-inline');
   });
+
+  test('without DOMPurify: returns the text escaped, never parsed markup', () => {
+    const parse = vi.fn((t) => t);
+    vi.stubGlobal('marked', { parse });
+
+    const html = renderMathInMarkdown('<script>alert(1)</script>');
+
+    expect(parse).not.toHaveBeenCalled();
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  test('DOMPurify loaded without a sanitize function counts as missing', () => {
+    vi.stubGlobal('DOMPurify', {});
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+    expect(renderMathInMarkdown('<b>x</b>')).not.toContain('<b>');
+  });
+
+  test('a throwing sanitizer degrades to escaped text', () => {
+    vi.stubGlobal('DOMPurify', { sanitize: () => { throw new Error('boom'); } });
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+    const html = renderMathInMarkdown('<img src=x onerror=alert(1)>');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
+
+  test('without marked: returns the text escaped', () => {
+    stubSanitizer();
+    expect(renderMathInMarkdown('<i>x</i>')).toContain('&lt;i&gt;x&lt;/i&gt;');
+  });
 });
 
 describe('renderMarkdownView', () => {
   test('fetches the artifact file and renders it through the marked+KaTeX pipeline', async () => {
+    const sanitize = stubSanitizer();
     vi.stubGlobal('marked', {
       use: vi.fn(),
       parse: vi.fn((t) => `<p>${t}</p>`),
@@ -166,15 +226,33 @@ describe('renderMarkdownView', () => {
     expect(rendered).not.toBeNull();
     if (rendered === null) throw new Error('unreachable: rendered container missing');
     expect(rendered.innerHTML).toBe('<p># Hi</p>');
+    expect(sanitize).toHaveBeenCalledWith('<p># Hi</p>');
   });
 
   test('falls back to plain textContent when marked is unavailable', async () => {
+    stubSanitizer();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('raw text') }));
     const container = document.createElement('div');
 
     await renderMarkdownView(container, makeArtifact());
 
     expect(qs(container, '.osprey-md-rendered').textContent).toBe('raw text');
+  });
+
+  test('falls back to plain textContent when DOMPurify is unavailable', async () => {
+    const parse = vi.fn((t) => t);
+    vi.stubGlobal('marked', { use: vi.fn(), parse });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, text: () => Promise.resolve('<img src=x onerror=alert(1)>'),
+    }));
+    const container = document.createElement('div');
+
+    await renderMarkdownView(container, makeArtifact());
+
+    const rendered = qs(container, '.osprey-md-rendered');
+    expect(rendered.textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(rendered.querySelector('img')).toBeNull();
+    expect(parse).not.toHaveBeenCalled();
   });
 
   test('on fetch failure: shows a friendly fallback', async () => {
