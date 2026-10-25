@@ -51,7 +51,12 @@ from .build_profile_load import (
     _apply_port_base_shorthand,
     _parse_profile,
 )
-from .build_profile_merge import _deep_merge, _resolve_extends, resolve_profile_document
+from .build_profile_merge import (
+    _deep_merge,
+    _resolve_extends,
+    resolve_profile_document,
+    seal_app_render,
+)
 from .build_profile_model import BuildProfile
 from .build_profile_presets import _load_preset_raw
 
@@ -594,6 +599,10 @@ def resolve_build_document(
         # merged — because only here does the whole picture an edit outranks
         # exist: every literal dotted key any layer contributes.
         raw = apply_cli_edits(raw, set_pairs)
+        # The edit lands after the app composer pinned the render, so an app
+        # is sealed again: no edit arms it or opens a deployment-edit door.
+        if document.app_rel is not None and set_pairs:
+            raw = seal_app_render(raw, document.app_rel)
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset

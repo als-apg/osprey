@@ -278,3 +278,51 @@ def test_the_shared_card_rule_names_no_app_entry_with_every_host_door_open(
     problems = real(seen["resolved"], seen["absolute"])
     for app in _SHIPPED_APPS:
         assert not any(f"user {app!r}" in problem for problem in problems)
+
+
+# ── a --set edit cannot arm an app render ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "pair",
+    [
+        "config.control_system.writes_enabled=true",
+        "config.control_system.connector.epics.writes_enabled=true",
+        "config.control_system={writes_enabled: true}",
+        f"config.{_PANEL}=true",
+        f"config.{_GALLERY}=true",
+    ],
+)
+def test_a_set_edit_on_an_app_build_stays_pinned(pair: str, tmp_path: Path) -> None:
+    """The edit lands after the composer pinned the render, so the build seals it again."""
+    import yaml
+
+    from osprey.cli.build_profile_resolve import resolve_build_document
+
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump(
+            {"name": "Facility", "data": "data", "config": {"control_system.writes_enabled": True}}
+        ),
+        encoding="utf-8",
+    )
+    app = repo / "apps" / "logbook.yml"
+    app.parent.mkdir()
+    app.write_text(
+        yaml.safe_dump(
+            {
+                "name": "Logbook",
+                "claude_md_template": "CLAUDE.logbook.md.j2",
+                "hooks": [],
+                "config": {"claude_code.servers.controls.enabled": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = resolve_build_document(app, None, (), (pair,))
+
+    render = {"hooks": loaded.profile.hooks, "config": loaded.profile.config}
+    assert lint_app_render(render) == []
+    assert loaded.profile.config["control_system.writes_enabled"] is False

@@ -1,0 +1,1 @@
+`osprey build --set` edits now win over a nested mapping above the edited key, and can no longer arm an app render or open its deployment-edit doors: an app render is sealed again after the command-line edits.

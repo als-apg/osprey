@@ -1057,9 +1057,33 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     # The host's raw config counts a block that held only its write switch (it
     # stays the configured machine it was); the app's own write switches are
     # pins, never blocks, so they are dropped before block presence is read.
-    render["config"] = _pin_edit_doors(
-        _pin_write_switches(config, host_config, _drop_write_switches(app_config))
-    )
+    render["config"] = _pin_write_switches(config, host_config, _drop_write_switches(app_config))
+    return seal_app_render(render, app_rel)
+
+
+def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
+    """Pin an app render shut and check it: the composer's last step, and the edit's.
+
+    Every ``control_system.*writes_enabled`` switch is pinned ``false``, every
+    deployment-edit door is closed, ``writes-check`` is selected, and
+    :func:`~osprey.deployment.web_terminals.lint.lint_app_render` checks the
+    result. A ``--set`` edit lands after the composer, so the build seals an
+    edited app render again: no edit arms an app or opens a door.
+
+    Args:
+        render: The app render, composed or edited.
+        app_rel: The app file's repo-relative label, for messages.
+
+    Returns:
+        ``render`` with its ``config`` and ``hooks`` pinned.
+
+    Raises:
+        BuildProfileError: If the pinned render could still write or edit the
+            deployment.
+    """
+    config = render.get("config")
+    config = dict(config) if isinstance(config, dict) else {}
+    render["config"] = _pin_edit_doors(_pin_write_switches(config))
 
     hooks = render.get("hooks")
     hooks = list(hooks) if isinstance(hooks, list) else []
@@ -1150,6 +1174,9 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
+        app_rel: The app file's repo-relative label when the document was
+            composed as an app render (:func:`compose_app_render`), else
+            ``None``.
     """
 
     raw: dict[str, Any]
@@ -1157,6 +1184,7 @@ class ResolvedProfileDocument:
     is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
+    app_rel: str | None = None
 
 
 def resolve_profile_document(
@@ -1203,7 +1231,9 @@ def resolve_profile_document(
     shadowed: set[str] = set()
     lineage: list[str] = []
 
-    def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
+    def finish(
+        resolved: dict[str, Any], as_delta: bool, app_rel: str | None = None
+    ) -> ResolvedProfileDocument:
         """Report the exclusion diagnostics, then package the result.
 
         Both branches end the same way, and they must: the diagnostics read the
@@ -1219,6 +1249,7 @@ def resolve_profile_document(
             as_delta,
             frozenset(artifacts),
             lineage[0] if lineage else None,
+            app_rel,
         )
 
     if not is_layer:
@@ -1294,7 +1325,8 @@ def resolve_profile_document(
     served_error = render_served_models_error(normalized, merged, layer_rel)
     if served_error is not None:
         raise served_error
-    return finish(merged, True)
+    is_app = kind is ProfileKind.APP and not retired_tier
+    return finish(merged, True, layer_rel if is_app else None)
 
 
 # ---------------------------------------------------------------------------
