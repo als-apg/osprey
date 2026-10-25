@@ -282,7 +282,7 @@ const STEPS = [
       if (c) {
         parts.push(' This deployment is currently on ', strong(c.name), ' — ', strong(c.state), '.');
       }
-      parts.push(' Click the chip to see the details or switch targets.');
+      parts.push(' Click the chip to see the details, turn writes on or off, or switch targets.');
       return parts;
     },
   },

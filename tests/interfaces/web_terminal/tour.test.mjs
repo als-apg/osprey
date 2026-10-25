@@ -72,7 +72,7 @@ import {
 function mountFullShell() {
   document.body.innerHTML = `
     <button class="control-target-chip" aria-expanded="false">
-      <span class="ctc-short">Simulator</span><span class="ctc-state">writes</span>
+      <span class="ctc-short">Simulator</span><span class="ctc-state">writes on</span>
     </button>
     <osprey-display-menu id="display-menu">
       <button class="display-menu-trigger" aria-expanded="false"></button>
@@ -341,7 +341,7 @@ describe('steps', () => {
 
   test('the first card says exactly what first contact derives', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'va', capabilities: ['make plots'] });
+    serve({ kind: 'simulator', capabilities: ['make plots'] });
     startTour();
 
     // Not a substring of the tour's own composing: the whole sentence, so the
@@ -352,11 +352,35 @@ describe('steps', () => {
 
   test('a simulator deployment is never described as reading the live machine', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
-    serve({ kind: 'va', capabilities: ['make plots'] });
+    serve({ kind: 'simulator', capabilities: ['make plots'] });
     startTour();
 
     // The one claim the derivation exists to prevent.
     expect(cardBody()).not.toContain('live machine');
+  });
+
+  test('a rehearsal deployment reads the rehearsal copy, never the live machine', () => {
+    document.body.innerHTML = '<div class="terminal-card"></div>';
+    serve({ kind: 'rehearsal' });
+    startTour();
+
+    expect(cardBody()).toContain('read values from the rehearsal copy');
+    expect(cardBody()).not.toContain('live machine');
+  });
+
+  test('the target step quotes the chip in its own words and names all three kinds', () => {
+    mountFullShell();
+    find('.ctc-short').textContent = 'Rehearsal';
+    find('.ctc-state').textContent = 'writes off';
+    startTour();
+    click(nextBtn()); // → Your control target
+    vi.advanceTimersByTime(200);
+
+    const body = document.querySelector('.tour-body')?.textContent ?? '';
+    expect(body).toContain('currently on Rehearsal — writes off.');
+    for (const word of ['real machine', 'rehearsal', 'simulator']) expect(body).toContain(word);
+    expect(body).toContain('turn writes on or off');
+    expect(body).not.toMatch(/stand-in|sandbox|LIVE MACHINE/i);
   });
 
   test('a session on no known machine gets no read phrase', () => {
@@ -433,7 +457,7 @@ describe('prompt chips', () => {
   }
 
   test('the chips are first contact\'s starter prompts, in its order', () => {
-    serve({ kind: 'va', logbook: true });
+    serve({ kind: 'simulator', logbook: true });
     reachTryIt();
 
     expect(chipTexts()).toEqual(starterPrompts());
@@ -453,7 +477,7 @@ describe('prompt chips', () => {
 
     // The chip settles on a machine while the tour is already open; going back
     // and forward re-renders the card, and the offer follows.
-    chipKind.value = 'live';
+    chipKind.value = 'real';
     click('.tour-nav .tour-btn.ghost'); // Back
     click(nextBtn());
     vi.advanceTimersByTime(200);
@@ -463,7 +487,7 @@ describe('prompt chips', () => {
 
   test('in Simple view the chip reaches the visible input, not the hidden terminal', () => {
     document.documentElement.setAttribute('data-ui-mode', 'simple');
-    serve({ kind: 'live' });
+    serve({ kind: 'real' });
     reachTryIt();
     // The Simple view's one prompt input, alongside the tour's own anchor.
     document.body.insertAdjacentHTML(
