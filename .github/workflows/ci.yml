@@ -55,20 +55,14 @@ on:
 
 # Model-spending lanes: `full-ci` on a pull request, on demand on main.
 #
-# These jobs drive real Claude sessions through the ALS-APG gateway:
-# agentic-per-preset (x2), e2e-tests, dispatch-deploy-e2e,
-# single-user-narrowing-e2e, dispatch-overlay-e2e, scan-agentic-e2e,
-# nextcloud-talk-bridge-e2e, gchat-bridge-e2e, target-switch-agentic-e2e.
-# The list is the whole set, and tests/deployment/test_ci_workflow_wiring.py
-# holds it against the workflow. Measured on the gateway ledger for the week of
-# 2026-09-01: the full set costs about $15 per run and ran on every push of
-# every same-repo PR -- ~150 runs a week, ~$2,300, on pace for $10k a month,
-# 95% of everything the group spends on models. Two things drive that and
-# neither is a test that should go away: cost scales as turns x context
-# (an Opus diagnostic session re-reads ~100k cached tokens per turn, 50
-# turns), and volume -- ~10 PRs a day at ~2.2 pushes each.
+# These jobs drive real Claude sessions through the ALS-APG gateway. The set
+# is SPENDING_LANES in tests/deployment/test_ci_workflow_wiring.py, which
+# holds it against the workflow's secret-bearing jobs. Their cost scales as turns x context (an
+# Opus diagnostic session re-reads its cached context every turn) times push
+# volume, and neither driver is a test that should go away. The measured cost
+# is recorded in docs/source/contributing/workflow.rst, "Model-Spending Lanes".
 #
-# So the lever is WHEN, not WHAT. Each of these lanes now runs on exactly
+# So the lever is WHEN, not WHAT. Each of these lanes runs on exactly
 # two events, spelled out in its `if:` in this order:
 #
 #   1. a same-repo, non-Dependabot pull request carrying the `full-ci`
@@ -82,10 +76,9 @@ on:
 # with nobody watching, and its red reaches nobody: a lane that only runs
 # when someone asked for it has a person waiting on the result.
 #
-# Path filtering was measured and rejected: over the 161 PRs merged in the
-# two weeks before this landed, 86-91% touched something under src/ that
-# the broad lanes cover (templates alone in two of three), so a filter map
-# would have saved about a fifth and needed maintaining. The label is the
+# Path filtering does not pay: most PRs touch something under src/ the broad
+# lanes cover (templates alone in most), so a filter map would save little and
+# need maintaining (workflow.rst, "Model-Spending Lanes"). The label is the
 # whole mechanism.
 #
 # What this trades: an unlabeled PR merges on the always-on lanes plus the
@@ -95,11 +88,11 @@ on:
 # The stop-loss behind all of this is on the gateway key itself
 # (`osprey-github-ci`: a daily budget; the CI goes red, not the invoice).
 
-# One live CI run per ref. Without this, every push left its predecessor's
+# One live CI run per ref. Without it, every push leaves its predecessor's
 # full job matrix queued rather than cancelled, and on an account whose
-# concurrent-job allowance is already saturated those dead runs sat ahead of
-# the live one in line: measured over 71 PR runs, 35% were
-# superseded-but-still-running ghosts holding 31% of all CI wall-clock.
+# concurrent-job allowance is saturated those superseded runs sit ahead of
+# the live one in line (workflow.rst, "Model-Spending Lanes", records how
+# much of the CI wall-clock those runs held).
 #
 # Grouping, by event:
 #   pull_request     one group per PR number — a new push to the branch
@@ -295,8 +288,8 @@ jobs:
         # no coverage, so it is set once for the matrix rather than branched.
         COVERAGE_CORE: sysmon
         # Scratch files on the runner's disk, not under /tmp. On the Ubuntu
-        # 26.04 image (ubuntu-latest since 2026-10-22) /tmp is a RAM-backed
-        # tmpfs with a per-user quota of ~6.3 GB (actions/runner-images#14777).
+        # 26.04 image /tmp is a RAM-backed tmpfs with a per-user quota of
+        # ~6.3 GB (actions/runner-images#14777).
         # This lane's ~120 real `osprey build`s each install the full
         # dependency tree into a project venv under pytest's basetemp, and
         # uv's cache lives on the disk, so on tmpfs every venv is a ~2 GB copy
@@ -326,7 +319,7 @@ jobs:
       # blackout. test_ci_workflow_wiring.py pins the two together.
       #
       # -n 4 --dist loadgroup (pytest-xdist): the cross-test global-state
-      # bleed this lane used to flake on under -n (stdlib subprocess.run
+      # bleed that makes this lane flake under -n (stdlib subprocess.run
       # monkeypatches, loguru sink reconfiguration) is file-local, so pinning
       # every file to a single worker is what makes results
       # placement-invariant. Stock loadgroup does NOT do that on its own — it
@@ -389,7 +382,7 @@ jobs:
         # hang, and it is deliberately not the ini option above. Without a cap,
         # a single wedged test is indistinguishable from "still running" until
         # the 40-minute step cap cancels the job — which truncates the log, so
-        # the run ends with no name for the test that hung (#743). Ten minutes
+        # the run ends with no name for the test that hung. Ten minutes
         # is chosen to clear a cold container image pull: the files in the one
         # sanctioned xdist group legitimately sit in one for minutes, so a
         # tighter cap would red them on a cold runner. They therefore need no
@@ -425,10 +418,8 @@ jobs:
         #
         # --durations=50: a per-cell slow-test ranking in every run is what
         # tells "one group of tests got expensive" apart from "the whole suite
-        # is uniformly slower on this runner". It settled the ubuntu-vs-macOS
-        # question once (#582: no runner gap, the profile is the same on both)
-        # and stays on so the next drift is diagnosable from the summary
-        # instead of by re-instrumenting the lane.
+        # is uniformly slower on this runner", so a drift is diagnosable from
+        # the summary instead of by re-instrumenting the lane.
         #
         # Teed into ci-diag/ rather than read from the job log: `gh run view
         # --log` returns a fraction of a 60k-line log, and the durations
@@ -1091,8 +1082,8 @@ jobs:
     - name: Build and check the packages
       run: python3 scripts/check.py run package
 
-    # The framework's own artifacts only, as when they were uploaded before
-    # the connectors and pyaml-cs-osprey wheels were built.
+    # The framework's own wheel and sdist only; the connectors and
+    # pyaml-cs-osprey wheels are built above to be checked, not kept.
     - name: Upload package artifacts
       uses: actions/upload-artifact@v7
       with:
@@ -1104,7 +1095,7 @@ jobs:
     name: Tier 0 — Static (preset YAML + builds, skill ↔ MCP-tool consistency, podman-compose parse)
     runs-on: ubuntu-latest
     # Matches the convention the other light lanes use. None of this job's work
-    # can hang in principle, but it now shells out to `osprey init`, `osprey
+    # can hang in principle, but it shells out to `osprey init`, `osprey
     # build` and a compose parse — new shapes for a job that otherwise inherits
     # the 6-hour default.
     timeout-minutes: 20
@@ -1521,9 +1512,7 @@ jobs:
       # `npm ci`, so this lane tests exactly the lockfile-pinned versions that
       # Dependabot's cooldown vetted — a fresh resolve would silently pull
       # newer releases. The lockfile is complete for every platform (all
-      # optional native bindings carry os/cpu fields); the old macOS-authored
-      # lock that omitted the Linux binding (npm/cli#4828) no longer
-      # reproduces on current npm. If an incomplete lock ever lands again,
+      # optional native bindings carry os/cpu fields), and if it is not,
       # `npm ci` fails loudly here rather than drifting. Regenerate the lock
       # by hand with `npm install --package-lock-only`, which resolves from
       # registry metadata and is platform-neutral by construction.
@@ -1789,13 +1778,13 @@ jobs:
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
       || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
-    # every full-stack docker deploy now lives in its own dedicated job, and
+    # every full-stack docker deploy lives in its own dedicated job, and
     # the channel-finder benchmarks live on the benchmark dispatch); a run past
     # the cap means a test is wedged on a dead endpoint or a leaked container
     # stack, and the useful signal is the timeout itself, not more runner time.
     # The cap also has to fit @flaky reruns stacking on one slow test: an
     # agentic test that legitimately takes ~8 minutes gets three attempts, so
-    # ~25 minutes of that test alone on top of the rest of its file (#824).
+    # ~25 minutes of that test alone on top of the rest of its file.
     timeout-minutes: 50
 
     steps:
@@ -1853,7 +1842,7 @@ jobs:
       # (see the job cap above): a step kill ends pytest before its FAILURES
       # section prints, so the cap must not be what a healthy-but-retried
       # run trips over. tests/e2e/conftest.py prints each failure's traceback
-      # the moment it happens so a kill can no longer erase it (#824).
+      # the moment it happens so a kill cannot erase it.
       timeout-minutes: 45
       # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
       # empty on push/PR triggers, so the full-suite command runs
@@ -1931,7 +1920,7 @@ jobs:
           # together in orm-roundtrip-e2e, where they run as sequential steps
           # so the stacks never contend for a host port.
           # --durations=30: which tests approach the step cap on their own —
-          # the data for deciding where reruns=2 has to become reruns=1 (#824).
+          # the data for deciding where reruns=2 has to become reruns=1.
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_plan_stack_agentic.py \
@@ -2250,9 +2239,8 @@ jobs:
     # tab "Run workflow", or `gh workflow run ci.yml -f run_benchmarks=true`):
     # this is a statistical quality benchmark (F1/perfect-match thresholds
     # over ~30 real LLM channel-finder queries, flaky-rerun-heavy), not a
-    # per-PR correctness gate. It used to run inside the shared e2e-tests
-    # lane on every PR (~4min of the lane); like every benchmark in this
-    # repo it is human-babysat — run it deliberately before a release or
+    # per-PR correctness gate. Like every benchmark in this repo it is
+    # human-babysat — run it deliberately before a release or
     # after touching the channel-finder/MCP code, and read the scores in the
     # job log. Deliberately NOT in all-checks-passed's needs — a
     # dispatch-gated job has no result on PR runs. This job is the intended
@@ -2491,8 +2479,7 @@ jobs:
       run: |
         cd hello-world-test
         # No `|| true`: this teardown is expected to succeed, and swallowing
-        # its exit code is how the retired verb here went unnoticed — a
-        # guaranteed usage error read as a clean no-op teardown.
+        # its exit code would read a usage error as a clean no-op teardown.
         uv run osprey down
 
   dispatch-deploy-e2e:
@@ -2690,11 +2677,10 @@ jobs:
   dispatch-overlay-e2e:
     name: Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (secrets unavailable on forks). This test
-    # previously ran inside the shared e2e-tests lane, where its full
-    # dispatcher/worker image build + deploy was the lane's single biggest
-    # time sink (~11min); it follows the same extraction pattern (and job
-    # shape) as dispatch-deploy-e2e.
+    # Only run on PRs from same repo (secrets unavailable on forks). Its own
+    # lane, in the same job shape as dispatch-deploy-e2e: the full
+    # dispatcher/worker image build + deploy would otherwise dominate
+    # e2e-tests.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
     # secrets. Revalidate with the `revalidate_secret_lanes` dispatch input.
     if: >-
@@ -2913,10 +2899,9 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors bluesky-deploy-e2e gating). This
     # job needs no secrets — neither the bridge nor the virtual accelerator
-    # shells out to an LLM. Phase-1 bug fix: this test previously had no
-    # dedicated job and was only ever swept into e2e-tests' glob (the
-    # secret-gated LLM lane), contradicting its own docstring ("never
-    # collected by the fast lane"). This job is that missing lane.
+    # shells out to an LLM. Its own lane, not e2e-tests' glob (the
+    # secret-gated LLM lane): its docstring says it is never collected by the
+    # fast lane.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # The VA image build + `osprey up` inside the test carry their own
     # generous internal timeouts (5min build, 20min deploy-up) to absorb a
@@ -2981,10 +2966,9 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors va-substrate-equivalence-e2e
     # gating). This job needs no secrets — both roundtrips drive the bridge
-    # HTTP API directly, no LLM involved. It previously ran inside the
-    # shared e2e-tests lane (its ~7min full VA/bridge/Tiled build + deploy
-    # was the lane's second-biggest time sink); same extraction pattern as
-    # every other dockerbuild-marked file.
+    # HTTP API directly, no LLM involved. Its own lane, like every other
+    # dockerbuild-marked file: the ~7 min VA/bridge/Tiled build + deploy
+    # would otherwise dominate e2e-tests.
     #
     # Four modules, run as SEQUENTIAL steps rather than one pytest
     # invocation. The ORM and grid-scan roundtrips both stand up their own VA
@@ -2997,14 +2981,15 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
-    # cold image cache can't red the job. Raised from 45 when the grid-scan
-    # roundtrip joined. Each module's own internal caps, wire to wire: 300s
+    # cold image cache can't red the job. The cap covers three
+    # build/deploy/teardown modules (ORM, grid scan, orbit bump) plus the
+    # preflight probe. Each module's own internal caps, wire to wire: 300s
     # build + 1200s deploy + 300s health + its scan + a 300s `osprey down`
     # in the teardown, and flaky(reruns=1) repeats the SCAN only (the module
     # fixtures survive a rerun, so no second build/deploy) — 2580s for ORM
-    # (240s scan) and 2340s for grid (120s scan), ~82min if both ran every
-    # timeout to the wire. Raised from 75 when the orbit-bump roundtrip
-    # joined, which adds a third build/deploy/teardown plus its own 600s scan.
+    # (240s scan) and 2340s for grid (120s scan), ~82min for those two if
+    # both ran every timeout to the wire, and the orbit bump adds a third
+    # build/deploy/teardown plus its own 600s scan.
     #
     # 100 is therefore deliberately NOT that pathological sum: it bounds the
     # realistic run, where the later modules reuse the first's images and
@@ -4046,10 +4031,10 @@ jobs:
     # A THIRD image build lives here too: the audit two-container mechanism
     # module (second pytest step below) builds the hello-world preset cold —
     # nothing on an ephemeral runner shares a layer cache with dockerfile-e2e,
-    # which runs on its own runner. Hence 120 rather than 90: the two steps
-    # carry 85 + 35 of their own, and only a pathological run spends both.
-    # The job's `name:` is deliberately unchanged even though it now runs two
-    # modules — it is the check name a branch-protection rule matches on.
+    # which runs on its own runner. Hence 120: the two steps carry 85 + 35 of
+    # their own, and only a pathological run spends both. The job's `name:`
+    # names the first module only because it is the check name a
+    # branch-protection rule matches on.
     timeout-minutes: 120
     # Same PR scoping as dockerfile-e2e: same-repo PRs, any base. Unlike the
     # lifecycle lanes this touches nothing host-global — every image and
@@ -4702,15 +4687,14 @@ jobs:
   terminal-auth-multiuser-e2e:
     name: Terminal Auth Multi-User E2E (auth.method token + none, real render image)
     runs-on: ubuntu-latest
-    # Raised from the 60 this lane carried while it stood up ONE deployment.
-    # What the second posture adds is a second render and a second `osprey up`
-    # — NOT a second image build, which the two lanes share — plus a third
-    # container to boot and the in-container guard probe. Measured on a
-    # developer machine with a warm layer cache: 6m55s for the whole module,
-    # of which the second deployment and its four assertions were well under a
-    # minute. That number does not size the cap on its own, because the runner
-    # builds cold and its neighbours measure a single such build at 7-11
-    # minutes; the +10 here is that estimate plus headroom, and the first cold
+    # Two deployments (token + none postures) share one image build; the
+    # second adds a render, an `osprey up`, a third container and the guard
+    # probe. Measured on a developer machine with a warm layer cache: 6m55s
+    # for the whole module, of which the second deployment and its four
+    # assertions were well under a minute. That number does not size the cap
+    # on its own, because the runner builds cold and its neighbours measure a
+    # single such build at 7-11 minutes; the +10 over a one-deployment lane's
+    # 60 is that estimate plus headroom, and the first cold
     # runner wall clock should be recorded in the PR body so the margin gets
     # resized from a measurement rather than from this estimate. Stays under
     # full-chain-auth-e2e's 85/75, which the sibling relation
@@ -5677,14 +5661,13 @@ jobs:
     # reads back a number. No LLM is called anywhere in either module. The
     # agent-driven half of this feature is a separate, secret-gated lane.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    # Measured once on this branch rather than guessed, on an Apple Silicon
+    # Measured rather than guessed, on an Apple Silicon
     # host where BOTH images are pinned linux/amd64 and therefore emulated:
     #   - virtual accelerator image, cold (`--no-cache`):     226 s
     #   - bench IOC image, cold, base layers already resident:  1 s
     #   - the three test modules, images already built:       214 s
     #     (54 tests, 0 skipped, one pytest invocation — the same invocation
-    #      the run step below makes. 147 s of it was the first two modules,
-    #      measured alone before the live-stand-in module joined the lane.)
+    #      the run step below makes.)
     # i.e. 7.4 min end to end on the slowest machine this work has run on.
     # GitHub's runners are amd64-native, so every container second above is
     # emulation this lane will not pay; the honest direction of the error is
