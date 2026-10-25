@@ -32,7 +32,9 @@ real server shows:
                     listening socket, so the next connection is refused.
 ==================  ==========================================================
 
-``models_gets`` and ``embeddings`` count what reached the server.
+``requests`` lists the (method, path) of every request that reached the server,
+recorded before any stall; ``models_gets`` and ``embeddings`` count what was
+answered.
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ class LlamaStub:
         self.short: int | None = None
         self.zero_calls: set[int] = set()
         self.refuse_after: int | None = None
+        self.requests: list[tuple[str, str]] = []
         self.models_gets = 0
         self.embeddings: list[dict[str, Any]] = []
         self._release = threading.Event()
@@ -104,6 +107,8 @@ class LlamaStub:
                 stub._release.wait()
 
             def do_GET(self) -> None:
+                with stub._lock:
+                    stub.requests.append((self.command, self.path))
                 if stub.silent:
                     self._stall()
                     return
@@ -121,6 +126,8 @@ class LlamaStub:
                 self._send(200, body)
 
             def do_POST(self) -> None:
+                with stub._lock:
+                    stub.requests.append((self.command, self.path))
                 length = int(self.headers.get("Content-Length") or 0)
                 request = json.loads(self.rfile.read(length) or b"{}")
                 if stub.silent:
