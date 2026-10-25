@@ -845,7 +845,16 @@ def test_a_note_counting_presets_goes_red(note):
     assert "cli.theme" in details(guard)
 
 
-@pytest.mark.parametrize("note", ["Commented in the presets.", "Present in every root preset."])
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Commented in the presets.",
+        "Present in every root preset.",
+        "no two presets state it",
+        "at least two presets stating",
+        "fewer than two presets",
+    ],
+)
 def test_a_note_naming_the_presets_without_a_count_stays_green(note):
     def name_the_presets(manifest):
         manifest["keys"]["cli.theme"]["note"] = note
@@ -853,6 +862,54 @@ def test_a_note_naming_the_presets_without_a_count_stays_green(note):
     guard = make_guard(name_the_presets)
     guard.check_preset_counts()
     assert guard.result.ok, details(guard)
+
+
+def _copy_preset_pages(root: Path, pages: tuple[str, ...]) -> None:
+    for rel in pages:
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / rel, target)
+
+
+@pytest.mark.parametrize("rel", guard_module.PRESET_PROSE_FILES)
+def test_a_page_counting_presets_goes_red(tmp_path, rel):
+    """A page that describes presets is read by the same check as the manifest."""
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(
+        page.read_text(encoding="utf-8") + "\nPresent in the two presets.\n", encoding="utf-8"
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert "preset-count" in modes(guard)
+    assert f"{rel}:" in details(guard)
+
+
+def test_a_count_wrapped_across_lines_goes_red(tmp_path):
+    """Markdown wraps; a count split by a line break is still a count."""
+    rel = "scripts/config_key_parity.md"
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    text = page.read_text(encoding="utf-8") + "\nMust appear in both shipped\nroot presets.\n"
+    page.write_text(text, encoding="utf-8")
+    line = text.splitlines().index("Must appear in both shipped") + 1
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert "preset-count" in modes(guard)
+    assert f"{rel}:{line} " in details(guard)
+
+
+def test_a_missing_preset_page_goes_red(tmp_path):
+    """The guard names the pages it reads; a moved page must move the guard too."""
+    present, missing = guard_module.PRESET_PROSE_FILES
+    _copy_preset_pages(tmp_path, (present,))
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert "preset-count" in modes(guard)
+    assert missing in details(guard)
 
 
 def test_dangling_covered_by_chain_goes_red():

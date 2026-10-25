@@ -38,7 +38,7 @@ Failure modes
                          matrix produces is stale, or missing
 10. ``layout``           a ``default:`` line stranded below a comment block
                          instead of sitting inside the entry it belongs to
-11. ``preset-count``     manifest prose that counts presets
+11. ``preset-count``     manifest prose, or a page that describes presets, that counts them
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -109,6 +109,10 @@ REQUIRED_SECTIONS = ("keys", "deleted", "orphan_sites", "render_contexts")
 EVIDENCE_ROOTS = ("src/osprey", "packages/osprey-connectors/src/osprey_connectors")
 PRESET_DIR = "src/osprey/profiles/presets"
 
+#: The pages that describe the presets; ``preset-count`` reads them beside the
+#: manifest's prose. A missing page fails the check, so a moved page moves here.
+PRESET_PROSE_FILES = ("scripts/config_key_parity.md", "docs/source/how-to/build-profiles.rst")
+
 #: The union's non-preset half: the framework template's renders, under one
 #: name so a failure can say which side of the config a key came from.
 FRAMEWORK_SOURCE = "framework"
@@ -135,8 +139,11 @@ PANEL_PORT_MARKER = "osprey:panel-port"
 PANEL_PORT_MARKER_RE = re.compile(rf"{re.escape(PANEL_PORT_MARKER)}\s+([A-Za-z0-9_-]+)")
 
 # A number, or "both", within two words before "preset(s)". A quantifier such
-# as "every root preset" passes: it stays true as presets are added.
+# as "every root preset" passes: it stays true as presets are added. So does a
+# threshold ("no two", "at least two", "fewer than two"), which states a rule
+# rather than how many presets ship.
 PRESET_COUNT_RE = re.compile(
+    r"(?<!\bno\s)(?<!\bleast\s)(?<!\bthan\s)"
     r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
     r"(?:\s+[\w`'-]+){0,2}?\s+presets?\b",
     re.I,
@@ -1219,12 +1226,15 @@ class ConfigKeyGuard:
                 comment = None
 
     def check_preset_counts(self) -> None:
-        """Manifest prose never counts presets.
+        """Manifest prose and the preset pages never count presets.
 
         ``render_contexts.presets`` and the preset files state how many presets
         ship; a number, or "both", in a note restates that fact and goes false
         when a preset is added or removed. Every string scalar is read except
-        ``evidence`` and ``regex`` values, which are patterns, not prose. A
+        ``evidence`` and ``regex`` values, which are patterns, not prose. The
+        pages in ``PRESET_PROSE_FILES`` (``scripts/config_key_parity.md`` and
+        ``docs/source/how-to/build-profiles.rst``) are read whole, so a count
+        wrapped across a line break is still found; a missing page fails. A
         quantifier such as "every root preset" stays true and passes.
         """
         for path, text in _prose_strings(self.manifest, ()):
@@ -1234,6 +1244,19 @@ class ConfigKeyGuard:
                     "preset-count",
                     f"{'.'.join(path)} counts presets ({match.group(0)!r}); the "
                     f"presets list in render_contexts.presets is the count's one home",
+                )
+        for rel in PRESET_PROSE_FILES:
+            page = self.root / rel
+            if not page.is_file():
+                self.fail("preset-count", f"{rel} is missing; the preset-count check reads it")
+                continue
+            text = page.read_text(encoding="utf-8")
+            for match in PRESET_COUNT_RE.finditer(text):
+                line = text.count("\n", 0, match.start()) + 1
+                self.fail(
+                    "preset-count",
+                    f"{rel}:{line} counts presets ({match.group(0)!r}); the presets "
+                    f"list in render_contexts.presets is the count's one home",
                 )
 
     def check_branch_self_test(self) -> None:
