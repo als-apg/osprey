@@ -39,6 +39,10 @@
   <!-- marked.js (markdown rendering) -->
   <script src="{{ vendor_url('marked', '/static/js/vendor/marked.min.js') }}"></script>
 
+  <!-- DOMPurify: md-render.js sanitizes every markdown render with it before
+       innerHTML; without it the preview shows the markdown as plain text -->
+  <script src="{{ vendor_url('DOMPurify', '/static/js/vendor/purify.min.js') }}"></script>
+
   <!-- KaTeX (math/equation rendering for markdown artifacts) -->
   <link rel="stylesheet" href="{{ vendor_url('KaTeX CSS', '/static/css/vendor/katex.min.css') }}">
   <script defer src="{{ vendor_url('KaTeX JS', '/static/js/vendor/katex.min.js') }}"></script>
