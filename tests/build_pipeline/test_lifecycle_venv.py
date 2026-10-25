@@ -3,7 +3,8 @@
 The profile reference states the contract: in ``post_build`` and ``validate``
 the project venv's ``bin/`` leads ``PATH``, so ``python`` is the project's own
 interpreter; ``pre_build`` runs before that venv exists, and under
-``--skip-deps`` no step gets one. Every step sees the repository's env chain.
+``--skip-deps`` no step gets one. ``post_build`` and ``validate`` steps see the
+repository's env chain, secrets in ``.env`` included; so do ``pre_build`` steps.
 
 Each build here runs in process with the install replaced by a stub that writes
 a ``bin/python`` into the directory it is handed, so the venv a step sees is
@@ -36,6 +37,22 @@ PHASES = ("pre_build", "post_build", "validate")
 
 #: A key the env chain carries and the shell-only list does not name.
 PROBE_KEY = "LIFECYCLE_PROBE"
+
+#: The profile reference's sentence on the env chain, which
+#: ``test_steps_see_the_repo_env_chain`` proves.
+ENV_CHAIN_SENTENCE = (
+    "``post_build`` and ``validate`` steps see the repository's env chain, ``.env`` "
+    "over ``.env.shared``, secrets in ``.env`` included; so do ``pre_build`` steps."
+)
+
+PROFILE_REFERENCE = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "source"
+    / "reference"
+    / "configuration"
+    / "profile.rst"
+)
 
 
 class _Repo:
@@ -143,3 +160,9 @@ def test_steps_see_the_repo_env_chain(lifecycle_repo: _Repo) -> None:
 
     for phase in PHASES:
         assert lifecycle_repo.environment(phase).get(PROBE_KEY) == "1", phase
+
+
+def test_the_profile_reference_states_the_env_chain_the_steps_see() -> None:
+    reference = " ".join(PROFILE_REFERENCE.read_text(encoding="utf-8").split())
+
+    assert ENV_CHAIN_SENTENCE in reference
