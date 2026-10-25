@@ -668,7 +668,7 @@ def test_start_unarmed_503_passes_through_with_its_code() -> None:
 def test_start_token_mismatch_403_passes_through_with_its_code() -> None:
     refusal = {
         "detail": {
-            "code": "launch_token_required",
+            "code": "launch_token_invalid",
             "detail": "the supplied launch token does not match this bridge",
             "manager_state": "executing_queue",
         }
@@ -680,7 +680,7 @@ def test_start_token_mismatch_403_passes_through_with_its_code() -> None:
 
     assert response.status_code == 403
     assert response.json() == refusal
-    assert response.json()["detail"]["code"] == "launch_token_required"
+    assert response.json()["detail"]["code"] == "launch_token_invalid"
 
 
 def test_abort_relays_the_bridge_success_body_verbatim() -> None:

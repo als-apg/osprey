@@ -1005,6 +1005,7 @@ describe('classifyQueueRefusal', () => {
 
   test('a coded refusal is a warning; an uncoded failure is an error', () => {
     expect(refusalTone('launch_token_required')).toBe('warn');
+    expect(refusalTone('launch_token_invalid')).toBe('warn');
     expect(refusalTone(null)).toBe('err');
   });
 
@@ -2713,7 +2714,7 @@ describe('booting the shipped bundle', () => {
           ok: false,
           status: 403,
           json: async () => ({
-            detail: { code: 'launch_token_required', detail: 'no token', manager_state: 'idle' },
+            detail: { code: 'launch_token_invalid', detail: 'no token', manager_state: 'idle' },
           }),
         }))
       );
