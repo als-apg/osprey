@@ -129,6 +129,10 @@ class ChannelWriteBlockedError(Exception):
     )
     _VALID_REASONS = tuple(_REFUSERS)
 
+    #: The addresses whose results were not refused, in order, when a batch of
+    #: commands raised this; ``None`` when no batch writer set it.
+    commands_fired: list[str] | None = None
+
     @classmethod
     def refuser(cls, reason: str | None) -> str | None:
         """Return who refused a write for ``reason``, or None when no one is known."""
@@ -222,6 +226,10 @@ class ChannelWriteFailedError(Exception):
     """
 
     _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
+
+    #: The addresses whose results were not refused, in order, when a batch of
+    #: commands raised this; ``None`` when no batch writer set it.
+    commands_fired: list[str] | None = None
 
     def __init__(
         self,

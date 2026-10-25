@@ -9,13 +9,16 @@ a ``pyaml_measure`` run hold on their control target, so two runs never drive
 one machine at once. No other write path takes part.
 :ref:`Guarded Runs <architecture-safety-chain-guarded-run>` places it among
 the write paths and says what it does not cover. This page is the exact
-behaviour: where the lock lives, who holds it, what a second run is told, and
-what a stopped run leaves.
+behaviour: where the lock lives, who holds it, whose run its record names,
+what a second run is told, the one write the lock itself gates, and what a
+stopped run leaves.
 
 Every write made under the lock is an ordinary write. It goes through the
 connector like any other, so the kill switch, the limits check and the
 control-target check of :doc:`/architecture/safety-chain` all apply to it. The
 lock adds no check of its own to those writes; it replaces none of them.
+`The command write`_ is the exception that adds: its own checks come on top of
+the connector's, never instead of them.
 
 One run per target
 ==================
@@ -30,7 +33,8 @@ contends for the same lock.
 
 The lock is taken without waiting and held until the run ends. A second run
 on the same target, of either kind, is refused before it starts, with the
-process id of the holder and the time it took the lock. A read-only run is
+holder's process id, the time it took the lock, whose run it is, its target
+and the name it writes under. A read-only run is
 refused before the lock is taken.
 
 Who holds it
@@ -43,6 +47,24 @@ Who holds it
 - ``pyaml_cs_osprey.run_tool``, which runs every pyAML tool of a measurement,
   runs under the lock the process already holds, and takes it when the process
   holds none.
+
+Whose run it is
+===============
+
+A run takes the lock with a record of whose run it is: the target it drives,
+the account it acts for (or nobody) and the target it was admitted on. A
+record whose target or admitted target is not the target the lock resolves to
+is refused before anything is opened, so a run is never admitted on one target
+and driven on another. Joining the process's hold with no record runs under
+the held one; joining with a different record is refused.
+
+- A read-write ``execute`` or ``execute_file`` run fills the record once, as
+  its sandbox starts: the stamped target, the account the write path names
+  (nobody when it names none) and that same target as the admitted one, which
+  the executor checked before it started the sandbox. Nothing about the
+  sandbox's writes changes.
+- A service that takes the lock itself fills it from its own admission of
+  the action: its target and the owner that admitted it.
 
 The process holds it
 ====================
@@ -71,16 +93,46 @@ directory or at the file. A link, a hard link, a FIFO or anything else that is
 not such a file is refused with its path named: the run does not start, and
 nothing is read or written through it.
 
-While a run holds the lock, the file records its holder, ``{"pid", "started"}``;
-the record is emptied on release. A created lock file has mode ``0o664``, and
-each created directory ``0o2775``, setgid, so every identity of the deployment
+While a run holds the lock, the file records its holder,
+``{"pid", "started", "owner", "target", "identity"}``: the process, the time it
+took the lock, the account the run acts for (``null`` for nobody), the target,
+and the name the process writes under on the control system, from
+``OSPREY_CONTROL_IDENTITY`` (``null`` when it sets none). The record is
+emptied on release. A created lock file has mode ``0o664``, and each created
+directory ``0o2775``, setgid, so every identity of the deployment
 sharing its group can take the lock. The directory holds no file but
 ``run.lock``.
 
 The approval prompt never opens this directory: it binds the call to its target
 (``approved_target``) and asks. Only the run refuses a held target, before its
 code starts and with nothing moved:
-``another guarded run is live under <directory> (pid <pid>, since <time>)``.
+``another guarded run is live under <directory> (pid <pid>, since <time>,
+owner <owner>, target <target>, identity <identity>)``, each field reading
+``unknown`` when the holder's record does not name it.
+
+The command write
+=================
+
+A command is a setpoint whose write acts and holds no setting: arming a
+monitor, requesting a shot. ``command_write(connector, addresses, value, *,
+commands)`` fires one value at a batch of them, and is the one write the lock
+itself gates. The whole batch is refused, before anything is written, unless
+every one of these holds:
+
+- this process holds a run lock with a record of whose run it is;
+- the account the write path names is that record's account, and the record
+  names one;
+- the connector's control target is the record's target;
+- the connector carries an enforcing limits validator, not the fail-safe one
+  that stands in for a limits file that could not be read;
+- every address is one of ``commands``, resolves ``confirm: false``, and
+  passes the validator.
+
+The batch then goes out as one write through the connector, which checks it
+as it checks any write, and each result is raised as a refused or failed
+write like any other. The call returns the addresses fired. A write error
+carries ``commands_fired``: the addresses whose results were not refused,
+the commands that went out.
 
 What the lock does not do
 =========================
