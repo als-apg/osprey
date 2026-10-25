@@ -65,7 +65,7 @@ def _isolate_launch_env(monkeypatch):
 def _stub_launch(monkeypatch) -> None:
     """Stop a passing pre-flight from starting a real server."""
     monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+    monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
 
 def _invoke(runner, deployment, *extra):

@@ -501,7 +501,7 @@ def test_a_repo_with_no_render_exports_nothing(tmp_path: Path) -> None:
     [
         ("chat_cmd", "_overlay_repo_env(repo_root)\n"),
         ("query_cmd", "_overlay_repo_env(repo_root)\n"),
-        ("web_cmd", "load_dotenv_from_project()\n"),
+        ("web_cmd", "load_dotenv_from_project(include_sensitive=True)\n"),
     ],
 )
 def test_every_host_launch_builder_exports_the_identity(module: str, anchor: str) -> None:
