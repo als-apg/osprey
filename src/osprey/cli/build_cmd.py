@@ -3205,12 +3205,12 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     Every input of the repo's own ``profile.yml`` as
     :func:`~osprey.cli.build_profile_merge.profile_inputs` lists them: that
     ``profile.yml``, which every repo-scoped verb finds the deployment by, the
-    repo-local ``extends`` files it reads, the file material the stamp folds
-    and the selected host-variant overlay. Every image's
-    ``creation.preset_hash`` is taken over that one profile
-    (:func:`_relocate_container_manifest`), so one set serves the deployment's
-    image and every tier's and app's. A path outside the repo is not staged, so
-    it is not returned.
+    ``extends`` files it reads, the file material the stamp folds and the
+    selected host-variant overlay. Every image's ``creation.preset_hash`` is
+    taken over that one profile (:func:`_relocate_container_manifest`), so one
+    set serves the deployment's image and every tier's and app's. Every input
+    lies under the repository root; the profile loader refuses one that does
+    not.
     """
     from .build_profile_document import _read_profile_document
     from .build_profile_merge import profile_inputs, resolve_profile_document
@@ -3222,13 +3222,7 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     paths = [entry.path for entry in profile_inputs(profile_path, document)]
 
     root = repo_root.resolve()
-    inputs: list[Path] = []
-    for path in paths:
-        try:
-            inputs.append(path.resolve().relative_to(root))
-        except ValueError:
-            continue
-    return inputs
+    return [path.resolve().relative_to(root) for path in paths]
 
 
 def _render_container_project(
