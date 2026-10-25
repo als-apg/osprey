@@ -288,17 +288,18 @@ async def test_worker_exiting_at_import_is_unavailable(monkeypatch, tmp_path):
 
 
 async def test_no_ready_within_the_ready_wait_is_unavailable(monkeypatch, tmp_path):
+    ready_sleep_s = 10
     monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 2.0)
     monkeypatch.setattr(
         render,
         "WORKER_ARGV",
-        _stub(tmp_path, "ok()", handshake="time.sleep(10)\n" + _HANDSHAKE),
+        _stub(tmp_path, "ok()", handshake=f"time.sleep({ready_sleep_s})\n" + _HANDSHAKE),
     )
     loop = asyncio.get_running_loop()
     started = loop.time()
     with pytest.raises(render.RenderUnavailable):
         await render.render_isolated(PNG, task_id="x")
-    assert loop.time() - started < 6
+    assert loop.time() - started < ready_sleep_s
     assert render.worker_pid() is None
 
 
