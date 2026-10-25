@@ -177,6 +177,25 @@ describe('renderPreview: per-type viewport dispatch', () => {
     expect(document.querySelector('.preview-viewport iframe.preview-iframe-light')).not.toBeNull();
   });
 
+  test('an opaque artifact previews in a frame without allow-same-origin', () => {
+    setSelectedArtifact(makeArtifact({ artifact_type: 'html', mime_type: 'text/html' }));
+    const renderer = createPreviewRenderer(makeCallbacks());
+    renderer.renderPreview();
+
+    const sandbox = qs(document, '.preview-viewport iframe').getAttribute('sandbox') ?? '';
+    expect(sandbox.split(/\s+/).sort()).toEqual(
+      ['allow-downloads', 'allow-modals', 'allow-popups', 'allow-scripts']
+    );
+  });
+
+  test('a PDF previews in a frame with no sandbox attribute', () => {
+    setSelectedArtifact(makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' }));
+    const renderer = createPreviewRenderer(makeCallbacks());
+    renderer.renderPreview();
+
+    expect(qs(document, '.preview-viewport iframe').hasAttribute('sandbox')).toBe(false);
+  });
+
   test('a fully unrecognized type falls back to a download link', () => {
     setSelectedArtifact(makeArtifact({ artifact_type: 'mystery', filename: 'blob.bin' }));
     const renderer = createPreviewRenderer(makeCallbacks());

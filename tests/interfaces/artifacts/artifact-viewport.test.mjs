@@ -47,6 +47,7 @@ import {
   renderMarkdownView,
   renderJsonView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/preview-content.js';
+import { thumbnailHtml } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 import { qs } from '../_support/dom.mjs';
 
 /** @returns {any} */
@@ -115,6 +116,66 @@ describe('artifactViewportHtml: embedded pages carry the gallery theme', () => {
 
     expect(qs(container, 'img').getAttribute('src')).not.toContain('theme=');
   });
+});
+
+// C-OPAQUE / C-MSG: an iframe of a type the server serves sandboxed carries the
+// same token set as its `sandbox` attribute (the two intersect, and printing
+// needs `allow-modals` in both); never `allow-same-origin`, which would hand
+// agent-written script the console's origin. Inert types (PDF, text) carry no
+// attribute at all -- Chrome's PDF viewer does not render sandboxed.
+const OPAQUE_TOKENS = ['allow-downloads', 'allow-modals', 'allow-popups', 'allow-scripts'];
+
+/** @param {Element} el */
+function sandboxTokens(el) {
+  return (el.getAttribute('sandbox') ?? '').split(/\s+/).filter(Boolean).sort();
+}
+
+describe('artifactViewportHtml: iframe sandbox follows the served type', () => {
+  test.each([
+    ['plot_html', 'text/html'],
+    ['table_html', 'text/html'],
+    ['dashboard_html', 'text/html'],
+    ['html', 'text/html'],
+    ['html', undefined],
+    ['notebook', 'application/x-ipynb+json'],
+  ])('artifact_type "%s" (%s) is framed with exactly the C-OPAQUE tokens', (artifact_type, mime_type) => {
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(makeArtifact({ artifact_type, mime_type }));
+
+    const frame = qs(container, 'iframe');
+    expect(sandboxTokens(frame)).toEqual(OPAQUE_TOKENS);
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
+  });
+
+  test('a PDF frame carries no sandbox attribute', () => {
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' })
+    );
+
+    expect(qs(container, 'iframe').hasAttribute('sandbox')).toBe(false);
+  });
+
+  test('a text frame (served text/plain whatever its own type) carries no sandbox attribute', () => {
+    const container = document.createElement('div');
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ artifact_type: 'text', mime_type: 'application/x-tex' })
+    );
+
+    expect(qs(container, 'iframe').hasAttribute('sandbox')).toBe(false);
+  });
+});
+
+describe('thumbnailHtml: card frames carry the same sandbox', () => {
+  test.each(['plot_html', 'table_html', 'dashboard_html', 'html', 'notebook'])(
+    'artifact_type "%s" card iframe has exactly the C-OPAQUE tokens',
+    (artifact_type) => {
+      const container = document.createElement('div');
+      container.innerHTML = thumbnailHtml(makeArtifact({ artifact_type, mime_type: 'text/html' }));
+
+      expect(sandboxTokens(qs(container, 'iframe'))).toEqual(OPAQUE_TOKENS);
+    }
+  );
 });
 
 describe('artifactViewportHtml: per-type dispatch', () => {

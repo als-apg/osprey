@@ -1,7 +1,8 @@
 /**
  * Unit tests for the Artifact Gallery print module (print.js): the pure
  * `esc`/`fmtTime`/`headerHtml` formatting helpers and `printArtifact`'s
- * artifact_type -> printer-strategy dispatch (iframe / image / timeseries).
+ * artifact_type -> printer-strategy dispatch (inert direct / opaque C-MSG
+ * handshake / image / timeseries).
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/artifacts/print.test.mjs
@@ -212,23 +213,20 @@ describe('printArtifact: guards and dispatch', () => {
     expect(alertSpy).toHaveBeenCalledWith(MSG_POPUP_BLOCKED);
   });
 
-  describe('iframe strategy (plot_html, table_html, dashboard_html, html, text, json, unknown)', () => {
+  describe('inert strategy (text, json, PDF): direct same-origin print', () => {
     test.each([
-      ['plot_html', '/files/a1/beam_profile.png?theme=light'],
-      ['table_html', '/files/a1/beam_profile.png?theme=light'],
-      ['dashboard_html', '/files/a1/beam_profile.png?theme=light'],
-      ['html', '/files/a1/beam_profile.png?theme=light'],
-      ['text', '/files/a1/beam_profile.png?theme=light'],
-      ['json', '/files/a1/beam_profile.png?theme=light'],
-      ['some_unrecognized_type', '/files/a1/beam_profile.png?theme=light'],
-    ])('%s opens the raw file URL pinned to the light theme in a sized popup and injects print-cleanup styles', (artifact_type, expectedUrl) => {
+      ['text', undefined],
+      ['json', 'application/json'],
+      ['some_unrecognized_type', 'application/pdf'],
+      ['some_unrecognized_type', 'text/csv; charset=utf-8'],
+    ])('%s (%s) opens the raw file URL pinned to the light theme and injects print-cleanup styles', (artifact_type, mime_type) => {
       const win = makeFakeWindow();
       const openSpy = vi.fn(() => win);
       vi.stubGlobal('open', openSpy);
 
-      printArtifact(makeArtifact({ artifact_type }));
+      printArtifact(makeArtifact({ artifact_type, mime_type }));
 
-      expect(openSpy).toHaveBeenCalledWith(expectedUrl, '_blank', 'width=900,height=700');
+      expect(openSpy).toHaveBeenCalledWith('/files/a1/beam_profile.png?theme=light', '_blank', 'width=900,height=700');
       expect(win.addEventListener).toHaveBeenCalledWith('load', expect.any(Function));
 
       win.fireLoad();
@@ -239,31 +237,167 @@ describe('printArtifact: guards and dispatch', () => {
       expect(style?.textContent).toContain('.modebar');
     });
 
-    test.each([
-      ['markdown', '/api/markdown/a1/rendered?theme=light'],
-      ['notebook', '/api/notebooks/a1/rendered?theme=light'],
-    ])('%s opens its server-rendered endpoint pinned to the light theme', (artifact_type, expectedUrl) => {
-      const win = makeFakeWindow();
-      const openSpy = vi.fn(() => win);
-      vi.stubGlobal('open', openSpy);
+    test('an already-loaded inert document prints once, synchronously', () => {
+      const win = makeFakeWindow({ readyState: 'complete' });
+      vi.stubGlobal('open', vi.fn(() => win));
 
-      printArtifact(makeArtifact({ artifact_type }));
+      printArtifact(makeArtifact({ artifact_type: 'text' }));
 
-      expect(openSpy).toHaveBeenCalledWith(expectedUrl, '_blank', 'width=900,height=700');
+      expect(win.print).toHaveBeenCalledTimes(1);
     });
 
-    test('a cross-origin document access failure during style injection is swallowed and printing still proceeds', () => {
+    test('a document access failure is swallowed and printing proceeds on load', () => {
       const win = makeFakeWindow();
-      // Force the try{} in onReady to throw, mirroring a cross-origin window.
-      Object.defineProperty(win.document, 'head', {
+      // Any document read throws, mirroring a window that is not same-origin.
+      Object.defineProperty(win, 'document', {
         get() { throw new DOMException('cross-origin', 'SecurityError'); },
       });
       vi.stubGlobal('open', vi.fn(() => win));
 
-      printArtifact(makeArtifact({ artifact_type: 'html' }));
+      expect(() => printArtifact(makeArtifact({ artifact_type: 'text' }))).not.toThrow();
       expect(() => win.fireLoad()).not.toThrow();
       expect(win.focus).toHaveBeenCalled();
       expect(win.print).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('opaque strategy (C-MSG handshake)', () => {
+    /**
+     * A popup on an opaque origin: only the cross-origin WindowProxy surface
+     * (postMessage, focus, close, closed). Touching `document` -- or calling
+     * print() on it from the gallery -- fails the test.
+     */
+    function makeOpaqueWindow() {
+      const win = {
+        postMessage: vi.fn(),
+        focus: vi.fn(),
+        close: vi.fn(),
+        closed: false,
+        print: vi.fn(),
+        addEventListener: vi.fn(),
+      };
+      Object.defineProperty(win, 'document', {
+        get() { throw new DOMException('Blocked a frame with origin "null"', 'SecurityError'); },
+      });
+      return win;
+    }
+
+    /**
+     * @param {any} source
+     * @param {any} data
+     */
+    function deliver(source, data) {
+      window.dispatchEvent(new MessageEvent('message', { source, origin: 'null', data }));
+    }
+
+    afterEach(() => { vi.useRealTimers(); });
+
+    test.each([
+      ['plot_html', 'text/html', '/files/a1/beam_profile.png?theme=light'],
+      ['table_html', 'text/html', '/files/a1/beam_profile.png?theme=light'],
+      ['dashboard_html', 'text/html', '/files/a1/beam_profile.png?theme=light'],
+      ['html', 'text/html', '/files/a1/beam_profile.png?theme=light'],
+      ['markdown', 'text/markdown', '/api/markdown/a1/rendered?theme=light'],
+      ['notebook', 'application/x-ipynb+json', '/api/notebooks/a1/rendered?theme=light'],
+      ['some_unrecognized_type', 'image/svg+xml', '/files/a1/beam_profile.png?theme=light'],
+      ['some_unrecognized_type', undefined, '/files/a1/beam_profile.png?theme=light'],
+    ])('%s (%s) opens %s and touches nothing but the WindowProxy before ready', (artifact_type, mime_type, url) => {
+      vi.useFakeTimers();
+      const win = makeOpaqueWindow();
+      const openSpy = vi.fn(() => win);
+      vi.stubGlobal('open', openSpy);
+
+      expect(() => printArtifact(makeArtifact({ artifact_type, mime_type }))).not.toThrow();
+
+      expect(openSpy).toHaveBeenCalledWith(url, '_blank', 'width=900,height=700');
+      expect(win.postMessage).not.toHaveBeenCalled();
+      expect(win.addEventListener).not.toHaveBeenCalled();
+      expect(win.print).not.toHaveBeenCalled();
+    });
+
+    test('ready from the popup is answered with exactly one print request', () => {
+      vi.useFakeTimers();
+      const alertSpy = vi.fn();
+      vi.stubGlobal('alert', alertSpy);
+      const win = makeOpaqueWindow();
+      vi.stubGlobal('open', vi.fn(() => win));
+
+      printArtifact(makeArtifact({ artifact_type: 'html', mime_type: 'text/html' }));
+      deliver(win, { type: 'osprey-artifact-ready' });
+
+      expect(win.focus).toHaveBeenCalled();
+      expect(win.postMessage).toHaveBeenCalledTimes(1);
+      expect(win.postMessage).toHaveBeenCalledWith({ type: 'osprey-artifact-print' }, '*');
+      expect(win.print).not.toHaveBeenCalled();
+
+      // The handshake is over: a second ready and the timeout do nothing more.
+      deliver(win, { type: 'osprey-artifact-ready' });
+      vi.advanceTimersByTime(10_000);
+      expect(win.postMessage).toHaveBeenCalledTimes(1);
+      expect(alertSpy).not.toHaveBeenCalled();
+    });
+
+    test('ready from any other window, or a different message from the popup, is ignored', () => {
+      vi.useFakeTimers();
+      vi.stubGlobal('alert', vi.fn());
+      const win = makeOpaqueWindow();
+      vi.stubGlobal('open', vi.fn(() => win));
+
+      printArtifact(makeArtifact({ artifact_type: 'html', mime_type: 'text/html' }));
+      deliver(makeOpaqueWindow(), { type: 'osprey-artifact-ready' });
+      deliver(window, { type: 'osprey-artifact-ready' });
+      deliver(win, { type: 'osprey-theme-change', theme: 'dark' });
+      deliver(win, null);
+
+      expect(win.postMessage).not.toHaveBeenCalled();
+    });
+
+    test('no ready within 3 s leaves the tab open and tells the operator to print from it', () => {
+      vi.useFakeTimers();
+      const alertSpy = vi.fn();
+      vi.stubGlobal('alert', alertSpy);
+      const win = makeOpaqueWindow();
+      vi.stubGlobal('open', vi.fn(() => win));
+
+      printArtifact(makeArtifact({ artifact_type: 'some_unrecognized_type', mime_type: 'image/svg+xml' }));
+
+      vi.advanceTimersByTime(2_999);
+      expect(alertSpy).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+      expect(alertSpy.mock.calls[0][0]).toMatch(/browser's print/);
+      expect(win.close).not.toHaveBeenCalled();
+
+      // A ready arriving late no longer triggers a print.
+      deliver(win, { type: 'osprey-artifact-ready' });
+      expect(win.postMessage).not.toHaveBeenCalled();
+    });
+
+    test('no note when the operator already closed the popup', () => {
+      vi.useFakeTimers();
+      const alertSpy = vi.fn();
+      vi.stubGlobal('alert', alertSpy);
+      const win = makeOpaqueWindow();
+      vi.stubGlobal('open', vi.fn(() => win));
+
+      printArtifact(makeArtifact({ artifact_type: 'html', mime_type: 'text/html' }));
+      win.closed = true;
+      vi.advanceTimersByTime(3_000);
+
+      expect(alertSpy).not.toHaveBeenCalled();
+    });
+
+    test('a blocked popup alerts and starts no handshake', () => {
+      vi.useFakeTimers();
+      const alertSpy = vi.fn();
+      vi.stubGlobal('alert', alertSpy);
+      vi.stubGlobal('open', vi.fn(() => null));
+
+      printArtifact(makeArtifact({ artifact_type: 'html', mime_type: 'text/html' }));
+      vi.advanceTimersByTime(3_000);
+
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+      expect(alertSpy).toHaveBeenCalledWith(MSG_POPUP_BLOCKED);
     });
   });
 

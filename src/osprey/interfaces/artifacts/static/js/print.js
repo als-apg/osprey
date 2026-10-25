@@ -8,10 +8,17 @@
  * Strategy: opens a dedicated print window for each artifact type so
  * the print output is clean (no gallery chrome) and WYSIWYG:
  *
- *   - iframe-based (plot_html, table_html, dashboard_html, html,
- *     notebook, markdown, text, json): opens a rendered URL in a new
- *     window, injects print-cleanup styles, calls window.print().
- *     Markdown and notebook use server-side rendered endpoints.
+ *   - inert types (text, json, PDF and the rest of C-OPAQUE's inert
+ *     list): opens the file URL in a new same-origin window, injects
+ *     print-cleanup styles, calls window.print().
+ *
+ *   - opaque types (plot_html, table_html, dashboard_html, html,
+ *     notebook, markdown, and any other type served sandboxed): the
+ *     popup has origin "null", so the gallery never touches its DOM.
+ *     C-MSG handshake: wait for {type: "osprey-artifact-ready"} from
+ *     that popup, answer {type: "osprey-artifact-print"}; the page
+ *     prints itself. A page with no injected listener (raw SVG/XML)
+ *     stays open in its tab with a note to use the browser's print.
  *
  *   - image / plot_png: wraps the image in minimal HTML with a title
  *     header, opens via about:blank window for printing.
@@ -23,7 +30,7 @@
 
 import { escapeHtml as esc } from "/design-system/js/dom.js";
 import { getSelectedArtifact, fileUrl } from "./state.js";
-import { openUrl, isTimeseries, isoToDate } from "./types.js";
+import { openUrl, isOpaque, isTimeseries, isoToDate } from "./types.js";
 import { formatFacilityTime } from "/design-system/js/facility-time.js";
 
 export { esc };
@@ -58,6 +65,12 @@ const PRINT_STYLES =
 // hygiene-allow-color-end
 
 const MSG_POPUP_BLOCKED = "Print blocked \u2014 please allow pop-ups for this site and try again.";
+const MSG_PRINT_FALLBACK =
+  "This artifact can't start printing by itself. It is open in its own tab \u2014 " +
+  "use the browser's print there.";
+
+/** How long an opaque print window has to announce itself (C-MSG). */
+export const READY_TIMEOUT_MS = 3000;
 
 // ---- Helpers ----
 
@@ -150,7 +163,11 @@ function openBlobAndPrint(html) {
 
 // ---- Per-type print strategies ----
 
-/** @param {any} a */
+/**
+ * Print an inert-type artifact by opening it same-origin and printing it
+ * directly (C-MSG: inert types keep this path).
+ * @param {any} a
+ */
 function printIframe(a) {
   // openUrl() owns the type -> URL mapping (rendered endpoints for
   // markdown/notebook, raw file URL otherwise). The theme is pinned to
@@ -186,7 +203,46 @@ function printIframe(a) {
   }
 
   w.addEventListener("load", onReady);
-  if (w.document.readyState === "complete") onReady();
+  let loaded = false;
+  try { loaded = w.document.readyState === "complete"; } catch { /* not same-origin — wait for load */ }
+  if (loaded) onReady();
+}
+
+/**
+ * Print an opaque-type artifact through the C-MSG handshake. The popup's
+ * origin is "null", so only its WindowProxy is used — never its document:
+ * wait for its ready message (matched by `event.source`), then ask it to
+ * print. No ready within READY_TIMEOUT_MS (a raw SVG/XML file carries no
+ * listener) leaves the tab open and tells the operator to print from there.
+ * @param {any} a
+ */
+function printOpaque(a) {
+  // Light theme for the same reason as printIframe.
+  const opened = window.open(openUrl(a, "light"), "_blank", "width=900,height=700");
+  if (!opened) {
+    alert(MSG_POPUP_BLOCKED);
+    return;
+  }
+  // Typed local: the narrowing above does not reach the hoisted handler.
+  const w = /** @type {Window} */ (opened);
+
+  /** @param {MessageEvent} event */
+  function onMessage(event) {
+    if (event.source !== w) return;
+    const data = event.data;
+    if (!data || data.type !== "osprey-artifact-ready") return;
+    window.removeEventListener("message", onMessage);
+    clearTimeout(timer);
+    w.focus();
+    // Intentional "*": the popup's origin is opaque ("null") and cannot be
+    // named; the target is pinned by the WindowProxy and the message is bare.
+    w.postMessage({ type: "osprey-artifact-print" }, "*");
+  }
+  const timer = setTimeout(function () {
+    window.removeEventListener("message", onMessage);
+    if (!w.closed) alert(MSG_PRINT_FALLBACK);
+  }, READY_TIMEOUT_MS);
+  window.addEventListener("message", onMessage);
 }
 
 /** @param {any} a */
@@ -267,22 +323,15 @@ export function printArtifact(a) {
   if (isTimeseries(a)) { printTimeseries(a); return; }
 
   switch (a.artifact_type) {
-    case "plot_html":
-    case "table_html":
-    case "dashboard_html":
-    case "html":
-    case "notebook":
-    case "markdown":
-    case "text":
-    case "json":
-      printIframe(a);
-      break;
     case "plot_png":
     case "image":
       printImage(a);
       break;
     default:
-      printIframe(a);
+      // Same rule the server serves by (C-OPAQUE): inert types print
+      // directly, everything else through the handshake.
+      if (isOpaque(a)) printOpaque(a);
+      else printIframe(a);
   }
 }
 
