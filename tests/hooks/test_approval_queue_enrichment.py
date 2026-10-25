@@ -845,7 +845,7 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
             "total_moves": 0,
             "truncated": False,
             "move_cap": None,
-            "reason": "preview_timed_out",
+            "reason": "function_timeout",
             "detail": "The pre-flight was accepted but had not finished in time.",
         },
     }
@@ -857,7 +857,7 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
     # `_reason` asserts the decision is still "ask"; `hook_runner` asserts the
     # hook exited zero, so the degradation neither blocks nor crashes.
     reason = _reason(result)
-    assert "Setpoint trajectory: unavailable (reason: preview_timed_out)" in reason
+    assert "Setpoint trajectory: unavailable (reason: function_timeout)" in reason
     assert "approval is not blocked" in reason
     assert "had not finished in time" in reason
     # What the plan declares it would touch survives the failed pre-flight.
