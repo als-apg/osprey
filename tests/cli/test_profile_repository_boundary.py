@@ -19,12 +19,13 @@ from click.testing import CliRunner
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_merge import (
     inputs_outside_repository,
+    profile_inputs,
     resolve_profile_document,
 )
 from osprey.cli.main import cli
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import BUILD_DIR_NAME, PROFILE_FILENAME
-from tests._builds import init_project
+from tests._builds import init_project, run_build
 
 pytestmark = [pytest.mark.slow]
 
@@ -167,3 +168,20 @@ def test_build_refuses_an_outside_input_before_the_venv(
     assert ran == []
     assert outside.resolve().as_posix() in caplog.text
     assert not (repo / BUILD_DIR_NAME / "config.yml").exists()
+
+
+def test_a_repository_built_from_a_clone_images_every_input_its_stamp_folds(
+    repo: Path,
+) -> None:
+    from osprey.cli.build_cmd import _image_build_inputs
+
+    result = run_build(repo)
+    assert result.exit_code == 0, result.output
+
+    profile = repo / PROFILE_FILENAME
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+    folded = {entry.path.resolve() for entry in profile_inputs(profile, document)}
+    imaged = {(repo.resolve() / path) for path in _image_build_inputs(repo)}
+
+    assert folded
+    assert folded <= imaged
