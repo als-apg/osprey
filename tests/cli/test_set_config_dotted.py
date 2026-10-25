@@ -522,3 +522,25 @@ def test_init_set_and_osprey_set_write_the_same_profile_text(tmp_path: Path) -> 
 @pytest.fixture
 def runner_repo(tmp_path: Path) -> tuple[CliRunner, Path]:
     return CliRunner(), tmp_path / "deployment"
+
+
+def test_an_edit_wins_over_a_mapping_key_above_it() -> None:
+    """A mapping key above the stated path loses its leaf, and the edit lands last.
+
+    ``config_update_fields`` assigns a mapping value whole, so an inherited
+    ``control_system: {writes_enabled: false}`` applied after the edited dotted
+    key would put the old value back.
+    """
+    resolved = {
+        "config": {
+            "control_system.writes_enabled": False,
+            "control_system": {"writes_enabled": False, "type": "epics"},
+        }
+    }
+
+    edited = apply_cli_edits(resolved, ("config.control_system.writes_enabled=true",))
+
+    config = edited["config"]
+    assert config["control_system"] == {"type": "epics"}
+    assert list(config)[-1] == "control_system.writes_enabled"
+    assert config["control_system.writes_enabled"] is True
