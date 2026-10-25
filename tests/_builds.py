@@ -34,6 +34,8 @@ from typing import Any, NamedTuple
 import pytest
 from click.testing import CliRunner, Result
 
+from tests._scoped_temp import shared_dir
+
 
 def init_project(parent: Path, preset: str, name: str) -> Path:
     """Run ``osprey init`` for a preset into ``parent/name``.
@@ -189,7 +191,7 @@ def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> BuiltPr
         if record.is_file():
             repo, outputs, output = pickle.loads(record.read_bytes())
             return BuiltProject(repo, outputs, output)
-        built = build_control_assistant(Path(tempfile.mkdtemp(prefix="built-ca-", dir=shared)))
+        built = build_control_assistant(shared_dir(tmp_path_factory, "built-ca"))
         record.write_bytes(pickle.dumps((built.repo, built.outputs, built.output)))
         return built
 
@@ -241,15 +243,16 @@ def install_osprey_into(venv: Path, env: Mapping[str, str]) -> subprocess.Comple
     )
 
 
-def fill_uv_cache(scratch: Path) -> None:
+def fill_uv_cache(parent: Path) -> None:
     """Leave uv's cache able to serve a build's install with the network off.
 
     A cache that already can is left alone and nothing is fetched. One that
     cannot is filled by one install with the network on, then shown to serve.
     """
-    venv = scratch / "venv"
     offline = {**os.environ, **OFFLINE_BUILD_ENV}
-    try:
+    # The venv only proves the install, so it goes with the fill.
+    with tempfile.TemporaryDirectory(prefix="uv-fill-", dir=parent) as scratch:
+        venv = Path(scratch) / "venv"
         if install_osprey_into(venv, offline).returncode == 0:
             return
         filled = install_osprey_into(venv, os.environ)
@@ -262,9 +265,6 @@ def fill_uv_cache(scratch: Path) -> None:
             "uv's cache was filled and still does not serve an osprey build's install:\n"
             f"{served.stdout}{served.stderr}"
         )
-    finally:
-        # The venv only proves the install; at about 2 GB it is not left for the run.
-        shutil.rmtree(venv, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -278,13 +278,13 @@ def offline_build_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str
     if uv_path() is None:
         return {}
     if os.environ.get("PYTEST_XDIST_WORKER") is None:
-        fill_uv_cache(tmp_path_factory.mktemp("uv-cache"))
+        fill_uv_cache(tmp_path_factory.getbasetemp())
         return dict(OFFLINE_BUILD_ENV)
     shared = tmp_path_factory.getbasetemp().parent
     record = shared / SHARED_CACHE_RECORD
     with _exclusive(shared / f"{SHARED_CACHE_RECORD}.lock"):
         if not record.is_file():
-            fill_uv_cache(Path(tempfile.mkdtemp(prefix="uv-cache-", dir=shared)))
+            fill_uv_cache(tmp_path_factory.getbasetemp())
             record.write_text("served\n")
     return dict(OFFLINE_BUILD_ENV)
 
