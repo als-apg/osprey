@@ -265,8 +265,12 @@ export const entriesApi = {
       formData.append('files', file);
     }
 
+    // The gate refuses a multipart write unless it carries X-Osprey-Upload: a
+    // header a plain HTML form cannot send, so only this client can post here.
+    // No Content-Type: the browser sets multipart/form-data with its boundary.
     const response = await fetch(API_BASE + '/entries/upload', {
       method: 'POST',
+      headers: { 'X-Osprey-Upload': '1' },
       body: formData,
     });
 

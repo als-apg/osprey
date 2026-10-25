@@ -325,6 +325,23 @@ describe('submission merges the declared values into metadata', () => {
     expect(JSON.parse(String(sent.get('metadata')))).toEqual(DECLARED);
   });
 
+  test('the multipart upload carries the header a plain form cannot send', async () => {
+    const calls = stubFetch({
+      publishInfo: { supports_write: true, requires_auth: false, entry_fields: FIELDS },
+    });
+    const { entries, form, fields } = await loadModules();
+    await renderDeclared(entries, fields);
+    stageAttachment();
+    await submit(form);
+
+    const call = createCall(calls);
+    expect(call.url.endsWith('/api/entries/upload')).toBe(true);
+    const headers = new Headers(call.init.headers);
+    expect(headers.get('X-Osprey-Upload')).toBe('1');
+    // The browser must write multipart/form-data with its own boundary.
+    expect(headers.has('Content-Type')).toBe(false);
+  });
+
   test('declared values win over draft metadata keys, which are kept', async () => {
     const calls = stubFetch({
       publishInfo: { supports_write: true, requires_auth: false, entry_fields: FIELDS },
