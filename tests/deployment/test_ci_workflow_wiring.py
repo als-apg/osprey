@@ -657,12 +657,15 @@ def test_lume_pyat_is_a_core_dependency() -> None:
 # protect.
 
 
-#: The one platform with a loadable Channel Access server wheel, and therefore
-#: the marker the serving entry must carry. Spelled with DOUBLE quotes
-#: because this is compared against ``str(Requirement(...).marker)``, which is
-#: packaging's normalised rendering — pyproject.toml itself writes the same
-#: marker with single quotes, and both parse to this.
-LIVE_CA_MARKER = 'sys_platform == "linux" and platform_machine == "x86_64"'
+#: The two platforms with a loadable Channel Access server — linux x86_64 on
+#: PyPI's wheels, linux aarch64 on the one the VA service image builds — and
+#: therefore the marker the serving entry must carry. Spelled with DOUBLE
+#: quotes because this is compared against ``str(Requirement(...).marker)``,
+#: which is packaging's normalised rendering — pyproject.toml itself writes the
+#: same marker with single quotes, and both parse to this.
+LIVE_CA_MARKER = (
+    'sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64")'
+)
 
 
 def _load_pyproject() -> dict[str, Any]:
@@ -769,11 +772,11 @@ def test_lume_pva_pin_carries_the_live_ca_marker(pyproject: dict[str, Any]) -> N
     extra = _va_extra(pyproject)
     lume_pva = _requirement(extra, "lume-pva-apg")
     # Anchored absolutely: a marker retargeted to some other platform is still
-    # a marker, and only the comparison against the one platform with a
-    # loadable Channel Access server wheel rejects it.
+    # a marker, and only the comparison against the platforms with a loadable
+    # Channel Access server rejects it.
     assert lume_pva is not None and str(lume_pva.marker) == LIVE_CA_MARKER, (
-        f"lume-pva-apg must stay marked {LIVE_CA_MARKER!r} — the one platform with a "
-        f"loadable Channel Access server wheel; got {lume_pva and lume_pva.marker}"
+        f"lume-pva-apg must stay marked {LIVE_CA_MARKER!r} — the platforms with a "
+        f"loadable Channel Access server; got {lume_pva and lume_pva.marker}"
     )
     assert _requirement(extra, "pcaspy") is None, (
         "the `virtual-accelerator` extra must not declare pcaspy directly — it arrives "
@@ -812,6 +815,26 @@ def test_lume_pva_pin_carries_the_live_ca_marker__mutation_moves_to_another_plat
     ]
     assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
         "mutation matched nothing — the serving pin is gone"
+    )
+    with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
+        test_lume_pva_pin_carries_the_live_ca_marker(mutated)
+
+
+def test_lume_pva_pin_carries_the_live_ca_marker__mutation_drops_aarch64() -> None:
+    """Narrowing the serving pin back to x86_64 must fail: the arm64 VA image
+    builds its own pcaspy, and without aarch64 in the marker its serving stack
+    installs nothing there."""
+    mutated = _load_pyproject()
+    extra = _va_extra(mutated)
+    before = list(extra)
+    mutated["project"]["optional-dependencies"]["virtual-accelerator"] = [
+        f"{dep.split(';', 1)[0].strip()}; sys_platform == 'linux' and platform_machine == 'x86_64'"
+        if Requirement(dep).name == "lume-pva-apg"
+        else dep
+        for dep in extra
+    ]
+    assert mutated["project"]["optional-dependencies"]["virtual-accelerator"] != before, (
+        "mutation matched nothing — the marker is already x86_64-only"
     )
     with pytest.raises(AssertionError, match="lume-pva-apg must stay marked"):
         test_lume_pva_pin_carries_the_live_ca_marker(mutated)
