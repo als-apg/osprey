@@ -676,6 +676,7 @@ EXPECTED_ERROR_CLASSES = {
     "figure_unavailable": "Validation",
     # Data
     "not_found": "Data",
+    "not_archived": "Data",
     "no_results": "Data",
     "file_not_found": "Data",
     "no_draft": "Data",

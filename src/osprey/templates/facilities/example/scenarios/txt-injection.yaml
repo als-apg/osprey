@@ -1,0 +1,25 @@
+description: 'Injection into the storage ring for a turn-by-turn trajectory study. Each injected
+  shot launches a bunch of 16 particles at the injection point, off the design trajectory by half a
+  millimetre horizontally and one percent in energy, with a finite emittance, energy spread and
+  length, and a centroid that jitters from shot to shot. Every element with length has an
+  elliptical vacuum chamber of 3 mm by 5 mm half-axes. The ring already stores half a bunch of
+  charge, so the stored current reads above zero before the first shot. The scenario states no RF
+  value, so it applies alike on every simulator instance.'
+faults:
+  SR:
+    launch_x: 5.12818e-04
+    launch_px: 0.0
+    launch_y: 0.0
+    launch_py: 0.0
+    launch_delta: 0.01
+    launch_ct: -0.027608
+    bunch_emittance_x: 3.0e-09
+    bunch_emittance_y: 1.0e-09
+    bunch_sigma_delta: 0.0022
+    bunch_sigma_z: 0.003
+    centroid_jitter_x: 5.0e-05
+    centroid_jitter_y: 3.0e-05
+    aperture_elliptical_x: 0.003
+    aperture_elliptical_y: 0.005
+    bunch_particles: 16
+    stored_charge: 0.5

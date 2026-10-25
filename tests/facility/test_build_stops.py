@@ -737,6 +737,18 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
+#: The pyat fault variables that name no channel, which an unknown fault key's
+#: remedy lists in sorted order.
+_PYAT_MODEL_WIDE_FAULTS = (
+    "aperture_elliptical_x, aperture_elliptical_y, aperture_rectangular_x, "
+    "aperture_rectangular_y, bunch_charge, bunch_emittance_x, bunch_emittance_y, "
+    "bunch_particles, bunch_sigma_delta, bunch_sigma_z, centroid_jitter_x, centroid_jitter_y, "
+    "dipole_dx_sigma, dipole_dy_sigma, dipole_roll_sigma, launch_ct, launch_delta, launch_px, "
+    "launch_py, launch_x, launch_y, misalignment_seed, quadrupole_dx_sigma, "
+    "quadrupole_dy_sigma, quadrupole_roll_sigma, sextupole_dx_sigma, sextupole_dy_sigma, "
+    "sextupole_roll_sigma, stored_charge"
+)
+
 #: Each case: the tree that breaks the rule, and the one line it stops with.
 CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "source_invalid__pydantic_failure": (
@@ -1219,7 +1231,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
             "model LINE solves single_pass; fix: remove trm from `kinds`; a single_pass model "
-            "allows orm alone"
+            "allows only orm and trajectory"
         ),
     ),
     "class_unknown__device_class": (
@@ -2251,7 +2263,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: scenario warm — faults.SR.QF:SP/tilt names no channel and "
             "no pyat variable; fix: name a channel address or a pyat variable "
-            "(<address>/<field>); closest: QF:SP/cal_offset, QF:SP/cal_factor"
+            f"(<address>/<field>, or one of {_PYAT_MODEL_WIDE_FAULTS}); "
+            "closest: QF:SP/cal_offset, QF:SP/cal_factor"
         ),
     ),
     "engine_invalid__scenario_fault_key_nothing_close": (
@@ -2259,7 +2272,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: engine-invalid: scenario warm — faults.SR.ZZZZ names no channel and "
             "no pyat variable; fix: name a channel address or a pyat variable "
-            "(<address>/<field>)"
+            f"(<address>/<field>, or one of {_PYAT_MODEL_WIDE_FAULTS})"
         ),
     ),
     "model_conflict__texture": (

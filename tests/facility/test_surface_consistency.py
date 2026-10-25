@@ -4,8 +4,9 @@ The facility file is the one source each surface is derived from; this module
 holds, per section of the demo machine, the joins no single-surface test makes:
 
 * the recorder's channel set, as the archiver recorder resolves it from the
-  simulator view, records exactly the section's scalar channels as numbers and
-  exactly its waveform channels in the waveform collection;
+  simulator view, records exactly the section's archived scalar channels as
+  numbers and exactly its archived waveform channels in the waveform
+  collection (a turn series is a shot record and is not archived);
 * every benchmark target of the section is a channel of the facility, and the
   section answers the number of added benchmark queries its row declares (a
   query is *added* when it targets a channel beyond the frozen fingerprint);
@@ -21,6 +22,7 @@ finds wrong, and each is shown to fire on a mutated copy of its input.
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,7 +32,9 @@ import pytest
 
 from osprey.facility.validate import vocabulary
 from osprey.services.archiver_recorder.config import ChannelSet, resolve_channel_addresses
+from osprey_connectors.simulation.archive import archived_channels
 from osprey_connectors.simulation.values import is_waveform
+from osprey_connectors.simulation.view import SimulatorView
 from tests.facility.test_cf_view_parity import addition_addresses, pre_line_queries
 
 if TYPE_CHECKING:
@@ -64,6 +68,9 @@ class Section:
     new_places: tuple[str, ...] = ()
     new_families: tuple[str, ...] = ()
 
+
+#: A ring beam position monitor's record of a shot, which no archive holds.
+TURN_SERIES = re.compile(r"SR:DIAG:BPM:\d+:TBT:(?:X|Y|SUM|ARMED)")
 
 #: The per-section expectations, keyed by the section's address prefix.
 SECTIONS: dict[str, Section] = {
@@ -189,10 +196,17 @@ def id_section(record_id: str) -> str:
 
 
 def recorder_gaps(
-    section: str, expected: Section, channel_set: ChannelSet, facility: Mapping[str, Any]
+    section: str,
+    expected: Section,
+    channel_set: ChannelSet,
+    facility: Mapping[str, Any],
+    archived: Iterable[str],
 ) -> dict[str, list[str]]:
-    """Where the recorder's set disagrees with the section's facility channels."""
-    channels = [c for c in facility["channels"] if address_section(c["id"]) == section]
+    """Where the recorder's set disagrees with the section's archived facility channels."""
+    held = set(archived)
+    channels = [
+        c for c in facility["channels"] if address_section(c["id"]) == section and c["id"] in held
+    ]
     waveforms = {c["id"] for c in channels if is_waveform(c.get("value_type"))}
     scalars = {c["id"] for c in channels} - waveforms
     recorded_scalars = {a for a in channel_set.scalars if address_section(a) == section}
@@ -277,15 +291,27 @@ def description_gaps(
 
 
 @pytest.fixture(scope="module")
-def recorder_set(built_control_assistant: BuiltProject, tmp_path_factory) -> ChannelSet:
-    """The channel set the recorder resolves from the build's simulator view."""
+def simulator_view(built_control_assistant: BuiltProject, tmp_path_factory) -> Path:
+    """The build's simulator view, written out as the recorder reads it."""
     root = tmp_path_factory.mktemp("surface") / "simulator"
     for name, data in built_control_assistant.outputs[0].files.items():
         if name.startswith(SIMULATOR_PREFIX):
             target = root / name[len(SIMULATOR_PREFIX) :]
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-    return resolve_channel_addresses(Path(root))
+    return root
+
+
+@pytest.fixture(scope="module")
+def recorder_set(simulator_view: Path) -> ChannelSet:
+    """The channel set the recorder resolves from the build's simulator view."""
+    return resolve_channel_addresses(simulator_view)
+
+
+@pytest.fixture(scope="module")
+def archived(simulator_view: Path) -> tuple[str, ...]:
+    """The build's archived channels, the set the seed and the recorder share."""
+    return archived_channels(SimulatorView.open(simulator_view))
 
 
 SECTION_IDS = list(SECTIONS)
@@ -298,10 +324,25 @@ SECTION_IDS = list(SECTIONS)
 
 @pytest.mark.parametrize("section", SECTION_IDS)
 def test_the_recorder_records_the_sections_scalars_and_traces_its_waveforms(
-    section: str, recorder_set: ChannelSet, built_control_assistant: BuiltProject
+    section: str,
+    recorder_set: ChannelSet,
+    archived: tuple[str, ...],
+    built_control_assistant: BuiltProject,
 ) -> None:
-    gaps = recorder_gaps(section, SECTIONS[section], recorder_set, built_control_assistant.facility)
+    gaps = recorder_gaps(
+        section, SECTIONS[section], recorder_set, built_control_assistant.facility, archived
+    )
     assert gaps == {}, f"{section}: {gaps}"
+
+
+def test_the_archive_leaves_out_exactly_the_ring_monitors_turn_series(
+    archived: tuple[str, ...], built_control_assistant: BuiltProject
+) -> None:
+    """The one exclusion the recorder check above relies on: each ring BPM's
+    turn-by-turn x / y / sum series and armed flag, and no other channel."""
+    left_out = {c["id"] for c in built_control_assistant.facility["channels"]} - set(archived)
+    assert len(left_out) == 4 * 72
+    assert all(TURN_SERIES.fullmatch(address) for address in left_out), sorted(left_out)[:5]
 
 
 @pytest.mark.parametrize("section", SECTION_IDS)
@@ -334,12 +375,12 @@ def test_every_class_place_and_family_of_the_section_has_a_description(
 
 
 def test_a_waveform_missing_from_the_recorders_trace_set_is_reported(
-    recorder_set: ChannelSet, built_control_assistant: BuiltProject
+    recorder_set: ChannelSet, archived: tuple[str, ...], built_control_assistant: BuiltProject
 ) -> None:
     untraced = ChannelSet(
         list(recorder_set), [a for a in recorder_set.waveforms if a != SEK_WAVEFORM]
     )
-    gaps = recorder_gaps("SR", SECTIONS["SR"], untraced, built_control_assistant.facility)
+    gaps = recorder_gaps("SR", SECTIONS["SR"], untraced, built_control_assistant.facility, archived)
     assert gaps["waveforms not recorded as traces"] == [SEK_WAVEFORM]
     assert gaps["recorded as scalars but not scalar channels"] == [SEK_WAVEFORM]
 

@@ -52,13 +52,35 @@ PHYSICS_MODEL = "SR"
 BTS_MODEL = "BTS"
 
 #: The deck machine's instruments the golden's capture predates.
-ADDITIONS = frozenset({"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"})
+ADDITIONS = frozenset(
+    {
+        "SR:DIAG:CHROM:X",
+        "SR:DIAG:CHROM:Y",
+        "SR:DIAG:CLEANING:REQUEST",
+        "SR:DIAG:STORED_BEAM:CURRENT:RB",
+        "SR:DIAG:TBT:TURNS:RB",
+        "SR:DIAG:TBT:TURNS:SP",
+        "SR:DIAG:TUNE:X",
+        "SR:DIAG:TUNE:Y",
+        "SR:RF:ON:RB",
+        "SR:RF:ON:SP",
+    }
+)
 
 #: How many transfer line channels the golden's capture predates.
 LINE_CHANNELS = 40
 
-#: The served waveforms: a trace has no scalar nominal, so the golden holds none.
-WAVEFORMS = frozenset({"SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"})
+#: The ``SR`` beam position monitors' turn-by-turn series, and how many
+#: monitors carry them: a trace, so the golden holds none.
+SR_BPM_SERIES = re.compile(r"SR:DIAG:BPM:\d+:TBT:(?:X|Y|SUM)")
+SR_MONITORS = 72
+
+#: The ``SR`` beam position monitors' readout settings, each a setpoint and
+#: its readback, which the golden's capture predates.
+SR_BPM_SETTINGS = re.compile(r"SR:DIAG:BPM:\d+:(?:ATTENUATION|MODE|PILOT_TONE):(?:SP|RB)")
+
+#: The served injection septum pulse: a trace, so the golden holds none.
+SEPTUM_WAVEFORM = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
 
 #: An ``SR`` beam position monitor's horizontal position.
 SR_BPM_X = re.compile(r"SR:DIAG:BPM:\d+:POSITION:X")
@@ -117,6 +139,11 @@ class Served:
     def value_type(self, address: str) -> str:
         return str(self.channels[address].get("value_type") or "float")
 
+    def is_waveform(self, address: str) -> bool:
+        from osprey_connectors.simulation.values import is_waveform
+
+        return is_waveform(self.value_type(address))
+
     def is_float_readback(self, address: str) -> bool:
         return (
             self.value_type(address) == "float" and self.channels[address].get("role") != "setpoint"
@@ -147,8 +174,13 @@ def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served
     unheld = set(served.channels) - set(golden())
     line = {address for address in unheld if address.startswith("LINE:")}
     assert len(line) == LINE_CHANNELS
-    assert unheld - line == ADDITIONS | WAVEFORMS
-    assert {a for a in served.channels if served.value_type(a) == "waveform"} == WAVEFORMS
+    waveforms = {address for address in served.channels if served.is_waveform(address)}
+    series = {address for address in waveforms if SR_BPM_SERIES.fullmatch(address)}
+    assert len(series) == 3 * SR_MONITORS
+    assert waveforms == series | {SEPTUM_WAVEFORM}
+    settings = {address for address in unheld if SR_BPM_SETTINGS.fullmatch(address)}
+    assert len(settings) == 6 * SR_MONITORS
+    assert unheld - line == ADDITIONS | waveforms | settings
     assert set(golden()) <= set(served.channels)
 
 

@@ -13,10 +13,11 @@ Every setpoint gets its ``tolerance`` from the one ``tolerance`` row that
 matches it, converted into its unit and written ``{absolute: <x>}`` directly
 after its ``pair:`` line in ``records/channels.yaml``; every other byte of that
 file stays as it is. A setpoint no row matches, or whose tolerance is below the
-motion envelope of the readback it pairs with, is an error. A bool setpoint
-takes no tolerance: it settles on its label, and its seed keeps its ``nominal``.
-Nor does a setpoint that states no unit, since a tolerance is in the channel's
-unit.
+motion envelope of the readback it pairs with, is an error. A write-only
+command, a setpoint with no ``pair``, has no readback to settle and takes no
+tolerance. Nor does a bool setpoint: it settles on its label, and its seed
+keeps its ``nominal``. Nor does a setpoint that states no unit, since a
+tolerance is in the channel's unit.
 
 The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
 keys in the order nominal, pulse, gate, noise, drift, clamp, linear, written with one
@@ -67,6 +68,7 @@ UNITS: dict[str, tuple[str, int]] = {
     "nC": ("charge", -9),
     "mrem/hr": ("dose rate", 0),
     "s": ("time", 0),
+    "dB": ("attenuation", 0),
 }
 
 #: The seed keys, in the order an entry is written.
@@ -263,9 +265,9 @@ def tolerances(tree: Path = TREE, rules: list[dict[str, Any]] | None = None) -> 
     devices = {record["id"]: record for record in load(tree / "records/devices.yaml")}
     stamped: dict[str, float] = {}
     for channel in load(tree / CHANNELS):
-        if channel.get("role") != "setpoint" or channel.get("value_type") == "bool":
+        if channel.get("role") != "setpoint" or "pair" not in channel:
             continue
-        if not channel.get("unit"):
+        if channel.get("value_type") == "bool" or not channel.get("unit"):
             continue
         address, device = channel["id"], channel.get("on", {}).get("device")
         row = None

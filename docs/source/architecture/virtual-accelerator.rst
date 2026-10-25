@@ -55,8 +55,11 @@ consumer of a view opens it with. Each wiring record of ``variables.json``
 states what its engine's ``describe()`` said of it at build time: its ``role``
 (``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
 ``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
-write's pass publishes every served channel except those whose binding
-refreshes ``periodic``, which the next periodic pass publishes. Each channel
+write's pass publishes what the write can change, and never a channel whose
+binding refreshes ``periodic``, which the next periodic pass publishes: a
+physics setting publishes itself, its readback and what its model computes from
+its settings; a command its model's shot records; any other write every served
+channel. A pass with no write publishes every served channel. Each channel
 also names the node it is ``on``. A view an older OSPREY wrote is refused
 before the ready line, with a message asking for ``osprey build``.
 
@@ -110,7 +113,8 @@ still settling:
      - ``0.2.0``
      - The facility-agnostic pyAT backend --- one persistent lattice, atomic
        multi-variable writes, one solve per batch, rollback on a lost closed
-       orbit.
+       orbit (which a model with an ``injection`` block opts out of; see
+       `Shots and the model's state`_).
    * - ``lume-pva-apg[ca,pva]``
      - ``0.1.5``
      - The serving stack ``runner.py`` subclasses --- ``pcaspy`` for Channel
@@ -136,8 +140,9 @@ What OSPREY ships on top of ``lume-pyat`` is the *facility adapter*, not the
 pyAT machinery: the pyat engine plug-in (``osprey.simulation.engines.pyat``,
 with ``variable_from_wiring`` in ``pyat_variables``) supplies only the facts
 upstream cannot know — which deck to build, how a hardware value becomes a
-strength through its record's calibration, which variables exist, and how a
-failed build reads on the model's ``STATUS`` channel.
+strength through its record's calibration, which variables exist, how a shot
+is tracked, and how a failed build or a degraded model reads on the model's
+``STATUS`` channel.
 
 Bringing your own model
 =======================
@@ -210,7 +215,9 @@ latest failed pass. The runner rewrites the record atomically to
 container's compose healthcheck reads that file: it passes while the record is
 ``serving`` or ``degraded`` and fails on ``failed``, a missing file or one that
 is not JSON. The ready line the container prints at boot reports the first
-pass only.
+pass only. This ``degraded`` is the server's, about its publishing passes; a
+physics model has a state of its own (see `Shots and the model's state`_), and
+the two are independent.
 
 Those two write verbs ask for an administrative token. The container reads it
 from ``VA_MODEL_WRITE_TOKEN`` at startup and compares what a caller presents
@@ -253,6 +260,133 @@ A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from
 the composite's own value.
 
+Shots and the model's state
+===========================
+
+.. raw:: html
+
+   <div class="osprey-diagram">
+   <svg viewBox="0 0 960 360" role="img" aria-labelledby="va-shot-title va-shot-desc">
+     <title id="va-shot-title">A shot, and the three states of a physics model</title>
+     <desc id="va-shot-desc">Top: arming sets one flag, a rising injection request fires one shot, the shot tracks the first turns from the injection point, refills every monitor's turn-by-turn x, y and sum buffers, and past the point where the beam is lost the positions read NaN and the sum zero. Bottom: the model's status channel reads ok, degraded when the ring has no closed orbit, or failed when no model was built. A write moves a model with an injection block between ok and degraded, and a degraded ring still takes shots.</desc>
+     <defs>
+       <marker id="va-shot-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+         <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+       </marker>
+     </defs>
+
+     <!-- one shot -->
+     <text class="te" x="20" y="30">ONE SHOT</text>
+     <line class="e" x1="180" y1="74" x2="210" y2="74" marker-end="url(#va-shot-arr)"/>
+     <line class="e" x1="370" y1="74" x2="400" y2="74" marker-end="url(#va-shot-arr)"/>
+     <line class="e" x1="560" y1="74" x2="590" y2="74" marker-end="url(#va-shot-arr)"/>
+     <line class="e" x1="750" y1="74" x2="780" y2="74" marker-end="url(#va-shot-arr)"/>
+
+     <rect class="nb-in" x="20" y="44" width="160" height="60" rx="6"/>
+     <text class="tn" x="100" y="70" text-anchor="middle">arm</text>
+     <text class="ts" x="100" y="88" text-anchor="middle">write 1 sets the flag</text>
+
+     <rect class="nb-in" x="210" y="44" width="160" height="60" rx="6"/>
+     <text class="tn" x="290" y="70" text-anchor="middle">inject</text>
+     <text class="ts" x="290" y="88" text-anchor="middle">a rise fires one shot</text>
+
+     <rect class="nb-foc" x="400" y="44" width="160" height="60" rx="6"/>
+     <text class="tn" x="480" y="70" text-anchor="middle">track</text>
+     <text class="ts" x="480" y="88" text-anchor="middle">first turns, from injection</text>
+
+     <rect class="nb-st" x="590" y="44" width="160" height="60" rx="6"/>
+     <text class="tn" x="670" y="70" text-anchor="middle">turn-by-turn buffers</text>
+     <text class="ts" x="670" y="88" text-anchor="middle">x · y · sum per monitor</text>
+
+     <rect class="nb-warn" x="780" y="44" width="160" height="60" rx="6"/>
+     <text class="tn" x="860" y="70" text-anchor="middle">loss</text>
+     <text class="ts" x="860" y="88" text-anchor="middle">x, y NaN · sum 0 onward</text>
+
+     <text class="ta" x="480" y="132" text-anchor="middle">the shot clears the flag · an unarmed shot leaves the buffers as they were · all of it commits with the write batch</text>
+
+     <line class="divider" x1="20" y1="158" x2="940" y2="158"/>
+
+     <!-- the model's state -->
+     <text class="te" x="20" y="188">THE MODEL'S STATE · its STATUS channel</text>
+     <line class="e" x1="300" y1="244" x2="340" y2="244" marker-start="url(#va-shot-arr)" marker-end="url(#va-shot-arr)"/>
+
+     <rect class="nb" x="20" y="206" width="280" height="76" rx="6"/>
+     <text class="tn" x="160" y="230" text-anchor="middle">ok</text>
+     <text class="ts" x="160" y="250" text-anchor="middle">a closed orbit</text>
+     <text class="ts" x="160" y="268" text-anchor="middle">every reading served</text>
+
+     <rect class="nb-warn" x="340" y="206" width="280" height="76" rx="6"/>
+     <text class="tn" x="480" y="230" text-anchor="middle">degraded</text>
+     <text class="ts" x="480" y="250" text-anchor="middle">built, no closed orbit · writes commit</text>
+     <text class="ts" x="480" y="268" text-anchor="middle">orbit, tune, optics read NaN, invalid</text>
+
+     <rect class="nb-bnd" x="660" y="206" width="280" height="76" rx="6"/>
+     <text class="tn" x="800" y="230" text-anchor="middle">failed</text>
+     <text class="ts" x="800" y="250" text-anchor="middle">no model built · the error text</text>
+     <text class="ts" x="800" y="268" text-anchor="middle">the rest of the machine still served</text>
+
+     <text class="ta" x="320" y="310" text-anchor="middle">a write moves a model with an injection block either way</text>
+     <text class="ta ta-acc" x="480" y="340" text-anchor="middle">a degraded ring still takes shots: tracking the first turns needs no closed orbit</text>
+   </svg>
+   </div>
+
+A model that takes first-turn measurements runs the same loop a ring's
+injection does. Its record states where the beam enters, as an ``injection``
+block in ``settings.pyat``, and its wiring adds records that name no element:
+arm commands, an injection request, an armed reading, and for each monitor a
+turn-by-turn ``x``, ``y`` and ``sum`` series. Every arm command sets one armed
+flag. A write that raises the request above the last value the model saw is one
+shot: the model tracks one particle from the injection point through the
+lattice as the setpoints leave it, refills every series with the turns it
+tracked, and clears the flag. Where the particle is lost, the positions read
+not-a-number and the sum zero from there on, which is what a real monitor shows
+once the beam is gone. A ``single_pass`` model takes no ``injection`` block;
+its shot is one pass down the line from where the line starts.
+
+A shot is a command, not a setting the machine holds. Nothing journals,
+replays or restores it, so returning setpoints to where they were never fires
+one, and a model reset returns the buffers, the flag and the shot count to
+rest. The series are served like any other channel, but the archive does not
+record them: a buffer is one shot's picture, not a trend.
+
+**A model with an injection block commits writes on a ring with no closed
+orbit.** A real ring whose correctors leave it without a closed orbit still
+takes the next corrector write, and still injects; first-turn correction is how
+it finds its orbit again. So for such a model a write that loses the closed
+orbit is not rolled back. It commits, and the model becomes **degraded**: it
+keeps serving and taking writes and shots, and the readings that need a closed
+orbit are served as invalid until a later write restores one. A model without
+an ``injection`` block keeps the rollback of the LUME stack: the write that
+would lose the orbit is refused, and the model stays ok.
+
+.. list-table:: A physics model's state, on its ``STATUS`` channel
+   :header-rows: 1
+   :widths: 14 30 56
+
+   * - State
+     - The status channel reads
+     - What the model serves
+   * - ok
+     - ``ok``
+     - Every channel it wires.
+   * - degraded
+     - A condition its engine lists; for ``pyat``, ``no closed orbit``
+     - Every channel, and it takes writes. The readings the condition makes
+       meaningless, for ``pyat`` the closed orbit at the monitors, the tunes,
+       the beta functions and the chromaticity, read not-a-number with an
+       invalid alarm. Shots and their buffers are unaffected.
+   * - failed
+     - Any other text: the engine's error
+     - Nothing of its own; its channels carry an invalid alarm. Every other
+       model and every texture channel is still served.
+
+The model's state is its own and is independent of the server's health record,
+which uses the word ``degraded`` for its publishing passes. A reader tells a
+degraded model from a failed one by the conditions its engine lists, never by
+the status not being ``ok``; the seam an engine reports a condition through is
+under :ref:`extending-lume-model`. The exact rules of shots, buffers and the
+status text are in :doc:`/reference/contracts/index`.
+
 .. seealso::
 
    :doc:`/how-to/control-systems/use-virtual-accelerator`
@@ -263,3 +397,7 @@ the composite's own value.
 
    :doc:`/how-to/control-systems/use-connectors`
       How the EPICS connector reaches a control system, virtual or real.
+
+   :doc:`/reference/contracts/index`
+      The exact behaviour of shots, turn-by-turn buffers and the model's
+      status text.

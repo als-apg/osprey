@@ -132,6 +132,9 @@ codes, are load-bearing for callers that branch on them.
   facility. Only a connector that holds the facility's whole address set raises
   it; `reason` is `CHANNEL_NOT_FOUND`, the refusal reason a write to such an
   address carries.
+- `ChannelNotArchivedError` — an archiver read named a channel of the facility
+  that has no archived history: a turn series, whose record is a shot, read
+  live after the shot.
 
 Adding classes or reason codes is compatible. Removing or renaming one breaks
 the compatibility guarantee above, so it waits until no supported framework

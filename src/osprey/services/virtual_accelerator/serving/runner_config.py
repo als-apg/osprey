@@ -18,6 +18,22 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`periodic_addresses` names the channels the view says refresh
 ``periodic``, which a write pass leaves for the next periodic pass.
 
+:func:`restorable_state` is the part of a cached state a failed pass writes
+back: the settings alone. A command acts once and holds no setting, so writing
+it back would act again -- arm an acquisition or fire a shot -- and a batch
+mixing one model's command with another owner's channel is refused whole by the
+composite. A command is therefore never restored.
+
+:func:`shot_records`, :func:`setting_records` and :func:`pass_readback` name
+what a write pass reads back. A physics setting reaches its own model alone, and
+there moves itself, its readback and what the model computes from its settings;
+a command writes no setting of its model, so a pass of commands alone
+changes only the shot its models hold: the commands, the armed flag and the
+turn series, which the view describes as ``turn_series``. Every other value
+stands as the last pass left it -- what moves with time alone, the next
+periodic pass publishes -- and reading it back again would make each write, one
+per device for an arm or a corrector step, cost the whole roster.
+
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
 
@@ -28,13 +44,23 @@ tested in process.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
-__all__ = ["HEALTH_KEYS", "SAFETY_KEYS", "apply_safety", "periodic_addresses"]
+__all__ = [
+    "HEALTH_KEYS",
+    "SAFETY_KEYS",
+    "apply_safety",
+    "command_addresses",
+    "setting_records",
+    "pass_readback",
+    "periodic_addresses",
+    "restorable_state",
+    "shot_records",
+]
 
 #: The write-path keys every model runner configuration carries.
 SAFETY_KEYS: Mapping[str, Any] = {
@@ -53,6 +79,7 @@ HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 _SETPOINT = "setpoint"
 _FLOAT = "float"
 _PERIODIC = "periodic"
+_TURN_SERIES = "turn_series"
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -105,3 +132,111 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
         for binding in view.bindings(served_only=False)
         if binding.refresh == _PERIODIC
     )
+
+
+def command_addresses(view: SimulatorView) -> frozenset[str]:
+    """The addresses the view marks commands, across every model of the view.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        The bound addresses whose write acts once and holds no setting.
+    """
+    return frozenset(
+        binding.address for binding in view.bindings(served_only=False) if binding.command
+    )
+
+
+def restorable_state(state: Mapping[str, Any], commands: frozenset[str]) -> dict[str, Any]:
+    """The part of ``state`` a failed pass writes back: every value but a command's.
+
+    Args:
+        state: The settable values read before a pass, keyed by address.
+            Not modified.
+        commands: The command addresses, as :func:`command_addresses` names
+            them.
+
+    Returns:
+        A new mapping: ``state`` without any address of ``commands``.
+    """
+    return {address: value for address, value in state.items() if address not in commands}
+
+
+def shot_records(view: SimulatorView) -> dict[str, frozenset[str]]:
+    """The records a command's write can change, by command address, across every model.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        For each command, every command and ``turn_series`` record of the
+        model the command belongs to: the armed flag and the turn series
+        included.
+    """
+    bindings = view.bindings(served_only=False)
+    held: dict[str, set[str]] = {}
+    for binding in bindings:
+        if binding.command or binding.role == _TURN_SERIES:
+            held.setdefault(binding.model, set()).add(binding.address)
+    return {
+        binding.address: frozenset(held[binding.model]) for binding in bindings if binding.command
+    }
+
+
+def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
+    """The records a setting's write can change, by setting address, across every model.
+
+    A setting reaches its own model alone. There it moves itself, the readback
+    it pairs with and what the model computes from all its settings -- every
+    record that pairs with no setpoint, and the model's status -- but no other
+    setting or the readback paired with it, and it takes no shot: only a
+    command fills the turn series or moves the armed flag.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        For each setpoint a physics model binds that is not a command: itself,
+        its readback, the model's records that are no setpoint, no readback
+        paired with one and no ``turn_series``, and the model's status address.
+    """
+    bindings = view.bindings(served_only=False)
+    settings = [
+        binding for binding in bindings if binding.role == _SETPOINT and not binding.command
+    ]
+    pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
+    paired = {pair for pair in pairs.values() if pair is not None}
+    computed: dict[str, set[str]] = {}
+    for binding in bindings:
+        if binding.role not in (_SETPOINT, _TURN_SERIES) and binding.address not in paired:
+            computed.setdefault(binding.model, set()).add(binding.address)
+    for model, address in view.status_addresses().items():
+        computed.setdefault(model, set()).add(address)
+    records: dict[str, frozenset[str]] = {}
+    for binding in settings:
+        own = {binding.address, *computed.get(binding.model, ())}
+        if (pair := pairs[binding.address]) is not None:
+            own.add(pair)
+        records[binding.address] = frozenset(own)
+    return records
+
+
+def pass_readback(
+    records: Mapping[str, frozenset[str]], written: Iterable[str]
+) -> frozenset[str] | None:
+    """What a write pass of ``written`` reads back when ``records`` names every value of it.
+
+    Args:
+        records: The records each address's write can change, as
+            :func:`shot_records` or :func:`setting_records` names them.
+        written: The addresses the pass writes.
+
+    Returns:
+        The records of every written address, or ``None`` when the pass
+        writes nothing or writes any address ``records`` does not name.
+    """
+    addresses = set(written)
+    if not addresses or not addresses <= records.keys():
+        return None
+    return frozenset().union(*(records[address] for address in addresses))

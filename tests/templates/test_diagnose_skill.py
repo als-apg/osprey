@@ -1,8 +1,9 @@
 """The shipped ``diagnose`` skill reads the simulator within the rendered permissions.
 
 A failed physics model serves its variables as NaN/INVALID and its status
-channel, ``<code>:SIM:<model>:STATUS``, holds ``ok`` or the engine's own error
-text. The skill teaches the rendered agent to read that channel and the model's
+channel, ``<code>:SIM:<model>:STATUS``, holds the engine's own error text; a
+degraded one serves on with only the readings its condition lists NaN/INVALID,
+the status channel holding the condition text; a healthy one reads ``ok``. The skill teaches the rendered agent to read that channel and the model's
 log with the tools the preset grants — ``channel_read`` and ``Read`` — and to
 state a failure reason only from the status value. ``osprey sim status`` is the
 operator's terminal equivalent; the agent cannot run it, because the rendered

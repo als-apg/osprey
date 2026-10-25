@@ -37,8 +37,14 @@ from osprey.services.virtual_accelerator.serving.model_surface import ModelSurfa
 from osprey.services.virtual_accelerator.serving.runner_config import (
     HEALTH_KEYS,
     apply_safety,
+    command_addresses,
+    pass_readback,
     periodic_addresses,
+    restorable_state,
+    setting_records,
+    shot_records,
 )
+from osprey_connectors.simulation.composite import shot_times
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
@@ -53,15 +59,22 @@ class ModelRunner(Runner):
     the view's write safety applied
     (:func:`~osprey.services.virtual_accelerator.serving.runner_config.apply_safety`).
     A write pass reads back every served channel except those the view says
-    refresh ``periodic``, which the next periodic pass publishes; a pass with
-    no input values reads them all.
+    refresh ``periodic``, which the next periodic pass publishes. A write
+    pass of commands alone reads back only the shot records of the
+    commands' models, the one part of the composite a command changes; one
+    of physics settings only the settings, their readbacks and what their
+    models compute from their settings, the one part a setting changes
+    (:func:`~osprey.services.virtual_accelerator.serving.runner_config.pass_readback`).
+    A pass with no input values reads them all.
     A failed pass rolls the composite back to the state cached before it only
     when ``model.set`` had already succeeded: a refused ``set`` leaves the
-    composite as it was. The model RPC's write verbs reply only after a
+    composite as it was. The cache holds settings only: a command acts once
+    and holds no setting, so it is never cached and never written back. The model RPC's write verbs reply only after a
     publishing pass has run. Every publishing pass's outcome, success or
     failure, is recorded in the surface's health record, which ``status``
     reports and which is rewritten to the health file after every pass when
-    one is named.
+    one is named. A turn series a shot has filled is posted with the time of
+    that shot, on both transports; every other value with the pass's time.
     """
 
     def __init__(
@@ -99,6 +112,10 @@ class ModelRunner(Runner):
         self._health_file = health_file
         self._model_write_token = model_write_token
         self._periodic = periodic_addresses(view)
+        self._commands = command_addresses(view)
+        self._shot_records = shot_records(view)
+        self._setting_records = setting_records(view)
+        self._written: frozenset[str] = frozenset()
         self._write_pass = False
         self._set_landed = False
         self._pass_started = False
@@ -128,17 +145,18 @@ class ModelRunner(Runner):
         return self._first_pass_error
 
     def _run_cycle(self, item: dict[str, Any]) -> None:
-        """Note whether this pass carries input values, then run it and record its outcome."""
-        self._write_pass = bool(item["values"])
+        """Note the input values this pass writes, then run it and record its outcome."""
+        self._written = frozenset(item["values"])
+        self._write_pass = bool(self._written)
         self._set_landed = False
         self._pass_started = False
         item["done"].append(self._record_pass)
         super()._run_cycle(item)
 
     def _set_cached_state(self, state: dict[str, Any]) -> None:
-        """Note that this cycle runs a publishing pass, then cache ``state``."""
+        """Note that this cycle runs a publishing pass, then cache ``state``'s settings."""
         self._pass_started = True
-        super()._set_cached_state(state)
+        super()._set_cached_state(restorable_state(state, self._commands))
 
     def _record_pass(self, error: str | None) -> None:
         """Record a publishing pass's outcome; a cycle that ran no pass records nothing."""
@@ -152,12 +170,44 @@ class ModelRunner(Runner):
             write_document(self._health_file, document)
 
     def _cycle_output_names(self) -> list[str]:
-        """The roster read after ``model.set``; a write pass leaves the periodic addresses out."""
+        """The roster read after ``model.set``, narrowed for a write pass.
+
+        A write pass leaves the periodic addresses out; one of commands alone
+        reads only the shot records of the commands' models, and one of
+        physics settings only the records those settings can change.
+        """
         self._set_landed = True
         roster: list[str] = super()._cycle_output_names()
         if not self._write_pass:
             return roster
-        return [name for name in roster if name not in self._periodic]
+        changed = pass_readback(self._shot_records, self._written)
+        if changed is None:
+            changed = pass_readback(self._setting_records, self._written)
+        return [
+            name
+            for name in roster
+            if name not in self._periodic and (changed is None or name in changed)
+        ]
+
+    def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:
+        """Post the pass's values, each turn series a shot filled at that shot's time.
+
+        Values that share a time are posted together by the base class, so a
+        pass that reads no filled series posts exactly as the base class does.
+        The filled series are posted before the pass's other values, so a
+        client that sees the armed flag the shot cleared reads the series that
+        shot filled. The base class posts each group all or nothing; a group
+        that fails fails the pass after the groups before it were posted.
+        """
+        times = shot_times(self.model)
+        groups: dict[float, dict[str, Any]] = {}
+        for name, value in out_values.items():
+            groups.setdefault(times.get(name, ts), {})[name] = value
+        if not groups:
+            super()._post_outputs(out_values, ts)
+            return
+        for stamp, values in sorted(groups.items(), key=lambda group: group[0] == ts):
+            super()._post_outputs(values, stamp)
 
     def _reset_to_cached_state(self) -> None:
         """Restore the cached state only when the pass failed after ``model.set`` succeeded."""

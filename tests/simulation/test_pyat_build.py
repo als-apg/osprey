@@ -7,6 +7,7 @@ facility file, over the deck that model names.
 
 from __future__ import annotations
 
+import copy
 import subprocess
 import sys
 from typing import Any
@@ -67,7 +68,9 @@ def monitors(demo: dict[str, Any]) -> list[str]:
     return [
         item["address"]
         for item in demo["wiring"]
-        if "axis" in item["engine"] and "attribute" not in item["engine"]
+        if "axis" in item["engine"]
+        and "attribute" not in item["engine"]
+        and "series" not in item["engine"]
     ]
 
 
@@ -105,9 +108,12 @@ class TestFaultVariables:
         }
 
         roster = engine.fault_variables(demo["wiring"])
+        addressed = {name: slot for name, slot in roster.items() if slot.address is not None}
 
-        assert sorted(roster) == sorted(declared)
-        for name, slot in roster.items():
+        assert sorted(addressed) == sorted(declared)
+        assert set(roster) - set(addressed) == set(pyat_faults.MODEL_WIDE_FAULTS)
+        assert not set(pyat_faults.MODEL_WIDE_FAULTS) & set(model.supported_variables)
+        for name, slot in addressed.items():
             assert name == f"{slot.address}/{slot.field}"
             bounds = getattr(declared[name], "value_range", None)
             assert slot.value_range == (None if bounds is None else tuple(bounds))
@@ -156,9 +162,29 @@ class TestActiveScenario:
         with pytest.raises(ValueError, match="NOT:A:CHANNEL"):
             build(demo, {"NOT:A:CHANNEL": 1.0})
 
-    def test_an_unstable_active_scenario_raises_the_solve_error(self, demo):
+    def test_an_unstable_active_scenario_builds_a_ring_without_a_closed_orbit(self, demo):
+        model = build(demo, {QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 50.0})
+
+        assert model.no_closed_orbit
+        assert engine.condition(model)[0] == engine.NO_CLOSED_ORBIT
+
+    def test_an_unstable_active_scenario_raises_the_solve_error_without_injection(self, demo):
+        settings = copy.deepcopy(demo["settings"])
+        del settings["pyat"]["injection"]
+        wiring = [
+            item
+            for item in demo["wiring"]
+            if ":TBT:" not in item["address"] and ":INJECTION:" not in item["address"]
+        ]
+
         with pytest.raises(OrbitSolveError):
-            build(demo, {QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 50.0})
+            engine.build(
+                MODEL,
+                wiring,
+                demo["deck"],
+                settings,
+                {QUADRUPOLE: entry(demo, QUADRUPOLE)["default"] * 50.0},
+            )
 
 
 class TestDeckCopy:
@@ -360,6 +386,164 @@ class TestOptics:
         for name in roster:
             model.get([name])
         assert chromatic.count(True) == 1
+
+
+RF_ON, RF_ON_READBACK = "SR:RF:ON:SP", "SR:RF:ON:RB"
+TURNS, TURNS_READBACK = "SR:DIAG:TBT:TURNS:SP", "SR:DIAG:TBT:TURNS:RB"
+STORED_CURRENT = "SR:DIAG:STORED_BEAM:CURRENT:RB"
+ATTENUATION, ATTENUATION_READBACK = (
+    "SR:DIAG:BPM:01:ATTENUATION:SP",
+    "SR:DIAG:BPM:01:ATTENUATION:RB",
+)
+
+
+class TestTrajectoryRecords:
+    def test_rf_on_is_the_cavity_switch_on_by_default(self, demo):
+        from osprey.simulation.engines.pyat_variables import (
+            PyATReadOnlyEnumVariable,
+            PyATWritableEnumVariable,
+        )
+
+        model = build(demo)
+        assert isinstance(model.supported_variables[RF_ON], PyATWritableEnumVariable)
+        assert isinstance(model.supported_variables[RF_ON_READBACK], PyATReadOnlyEnumVariable)
+        assert model.get([RF_ON, RF_ON_READBACK]) == {RF_ON: 1, RF_ON_READBACK: 1}
+        model.set({RF_ON: 0})
+        assert model.get([RF_ON_READBACK])[RF_ON_READBACK] == 0
+        assert np.isnan(model.get([TUNE_X])[TUNE_X])
+        model.set({RF_ON: 1})
+        assert np.isfinite(model.get([TUNE_X])[TUNE_X])
+
+    def test_turns_tracked_is_one_model_wide_setting_its_readback_follows(self, demo):
+        model = build(demo)
+        assert model.get([TURNS, TURNS_READBACK]) == {TURNS: 100, TURNS_READBACK: 100}
+        model.set({TURNS: 250})
+        assert model.get([TURNS_READBACK])[TURNS_READBACK] == 250
+
+    def test_the_stored_current_reads_zero_without_a_bunch(self, demo):
+        from osprey.simulation.engines.pyat_model import StoredCurrentVariable
+
+        model = build(demo)
+        reading = model.supported_variables[STORED_CURRENT]
+        assert isinstance(reading, StoredCurrentVariable)
+        assert reading.read_only
+        assert 0.0 < reading.surviving_fraction < 1.0
+        assert model.get([STORED_CURRENT])[STORED_CURRENT] == 0.0
+
+    def test_attenuation_lowers_the_monitor_s_signal_gain_by_its_decibels(self, demo):
+        model = build(demo)
+        assert model.get([ATTENUATION])[ATTENUATION] == pytest.approx(0.0, abs=1e-9)
+        assert getattr(element(model, "BPM01"), "readout_gain", 1.0) == pytest.approx(1.0)
+        model.set({ATTENUATION: 6.0})
+        assert element(model, "BPM01").readout_gain == pytest.approx(10 ** (-6 / 20), rel=1e-5)
+        assert model.get([ATTENUATION_READBACK])[ATTENUATION_READBACK] == pytest.approx(6.0)
+        assert getattr(element(model, "BPM02"), "readout_gain", 1.0) == pytest.approx(1.0)
+
+
+MODE, MODE_READBACK = "SR:DIAG:BPM:01:MODE:SP", "SR:DIAG:BPM:01:MODE:RB"
+TONE, TONE_READBACK = "SR:DIAG:BPM:01:PILOT_TONE:SP", "SR:DIAG:BPM:01:PILOT_TONE:RB"
+CLEANING = "SR:DIAG:CLEANING:REQUEST"
+
+
+def _table_values(demo: dict[str, Any], address: str) -> list[float]:
+    return entry(demo, address)["calibration"]["curve"]["table"]["values"]
+
+
+def _with_entry(demo: dict[str, Any], address: str, **changes: Any) -> list[dict[str, Any]]:
+    wiring = copy.deepcopy(demo["wiring"])
+    for item in wiring:
+        if item["address"] == address:
+            item.update(changes)
+    return wiring
+
+
+class TestLabelledReadoutSettings:
+    def test_a_setting_boots_at_its_default_index_through_its_table(self, demo):
+        from osprey.simulation.engines.pyat_variables import (
+            PyATReadOnlyEnumVariable,
+            PyATWritableEnumVariable,
+        )
+
+        model = build(demo)
+        assert isinstance(model.supported_variables[MODE], PyATWritableEnumVariable)
+        assert isinstance(model.supported_variables[MODE_READBACK], PyATReadOnlyEnumVariable)
+        assert model.get([MODE, MODE_READBACK, TONE, TONE_READBACK]) == {
+            MODE: 0,
+            MODE_READBACK: 0,
+            TONE: 0,
+            TONE_READBACK: 0,
+        }
+        noise, quieter = _table_values(demo, MODE)
+        assert element(model, "BPM01").readout_noise_scale == pytest.approx(noise)
+        assert noise > quieter > 0.0
+        assert element(model, "BPM01").readout_tone_amplitude == 0.0
+
+    def test_a_written_index_maps_through_the_table_and_reads_back(self, demo):
+        model = build(demo)
+        model.set({MODE: 1, TONE: 1})
+        assert element(model, "BPM01").readout_noise_scale == pytest.approx(
+            _table_values(demo, MODE)[1]
+        )
+        assert element(model, "BPM01").readout_tone_amplitude == pytest.approx(
+            _table_values(demo, TONE)[1]
+        )
+        assert model.get([MODE_READBACK, TONE_READBACK]) == {MODE_READBACK: 1, TONE_READBACK: 1}
+        assert getattr(element(model, "BPM02"), "readout_tone_amplitude", 0.0) == 0.0
+        model.reset()
+        assert model.get([MODE, TONE_READBACK]) == {MODE: 0, TONE_READBACK: 0}
+
+    def test_an_index_outside_the_labels_is_refused(self, demo):
+        model = build(demo)
+        with pytest.raises(ValueError):
+            model.set({MODE: 2})
+        assert model.get([MODE_READBACK])[MODE_READBACK] == 0
+
+    def test_the_active_scenario_names_the_index_a_setting_boots_at(self, demo):
+        model = build(demo, {TONE: 1})
+        assert model.get([TONE, TONE_READBACK]) == {TONE: 1, TONE_READBACK: 1}
+        assert element(model, "BPM01").readout_tone_amplitude == pytest.approx(
+            _table_values(demo, TONE)[1]
+        )
+
+    def test_a_table_not_over_the_label_indices_stops_the_build(self, demo):
+        table = {"grid": [0.0, 3.0], "values": [1.0, 2.0]}
+        wiring = _with_entry(
+            demo, TONE, calibration={"curve": {"table": table}, "energy_scaling": "none"}
+        )
+        with pytest.raises(FacilityBuildError) as caught:
+            build(demo, wiring=wiring)
+        assert caught.value.kind == "engine-invalid"
+        assert "0, 1" in caught.value.detail
+
+    def test_a_setting_starts_at_its_stated_default_index_else_the_first(self, demo):
+        record = {key: value for key, value in entry(demo, TONE).items() if key != "default"}
+        types = {TONE: "bool"}
+        assert engine.start_values(demo["deck"], [record], None, value_types=types) == {TONE: 0}
+        stated = record | {"default": 1}
+        assert engine.start_values(demo["deck"], [stated], None, value_types=types) == {TONE: 1}
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(demo["deck"], [record | {"default": 2}], None, value_types=types)
+        assert caught.value.kind == "engine-invalid"
+
+    def test_a_labelled_channel_without_the_discrete_mark_stops_its_start_value(self, demo):
+        record = copy.deepcopy(entry(demo, MODE))
+        record["engine"] = {"attribute": "readout_noise_scale"}
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.start_values(
+                demo["deck"], [record], demo["settings"], value_types={MODE: "enum"}
+            )
+        assert caught.value.kind == "engine-invalid"
+
+
+class TestCleaningRequest:
+    def test_the_cleaning_request_is_a_command_clearing_the_stored_charge(self, demo):
+        from osprey.simulation.engines.pyat_model import CommandVariable
+
+        model = build(demo)
+        request = model.supported_variables[CLEANING]
+        assert isinstance(request, CommandVariable)
+        assert request.command == "clear_stored_charge"
+        assert model.get([CLEANING])[CLEANING] == 0
 
 
 class TestErrorText:

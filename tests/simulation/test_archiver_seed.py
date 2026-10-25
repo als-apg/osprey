@@ -29,11 +29,15 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from lume.model import LUMEModel
+from lume.variables import ScalarVariable
 
 from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -42,6 +46,7 @@ from osprey_connectors.simulation.archive import (
     FingerprintComparison,
     SeedKnobs,
     SeedState,
+    archived_channels,
     build,
     compare_fingerprint,
     oldest_sample,
@@ -54,8 +59,9 @@ from osprey_connectors.simulation.archive import (
     waveform_document,
     write_manifest,
 )
+from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.series import epoch_seconds_array
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_texture_view
@@ -88,6 +94,79 @@ def archive(tmp_path_factory):
     """The archive composite of a texture-only view, with nominal active."""
     view = write_texture_view(tmp_path_factory.mktemp("render"), CHANNELS)
     return build(view, [], anchor_s=T0.timestamp())
+
+
+#: A turn series and a reading of the physics model ``M``.
+SERIES = "SR:DIAG:BPM:12:TBT:X"
+READING = "SR:DIAG:TUNE:X"
+
+
+def series_model(**settings):
+    """Physics model ``M`` as a built view records it: a reading and a turn series."""
+    described = {"plane": "x", "refresh": "pass"}
+    return {
+        "name": "M",
+        "engine": "stub",
+        "settings": settings,
+        "deck": None,
+        "wiring": [
+            {"id": "1", "address": SERIES, "direction": "read", "role": "turn_series"} | described,
+            *(
+                [
+                    {"id": "2", "address": READING, "direction": "read", "role": "readback"}
+                    | described
+                ]
+                if settings.get("lost")
+                else []
+            ),
+        ],
+    }
+
+
+class _SeriesModel(LUMEModel):
+    """Every wired channel reads zero; a lost beam reads NaN on the reading."""
+
+    def __init__(self, wiring, settings):
+        self.lost = bool(settings.get("lost"))
+        self._variables = {
+            str(entry["address"]): ScalarVariable(name=str(entry["address"]), read_only=True)
+            for entry in wiring
+        }
+
+    @property
+    def supported_variables(self):
+        return self._variables
+
+    def reset(self):
+        return None
+
+    def _set(self, values):
+        raise AssertionError(f"no channel of the model is written: {sorted(values)}")
+
+    def _get(self, names):
+        return {name: np.nan if self.lost and name == READING else 0.0 for name in names}
+
+
+def _series_build(model, wiring, deck, settings, active=None):
+    del model, deck, active
+    if settings.get("fail"):
+        raise RuntimeError(settings["fail"])
+    return _SeriesModel(list(wiring), settings)
+
+
+def _series_condition(model):
+    return ("no closed orbit", frozenset({READING})) if model.lost else None
+
+
+@pytest.fixture
+def series_engine(monkeypatch):
+    """The ``stub`` engine the physics model of :func:`series_model` names."""
+    stub = SimpleNamespace(build=_series_build, condition=_series_condition)
+    real = Composite._engine
+    monkeypatch.setattr(
+        Composite, "_engine", staticmethod(lambda name: stub if name == "stub" else real(name))
+    )
+    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
 
 
 # A pulsed supply: its trace, its setpoint (the driver) and its on-state (the enable).
@@ -458,6 +537,68 @@ class TestSynthesizeDocuments:
             assert set(document) == {DATE_FIELD, *ADDRESSES, "%64ate", "%65xpireAt"}
             assert isinstance(document[DATE_FIELD], datetime)
             assert document["%64ate"] == pytest.approx(3.0)
+
+
+@pytest.mark.usefixtures("series_engine")
+class TestArchivedChannelSet:
+    """A document carries the archived channels: the view's, less its turn series."""
+
+    def test_a_view_without_series_records_seeds_every_channel_of_the_view(self, tmp_path):
+        view = write_texture_view(tmp_path, CHANNELS)
+        seeded = build(view, [], anchor_s=T0.timestamp())
+
+        assert list(archived_channels(SimulatorView.open(view))) == ADDRESSES
+        assert seeded.addresses == ADDRESSES
+
+    def test_series_records_change_no_document_count_and_no_other_channels_content(
+        self, tmp_path, archive
+    ):
+        """The same grid gives the same number of documents, each holding what a
+        view without the series holds for every channel the two share."""
+        view = write_texture_view(
+            tmp_path, {**CHANNELS, SERIES: {"owner": "M"}}, models=[series_model()]
+        )
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times)
+
+        without = synthesize_documents(archive, times)
+        assert len(documents) == len(without)
+        assert all(SERIES not in document for document in documents)
+        assert documents == without
+
+    def test_the_series_channel_is_no_part_of_the_seeded_store(self, tmp_path):
+        view = write_texture_view(
+            tmp_path, {**CHANNELS, SERIES: {"owner": "M"}}, models=[series_model()]
+        )
+        collection = StubCollection()
+
+        report = seed_base(collection, build(view, [], anchor_s=T0.timestamp()), SMALL, t0=T0)
+
+        assert report.channels == len(ADDRESSES)
+        assert report.documents == len(seed_grid(SMALL, T0)[0])
+
+    def test_a_model_under_a_condition_seeds_its_listed_readings_as_nan(self, tmp_path, archive):
+        channels = {**CHANNELS, SERIES: {"owner": "M"}, READING: {"owner": "M"}}
+        view = write_texture_view(tmp_path, channels, models=[series_model(lost=True)])
+        times, _ = seed_grid(SMALL, T0)
+
+        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:8])
+
+        assert all(set(document) == {DATE_FIELD, *ADDRESSES, READING} for document in documents)
+        assert all(np.isnan(document[READING]) for document in documents)
+        for pv in ADDRESSES:
+            assert [document[pv] for document in documents] == archive.series(pv, times[:8])
+
+    def test_a_model_that_is_not_built_seeds_nothing(self, tmp_path):
+        view = write_texture_view(
+            tmp_path,
+            {**CHANNELS, SERIES: {"owner": "M"}},
+            models=[series_model(fail="the deck does not load")],
+        )
+
+        with pytest.raises(RuntimeError, match="^M: the deck does not load$"):
+            build(view, [], anchor_s=T0.timestamp())
 
 
 # ---------------------------------------------------------------------------

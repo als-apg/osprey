@@ -1,10 +1,11 @@
-"""``model_response_matrix``: a served model's orbit response, solved in a child process.
+"""``model_response_matrix``: a served model's response, solved in a child process.
 
 The SR cases read the built demo's render; the line cases read a three-cell
 synthetic render. The tool's own cases run the real executor: the generated
 script, the readonly sandbox and its child process. The child's solve is the
 engine plug-in's ``response_matrix``, so the tool's matrix must equal the
-plug-in called directly with the same steps.
+plug-in called directly with the same steps. The round-trip cases hand what
+the child prints to the tool's parser and labels, once per kind.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ CORRECTOR_Y = "SR:MAG:VCM:01:CURRENT:SP"
 
 LINE = "LINE"
 LINE_KICK = "COR_1:X:SP"
+LINE_KICK_Y = "COR_2:Y:SP"
 LINE_TWISS = {
     "beta": [5.0, 3.0],
     "alpha": [0.1, -0.2],
@@ -95,8 +97,12 @@ def _set_step(render: Path, model: str, value: Any) -> None:
     path.write_text(json.dumps(document), encoding="utf-8")
 
 
-def _line_render(root: Path, corrector_delta: float | None) -> Path:
-    """A render serving one three-cell line, a corrector and a monitor in each cell."""
+def _line_render(root: Path, corrector_delta: float | None, *, series: bool = False) -> Path:
+    """A render serving one three-cell line, a corrector and a monitor in each cell.
+
+    ``series`` also wires a turn-by-turn reading of each monitor in both planes
+    and of its sum, and a vertical corrector in the second cell.
+    """
     view = root / "data" / "simulator"
     (view / "decks").mkdir(parents=True)
     elements: list[Any] = []
@@ -139,6 +145,34 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
             "refresh": "pass",
         }
     )
+    if series:
+        wiring += [
+            {
+                "id": f"{LINE}/BPM_{cell}:TBT:{axis.upper()}",
+                "address": f"BPM_{cell}:TBT:{axis.upper()}",
+                "direction": "read",
+                "element": f"BPM_{cell}",
+                "engine": {"axis": axis, "series": "turn"},
+                "role": "turn_series",
+                "plane": axis if axis in ("x", "y") else None,
+                "refresh": "pass",
+            }
+            for cell in (3, 1, 2)
+            for axis in ("sum", "y", "x")
+        ]
+        wiring.append(
+            {
+                "id": f"{LINE}/{LINE_KICK_Y}",
+                "address": LINE_KICK_Y,
+                "direction": "write",
+                "element": "COR_2",
+                "engine": {"attribute": "KickAngle", "index": 1},
+                "default": 0.0,
+                "role": "setpoint",
+                "plane": "y",
+                "refresh": "pass",
+            }
+        )
     channels = [
         {
             "address": record["address"],
@@ -313,6 +347,179 @@ class TestSolve:
         planes = [address.split(":")[2] for address in request.correctors]
         assert planes == sorted(planes, key=lambda name: name != "HCM")
         assert len(request.correctors) == 144
+
+
+# ---------------------------------------------------------------------------
+# The child's printed line, through the tool's parser and labels
+# ---------------------------------------------------------------------------
+
+LINE_DELTA = 1.0e-5
+
+#: The keys of a labelled result of each kind, and of its rows and columns.
+RESULT_KEYS = {"model", "corrector_delta", "unit", "rows", "columns", "matrix", "unsolved"}
+ROW_KEYS = {"address", "device"}
+COLUMN_KEYS = {"address", "device", "step"}
+LOCATION_KEYS = {"plane", "index"}
+
+
+def _printed(request: tool.ModelRequest) -> str:
+    """What the child prints for a request, solved in this process."""
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        solve_and_print(json.loads(json.dumps(tool._child_payload(request))))
+    return printed.getvalue()
+
+
+def _round_trip(render: Path, kind: str, correctors: list[str] | None = None) -> dict[str, Any]:
+    """The labelled result the tool reads from what the child prints, as the agent gets it."""
+    request = tool.resolve_model_request(LINE, correctors, render_root=render, kind=kind)
+    line = tool._result_line(_printed(request), request.kind)
+    assert line is not None
+    result: dict[str, Any] = json.loads(json.dumps(tool._label(request, line)))
+    return result
+
+
+def _line_solve(render: Path, result: dict[str, Any], **words: Any) -> Any:
+    """The plug-in's own answer for the columns and steps a result names."""
+    view = render / "data" / "simulator"
+    (model,) = json.loads((view / "variables.json").read_text(encoding="utf-8"))["models"]
+    steps = {column["address"]: column["step"] for column in result["columns"]}
+    return engine.response_matrix(
+        view / model["deck"], model["wiring"], model["settings"], list(steps), steps, **words
+    )
+
+
+class TestRoundTrip:
+    @pytest.fixture
+    def render(self, tmp_path: Path) -> Path:
+        return _line_render(tmp_path / "line", corrector_delta=LINE_DELTA, series=True)
+
+    def test_an_orbit_line_is_labelled_as_the_plug_in_solved_it(self, render):
+        result = _round_trip(render, "orbit")
+
+        answer = _line_solve(render, result)
+        rows, expected = answer.rows, answer.matrix
+        assert set(result) == RESULT_KEYS
+        assert result["unsolved"] == {}
+        assert [column["address"] for column in result["columns"]] == [LINE_KICK, LINE_KICK_Y]
+        assert all(set(column) == COLUMN_KEYS for column in result["columns"])
+        assert result["rows"] == [
+            {"address": address, "device": f"{LINE}/{address.split(':')[0]}"} for address in rows
+        ]
+        assert len(rows) == 6
+        np.testing.assert_allclose(np.asarray(result["matrix"]), expected, rtol=1e-12, atol=0)
+        assert np.any(np.asarray(result["matrix"]) != 0.0)
+
+    def test_an_unnamed_kind_is_the_orbit_response(self, render):
+        request = tool.resolve_model_request(LINE, None, render_root=render)
+
+        line = tool._result_line(_printed(request))
+
+        assert line is not None
+        assert set(line) == {"rows", "columns", "matrix", "unsolved"}
+        assert tool._label(request, line) == _round_trip(render, "orbit")
+
+    def test_a_trajectory_line_is_labelled_as_the_plug_in_solved_it(self, render):
+        result = _round_trip(render, "trajectory", [LINE_KICK_Y, LINE_KICK])
+
+        answer = _line_solve(render, result, kind="trajectory")
+        assert set(result) == RESULT_KEYS | {"kind"}
+        assert result["kind"] == "trajectory"
+        assert [row["address"] for row in result["rows"]] == answer.rows
+        assert [row["address"] for row in result["rows"]] == [
+            *(f"BPM_{cell}:TBT:X" for cell in (1, 2, 3)),
+            *(f"BPM_{cell}:TBT:Y" for cell in (1, 2, 3)),
+        ]
+        assert [row["plane"] for row in result["rows"]] == ["H"] * 3 + ["V"] * 3
+        assert [row["index"] for row in result["rows"]] == [
+            answer.index[row] for row in answer.rows
+        ]
+        assert [row["device"] for row in result["rows"]] == [
+            f"{LINE}/BPM_{cell}" for cell in (1, 2, 3)
+        ] * 2
+        assert all(set(row) == ROW_KEYS | LOCATION_KEYS for row in result["rows"])
+        assert result["columns"] == [
+            {
+                "address": address,
+                "device": f"{LINE}/{element}",
+                "step": LINE_DELTA,
+                "plane": plane,
+                "index": index,
+            }
+            for address, element, plane, index in zip(
+                [LINE_KICK, LINE_KICK_Y],
+                ["COR_1", "COR_2"],
+                ["H", "V"],
+                [answer.index[LINE_KICK], answer.index[LINE_KICK_Y]],
+                strict=True,
+            )
+        ]
+        matrix = np.asarray(result["matrix"])
+        np.testing.assert_allclose(matrix, answer.matrix, rtol=1e-8, atol=0)
+        assert np.any(matrix != 0.0)
+
+    def test_a_trajectory_matrix_holds_nine_significant_digits(self, render):
+        result = _round_trip(render, "trajectory")
+
+        entries = [value for row in result["matrix"] for value in row]
+        assert entries == [float(f"{value:.9g}") for value in entries]
+        solved = _line_solve(render, result, kind="trajectory").matrix
+        assert [float(f"{value:.9g}") for value in solved.ravel()] == entries
+
+    def test_the_trajectory_response_through_the_executor_equals_the_round_trip(
+        self, sandbox, render
+    ):
+        sandbox["render"] = render
+        before = {path: path.read_bytes() for path in sorted(render.rglob("*")) if path.is_file()}
+
+        result = _call(model=LINE, kind="trajectory")
+
+        assert result == _round_trip(render, "trajectory")
+        after = {path: path.read_bytes() for path in sorted(render.rglob("*")) if path.is_file()}
+        assert after == before
+
+    @pytest.mark.parametrize("missing", ["columns", "unsolved", "index"])
+    def test_a_trajectory_line_missing_a_part_is_no_result(self, render, missing):
+        request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
+        tag, text = _printed(request).strip().split(" ", 1)
+        line = json.loads(text)
+        del line[missing]
+
+        assert tool._result_line(f"{tag} {json.dumps(line)}\n", "trajectory") is None
+
+    def test_a_trajectory_line_whose_indices_miss_a_column_is_no_result(self, render):
+        request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
+        tag, text = _printed(request).strip().split(" ", 1)
+        line = json.loads(text)
+        del line["index"][LINE_KICK_Y]
+
+        assert tool._result_line(f"{tag} {json.dumps(line)}\n", "trajectory") is None
+
+    def test_a_trajectory_line_of_other_columns_is_not_labelled(self, render):
+        request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
+        tag, text = _printed(request).strip().split(" ", 1)
+        line = json.loads(text)
+        line["columns"][0] = "ELSEWHERE:SP"
+        line["index"]["ELSEWHERE:SP"] = 0
+
+        parsed = tool._result_line(f"{tag} {json.dumps(line)}\n", "trajectory")
+
+        assert parsed is not None
+        with pytest.raises(ValueError, match="not the correctors asked for"):
+            tool._label(request, parsed)
+
+    def test_a_refusal_of_the_plug_in_is_read_as_its_refusal(self, render):
+        request = tool.resolve_model_request(LINE, None, render_root=render, kind="trajectory")
+        payload = {**tool._child_payload(request), "kind": "elsewhere"}
+        printed = io.StringIO()
+
+        with contextlib.redirect_stdout(printed):
+            solve_and_print(payload)
+
+        line = tool._result_line(printed.getvalue(), "trajectory")
+        assert line is not None
+        assert set(line) == {"refused"}
+        assert "'elsewhere'" in line["refused"]
 
 
 #: A plug-in whose solve raises an exception it declares as meaning "no solve".
@@ -532,6 +739,15 @@ class TestRefusals:
         assert _envelope(raised)["error_message"] == (
             "model 'ELSEWHERE' is not a served deck model of this render; the served ones: BTS, LINE, LTB, SR"
         )
+
+    @pytest.mark.parametrize("kind", ["tbt", "", None, ["orbit"]])
+    def test_a_kind_the_tool_does_not_solve_is_refused_listing_the_kinds(self, sr_render, kind):
+        with pytest.raises(ToolError) as raised:
+            tool.resolve_model_request("SR", None, render_root=sr_render, kind=kind)
+
+        envelope = _envelope(raised)
+        assert envelope["error_type"] == "validation_error"
+        assert envelope["error_message"] == f"kind must be one of orbit, trajectory, got {kind!r}"
 
     @pytest.mark.parametrize(
         ("correctors", "fragment"),

@@ -188,6 +188,78 @@ class TestBuild:
         assert "pyat.twiss_in is set on a periodic model" in str(stopped.value)
 
 
+@pytest.fixture
+def cavity_deck(tmp_path: Path) -> Path:
+    """The three-cell line with an enabled cavity after its first cell."""
+    elements = _elements()
+    elements.insert(7, at.RFCavity("RFC", 0.0, 1.0e6, 5.0e8, 300, 3e9))
+    lattice = at.Lattice(elements, energy=3e9, particle="electron", periodicity=1)
+    assert lattice.is_6d
+    path = tmp_path / "cavity_line.json"
+    at.save_lattice(lattice, str(path))
+    return path
+
+
+def _propagated(deck: Path, *, four_d: bool) -> np.ndarray:
+    """The beta functions pyAT itself propagates from ``twiss_in`` to the monitors."""
+    lattice = at.load_lattice(str(deck))
+    monitors = lattice.get_uint32_index(at.Monitor)
+    if four_d:
+        lattice = lattice.disable_6d(copy=True)
+    twiss_in = engine.prepare(deck, SETTINGS).twiss_in
+    return at.get_optics(lattice, refpts=monitors, twiss_in=twiss_in)[2].beta
+
+
+class TestEnabledCavity:
+    def test_pyat_propagates_no_optics_through_the_enabled_cavity_itself(self, cavity_deck: Path):
+        with pytest.raises(ValueError):
+            _propagated(cavity_deck, four_d=False)
+
+    def test_a_line_with_an_enabled_cavity_solves(self, cavity_deck: Path):
+        model = _build(cavity_deck)
+        assert isinstance(model.simulator, SinglePassSimulator)
+        beta = np.asarray(model.get([BETA_AT_MONITORS])[BETA_AT_MONITORS])
+        assert beta.shape == (len(CELLS), 2)
+        assert np.all(np.isfinite(beta)) and np.all(beta > 0.0)
+
+    def test_its_beta_is_propagated_through_the_line_without_the_cavity(self, cavity_deck: Path):
+        model = _build(cavity_deck)
+        np.testing.assert_allclose(
+            model.get([BETA_AT_MONITORS])[BETA_AT_MONITORS],
+            _propagated(cavity_deck, four_d=True),
+            rtol=0,
+            atol=1e-12,
+        )
+
+    def test_its_monitors_read_the_pass_tracked_through_the_enabled_cavity(self, cavity_deck: Path):
+        model = _build(cavity_deck)
+        np.testing.assert_allclose(_readings(model), _tracked(cavity_deck), rtol=0, atol=1e-15)
+        model.set({KICK: 1.0e-4})
+        np.testing.assert_allclose(
+            _readings(model), _tracked(cavity_deck, 1.0e-4), rtol=0, atol=1e-15
+        )
+
+    def test_the_owned_lattice_keeps_its_enabled_cavity_across_solves(self, cavity_deck: Path):
+        model = _build(cavity_deck)
+        model.set({KICK: 1.0e-4})
+        lattice = model.simulator.lattice
+        assert lattice.is_6d
+        assert model.simulator.element("RFC").PassMethod == "RFCavityPass"
+
+    def test_a_cavity_free_line_reads_the_optics_of_the_lattice_itself(self, deck: Path):
+        model = _build(deck)
+        model.set({KICK: 1.0e-4, QUAD: 1.25})
+        lattice = at.load_lattice(str(deck))
+        lattice[lattice.get_uint32_index("COR_1")[0]].KickAngle = [1.0e-4, 0.0]
+        lattice[lattice.get_uint32_index("QF_2")[0]].PolynomB[1] = 1.25
+        expected = at.get_optics(
+            lattice,
+            refpts=lattice.get_uint32_index(at.Monitor),
+            twiss_in=engine.prepare(deck, SETTINGS).twiss_in,
+        )[2].beta
+        np.testing.assert_array_equal(model.get([BETA_AT_MONITORS])[BETA_AT_MONITORS], expected)
+
+
 class TestFailedSolve:
     def test_a_raising_get_optics_leaves_inputs_unchanged(
         self, deck: Path, monkeypatch: pytest.MonkeyPatch

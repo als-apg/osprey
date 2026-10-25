@@ -586,6 +586,11 @@ The EPICS archiver connector does not support arrays: reading a waveform PV
 through it is refused with ``Waveform PVs not supported``. Waveform history is
 only available from the store this stack deploys.
 
+A turn-by-turn series is an array too, but not a trace with a history: it holds
+the samples of one shot and has no value between shots. Neither the seed nor the
+recorder archives it, whether its model is served or not, and an archiver read
+of one is refused with ``ChannelNotArchivedError``. Read it live after a shot.
+
 What the archive will not claim
 -------------------------------
 

@@ -6,8 +6,9 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the stages compose into one honest answer: resolution names
 the facility file, the reader reads it, and an absence travels through
 untouched. The end-to-end assertion is against the facility file built from
-the tree OSPREY ships -- 3338 channels, 522 of them settable, every one of
-those paired with the readback the file states.
+the tree OSPREY ships -- 4138 channels, 814 of them settable: 740 setpoints,
+every one paired with the readback the file states, and 74 write-only commands
+that pair with none.
 
 The second is memoization. A build asks this question several times -- both
 bridge lanes render from it and the channel snapshot is written from it -- and
@@ -43,9 +44,13 @@ from osprey.channel_roster import (
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 3338
-DEMO_WRITES = 522
-DEMO_READS = 2816
+DEMO_CHANNELS = 4138
+DEMO_WRITES = 814
+DEMO_READS = 3324
+#: The settable channels that pair with a readback; the rest of the writes are
+#: commands (a turn-by-turn arm per ring BPM and the injection and bunch-cleaning
+#: requests).
+DEMO_PAIRED_WRITES = 740
 
 
 @pytest.fixture(autouse=True)
@@ -131,7 +136,7 @@ class TestTheShippedDemoTree:
         result = registered_channels(demo_config)
 
         paired = [record for record in result.write_records if record.readback is not None]
-        assert len(paired) == DEMO_WRITES
+        assert len(paired) == DEMO_PAIRED_WRITES
         assert all(record.readback == record.address[: -len("SP")] + "RB" for record in paired)
 
     def test_names_the_file_it_read(self, demo_config) -> None:

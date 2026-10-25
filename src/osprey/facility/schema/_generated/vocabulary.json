@@ -659,6 +659,25 @@
     },
     {
       "aliases": [
+        "attenuation readback",
+        "measured attenuation",
+        "attenuator readback"
+      ],
+      "description": "Readback of the attenuation applied to a BPM's input signal.",
+      "name": "attenuation_readback"
+    },
+    {
+      "aliases": [
+        "attenuation",
+        "bpm attenuation",
+        "attenuator setting",
+        "input attenuation"
+      ],
+      "description": "Commanded attenuation of a BPM's input signal ahead of its electronics.",
+      "name": "attenuation_setpoint"
+    },
+    {
+      "aliases": [
         "beam intensity",
         "wire sum",
         "beam current",
@@ -670,9 +689,45 @@
       "name": "beam_intensity_readback"
     },
     {
+      "aliases": [
+        "arm bpm",
+        "arm turn-by-turn acquisition",
+        "bpm arm"
+      ],
+      "description": "Command that arms a BPM's turn-by-turn acquisition for the next trigger.",
+      "name": "bpm_arm_command"
+    },
+    {
+      "aliases": [
+        "bpm armed",
+        "turn-by-turn acquisition armed",
+        "armed state"
+      ],
+      "description": "Armed-state readback of a BPM's turn-by-turn acquisition.",
+      "name": "bpm_armed_status"
+    },
+    {
       "aliases": [],
       "description": "Fast-orbit-feedback channel-index readback for a BPM.",
       "name": "bpm_fofb_index"
+    },
+    {
+      "aliases": [
+        "bpm mode readback",
+        "bpm mode state"
+      ],
+      "description": "Readback of the operating mode of a BPM's electronics.",
+      "name": "bpm_mode_readback"
+    },
+    {
+      "aliases": [
+        "bpm mode",
+        "bpm current mode",
+        "low current mode",
+        "high current mode"
+      ],
+      "description": "Commanded operating mode of a BPM's electronics (e.g. low or high beam current), which sets their electronic noise.",
+      "name": "bpm_mode_setpoint"
     },
     {
       "aliases": [],
@@ -683,6 +738,33 @@
       "aliases": [],
       "description": "BPM sum-signal readback (intensity proxy from button electrodes).",
       "name": "bpm_sum_readback"
+    },
+    {
+      "aliases": [
+        "turn-by-turn sum signal",
+        "turn-by-turn sum",
+        "tbt sum"
+      ],
+      "description": "Turn-by-turn sum-signal record of a BPM, one sample per turn of the last acquisition (intensity proxy from button electrodes).",
+      "name": "bpm_tbt_sum"
+    },
+    {
+      "aliases": [
+        "turn-by-turn horizontal position",
+        "turn-by-turn x",
+        "tbt x"
+      ],
+      "description": "Turn-by-turn horizontal-position record of a BPM, one sample per turn of the last acquisition.",
+      "name": "bpm_tbt_x"
+    },
+    {
+      "aliases": [
+        "turn-by-turn vertical position",
+        "turn-by-turn y",
+        "tbt y"
+      ],
+      "description": "Turn-by-turn vertical-position record of a BPM, one sample per turn of the last acquisition.",
+      "name": "bpm_tbt_y"
     },
     {
       "aliases": [],
@@ -698,6 +780,17 @@
       "aliases": [],
       "description": "Bulk-supply DC voltage readback.",
       "name": "bulk_supply_voltage_readback"
+    },
+    {
+      "aliases": [
+        "bunch cleaning",
+        "clear stored beam",
+        "dump stored beam",
+        "empty stored charge",
+        "beam cleaning"
+      ],
+      "description": "Command that removes the stored charge, so the next injected shot circulates alone.",
+      "name": "bunch_cleaning_command"
     },
     {
       "aliases": [],
@@ -911,6 +1004,24 @@
       "name": "gun_voltage_setpoint"
     },
     {
+      "aliases": [
+        "injection busy",
+        "injection in progress",
+        "shot in progress"
+      ],
+      "description": "Readback that is set while a requested injection shot is in progress.",
+      "name": "injection_busy_status"
+    },
+    {
+      "aliases": [
+        "request injection",
+        "injection request",
+        "request a shot"
+      ],
+      "description": "Command that requests one injection shot.",
+      "name": "injection_request_command"
+    },
+    {
       "aliases": [],
       "description": "Integrated beam-loss count readback from a beam loss monitor (BLM).",
       "name": "integrated_count"
@@ -1031,6 +1142,24 @@
       ],
       "description": "Commanded RF phase setpoint for an RF cavity.",
       "name": "phase_setpoint"
+    },
+    {
+      "aliases": [
+        "pilot tone state",
+        "pilot tone readback"
+      ],
+      "description": "Readback of the on/off state of a BPM's pilot tone.",
+      "name": "pilot_tone_readback"
+    },
+    {
+      "aliases": [
+        "pilot tone",
+        "pilot tone on",
+        "pilot tone off",
+        "bpm pilot tone"
+      ],
+      "description": "Commanded on/off state of a BPM's pilot tone, a calibration tone the electronics add to the button signals.",
+      "name": "pilot_tone_setpoint"
     },
     {
       "aliases": [],
@@ -1292,6 +1421,28 @@
     },
     {
       "aliases": [
+        "rf on readback",
+        "rf state",
+        "rf status",
+        "is rf on"
+      ],
+      "description": "Readback of the on/off state of the RF system of a lattice that stores beam.",
+      "name": "rf_on_readback"
+    },
+    {
+      "aliases": [
+        "rf on",
+        "rf switch",
+        "rf on/off",
+        "turn rf off",
+        "turn rf on",
+        "rf enable"
+      ],
+      "description": "Commanded on/off state of the RF system of a lattice that stores beam; with RF off the beam has no closed orbit and is not captured.",
+      "name": "rf_on_setpoint"
+    },
+    {
+      "aliases": [
         "rf reflected power",
         "reflected power",
         "cavity reflected power",
@@ -1380,6 +1531,25 @@
       ],
       "description": "Commanded tuner position.",
       "name": "tuner_position_setpoint"
+    },
+    {
+      "aliases": [
+        "turns tracked readback",
+        "buffer size readback"
+      ],
+      "description": "Readback of the number of turns a turn-by-turn acquisition records beam on.",
+      "name": "turns_tracked_readback"
+    },
+    {
+      "aliases": [
+        "turns tracked",
+        "buffer size",
+        "turn-by-turn buffer size",
+        "number of turns",
+        "tbt turns"
+      ],
+      "description": "Commanded number of turns after the trigger that a turn-by-turn acquisition records beam on (the acquisition's buffer size).",
+      "name": "turns_tracked_setpoint"
     },
     {
       "aliases": [

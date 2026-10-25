@@ -39,9 +39,9 @@ BINDING = corpora.BINDING
 #: top place ``SR``, which carries the tune and chromaticity channels itself.
 DEMO_DEVICES = 645
 DEMO_TYPED_DEVICES = 644
-DEMO_BINDINGS = 3338
-DEMO_WRITE_ONLY = 522
-DEMO_READ_ONLY = 2812
+DEMO_BINDINGS = 4138
+DEMO_WRITE_ONLY = 814
+DEMO_READ_ONLY = 3320
 DEMO_MAGNETS = 466
 #: 32 ``owl:Class`` subjects less the ``SemanticSignal`` and ``ChannelBinding``
 #: leaves that pruning drops.
@@ -51,6 +51,22 @@ DEMO_CLASS_COUNT = 30
 DEMO_PLACE_BOUND = frozenset(
     {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 )
+#: The channels bound to the top place that do name a signal, and so carry its
+#: direction: the ring-wide controls of the injection loop. Written are the
+#: injection and bunch-cleaning requests and the turns-tracked and RF-on
+#: setpoints; read are the busy flag, the stored-beam current and the two
+#: readbacks. Like the other place-bound channels they have no system and no
+#: class.
+DEMO_PLACE_BOUND_SIGNALLED = {
+    "SR:DIAG:INJECTION:REQUEST": [EDGE_WRITES],
+    "SR:DIAG:INJECTION:BUSY": [EDGE_READS],
+    "SR:DIAG:CLEANING:REQUEST": [EDGE_WRITES],
+    "SR:DIAG:STORED_BEAM:CURRENT:RB": [EDGE_READS],
+    "SR:DIAG:TBT:TURNS:SP": [EDGE_WRITES],
+    "SR:DIAG:TBT:TURNS:RB": [EDGE_READS],
+    "SR:RF:ON:SP": [EDGE_WRITES],
+    "SR:RF:ON:RB": [EDGE_READS],
+}
 
 
 def _rows_by_pv(parsed: ParsedCorpus) -> dict[str, BindingRow]:
@@ -466,12 +482,13 @@ class TestTheBuildsGraphView:
             assert row.signal_names == sorted(row.signal_names)
             assert row.class_uris == sorted(row.class_uris)
             if row.device_name is None:
+                expected_edges = DEMO_PLACE_BOUND_SIGNALLED.get(row.full_pv, [])
                 place_bound.add(row.full_pv)
-                assert (row.system, row.edges, row.class_uris) == (None, [], [])
+                assert (row.system, row.edges, row.class_uris) == (None, expected_edges, [])
                 continue
             assert row.system != "" and row.system is not None
             assert row.class_uris, row.full_pv
-        assert place_bound == DEMO_PLACE_BOUND
+        assert place_bound == DEMO_PLACE_BOUND | set(DEMO_PLACE_BOUND_SIGNALLED)
 
     def test_class_rows_match_the_store(self, demo):
         assert len(demo.class_rows) == DEMO_CLASS_COUNT
@@ -487,7 +504,7 @@ class TestTheBuildsGraphView:
         assert sum(row.direct_devices for row in demo.class_rows) == DEMO_TYPED_DEVICES
 
     def test_censuses(self, demo):
-        assert demo.signal_count == 46
+        assert demo.signal_count == 64
         assert demo.section_codes == frozenset(
             {
                 "SR",

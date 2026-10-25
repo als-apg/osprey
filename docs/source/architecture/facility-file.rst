@@ -126,7 +126,8 @@ The views
        seed-from-ttl``.
    * - pyaml
      - ``data/pyaml/<model>/configuration.yaml`` and the files it names
-       (``lattice.json``, ``trm.json``, ``crm.json``)
+       (``lattice.json``, ``trm.json``, ``crm.json``,
+       ``trajectory_rm.json``, ``trajectory_rm.index.json``)
      - a served model names a deck and has a measurement file
      - The measurement tools, and the approval prompt, which shows the view's
        digest the facts record carries.
@@ -140,10 +141,14 @@ measurement file allows ``trm`` or ``crm`` and names the instruments they read
 (``tune``, and ``rf`` for ``crm``) gets ``trm.json`` or ``crm.json``, the
 design response of its ``quad`` or ``sext`` group, whenever every member has a
 finite modelled column; the tune or chromaticity correction tool that loads it
-is added only when the matrix has rank two. The build names on stderr each
-served model it gives no view (it names no deck, or has no measurement file)
-and each setpoint it leaves out, with the reason: pyAML has no magnet model
-for it, or its slices mix zero-length and thick elements.
+is added only when the matrix has rank two. A model whose measurement file
+allows ``trajectory`` gets ``trajectory_rm.json``, the first-turn response of
+its correctors at its monitors for a beam launched from the model's injection
+point, and ``trajectory_rm.index.json``, where each of those monitors and
+correctors sits in the lattice counted from that point. The build names on
+stderr each served model it gives no view (it names no deck, or has no
+measurement file) and each setpoint it leaves out, with the reason: pyAML has
+no magnet model for it, or its slices mix zero-length and thick elements.
 
 **Simulator.** The view lists every channel address of the facility and each
 served model's status address (``addresses.json``), every model with its wiring (``variables.json``), the
@@ -196,6 +201,32 @@ roles are closed: a channel's ``signal`` is one the vocabulary lists. The
 build pairs setpoints with readbacks by the quantity their signals name, so a
 quantity the vocabulary lacks pairs only through an explicit ``pair``.
 
+The vocabulary is also how OSPREY recognises a channel without knowing any
+facility's names for it. A first-turn measurement needs seven signals, and
+finds them by these roles alone, whatever the channels are called:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Signal
+     - What the channel is
+   * - ``bpm_tbt_x``, ``bpm_tbt_y``
+     - A monitor's turn-by-turn horizontal or vertical position, one sample
+       per turn of the last acquisition.
+   * - ``bpm_tbt_sum``
+     - A monitor's turn-by-turn sum signal, the beam's presence at that
+       monitor turn by turn.
+   * - ``bpm_arm_command``
+     - The command that arms a monitor's turn-by-turn acquisition for the
+       next shot.
+   * - ``bpm_armed_status``
+     - Whether that acquisition is armed.
+   * - ``injection_request_command``
+     - The command that requests one injected shot.
+   * - ``injection_busy_status``
+     - Set while a requested shot is in progress.
+
 .. _architecture-simulation-models:
 
 Simulation models
@@ -228,13 +259,40 @@ view's ``served_models.json``. Every model's record and deck are in the view
 whether or not it is served, so the set can change without a different view
 shape.
 
-**A failed model does not take the machine down.** Each served physics model
-has a status channel, ``<code>:SIM:<model>:STATUS``, which exists in no other
-view. A model whose engine raises while building or reading it (over a deck
-that does not load, say) is left failed: its status channel carries the
-engine's error text, and every other model and every texture channel is still
-served. ``osprey sim status`` prints one ``<model>: <status>`` line per served
-model, ``ok`` or that text, and names each model's log.
+**A model is ok, degraded or failed, and neither of the last two takes the
+machine down.** Each served physics model has a status channel,
+``<code>:SIM:<model>:STATUS``, which exists in no other view. A model whose
+engine raises while building or reading it (over a deck that does not load,
+say) is left failed: its status channel carries the engine's error text, and
+every other model and every texture channel is still served. A model that is
+built but in a condition its engine names, such as a ring left with no closed
+orbit, is degraded: it still serves and takes writes, its status channel
+carries the condition, and the readings that condition makes meaningless are
+served as invalid. ``osprey sim status`` prints one ``<model>: <status>`` line
+per served model, ``ok``, the condition or the error text, and names each
+model's log. What each state means on the wire is in
+:doc:`virtual-accelerator`.
+
+**A trajectory measurement is a first-turn shot.** A measurement file that
+lists the ``trajectory`` kind asks its model for the machine a first-turn
+correction runs on: monitors of the ``bpm`` group that each carry a
+turn-by-turn ``x``, ``y`` and ``sum`` record, an arm command and an armed
+reading, under the signals of :ref:`architecture-facility-schema`; an
+``injection_request`` instrument the model wires and an ``injection_busy``
+reading, with ``bunch_clean_enable``, ``beam_current`` and ``rf_status``
+optional; and, on a periodic model, an ``injection`` block in its
+``settings.pyat`` that says where a shot starts. The build stops on a file that
+asks for the kind without them.
+
+**The ``trajectory`` block is the one declaration of that surface.** It states
+the sample the shot arrives at, the operator settings and the chain one shot
+runs. The build reads it against the channel facts into the model's
+trajectory declaration, which the facts view carries; a consumer of the
+trajectory kind reads only that, and the simulator view takes the trigger
+sample from it. A setting's readback and settle tolerance are its setpoint channel's
+``pair`` and ``tolerance``, and its values are that channel's domain, so the
+block restates none of them. The file's keys are in
+:doc:`/how-to/describe-your-facility`.
 
 How the composite serves the models over Channel Access and PVAccess is in
 :doc:`virtual-accelerator`.

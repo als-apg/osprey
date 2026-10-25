@@ -154,9 +154,9 @@ never a refusal.
 ``model_response_matrix``
 -------------------------
 
-Solves a served model's orbit response on the model's own deck, in a sandbox
-child stopped at the executor's timeout. It writes nothing and asks for no
-approval.
+Solves a served model's orbit or first-turn trajectory response on the
+model's own deck, in a sandbox child stopped at the executor's timeout. It
+writes nothing and asks for no approval.
 
 .. list-table:: ``model_response_matrix`` parameters
    :header-rows: 1
@@ -172,6 +172,11 @@ approval.
      - every corrector
      - Corrector setpoint addresses the model wires; omitted, every one,
        horizontal then vertical.
+   * - ``kind``
+     - ``"orbit"``
+     - ``"orbit"``, the orbit readbacks' response, or ``"trajectory"``, the
+       first-turn response of the turn-by-turn readings. Any other value is
+       refused, naming the two.
 
 Each corrector steps by the measurement file's ``corrector_delta`` (radians),
 converted to the corrector's hardware unit through its wiring calibration; a
@@ -184,6 +189,15 @@ solves, the call is refused as an ``execution_error`` with every unsolved text,
 and ``details.unsolved`` holds the same map as the result's ``unsolved``. When
 the engine refuses the request itself, the call is refused as a
 ``validation_error`` with the engine's text.
+
+With ``kind`` ``"trajectory"`` the rows are the model's turn-by-turn ``x``
+series, then its ``y`` series, the columns are the horizontal correctors, then
+the vertical ones, and the result also carries ``kind``; each row and column
+also carries its ``plane`` (``H`` or ``V``) and ``index``, its element's
+position along the lattice from the injection marker. A corrector whose step
+loses the launched particle is unsolved. It is the content of the pyAML
+view's ``trajectory_rm.json`` and ``trajectory_rm.index.json`` for the
+correctors asked for (:doc:`trajectory-model`).
 
 Installation
 ============

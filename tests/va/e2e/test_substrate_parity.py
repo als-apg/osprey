@@ -13,8 +13,8 @@ rendered view, on every served channel:
   family-wise false-alarm rate of 1e-4 allows;
 * **across a scenario switch**, every paired texture setpoint and its readback
   return to their seed in both;
-* **under a scenario the physics model cannot solve**, every channel reads
-  with the alarm severity the composite gives it;
+* **under a scenario with no closed orbit**, the physics model is degraded
+  and every channel reads with the alarm severity the composite gives it;
 * **at nominal**, the served values are the captured
   ``tests/facility/golden/nominal_va.json``, written by
   ``uv run python scripts/va/capture_nominals.py --out
@@ -26,7 +26,7 @@ rendered view, on every served channel:
   among them, :func:`decode_char_waveform` reads the wire value as the text
   the composite holds.
 
-**Two containers.** The held, nominal, scenario-switch, failed-scenario and
+**Two containers.** The held, nominal, scenario-switch, degraded-scenario and
 string checks use
 this directory's session container (``conftest.va_container``), which serves
 its monitors without their declared motion, so a monitor reading is the solved
@@ -192,6 +192,7 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
+from osprey.simulation.engines.pyat import NO_CLOSED_ORBIT  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform, pulse  # noqa: E402
 from osprey_connectors.simulation.envelope import declares_motion, noise_sigma  # noqa: E402
@@ -254,18 +255,21 @@ BURST_THRESHOLD = 1e-6
 #: The operating point the held comparison is taken at: a horizontal and a
 #: vertical corrector the other suites in this directory never write, so the
 #: closed orbit is nonzero at every monitor, and a texture setpoint whose
-#: write echoes into its readback.
+#: write echoes into its readback. The corrector currents are kicks of a few
+#: microradians: the orbit stays tens of microns, where the two platforms'
+#: chromaticity solves agree inside :data:`CHROMATICITY_TOL`; at a millimetre
+#: orbit their rounding reaches the chromaticity several times larger.
 OPERATING_POINT: dict[str, float] = {
-    "SR:MAG:HCM:11:CURRENT:SP": 1.5,
-    "SR:MAG:VCM:11:CURRENT:SP": -0.75,
+    "SR:MAG:HCM:11:CURRENT:SP": 0.015,
+    "SR:MAG:VCM:11:CURRENT:SP": -0.0075,
     "SR:RF:CAVITY:01:VOLTAGE:SP": 2.6,
 }
 
 #: The served address the capture leaves out besides the waveforms: the suite's
 #: synthetic string channel, which the demo does not carry.
 SUITE_ADDITIONS = frozenset({e2e_conftest.STRING_CHANNEL})
-#: The physics model's status channel: ``ok`` while it solves, its error text
-#: once it fails.
+#: The physics model's status channel: ``ok`` while it solves, ``no closed
+#: orbit`` while it is degraded, its error text once it fails.
 SR_STATUS = "ca:SIM:SR:STATUS"
 
 #: Container-name prefix of the noise container; the pid follows, as for the
@@ -364,15 +368,25 @@ def _is_trace(value: Any) -> bool:
 #: flat top adds a few of its standard deviations.
 TRACE_PEAK_TOL = 2 * pulse.AMPLITUDE_DRIFT_FRACTION + 6 * pulse.NOISE_FRACTION
 
+#: The channels whose seed draws a pulse: their trace is a capture keyed by the
+#: instant it is read.
+PULSES = frozenset(
+    address
+    for address, seed in yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8")).items()
+    if seed.get("pulse") is not None
+)
+
 
 def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
     """Whether ``served`` reads as ``expected``.
 
-    A trace is a capture keyed by the instant it is read, so two reads of one
-    pulse never agree sample for sample: they agree in length and in peak, which
-    follows the supply's setpoint and on-state.
+    A pulse's trace is a capture keyed by the instant it is read, so two reads
+    of one pulse never agree sample for sample: they agree in length and in
+    peak, which follows the supply's setpoint and on-state. A text or a
+    missing value compares exactly; any other number or series compares
+    element by element, within ``band`` and the address's tolerance.
     """
-    if _is_trace(expected) or _is_trace(served):
+    if address in PULSES:
         if not (_is_trace(expected) and _is_trace(served)):
             return False
         wanted = np.asarray(expected, dtype=np.float64)
@@ -381,13 +395,14 @@ def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
             return False
         peak = float(np.max(np.abs(wanted)))
         return abs(float(np.max(np.abs(got))) - peak) <= band + TRACE_PEAK_TOL * max(1.0, peak)
-    if isinstance(expected, str) or isinstance(served, str):
+    if expected is None or served is None or isinstance(expected, str) or isinstance(served, str):
         return served == expected
-    if band or isinstance(expected, float) or isinstance(served, float):
-        return abs(float(served) - float(expected)) <= band + _tolerance(address) * max(
-            1.0, abs(float(expected))
-        )
-    return served == expected
+    want = np.asarray(expected, dtype=np.float64)
+    got = np.asarray(served, dtype=np.float64)
+    if want.shape != got.shape:
+        return False
+    scale = np.maximum(1.0, np.abs(want))
+    return bool(np.all(np.abs(got - want) <= band + _tolerance(address) * scale))
 
 
 def _family_z(count: int) -> float:
@@ -656,28 +671,30 @@ def _sr_status() -> str:
     return decode_char_waveform(_read(e2e_conftest.CA_PORT, [SR_STATUS])[SR_STATUS]["value"])
 
 
-def test_a_failed_scenario_reads_with_the_composites_severity(
+def test_a_degraded_scenario_reads_with_the_composites_severity(
     va_container: e2e_conftest.VaProject, session_view: View
 ) -> None:
-    """A channel of the failed model reads ``udf``'s severity on the wire and
-    in process alike; every other channel reads none."""
+    """A channel the degraded model lists reads ``udf``'s severity on the wire
+    and in process alike; every other channel, its setpoints included, reads
+    none."""
     _to_nominal(va_container)
     applied = va_container.sim_apply(e2e_conftest.UNSTABLE_SCENARIO_NAME)
     assert applied.returncode == 0, applied.stdout + applied.stderr
     try:
         deadline = time.monotonic() + SWITCH_BOUND_S
-        while _sr_status() == "ok":
-            assert time.monotonic() < deadline, "the container never failed the physics model"
+        while _sr_status() != NO_CLOSED_ORBIT:
+            assert time.monotonic() < deadline, "the container never degraded the physics model"
             time.sleep(0.2)
         wire = _read(e2e_conftest.CA_PORT, session_view.addresses)
         mock = _composite(session_view, va_container.state_dir)
-        failed = mock.output_severity(session_view.addresses)
+        listed = mock.output_severity(session_view.addresses)
         mock_status = mock.status("SR")
+        mock_built = mock.built("SR")
     finally:
         _to_nominal(va_container)
 
     expected = {
-        address: UDF_SEVERITY if address in failed else 0 for address in session_view.addresses
+        address: UDF_SEVERITY if address in listed else 0 for address in session_view.addresses
     }
     differing = {
         address: (expected[address], wire[address]["severity"])
@@ -685,7 +702,8 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
         if wire[address]["severity"] != expected[address]
     }
 
-    assert failed and mock_status != "ok"
+    assert mock_built and mock_status == NO_CLOSED_ORBIT
+    assert listed and e2e_conftest.UNSTABLE_QUADRUPOLE not in listed
     assert differing == {}
 
 

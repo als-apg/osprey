@@ -296,6 +296,12 @@ What a plug-in is given and asked for:
   its ``<code>:SIM:<model>:STATUS`` channel carries the text the module's
   optional ``error_text(exc)`` gives, else the exception's own text, and the
   rest of the namespace is still served.
+- **Report a degraded model.** A built model can serve under a condition: the
+  module's optional ``condition(model)`` answers the condition's text and the
+  names it makes undefined, and ``CONDITIONS`` lists every text it can
+  answer. The status channel then carries that text, only the listed names
+  report ``udf``, and the model stays built; a reader tells degraded from
+  failed by the listed texts, never by the status not being ``ok``.
 - **The contract in code.** ``osprey.simulation.engines.EnginePlugin`` names
   the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
   module states them. Its docstring lists the optional functions ---

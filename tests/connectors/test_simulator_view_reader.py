@@ -79,7 +79,8 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert sr.served is True
     assert sr.deck == demo_view / "decks" / "SR.json"
     assert sr.deck.is_file()
-    assert dict(sr.settings) == {"pyat": {"solve": "periodic"}}
+    assert dict(sr.settings)["pyat"]["solve"] == "periodic"
+    assert dict(sr.settings)["pyat"]["injection"]["marker"] == "INJ"
     wiring = {model["name"]: model["wiring"] for model in variables["models"]}
     assert len(sr.bindings) == len(wiring["SR"]) > 0
     line = view.model("LINE")

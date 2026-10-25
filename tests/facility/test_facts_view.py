@@ -88,10 +88,12 @@ def test_every_render_writes_the_facts_and_their_page(
             "places",
             "schema",
             "snapshot",
+            "trajectory_catalog",
+            "trajectory_slots",
             "unplaced_devices",
             "vocabulary",
         ]
-        assert FACTS_SCHEMA == "osprey.facility.facility_facts/2"
+        assert FACTS_SCHEMA == "osprey.facility.facility_facts/6"
         assert facts["schema"] == FACTS_SCHEMA
         page = outputs.files[PAGE].decode("utf-8")
         assert page == render_facts_page(facts)

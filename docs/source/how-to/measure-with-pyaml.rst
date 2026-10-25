@@ -7,7 +7,7 @@ Measure with the pyAML Tools
 A deployment whose build writes a pyAML view gives the agent two tools on the
 ``python`` server: ``pyaml_measure`` measures a response matrix or the
 chromaticity on the control target, and ``model_response_matrix`` solves a
-served model's orbit response on its deck. This page says when they appear,
+served model's orbit or first-turn trajectory response on its deck. This page says when they appear,
 what a measurement asks for, and what happens to the machine while it runs.
 Every parameter and every result field is in
 :ref:`executor-measurement-tools`.
@@ -50,6 +50,11 @@ The measurement file decides which kinds a model takes:
 The tool refuses a kind the file does not list, naming the group or
 instrument the model lacks, or the kinds the file lists when it lacks none;
 such a call is never put to an approver. A model solved in a single pass takes ``orm`` alone.
+
+A measurement file may also list ``trajectory``, the first-turn measurement
+(see :doc:`describe-your-facility`). ``pyaml_measure`` does not run it; the
+model's side of it is ``model_response_matrix`` with ``kind`` set to
+``trajectory``.
 
 What a measurement asks
 =======================
@@ -106,3 +111,10 @@ The model's answer
 own deck, without touching the machine and without asking for approval. Its
 rows and columns carry the same addresses and device ids, so a measured matrix
 and the model's line up entry by entry.
+
+With ``kind`` set to ``trajectory`` it solves the first-turn response instead:
+how the turn-by-turn positions at each monitor move per corrector step, for a
+beam launched from the model's injection point. It is the same matrix the
+build writes into the view as ``trajectory_rm.json``, and each row and column
+also carries its plane and its position in the lattice counted from the
+injection point.

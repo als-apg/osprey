@@ -92,7 +92,10 @@ back NaN or INVALID, check each served physics model:
    list holds one address per served physics model, `<code>:SIM:<model>:STATUS`.
 2. **Status values** — read those addresses with `channel_read` (the `controls`
    server's tool, `mcp__controls__channel_read`). A value of `ok` means the
-   model's engine serves it; any other value is the engine's own error text.
+   model's engine serves it. `no closed orbit` means the model is degraded:
+   it still serves, its setpoints take writes, and only the readings the
+   orbit sets (monitors, tunes, chromaticity) read NaN/INVALID. Any other
+   value is the engine's own error text: the model failed.
 3. **Model log** — `Read` each model's log, one JSON record per line
    (`instance`, `pid`, `model`, `event`, ...):
    - the `standin` target: `var/simulator/standin/<model>.log`

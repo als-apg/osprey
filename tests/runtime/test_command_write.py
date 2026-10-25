@@ -20,6 +20,7 @@ import pytest
 import yaml
 
 import osprey.runtime
+from osprey.facility.views.limits import limits_document
 from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import (
     ENV_CONTROL_IDENTITY,
@@ -414,6 +415,39 @@ async def test_limits_off_never_admits_an_address_that_is_not_a_command() -> Non
 
     assert caught.value.channel_address == CORRECTOR
     assert connector.calls == []
+
+
+#: The shipped example facility, whose ``limits.yaml`` lists no shot command.
+EXAMPLE = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
+#: The example facility's shot commands: one BPM's arm and the injection request.
+EXAMPLE_SHOT = ("SR:DIAG:BPM:01:TBT:ARM", "SR:DIAG:INJECTION:REQUEST")
+
+
+async def test_a_shots_commands_fire_under_the_shipped_example_limits_in_optional_mode(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    records = yaml.safe_load((EXAMPLE / "limits.yaml").read_text(encoding="utf-8"))
+    models = (EXAMPLE / "models.yaml").read_text(encoding="utf-8")
+    for address in EXAMPLE_SHOT:
+        assert address in models, f"{address} is no longer an example shot command"
+    channels = [{"id": record["address"], "role": "setpoint"} for record in records["records"]]
+    database = limits_document({"channels": channels, "limits": records})
+    assert not set(EXAMPLE_SHOT) & set(database), "the example file lists no shot command"
+    path = tmp_path / "channel_limits.json"
+    path.write_text(json.dumps(database), encoding="utf-8")
+    limits, raw = LimitsValidator._load_limits_database(str(path))
+    validator = LimitsValidator(limits, {"mode": "optional", "on_violation": "error"}, raw)
+    connector = _Connector(validator=validator)
+
+    with lock(None, context=ALICE_LIVE):
+        fired = await command_write(
+            connector, list(EXAMPLE_SHOT), 1, commands=frozenset(EXAMPLE_SHOT)
+        )
+
+    assert fired == list(EXAMPLE_SHOT)
+    assert connector.calls == [([(address, 1) for address in EXAMPLE_SHOT], {"confirm": False})]
 
 
 def test_command_write_is_public_on_the_guarded_run_module() -> None:

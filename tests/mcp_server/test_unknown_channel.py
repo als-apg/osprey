@@ -18,7 +18,7 @@ import yaml
 from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotArchivedError, ChannelNotFoundError
 from tests.connectors.test_mock_connector import _config_with_writes_enabled
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn, hook_error_class_map
@@ -163,3 +163,26 @@ async def test_a_history_read_of_an_unknown_address_is_not_found():
 
 def test_the_hook_classes_the_answer_as_data():
     assert hook_error_class_map()["not_found"] == "Data"
+
+
+async def test_a_history_read_of_a_shot_record_is_not_archived():
+    """A channel of the facility with no history is not an unknown address: the
+    agent is told it is a shot record, to read live after a shot."""
+    with pytest.raises(ToolError) as excinfo:
+        async with connector_error_handler("archiver_read", "archiver"):
+            raise ChannelNotArchivedError("SR:DIAG:BPM:01:TBT:X")
+
+    assert _envelope(excinfo) == {
+        "error": True,
+        "error_type": "not_archived",
+        "error_message": (
+            "No archived history during archiver_read: SR:DIAG:BPM:01:TBT:X has no archived "
+            "history: it is a shot record, read it live after a shot"
+        ),
+        "suggestions": [
+            "Nothing was read from the archive for this channel.",
+            "Read it live after a shot instead of from the archiver.",
+        ],
+        "details": {"channel": "SR:DIAG:BPM:01:TBT:X"},
+    }
+    assert hook_error_class_map()["not_archived"] == "Data"

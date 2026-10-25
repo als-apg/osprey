@@ -11,6 +11,7 @@ in a note on stderr.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +113,33 @@ def test_the_view_is_the_same_bytes_every_time(tmp_path: Path) -> None:
     for path in written:
         relative = path.relative_to(first)
         assert (second / relative).read_bytes() == path.read_bytes(), relative
+
+
+def test_a_build_makes_each_view_once_and_every_render_writes_its_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The view is a function of the facility file, so a build's later renders reuse it."""
+    from osprey.facility.views import pyaml
+
+    alone, written = write_view(tmp_path / "alone", measured_tree())
+    made: list[str] = []
+    original = pyaml._configuration
+
+    def configuration(inputs: Any, model: str) -> Any:
+        made.append(model)
+        return original(inputs, model)
+
+    monkeypatch.setattr(pyaml, "_configuration", configuration)
+    inputs = replace(view_inputs(tmp_path / "build", measured_tree()), pyaml_views={})
+    renders = [tmp_path / "build" / name / "data" / "pyaml" for name in ("main", "tier")]
+    for directory in renders:
+        pyaml.write_pyaml_view(directory, inputs)
+
+    assert sorted(made) == ["LINE", "SR"]
+    for directory in renders:
+        for path in written:
+            relative = path.relative_to(alone)
+            assert (directory / relative).read_bytes() == path.read_bytes(), relative
 
 
 @pytest.mark.parametrize("vcor", ["LINE/VCM", "LINE/HCM"], ids=["two-groups", "one-group"])

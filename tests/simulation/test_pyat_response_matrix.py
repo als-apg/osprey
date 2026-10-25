@@ -40,7 +40,8 @@ def demo(built_control_assistant: Any) -> dict[str, Any]:
 
 
 def _is_monitor(record: dict[str, Any]) -> bool:
-    return "axis" in record["engine"] and "attribute" not in record["engine"]
+    engine = record["engine"]
+    return "axis" in engine and "attribute" not in engine and "series" not in engine
 
 
 def _lattice_ordered_monitors(deck: Path, wiring: list[dict[str, Any]]) -> list[str]:
@@ -281,3 +282,26 @@ class TestSinglePass:
         expected = (_tracked(line, step / 2) - _tracked(line, -step / 2)) / step
         np.testing.assert_allclose(matrix[:, 0], expected, rtol=1e-12, atol=1e-15)
         assert abs(matrix[rows.index("BPM_3:X"), 0]) > 0.0
+
+
+class TestKind:
+    def test_the_orbit_kind_is_the_answer_of_a_call_naming_none(self, line):
+        arguments = (line, LINE_WIRING, LINE_SETTINGS, [LINE_KICK], {LINE_KICK: 2.0e-4})
+
+        unnamed = engine.response_matrix(*arguments)
+        answer = engine.response_matrix(*arguments, kind="orbit")
+
+        assert isinstance(answer, engine.ResponseMatrix)
+        assert answer.index is None
+        assert (answer.rows, answer.columns, answer.unsolved) == (
+            unnamed.rows,
+            unnamed.columns,
+            unnamed.unsolved,
+        )
+        np.testing.assert_array_equal(answer.matrix, unnamed.matrix)
+
+    def test_the_kind_is_given_by_keyword_only(self, line):
+        with pytest.raises(TypeError):
+            engine.response_matrix(  # type: ignore[misc]
+                line, LINE_WIRING, LINE_SETTINGS, [LINE_KICK], {LINE_KICK: 2.0e-4}, "orbit"
+            )

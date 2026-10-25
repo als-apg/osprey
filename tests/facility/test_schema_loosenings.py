@@ -198,7 +198,24 @@ def test_measurement_block(core: dict) -> None:
     kinds = measurement["kinds"]
     assert kinds.get("multivalued") and not kinds.get("list_elements_ordered")
     assert set(_attrs(core, "MeasurementGroups")) == {"bpm", "hcor", "vcor", "quad", "sext"}
-    assert set(_attrs(core, "MeasurementInstruments")) == {"tune", "rf"}
+    assert set(_attrs(core, "MeasurementInstruments")) == {
+        "tune",
+        "rf",
+        "injection_request",
+        "injection_busy",
+        "bunch_clean_enable",
+        "beam_current",
+        "rf_status",
+    }
+    assert set(core["enums"]["measurement_kind_enum"]["permissible_values"]) == {
+        "orm",
+        "dispersion",
+        "trm",
+        "crm",
+        "chromaticity_monitor",
+        "trajectory",
+    }
+    assert {"alpha", "n_discard", "gain", "corrector_delta"} <= set(measurement)
     assert not any(slot and slot.get("required") for slot in measurement.values())
 
 

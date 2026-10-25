@@ -1,9 +1,12 @@
 """
 Mock archiver connector for development and testing.
 
-Serves the history of the addresses in the built simulator view, read from the
-archive composite (:func:`osprey_connectors.simulation.archive.build`) at the
-active scenario set. An address outside the view is refused.
+Serves the history of the archived channels of the built simulator view
+(:func:`osprey_connectors.simulation.archive.archived_channels`), read from
+the archive composite (:func:`osprey_connectors.simulation.archive.build`) at
+the active scenario set. A channel of the view the archive leaves out is
+refused as having no archived history; an address outside the view is refused
+as not in the built facility file.
 
 """
 
@@ -25,7 +28,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     simulation_state_dir,
     simulator_view_dir,
 )
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotArchivedError, ChannelNotFoundError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
@@ -38,10 +41,12 @@ logger = get_logger("mock_archiver_connector")
 
 class MockArchiverConnector(ArchiverConnector):
     """
-    Mock archiver for development - the history of the built simulator view.
+    Mock archiver for development - the archived history of the built simulator view.
 
     Features:
-    - Serves the addresses of the built simulator view and refuses any other
+    - Serves the archived channels of the built simulator view and refuses
+      any other address: a channel of the view with no archived history with
+      its own line, an address outside the view as not in the facility file
     - Values are a pure function of (channel, absolute timestamp), so two
       overlapping windows agree on every timestamp they share
     - Follows the active scenario set, rebuilt when it changes
@@ -141,11 +146,22 @@ class MockArchiverConnector(ArchiverConnector):
         return self._archive
 
     def _require(self, channels: list[str]) -> "ArchiveComposite":
+        """The archive composite, once every channel is one it archives.
+
+        Raises:
+            ChannelNotArchivedError: A channel is one the view holds and the
+                archive leaves out.
+            ChannelNotFoundError: A channel is one the view does not hold.
+        """
         archive = self._current()
-        served = set(archive.addresses)
+        archived = set(archive.addresses)
+        held = set(self._view.channels()) if self._view is not None else set()
         for channel in channels:
-            if channel not in served:
-                raise ChannelNotFoundError(channel)
+            if channel in archived:
+                continue
+            if channel in held:
+                raise ChannelNotArchivedError(channel)
+            raise ChannelNotFoundError(channel)
         return archive
 
     async def disconnect(self) -> None:
@@ -164,10 +180,10 @@ class MockArchiverConnector(ArchiverConnector):
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
-        The archived history of channels of the simulator view.
+        The history of archived channels of the simulator view.
 
         Args:
-            channels: Channel addresses of the simulator view
+            channels: Archived channel addresses of the simulator view
             start_date: Start of time range
             end_date: End of time range
             precision_ms: Time precision (affects downsampling). ``<= 0`` means
@@ -184,6 +200,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         Raises:
             ChannelNotFoundError: A channel is not a channel of the facility.
+            ChannelNotArchivedError: A channel has no archived history.
             ValueError: ``processing`` other than ``"raw"`` is requested for a
                 channel holding non-numeric values.
         """
@@ -225,10 +242,11 @@ class MockArchiverConnector(ArchiverConnector):
         return data
 
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
-        """Mock archiver metadata for a channel of the simulator view.
+        """Mock archiver metadata for an archived channel of the simulator view.
 
         Raises:
             ChannelNotFoundError: The channel is not a channel of the facility.
+            ChannelNotArchivedError: The channel has no archived history.
         """
         self._require([channel])
         return ArchiverMetadata(
@@ -243,6 +261,6 @@ class MockArchiverConnector(ArchiverConnector):
         )
 
     async def check_availability(self, channels: list[str]) -> dict[str, bool]:
-        """Whether the simulator view holds each channel."""
+        """Whether each channel is an archived channel of the simulator view."""
         served = set(self._current().addresses)
         return {channel: channel in served for channel in channels}

@@ -43,6 +43,13 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
+A model's ``settings`` in ``variables.json`` are :func:`engine_settings` of
+it: the facility file's settings, with the measurement file's declared
+``trajectory.trigger_sample`` written into the engine block's ``injection``
+when the model states one. The trigger sample is declared once, in the
+measurement file; the engine and every consumer of the kind read that one
+value.
+
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the channel facts
 the build filled in (direction, unit, default, value_range), the ``role``,
@@ -93,8 +100,10 @@ __all__ = [
     "SEEDS_SCHEMA",
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
+    "TRIGGER_SAMPLE_KEY",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
+    "engine_settings",
     "served_deck_path",
     "simulator_wiring",
     "status_address",
@@ -105,6 +114,10 @@ __all__ = [
 
 #: The mark a scenario's faults carry for a model the render does not serve.
 INACTIVE_UNSERVED = "model not served"
+
+#: The key of the trigger sample, in the measurement file's ``trajectory``
+#: block and in the engine settings' ``injection`` block the build writes it to.
+TRIGGER_SAMPLE_KEY = "trigger_sample"
 
 #: The channel keys ``variables.json`` carries only when the record states them.
 _CHANNEL_OPTIONAL_KEYS = ("options", "shape", "precision")
@@ -145,6 +158,7 @@ _WIRING_ENTRY_KEYS = (
     "role",
     "plane",
     "refresh",
+    "command",
 )
 
 #: The file a model record comes from when no source states it.
@@ -158,12 +172,15 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
     carries and, for a physics model, the ``role``, ``plane`` and ``refresh``
     its engine's ``describe()`` states; where the wired channel is a
     waveform, the entry adds the channel's ``value_type`` and ``shape``. A key
-    the record lacks is absent from its entry.
+    the record lacks is absent from its entry. The entry of a record the
+    engine marks a command carries ``command: true``; no other entry has the
+    key.
 
     Each description is checked against the facility file: a ``write``
-    record is a ``setpoint``; a record whose address is the pair of a
-    setpoint is a ``readback``; a record naming no element and no slices is
-    an ``output``.
+    record is a ``setpoint``, marked a command or not; a read record may be a
+    ``turn_series``; any other record whose address is the pair of a
+    setpoint is a ``readback``, and any other naming no element and no
+    slices is an ``output``. Only a ``write`` record is a command.
 
     Args:
         facility: The in-memory facility file.
@@ -188,10 +205,13 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
             wiring: list[dict[str, Any]] = []
             for record in records:
                 source = dict(record)
+                source.pop(_COMMAND_MARK, None)
                 if describe is not None:
                     description = describe(record)
                     _check_description(entry, record, description, pairs)
                     source.update({key: description[key] for key in _DESCRIPTION_KEYS})
+                    if description.get(_COMMAND_MARK) is True:
+                        source[_COMMAND_MARK] = True
                 wiring.append(
                     {
                         **{
@@ -208,6 +228,13 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
 
 #: The keys an engine's description gives a wiring entry.
 _DESCRIPTION_KEYS = ("role", "plane", "refresh")
+
+#: The key an engine's description carries, ``True``, for a command alone;
+#: the entry of that record carries it too.
+_COMMAND_MARK = "command"
+
+#: The role a read record holding one sample per turn is described with.
+_TURN_SERIES = "turn_series"
 
 
 def _describer(model: Mapping[str, Any]) -> Callable[[Any], Mapping[str, Any]]:
@@ -280,8 +307,20 @@ def _check_description(
     from osprey.facility.validate import stating_files
 
     address = str(record["address"])
-    if record.get("direction") == "write":
+    written = record.get("direction") == "write"
+    if description.get(_COMMAND_MARK) is True and not written:
+        raise FacilityBuildError(
+            "engine-invalid",
+            str(model["name"]),
+            stating_files(model, None, fallback=_MODELS_FILE),
+            "make the engine's describe() mark write records alone as commands",
+            record_kind="model",
+            detail=f"the engine marks {address} a command; it is none: its direction is read",
+        )
+    if written:
         expected, why = "setpoint", "its direction is write"
+    elif description.get("role") == _TURN_SERIES:
+        return
     elif address in pairs:
         expected, why = "readback", "a setpoint pairs with it"
     elif record.get("element") is None and not record.get("slices"):
@@ -384,7 +423,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
                 "name": model["name"],
                 "engine": model.get("engine"),
                 "served": model["name"] in inputs.served,
-                "settings": copy.deepcopy(model.get("settings") or {}),
+                "settings": engine_settings(model),
                 "deck": served_deck_path(model),
                 "wiring": simulator_wiring(doc, str(model["name"])),
             }
@@ -392,6 +431,31 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         ],
         "channels": channels,
     }
+
+
+def engine_settings(model: Mapping[str, Any]) -> dict[str, Any]:
+    """A model's settings as its engine is built with them.
+
+    A copy of the model's ``settings``; when its measurement file declares a
+    ``trajectory`` block with a trigger sample and the engine's settings block
+    states an ``injection`` block, :data:`TRIGGER_SAMPLE_KEY` is written into
+    that block.
+
+    Args:
+        model: The model's record in the facility file.
+
+    Returns:
+        The settings the engine reads; never the record's own mapping.
+    """
+    settings: dict[str, Any] = copy.deepcopy(dict(model.get("settings") or {}))
+    declared = ((model.get("measurement") or {}).get("trajectory") or {}).get(TRIGGER_SAMPLE_KEY)
+    if declared is None:
+        return settings
+    block = settings.get(str(model.get("engine")))
+    injection = block.get("injection") if isinstance(block, dict) else None
+    if isinstance(injection, dict):
+        injection[TRIGGER_SAMPLE_KEY] = copy.deepcopy(declared)
+    return settings
 
 
 def _seeds_document(doc: FacilityDocument) -> dict[str, Any]:

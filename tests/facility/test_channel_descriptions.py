@@ -121,3 +121,42 @@ def test_a_fix_set_description_wins(tmp_path: Path) -> None:
 
     assert channel["description"] == "the fixed one"
     assert "description" not in channel["provenance"]["defaults"]
+
+
+#: The signals of the example facility's trajectory settings and readings.
+TRAJECTORY_SIGNALS = {
+    "attenuation_setpoint",
+    "attenuation_readback",
+    "bpm_mode_setpoint",
+    "bpm_mode_readback",
+    "pilot_tone_setpoint",
+    "pilot_tone_readback",
+    "turns_tracked_setpoint",
+    "turns_tracked_readback",
+    "rf_on_setpoint",
+    "rf_on_readback",
+    "bunch_cleaning_command",
+}
+
+
+def test_every_example_trajectory_record_states_its_own_description() -> None:
+    import yaml
+
+    example = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
+    channels = yaml.safe_load((example / "records/channels.yaml").read_text(encoding="utf-8"))
+    stored = "SR:DIAG:STORED_BEAM:CURRENT:RB"
+    records = [c for c in channels if c.get("signal") in TRAJECTORY_SIGNALS or c["id"] == stored]
+    assert len(records) == 72 * 6 + 2 + 2 + 1 + 1
+    assert {c["signal"] for c in records} == TRAJECTORY_SIGNALS | {"beam_intensity_readback"}
+    for channel in records:
+        description = channel.get("description", "")
+        access = (
+            "(write-only)"
+            if channel["signal"].endswith("_command")
+            else "(read-write)"
+            if channel.get("role") == "setpoint"
+            else "(read-only)"
+        )
+        assert access in description, channel["id"]
+        for label in channel.get("options", []):
+            assert label in description, (channel["id"], label)

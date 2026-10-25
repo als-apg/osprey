@@ -10,6 +10,10 @@ Two base trees:
   no model;
 * ``deck_tree``: the same devices wired into model ``SR``, a periodic deck,
   plus model ``LINE`` on a single-pass deck.
+
+``with_trajectory`` gives one model of a tree that measures it the
+``trajectory`` kind: the signal channels on a monitor device, the two injection
+channels on the model's place, and the measurement file's keys.
 """
 
 from __future__ import annotations
@@ -27,12 +31,16 @@ __all__ = [
     "QUAD",
     "READING",
     "SETTING",
+    "TRAJECTORY_KEYS",
+    "TURN_SAMPLES",
     "Deck",
     "deck_tree",
     "line_deck",
     "model",
     "plain_tree",
     "sr_deck",
+    "trajectory_channels",
+    "with_trajectory",
     "write_tree",
 ]
 
@@ -45,6 +53,12 @@ READING = {"attribute": "PolynomB", "index": 0}
 
 #: The initial conditions of the single-pass model.
 LINE_TWISS = {"beta": [5.0, 3.0], "alpha": [0.0, 0.0]}
+
+#: The samples each turn-by-turn channel of a trajectory tree holds.
+TURN_SAMPLES = 32
+
+#: The step and settle keys a trajectory tree's measurement file states.
+TRAJECTORY_KEYS = {"corrector_delta": 1.0e-5, "alpha": 0.5, "n_discard": 0, "gain": 1.0}
 
 
 @dataclass(frozen=True)
@@ -191,6 +205,117 @@ def model(tree: Mapping[str, Any], name: str, file: str = "models.yaml") -> dict
         The record itself, for the caller to edit.
     """
     return next(record for record in tree[file] if record["name"] == name)
+
+
+def trajectory_channels(device: str, stem: str) -> list[dict[str, Any]]:
+    """The five signal channels the ``trajectory`` kind asks of one monitor device.
+
+    Args:
+        device: The device's id.
+        stem: The prefix of the five addresses.
+
+    Returns:
+        ``<stem>:TBT:X``, ``:TBT:Y`` and ``:TBT:SUM`` (waveforms of
+        ``TURN_SAMPLES``), the command ``<stem>:ARM`` and the flag
+        ``<stem>:ARMED``.
+    """
+    on = {"device": device}
+    series = {"value_type": "waveform", "shape": [TURN_SAMPLES], "on": on}
+    return [
+        {"id": f"{stem}:TBT:X", "signal": "bpm_tbt_x", **series},
+        {"id": f"{stem}:TBT:Y", "signal": "bpm_tbt_y", **series},
+        {"id": f"{stem}:TBT:SUM", "signal": "bpm_tbt_sum", **series},
+        {
+            "id": f"{stem}:ARM",
+            "role": "setpoint",
+            "value_type": "int",
+            "signal": "bpm_arm_command",
+            "on": on,
+        },
+        {"id": f"{stem}:ARMED", "value_type": "int", "signal": "bpm_armed_status", "on": on},
+    ]
+
+
+def with_trajectory(
+    tree: dict[str, Any], name: str, device: str, marker: str | None = None
+) -> dict[str, Any]:
+    """``tree`` with model ``name`` measuring the ``trajectory`` kind and nothing else.
+
+    The model's measurement file must already name ``groups.bpm``,
+    ``groups.hcor`` and ``groups.vcor``, and a place must carry the model's
+    name. ``device`` gets the five signal channels under the stem
+    ``<name>:BPM``; the place gets the request ``<name>:INJ:REQ``, which the
+    model wires, and the flag ``<name>:INJ:BUSY``, which it does not.
+
+    Args:
+        tree: A tree whose model ``name`` has a measurement file.
+        name: The model's name.
+        device: The one member device of the model's ``groups.bpm`` group.
+        marker: The deck marker a periodic model launches from; ``None`` for a
+            single-pass model, which states no launch.
+
+    Returns:
+        ``tree``, edited in place.
+    """
+    request, busy = f"{name}:INJ:REQ", f"{name}:INJ:BUSY"
+    tree["records/channels.yaml"] += [
+        *trajectory_channels(device, f"{name}:BPM"),
+        {
+            "id": request,
+            "role": "setpoint",
+            "value_type": "int",
+            "signal": "injection_request_command",
+            "on": {"place": name},
+        },
+        {
+            "id": busy,
+            "value_type": "int",
+            "signal": "injection_busy_status",
+            "on": {"place": name},
+        },
+    ]
+    record = model(tree, name)
+    record["wiring"].append({"address": request, "engine": {"attribute": "inject"}})
+    if marker is not None:
+        record.setdefault("settings", {}).setdefault("pyat", {})["injection"] = {"marker": marker}
+    measurement = tree[f"measurement/{name}.yaml"]
+    measurement["kinds"] = ["trajectory"]
+    measurement.setdefault("instruments", {}).update(
+        {"injection_request": request, "injection_busy": busy}
+    )
+    measurement.update(TRAJECTORY_KEYS)
+    return tree
+
+
+def with_shot_wiring(tree: dict[str, Any], name: str, element: str) -> dict[str, Any]:
+    """``tree`` with model ``name`` wiring the shot records :func:`with_trajectory` added.
+
+    The three turn series read at ``element``; the arm command and the armed
+    status name no element. The stem is ``<name>:BPM``, as in
+    :func:`with_trajectory`.
+
+    Args:
+        tree: A tree :func:`with_trajectory` has given model ``name``.
+        name: The model's name.
+        element: The deck element the series read at.
+
+    Returns:
+        ``tree``, edited in place.
+    """
+    stem = f"{name}:BPM"
+    model(tree, name)["wiring"] += [
+        *(
+            {
+                "address": f"{stem}:TBT:{plane.upper()}",
+                "element": element,
+                "engine": {"axis": plane, "series": "turn"},
+            }
+            for plane in ("x", "y", "sum")
+        ),
+        {"address": f"{stem}:ARM", "engine": {"attribute": "arm"}},
+        {"address": f"{stem}:ARMED", "engine": {"attribute": "armed"}},
+    ]
+    return tree
 
 
 def write_tree(root: Path, tree: Mapping[str, Any]) -> Path:

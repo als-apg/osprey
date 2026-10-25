@@ -509,3 +509,8 @@
   signal: phase_setpoint
   tolerance: {value: 0.1, unit: deg}
   source: RF phase loop settle band
+
+- class: BeamPositionMonitor
+  signal: attenuation_setpoint
+  tolerance: {value: 0.5, unit: dB}
+  source: BPM electronics step attenuator, readback lands on the commanded step

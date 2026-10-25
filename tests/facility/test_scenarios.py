@@ -12,6 +12,7 @@ import yaml
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import _value_errors
+from osprey.simulation.engines import pyat_faults
 from osprey_connectors.simulation import STILL_ALL
 from osprey_connectors.simulation.envelope import active_envelopes
 from tests.facility._synthetic_trees import plain_tree, write_tree
@@ -45,6 +46,83 @@ def test_the_demo_build_carries_every_scenario_verbatim(built_control_assistant:
     for path in sorted((FACILITY / "scenarios").glob("*.yaml")):
         source = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert built[path.stem] == {"name": path.stem, **source}
+
+
+# --- the trajectory-study injection ---------------------------------------------
+
+#: The scenario the trajectory walk, the deployed e2e and the unit tests pin.
+TXT_INJECTION = "txt-injection"
+
+#: The launch, bunch shape, jitter and aperture the calibration froze for the
+#: scenario (trajectory-walk ``calibration/CALIBRATION.json``,
+#: ``frozen_scenario_keys``).
+CALIBRATED = {
+    "launch_x": 0.000512818,
+    "launch_px": 0.0,
+    "launch_y": 0.0,
+    "launch_py": 0.0,
+    "launch_delta": 0.01,
+    "launch_ct": -0.027608,
+    "bunch_emittance_x": 3e-09,
+    "bunch_emittance_y": 1e-09,
+    "bunch_sigma_delta": 0.0022,
+    "bunch_sigma_z": 0.003,
+    "centroid_jitter_x": 5e-05,
+    "centroid_jitter_y": 3e-05,
+    "aperture_elliptical_x": 0.003,
+    "aperture_elliptical_y": 0.005,
+}
+
+#: The fewest particles a shot tracks for a trustworthy turn-by-turn reading
+#: (trajectory-walk ``calibration/CALIBRATION.json``, ``N_min``).
+N_DEFAULT = 16
+
+#: The most particles a shot may track within the shot timeout on the slower
+#: measured host (trajectory-walk ``spike/BENCH.json``, ``cost_cap.n_particles``).
+COST_CAP_PARTICLES = 65
+
+#: The charge one shot injects when a scenario states no ``bunch_charge``.
+DEFAULT_BUNCH_CHARGE = 1.0
+
+
+def test_the_injection_carries_the_calibrated_launch_bunch_and_aperture() -> None:
+    faults = _scenario(TXT_INJECTION)["faults"]
+    assert list(faults) == [MODEL]
+    stated = faults[MODEL]
+    assert {name: stated[name] for name in CALIBRATED} == CALIBRATED
+    assert set(stated) == {*CALIBRATED, "bunch_particles", "stored_charge"}
+
+
+def test_the_injection_states_no_rf_value_and_nothing_but_model_faults() -> None:
+    scenario = _scenario(TXT_INJECTION)
+    assert set(scenario) == {"description", "faults"}
+    assert not [name for name in scenario["faults"][MODEL] if "rf" in name.lower()]
+    assert all(name in pyat_faults.MODEL_WIDE_FAULTS for name in scenario["faults"][MODEL])
+
+
+def test_the_injection_tracks_the_calibrated_particle_count_within_the_cost_cap() -> None:
+    particles = _scenario(TXT_INJECTION)["faults"][MODEL]["bunch_particles"]
+    assert particles == N_DEFAULT
+    assert isinstance(particles, int)
+    assert 1 <= particles <= COST_CAP_PARTICLES
+
+
+def test_the_injection_stores_a_charge_no_larger_than_one_shot_injects() -> None:
+    faults = _scenario(TXT_INJECTION)["faults"][MODEL]
+    injected = faults.get("bunch_charge", DEFAULT_BUNCH_CHARGE)
+    assert 0.0 < faults["stored_charge"] <= injected
+
+
+def test_every_injection_value_lies_inside_its_slot() -> None:
+    for name, value in _scenario(TXT_INJECTION)["faults"][MODEL].items():
+        slot = pyat_faults.MODEL_WIDE_FAULTS[name]
+        files = [f"scenarios/{TXT_INJECTION}.yaml"]
+        assert list(_value_errors(TXT_INJECTION, files, name, value, slot)) == [], name
+
+
+def test_the_demo_build_validates_the_injection(built_control_assistant: Any) -> None:
+    built = {s["name"]: s for s in built_control_assistant.facility["scenarios"]}
+    assert built[TXT_INJECTION]["faults"] == _scenario(TXT_INJECTION)["faults"]
 
 
 # --- a Tango address --------------------------------------------------------------

@@ -108,6 +108,15 @@ guides are the better starting point.
       The dock layout engine OSPREY and CANOPY share: one case set, one JS
       engine, one Python rule implementation, and where each is edited.
 
+   .. grid-item-card:: Trajectory Model Contract
+      :link: trajectory-model
+      :link-type: doc
+      :shadow: md
+
+      The three states a served model reports, the command slots, what a
+      shot writes into the turn-by-turn buffers, the first-turn response
+      files, the model-wide scenario faults and the archived channel set.
+
 .. toctree::
    :hidden:
 
@@ -122,3 +131,4 @@ guides are the better starting point.
    audit-trail
    bridge-dispatch
    dock-engine
+   trajectory-model

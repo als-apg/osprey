@@ -1,9 +1,16 @@
-"""MCP tool: model_response_matrix — a served model's orbit response, read-only.
+"""MCP tool: model_response_matrix — a served model's response to its correctors, read-only.
 
-``model_response_matrix(model=None, correctors=None)`` solves the orbit
-response of a served model's wired monitors to its corrector setpoints on the
+``model_response_matrix(model=None, correctors=None, kind="orbit")`` solves the
+response of a served model's wired readings to its corrector setpoints on the
 model's own deck, through its engine plug-in's ``response_matrix()``. Nothing
-is written to the machine or to the deck.
+is written to the machine, to the deck or to the render.
+
+``kind`` names the response: ``orbit`` is the monitor readbacks' orbit
+response; ``trajectory`` is the first-turn response of the turn-by-turn
+readings, the content of the pyAML view's ``trajectory_rm.json`` and
+``trajectory_rm.index.json`` solved for the correctors named: each row and
+column carries its plane and its lattice index, and the matrix holds the
+files' precision.
 
 Everything is read from the render the server runs against (the directory of
 the rendered ``config.yml``): the simulator view's ``decks/<model>.json``, the
@@ -31,11 +38,12 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from osprey.mcp_server.errors import make_error
-from osprey.simulation.response import RESULT_TAG
+from osprey.simulation.response import DEFAULT_KIND, RESULT_TAG
 
 logger = logging.getLogger("osprey.mcp_server.tools.model_response_matrix")
 
 __all__ = [
+    "KINDS",
     "RESULT_TAG",
     "STEP_KEY",
     "TOOL_NAME",
@@ -50,6 +58,9 @@ TOOL_NAME = "model_response_matrix"
 
 #: The measurement-file key holding the kick-angle change, in radians.
 STEP_KEY = "corrector_delta"
+
+#: The responses the tool solves; the first is the one solved when none is named.
+KINDS = (DEFAULT_KIND, "trajectory")
 
 #: The solve reads the machine's model only.
 _EXECUTION_MODE = "readonly"
@@ -77,6 +88,7 @@ class ModelRequest:
         steps: Each corrector's full step width in its hardware unit.
         devices: Each corrector's device id, ``None`` when it is on none.
         view: The render's simulator view the request was resolved against.
+        kind: The response solved, one of :data:`KINDS`.
     """
 
     render_root: Path
@@ -87,6 +99,7 @@ class ModelRequest:
     steps: Mapping[str, float]
     devices: Mapping[str, str | None]
     view: Any = field(default=None, repr=False, compare=False)
+    kind: str = DEFAULT_KIND
 
 
 def _refuse(message: str, suggestion: str) -> NoReturn:
@@ -211,37 +224,29 @@ def _correctors(model: Any, correctors: object) -> dict[str, Any]:
 
 def _hardware_width(address: str, record: Mapping[str, Any], delta: float) -> float:
     """The hardware step whose physics span about the held value is ``delta``."""
-    from osprey.simulation.engines.calibration import (
-        NoInverse,
-        curve_from_record,
-        to_hardware,
-        to_physics,
-    )
+    from osprey.facility.views.pyaml import hardware_width
 
-    calibration = record.get("calibration") or {}
     try:
-        curve = curve_from_record(calibration.get("curve"))
-        inverse = curve_from_record(calibration.get("inverse"))
-        held = float(record.get("default") or 0.0)
-        centre = to_physics(curve, held)
-        width = to_hardware(curve, inverse, centre + 0.5 * delta) - to_hardware(
-            curve, inverse, centre - 0.5 * delta
-        )
-    except (NoInverse, ValueError, TypeError) as exc:
+        return hardware_width(record, delta)
+    except ValueError as exc:
         _refuse(
             f"corrector {address}: its calibration gives no hardware step for "
             f"{STEP_KEY} {delta}: {exc}",
-            "State an inverse for the corrector's calibration and rebuild.",
+            f"State an inverse for the corrector's calibration, check it and {STEP_KEY}, "
+            "and rebuild.",
         )
-    if not math.isfinite(width) or width == 0.0:
-        _refuse(
-            f"corrector {address}: {STEP_KEY} {delta} converts to hardware step {width}",
-            f"Check the corrector's calibration and {STEP_KEY}.",
-        )
-    return float(width)
 
 
-def resolve_model_request(model: object, correctors: object, *, render_root: Path) -> ModelRequest:
+def _kind(kind: object) -> str:
+    listed = ", ".join(KINDS)
+    if not isinstance(kind, str) or kind not in KINDS:
+        _refuse(f"kind must be one of {listed}, got {kind!r}", f"Pass kind as one of: {listed}.")
+    return kind
+
+
+def resolve_model_request(
+    model: object, correctors: object, *, render_root: Path, kind: object = DEFAULT_KIND
+) -> ModelRequest:
     """Resolve a ``model_response_matrix`` call against the render it runs in.
 
     Args:
@@ -249,6 +254,7 @@ def resolve_model_request(model: object, correctors: object, *, render_root: Pat
         correctors: Corrector setpoint addresses the model wires, or ``None`` for
             every one, horizontal then vertical, in wiring order.
         render_root: The directory holding the rendered ``config.yml``.
+        kind: The response to solve, one of :data:`KINDS`.
 
     Returns:
         The resolved request.
@@ -259,6 +265,7 @@ def resolve_model_request(model: object, correctors: object, *, render_root: Pat
     """
     from osprey_connectors.simulation.view import NoSimulatorView, SimulatorView, ViewSchemaError
 
+    kind = _kind(kind)
     try:
         view = SimulatorView.of_render(render_root)
     except (NoSimulatorView, ViewSchemaError) as exc:
@@ -278,6 +285,7 @@ def resolve_model_request(model: object, correctors: object, *, render_root: Pat
         steps=steps,
         devices={address: _device(view, address) for address in records},
         view=view,
+        kind=kind,
     )
 
 
@@ -289,6 +297,7 @@ def _child_payload(request: ModelRequest) -> dict[str, Any]:
         "engine_module": request.engine_module,
         "correctors": list(request.correctors),
         "steps": dict(request.steps),
+        "kind": request.kind,
     }
 
 
@@ -301,7 +310,12 @@ def _child_script(request: ModelRequest) -> str:
     )
 
 
-def _result_line(stdout: str) -> dict[str, Any] | None:
+def _result_line(stdout: str, kind: str = DEFAULT_KIND) -> dict[str, Any] | None:
+    """The child's last result line, or ``None`` when it printed none of ``kind``'s shape.
+
+    A line of a kind other than the default carries the ``index`` of every
+    row, column and unsolved corrector.
+    """
     prefix = RESULT_TAG + " "
     lines = [line[len(prefix) :] for line in stdout.splitlines() if line.startswith(prefix)]
     if not lines:
@@ -309,14 +323,32 @@ def _result_line(stdout: str) -> dict[str, Any] | None:
     value = json.loads(lines[-1])
     if not isinstance(value, dict):
         return None
-    if "refused" in value or _SOLVED_KEYS <= value.keys():
+    if "refused" in value:
         return value
-    return None
+    if not _SOLVED_KEYS <= value.keys():
+        return None
+    if kind != DEFAULT_KIND:
+        index = value.get("index")
+        named = [*value["rows"], *value["columns"], *value["unsolved"]]
+        if not isinstance(index, dict) or any(address not in index for address in named):
+            return None
+    return value
 
 
 def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
+    """The result the agent reads: a line's rows and columns named by address and device.
+
+    A line of a kind other than the default also gives each row and column
+    its plane word and its lattice index.
+
+    Raises:
+        ValueError: The line's columns and unsolved correctors are not the
+            correctors the request stepped.
+    """
     view = request.view
-    return {
+    if sorted([*line["columns"], *line["unsolved"]]) != sorted(request.correctors):
+        raise ValueError("the columns solved are not the correctors asked for")
+    labelled: dict[str, Any] = {
         "model": request.model,
         "corrector_delta": request.corrector_delta,
         "unit": _UNIT,
@@ -332,33 +364,53 @@ def _label(request: ModelRequest, line: Mapping[str, Any]) -> dict[str, Any]:
         "matrix": line["matrix"],
         "unsolved": line["unsolved"],
     }
+    if request.kind == DEFAULT_KIND:
+        return labelled
+    from osprey.facility.views.pyaml import PLANE_WORDS
+
+    index = line["index"]
+    planes = {binding.address: str(binding.plane) for binding in view.model(request.model).bindings}
+    for entry in (*labelled["rows"], *labelled["columns"]):
+        entry["plane"] = PLANE_WORDS.get(planes.get(entry["address"], ""))
+        entry["index"] = index[entry["address"]]
+    return {"kind": request.kind, **labelled}
 
 
 async def model_response_matrix(
-    model: str | None = None, correctors: list[str] | None = None
+    model: str | None = None, correctors: list[str] | None = None, kind: str = DEFAULT_KIND
 ) -> str:
-    """Solve a served model's orbit response to its correctors, on the model alone.
+    """Solve a served model's response to its correctors, on the model alone.
 
-    Read-only: nothing is written to the machine or to the deck. Each corrector
-    is stepped about the value the deck holds by the model's measurement-file
-    ``corrector_delta`` (radians), converted to the corrector's hardware unit,
-    and every wired monitor readback is solved on both sides.
+    Read-only: nothing is written to the machine, to the deck or to any file.
+    Each corrector is stepped about the value the deck holds by the model's
+    measurement-file ``corrector_delta`` (radians), converted to the
+    corrector's hardware unit, and every reading of the kind is solved on both
+    sides.
 
     Args:
         model: The served model; omit when the render serves exactly one deck
             model.
         correctors: Corrector setpoint addresses; omit for every corrector the
             model wires, horizontal then vertical.
+        kind: ``orbit`` (the default) for the orbit response of the monitor
+            readbacks; ``trajectory`` for the first-turn response of the
+            turn-by-turn readings, the response a first-turn steering
+            correction is computed from.
 
     Returns:
         JSON: ``model``, ``corrector_delta``, ``unit``, ``rows`` (``{address,
-        device}`` per monitor readback), ``columns`` (``{address, device,
-        step}`` per solved corrector, ``step`` in its hardware unit),
-        ``matrix`` (one list per row) and ``unsolved`` (each corrector whose
-        step has no solve, mapped to the engine's text). When no corrector
-        solves, the call is refused with every unsolved text and
-        ``details.unsolved`` holding the same map; when the engine refuses
-        the request, the call is refused with the engine's text.
+        device}`` per reading), ``columns`` (``{address, device, step}`` per
+        solved corrector, ``step`` in its hardware unit), ``matrix`` (one list
+        per row) and ``unsolved`` (each corrector whose step has no solve,
+        mapped to the engine's text). For ``trajectory`` the result also
+        names its ``kind``, the columns are the horizontal correctors then
+        the vertical ones, a corrector whose step loses the launched particle
+        is unsolved, and each row and column also carries ``plane`` (``H`` or
+        ``V``) and ``index``, its element's position along the lattice from
+        where the beam starts. When no corrector solves, the call is refused
+        with every unsolved text and ``details.unsolved`` holding the same
+        map; when the engine refuses the request, the call is refused with
+        the engine's text.
     """
     from osprey.mcp_server.python_executor import executor
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY
@@ -367,7 +419,7 @@ async def model_response_matrix(
     config_dir = resolve_config_dir()
     if config_dir is None:
         _refuse("no rendered config.yml to read the model from", "Run `osprey build`.")
-    request = resolve_model_request(model, correctors, render_root=Path(config_dir))
+    request = resolve_model_request(model, correctors, render_root=Path(config_dir), kind=kind)
 
     result = await executor.execute_code(
         code=_child_script(request),
@@ -383,8 +435,11 @@ async def model_response_matrix(
             [f"Name fewer correctors, or raise {TIMEOUT_KEY}."],
             details={"model": request.model, "kind": executor.FAILURE_KIND_TIMEOUT},
         )
+    labelled: dict[str, Any] | None = None
     try:
-        line = _result_line(result.stdout or "")
+        line = _result_line(result.stdout or "", request.kind)
+        if line is not None and "refused" not in line:
+            labelled = _label(request, line)
     except ValueError:
         line = None
     if line is None:
@@ -408,7 +463,7 @@ async def model_response_matrix(
             [f"Name other correctors, or check {STEP_KEY} in measurement/{request.model}.yaml."],
             details={"model": request.model, "unsolved": line["unsolved"]},
         )
-    return json.dumps(_label(request, line))
+    return json.dumps(labelled)
 
 
 def register(server: Any) -> None:

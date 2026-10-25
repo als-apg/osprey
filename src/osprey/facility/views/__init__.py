@@ -19,10 +19,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.facility.build import FacilityDocument
 from osprey_connectors.simulation.view import VIEW_RELPATH
+
+if TYPE_CHECKING:
+    from osprey.facility.views.pyaml import PyamlView
 
 __all__ = [
     "PIPELINE_MODE_KEY",
@@ -55,6 +58,9 @@ class ViewInputs:
             by the sha256 of the view bytes each was imported from; a render
             whose view has the same bytes copies the database instead of
             importing it again. ``None`` imports every one.
+        pyaml_views: The pyAML views this build has already made, by facility
+            directory and model; a render reuses one rather than making it
+            again, and adds each one it makes. ``None`` makes every one.
     """
 
     doc: FacilityDocument
@@ -63,6 +69,7 @@ class ViewInputs:
     served: list[str]
     reported: set[str] | None = None
     built_databases: dict[str, Path] | None = None
+    pyaml_views: dict[tuple[Path, str], PyamlView] | None = None
 
 
 @dataclass(frozen=True)

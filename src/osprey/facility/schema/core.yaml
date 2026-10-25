@@ -71,6 +71,15 @@ enums:
       trm:
       crm:
       chromaticity_monitor:
+      trajectory:
+
+  trajectory_setting_scope_enum:
+    description: What one value of an operator setting of the trajectory measurement sets.
+    permissible_values:
+      device:
+        description: One value per device of the group `groups.bpm` names.
+      global:
+        description: One value for the whole model.
 
 classes:
   Facility:
@@ -626,6 +635,10 @@ classes:
       instruments:
         range: MeasurementInstruments
         inlined: true
+      trajectory:
+        range: TrajectoryDeclaration
+        inlined: true
+        description: The trajectory surface of a model whose `kinds` list `trajectory`.
       n_step:
         range: integer
       n_avg_meas:
@@ -643,6 +656,12 @@ classes:
       sextu_delta:
         range: float
       frequency_delta:
+        range: float
+      alpha:
+        range: float
+      n_discard:
+        range: integer
+      gain:
         range: float
 
   MeasurementGroups:
@@ -664,6 +683,120 @@ classes:
     attributes:
       tune:
       rf:
+      injection_request:
+      injection_busy:
+      bunch_clean_enable:
+      beam_current:
+      rf_status:
+
+  TrajectoryDeclaration:
+    description: >-
+      The trajectory measurement's surface: the sample of every turn-by-turn
+      buffer the injected shot arrives at, the operator settings the
+      measurement reads its monitors under, and the ordered chain of steps
+      one shot runs.
+    attributes:
+      trigger_sample:
+        range: integer
+        required: true
+        minimum_value: 0
+        description: The sample of each turn-by-turn buffer the injected shot arrives at.
+      settings:
+        range: TrajectorySetting
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: The operator settings, in the order they are shown and applied.
+      steps:
+        range: TrajectoryStep
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        required: true
+        description: The chain one shot runs, in order.
+
+  TrajectorySetting:
+    description: >-
+      One operator setting. Its readback is the setpoint channel's `pair`, and a
+      move counts as settled within the setpoint channel's `tolerance`, or on
+      an exact match when the channel states none.
+    attributes:
+      id:
+        required: true
+        description: The setting's name, unique within the declaration.
+      label:
+        required: true
+        description: The words an operator sees for the setting.
+      description:
+        description: What the setting does to the measurement.
+      scope:
+        range: trajectory_setting_scope_enum
+        required: true
+      signal:
+        description: >-
+          With scope `device`, the signal of the setpoint channel on each device
+          of the group `groups.bpm` names.
+      address:
+        description: With scope `global`, the address of the one setpoint channel.
+      timeout_s:
+        range: float
+        required: true
+        minimum_value: 0
+        description: The longest wait, in seconds, for the readback to settle after a write.
+
+  TrajectoryStep:
+    description: >-
+      One step of the chain. A step with a `command` writes it; a step without
+      one is run by the measurement service itself.
+    attributes:
+      id:
+        required: true
+        description: The step's name, unique within the chain.
+      label:
+        required: true
+        description: The words an operator sees for the step.
+      description:
+        required: true
+        description: What the step does to the machine.
+      default:
+        range: boolean
+        required: true
+        description: Whether the step is part of the chain a run takes when none is chosen.
+      command:
+        range: TrajectoryCommand
+        inlined: true
+
+  TrajectoryCommand:
+    description: The write a command step makes, and how long the step may take.
+    attributes:
+      address:
+        required: true
+        description: The setpoint channel written.
+      value:
+        range: Any
+        required: true
+        description: The value written, of the channel's value_type.
+      timeout_s:
+        range: float
+        required: true
+        minimum_value: 0
+        description: >-
+          The longest the step may take, in seconds: the wait for `done` when it
+          is stated; a step without `done` writes and continues.
+      done:
+        range: TrajectoryDone
+        inlined: true
+
+  TrajectoryDone:
+    description: The reading a command step waits for before the chain continues.
+    attributes:
+      address:
+        required: true
+        description: The channel read.
+      value:
+        range: Any
+        required: true
+        description: The value that means the command is done.
 
   Limits:
     attributes:

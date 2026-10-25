@@ -77,7 +77,7 @@ do not attempt their work with your own tools.
 ## Measurements
 
 - Measure an orbit, dispersion, tune or chromaticity response, or the chromaticity, with `mcp__python__pyaml_measure`; it holds the control target's run lock; a stopped or failed measurement leaves its setpoints where they stopped and its result lists each with its value before the call — report those to the operator; one killed at the timeout names only the channels it attempted. Never step setpoints for a measurement through `mcp__python__execute`.
-- Solve a served model's orbit response yourself with `mcp__python__model_response_matrix`; it writes nothing.
+- Solve a served model's orbit or first-turn trajectory response yourself with `mcp__python__model_response_matrix`; it writes nothing.
 - The **pyaml-tools** skill says how.
 
 {% endif -%}

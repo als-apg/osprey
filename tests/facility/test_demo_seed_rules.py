@@ -131,10 +131,18 @@ def test_every_setpoint_carries_a_tolerance() -> None:
         channel
         for channel in channels
         if channel.get("role") == "setpoint"
+        and "pair" in channel
         and channel.get("value_type") != "bool"
         and channel.get("unit")
     ]
-    assert len(setpoints) == 491
+    commands = [
+        channel
+        for channel in channels
+        if channel.get("role") == "setpoint" and "pair" not in channel
+    ]
+    assert len(setpoints) == 563
+    assert len(commands) == 74
+    assert not [channel["id"] for channel in commands if "tolerance" in channel]
     assert sum(channel["id"].startswith("LINE:") for channel in setpoints) == 16
     for channel in setpoints:
         assert set(channel["tolerance"]) == {"absolute"}, channel["id"]
@@ -2010,6 +2018,7 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("SR:DIAG:GAMMA:04:DOSE_RATE:INST", "nominal", 100.0),
     ("SR:DIAG:GAMMA:04:STATUS:ALARM", "nominal", "TRUE"),
     ("SR:DIAG:GAMMA:04:STATUS:VALID", "nominal", "TRUE"),
+    ("SR:DIAG:INJECTION:BUSY", "nominal", 0),
     ("SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1HR", "nominal", 100.0),
     ("SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1MIN", "nominal", 100.0),
     ("SR:DIAG:NEUTRON:01:DOSE_RATE:INST", "nominal", 100.0),

@@ -178,7 +178,7 @@ def stage_demo_data_dir(root: Path) -> Path:
 
     * the burst scenario (:data:`BURST_SCENARIO_NAME`), which moves one gauge;
     * the unstable scenario (:data:`UNSTABLE_SCENARIO_NAME`), under which the
-      physics model's closed-orbit solve fails;
+      physics model has no closed orbit and serves degraded;
     * the kick scenario (:data:`KICK_SCENARIO_NAME`), which puts a nonzero
       closed orbit at :data:`KICK_MONITOR`;
     * the seeded-readout scenario (:data:`SEEDED_READOUT_SCENARIO_NAME`),
@@ -217,7 +217,7 @@ def stage_demo_data_dir(root: Path) -> Path:
             (
                 UNSTABLE_SCENARIO_NAME,
                 "e2e-only synthetic scenario: a focusing quadrupole at a current "
-                "with no stable closed orbit, so the physics model fails.",
+                "with no stable closed orbit, so the physics model serves degraded.",
                 {UNSTABLE_QUADRUPOLE: UNSTABLE_CURRENT},
             ),
             (
@@ -303,9 +303,10 @@ def _monitor_addresses(facility: Path) -> list[str]:
 
     A monitor reading is an address whose wiring record in ``models.yaml``
     the model's engine describes as a ``monitor``, or as an ``output`` of one
-    plane (a tune or a chromaticity). The source states no direction, so each
-    record is described as a reading; a setting record then describes as its
-    readback and is not one.
+    plane (a tune or a chromaticity). The source states no direction, so a
+    record takes the one its channel implies -- ``write`` for a setpoint
+    channel, else ``read`` -- and a setting or command then describes as a
+    setpoint and is not one.
     """
     from importlib import metadata
 
@@ -313,13 +314,20 @@ def _monitor_addresses(facility: Path) -> list[str]:
     from osprey_connectors.simulation.view import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
+    records = (facility / "records" / "channels.yaml").read_text(encoding="utf-8")
+    setpoints = {
+        str(channel["id"])
+        for channel in yaml.safe_load(records) or []
+        if channel.get("role") == "setpoint"
+    }
     monitors: set[str] = set()
     for model in models:
         if model.get("engine") == TEXTURE or not model.get("wiring"):
             continue
         describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
         for record in model["wiring"]:
-            described = describe.describe({**record, "direction": "read"})
+            direction = "write" if str(record["address"]) in setpoints else "read"
+            described = describe.describe({**record, "direction": direction})
             if described["role"] == "monitor" or (
                 described["role"] == "output" and described["plane"] is not None
             ):
@@ -418,8 +426,9 @@ BURST_SCENARIO_NAME = "va-e2e-burst"
 BURST_CHANNEL = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 BURST_VALUE = 3.0e-6  # nominal machine.json baseline is 5e-8 Torr (3% noise) -- unambiguous jump
 
-#: Synthetic scenario under which the physics model's closed-orbit solve
-#: fails: the quadrupole at twice its demo current has no stable orbit.
+#: Synthetic scenario under which the physics model has no closed orbit: the
+#: quadrupole at twice its demo current has no stable orbit, so the model is
+#: degraded -- built and serving, its status ``no closed orbit``.
 UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
 UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
 UNSTABLE_CURRENT = 712.2
@@ -909,9 +918,11 @@ def corrector_at_slot(slot: int) -> Corrector:
     A lane names the corrector it drives by SLOT rather than by address: which
     channels kick the beam is the served view's wiring to answer, and where
     each of them reads its own field back is its channel's ``pair``, rather
-    than a device name written into a test. Wiring order is the facility
-    file's record order, so one slot names one magnet on every run against a
-    given tree.
+    than a device name written into a test. The slots count the correctors of
+    one model: the one whose wiring binds the first corrector the limits view
+    bands, so slot 0 is that banded magnet and every slot takes a demand its
+    band admits. Wiring order is the facility file's record order, so one slot
+    names one magnet on every run against a given tree.
 
     The slots are the correctors of one model: the model whose corrector a
     limits record bounds (``_facility_select.bounded_corrector_of``). A lane

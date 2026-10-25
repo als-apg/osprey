@@ -15,7 +15,7 @@ them from the simulator view under ``build/data/simulator/``. The
 The scenarios the demo ships
 ============================
 
-The control-assistant preset ships six scenarios in
+The control-assistant preset ships eight scenarios in
 ``data/facility/scenarios/``:
 
 .. list-table::
@@ -49,6 +49,20 @@ The control-assistant preset ships six scenarios in
    * - ``orm-dual-fault``
      - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
        once, both visible only through an orbit-response measurement.
+   * - ``first-turn-errors``
+     - A seeded errored ring: every quadrupole and sextupole is misaligned in
+       both planes and every element with length has an elliptical aperture.
+       An injected bunch is lost partway round the first turn and the ring
+       has no closed orbit; steering the first turn with the correctors
+       brings the beam around.
+   * - ``txt-injection``
+     - Injection for a turn-by-turn trajectory study. Each shot launches a
+       bunch of 16 particles off the design trajectory, with a finite
+       emittance, energy spread and length and a centroid that jitters from
+       shot to shot, into a ring whose elements with length have a 3 mm by
+       5 mm elliptical aperture. The ring starts with half a shot's charge
+       stored. The scenario states no RF value, so it serves the same records
+       on the virtual accelerator and on the live stand-in.
 
 The preset starts a fresh deployment in ``rf-thermal``, as the profile key
 ``simulation.default_scenarios`` names (see
@@ -70,6 +84,12 @@ logbook and rewrites the affected windows of the stored archive, so live
 values, history and narrative tell one story. It asks before the purge and
 the rewrite; ``--yes`` skips the prompts and ``--no-seed`` leaves both stores
 untouched.
+
+Applying a scenario rebuilds every physics model at the active scenarios'
+values and drops every value written in the session: settings such as the
+turns tracked or a BPM's mode and pilot tone, and every setpoint, return to
+the values the active scenarios start them at. Re-apply the settings and the
+setup a study needs after each apply.
 
 Several scenarios apply together only when no two of them write one target,
 a channel or a model's fault. A set that breaks the rule is refused before

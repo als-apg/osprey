@@ -121,6 +121,7 @@ def test_the_prompt_section_follows_the_view_and_the_python_server():
     assert section in shown
     assert "`mcp__python__pyaml_measure`" in shown
     assert "`mcp__python__model_response_matrix`" in shown
+    assert "orbit or first-turn trajectory response" in _flat(shown)
     assert section not in _prompt(False, {"python"})
     assert section not in _prompt(True, set())
 
@@ -140,3 +141,15 @@ def test_the_model_section_names_what_has_no_solve(rendered: str):
     section = _flat(section.split("\n---\n", 1)[0])
     assert "`unsolved`" in section
     assert "never read a missing column as zero response" in section
+
+
+def test_the_model_section_names_both_kinds(rendered: str):
+    assert "orbit or first-turn trajectory response" in _flat(rendered.split("---", 2)[1])
+    section = rendered.split("## Read the model through `model_response_matrix`", 1)[1]
+    section = _flat(section.split("\n---\n", 1)[0])
+    assert "`mcp__python__model_response_matrix(model, correctors, kind)`" in section
+    assert "`kind` is `orbit` (the default)" in section
+    assert "`trajectory`" in section
+    assert "`plane`" in section and "`index`" in section
+    assert "horizontal correctors then the vertical ones" in section
+    assert "loses the launched particle" in section

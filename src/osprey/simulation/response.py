@@ -1,4 +1,4 @@
-"""A served model's orbit response, solved in the process that imports this module.
+"""A served model's response to its correctors, solved in the process that imports this module.
 
 The ``model_response_matrix`` tool runs :func:`solve_and_print` in a sandbox
 child, so the engine's solve can be stopped at the executor's timeout without
@@ -13,10 +13,18 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-__all__ = ["RESULT_TAG", "solve_and_print"]
+__all__ = ["DEFAULT_KIND", "RESULT_TAG", "solve_and_print"]
 
 #: The tag of the child's one result line.
 RESULT_TAG = "OSPREY_MODEL_RESPONSE_MATRIX"
+
+#: The response solved when a payload names no ``kind``: the engine is called
+#: without the word.
+DEFAULT_KIND = "orbit"
+
+#: The significant digits a matrix entry of a line carrying an ``index`` is
+#: printed with, the precision the built response files hold.
+_DIGITS = 9
 
 
 def _thaw(value: Any) -> Any:
@@ -26,6 +34,11 @@ def _thaw(value: Any) -> Any:
     if isinstance(value, list | tuple):
         return [_thaw(item) for item in value]
     return value
+
+
+def _entry(value: Any, rounded: bool) -> float:
+    """A matrix entry as printed: at :data:`_DIGITS` significant digits when ``rounded``."""
+    return float(f"{float(value):.{_DIGITS}g}") if rounded else float(value)
 
 
 def _refusal(exc: Exception, engine: Any) -> bool:
@@ -43,13 +56,16 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     "unsolved"}``: ``columns`` the solved correctors, possibly none,
     ``matrix`` one column each, ``unsolved`` each corrector whose step has no
     solve mapped to the engine's text; the tool decides that a line with no
-    column is a refusal. Any other failure raises, and no result line is
-    printed.
+    column is a refusal. A response that carries an ``index`` adds it, each
+    row and corrector address mapped to its lattice index, and its entries
+    hold the built files' precision. Any other failure raises, and no result
+    line is printed.
 
     Args:
         payload: ``render_root``, ``model``, ``engine_module``, ``correctors``
             and ``steps`` (each corrector's full step width in its hardware
-            unit).
+            unit), and optionally ``kind``, the word the engine's
+            ``response_matrix()`` takes for the response.
     """
     import importlib
 
@@ -58,6 +74,8 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     view = SimulatorView.of_render(payload["render_root"])
     model = view.model(payload["model"])
     engine = importlib.import_module(payload["engine_module"])
+    kind = str(payload.get("kind") or DEFAULT_KIND)
+    words = {} if kind == DEFAULT_KIND else {"kind": kind}
     try:
         result = engine.response_matrix(
             model.deck,
@@ -65,16 +83,20 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
             _thaw(model.settings),
             list(payload["correctors"]),
             dict(payload["steps"]),
+            **words,
         )
     except Exception as exc:
         if not _refusal(exc, engine):
             raise
         print(RESULT_TAG, json.dumps({"refused": str(exc)}), flush=True)
         return
-    line = {
+    index = getattr(result, "index", None)
+    line: dict[str, Any] = {
         "rows": [str(row) for row in result.rows],
         "columns": [str(column) for column in result.columns],
-        "matrix": [[float(value) for value in row] for row in result.matrix],
+        "matrix": [[_entry(value, index is not None) for value in row] for row in result.matrix],
         "unsolved": {str(address): str(text) for address, text in result.unsolved.items()},
     }
+    if index is not None:
+        line["index"] = {str(address): int(place) for address, place in index.items()}
     print(RESULT_TAG, json.dumps(line), flush=True)

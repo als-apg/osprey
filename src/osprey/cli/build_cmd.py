@@ -114,6 +114,7 @@ from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
+    from osprey.facility.views.pyaml import PyamlView
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -1426,6 +1427,15 @@ class _SharedRenderInputs(NamedTuple):
     it. ``None`` for a single render, which imports each one it writes.
     """
 
+    views_pyaml: dict[tuple[Path, str], PyamlView] | None = None
+    """pyAML views this build has already made, by facility directory and model.
+
+    A pyAML view is a function of the facility file and its directory alone,
+    so every render pass of a build writes the same one: the first pass makes
+    it and later passes write it again. ``None`` for a single render, which
+    makes each one it writes.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2392,6 +2402,7 @@ def _render_project(
             data_root / "facility",
             omitted_reported=shared.views_omitted_reported,
             built_databases=shared.views_built_databases,
+            pyaml_views=shared.views_pyaml,
         )
         progress("  ✓ Wrote the facility file and its views")
 
@@ -3534,6 +3545,7 @@ def _build_repo(
             model_facts_reported=set(),
             views_omitted_reported=set(),
             views_built_databases={},
+            views_pyaml={},
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,

@@ -2,10 +2,11 @@
 
 Written to ``<render>/data/``::
 
-    facility_facts.json   {schema: osprey.facility.facility_facts/2, identity,
+    facility_facts.json   {schema: osprey.facility.facility_facts/6, identity,
                            place_levels, places, unplaced_devices,
                            device_classes, vocabulary, models,
-                           measurement_models, channel_count, snapshot}
+                           measurement_models, trajectory_slots,
+                           trajectory_catalog, channel_count, snapshot}
     facility_facts.md     the same facts as one page, rendered once from
                           ``_facility_facts.md.j2``
 
@@ -25,8 +26,20 @@ and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 pyAML view the render carries, ``{path, sha256, files}``: the configuration's
 path under the render and its digest, and the digest of each other file of the
 view by its name in the view's directory; the facts view is written after the
-pyAML view and reads it from disk. ``channel_count`` counts the channels, and
-``snapshot`` is ``null``.
+pyAML view and reads it from disk. ``trajectory_slots`` holds, for each model
+whose measurement file lists the ``trajectory`` kind and for no other model,
+the declaration of its trajectory surface: the device table of its monitor
+devices, the trigger sample, the injection request and busy flag, the machine
+readings, the operator settings and the ordered chain of steps, as
+:func:`osprey.facility.views.pyaml.trajectory_slots` answers; it is read from
+the facility file, whether or not the render carries a pyAML view.
+``trajectory_catalog`` holds, for each model whose pyAML view carries a
+trajectory response matrix, the devices that matrix covers in matrix order and
+the groups listing them, as
+:func:`osprey.facility.views.pyaml.trajectory_catalog` answers; it is read
+from the matrix the render's pyAML view holds, so the catalog and the matrix
+come from one build.
+``channel_count`` counts the channels, and ``snapshot`` is ``null``.
 
 A render with no facts file is read as the zero-source facts: the identity of
 its facility file or project name, no place, no class, ``texture`` alone and no
@@ -59,6 +72,7 @@ __all__ = [
     "measurement_records",
     "read_facts",
     "render_facts_page",
+    "trajectory_matrices",
     "write_facts_view",
     "zero_source_facts",
 ]
@@ -67,7 +81,10 @@ logger = logging.getLogger(__name__)
 
 FACTS_FILE = "facility_facts.json"
 FACTS_PAGE = "facility_facts.md"
-FACTS_SCHEMA = "osprey.facility.facility_facts/2"
+FACTS_SCHEMA = "osprey.facility.facility_facts/6"
+
+#: The measurement kind whose channel slots the facts carry.
+SLOTS_KIND = "trajectory"
 
 #: The class a classless device is counted under.
 NO_CLASS = "-"
@@ -229,11 +246,50 @@ def _models(doc: Mapping[str, Any], served: list[str]) -> list[dict[str, Any]]:
     return models
 
 
+def _trajectory_slots(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """The slots of each model whose measurement file lists the kind, by model name."""
+    from osprey.facility.views.pyaml import trajectory_slots
+
+    names = sorted(
+        str(model["name"])
+        for model in doc.get("models", [])
+        if SLOTS_KIND in ((model.get("measurement") or {}).get("kinds") or [])
+    )
+    return {name: trajectory_slots(doc, name) for name in names}
+
+
+def _trajectory_catalog(
+    doc: Mapping[str, Any], matrices: Mapping[str, Mapping[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """The catalog of each model with a trajectory response matrix, by model name."""
+    from osprey.facility.views.pyaml import trajectory_catalog
+
+    return {name: trajectory_catalog(doc, name, matrices[name]) for name in sorted(matrices)}
+
+
+def trajectory_matrices(data_root: Path) -> dict[str, dict[str, Any]]:
+    """The trajectory response matrix of each pyAML view written under a render's ``data/``.
+
+    Args:
+        data_root: The render's ``data/`` directory.
+
+    Returns:
+        ``{model: matrix}``, sorted by model, for each view holding the file.
+    """
+    from osprey.facility.views.pyaml import PYAML_DIR, TRAJECTORY_RM_FILE
+
+    return {
+        path.parent.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted((data_root / PYAML_DIR).glob(f"*/{TRAJECTORY_RM_FILE}"))
+    }
+
+
 def facts_document(
     doc: Mapping[str, Any],
     served: list[str],
     project_name: str | None = None,
     measurement_models: Mapping[str, Any] | None = None,
+    trajectory_matrices: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The agent facts of one render.
 
@@ -244,6 +300,8 @@ def facts_document(
             authors none.
         measurement_models: The render's pyAML view records, as
             :func:`measurement_records` reads them; none when omitted.
+        trajectory_matrices: Each model's trajectory response matrix, as
+            :func:`trajectory_matrices` reads them; none when omitted.
 
     Returns:
         The document ``facility_facts.json`` holds.
@@ -258,6 +316,8 @@ def facts_document(
         "vocabulary": _vocabulary(doc),
         "models": _models(doc, served),
         "measurement_models": dict(measurement_models or {}),
+        "trajectory_slots": _trajectory_slots(doc),
+        "trajectory_catalog": _trajectory_catalog(doc, trajectory_matrices or {}),
         "channel_count": len(doc.get("channels", [])),
         "snapshot": None,
     }
@@ -288,6 +348,8 @@ def zero_source_facts(identity: Mapping[str, Any]) -> dict[str, Any]:
         },
         "models": [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None}],
         "measurement_models": {},
+        "trajectory_slots": {},
+        "trajectory_catalog": {},
         "channel_count": 0,
         "snapshot": None,
     }
@@ -429,6 +491,7 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
                     for role in KIND_STEPPED[str(kind)]
                 }
                 for kind in measurement.get("kinds") or []
+                if str(kind) in KIND_STEPPED
             },
             "groups": {
                 role: [
@@ -492,6 +555,7 @@ def write_facts_view(root: Path, inputs: ViewInputs) -> list[Path]:
         inputs.served,
         str(project_name) if project_name else None,
         measurement_records(root),
+        trajectory_matrices(root),
     )
     root.mkdir(parents=True, exist_ok=True)
     document = root / FACTS_FILE

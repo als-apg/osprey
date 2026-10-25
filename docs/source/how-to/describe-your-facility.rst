@@ -445,8 +445,11 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
 
 A wiring record's ``calibration`` converts between the channel's hardware
 value and the engine's physics value, as a ``linear`` gain and offset or a
-``table``. Channels no served model wires are served by the texture model from
-their seeds. Which models a deployment serves, and what a failed one looks like, is
+``table``. A monitor's sum record states its charge-to-sum factor ``k`` this
+way: hardware sum is ``k`` times the charge share, so its gain is ``1/k`` and a
+reader multiplies by it to compare monitors. The example stamps one log-normal
+``k`` per monitor with ``scripts/demo_seeds/sum_calibration.py``. Channels no
+served model wires are served by the texture model from their seeds. Which models a deployment serves, and what a failed one looks like, is
 in :ref:`architecture-simulation-models`.
 
 Measurement
@@ -457,7 +460,7 @@ what they use:
 
 .. code-block:: yaml
 
-   kinds: [orm, dispersion, trm, crm, chromaticity_monitor]
+   kinds: [orm, dispersion, trm, crm, chromaticity_monitor, trajectory]
    groups:
      bpm: SR/BPM
      hcor: SR/HCM
@@ -467,6 +470,15 @@ what they use:
    instruments:
      tune: SR:DIAG:TUNE:X
      rf: SR:RF:CAVITY:01:FREQUENCY:SP
+     injection_request: SR:DIAG:INJECTION:REQUEST
+     injection_busy: SR:DIAG:INJECTION:BUSY
+     rf_status: SR:RF:ON:SP
+     beam_current: SR:DIAG:STORED_BEAM:CURRENT:RB
+     bunch_clean_enable: SR:DIAG:CLEANING:REQUEST
+   trajectory:
+     trigger_sample: 10
+     settings: [...]
+     steps: [...]
    n_step: 5
    n_avg_meas: 1
    fit_order: 2
@@ -476,13 +488,18 @@ what they use:
    quad_delta: 0.001
    sextu_delta: 0.01
    frequency_delta: 100.0
+   alpha: 0.0
+   n_discard: 0
+   gain: 1.0
 
 ``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
-``crm`` and ``chromaticity_monitor``. ``groups`` names the group, or the list
-of groups taken together, that plays each part (``bpm``, ``hcor``, ``vcor``,
-``quad``, ``sext``) and
-``instruments`` the channel each instrument is read or stepped on (``tune``,
-``rf``). Each kind needs its own members and step keys, and the build stops
+``crm``, ``chromaticity_monitor`` and ``trajectory``. ``groups`` names the
+group, or the list of groups taken together, that plays each part (``bpm``,
+``hcor``, ``vcor``, ``quad``, ``sext``) and ``instruments`` the channel each
+instrument is read, stepped or fired on (``tune``, ``rf``,
+``injection_request``, ``injection_busy``, and the optional
+``bunch_clean_enable``, ``beam_current`` and ``rf_status``). Each kind needs
+its own members and step keys, and the build stops
 when the file allows a kind without them, names a member its model does
 not wire, or names a ``tune`` reading of one plane that no single reading of
 the other plane pairs with:
@@ -510,10 +527,88 @@ the other plane pairs with:
      - ``tune``, ``rf``
      - ``n_step``, ``n_avg_meas``, ``fit_order``, ``sleep_between_step``,
        ``sleep_between_meas``
+   * - ``trajectory``
+     - ``bpm``, ``hcor``, ``vcor``, ``injection_request``,
+       ``injection_busy``; optionally ``bunch_clean_enable``,
+       ``beam_current``, ``rf_status``
+     - ``corrector_delta``, ``alpha``, ``n_discard``, ``gain``
 
-A model solved in a single pass allows ``orm`` alone. A group plays one role;
-only ``hcor`` and ``vcor`` may name the same group. A role naming several
-groups is one pyAML array named after the role. The tools
+A model solved in a single pass allows ``orm`` and ``trajectory`` alone.
+
+``trajectory`` is the first-turn measurement: it arms the monitors'
+turn-by-turn acquisition, requests one injected shot and reads where the beam
+went. The model must wire ``injection_request``; ``injection_busy`` must be a
+channel of the facility, and so must each optional instrument it names. A
+periodic model that allows it states where its shots start, in the
+``injection`` block of its ``settings.pyat``. Every device of the ``bpm``
+group carries a turn-by-turn ``x``, ``y`` and ``sum`` record, an arm command
+and an armed reading, under the signals named in
+:ref:`architecture-facility-schema`, and no other device of the model carries
+a turn-by-turn record.
+
+The ``trajectory`` block
+------------------------
+
+A model that allows ``trajectory`` declares its trajectory surface once, in
+the measurement file's ``trajectory`` block. The virtual accelerator and any
+consumer of the trajectory kind read it and nothing else:
+
+.. code-block:: yaml
+
+   trajectory:
+     trigger_sample: 10
+     settings:
+     - id: bpm_mode
+       label: BPM mode
+       description: Operating mode of each BPM's electronics.
+       scope: device
+       signal: bpm_mode_setpoint
+       timeout_s: 5.0
+     - id: turns_tracked
+       label: Turns tracked
+       description: Turns after the trigger sample every BPM records beam on.
+       scope: global
+       address: SR:DIAG:TBT:TURNS:SP
+       timeout_s: 5.0
+     steps:
+     - {id: arm, label: Arm, description: Arms every BPM., default: true}
+     - {id: inject, label: Inject, description: Fires one shot., default: true}
+     - id: clean
+       label: Bunch cleaning
+       description: Clears the charge the shot left stored.
+       default: true
+       command: {address: SR:DIAG:CLEANING:REQUEST, value: 1, timeout_s: 5.0}
+     - {id: readout, label: Readout, description: Reads the buffers., default: true}
+
+``trigger_sample``
+   The sample of every turn-by-turn buffer the injected shot arrives at.
+   Required.
+
+``settings``
+   The operator settings, in the order they are shown and applied. Each has
+   an ``id``, a ``label``, an optional ``description``, a ``scope`` and a
+   ``timeout_s`` to settle in. A ``device`` setting names the ``signal`` of
+   its setpoint channel on each device of ``groups.bpm``; a ``global`` one
+   names its one ``address``. The readback, the settle tolerance and the
+   values a setting takes are its setpoint channel's ``pair``, ``tolerance``
+   and domain. A setting with id ``turns_tracked`` is the turns every BPM
+   records.
+
+``steps``
+   The chain one shot runs, in order. ``arm``, ``inject`` and ``readout`` are
+   run by the service and take no ``command``; every other step writes its
+   ``command`` --- an ``address``, a ``value`` and a ``timeout_s``, with an
+   optional ``done`` reading to wait for. ``default`` marks the steps a run
+   takes when none are chosen, which is the chain the agent runs. A chain
+   without ``arm``, ``inject`` and ``readout`` stops the service at start.
+
+The devices are not listed: they are the members of ``groups.bpm``, each
+read through the turn-by-turn, arm and armed signals it carries. The RF-on
+and stored-current readings are the ``rf_status`` and ``beam_current``
+instruments.
+
+A group plays one role; only ``hcor`` and ``vcor`` may name the same group. A
+role naming several groups is one pyAML array named after the role. The tools
 that run these measurements are in :doc:`measure-with-pyaml`.
 
 Scenarios

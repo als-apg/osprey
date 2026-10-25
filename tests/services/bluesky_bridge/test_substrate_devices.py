@@ -47,8 +47,12 @@ from tests._facility_file import write_demo_facility_file
 
 #: What the shipped demo tree holds, pinned alongside
 #: ``tests/channel_roster/test_facade.py``.
-DEMO_WRITES = 522
-DEMO_READS = 2816
+DEMO_WRITES = 814
+DEMO_READS = 3324
+#: The settables that are write-only commands, pairing with no readback: a
+#: turn-by-turn arm per ring BPM and the ring's injection and bunch-cleaning
+#: requests.
+DEMO_COMMANDS = 74
 
 _SOURCE = RosterSource(
     kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
@@ -311,7 +315,7 @@ class TestTheShippedDemoRoster:
         return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """522 settables / 2816 readables: every channel the demo tree holds."""
+        """814 settables / 3324 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)
@@ -324,11 +328,15 @@ class TestTheShippedDemoRoster:
 
         document = devices_document(result.records)
 
-        assert all("readback" in entry for entry in document["settables"])
+        paired = [entry for entry in document["settables"] if "readback" in entry]
+        commands = [entry["setpoint"] for entry in document["settables"] if "readback" not in entry]
+        assert all(entry["readback"] == entry["setpoint"][: -len("SP")] + "RB" for entry in paired)
+        assert len(commands) == DEMO_COMMANDS
         assert all(
-            entry["readback"] == entry["setpoint"][: -len("SP")] + "RB"
-            for entry in document["settables"]
-        )
+            address.endswith(":TBT:ARM")
+            or address in {"SR:DIAG:INJECTION:REQUEST", "SR:DIAG:CLEANING:REQUEST"}
+            for address in commands
+        ), commands[:10]
 
 
 class TestWriteDevicesFile:

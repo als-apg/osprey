@@ -21,6 +21,7 @@ from osprey.mcp_server.errors import (
 )
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelNotArchivedError,
     ChannelNotFoundError,
     ChannelWriteBlockedError,
 )
@@ -119,6 +120,7 @@ TYPED_CAUSES: tuple[type[BaseException], ...] = (
     ChildUnresponsiveError,
     TimeoutError,
     ChannelNotFoundError,
+    ChannelNotArchivedError,
 )
 
 
@@ -308,6 +310,16 @@ async def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> 
         )
     if isinstance(exc, ChannelNotFoundError):
         return _not_a_channel(tool_name, exc.channel_address, connector_name)
+    if isinstance(exc, ChannelNotArchivedError):
+        return (
+            "not_archived",
+            f"No archived history during {tool_name}: {exc}",
+            [
+                "Nothing was read from the archive for this channel.",
+                "Read it live after a shot instead of from the archiver.",
+            ],
+            {"channel": exc.channel_address},
+        )
     if isinstance(exc, ChannelLimitsViolationError):
         violation = {
             "channel": exc.channel_address,
