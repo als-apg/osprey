@@ -562,6 +562,15 @@ def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
         time.sleep(0.02)
 
 
+def _wait_for_line(path: Path, line: str, timeout: float = 30.0) -> None:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while line not in path.read_text().splitlines():
+        assert time.monotonic() < deadline, f"{path} never held {line!r}"
+        time.sleep(0.02)
+
+
 @pytest.mark.real_bounded_run
 class TestBoundedRun:
     def test_a_run_inside_its_limit_returns_like_any_other(self, tmp_path):
@@ -582,8 +591,21 @@ class TestBoundedRun:
     def test_past_its_limit_the_child_and_its_grandchild_are_stopped(self, tmp_path):
         pid_file = tmp_path / "grandchild.pid"
 
+        def started(_elapsed, spool):
+            # The runner judges the limit only after the watch returns, so holding the first
+            # watch until the child has said 'started' makes the stop act on a running group
+            # however slowly the child's interpreter came up.
+            _wait_for_line(spool, "started")
+
         with pytest.raises(CapturedProcessTimeout) as excinfo:
-            run_captured(_spawner(pid_file), spool_name="bounded", repo_root=tmp_path, timeout=1.5)
+            run_captured(
+                _spawner(pid_file),
+                spool_name="bounded",
+                repo_root=tmp_path,
+                timeout=1.5,
+                watch=started,
+                watch_interval=0.05,
+            )
 
         assert excinfo.value.timeout == 1.5
         assert excinfo.value.returncode is None
