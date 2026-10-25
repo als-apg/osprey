@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from click.testing import CliRunner
@@ -148,7 +148,7 @@ def test_a_facility_stop_ends_the_build_before_the_venv(
     """The one build here without ``--skip-deps``: the venv step is a spy that must not run."""
     from osprey.cli import build_cmd
 
-    def venv_spy(*args: Any, **kwargs: Any) -> list[str]:
+    def venv_spy(*args: Any, **kwargs: Any) -> NoReturn:
         raise AssertionError("the project venv was created before the facility stop")
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", venv_spy)
