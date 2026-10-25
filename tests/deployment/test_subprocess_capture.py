@@ -537,6 +537,16 @@ def _assert_gone(pid: int) -> None:
     assert not _alive(pid), "the grandchild outlived the stopped run"
 
 
+def _assert_written(path: Path) -> None:
+    """Probe for :func:`wait_until_ready`: raise while ``path`` is missing or empty."""
+    assert path.exists() and path.read_text(), f"{path} not written yet"
+
+
+def _assert_line(path: Path, line: str) -> None:
+    """Probe for :func:`wait_until_ready`: raise while ``path`` does not hold ``line``."""
+    assert line in path.read_text().splitlines(), f"{path} does not hold {line!r} yet"
+
+
 def _spawner(pid_file: Path) -> list[str]:
     """Argv for a child that starts a long-lived grandchild and records its pid.
 
@@ -551,24 +561,6 @@ def _spawner(pid_file: Path) -> list[str]:
         "time.sleep(60)\n"
     )
     return [sys.executable, "-c", body]
-
-
-def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
-    import time
-
-    deadline = time.monotonic() + timeout
-    while not (path.exists() and path.read_text()):
-        assert time.monotonic() < deadline, f"{path} never written"
-        time.sleep(0.02)
-
-
-def _wait_for_line(path: Path, line: str, timeout: float = 30.0) -> None:
-    import time
-
-    deadline = time.monotonic() + timeout
-    while line not in path.read_text().splitlines():
-        assert time.monotonic() < deadline, f"{path} never held {line!r}"
-        time.sleep(0.02)
 
 
 @pytest.mark.real_bounded_run
@@ -595,7 +587,12 @@ class TestBoundedRun:
             # The runner judges the limit only after the watch returns, so holding the first
             # watch until the child has said 'started' makes the stop act on a running group
             # however slowly the child's interpreter came up.
-            _wait_for_line(spool, "started")
+            wait_until_ready(
+                lambda: _assert_line(spool, "started"),
+                "the child's 'started' line",
+                timeout=30.0,
+                interval=0.02,
+            )
 
         with pytest.raises(CapturedProcessTimeout) as excinfo:
             run_captured(
@@ -624,7 +621,12 @@ class TestBoundedRun:
         pid_file = tmp_path / "grandchild.pid"
 
         def watch(_elapsed, _spool):
-            _wait_for_file(pid_file)
+            wait_until_ready(
+                lambda: _assert_written(pid_file),
+                "the grandchild's pid file",
+                timeout=10.0,
+                interval=0.02,
+            )
             raise KeyboardInterrupt
 
         with pytest.raises(KeyboardInterrupt):
