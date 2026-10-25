@@ -131,6 +131,8 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     between the file and the exporter is the rendered configuration.
     """
     import time
+    import uuid
+    from datetime import UTC, datetime
 
     from osprey.audit.envelope import AuditEnvelope
     from osprey.audit.writer import _encode
@@ -140,9 +142,12 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     for name in ("alice", "queueserver"):
         (audit / name).mkdir(parents=True)
 
+    # Inside the store's retention, so filter/clamp keeps every timed line.
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     def envelope(**fields: object) -> bytes:
         base = {
-            "ts": "2026-10-11T10:00:00Z",
+            "ts": now,
             "surface": "approval",
             "actor": "alice",
             "posture": "writes",
@@ -160,7 +165,9 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
         envelope(surface="executor", on_behalf_of="bob", tool_use_id="toolu_1", source="x")
         + envelope(ts="garbage", surface="channel-finder")
         + b"not json\n"
-        + b'{"ts":"2026-10-11T10:00:02Z","surface":"approval","actor":"al\n'
+        + b'{"ts":"'
+        + now.encode()
+        + b'","surface":"approval","actor":"al\n'
         + envelope(detail="d" * 4000).replace(b'"approval"', b'"over"').rstrip(b"}\n")
         + b"y" * cap
         + b"}\n"
@@ -191,13 +198,22 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     }
     config_file = tmp_path / "config.yaml"
     config_file.write_text(yaml.safe_dump(rendered, sort_keys=False, width=1 << 16))
-    name = f"osprey-ledger-chain-{tmp_path.name[-12:]}".lower()
+    # Each line written above, by the marker its exported record carries.
+    expected = {
+        "executor": '"surface":"executor"',
+        "unparsed time": '"ts":"garbage"',
+        "not json": "Body: Str(not json)",
+        "torn line": '"actor":"al)',
+        "over the size cap": '"surface":"over"',
+        "preflight": '"surface":"preflight"',
+        "queue": '"surface":"queue"',
+    }
+    name = f"osprey-ledger-chain-{uuid.uuid4().hex[:12]}"
     subprocess.run(
         [
             "docker",
             "run",
             "-d",
-            "--rm",
             "--name",
             name,
             "-v",
@@ -211,20 +227,31 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
         capture_output=True,
         timeout=120,
     )
+
+    def collector_log() -> str:
+        return subprocess.run(
+            ["docker", "logs", name], capture_output=True, text=True, timeout=60
+        ).stderr
+
     try:
-        logs = ""
-        for _ in range(60):
-            time.sleep(1)
-            logs = subprocess.run(
-                ["docker", "logs", name], capture_output=True, text=True, timeout=60
-            ).stderr
-            if logs.count("LogRecord #") >= 7:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            logs = collector_log()
+            if all(marker in logs for marker in expected.values()):
                 break
+            time.sleep(0.5)
+        # A record is printed in several writes; only a finished shutdown says
+        # every record the collector exported is in its log, whole.
+        subprocess.run(["docker", "stop", name], capture_output=True, timeout=120, check=True)
+        logs = collector_log()
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
 
+    assert "Shutdown complete." in logs, logs[-4000:]
     records = logs.split("LogRecord #")[1:]
-    assert len(records) == 7, logs[-4000:]
+    missing = [line for line, marker in expected.items() if not any(marker in r for r in records)]
+    assert not missing, f"no record exported for: {missing}\n{logs[-4000:]}"
+    assert len(records) == len(expected), logs[-4000:]
 
     def record(marker: str) -> str:
         (found,) = [r for r in records if marker in r]
