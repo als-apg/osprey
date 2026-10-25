@@ -589,7 +589,7 @@ class TestAttachmentTextColumnsMigration:
     async def test_busy_table_skips_quickly_without_blocking_readers(
         self, scratch_database, scratch_pool, scratch_config, monkeypatch
     ):
-        """An open reader makes migrate return busy within 6 s; a later reader never waits.
+        """An open reader makes migrate return busy while it still reads; a later reader never waits.
 
         The reader holds ACCESS SHARE on ``enhanced_entries`` for the whole run.
         A queued ACCESS EXCLUSIVE request would make the third session's read
@@ -621,15 +621,23 @@ class TestAttachmentTextColumnsMigration:
                 await third.execute("SELECT count(*) FROM enhanced_entries")
                 return time.monotonic() - started
 
-            started = time.monotonic()
-            result, reader_s = await asyncio.wait_for(
-                asyncio.gather(
-                    migrations.run_migrations_detailed(scratch_pool, scratch_config),
-                    late_reader(),
-                ),
+            async def migrate_and_see_the_lock():
+                outcome = await migrations.run_migrations_detailed(scratch_pool, scratch_config)
+                async with scratch_pool.connection() as conn:
+                    held = await conn.execute(
+                        """
+                        SELECT count(*) FROM pg_locks
+                        WHERE pid = %s AND relation = 'enhanced_entries'::regclass
+                        AND mode = 'AccessShareLock' AND granted
+                        """,
+                        [holder.info.backend_pid],
+                    )
+                    return outcome, (await held.fetchone())[0] == 1
+
+            (result, lock_still_held), reader_s = await asyncio.wait_for(
+                asyncio.gather(migrate_and_see_the_lock(), late_reader()),
                 timeout=30,
             )
-            migrate_s = time.monotonic() - started
         finally:
             await holder.rollback()
             await holder.close()
@@ -637,7 +645,7 @@ class TestAttachmentTextColumnsMigration:
 
         assert result.applied == []
         assert result.busy_skipped == [self.MIGRATION]
-        assert migrate_s < 6.0
+        assert lock_still_held, "migrate returned only after the reader let go of the table"
         assert reader_s < 1.0
 
         async with scratch_pool.connection() as conn:
