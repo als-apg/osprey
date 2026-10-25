@@ -723,7 +723,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
                 f"{panel['title']} / {series['label']}: {len(series['points'])} points, "
                 f"expected {NUM_POINTS} -- on a {expected_rows}-row run this is the figure "
                 "having been computed over a window of the rows rather than all of them, or "
-                "a point whose corrector current was never recorded (a sample with no x is "
+                "a point whose corrector setpoint was never recorded (a sample with no x is "
                 "dropped from the trace)"
             )
 
@@ -762,7 +762,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     status, windowed = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {windowed}"
     assert windowed["row_count"] == expected_rows, (
-        f"expected {expected_rows} rows (one per (corrector, current) point), "
+        f"expected {expected_rows} rows (one per (corrector, setpoint) point), "
         f"got {windowed['row_count']}: {windowed}"
     )
     assert windowed["truncated"] is True, (

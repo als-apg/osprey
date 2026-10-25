@@ -11,7 +11,7 @@ ophyd-async devices (`devices/mock.py`) — no EPICS, no container, and via
 `bluesky_plan_drive.run_plan`, which wraps the plan exactly as the queueserver
 worker's namespace does. Proves the
 generator built there actually runs to completion and the live-row buffer
-ends up with one row per (corrector, current) pair, every BPM column
+ends up with one row per (corrector, setpoint) pair, every BPM column
 present, and no hang.
 """
 
@@ -86,7 +86,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
     assert buf is not None
     assert buf["partial"] is False
 
-    # 2 correctors x 5 points each = one event (one row) per (corrector, current).
+    # 2 correctors x 5 points each = one event (one row) per (corrector, setpoint).
     assert buf["total_seen"] == 10
     assert len(buf["rows"]) == 10
 

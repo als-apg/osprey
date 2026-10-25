@@ -50,9 +50,9 @@ def _emit_rows(
 ) -> list[dict[str, float]]:
     """Rows an `orm` run emits for a machine whose response is *truth*.
 
-    Mirrors the real plan's document shape: one row per (corrector, current)
+    Mirrors the real plan's document shape: one row per (corrector, setpoint)
     point, in corrector-major emission order, every row carrying EVERY
-    corrector's current (idle ones read back 0.0) alongside every readback.
+    corrector's setpoint (idle ones read back 0.0) alongside every readback.
     *offsets* gives each readback a nonzero intercept so a fit that ignored
     the intercept would visibly fail.
 
