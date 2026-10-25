@@ -21,12 +21,14 @@ that mapping and what feeds it:
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
 
 from osprey.audit import posture
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -63,35 +65,34 @@ def write_record(root, posture_field=None, *, target: str = "live", switch=None)
     """The control-context record, ownerless, with the caches these tests read dropped.
 
     *switch* is ``{target: "on"}`` for the machines switched on; ``None`` keeps
-    whatever switch is already on disk (none on a fresh root).
+    whatever switch is already on disk (none on a fresh root). *posture_field*
+    is an old narrowing laid over the mirror verbatim, as a file written before
+    the mirror would carry it.
     """
-    path = write_control_context(
-        root,
-        target=target,
-        generation=0,
-        posture=posture_field or {},
-        owned_by=None,
-        switch=switch,
-    )
+    path = write_control_context(root, target=target, generation=0, owned_by=None, switch=switch)
+    if posture_field is not None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["posture"] = dict(posture_field)
+        path.write_text(json.dumps(payload), encoding="utf-8")
     reset_verdict_state()
     return path
 
 
-def rewrite_record(root, posture_field, *, target: str = "live"):
-    """Replace the record the way its owner does, and touch NO cache.
+def rewrite_record(root, switch, *, target: str = "live"):
+    """Replace the record with *switch*, atomically, and touch NO cache.
 
     The parse is keyed on ``(mtime_ns, size, inode)`` and the writer REPLACES
-    the file, so a reader nobody told still sees the rewrite. The switch on disk
-    is kept, as the production writer keeps it.
+    the file, so a reader nobody told still sees the rewrite. The epoch on
+    disk is kept, as the production writer keeps it.
     """
+    path = control_context.record_path_under(root)
+    epoch = json.loads(path.read_text(encoding="utf-8"))["switch_epoch"]
     record = control_context.ControlContext(
-        target=target,
-        generation=0,
-        owner=None,
-        posture=dict(posture_field),
-        last_switch=None,
+        target=target, generation=0, switch=dict(switch), switch_epoch=epoch
     )
-    return control_context.write_record(record, path=control_context.record_path_under(root))
+    payload = json.dumps(record.to_payload(), indent=2).encode("utf-8")
+    atomic_replace(path, payload, mode=0o600, sync="best_effort")
+    return path
 
 
 def in_session(monkeypatch, key: str = SESSION_KEY) -> None:
@@ -158,12 +159,12 @@ class TestVerdictMapsToTheWireValues:
         assert posture.verdict().reason == "switch_off"
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_a_sandbox_narrowing_refuses_under_a_switch_that_is_on(self, agent_root):
-        """The interim reading of the old chip: a ``sandbox`` entry is off."""
+    def test_an_old_sandbox_narrowing_does_not_refuse_under_a_switch_that_is_on(self, agent_root):
+        """The interim reading is retired: an old ``sandbox`` entry is inert."""
         switched_on(agent_root, posture_field={"live": "sandbox"})
 
-        assert posture.verdict().reason == "switch_off"
-        assert posture.posture() == posture.POSTURE_SANDBOX
+        assert posture.verdict().allowed
+        assert posture.posture() == posture.POSTURE_WRITES
 
 
 class TestAnUnreadableConfigIsTierNever:
@@ -361,24 +362,28 @@ class TestSignatureCache:
         switched_on(agent_root)
         assert posture.posture() == posture.POSTURE_WRITES
 
-        rewrite_record(agent_root, {"live": "sandbox"})
-
-        assert posture.posture() == posture.POSTURE_SANDBOX
-
-    def test_lifting_it_is_seen_too(self, agent_root):
-        switched_on(agent_root, posture_field={"live": "sandbox"})
-        assert posture.posture() == posture.POSTURE_SANDBOX
-
         rewrite_record(agent_root, {})
+
+        assert posture.posture() == posture.POSTURE_SANDBOX
+
+    def test_turning_it_on_is_seen_too(self, agent_root):
+        write_record(agent_root, switch={})
+        assert posture.posture() == posture.POSTURE_SANDBOX
+
+        rewrite_record(agent_root, {"live": "on"})
 
         assert posture.posture() == posture.POSTURE_WRITES
 
     def test_a_same_size_rewrite_inside_one_clock_tick_is_still_seen(self, agent_root):
-        """``{"live": "sandbox"}`` and ``{"va": "sandbox"}`` are the same size."""
-        switched_on(agent_root, posture_field={"live": "sandbox"})
+        """``{"va": "on"}`` and ``{"live": "on"}`` give records of the same size."""
+        write_record(agent_root, switch={"va": "on"})
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-        rewrite_record(agent_root, {"va": "sandbox"})
+        rewrite_record(agent_root, {"va": "on"})  # prime the size of the rewrite
+        size = control_context.record_path_under(agent_root).stat().st_size
+        assert posture.posture() == posture.POSTURE_SANDBOX
+        rewrite_record(agent_root, {"live": "on"})
+        assert control_context.record_path_under(agent_root).stat().st_size == size
 
         assert posture.posture() == posture.POSTURE_WRITES
 

@@ -1,10 +1,10 @@
 """The run-level pin: a widen never reaches a run that started narrow.
 
-The per-target narrowing in the control-context record is read at WRITE time,
-which is what lets an operator narrow a target while a session is already
-mid-conversation. That direction is the point of the feature. The other
+The per-target switch in the control-context record is read at WRITE time,
+which is what lets an operator turn a target's writes off while a session is
+already mid-conversation. That direction is the point of the feature. The other
 direction is a hazard: a script is already running inside the sandbox, and
-widening the record under it
+turning the switch on under it
 would hand it write access to a machine nobody re-consented to while it works.
 
 So the executor pins what it launched under. ``OSPREY_LAUNCH_POSTURE`` is
@@ -66,9 +66,9 @@ def data_root(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
 
-def write_store(root: Path, posture) -> None:
-    """Write the narrowings both the gate and the sandbox read."""
-    write_control_context(root, posture=posture)
+def write_store(root: Path, switched_on: set[str]) -> None:
+    """Write the switch both the gate and the sandbox read: *switched_on* on, the rest off."""
+    write_control_context(root, switch=dict.fromkeys(sorted(switched_on), "on"))
     posture_store.invalidate_cache()
 
 
@@ -126,9 +126,8 @@ class TestLaunchPinAnddedWithTheStore:
         """The whole point: the operator widened, the running script did not follow."""
         # Arrange — the run launched while standin was narrowed...
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        # ...and the operator has since turned writes back on (an entry that
-        # is gone IS the writes posture — nothing is ever stored to widen).
-        write_store(data_root, {"live": "sandbox"})
+        # ...and the operator has since turned its writes on.
+        write_store(data_root, {"standin"})
 
         # Act / Assert
         assert posture_store.store_permits("standin") is False
@@ -138,7 +137,7 @@ class TestLaunchPinAnddedWithTheStore:
         """The other direction lands at once — the store read follows the operator."""
         # Arrange
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=writes")
-        write_store(data_root, {"standin": "sandbox"})
+        write_store(data_root, set())
 
         # Act / Assert
         assert posture_store.store_permits("standin") is False
@@ -150,7 +149,7 @@ class TestLaunchPinAnddedWithTheStore:
         """The pin refuses; it never grants, and it never refuses on its own."""
         # Arrange
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=writes")
-        write_store(data_root, {"live": "sandbox"})
+        write_store(data_root, {"standin"})
 
         # Act / Assert
         assert posture_store.store_permits("standin") is True
@@ -160,7 +159,7 @@ class TestLaunchPinAnddedWithTheStore:
         """A narrowed stand-in does not sandbox the virtual accelerator."""
         # Arrange
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        write_store(data_root, {})
+        write_store(data_root, {"va", "standin"})
 
         # Act / Assert
         assert posture_store.store_permits("va") is True
@@ -170,7 +169,7 @@ class TestLaunchPinAnddedWithTheStore:
         """The unknowable-target launch: most restrictive, on every machine."""
         # Arrange
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
-        write_store(data_root, {})
+        write_store(data_root, set(posture_store.CONTROL_TARGETS))
 
         # Act / Assert
         for target in posture_store.CONTROL_TARGETS:
@@ -180,14 +179,14 @@ class TestLaunchPinAnddedWithTheStore:
     def test_the_pin_holds_without_a_session_key(self, data_root, monkeypatch):
         """It is a fact about the RUN, not about the session.
 
-        The record narrows nothing here, so the pin is the only term left — and
+        The record switches both machines on, so the pin is the only term left — and
         a session key that vanished from the environment mid-run must not be a
         way to shed it.
         """
         # Arrange
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
         monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        write_store(data_root, {})
+        write_store(data_root, {"va", "standin"})
 
         # Act / Assert
         assert posture_store.store_permits("standin") is False
@@ -196,7 +195,7 @@ class TestLaunchPinAnddedWithTheStore:
     def test_no_stamp_leaves_the_store_rule_exactly_as_it_was(self, data_root):
         """Every process outside a sandbox: the term is not merely inert, it is absent."""
         # Arrange
-        write_store(data_root, {"standin": "sandbox"})
+        write_store(data_root, {"va"})
 
         # Act / Assert
         assert posture_store.launch_permits("standin") is True

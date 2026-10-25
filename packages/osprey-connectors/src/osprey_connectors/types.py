@@ -52,7 +52,9 @@ nothing. Such a posture answers neither leaf, and a caller that must act blocks
 every write instead of waving them through unchecked.
 """
 
+import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -112,6 +114,7 @@ __all__ = [
     "is_simulated",
     "machine_kind",
     "most_restrictive_limits_posture",
+    "published_machine_kind",
     "resolve_archiver_settings",
     "resolve_archiver_type",
     "resolve_control_system_type",
@@ -1030,28 +1033,122 @@ def tier_allows(section: Any) -> bool:
     return tier_writes(section) == _TIER_ALLOWED
 
 
-#: What kind of machine each control target names, for the words a refusal
-#: uses about it.
+#: What kind of machine each control target names by its name alone, for the
+#: words a refusal uses about it. ``standin`` is ``real`` here: a name cannot
+#: tell this deployment's stand-in container from a ``standin`` target pointed at
+#: anything else, so only the published report (:func:`published_machine_kind`)
+#: may call it the rehearsal machine.
 _MACHINE_KINDS: dict[str, Literal["real", "rehearsal", "simulator"]] = {
     TARGET_LIVE: "real",
-    TARGET_STANDIN: "rehearsal",
+    TARGET_STANDIN: "real",
     TARGET_VA: "simulator",
 }
 
+#: The kind a published report may claim for ``standin``. Anything else it says
+#: about that target, or nothing at all, reads as the real machine.
+_REHEARSAL: Literal["rehearsal"] = "rehearsal"
+
+#: The report key the controls server publishes each target's kind under.
+_MACHINE_KIND_KEY = "machine_kind"
+
 
 def machine_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
-    """The kind of machine *target* names here: ``real``, ``rehearsal`` or ``simulator``.
+    """The kind of machine *target* names by its name: ``real`` or ``simulator``.
 
-    ``live`` is the real machine, ``standin`` the rehearsal one, ``va`` the
-    simulator. ``None`` when :func:`resolve_target` cannot resolve the target in
-    this deployment — an unknown target, or ``live`` on a deployment that never
-    named its real machine. Never raises.
+    ``live`` and ``standin`` are the real machine, ``va`` the simulator. The
+    name never answers ``rehearsal``: whether a ``standin`` target really is
+    this deployment's stand-in is an endpoint fact only the controls server's
+    report states, read by :func:`published_machine_kind`. ``None`` when
+    :func:`resolve_target` cannot resolve the target in this deployment — an
+    unknown target, or ``live`` on a deployment that never named its real
+    machine. Never raises.
     """
     try:
         resolve_target(section, target)
     except ValueError:
         return None
     return _MACHINE_KINDS.get(target)
+
+
+def _published_targets(directory: Any) -> dict[str, Any]:
+    """Per-target metadata from the first live controls server's report, or ``{}``.
+
+    The hook twin's ``_published_targets`` restated: report files in name order,
+    the PID taken from the file name, a dead server's report skipped (never
+    deleted), and the first live report carrying a non-empty ``targets``
+    mapping is the answer. Never raises.
+    """
+    # Imported here: control_context imports this module.
+    from osprey_connectors import control_context
+
+    prefix = control_context.REPORT_FILE_PREFIX
+    suffix = control_context.REPORT_FILE_SUFFIX
+    try:
+        names = sorted(
+            n for n in os.listdir(directory) if n.startswith(prefix) and n.endswith(suffix)
+        )
+    except (OSError, TypeError, ValueError):
+        return {}
+    for name in names:
+        try:
+            pid = int(name[len(prefix) : -len(suffix)])
+        except ValueError:
+            continue
+        if not control_context.is_process_alive(pid):
+            continue
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8") as handle:
+                report = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(report, dict):
+            continue
+        targets = report.get("targets")
+        if isinstance(targets, dict) and targets:
+            return targets
+    return {}
+
+
+def published_machine_kind(
+    target: Any, *, state_dir: Any = None
+) -> Literal["real", "rehearsal", "simulator"]:
+    """The kind of machine *target* is, as this deployment's controls server publishes it.
+
+    The one source every surface reads (C-KIND). ``standin`` is ``rehearsal``
+    only when the first live server's report — in the hook twin's order, dead
+    servers' reports ignored — says so for it; no live report, no key, or any
+    other value reads ``real``, the cautious words. So a process that sees no
+    report (an executor sandbox, a bluesky or dispatch container, a deployment
+    with no server running) names a ``standin`` the real machine. Every other
+    target answers from the name table: ``va`` is the simulator, ``live`` and
+    anything unknown the real machine — a report can never make them a
+    rehearsal.
+
+    Args:
+        target: The control target.
+        state_dir: The directory holding the servers' reports; ``None`` reads
+            :func:`osprey_connectors.posture_store.state_dir`.
+
+    Returns:
+        ``real``, ``rehearsal`` or ``simulator``. Never raises.
+    """
+    if target != TARGET_STANDIN:
+        return _MACHINE_KINDS.get(target, "real") if isinstance(target, str) else "real"
+    try:
+        if state_dir is None:
+            # Imported here: posture_store imports this module.
+            from osprey_connectors import posture_store
+
+            state_dir = posture_store.state_dir()
+        if state_dir is None:
+            return "real"
+        meta = _published_targets(os.fspath(state_dir)).get(TARGET_STANDIN)
+    except Exception:  # the kind is a word an operator reads; it must not raise
+        logger.debug("Could not read the published machine kind", exc_info=True)
+        return "real"
+    if isinstance(meta, dict) and meta.get(_MACHINE_KIND_KEY) == _REHEARSAL:
+        return _REHEARSAL
+    return "real"
 
 
 # -- Limits posture --

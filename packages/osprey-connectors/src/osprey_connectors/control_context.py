@@ -39,10 +39,13 @@ on safely:
   owner that does not name one of :data:`OWNER_KINDS` and a live PID is not
   an owner anybody should defer to, so reading it as ownerless is what lets
   the next process take the file over instead of stalling behind a ghost.
-* ``posture`` → ``{}``, no narrowings, the deployment ceiling in charge. It
-  is one entry in the posture store's grammar (rule 2 there): a per-target
-  map of which only ``sandbox`` leaves survive, or the bare string
-  ``sandbox`` covering every target. Nothing here can widen anything.
+* ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
+  an input: :meth:`ControlContext.to_payload` writes ``sandbox`` for every
+  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose switch is
+  not ``"on"`` (:func:`posture_mirror`), whatever the record it was built
+  from carried, and no write decision reads it back. A file written before
+  the mirror may still hold an old narrowing; it is parsed by the posture
+  store's grammar (rule 2 there) and ignored by the verdict.
 * ``last_switch`` → ``None``. It is the terminus of the last switch request
   — applied or refused — and it is carried verbatim. This module owns the
   block's shape, because a requester polls it for its own ``request_id``
@@ -173,6 +176,7 @@ __all__ = [
     "live_reports",
     "owned_here",
     "parse_posture",
+    "posture_mirror",
     "converged",
     "file_signature",
     "parse_record",
@@ -310,8 +314,11 @@ class ControlContext:
             by nobody else; a reader pins its work to it.
         owner: The process allowed to write this file, or ``None`` when the
             record is ownerless and free to be claimed.
-        posture: Per-target narrowings, ``{target: "sandbox"}``. Only ever
-            refuses; the deployment ceiling is elsewhere.
+        posture: The ``posture`` field as read off disk — the mirror of
+            ``switch`` (:func:`posture_mirror`), or an old narrowing in a file
+            written before it. A reading only: :meth:`to_payload` ignores it
+            and derives the field from ``switch``, so nothing set here is
+            ever stored, and no write decision reads it.
         last_switch: The terminus of the last switch request, verbatim, or
             ``None`` when no request has reached one.
         switch: Which machines the person has switched writes on for,
@@ -335,18 +342,39 @@ class ControlContext:
 
         The seven contract fields and the schema, and nothing else: a payload
         round-trips through :func:`parse_record` unchanged, and a key some
-        future version added does not survive a rewrite by this one.
+        future version added does not survive a rewrite by this one. The
+        ``posture`` field is the mirror of ``switch`` (:func:`posture_mirror`),
+        never :attr:`posture`: a narrowing is not something a writer can store.
         """
         return {
             "schema": SCHEMA_VERSION,
             "owner": None if self.owner is None else self.owner.to_payload(),
             "target": self.target,
             "generation": self.generation,
-            "posture": dict(self.posture),
+            "posture": posture_mirror(self.switch),
             "last_switch": None if self.last_switch is None else dict(self.last_switch),
             "switch": dict(self.switch),
             "switch_epoch": self.switch_epoch,
         }
+
+
+def posture_mirror(switch: Mapping[str, str]) -> dict[str, str]:
+    """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
+
+    ``sandbox`` for every machine in
+    :data:`~osprey_connectors.types.CONTROL_TARGETS` whose switch is not
+    ``"on"``, so an old reader of the field refuses every machine the person
+    has not turned on. Derived on every write and never read by a write
+    decision: the switch is the state, this is its shadow in the old grammar.
+
+    Args:
+        switch: The record's switch, ``{target: "on"}``.
+    """
+    return {
+        target: posture_store.POSTURE_SANDBOX
+        for target in CONTROL_TARGETS
+        if switch.get(target) != _SWITCH_ON
+    }
 
 
 def claimed(record: ControlContext, baseline: str) -> ControlContext:
@@ -355,8 +383,7 @@ def claimed(record: ControlContext, baseline: str) -> ControlContext:
     A record nobody has switched follows the deployment's baseline; every
     applied switch mints ``generation + 1``, so generation 0 is a claim and
     never a switch. An unswitched record on another target moves to
-    *baseline* and keeps its generation, owner, posture narrowings (they only
-    ever refuse) and last switch terminus. A switched record, or one already
+    *baseline* and keeps its generation, owner and last switch terminus. A switched record, or one already
     on *baseline*, is returned as it is.
     """
     if record.generation != 0 or record.target == baseline:

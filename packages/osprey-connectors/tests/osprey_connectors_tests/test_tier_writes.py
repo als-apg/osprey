@@ -7,13 +7,18 @@ every other value is ``never``. When it is absent the older ``writes_enabled``
 leaves are rewritten into it: any literal ``True`` — flat or under any connector
 block — is ``allowed``. A section nobody can read is ``never``.
 
-``machine_kind`` names what a target points at, for the words a refusal uses:
-``live`` is the real machine, ``standin`` the rehearsal one, ``va`` the
-simulator, and a target that does not resolve has no kind.
+``machine_kind`` names what a target is by its name, for the words a refusal
+uses: ``live`` and ``standin`` are the real machine, ``va`` the simulator, and
+a target that does not resolve has no kind. Only ``published_machine_kind``,
+which reads the controls server's report (C-KIND), calls a stand-in the
+rehearsal machine.
 """
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,6 +33,7 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     WRITES_KEY,
     machine_kind,
+    published_machine_kind,
     target_writes_enabled,
     tier_allows,
     tier_writes,
@@ -183,7 +189,7 @@ def test_old_readers_are_untouched_by_the_new_key() -> None:
 
 @pytest.mark.parametrize(
     ("target", "kind"),
-    [(TARGET_LIVE, "real"), (TARGET_STANDIN, "rehearsal"), (TARGET_VA, "simulator")],
+    [(TARGET_LIVE, "real"), (TARGET_STANDIN, "real"), (TARGET_VA, "simulator")],
 )
 def test_machine_kind_per_target(target: str, kind: str) -> None:
     assert machine_kind(_section(), target) == kind
@@ -199,7 +205,7 @@ def test_machine_kind_of_live_with_no_real_machine_is_none() -> None:
     section = {"type": VIRTUAL_ACCELERATOR}
     assert machine_kind(section, TARGET_LIVE) is None
     assert machine_kind(section, TARGET_VA) == "simulator"
-    assert machine_kind(section, TARGET_STANDIN) == "rehearsal"
+    assert machine_kind(section, TARGET_STANDIN) == "real"
 
 
 def test_machine_kind_of_live_derived_from_the_connector_table_is_real() -> None:
@@ -213,3 +219,67 @@ def test_machine_kind_on_a_section_that_is_not_a_mapping_never_raises(section: A
     assert machine_kind(section, "nope") is None
     # live on an unreadable section either resolves or is None; it never raises.
     assert machine_kind(section, TARGET_LIVE) in ("real", None)
+
+
+# -- published_machine_kind -------------------------------------------------------
+
+_DEAD_PID = 2_147_483_646
+
+
+def _report(directory: Path, pid: int, targets: Any) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {"server_pid": pid, "targets": targets}
+    (directory / f"server_{pid}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_published_kind_of_a_live_standin_is_rehearsal(tmp_path: Path) -> None:
+    _report(tmp_path, os.getpid(), {"standin": {"machine_kind": "rehearsal"}})
+    assert published_machine_kind(TARGET_STANDIN, state_dir=tmp_path) == "rehearsal"
+
+
+@pytest.mark.parametrize(
+    "meta",
+    [{"machine_kind": "real"}, {}, {"machine_kind": "REHEARSAL"}, {"machine_kind": True}, "x"],
+)
+def test_published_kind_of_a_standin_not_vouched_for_is_real(tmp_path: Path, meta: Any) -> None:
+    _report(tmp_path, os.getpid(), {"standin": meta, "live": {"machine_kind": "real"}})
+    assert published_machine_kind(TARGET_STANDIN, state_dir=tmp_path) == "real"
+
+
+def test_published_kind_with_no_report_is_real(tmp_path: Path) -> None:
+    assert published_machine_kind(TARGET_STANDIN, state_dir=tmp_path) == "real"
+    assert published_machine_kind(TARGET_STANDIN, state_dir=tmp_path / "missing") == "real"
+
+
+def test_published_kind_ignores_a_dead_servers_report(tmp_path: Path) -> None:
+    _report(tmp_path, _DEAD_PID, {"standin": {"machine_kind": "rehearsal"}})
+    assert published_machine_kind(TARGET_STANDIN, state_dir=tmp_path) == "real"
+
+
+def test_published_kind_reads_the_first_live_report_with_targets(tmp_path: Path) -> None:
+    """Name order, a dead or target-less report skipped, the first live one wins."""
+    _report(tmp_path, 1, {})  # PID 1 is alive and states nothing: skipped
+    _report(tmp_path, _DEAD_PID, {"standin": {"machine_kind": "real"}})
+    (tmp_path / "server_2.json").write_text("{not json", encoding="utf-8")
+    _report(tmp_path, os.getpid(), {"standin": {"machine_kind": "rehearsal"}})
+    assert published_machine_kind(TARGET_STANDIN, state_dir=tmp_path) == "rehearsal"
+
+
+@pytest.mark.parametrize(
+    ("target", "kind"),
+    [(TARGET_LIVE, "real"), (TARGET_VA, "simulator"), ("nope", "real"), (None, "real")],
+)
+def test_published_kind_of_other_targets_is_the_name_table(
+    tmp_path: Path, target: Any, kind: str
+) -> None:
+    """A report can never make ``live`` (or anything but ``standin``) a rehearsal."""
+    _report(tmp_path, os.getpid(), {"live": {"machine_kind": "rehearsal"}})
+    assert published_machine_kind(target, state_dir=tmp_path) == kind
+
+
+def test_published_kind_reads_the_state_dir_by_default(tmp_path: Path, monkeypatch) -> None:
+    from osprey_connectors import posture_store
+
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path))
+    _report(tmp_path, os.getpid(), {"standin": {"machine_kind": "rehearsal"}})
+    assert published_machine_kind(TARGET_STANDIN) == "rehearsal"

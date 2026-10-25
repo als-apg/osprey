@@ -56,8 +56,9 @@ _MOD = "osprey.mcp_server.bluesky.tools.queue"
 _TOKEN = "genuinely-valid-token"
 
 #: A tier that allows writes. Baseline is ``live`` (``type: epics``); the lane
-#: declares whichever target a test needs: ``standin`` is a rehearsal machine
-#: here, ``va`` a simulator.
+#: declares whichever target a test needs, ``standin`` or ``va`` (a simulator).
+#: No controls server publishes a report here, so the verdict names ``standin``
+#: the real machine (C-KIND): a bluesky process never vouches for a stand-in.
 _ALLOWED_SECTION = {"type": "epics", "writes": "allowed"}
 
 #: The old-model section the bridge startup-guard cases at the end still read.
@@ -203,7 +204,7 @@ async def test_an_off_lane_target_refuses_queue_start_with_zero_http_calls(tmp_p
     _configure(tmp_path, monkeypatch, lane_target="standin")
     _switch(tmp_path)
 
-    await _start_refused("switch_off", "rehearsal")
+    await _start_refused("switch_off", "real")
 
 
 async def test_the_start_refusal_names_the_lane_and_target_in_details(tmp_path, monkeypatch):
@@ -229,7 +230,7 @@ async def test_an_off_lane_target_adds_unarmed_with_the_off_phrase(tmp_path, mon
     _configure(tmp_path, monkeypatch, lane_target="standin")
     _switch(tmp_path)
 
-    await _add_unarmed("switch_off", "rehearsal")
+    await _add_unarmed("switch_off", "real")
 
 
 async def test_the_withheld_token_hint_carries_the_off_phrase(tmp_path, monkeypatch):
@@ -248,7 +249,7 @@ async def test_the_withheld_token_hint_carries_the_off_phrase(tmp_path, monkeypa
 
     hints = [s for s in ctx["envelope"]["suggestions"] if "withheld the launch token" in s]
     assert len(hints) == 1
-    assert refusal_phrase("switch_off", "rehearsal") in hints[0]
+    assert refusal_phrase("switch_off", "real") in hints[0]
     assert "'bluesky'" in hints[0]
     assert not any(word in hints[0] for word in _BANNED)
 
@@ -280,7 +281,7 @@ async def test_a_switch_turned_off_reaches_the_next_start(tmp_path, monkeypatch)
             await _start_fn()()
 
     _switch(tmp_path)
-    await _start_refused("switch_off", "rehearsal")
+    await _start_refused("switch_off", "real")
 
 
 # =========================================================================
@@ -313,7 +314,7 @@ async def test_another_targets_switch_does_not_arm_this_lane(tmp_path, monkeypat
     _configure(tmp_path, monkeypatch, lane_target="standin")
     _switch(tmp_path, "va")
 
-    await _start_refused("switch_off", "rehearsal")
+    await _start_refused("switch_off", "real")
 
 
 # =========================================================================
@@ -437,7 +438,7 @@ async def test_withdrawing_a_halt_is_refused_while_the_halted_lanes_machine_is_o
             await _stop_fn()(cancel=True)
 
     mock_post.assert_not_called()
-    _assert_verdict_refusal(ctx["envelope"], "switch_off", "rehearsal")
+    _assert_verdict_refusal(ctx["envelope"], "switch_off", "real")
 
 
 async def test_withdrawing_a_halt_posts_while_the_halted_lanes_machine_is_on(tmp_path, monkeypatch):

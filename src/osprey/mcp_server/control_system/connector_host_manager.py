@@ -150,6 +150,7 @@ from osprey_connectors.types import (
 )
 from osprey_connectors.types import baseline_target as types_baseline_target
 from osprey_connectors.types import switch_capable as types_switch_capable
+from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
@@ -511,13 +512,14 @@ def target_display_metadata(
     it, so this is the only place the three targets get described.
 
     Each entry carries ``label``, ``display_name``, ``endpoint``,
-    ``selected_role``, ``real_machine`` and ``probe_channel`` — the
+    ``selected_role``, ``real_machine``, ``probe_channel`` and ``machine_kind``
+    (``real``/``rehearsal``/``simulator``, see :func:`_machine_kind`) — the
     destination's probe channel travels with the metadata so a describer can
     name it without opening ``config.yml``.
 
     Identity and posture are derived separately, and only the endpoint moves.
-    ``label``, ``display_name``, ``real_machine`` and the ``(stand-in)``
-    parenthesis come from the deployment ceiling, so turning a machine's switch
+    ``label``, ``display_name``, ``real_machine`` and the rehearsal words come
+    from the deployment ceiling, so turning a machine's switch
     off never renames the machine an operator is standing in front of.
     ``endpoint`` and ``selected_role`` come from a second derivation under the
     write verdict for that target, so a session whose switch is off is told the
@@ -561,6 +563,7 @@ def target_display_metadata(
                 "selected_role": "",
                 "real_machine": False,
                 "probe_channel": "",
+                "machine_kind": _machine_kind(target),
             }
             continue
         block = _connector_block(config, ceiling.connector_type)
@@ -587,6 +590,7 @@ def target_display_metadata(
             # the name on the label moves.
             "real_machine": ceiling.connector_type not in SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
+            "machine_kind": _machine_kind(target, standin=standin),
         }
     return metadata
 
@@ -630,22 +634,48 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
 
 
 def _label(target: str, connector_type: str | None, *, standin: bool = False) -> str:
+    """The published label for *target*: the identity line every reader renders.
+
+    This deployment's own stand-in is published as the rehearsal, in the
+    C-WORDS banner (:data:`osprey_connectors.write_target.KIND_BANNERS`), so the
+    roster, the prompt hook's identity line and a connector tool's error text
+    all say "Rehearsal — nothing moves" and none of them calls it
+    ``LIVE MACHINE``. Decided by the same two conjuncts as :func:`_machine_kind`,
+    so the label and the published kind cannot describe different machines.
+    """
     if target == TARGET_VA:
         return "virtual accelerator (simulation)"
     if connector_type is None:
         return "live machine (not configured)"
-    # The parenthesis is the whole of what an operator is told differently, and
-    # it belongs to the 'standin' target alone. Two conjuncts, both required:
-    # the target is the one an operator selected by name, and its endpoint
-    # really is the stand-in container this deployment stood up. A 'standin'
-    # whose endpoint fails the predicate is labelled plain LIVE MACHINE and
-    # refused by the eligibility gate, and 'live' never carries the
-    # parenthesis at all — it names the facility's authored machine, and
-    # renaming it as a stand-in on the strength of an endpoint that merely
-    # looks like one (a facility gateway forwarded to loopback on that port)
-    # is the direction this stack must never fail in: telling an operator the
-    # machine in front of them is only a stand-in when it is not.
-    return "LIVE MACHINE (stand-in)" if (target == TARGET_STANDIN and standin) else "LIVE MACHINE"
+    # The rehearsal words are the whole of what an operator is told
+    # differently, and they belong to the 'standin' target alone. Two
+    # conjuncts, both required: the target is the one an operator selected by
+    # name, and its endpoint really is the stand-in container this deployment
+    # stood up. A 'standin' whose endpoint fails the predicate is labelled
+    # plain LIVE MACHINE — never "nothing moves" — and refused by the
+    # eligibility gate, and 'live' never carries the rehearsal words at all: it
+    # names the facility's authored machine, and renaming it on the strength of
+    # an endpoint that merely looks like the stand-in's (a facility gateway
+    # forwarded to loopback on that port) is the direction this stack must
+    # never fail in: telling an operator nothing moves when hardware does.
+    if target == TARGET_STANDIN and standin:
+        return KIND_BANNERS["rehearsal"]
+    return "LIVE MACHINE"
+
+
+def _machine_kind(target: str, *, standin: bool = False) -> str:
+    """The kind of machine *target* is, published for every reader (C-KIND).
+
+    Decided by the same two conjuncts as :func:`_label`'s parenthesis, so the
+    label and the kind cannot describe different machines: ``standin`` is
+    ``rehearsal`` only when its endpoint really is this deployment's stand-in
+    container, and otherwise ``real``. ``va`` is the simulator; ``live`` is
+    always the real machine. Readers take this from the report through
+    :func:`osprey_connectors.types.published_machine_kind` and never derive it.
+    """
+    if target == TARGET_VA:
+        return "simulator"
+    return "rehearsal" if (target == TARGET_STANDIN and standin) else "real"
 
 
 def _display_name(config: Any, target: str, *, standin: bool = False) -> str:

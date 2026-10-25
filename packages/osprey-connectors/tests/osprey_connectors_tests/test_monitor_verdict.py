@@ -13,6 +13,7 @@ refusal's words are half of what an operator meets.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -67,8 +68,17 @@ def tier(monkeypatch):
 
 
 def _switch(root: Path, *targets: str, posture: dict[str, str] | None = None) -> None:
-    """The login's record with exactly *targets* switched on."""
-    write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"), posture=posture)
+    """The login's record with exactly *targets* switched on.
+
+    *posture* is an old narrowing laid over the mirror verbatim, as a file
+    written before the mirror would carry it.
+    """
+    path = write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"))
+    if posture is not None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["posture"] = dict(posture)
+        write_payload(path, payload)
+        control_context.invalidate_cache()
 
 
 def _built(target: str | None, connector_type: str | None = "epics") -> RecordingConnector:
@@ -169,15 +179,15 @@ class TestTheSwitchDecides:
         assert connector.writes == [("A:SP", 1.0)]
 
     @pytest.mark.asyncio
-    async def test_a_recorded_sandbox_narrowing_refuses_with_the_switch_on(self, tier, root):
+    async def test_an_old_sandbox_narrowing_does_not_refuse_with_the_switch_on(self, tier, root):
         tier(ALLOWED)
         _switch(root, TARGET_LIVE, posture={TARGET_LIVE: posture_store.POSTURE_SANDBOX})
         connector = _built(TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 1.0)
 
-        _refused(result, "switch_off", "real")
-        assert connector.writes == []
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert connector.writes == [("A:SP", 1.0)]
 
 
 class TestTheEarlierTermsRefuseFirst:

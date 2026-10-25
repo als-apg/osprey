@@ -11,16 +11,18 @@ arms that must fail closed.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, write_verdict
-from osprey_connectors.refusals import REASONS
+from osprey_connectors.refusals import REASONS, refusal_text
 from osprey_connectors_tests._harness import (
     write_control_context,
     write_payload,
+    write_server_report,
 )
 from osprey_connectors_tests._harness._control_context_fixtures import FIXTURE_IDENTITY
 from osprey_connectors_tests._harness._write_verdict_cases import case_environment
@@ -47,7 +49,14 @@ def root(tmp_path) -> Path:
 
 
 def _host(root: Path, *, switch=None, posture=None) -> Path:
-    return write_control_context(root, switch=switch, posture=posture, owned_by=None)
+    """This host's record; *posture* is an old narrowing laid over the mirror verbatim."""
+    path = write_control_context(root, switch=switch, owned_by=None)
+    if posture is not None:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["posture"] = dict(posture)
+        write_payload(path, payload)
+        control_context.invalidate_cache()
+    return path
 
 
 def _provision_tree(base: Path) -> Path:
@@ -61,11 +70,13 @@ def _tree_record(tree: Path, owner: str, *, switch=None, posture=None) -> Path:
     record = control_context.ControlContext(
         target="live",
         generation=3,
-        posture=dict(posture or {}),
         switch=dict(switch or {}),
         switch_epoch=1,
     )
-    return write_payload(tree / owner / control_context.RECORD_FILENAME, record.to_payload())
+    payload = record.to_payload()
+    if posture is not None:
+        payload["posture"] = dict(posture)  # an old narrowing, verbatim
+    return write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
 
 
 @pytest.fixture
@@ -90,11 +101,57 @@ def test_everything_in_place_allows(root):
     assert verdict == WriteVerdict(allowed=True, reason=None, target="live", kind="real")
 
 
+STANDIN_SECTION = {**LIVE, "connector": {"live_standin": {"prefix": "S:"}}}
+
+#: The words only the rehearsal machine may be described with (FR 7).
+REHEARSAL_WORDS = ("rehearsal", "nothing moves")
+
+
+def _report(root: Path, kind: str | None, *, pid: int | None = None) -> None:
+    """A controls server's report publishing *kind* for ``standin`` (C-KIND)."""
+    meta = {} if kind is None else {"machine_kind": kind}
+    write_server_report(root, os.getpid() if pid is None else pid, targets={"standin": meta})
+
+
 def test_kind_names_the_machine(root):
     _host(root, switch={"va": "on", "standin": "on"})
-    section = {**LIVE, "connector": {"live_standin": {"prefix": "S:"}}}
-    assert write_verdict(section, "va").kind == "simulator"
-    assert write_verdict(section, "standin").kind == "rehearsal"
+    _report(root, "rehearsal")
+    assert write_verdict(STANDIN_SECTION, "va").kind == "simulator"
+    assert write_verdict(STANDIN_SECTION, "live").kind == "real"
+    assert write_verdict(STANDIN_SECTION, "standin").kind == "rehearsal"
+
+
+def test_a_live_standin_reads_rehearsal(root):
+    _host(root, switch={"standin": "on"})
+    _report(root, "rehearsal")
+    assert write_verdict(STANDIN_SECTION, "standin") == WriteVerdict(
+        allowed=True, reason=None, target="standin", kind="rehearsal"
+    )
+
+
+def test_a_standin_pointing_elsewhere_reads_real_and_its_phrase_has_no_rehearsal_words(root):
+    _host(root, switch={})
+    _report(root, "real")
+    verdict = write_verdict(STANDIN_SECTION, "standin")
+    assert (verdict.reason, verdict.kind) == ("switch_off", "real")
+    text = refusal_text(verdict.reason, verdict.kind).lower()
+    assert not any(word in text for word in REHEARSAL_WORDS), text
+
+
+def test_no_live_report_reads_real(root):
+    _host(root, switch={"standin": "on"})
+    assert write_verdict(STANDIN_SECTION, "standin").kind == "real"
+
+
+def test_a_dead_servers_report_is_ignored(root):
+    _host(root, switch={"standin": "on"})
+    _report(root, "rehearsal", pid=2_147_483_646)
+    assert write_verdict(STANDIN_SECTION, "standin").kind == "real"
+
+
+def test_an_unresolved_target_has_no_kind_whatever_is_published(root):
+    _report(root, "rehearsal")
+    assert write_verdict(STANDIN_SECTION, "bogus").kind is None
 
 
 # --- each reason alone ---------------------------------------------------
@@ -199,9 +256,16 @@ def test_another_targets_switch_does_not_arm_this_one(root):
     assert write_verdict(LIVE, "va").allowed is True
 
 
-def test_recorded_sandbox_for_the_target_is_switch_off(root):
-    """The interim narrowing: a recorded sandbox refuses even with the switch on."""
+def test_an_old_sandbox_narrowing_does_not_refuse_with_the_switch_on(root):
+    """The interim reading is retired: an old narrowing left in the file is inert."""
     _host(root, switch={"live": "on"}, posture={"live": "sandbox"})
+    verdict = write_verdict(LIVE, "live")
+    assert verdict.allowed is True
+    assert verdict.reason is None
+
+
+def test_an_old_narrowing_does_not_arm_a_switch_that_is_off(root):
+    _host(root, switch={"va": "on"}, posture={})
     _refused(write_verdict(LIVE, "live"), "switch_off")
 
 
@@ -376,9 +440,9 @@ def test_tree_record_without_the_owner_file_is_switch_off(tree):
     _refused(write_verdict(TREE_SECTION, "live", owner="alice"), "switch_off")
 
 
-def test_tree_recorded_sandbox_is_switch_off(tree):
+def test_tree_old_sandbox_narrowing_does_not_refuse_with_the_switch_on(tree):
     _tree_record(tree, "alice", switch={"live": "on"}, posture={"live": "sandbox"})
-    _refused(write_verdict(TREE_SECTION, "live", owner="alice"), "switch_off")
+    assert write_verdict(TREE_SECTION, "live", owner="alice").allowed is True
 
 
 def test_tree_degraded_switch_value_does_not_arm(tree):

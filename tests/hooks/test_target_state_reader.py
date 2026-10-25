@@ -362,12 +362,19 @@ def test_recorded_posture_is_the_records_narrowings(state_dir):
     assert reader.target_posture("va") is None
 
 
-def test_the_narrowing_is_not_addressed_to_one_session(state_dir, monkeypatch):
-    """It is the deployment's: no session key selects it and none can miss it."""
+def test_the_switch_is_not_addressed_to_one_session(state_dir, monkeypatch):
+    """It is the owner's: no session key selects it and none can miss it."""
     monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "someone-else")
-    write_record(state_dir, posture={"va": "sandbox"})
+    write_record(state_dir, switch={"live": "on"})
 
-    assert reader.target_sandboxed(None, "va") is True
+    assert reader.effective_writes_for(None, _ARMED, "va") is False
+    assert reader.effective_writes_for(None, _ARMED, "live") is True
+
+
+def test_the_interim_sandbox_reader_is_retired():
+    """``target_sandboxed`` read the old narrowing as a refusal; nothing may now."""
+    assert not hasattr(reader, "target_sandboxed")
+    assert "target_sandboxed" not in reader.__all__
 
 
 def test_a_bare_sandbox_string_narrows_every_target(state_dir):
@@ -403,14 +410,12 @@ def test_a_targetless_lookup_takes_the_most_restrictive_entry(state_dir):
     write_record(state_dir, posture={"live": "sandbox"})
 
     assert reader.target_posture(None) == reader.POSTURE_SANDBOX
-    assert reader.target_sandboxed(None, None) is True
 
 
 def test_a_targetless_lookup_on_an_unnarrowed_record_is_permissive(state_dir):
     write_record(state_dir)
 
     assert reader.target_posture(None) is None
-    assert reader.target_sandboxed(None, None) is False
 
 
 # ---------------------------------------------------------------------------
@@ -476,8 +481,12 @@ _ARMED = {
 }
 
 
+#: Every machine switched on.
+_ALL_ON = {"live": "on", "va": "on", "standin": "on"}
+
+
 def test_effective_writes_needs_the_deployment_ceiling(state_dir):
-    write_record(state_dir)
+    write_record(state_dir, switch=_ALL_ON)
 
     assert reader.effective_writes_for(None, _ARMED, "va") is True
     assert (
@@ -493,15 +502,44 @@ def test_effective_writes_needs_the_deployment_ceiling(state_dir):
     )
 
 
-def test_a_narrowing_refuses_an_armed_target(state_dir):
-    write_record(state_dir, posture={"va": "sandbox"})
+def test_a_switch_left_off_refuses_an_armed_target(state_dir):
+    write_record(state_dir, switch={"live": "on"})
 
     assert reader.effective_writes_for(None, _ARMED, "va") is False
     assert reader.effective_writes_for(None, _ARMED, "live") is True
 
 
+@pytest.mark.parametrize("posture", [{"va": "sandbox"}, "sandbox"], ids=["per-target", "bare"])
+def test_an_old_sandbox_narrowing_with_the_switch_on_is_allowed(state_dir, posture):
+    """The record's ``posture`` field is a mirror; an old narrowing refuses nothing."""
+    write_record(state_dir, posture=posture, switch=_ALL_ON)
+
+    assert reader.target_posture("va") == reader.POSTURE_SANDBOX
+    assert reader.effective_writes_for(None, _ARMED, "va") is True
+
+
+@pytest.mark.usefixtures("state_dir")
+def test_no_record_is_every_switch_off():
+    assert reader.effective_writes_for(None, _ARMED, "va") is False
+
+
+def test_an_unreadable_record_refuses(state_dir):
+    (state_dir / reader.RECORD_FILENAME).write_text("{not json", encoding="utf-8")
+
+    assert reader.effective_writes_for(None, _ARMED, "va") is False
+
+
+@pytest.mark.usefixtures("state_dir")
+def test_work_that_belongs_to_no_owner_is_the_ceiling_alone(monkeypatch):
+    """A dispatch run with no owner stamp reads no record, as the package's clause does."""
+    monkeypatch.delenv(reader.CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.setenv(reader.DISPATCH_RUN_ENV_VAR, "1")
+
+    assert reader.effective_writes_for(None, _ARMED, "va") is True
+
+
 def test_a_readonly_run_refuses_an_armed_unnarrowed_target(state_dir, monkeypatch):
-    write_record(state_dir)
+    write_record(state_dir, switch=_ALL_ON)
     monkeypatch.setenv(reader.EXECUTION_MODE_ENV_VAR, reader.SANDBOX_MODE)
 
     assert reader.is_readonly_run() is True
@@ -510,9 +548,13 @@ def test_a_readonly_run_refuses_an_armed_unnarrowed_target(state_dir, monkeypatc
 
 def test_an_unidentified_target_is_answered_by_every_reachable_one(state_dir):
     """Stricter than the roster's union on purpose: a gate cannot guess."""
-    write_record(state_dir, posture={"live": "sandbox"})
+    write_record(state_dir, switch={"live": "on", "va": "on"})
 
     assert reader.effective_writes_for(None, _ARMED, None) is False
+
+    write_record(state_dir, switch=_ALL_ON)
+
+    assert reader.effective_writes_for(None, _ARMED, None) is True
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,11 @@ row stages the same way for either side:
 * the host record is written under ``OSPREY_AGENT_DATA_ROOT`` through
   :func:`osprey_connectors_tests._harness._control_context_fixtures.write_control_context`;
 * a tree is a directory bound through ``OSPREY_CONTROL_CONTEXT_TREE``, with one
-  record per owner.
+  record per owner;
+* a controls server's report (``report``: ``server`` ``live`` or ``dead``, and
+  the ``targets`` metadata it publishes) is written beside the host record
+  through :func:`~osprey_connectors_tests._harness._control_context_fixtures.write_server_report`,
+  so a row's ``kind`` comes from the published ``machine_kind`` (C-KIND).
 
 The loader fails on a row whose reason is not a member of
 :data:`~osprey_connectors.refusals.REASONS`, and on a member no row expects —
@@ -28,6 +32,7 @@ package tests and the hook twin test in ``tests/hooks`` drive the same table.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +49,7 @@ from osprey_connectors_tests._harness import (
     reset_verdict_state,
     write_control_context,
     write_payload,
+    write_server_report,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -91,6 +97,7 @@ _ROW_KEYS = frozenset(
         "env",
         "record",
         "tree",
+        "report",
         "expect",
     }
 )
@@ -101,6 +108,10 @@ _TREE_RECORD_STATUSES = frozenset({"ok", "corrupt", "foreign_schema", "dir_only"
 _TREE_BINDS = frozenset({"provisioned", "unprovisioned", "relative"})
 _KINDS = frozenset({"real", "rehearsal", "simulator"})
 _BACKSTOP_ONLY_KEYS = frozenset({"section", "section_from", "env", "record", "tree"})
+_REPORT_SERVERS = frozenset({"live", "dead"})
+
+#: A PID no test host runs: a report under it is a dead server's.
+DEAD_SERVER_PID = 2_147_483_646
 
 
 class CaseTableError(ValueError):
@@ -128,6 +139,7 @@ class Case:
     tree: Mapping[str, Any] | None
     expect: Mapping[str, Any]
     section_from: str | None = None
+    report: Mapping[str, Any] | None = None
 
 
 # -- loading ----------------------------------------------------------------
@@ -205,6 +217,15 @@ def _check_row(row: Any) -> None:
         for record in records.values():
             _check_record(case_id, record, _TREE_RECORD_STATUSES)
 
+    report = row.get("report")
+    if report is not None:
+        if not isinstance(report, dict) or report.get("server") not in _REPORT_SERVERS:
+            raise CaseTableError(
+                f"{case_id}: report server must be one of {sorted(_REPORT_SERVERS)}"
+            )
+        if set(report) - {"server", "targets"} or not isinstance(report.get("targets"), dict):
+            raise CaseTableError(f"{case_id}: a report takes a server and a targets object")
+
     expect = row["expect"]
     if not isinstance(expect, dict) or not {"allowed", "reason"} <= set(expect):
         raise CaseTableError(f"{case_id}: expect needs allowed and reason")
@@ -268,6 +289,7 @@ def parse_cases(rows: Any) -> list[Case]:
                 tree=row.get("tree"),
                 expect=dict(row["expect"]),
                 section_from=row.get("section_from"),
+                report=row.get("report"),
             )
         )
     check_coverage(cases)
@@ -321,17 +343,19 @@ def case_environment(monkeypatch, tmp_path) -> Iterator[None]:
 
 
 def _stage_host_record(root: Path, record: Mapping[str, Any]) -> None:
-    path = write_control_context(
-        root,
-        switch=record.get("switch"),
-        posture=record.get("posture"),
-        owned_by=None,
-    )
+    path = write_control_context(root, switch=record.get("switch"), owned_by=None)
     if record["status"] == "corrupt":
         write_payload(path, "{not json")
-    elif record["status"] == "foreign_schema":
+        return
+    if record["status"] == "foreign_schema" or "posture" in record:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        payload["schema"] = 2
+        if record["status"] == "foreign_schema":
+            payload["schema"] = 2
+        if "posture" in record:
+            # An old narrowing, laid over the mirror verbatim: no writer stores
+            # one any more, so a row about a file written before the mirror has
+            # to put it there by hand.
+            payload["posture"] = record["posture"]
         write_payload(path, payload)
 
 
@@ -339,11 +363,13 @@ def _tree_payload(record: Mapping[str, Any]) -> dict[str, Any]:
     payload = control_context.ControlContext(
         target="live",
         generation=3,
-        posture=dict(record.get("posture") or {}),
         switch_epoch=1,
     ).to_payload()
-    # Verbatim, so a degraded value reaches the reader as written.
+    # Verbatim, so a degraded value — or an old narrowing — reaches the reader
+    # as written rather than as the mirror the writer derives.
     payload["switch"] = dict(record.get("switch") or {})
+    if "posture" in record:
+        payload["posture"] = record["posture"]
     return payload
 
 
@@ -391,4 +417,7 @@ def stage(case: Case, monkeypatch, tmp_path: Path) -> None:
         _stage_host_record(host_root(tmp_path), case.record)
     if case.tree is not None:
         _stage_tree(tmp_path, case.tree, monkeypatch)
+    if case.report is not None:
+        pid = os.getpid() if case.report["server"] == "live" else DEAD_SERVER_PID
+        write_server_report(host_root(tmp_path), pid, targets=case.report["targets"])
     reset_verdict_state()

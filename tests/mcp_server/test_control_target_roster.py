@@ -47,6 +47,13 @@ from tests.mcp_server._switch_harness import (
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
 
+#: The published label of this deployment's own stand-in (C-WORDS): the
+#: rehearsal banner, never the real machine's ``LIVE MACHINE``.
+REHEARSAL_LABEL = "Rehearsal — nothing moves"
+
+#: The words only a real stand-in may carry, anywhere in its label.
+NOTHING_MOVES = "nothing moves"
+
 
 @pytest.fixture(autouse=True)
 def _child_harness(child_environment, state_root):
@@ -693,7 +700,7 @@ class TestThreeTargetRoster:
         assert rows["standin"]["available_now"] is False
         assert rows["standin"]["reason"] == REASON_ALREADY_ACTIVE
         assert rows["standin"]["eligible"] is True
-        assert rows["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert rows["standin"]["label"] == REHEARSAL_LABEL
         assert rows["standin"]["real_machine"] is True
         assert rows["standin"]["connector_type"] == "live_standin"
         assert rows["standin"]["probe_channel"] == STANDIN_PROBE
@@ -881,7 +888,7 @@ class TestLiveStandinLabel:
     def test_a_deployed_standin_is_named_as_one(self):
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
@@ -909,7 +916,7 @@ class TestLiveStandinLabel:
 
         assert metadata["live"]["label"] == "LIVE MACHINE"
         assert metadata["live"]["real_machine"] is True
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
 
     def test_a_deployment_that_stood_no_standin_up_does_not_name_one(self):
         """No ``services.live_standin`` block: the first conjunct fails.
@@ -960,7 +967,7 @@ class TestLiveStandinLabel:
 
         metadata = target_display_metadata(raw)
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
 
     def test_an_armed_deployment_names_the_standin_through_its_write_gateway(
@@ -979,10 +986,52 @@ class TestLiveStandinLabel:
 
         metadata = target_display_metadata(split_gateway_config())
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert metadata["standin"]["selected_role"] == "write_access"
+
+    @pytest.mark.parametrize(
+        ("config_kwargs", "is_rehearsal"),
+        [
+            ({}, True),
+            ({"deployed": False}, True),
+            ({"standin_port": None}, False),
+            ({"gateway_port": TUNNELLED_PORT}, False),
+            ({"standin_port": None, "gateway_port": TUNNELLED_PORT}, False),
+            ({"gateway_host": REAL_GATEWAY_HOST}, False),
+        ],
+        ids=[
+            "deployed-standin",
+            "render-of-a-standin",
+            "no-standin-deployed",
+            "moved-endpoint",
+            "ssh-tunnel",
+            "off-loopback",
+        ],
+    )
+    def test_only_the_real_standin_says_nothing_moves(self, config_kwargs, is_rehearsal):
+        """The rehearsal words and the rehearsal kind come from one predicate.
+
+        A ``standin`` whose endpoint is not this deployment's stand-in never
+        says "nothing moves": it reads as the real machine, exactly as before
+        the rehearsal had a name. The deployment's own stand-in never says
+        ``LIVE MACHINE``.
+        """
+        metadata = target_display_metadata(standin_config(**config_kwargs))
+        label = metadata["standin"]["label"]
+
+        if is_rehearsal:
+            assert label == REHEARSAL_LABEL
+            assert "LIVE MACHINE" not in label
+            assert metadata["standin"]["machine_kind"] == "rehearsal"
+        else:
+            assert label == "LIVE MACHINE"
+            assert NOTHING_MOVES not in label.lower()
+            assert metadata["standin"]["machine_kind"] == "real"
+        # Neither the facility's machine nor the simulator is ever the rehearsal.
+        assert NOTHING_MOVES not in metadata["live"]["label"].lower()
+        assert NOTHING_MOVES not in metadata["va"]["label"].lower()
 
     def test_the_simulator_is_described_by_its_own_branch(self):
         """``va`` is untouched by the stand-in, in every case above and here."""
@@ -1077,7 +1126,7 @@ class TestDisplayName:
         metadata = target_display_metadata(raw)
 
         assert metadata["standin"]["display_name"] == "Shadow ring"
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["real_machine"] is True
 
 
@@ -1100,9 +1149,9 @@ class TestEndpointFollowsThePosture:
     where the two halves are told apart by the port in the string.
     """
 
-    def test_a_narrowed_session_is_named_through_the_read_gateway(self, posture_root):
-        arm(posture_root, "standin", "live")
-        narrow(posture_root, "standin")
+    def test_a_switched_off_target_is_named_through_the_read_gateway(self, posture_root):
+        """The switch is the narrowing now: off for ``standin`` is its read gateway."""
+        arm(posture_root, "live")
 
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1116,15 +1165,14 @@ class TestEndpointFollowsThePosture:
 
         metadata = target_display_metadata(split_gateway_config())
 
-        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == REHEARSAL_LABEL
         assert metadata["standin"]["display_name"] == "Rehearsal"
         assert metadata["standin"]["real_machine"] is True
         assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
 
-    def test_a_narrowing_reaches_only_the_target_it_names(self, posture_root):
+    def test_a_switch_off_reaches_only_the_target_it_names(self, posture_root):
         """Per target, the way the switch is keyed: ``live`` keeps its own answer."""
-        arm(posture_root, "standin", "live")
-        narrow(posture_root, "standin")
+        arm(posture_root, "live")
 
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1183,8 +1231,8 @@ class TestEndpointFollowsThePosture:
         from_store = target_display_metadata(config)
         injected = target_display_metadata(config, effective_writes={"standin": True})
 
-        assert from_store["standin"]["label"] == "LIVE MACHINE (stand-in)"
-        assert injected["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert from_store["standin"]["label"] == REHEARSAL_LABEL
+        assert injected["standin"]["label"] == REHEARSAL_LABEL
         assert from_store["standin"]["endpoint"] != injected["standin"]["endpoint"]
 
     @pytest.mark.usefixtures("posture_root")

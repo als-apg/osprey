@@ -53,15 +53,19 @@ narrowing that silently does not apply.
 
 **3. How a lookup combines.** :func:`effective_writes` is the whole rule:
 
-    ceiling ∧ not is_readonly_run() ∧ (recorded posture ≠ sandbox)
+    ceiling ∧ not is_readonly_run() ∧ (recorded switch = on)
 
 The ceiling is the deployment's own posture, read through the existing
 predicates and never re-derived here — by connector type when the caller is a
 connector, by target otherwise, and the union across configured targets when
-the caller holds neither. The record can only narrow it. With no resolvable
-target the MOST RESTRICTIVE narrowing wins (any sandbox refuses), because a
-caller that cannot say which machine it is about must not be granted the most
-permissive answer.
+the caller holds neither. The record can only narrow it: a machine whose
+switch is not ``"on"`` — no record, or a record that does not name it — is
+refused. With no resolvable target the MOST RESTRICTIVE answer wins (every
+machine in :data:`CONTROL_TARGETS` must be on), because a caller that cannot
+say which machine it is about must not be granted the most permissive answer.
+The record's ``posture`` field is not read here: it is a mirror of the switch
+(:func:`~osprey_connectors.control_context.posture_mirror`) kept for old
+readers, and an old narrowing still in a file is ignored.
 
 The posture is a property of the DEPLOYMENT, not of a process tree inside it:
 no session key indexes it, and a process that belongs to no session — a
@@ -158,7 +162,7 @@ import errno
 import logging
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -170,6 +174,7 @@ from osprey_connectors.types import (
     CONTROL_TARGETS,
     any_target_writes_enabled,
     machine_kind,
+    published_machine_kind,
     resolve_target,
     target_writes_enabled,
     tier_allows,
@@ -677,7 +682,7 @@ def _control_context_tree() -> Path | None:
     that holds no chip of its own. It is not a rung of :func:`state_dir`: it
     names no single identity's directory, so nothing reads a record through it
     without first being told whose record to read — which is what
-    :func:`_read_tree_record` is for.
+    :func:`_read_tree_context` is for.
 
     Normalised by :func:`_absolute_bind`, the same rule the container's own
     state directory goes through, so the two binds cannot disagree about what a
@@ -779,28 +784,6 @@ def invalidate_cache() -> None:
 _TREE_UNSAFE: Final = frozenset({"/", "\\", "\x00"})
 
 
-class _TreeRead(NamedTuple):
-    """One read of one owner's record out of the read-only tree.
-
-    Attributes:
-        narrowed: The narrowings that record carries, ``{target: "sandbox"}``,
-            in the same grammar :func:`recorded_posture` answers in and empty
-            when nothing is narrowed. Empty whenever *unavailable* is set: a
-            read that did not reach the record knows of no narrowing and must
-            not be combined as though it did.
-        unavailable: ``None`` when the read reached an answer — a record, or a
-            provisioned tree holding none for this owner — and otherwise the
-            operator-facing sentence saying what could not be read and what to
-            do about it. The caller turns a non-``None`` into its own
-            ``control_context_unavailable`` verdict; the reason vocabulary is
-            the verdict's, and the remedy is this reader's, because only the
-            read knows which of the four ways of not knowing happened.
-    """
-
-    narrowed: dict[str, str]
-    unavailable: str | None
-
-
 class _TreeContext(NamedTuple):
     """One read of one owner's whole record out of the read-only tree.
 
@@ -809,8 +792,12 @@ class _TreeContext(NamedTuple):
             :mod:`~osprey_connectors.control_context`'s parser to the targets
             switched ``"on"`` — or ``None`` when the tree holds no record for
             this owner or the record could not be read.
-        unavailable: As :attr:`_TreeRead.unavailable`: ``None`` when the read
-            reached an answer, else the operator-facing sentence.
+        unavailable: ``None`` when the read reached an answer — a record, or
+            a provisioned tree holding none for this owner — and otherwise the
+            operator-facing sentence saying what could not be read and what to
+            do about it. The caller turns a non-``None`` into its own refusal;
+            the remedy is this reader's, because only the read knows which of
+            the ways of not knowing happened.
     """
 
     record: Any
@@ -1086,22 +1073,28 @@ def _read_tree_context(tree: Path, owner: str) -> _TreeContext:
     return _TreeContext(record, None)
 
 
-def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
-    """*owner*'s narrowings out of the read-only *tree*, with the reason when there are none.
+def _switched_on(record: Any, target: str | None) -> bool:
+    """Whether *record*'s switch arms *target* — the record half of rule 3.
 
-    The record clause's view of :func:`_read_tree_context`: the same no-follow,
-    fail-closed read, answered as the narrowings alone. The write verdict reads
-    the whole record through :func:`_read_tree_context`, because it needs the
-    person's switch as well; both views come from one read, so the two cannot
-    disagree about whether a record was reachable.
-
-    Returns:
-        A :class:`_TreeRead`. Never raises: this is read on a write path.
+    ``False`` for no record: an absent record is every switch off. With no
+    target every machine in :data:`CONTROL_TARGETS` must be on, the most
+    restrictive answer for a caller that cannot say which machine it means.
     """
-    read = _read_tree_context(tree, owner)
-    if read.record is None:
-        return _TreeRead({}, read.unavailable)
-    return _TreeRead(dict(read.record.posture), None)
+    if record is None:
+        return False
+    switch: Mapping[str, str] = record.switch
+    if target:
+        return bool(switch.get(target) == "on")
+    return all(switch.get(name) == "on" for name in CONTROL_TARGETS)
+
+
+def _host_record_unreadable() -> str:
+    """The remedy for this host's own record when it exists and cannot be used."""
+    return (
+        "the control-context record on this host could not be read, so every "
+        "machine's writes are off — turn the machine's writes on again to "
+        "rewrite it"
+    )
 
 
 # -- the launch-time pin ----------------------------------------------------
@@ -1151,11 +1144,11 @@ def parse_launch_posture(raw: str | None) -> dict[str, str]:
 
 
 def _permits(narrowed: dict[str, str], target: str | None) -> bool:
-    """Whether *narrowed* leaves *target* writable — the combining half of rule 3.
+    """Whether the launch stamp's *narrowed* leaves *target* writable.
 
-    Shared by the record clause and the launch clause so the "most restrictive
-    narrowing wins when the caller cannot name a target" rule has one
-    implementation rather than one per source of narrowings.
+    The launch clause's combining rule: the most restrictive narrowing wins
+    when the caller cannot name a target. The record clause reads the switch
+    instead (:func:`_switched_on`).
     """
     if not narrowed:
         return True
@@ -1400,19 +1393,19 @@ def record_verdict_detail(
        that is not a name — a value a decoded payload could carry where a string
        was meant — is a lookup that did not happen, and refuses.
     2. That owner's record — out of the read-only tree through
-       :func:`_read_tree_record` when a tree is bound, else out of this host's
-       own record through :func:`recorded_posture`. A tree bound but unusable
-       refuses rather than falling back to the host: the fall-back exists for a
-       process that was given no tree, not for one whose tree cannot be opened.
-       The two rungs differ in what a failed read means: the tree reader fails
-       CLOSED, because a container that cannot read a record would otherwise run
-       somebody's owned plan at the deployment ceiling, while a host reader is
-       the process whose own chip wrote the record and keeps the fail-open it
-       has always had.
+       :func:`_read_tree_context` when a tree is bound, else out of this
+       host's own record through
+       :func:`~osprey_connectors.control_context.read_record_status`. A tree
+       bound but unusable refuses rather than falling back to the host: the
+       fall-back exists for a process that was given no tree, not for one
+       whose tree cannot be opened.
 
-    The comparison is target-only for every rung, through :func:`_permits`: a
-    record narrowing another target narrows nothing here, so a chip pointed at
-    one machine does not stop a plan running on another.
+    The comparison is the record's switch, target-only for every rung, through
+    :func:`_switched_on`: a machine is permitted only when the owner's switch
+    is ``"on"`` for it, and the record's ``posture`` field — a mirror of the
+    switch, or an old narrowing — is not read. No record is every switch off.
+    The host rung fails closed on an unreadable record, as the write verdict
+    does; a record that is simply absent is not unreadable.
 
     Args:
         target: The control target the write lands on, or ``None`` when the
@@ -1451,9 +1444,23 @@ def record_verdict_detail(
             reason = _tree_bind_unusable()
             logger.warning("Write posture unreadable for %r: %s", resolved, reason)
             return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
-        narrowed = recorded_posture()
+        # Imported here, not at module scope, for the reason ``recorded_posture``
+        # gives.
+        from osprey_connectors import control_context
+
+        try:
+            record, status = control_context.read_record_status()
+        except Exception:  # a clause on a write path refuses; it never raises
+            logger.debug("Control-context record read raised; refusing", exc_info=True)
+            record, status = None, "unreadable"
+        if status == "unreadable":
+            reason = _host_record_unreadable()
+            logger.warning("Write posture unreadable for %r: %s", resolved, reason)
+            return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
+        if status != "ok":
+            record = None
     else:
-        read = _read_tree_record(tree, resolved)
+        read = _read_tree_context(tree, resolved)
         if read.unavailable is not None:
             # The sentence goes two ways, and both matter: to the deployment's
             # log, which reaches whoever fixes the bind, and back to the caller,
@@ -1461,9 +1468,9 @@ def record_verdict_detail(
             # write ever sees.
             logger.warning("Write posture unreadable for %r: %s", resolved, read.unavailable)
             return StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, read.unavailable)
-        narrowed = read.narrowed
+        record = read.record
 
-    if _permits(narrowed, target):
+    if _switched_on(record, target):
         return StoreVerdictDetail(StoreVerdict.PERMITTED, None)
     return StoreVerdictDetail(StoreVerdict.NARROWING, None)
 
@@ -1525,10 +1532,10 @@ def store_permits(target: str | None) -> bool:
     this spelling is for the callers that only have to decide whether to
     proceed.
 
-    Answers ``True`` — permitted — for everything that is not an actual
-    narrowing and not an unreadable one: no record, or a record whose posture
-    does not name this target. It can only refuse; nothing here widens a
-    ceiling.
+    Answers ``True`` — permitted — only when the owner's switch is ``"on"``
+    for this target (or for every machine, with no target), or for work that
+    belongs to no owner. No record is every switch off and refuses. It can
+    only refuse; nothing here widens a ceiling.
 
     Args:
         target: The control target the write lands on, or ``None`` when the
@@ -1546,7 +1553,7 @@ def effective_writes(
 ) -> bool:
     """Whether a write may proceed here and now.
 
-    ``ceiling ∧ not is_readonly_run() ∧ (recorded posture ≠ sandbox)`` — rule 3
+    ``ceiling ∧ not is_readonly_run() ∧ (recorded switch = on)`` — rule 3
     of the module contract, spelled once so that the connector's reference
     monitor, the executor's gate, the tool roster and the popover cannot
     answer it differently.
@@ -1562,7 +1569,7 @@ def effective_writes(
 
     Returns:
         ``True`` only when the deployment arms this machine, the process is
-        not a read-only run, and the operator has not narrowed it.
+        not a read-only run, and the owner's switch is on for it.
     """
     if connector_type is not None:
         ceiling = type_writes_enabled(section, connector_type)
@@ -1643,9 +1650,9 @@ def write_verdict(
        host's own record, through the status reader, which fails closed too: a
        corrupt file, a foreign schema or an unresolvable root refuses. A record
        that is simply absent is not unavailable — it is every switch off.
-    7. ``switch_off`` — the record's switch is not ``"on"`` for *target*, or
-       the record still carries a ``sandbox`` narrowing for it (the interim
-       reading of the old chip, until the person route replaces it).
+    7. ``switch_off`` — the record's switch is not ``"on"`` for *target*. The
+       record's ``posture`` field is not read: it mirrors the switch, and an
+       old ``sandbox`` narrowing left in a file does not refuse.
     8. ``launch_pinned`` — the launch pin (:func:`launch_pin_term`) is
        ``pinned`` or ``unreadable`` for *target*; skipped when
        *ignore_launch_pin*, for a caller that reports the pin on its own.
@@ -1668,7 +1675,10 @@ def write_verdict(
     """
     named = target if isinstance(target, str) else None
     try:
-        kind = machine_kind(section, target)
+        # The name decides whether the target resolves at all; the published
+        # report decides what it is (C-KIND), so a stand-in the controls server
+        # has not vouched for is the real machine in the refusal's words.
+        kind = None if machine_kind(section, target) is None else published_machine_kind(target)
     except Exception:  # the kind is a word in a refusal; it must not decide one
         logger.debug("Could not name the machine kind of %r", target, exc_info=True)
         kind = None
@@ -1766,7 +1776,7 @@ def _write_refusal(
 
     if record is None:
         return "switch_off"
-    if record.switch.get(target) != "on" or record.posture.get(target) == POSTURE_SANDBOX:
+    if record.switch.get(target) != "on":
         return "switch_off"
 
     if not ignore_launch_pin and launch_pin_term(target) != "none":

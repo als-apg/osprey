@@ -126,15 +126,62 @@ def test_write_then_read_round_trips():
         target="va",
         generation=7,
         owner=control_context.Owner(kind="web_terminal", pid=os.getpid(), port=8080),
-        posture={"live": "sandbox"},
         last_switch={"request_id": "r-1", "status": "applied", "generation": 7},
     )
     path = control_context.write_record(record)
     assert path == control_context.record_path()
     stored = control_context.read_record()
-    # A first write stamps the epoch (rule 3); every caller-set field round-trips.
-    assert stored == replace(record, switch_epoch=stored.switch_epoch)
+    # A first write stamps the epoch (rule 3); every caller-set field round-trips,
+    # and the posture field is the mirror of the (empty) switch.
+    assert stored == replace(
+        record, switch_epoch=stored.switch_epoch, posture=control_context.posture_mirror({})
+    )
     assert isinstance(stored.switch_epoch, int) and stored.switch_epoch > 0
+
+
+@pytest.mark.usefixtures("data_root")
+def test_a_narrowing_input_is_not_stored():
+    """No writer takes a narrowing: ``to_payload`` writes the mirror of the switch."""
+    record = control_context.ControlContext(
+        target="live", generation=1, posture={"va": "sandbox"}, switch={"va": "on"}
+    )
+    assert record.to_payload()["posture"] == {"live": "sandbox", "standin": "sandbox"}
+
+    control_context.write_record(record)
+    payload = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+    # write_record keeps the on-disk switch (empty on a fresh root), and the
+    # mirror follows what is stored, not what the caller passed.
+    assert payload["switch"] == {}
+    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+
+
+@pytest.mark.parametrize(
+    ("switch", "mirror"),
+    [
+        ({}, {"live": "sandbox", "va": "sandbox", "standin": "sandbox"}),
+        ({"live": "on"}, {"va": "sandbox", "standin": "sandbox"}),
+        ({"live": "on", "va": "on", "standin": "on"}, {}),
+        ({"elsewhere": "on"}, {"live": "sandbox", "va": "sandbox", "standin": "sandbox"}),
+    ],
+    ids=["all-off", "live-on", "all-on", "unknown-key"],
+)
+def test_the_posture_mirror_refuses_every_machine_not_turned_on(switch, mirror):
+    assert control_context.posture_mirror(switch) == mirror
+
+
+@pytest.mark.usefixtures("data_root")
+def test_the_stored_mirror_follows_the_switch():
+    control_context.write_record(control_context.ControlContext(target="live", generation=0))
+
+    def stored() -> dict:
+        return json.loads(control_context.record_path().read_text(encoding="utf-8"))
+
+    epoch = stored()["switch_epoch"]
+    control_context.set_switch(["live"], "on", epoch=epoch)
+    assert stored()["posture"] == {"va": "sandbox", "standin": "sandbox"}
+
+    control_context.set_switch(["live"], "off")
+    assert stored()["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
 
 
 def test_write_creates_the_state_directory(data_root):
@@ -166,7 +213,7 @@ def test_write_payload_carries_exactly_the_record_contract():
     }
     assert payload["schema"] == control_context.SCHEMA_VERSION == 1
     assert payload["owner"] == {"kind": "controls_server", "pid": 4242, "port": None}
-    assert payload["posture"] == {}
+    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
     assert payload["last_switch"] is None
     assert payload["switch"] == {}
     assert isinstance(payload["switch_epoch"], int) and payload["switch_epoch"] > 0
@@ -279,7 +326,6 @@ def test_refusal_terminus_moves_nothing_else():
         target="va",
         generation=7,
         owner=control_context.Owner(kind="web_terminal", pid=os.getpid(), port=8080),
-        posture={"live": "sandbox"},
         last_switch={"request_id": "r-1", "status": "applied", "generation": 7},
     )
     control_context.write_record(applied)
@@ -299,7 +345,7 @@ def test_refusal_terminus_moves_nothing_else():
     after = control_context.read_record()
     assert after.target == applied.target
     assert after.generation == applied.generation
-    assert after.posture == applied.posture
+    assert after.posture == control_context.posture_mirror(after.switch)
     assert after.owner == applied.owner
     assert after.last_switch["status"] == "refused"
     assert after.last_switch["reason"] == "target_unreachable"
@@ -1227,7 +1273,6 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
         data_root,
         target="va",
         generation=7,
-        posture={"va": posture_store.POSTURE_SANDBOX},
         last_switch={"request_id": "req-1", "status": control_context.SWITCH_APPLIED},
     )
 
@@ -1236,7 +1281,7 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
     assert record is not None
     assert record.target == "va"
     assert record.generation == 7
-    assert record.posture == {"va": posture_store.POSTURE_SANDBOX}
+    assert record.posture == control_context.posture_mirror({})
     assert record.last_switch == {"request_id": "req-1", "status": control_context.SWITCH_APPLIED}
 
 
@@ -1434,8 +1479,9 @@ def test_the_switch_fields_round_trip_through_the_payload():
     )
     payload = record.to_payload()
     assert payload["switch"] == {"live": "on"} and payload["switch_epoch"] == 42
-    assert control_context.parse_record(payload) == record
-    assert control_context.parse_record(json.dumps(payload)) == record
+    mirrored = replace(record, posture=control_context.posture_mirror(record.switch))
+    assert control_context.parse_record(payload) == mirrored
+    assert control_context.parse_record(json.dumps(payload)) == mirrored
 
 
 # --- the status reader -------------------------------------------------------
@@ -1543,26 +1589,24 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
         data_root,
         target="standin",
         generation=5,
-        posture={"live": "sandbox"},
         switch={"standin": "on"},
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["switch"] == {"standin": "on"}
     assert isinstance(payload["switch_epoch"], int)
+    # The mirror: every machine not turned on reads as narrowed to an older reader.
+    mirror = {"live": "sandbox", "va": "sandbox"}
+    assert payload["posture"] == mirror
 
     record = control_context.read_record()
-    assert (record.target, record.generation, record.posture) == (
-        "standin",
-        5,
-        {"live": "sandbox"},
-    )
-    assert posture_store.recorded_posture() == {"live": "sandbox"}
+    assert (record.target, record.generation, record.posture) == ("standin", 5, mirror)
+    assert posture_store.recorded_posture() == mirror
 
     hook = _load_target_state_hook(monkeypatch)
     assert hook.parse_record(path.read_text(encoding="utf-8")) == {
         "target": "standin",
         "generation": 5,
-        "posture": {"live": "sandbox"},
+        "posture": mirror,
     }
 
 

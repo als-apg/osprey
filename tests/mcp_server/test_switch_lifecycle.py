@@ -1918,6 +1918,7 @@ class TestConfigDerivedFacts:
             "selected_role": "",
             "real_machine": False,
             "probe_channel": "",
+            "machine_kind": "real",
         }
 
     async def test_the_drain_timeout_comes_from_config_and_falls_back(self, make_manager):

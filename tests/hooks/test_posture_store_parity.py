@@ -6,8 +6,10 @@ outside the osprey venv — so ``osprey_target_state.effective_writes_for``
 restates its rules in stdlib terms. Two implementations of one safety rule
 drift silently, and the drift is only ever visible at a write, so this module
 is the table that pins them together: for every cell of {ceiling} x {recorded
-posture} x {readonly run} x {target}, the hook's answer is the connector
-module's answer.
+switch} x {old posture left in the file} x {readonly run} x {target}, the
+hook's answer is the connector module's answer. Neither side reads the
+record's ``posture`` field for the decision: it is a mirror of the switch, and
+an old ``sandbox`` narrowing with the switch on is allowed on both sides.
 
 Both are exercised IN PROCESS. The connector module is imported here and only
 here — a test may import what the code under test may not, and comparing the
@@ -127,21 +129,34 @@ CEILINGS = [
     ("three-targets-mixed", THREE_TARGETS_MIXED),
 ]
 
-#: ``(name, recorded posture)`` for the posture axis. The two bare strings are
-#: the legacy shapes the session-wide posture wrote before targets existed; the
-#: unknown leaf and the unknown bare string are the hand-edit and future-version
-#: shapes both readers must DROP rather than honour.
+#: ``(name, posture field)`` for the old-posture axis: what a file written before
+#: the mirror may still carry, staged VERBATIM over the mirror the writer
+#: derives. The two bare strings are the legacy shapes the session-wide posture
+#: wrote before targets existed; the unknown leaf and the unknown bare string are
+#: hand-edit and future-version shapes. None of them may move either answer.
 POSTURES = [
-    ("absent", {}),
+    ("empty-map", {}),
     ("legacy-bare-sandbox", "sandbox"),
     ("legacy-bare-writes", "writes"),
     ("unknown-bare-string", "locked"),
     ("live-sandboxed", {"live": "sandbox"}),
     ("va-sandboxed", {"va": "sandbox"}),
     ("standin-sandboxed", {"standin": "sandbox"}),
-    ("both-sandboxed", {"live": "sandbox", "va": "sandbox"}),
+    ("all-sandboxed", {"live": "sandbox", "va": "sandbox", "standin": "sandbox"}),
     ("unknown-leaf", {"live": "locked"}),
-    ("empty-map", {}),
+]
+
+#: Every machine the record can switch on.
+ALL_ON = {"live": "on", "va": "on", "standin": "on"}
+
+#: ``(name, switch)`` for the switch axis — the state both sides decide from.
+#: ``None`` is a record whose switch nothing has turned on.
+SWITCHES = [
+    ("all-off", None),
+    ("live-on", {"live": "on"}),
+    ("va-on", {"va": "on"}),
+    ("live-va-on", {"live": "on", "va": "on"}),
+    ("all-on", ALL_ON),
 ]
 
 #: The target axis. ``None`` is the call whose target could not be identified.
@@ -186,9 +201,19 @@ def stamped_root(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
 
-def write_record(root, posture):
-    """Write the record both readers will read, carrying *posture* verbatim."""
-    return write_control_context(root, posture=posture)
+def write_record(root, posture, switch=None):
+    """Write the record both readers will read: *switch*, and *posture* verbatim.
+
+    The production writer stores the mirror of the switch in ``posture``, so an
+    old narrowing is staged by overwriting that field afterwards — the shape a
+    file written before the mirror still has on disk.
+    """
+    path = write_control_context(root, switch=switch)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["posture"] = posture
+    write_payload(path, payload)
+    posture_store.invalidate_cache()
+    return path
 
 
 def expected_answer(section, target):
@@ -216,12 +241,15 @@ def expected_answer(section, target):
     "target", TARGETS, ids=["target-live", "target-va", "target-standin", "target-none"]
 )
 @pytest.mark.parametrize("_posture_name,posture", POSTURES)
+@pytest.mark.parametrize("_switch_name,switch", SWITCHES)
 @pytest.mark.parametrize("_ceiling_name,section", CEILINGS)
 def test_the_hook_answers_what_the_connector_module_answers(
     stamped_root,
     monkeypatch,
     _ceiling_name,
     section,
+    _switch_name,
+    switch,
     _posture_name,
     posture,
     target,
@@ -229,7 +257,7 @@ def test_the_hook_answers_what_the_connector_module_answers(
 ):
     """Every cell of the truth table, both implementations, one answer."""
     # Arrange
-    write_record(stamped_root, posture)
+    write_record(stamped_root, posture, switch)
     if readonly_run:
         monkeypatch.setenv(reader.EXECUTION_MODE_ENV_VAR, reader.SANDBOX_MODE)
 
@@ -244,17 +272,17 @@ def test_the_hook_answers_what_the_connector_module_answers(
     "target", TARGETS, ids=["target-live", "target-va", "target-standin", "target-none"]
 )
 @pytest.mark.parametrize("_ceiling_name,section", CEILINGS)
-def test_the_narrowing_reaches_a_process_that_carries_no_session_key(
+def test_a_switched_off_record_reaches_a_process_that_carries_no_session_key(
     stamped_root, monkeypatch, _ceiling_name, section, target
 ):
-    """The narrowing is the deployment's, so nothing has to be addressed.
+    """The switch is the owner's, so nothing has to be addressed to a session.
 
-    A bare ``claude``, a dispatch worker and a CLI run carry no session of their
-    own. Each of them writes to the same machine an operator took away, so each
-    of them reads the same record and is refused by it — on both sides.
+    A bare ``claude`` and a CLI run carry no session of their own. Each of them
+    writes to the same machine the owner left off, so each of them reads the
+    same record and is refused by it — on both sides.
     """
     # Arrange
-    write_record(stamped_root, {"live": "sandbox", "va": "sandbox", "standin": "sandbox"})
+    write_record(stamped_root, {}, switch=None)
     monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
 
     # Act / Assert
@@ -265,7 +293,7 @@ def test_the_narrowing_reaches_a_process_that_carries_no_session_key(
 def test_a_blank_session_key_is_no_session_key(stamped_root, monkeypatch):
     """Whitespace is not a key. It attributes a stamp; it narrows nothing."""
     # Arrange
-    write_record(stamped_root, {})
+    write_record(stamped_root, {}, ALL_ON)
     monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "   ")
 
     # Act / Assert
@@ -273,11 +301,13 @@ def test_a_blank_session_key_is_no_session_key(stamped_root, monkeypatch):
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
 
 
-def test_a_corrupt_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
-    """A record nobody can repair from the browser must not wedge every write.
+def test_a_corrupt_record_refuses_on_both_sides(stamped_root):
+    """A record that is there and cannot be parsed is every switch off, on both sides.
 
-    Losing narrowings an operator can set again is the lesser harm, and it is
-    the harm the canonical module chose; the hook may not choose the other one.
+    The canonical reader fails closed on an unreadable record — it cannot tell
+    which machines the owner turned on — and the hook may not choose the other
+    answer. The old posture readers still report nothing narrowed: they are
+    not what decides.
     """
     # Arrange
     path = control_context.record_path_under(stamped_root)
@@ -290,7 +320,7 @@ def test_a_corrupt_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is expected_answer(
         ARMED_BOTH, "live"
     )
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
+    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is False
 
 
 def test_a_non_string_target_is_dropped_by_both_parsers():
@@ -551,7 +581,7 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     # Arrange — the retired file says sandbox for everything; the record does not
     retired = state_dir_under(stamped_root) / "session-postures.json"
     retired.write_text(json.dumps({"k": {"live": "sandbox", "va": "sandbox"}}), encoding="utf-8")
-    write_record(stamped_root, {})
+    write_record(stamped_root, {}, ALL_ON)
 
     # Act / Assert
     assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
@@ -559,21 +589,45 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
 
 
-def test_a_narrowing_in_the_record_holds_with_nothing_at_the_retired_location(stamped_root):
+def test_a_switch_left_off_holds_with_nothing_at_the_retired_location(stamped_root):
     """The safety property the retirement must not disturb.
 
-    A target narrowed in the record stays narrowed when the retired location
-    holds nothing at all — the absence of an old file is not a permissive
-    default, on either side.
+    A machine the owner left off stays refused when the retired location holds
+    nothing at all — the absence of an old file is not a permissive default, on
+    either side.
     """
     # Arrange
-    write_record(stamped_root, {"va": "sandbox"})
+    write_record(stamped_root, {}, {"live": "on"})
 
     # Act / Assert
     assert not (stamped_root / reader.STATE_DIR_NAME / "session-postures.json").exists()
-    assert reader.recorded_posture({}) == posture_store.recorded_posture() == {"va": "sandbox"}
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is False
+    assert posture_store.effective_writes(ARMED_BOTH, "va") is False
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
+    assert posture_store.effective_writes(ARMED_BOTH, "live") is True
+
+
+@pytest.mark.parametrize("old", [{"va": "sandbox"}, "sandbox"], ids=["per-target", "bare"])
+def test_an_old_sandbox_narrowing_with_the_switch_on_is_allowed_on_both_sides(stamped_root, old):
+    """The interim reading is retired: the switch decides, the old field does not.
+
+    A file written before the mirror can still say ``sandbox`` for a machine
+    the owner has since switched on. Both sides read it as parsed — the old
+    readers still report it — and both allow the write, in the verdict and in
+    the rule. A hook that refused here would refuse a write the package allows.
+    """
+    # Arrange
+    write_record(stamped_root, old, ALL_ON)
+
+    # Act / Assert — the old readers still see the narrowing
+    assert "va" in reader.recorded_posture({})
+    assert reader.recorded_posture({}) == posture_store.recorded_posture()
+
+    # and nothing that decides reads it
+    assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
+    assert posture_store.effective_writes(ARMED_BOTH, "va") is True
+    assert reader.write_verdict(ARMED_BOTH, "va").allowed is True
+    assert posture_store.write_verdict(ARMED_BOTH, "va").allowed is True
 
 
 def test_the_target_blind_ceiling_is_deliberately_stricter(stamped_root):
@@ -586,7 +640,7 @@ def test_the_target_blind_ceiling_is_deliberately_stricter(stamped_root):
     granted the more permissive of the two answers, and one of them is hardware.
     """
     # Arrange
-    write_record(stamped_root, {})
+    write_record(stamped_root, {}, ALL_ON)
 
     # Assert — the two ceilings genuinely disagree on this section
     posture = session_posture(MIXED)
@@ -612,6 +666,15 @@ def test_the_target_blind_ceiling_is_deliberately_stricter(stamped_root):
 #: any other test that documents the difference.
 _PRODUCTION_ROOTS = ("packages", "src")
 
+#: The posture store's write-path questions, each taking the target the write
+#: lands on as its second argument. ``effective_writes`` answers the UNION
+#: ceiling when that target is dropped; ``write_verdict`` is the question every
+#: write path asks since the verdict replaced it, and a caller that hands it no
+#: target has stopped naming the machine it writes to. Both are held to the
+#: same rule, so the guard keeps real callers to scan whichever the write paths
+#: call.
+_TARGETED_RULES = ("effective_writes", "write_verdict")
+
 
 def _production_python_files():
     """Every non-test ``.py`` file under :data:`_PRODUCTION_ROOTS`."""
@@ -624,7 +687,7 @@ def _production_python_files():
 
 
 def _effective_writes_calls(path):
-    """``(lineno, call)`` for every ``effective_writes(...)`` in *path*."""
+    """``(lineno, call)`` for every call of a :data:`_TARGETED_RULES` name in *path*."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except (OSError, SyntaxError):  # pragma: no cover - an unreadable file is not a caller
@@ -633,9 +696,9 @@ def _effective_writes_calls(path):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if isinstance(func, ast.Attribute) and func.attr == "effective_writes":
+        if isinstance(func, ast.Attribute) and func.attr in _TARGETED_RULES:
             yield node.lineno, node
-        elif isinstance(func, ast.Name) and func.id == "effective_writes":
+        elif isinstance(func, ast.Name) and func.id in _TARGETED_RULES:
             yield node.lineno, node
 
 
@@ -681,8 +744,9 @@ def test_no_production_caller_takes_the_union_ceiling():
 
     # Assert
     assert offenders == [], (
-        "these callers of posture_store.effective_writes pass no target, so they "
-        "take the UNION ceiling the hook deliberately does not: "
+        "these callers of posture_store.effective_writes / write_verdict pass no "
+        "target, so they take the UNION ceiling the hook deliberately does not, or "
+        "decide a write without naming its machine: "
         + ", ".join(offenders)
         + ". Pass the target the write lands on, or move the call off the write path."
     )
@@ -707,12 +771,17 @@ def test_the_guard_actually_scans_the_callers_that_exist():
     A guard that silently matched nothing — a moved directory, a renamed
     function — would pass forever while the thing it protects rots.
     """
+    repo_root = Path(__file__).resolve().parents[2]
     found = [
-        f"{path.name}:{lineno}"
+        (path.relative_to(repo_root).parts[0], path.name)
         for path in _production_python_files()
-        for lineno, _call in _effective_writes_calls(path)
+        for _lineno, _call in _effective_writes_calls(path)
     ]
     assert found, "the reachability guard found no callers at all; its scan has gone stale"
+    # Both roots are really scanned: the package's own write path and the
+    # framework's connector write tool each ask the verdict.
+    assert ("packages", "_pool.py") in found, found
+    assert ("src", "channel_write.py") in found, found
 
 
 # ---------------------------------------------------------------------------
@@ -795,7 +864,7 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     reset_config_cache()
 
     try:
-        write_control_context(tmp_path / "var" / "agent_data", posture={"live": "sandbox"})
+        write_control_context(tmp_path / "var" / "agent_data", switch={"va": "on"})
 
         assert reader.posture_unknown({}) is False
         assert reader.effective_writes_for({}, ARMED_BOTH, "live") is False
@@ -809,8 +878,8 @@ def test_a_stamped_process_is_never_posture_unknown(stamped_root):
     """The stamp is the deployment handing the directory over.
 
     A stamped process was told where to look, so an empty directory there means
-    exactly what it says — nothing is narrowed — and nothing is refused on the
-    record's account.
+    exactly what it says — no record, every switch off — and is not refused as
+    an unknown posture on top of that.
     """
     assert reader.posture_unknown({}) is False
 
@@ -823,14 +892,15 @@ def test_a_stamped_process_is_never_posture_unknown(stamped_root):
 # ---------------------------------------------------------------------------
 
 
-def test_an_unreadable_record_is_an_unnarrowed_record_on_both_sides(stamped_root):
-    """A record that exists but cannot be read narrows nothing, on both sides.
+def test_an_unreadable_record_refuses_on_both_sides(stamped_root):
+    """A record that exists but cannot be read refuses, on both sides.
 
-    The divergence this pins would surface only as one layer refusing a write
+    Even one whose switch was on: an unreadable record cannot say so. The
+    divergence this pins would surface only as one layer refusing a write
     another allowed, which is the failure mode least likely to be noticed.
     """
     # Arrange
-    path = write_record(stamped_root, {"va": "sandbox"})
+    path = write_record(stamped_root, {}, ALL_ON)
     path.chmod(0o000)
     posture_store.invalidate_cache()
 
@@ -839,7 +909,8 @@ def test_an_unreadable_record_is_an_unnarrowed_record_on_both_sides(stamped_root
         if os.access(path, os.R_OK):  # pragma: no cover - root can read anything
             pytest.skip("this user can read a mode-000 file; the rule is untestable here")
         assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
-        assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
+        assert reader.effective_writes_for({}, ARMED_BOTH, "va") is False
+        assert posture_store.effective_writes(ARMED_BOTH, "va") is False
     finally:
         path.chmod(0o600)
         posture_store.invalidate_cache()
@@ -860,8 +931,8 @@ def test_the_launch_pin_is_the_one_term_the_hook_does_not_restate(stamped_root, 
     somewhere the stamp exists, this test failing is the signal that the
     restatement has to grow the term.
     """
-    # Arrange — nothing narrowed in the record at all; only the run is pinned.
-    write_record(stamped_root, {})
+    # Arrange — every machine on in the record; only the run is pinned.
+    write_record(stamped_root, {}, ALL_ON)
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
     # Act / Assert — the canonical reader refuses, the hook permits.
@@ -873,7 +944,7 @@ def test_the_launch_pin_is_the_one_term_the_hook_does_not_restate(stamped_root, 
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is True
 
 
-def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, monkeypatch):
+def test_an_undecodable_record_refuses_on_both_sides(tmp_path, monkeypatch):
     """Nothing may raise on a record that is not UTF-8 — in a hook or anywhere.
 
     ``UnicodeDecodeError`` is a ``ValueError``, so it slips past the ``OSError``
@@ -883,8 +954,8 @@ def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, m
     unhandled one exits non-zero with no JSON, which PreToolUse reads as "no
     opinion" — the opposite of what an unreadable record must mean), and the
     in-process readers are on the write path, where one mis-encoded file would
-    raise into every posture lookup. Both now answer the unnarrowed record, the
-    same way both already answer it for a truncated one.
+    raise into every posture lookup. Both now answer without raising, and the
+    answer is the one both give a truncated record: unreadable, so refused.
     """
     # Arrange
     root = tmp_path / "var" / "agent_data"
@@ -900,13 +971,13 @@ def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, m
     control_context.record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
     posture_store.invalidate_cache()
 
-    # Act / Assert — both answer, and the deployment ceiling stays in charge
+    # Act / Assert — both answer, and both refuse
     assert reader.read_record({}) is None
     assert reader.recorded_posture({}) == posture_store.recorded_posture() == {}
     assert reader.effective_writes_for({}, ARMED_BOTH, "live") is expected_answer(
         ARMED_BOTH, "live"
     )
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
+    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is False
     posture_store.invalidate_cache()
 
 

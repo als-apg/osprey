@@ -143,35 +143,32 @@ key and no per-type key anywhere. That is the shape every deployment had before
 the per-type key existed, and a hook must leave it exactly as it found it rather
 than reading silence as a refusal.
 
-Recorded posture (a third question, answered from the record)
+Recorded switch (a third question, answered from the record)
 -------------------------------------------------------------
-An operator narrows one control target from the control-target chip in the
-header: "stand-in is read-only, leave the virtual accelerator alone". That
-narrowing is the record's ``posture`` field and is enforced at WRITE time
-rather than delivered by respawning the agent, which is what lets a flip land
-on a session already mid-conversation.
+The person turns writes on for one machine from the control-target chip in the
+header. That is the record's ``switch`` field, ``{target: "on"}``, and it is
+enforced at WRITE time rather than delivered by respawning the agent, which is
+what lets a flip land on a session already mid-conversation.
 
 ``osprey_connectors.posture_store`` is the canonical reader. Hooks cannot import
 it, so its rules are restated here — a change there is a change here.
 
-**1. Whose narrowing it is.** The deployment's. It is keyed by TARGET and by
-nothing else: an operator taking a target away takes it away from every agent
-on this deployment, and a hook that asked whether the narrowing was addressed
-to *its own* session would let a session the operator never saw write to the
-machine they just closed.
+**1. Whose switch it is.** The owner's, resolved by :func:`current_owner`: this
+host's own record, or the owner's record in a bound read-only tree. Work that
+belongs to no owner is governed by the deployment ceiling alone.
 
-**2. What the shapes mean.** ``posture`` is either a per-target object
-(``{"live": "sandbox"}``) or the bare string ``"sandbox"``, which narrows every
-target in :data:`CONTROL_TARGETS`. Bare ``"writes"`` is dropped — the writes
-posture is the *absence* of a narrowing, never a stored assertion, so nothing
-in this field can ever widen. Anything else — an unknown value, a non-string
-key, a leaf nobody recognises — is dropped rather than honoured: what survives
-this filter decides whether a real machine is written to, so a hand-edited or
-future-version entry must not reach the decision.
+**2. What the record's ``posture`` field is.** A mirror of the switch kept for
+old readers — ``sandbox`` for every machine not switched on — and never an
+input to a write decision. A file written before the mirror may still carry an
+old narrowing; :func:`parse_posture` still parses it (``{"live": "sandbox"}``,
+or the bare string ``"sandbox"`` for every target in :data:`CONTROL_TARGETS`;
+anything else is dropped) for :func:`recorded_posture`, and nothing that
+decides a write reads it. An old narrowing with the switch on is allowed, on
+both sides.
 
 **3. How a lookup combines.** :func:`effective_writes_for` is the whole rule::
 
-    ceiling AND not readonly run AND (recorded posture != sandbox)
+    ceiling AND not readonly run AND (recorded switch = on)
 
 The ceiling is the deployment's own posture, read through this module's own
 predicates and never re-derived: :func:`writes_posture` for the target the
@@ -180,8 +177,9 @@ second half is the one place this restatement is deliberately STRICTER than the
 module it restates, which takes the union across configured targets for a caller
 that holds no target at all — right for a roster describing a deployment, wrong
 for a gate, which must not be handed the more permissive of two answers it
-cannot choose between. The record can only narrow the ceiling. With no target
-resolved the MOST RESTRICTIVE entry wins: any sandbox refuses.
+cannot choose between. The record can only narrow the ceiling: no record is
+every switch off, an unreadable one refuses, and with no target resolved every
+machine in :data:`CONTROL_TARGETS` must be on.
 
 **4. When a change is seen.** Every read re-reads the file. The canonical reader
 caches its parse against ``(st_mtime_ns, st_size, st_ino)`` because it lives in
@@ -399,6 +397,7 @@ __all__ = [
     "parse_record",
     "parse_switch",
     "parse_switch_record",
+    "published_machine_kind",
     "posture_unknown",
     "read_json_file",
     "read_record",
@@ -409,13 +408,13 @@ __all__ = [
     "record_path",
     "recorded_posture",
     "refusal_phrase",
+    "refusal_text",
     "resolve_state_dir",
     "selected_target",
     "session_key",
     "session_types",
     "target_metadata",
     "target_posture",
-    "target_sandboxed",
     "target_type",
     "tier_allows",
     "tier_writes",
@@ -805,6 +804,21 @@ def _pid_from_report_name(name):
         return None
 
 
+def _published_targets_in(directory):
+    """The first live server's per-target metadata in *directory*, or ``{}``."""
+    for path in _report_paths(directory):
+        pid = _pid_from_report_name(os.path.basename(path))
+        if pid is None or not _is_process_alive(pid):
+            continue
+        report = read_json_file(path)
+        if report is None:
+            continue
+        targets = report.get("targets")
+        if isinstance(targets, dict) and targets:
+            return targets
+    return {}
+
+
 def _published_targets(hook_input=None):
     """Per-target display metadata as the live controls servers publish it.
 
@@ -821,17 +835,7 @@ def _published_targets(hook_input=None):
     directory = resolve_state_dir(hook_input)
     if not directory:
         return {}
-    for path in _report_paths(directory):
-        pid = _pid_from_report_name(os.path.basename(path))
-        if pid is None or not _is_process_alive(pid):
-            continue
-        report = read_json_file(path)
-        if report is None:
-            continue
-        targets = report.get("targets")
-        if isinstance(targets, dict) and targets:
-            return targets
-    return {}
+    return _published_targets_in(directory)
 
 
 def read_target_view(hook_input=None):
@@ -1105,8 +1109,12 @@ def most_restrictive_posture(section):
 
 
 def recorded_posture(hook_input=None):
-    """The narrowings the record carries — ``{target: "sandbox"}``.
+    """The record's ``posture`` field as parsed — ``{target: "sandbox"}``.
 
+    The counterpart of ``posture_store.recorded_posture``, kept for old
+    readers: the field is a mirror of the switch, or an old narrowing in a
+    file written before the mirror, and no write decision here reads it —
+    :func:`effective_writes_for` and :func:`write_verdict` read the switch.
     Empty when there is no readable record. That is not the same claim as
     "nothing was narrowed": :func:`posture_unknown` is the predicate that tells
     the two apart, and it refuses on exactly the shape where an empty answer
@@ -1141,18 +1149,6 @@ def target_posture(target, hook_input=None):
     process happens to carry.
     """
     return _posture_for(recorded_posture(hook_input), target)
-
-
-def target_sandboxed(hook_input, target):
-    """Whether the operator narrowed this target. Never raises.
-
-    The record half of :func:`effective_writes_for` on its own, for a caller
-    that already knows writes are refused and needs to say WHICH refusal it is:
-    a narrowing is lifted on the header chip, an unarmed deployment in
-    config.yml, and telling an operator the wrong one sends them to a control
-    that will not move.
-    """
-    return target_posture(target, hook_input) == POSTURE_SANDBOX
 
 
 def is_readonly_run():
@@ -1205,12 +1201,13 @@ def effective_writes_for(hook_input, section, target):
 
     Rule 3 of the restated posture contract, spelled once::
 
-        ceiling AND not readonly run AND (recorded posture != sandbox)
+        ceiling AND not readonly run AND (recorded switch = on)
 
     The ceiling is :func:`writes_posture` for the target the record states, and
     :func:`most_restrictive_posture` when it states none — the fail-closed half,
     and the one place this restatement is stricter than the module it restates
-    (see the module docstring). The record can only narrow it.
+    (see the module docstring). The record can only narrow it, through
+    :func:`_record_permits`; its ``posture`` field is not read.
 
     Args:
         hook_input: The hook's stdin payload, for repo-root resolution.
@@ -1219,14 +1216,64 @@ def effective_writes_for(hook_input, section, target):
 
     Returns:
         ``True`` only when the deployment arms this machine, the process is not
-        a read-only run, and the operator has not narrowed it.
+        a read-only run, and the owner's switch is on for it.
     """
-    ceiling = writes_posture(section, target) if target else most_restrictive_posture(section)
-    if ceiling is not True:
+    try:
+        ceiling = writes_posture(section, target) if target else most_restrictive_posture(section)
+        if ceiling is not True:
+            return False
+        if is_readonly_run():
+            return False
+        return _record_permits(hook_input, target)
+    except Exception:  # pragma: no cover - defensive; a reader refuses, never raises
         return False
-    if is_readonly_run():
+
+
+def _switched_on(record, target):
+    """Whether *record*'s switch arms *target*. Mirrors ``posture_store._switched_on``.
+
+    ``False`` for no record: an absent record is every switch off. With no
+    target every machine in :data:`CONTROL_TARGETS` must be on, the most
+    restrictive answer for a caller that cannot say which machine it means.
+    """
+    if record is None:
         return False
-    return not target_sandboxed(hook_input, target)
+    switch = record.get("switch") or {}
+    if target:
+        return switch.get(target) == SWITCH_ON
+    return all(switch.get(name) == SWITCH_ON for name in CONTROL_TARGETS)
+
+
+def _record_permits(hook_input, target):
+    """The record clause of :func:`effective_writes_for`. May raise.
+
+    Mirrors ``posture_store.record_verdict_detail``, rung for rung: work that
+    belongs to no owner (:data:`NO_OWNER`) is the ceiling alone; an owner that
+    is not a name refuses; a bound tree is read through
+    :func:`read_tree_record` and refuses when unusable, never falling back to
+    this host; otherwise this host's record through
+    :func:`read_record_status`, where ``unreadable`` refuses and ``missing``
+    is every switch off. The answer is the switch (:func:`_switched_on`).
+    """
+    resolved = current_owner()
+    if resolved is NO_OWNER:
+        return True
+    if not isinstance(resolved, str):
+        return False
+    if _tree_is_bound():
+        tree = _control_context_tree()
+        if tree is None:
+            return False
+        record, unavailable = read_tree_record(tree, resolved)
+        if unavailable:
+            return False
+    else:
+        record, status = read_record_status(hook_input)
+        if status == "unreadable":
+            return False
+        if status != "ok":
+            record = None
+    return _switched_on(record, target)
 
 
 # -- the write verdict -----------------------------------------------------
@@ -1235,9 +1282,9 @@ def effective_writes_for(hook_input, section, target):
 # order, so a write the connector refuses is refused here for the same reason
 # and in the same words. Every name below restates a package symbol and says
 # which; ``tests/hooks/test_write_verdict_twin.py`` drives the shared case table
-# through both and compares the word tables key by key. The older readers above
-# are untouched: they answer the questions the hooks ask today, and this
-# section answers the one they will ask once the switch replaces the posture.
+# through both and compares the word tables key by key. Neither this section
+# nor :func:`effective_writes_for` above reads the record's ``posture`` field:
+# the switch is the state, and an old narrowing left in a file refuses nothing.
 
 #: The stamped owner of a dispatch job's work. Mirrors
 #: ``posture_store.CONTROL_OWNER_ENV_VAR``; a blank value is the unset case.
@@ -1278,8 +1325,13 @@ _LOGIN_TIERS = (TIER_ALLOWED, TIER_NEVER)
 #: The one switch value that arms a target. Mirrors ``control_context._SWITCH_ON``.
 SWITCH_ON = "on"
 
-#: The kind of machine each target names. Mirrors ``types._MACHINE_KINDS``.
-_MACHINE_KINDS = {TARGET_LIVE: "real", TARGET_STANDIN: "rehearsal", TARGET_VA: "simulator"}
+#: The kind of machine each target names by its name alone. Mirrors
+#: ``types._MACHINE_KINDS``: ``standin`` is ``real`` by name, and only the
+#: published report (:func:`published_machine_kind`) calls it the rehearsal.
+_MACHINE_KINDS = {TARGET_LIVE: "real", TARGET_STANDIN: "real", TARGET_VA: "simulator"}
+
+#: The report key a target's published kind sits under. Mirrors ``types._MACHINE_KIND_KEY``.
+_MACHINE_KIND_KEY = "machine_kind"
 
 # What makes an owner name unusable as one directory of the tree. Mirrors
 # ``posture_store._TREE_UNSAFE``.
@@ -1303,7 +1355,8 @@ REASONS = (
 # Mirrors ``refusals._PHRASES`` word for word.
 _PHRASES = {
     "readonly_run": (
-        "Writes are refused because the deployment is running read-only; the chip cannot lift this."
+        "Writes are refused because the deployment is running read-only; "
+        "the chip cannot lift this — ask the deployment admin."
     ),
     "tier_never": (
         "Writes are refused because this login's write tier does not allow them; "
@@ -1367,6 +1420,19 @@ def refusal_phrase(reason, kind=None):
         raise ValueError(f"unknown refusal reason: {reason!r}") from None
     words = KIND_WORDS.get(kind) if isinstance(kind, str) else None
     return f"{phrase} (Concerns {words}.)" if words else phrase
+
+
+def refusal_text(reason, kind=None, *, detail=None):
+    """The refusal a write path returns: the phrase, then ``[osprey-refusal: <reason>]``.
+
+    Mirrors ``refusals.refusal_text``: *detail* follows the phrase on its line,
+    the trailer is its own last line, and a reason outside :data:`REASONS`
+    raises ``ValueError``.
+    """
+    phrase = refusal_phrase(reason, kind)
+    if detail:
+        phrase = f"{phrase} {detail}"
+    return f"{phrase}\n[osprey-refusal: {reason}]"
 
 
 class NoOwner:
@@ -1467,6 +1533,30 @@ def machine_kind(section, target):
         return _MACHINE_KINDS.get(target)
     except Exception:
         return None
+
+
+def published_machine_kind(target, *, state_dir=None, hook_input=None):
+    """The kind of machine *target* is, as the controls server publishes it.
+
+    Mirrors ``types.published_machine_kind``: ``standin`` is ``rehearsal`` only
+    when the first live server's report says so for it — no live report, no
+    key, or any other value reads ``real``. Every other target answers from the
+    name table (``va`` the simulator, ``live`` and anything unknown the real
+    machine). *state_dir* names the reports' directory; ``None`` resolves it
+    through :func:`resolve_state_dir` from *hook_input*. Never raises.
+    """
+    if target != TARGET_STANDIN:
+        return _MACHINE_KINDS.get(target, "real") if isinstance(target, str) else "real"
+    try:
+        directory = resolve_state_dir(hook_input) if state_dir is None else os.fspath(state_dir)
+        if not directory:
+            return "real"
+        meta = _published_targets_in(directory).get(TARGET_STANDIN)
+    except Exception:
+        return "real"
+    if isinstance(meta, dict) and meta.get(_MACHINE_KIND_KEY) == "rehearsal":
+        return "rehearsal"
+    return "real"
 
 
 def launch_pin_term(target):
@@ -1752,10 +1842,7 @@ def _write_refusal(section, target, owner, ignore_launch_pin, hook_input):
 
     if record is None:
         return "switch_off"
-    if (
-        record["switch"].get(target) != SWITCH_ON
-        or record["posture"].get(target) == POSTURE_SANDBOX
-    ):
+    if record["switch"].get(target) != SWITCH_ON:
         return "switch_off"
 
     if not ignore_launch_pin and launch_pin_term(target) != "none":
@@ -1773,8 +1860,9 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
     bound and an owner that is not :func:`acting_identity`), the login-tier rung
     (``owner_unknown`` / ``tier_never``), ``record_unavailable`` (the tree
     record under a bound tree, else this host's record — absent is not
-    unavailable), ``switch_off`` (not ``"on"`` for *target*, or a recorded
-    ``sandbox`` for it), and ``launch_pinned`` unless *ignore_launch_pin*.
+    unavailable), ``switch_off`` (not ``"on"`` for *target*; the record's
+    ``posture`` field is not read, so an old ``sandbox`` narrowing with the
+    switch on is allowed), and ``launch_pinned`` unless *ignore_launch_pin*.
 
     Args:
         section: The ``control_system:`` config section, as loaded.
@@ -1791,6 +1879,8 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
     """
     named = target if isinstance(target, str) else None
     kind = machine_kind(section, target)
+    if kind is not None:
+        kind = published_machine_kind(target, hook_input=hook_input)
     try:
         reason = _write_refusal(section, target, owner, ignore_launch_pin, hook_input)
     except Exception:
