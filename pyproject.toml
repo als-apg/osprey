@@ -245,7 +245,7 @@ dependencies = [
     # the same `pyaml/` package directory, so this one is never installed beside
     # accelerator-middle-layer. String-equal to the pin in
     # packages/pyaml-cs-osprey/pyproject.toml (a test holds them together).
-    "accelerator-middle-layer-apg==0.3.1.post1",
+    "accelerator-middle-layer-apg==0.3.1.post2",
     # pySC, the measurement engine pyAML's tuning tools drive.
     "accelerator-commissioning==1.5.3",
 ]
@@ -493,7 +493,7 @@ pyat = "osprey.simulation.engines.pyat"
 # package's upload date; none is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z", accelerator-middle-layer-apg = "2026-10-11T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-30T00:00:00Z", accelerator-middle-layer-apg = "2026-10-17T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
