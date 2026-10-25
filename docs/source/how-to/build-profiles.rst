@@ -378,20 +378,13 @@ report success and then break every later build.
    symlinks, and the scan does not descend into a symlinked directory. Read it
    as the rule the build holds you to, not as a boundary it enforces.
 
-The ``data:`` tree is the exception
------------------------------------
-
 ``data:`` is a path the profile *names*, not material the build finds by
-convention, and it is checked differently. The path resolves against the
-profile directory, and only its existence and shape are checked — that it is
-there, and that it is a directory. Containment is never checked, so a tree may
-sit above the profile directory (``data: ../shared-data``): a tree more than
-one profile builds from can live beside them rather than inside either.
-
-Staleness is unaffected. The resolved tree is folded into the profile hash
-wherever it sits, so editing it still reports the built project as out of date.
-The exception is about where the tree may live, not about the build losing
-sight of it.
+convention. It resolves against the profile directory and must resolve inside
+the repository, as must every file the profile ``extends``. ``osprey validate``
+and ``osprey build`` refuse a profile that reads anything outside the
+repository, before anything is installed, naming the path. The resolved tree is
+folded into the profile hash, so editing it reports the built project as out of
+date.
 
 
 .. _profile-claim:
