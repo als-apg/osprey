@@ -1188,3 +1188,170 @@ def test_logs_help_states_that_both_stacks_are_covered():
     help_text = logs_verb.__doc__ or ""
 
     assert "web-terminal stack" in help_text
+
+
+# ---------------------------------------------------------------------------
+# Writes: per login its tier, its record's target, and which machines are on
+# ---------------------------------------------------------------------------
+
+
+def _write_record(repo: Path, identity: str, *, target: str, switch: dict | None = None) -> None:
+    """One identity's control-context record, where the deploy binds the tree."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    directory = control_target_identity_dir({}, repo, identity)
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": 1,
+        "owner": None,
+        "target": target,
+        "generation": 1,
+        "posture": {},
+        "last_switch": None,
+        "switch": switch or {},
+        "switch_epoch": None,
+    }
+    (directory / RECORD_FILENAME).write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _render(repo: Path, name: str, writes: str) -> dict:
+    """A rendered tier project whose ``control_system.writes`` is *writes*."""
+    project = repo / "build" / f"demo-{name}"
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "config.yml").write_text(f"control_system:\n  writes: {writes}\n", encoding="utf-8")
+    return {"kind": "tier", "project": f"demo-{name}", "project_path": f"build/demo-{name}"}
+
+
+def _multi_user_config(repo: Path, **web_terminals) -> dict:
+    block = {
+        "enabled": True,
+        "users": [{"name": "alice", "tier": "operator"}, {"name": "bob", "tier": "viewer"}],
+        "renders": {
+            "operator": _render(repo, "operator", "allowed"),
+            "viewer": _render(repo, "viewer", "never"),
+        },
+    }
+    block.update(web_terminals)
+    return {"modules": {"web_terminals": block}}
+
+
+def _rows_by_login(config: dict, repo: Path) -> dict[str, list[str]]:
+    return {login: row for login, *row in status_display.writes_rows(config, repo)}
+
+
+def _writes_text(config: dict, repo: Path) -> str:
+    status_display._print_writes_section(config, repo)
+    return _CAPTURE["console"].export_text()
+
+
+def test_single_user_lists_its_record_at_the_deployments_own_tier(tmp_path):
+    _write_record(tmp_path, "thorsten", target="standin", switch={"standin": "on"})
+    config = {"control_system": {"writes": "allowed"}}
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert rows == [("thorsten", "allowed", "standin", "standin")]
+    text = _writes_text(config, tmp_path)
+    assert "Writes:" in text
+    assert "not in the roster" not in text
+
+
+def test_single_user_with_no_record_says_every_machine_is_off(tmp_path):
+    text = _writes_text({"control_system": {"writes": "allowed"}}, tmp_path)
+
+    assert "Writes:" in text
+    assert "every machine's writes are off" in text
+
+
+def test_multi_user_lists_each_login_with_its_tier_target_and_machines(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "alice", target="live", switch={"live": "on", "standin": "on"})
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert rows == [
+        ("alice", "allowed", "live", "live, standin"),
+        # No record is every switch off; nothing is created to say so.
+        ("bob", "never", "—", "off"),
+    ]
+    from osprey.deployment.compose_generator import control_target_identity_dir
+
+    assert not control_target_identity_dir({}, tmp_path, "bob").exists()
+
+
+def test_an_on_under_a_never_tier_is_marked_inert(tmp_path):
+    """O-3: a demoted login's "on" stays recorded and inert."""
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "bob", target="standin", switch={"standin": "on"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["bob"] == ["never", "standin", "standin on — tier never, inert"]
+    assert "standin on — tier never, inert" in _writes_text(config, tmp_path)
+
+
+def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "mallory", target="live", switch={"live": "on"})
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert rows[-1] == ("mallory", "not in the roster", "live", "live")
+    assert [row[0] for row in rows] == ["alice", "bob", "mallory"]
+
+
+def test_an_unreadable_record_reads_refused_never_off(tmp_path):
+    """Carried R3 CF-6: fail closed and say so."""
+    from osprey.deployment.compose_generator import control_target_identity_dir
+    from osprey_connectors.control_context import RECORD_FILENAME
+
+    config = _multi_user_config(tmp_path)
+    directory = control_target_identity_dir({}, tmp_path, "alice")
+    directory.mkdir(parents=True)
+    (directory / RECORD_FILENAME).write_text("{not json", encoding="utf-8")
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "?", "record unreadable — writes refused"]
+    text = _writes_text(config, tmp_path)
+    assert "record unreadable — writes refused" in text
+
+
+def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
+    """Carried R2 CF-4: the claim picks the role, so no file here names the tier."""
+    config = _multi_user_config(
+        tmp_path,
+        users=[{"name": "alice", "role": "operator"}, {"name": "carol"}],
+        default_tier="viewer",
+        auth={"method": "oidc"},
+        authorization={
+            "roles": {"operator": {"tier": "operator"}, "expert": {"tier": "viewer"}},
+            "claims": {"claim": "groups", "map": {"ops": "operator", "experts": "expert"}},
+        },
+    )
+    _write_record(tmp_path, "carol", target="standin", switch={"standin": "on"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "—", "off"]
+    assert rows["carol"] == ["by role at sign-in", "standin", "standin"]
+
+
+def test_a_render_that_cannot_be_read_answers_unknown_not_a_guess(tmp_path):
+    config = _multi_user_config(tmp_path)
+    (tmp_path / "build" / "demo-operator" / "config.yml").unlink()
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "unknown"
+
+
+@pytest.mark.usefixtures("runtime")
+def test_status_prints_the_writes_section_after_the_endpoints(lifecycle_repo):
+    render_build(lifecycle_repo)
+
+    text = report(lifecycle_repo)
+
+    assert "Writes:" in text
+    assert text.index("Writes:") < text.index("Agent:")
