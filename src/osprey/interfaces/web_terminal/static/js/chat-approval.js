@@ -15,6 +15,7 @@ import { button, elem } from './chat-dom.js';
 import { inputDetail, inputView } from './chat-format.js';
 import { CATEGORY_ICON, summarizeInput, toolCategory } from './chat-tool-vocab.js';
 import { deliver } from './chat-permission.js';
+import { KIND_BANNERS, KIND_WORDS, machineKind } from './control-target-facts.js';
 
 /** @typedef {import('./chat-icons.js').ChatIconName} ChatIconName */
 /** @typedef {import('./chat-dom.js').WireEvent} WireEvent */
@@ -22,6 +23,30 @@ import { deliver } from './chat-permission.js';
 /** @typedef {import('./chat-permission.js').PermissionCard} PermissionCard */
 /** @typedef {import('./chat-tool-cards.js').ToolRow} ToolRow */
 /** @typedef {import('./chat-tool-cards.js').Decision} Decision */
+
+/**
+ * The line naming the machine a write lands on, from the frame's `target`
+ * (C-FRAME): its key and what a write there does, under the same
+ * `data-target-kind` the chip sets, so the stylesheet colours both alike.
+ * `null` when the call writes nothing or cannot be placed. A kind outside the
+ * three reads as the real machine, and then its words are the real machine's
+ * too rather than whatever the frame said.
+ * @param {any} target
+ * @returns {HTMLElement | null}
+ */
+function targetLine(target) {
+  if (!target || typeof target !== 'object') return null;
+  const kind = machineKind(target);
+  const published = String(target.machine_kind || '').trim().toLowerCase();
+  const sent = typeof target.kind_words === 'string' ? target.kind_words.trim() : '';
+  const words = published === kind && sent ? sent : KIND_BANNERS[kind] ?? KIND_WORDS[kind];
+  const line = elem('p', 'op-card-target');
+  line.dataset.targetKind = kind;
+  const key = String(target.key || '').trim();
+  if (key) line.append(elem('span', 'op-card-target-key', key), elem('span', 'op-card-target-sep', '·'));
+  line.append(elem('span', 'op-card-target-words', words));
+  return line;
+}
 
 /** Numbers the card titles, so each card can name its group by its title. */
 let cardSeq = 0;
@@ -60,6 +85,8 @@ export function createApprovalCard(request, hooks) {
   const body = elem('div', 'op-card-body');
   const reason = typeof request.reason === 'string' ? request.reason.trim() : '';
   if (reason && !isPlan) body.append(elem('p', 'op-card-reason', reason));
+  const target = isPlan ? null : targetLine(request.target);
+  if (target) body.append(target);
 
   if (isPlan) {
     const plan = elem('div', 'op-card-plan osprey-md-rendered');
