@@ -188,8 +188,8 @@ stand-in carries no errors of its own: it exists to rehearse the live safety
 posture, not different physics. The two machines are told apart by a write to
 the sandbox not showing on the stand-in and by the model RPC status naming its
 instance (``virtual_accelerator`` or ``live_standin``). The label stays honest:
-the banner reads ``LIVE MACHINE (stand-in)`` and the Web Terminal's header chip
-reads ``STAND-IN``.
+the banner reads ``Rehearsal — nothing moves`` and the Web Terminal's header
+chip reads *Rehearsal*.
 :doc:`switch-control-target` has the ritual itself.
 
 **Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file

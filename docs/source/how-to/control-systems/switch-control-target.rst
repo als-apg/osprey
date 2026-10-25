@@ -266,10 +266,10 @@ The popover on the tutorial deployment, whose baseline is the stand-in: the
 
 Each machine carries:
 
-- **A writes switch** — the write state on that machine, for the whole
-  deployment, and the control that changes it, in one widget. Turning writes
-  off applies as you click; turning them on asks first. Where the deployment
-  locks writes the switch is disabled, with the reason on hover.
+- **A writes switch** — your login's switch for that machine, and the control
+  that changes it, in one widget. Turning writes off applies as you click and
+  nothing refuses it; turning them on asks first. A switch that is off and
+  cannot be turned on is disabled, with the reason on hover.
 - **A small ⓘ** after the name — what writing to this machine means (*Writes
   move hardware*, or one of the *nothing moves* lines), the endpoint, and the
   controls server's own technical label, shown on hover or keyboard focus.
@@ -283,16 +283,16 @@ Each machine carries:
   leaves the row after a minute — an outcome is news for about as long as
   someone is watching for it.
 
-The foot's **Turn all writes off** takes writes away from every machine it can
-in one click, and reports any machine it could not narrow rather than
-dropping it. Everything in the popover is per machine and applies to the whole
-deployment; :doc:`../web-terminal/operate` walks the whole surface, including
-the write states themselves.
+The foot's **Turn all writes off** turns every switch of your login off in one
+click. It stops your login's writes only; other logins keep theirs. A switch
+is one login's: two logins on one machine never change each other's writes.
+:doc:`../web-terminal/operate` walks the whole surface, including what the
+chip cannot lift and who can.
 
 One process holds the deployment's control context at a time, and only that
-one writes to it. A second web terminal running against the same deployment
-data still renders the roster — worth reading — but its buttons are disabled,
-with a banner naming the holder and the port it is on.
+one moves the deployment. A second web terminal of the same login turns
+switches on and off as the first does, but its **Switch to** buttons give way
+to a phrase naming the holder.
 
 What a deployment needs first
 =============================
@@ -554,9 +554,9 @@ The switch would be a hazard if it were quiet. It is not:
 - **Every approval prompt names the target**, not only the write prompts — a
   queue start, a patch or an execution all carry the line too, so its absence is
   never something you learn to read as safe. The live machine is named as
-  ``LIVE MACHINE`` with the gateway the deployment actually holds; the stand-in as
-  ``LIVE MACHINE (stand-in)``; the simulator as
-  ``virtual accelerator (simulation)``. If the target cannot be read at all, the
+  ``Real machine — writes move hardware`` with the gateway the deployment
+  actually holds; the stand-in as ``Rehearsal — nothing moves``, in amber; the
+  simulator as ``virtual accelerator (simulation)``. If the target cannot be read at all, the
   line says so explicitly instead of disappearing. (The web terminal names the
   same machines by what they are --- *Real machine*, *Rehearsal*, *Simulator*,
   or the deployment's own configured names --- and keeps these technical labels
@@ -687,7 +687,7 @@ others and their archivers.
 does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
-banner reads ``LIVE MACHINE (stand-in)``, the roster says the same, and the
+banner reads ``Rehearsal — nothing moves``, the roster says the same, and the
 web terminal's header chip reads *Rehearsal* — named for what it is for, with
 the technical label kept on its ⓘ tooltip. It carries a real machine's posture — the
 same limits, the same approval prompts — because it is operated as one, not
