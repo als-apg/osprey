@@ -3005,7 +3005,9 @@ def create_app(
             },
         )
 
-    configure_interface_app(app, static_dir=STATIC_DIR)
+    # frame_ancestors: console-origin HTML, proxied panel pages included, may
+    # only be framed by the console itself (Q1-C6).
+    configure_interface_app(app, static_dir=STATIC_DIR, frame_ancestors=True)
 
     return app
 
