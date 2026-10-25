@@ -66,11 +66,9 @@ from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
 from .queue_backend import (
     PLAN_META_KEY,
-    FunctionFailedError,
-    FunctionTimeoutError,
+    REFUSAL_REASONS,
     QueueBackend,
     QueueBackendError,
-    QueueUnavailableError,
     run_id_of,
 )
 from .session_dir import resolve_session_plan_dir
@@ -1187,17 +1185,24 @@ _PREVIEW_FUNCTION = "preview_plan"
 # must not be able to bury the summary it accompanies.
 _PREVIEW_DETAIL_CHARS = 2000
 
-# Why no trajectory could be summarized. Every one of them is a 200 answer
-# carrying the same payload shape as a successful summary, so the approval hook
-# reads `ok` and renders either the trajectory or the reason it has none —
-# never a status code, and never an error branch of its own.
+# The pre-flight's own words, for causes that are its own. A backend failure is
+# named by the backend's reason, a key of `REFUSAL_REASONS`, and the two sets
+# share no word. Every answer is a 200 carrying the same payload shape as a
+# successful summary, so the approval hook reads `ok` and renders either the
+# trajectory or the reason it has none — never a status code, and never an
+# error branch of its own.
 PREVIEW_REASON_UNKNOWN_PLAN = "unknown_plan"
 PREVIEW_REASON_CATALOG_UNAVAILABLE = "plan_catalog_unavailable"
-PREVIEW_REASON_QUEUE_UNREACHABLE = "queue_unreachable"
-PREVIEW_REASON_REFUSED = "preview_refused"
-PREVIEW_REASON_TIMED_OUT = "preview_timed_out"
 PREVIEW_REASON_FAILED = "preview_failed"
 PREVIEW_REASON_PLAN_ERROR = "plan_error"
+PREVIEW_REASONS: frozenset[str] = frozenset(
+    {
+        PREVIEW_REASON_UNKNOWN_PLAN,
+        PREVIEW_REASON_CATALOG_UNAVAILABLE,
+        PREVIEW_REASON_FAILED,
+        PREVIEW_REASON_PLAN_ERROR,
+    }
+)
 
 
 def _declared_channels(spec: PlanSpec[Any], params: Any) -> list[dict[str, str]]:
@@ -1251,7 +1256,14 @@ def _preview_unavailable(
     still be derived, because "these are the channels this launch declares it
     would move" stays true and stays worth showing even when the trajectory
     behind them is unavailable.
+
+    ``reason`` is one of the pre-flight's own words or a backend reason; any
+    other code fails here, where it is made. ``retryable`` is the backend row's
+    answer for a backend reason, and false for the pre-flight's own words: none
+    of them names a cause a retry can fix that this code can tell apart.
     """
+    if reason not in PREVIEW_REASONS and reason not in REFUSAL_REASONS:
+        raise ValueError(f"{reason!r} is not a declared pre-flight or backend reason")
     return {
         "ok": False,
         "plan": name,
@@ -1262,6 +1274,7 @@ def _preview_unavailable(
         "move_cap": None,
         "reason": reason,
         "detail": detail[:_PREVIEW_DETAIL_CHARS],
+        "retryable": REFUSAL_REASONS[reason].retryable if reason in REFUSAL_REASONS else False,
     }
 
 
@@ -1295,19 +1308,19 @@ async def preview_plan(name: str, request: Request) -> dict:
       unknown name is one more reason the gate has no trajectory to show, and
       it arrives in the same shape as every other.
     - ``plan_catalog_unavailable`` — the plan registry itself could not be read.
-    - ``queue_unreachable`` — no queue server could be asked to walk the plan:
-      none is configured, none answered, or the connection to one could not be
-      built from this deployment's settings at all.
-    - ``preview_refused`` — the queue server answered and refused the call. Its
-      own sentence is relayed in ``detail``: the pre-flight function may not be
-      permitted for this deployment, or the worker may not be able to take the
-      call right now. The two are not told apart here, because the queue server
-      does not distinguish them in any way this process could read without
-      pattern-matching its prose.
-    - ``preview_timed_out`` — the call was accepted but had not finished inside
-      the backend's budget.
-    - ``preview_failed`` — the worker ran the pre-flight and the call itself
-      failed, or answered with something that is not a summary.
+    - a backend failure — the queue backend's own ``reason`` and its
+      ``retryable``, with the backend's sentence in ``detail``. The common ones:
+      ``manager_not_configured`` (this deployment holds no queue server),
+      ``manager_unreachable`` (one is configured and did not answer),
+      ``queue_request_rejected`` (it answered and refused the call — the
+      pre-flight function may not be permitted, or the worker may not be able
+      to take it right now; its own sentence is relayed because it does not
+      tell the two apart in anything this process could read),
+      ``function_timeout`` (accepted, unfinished inside the backend's budget)
+      and ``function_failed`` (the call went wrong after it was taken).
+    - ``preview_failed`` — the pre-flight answered with something that is not a
+      summary, or failed in a way this route cannot classify. The failure's
+      own text is relayed in ``detail`` and no cause is named for it.
     - ``plan_error`` — the parameters are what could not produce a plan:
       parameters that do not validate, a channel the worker has no device for,
       anything the plan itself raises. ``detail`` carries the worker's own
@@ -1322,7 +1335,8 @@ async def preview_plan(name: str, request: Request) -> dict:
     ``truncated``, and the ``move_cap`` the worker collected up to — plus
     ``channels``, this process's own reading of the plan's role declaration
     against these parameters. ``channels`` is present on every answer, success
-    or not, whenever the plan is known.
+    or not, whenever the plan is known. ``retryable`` is present on every
+    answer: false on success and for the pre-flight's own words.
     """
     from .plan_loader import get_facility_plans
 
@@ -1365,27 +1379,15 @@ async def preview_plan(name: str, request: Request) -> dict:
 
     try:
         payload = await get_queue_backend().function_execute(_PREVIEW_FUNCTION, name, plan_params)
-    except QueueUnavailableError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_QUEUE_UNREACHABLE, str(exc))
-    except FunctionTimeoutError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_TIMED_OUT, str(exc))
-    except FunctionFailedError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_FAILED, str(exc))
     except QueueBackendError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_REFUSED, str(exc))
+        return _preview_unavailable(name, channels, exc.reason, str(exc))
     except Exception as exc:
-        # The rungs above name what `queue_backend` translates, and a typed
-        # ladder is only as total as its base class: building the connection
-        # from a malformed environment happens before any translation exists,
-        # and upstream's client raises types of its own that the backend does
-        # not rewrite. Neither may reach an approver as a 500, so the ladder
-        # ends on a rung that cannot be fallen off.
+        # The ladder ends on a rung that cannot be fallen off, and that rung
+        # names no cause: a failure outside the backend's vocabulary is relayed
+        # in its own text and never reaches an approver as a 500.
         logger.warning("pre-flight: the queue call for %r failed", name, exc_info=True)
         return _preview_unavailable(
-            name,
-            channels,
-            PREVIEW_REASON_QUEUE_UNREACHABLE,
-            f"The queue server could not be reached: {exc}",
+            name, channels, PREVIEW_REASON_FAILED, str(exc) or type(exc).__name__
         )
 
     if not isinstance(payload, dict):
@@ -1429,6 +1431,7 @@ async def preview_plan(name: str, request: Request) -> dict:
         "move_cap": payload.get("move_cap"),
         "reason": None,
         "detail": None,
+        "retryable": False,
     }
 
 

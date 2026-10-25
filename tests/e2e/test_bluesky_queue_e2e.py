@@ -148,7 +148,7 @@ from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
-# The nine keys every pre-flight answer carries, success or not: the approval
+# The ten keys every pre-flight answer carries, success or not: the approval
 # gate reads `ok` and never a status code, so the shape cannot vary with the
 # outcome.
 _PREVIEW_KEYS = {
@@ -161,6 +161,7 @@ _PREVIEW_KEYS = {
     "move_cap",
     "reason",
     "detail",
+    "retryable",
 }
 
 # The six keys of a data read's analysis block, present whether or not the
