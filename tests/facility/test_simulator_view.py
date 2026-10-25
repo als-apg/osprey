@@ -656,12 +656,19 @@ def test_each_attached_file_is_a_byte_copy_beside_the_scenarios(
         )
 
 
-def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(tmp_path: Path) -> None:
-    from tests._builds import init_project, run_build
+def test_a_rebuild_drops_the_copy_of_a_file_no_entry_attaches_any_more(
+    tmp_path: Path, built_control_assistant: BuiltProject
+) -> None:
+    from tests._builds import run_build
 
-    repo = init_project(tmp_path, "control-assistant", "demo")
+    # The shared build is the first build of this same preset and name; the
+    # built repo holds no absolute path and no symlink, so a byte copy of it,
+    # build directory included, is that first build, and the rebuild mutates
+    # the copy alone.
+    source = built_control_assistant.repo
+    repo = tmp_path / source.name
+    shutil.copytree(source, repo, symlinks=True)
     copy_of = repo / BUILD_DIR_NAME / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
-    assert run_build(repo).exit_code == 0
     assert copy_of.is_file()
     nominal = repo / "data" / "facility" / "scenarios" / "nominal.yaml"
     authored = yaml.safe_load(nominal.read_text(encoding="utf-8"))

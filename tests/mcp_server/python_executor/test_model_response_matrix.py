@@ -51,8 +51,10 @@ LINE_TWISS = {
 #: Wide enough for a cold child to import pyAT and solve two SR columns.
 TIMEOUT_S = 120
 
-#: The executor timeout the spinning plug-in is stopped at.
-SPIN_TIMEOUT_S = 15
+#: The executor timeout the spinning plug-in is stopped at: wide enough for a
+#: cold child on the slowest runner to load the view and enter the plug-in,
+#: which then never returns, so the stop always lands on a spinning solve.
+SPIN_TIMEOUT_S = 60
 
 
 def _envelope(raised: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:

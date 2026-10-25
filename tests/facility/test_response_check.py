@@ -134,6 +134,18 @@ def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
+def nsls2_checks(nsls2: Path) -> tuple[ModelCheck, ...]:
+    """The response check of the clean nsls2 tree, which its cases only read.
+
+    Every ``ModelCheck`` is frozen and the tree is never written in place, so
+    one check serves every case that holds it.
+    """
+    facility = _facility(nsls2)
+    document = build_facility(facility, project_name="scratch")
+    return tuple(check_responses(facility, document))
+
+
+@pytest.fixture(scope="module")
 def spear3_blocks(spear3: Path) -> tuple[Block, ...]:
     facility = _facility(spear3)
     document = build_facility(facility, project_name="scratch")
@@ -172,28 +184,32 @@ def test_a_model_derived_export_prints_one_line_and_exits_0(
     assert _snapshot(synthetic) == before
 
 
-def test_a_model_derived_export_passes_block_by_block(nsls2: Path) -> None:
-    facility = _facility(nsls2)
-    document = build_facility(facility, project_name="scratch")
-
-    checks = check_responses(facility, document)
-
-    assert [check.line for check in checks] == NSLS2_LINES
-    assert all(check.passed for check in checks)
+#: The nsls2 cases share one worker, so the tree is imported and checked once.
+NSLS2_GROUP = pytest.mark.xdist_group("response_check_nsls2")
 
 
-def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(nsls2: Path) -> None:
+@NSLS2_GROUP
+def test_a_model_derived_export_passes_block_by_block(
+    nsls2_checks: tuple[ModelCheck, ...],
+) -> None:
+    assert [check.line for check in nsls2_checks] == NSLS2_LINES
+    assert all(check.passed for check in nsls2_checks)
+
+
+@NSLS2_GROUP
+def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(
+    nsls2_checks: tuple[ModelCheck, ...],
+) -> None:
     """Every monitor family of both nsls2 exports is wired, so no row is left out."""
-    facility = _facility(nsls2)
-    document = build_facility(facility, project_name="scratch")
     stream = io.StringIO()
 
-    passed = report(check_responses(facility, document), stream)
+    passed = report(nsls2_checks, stream)
 
     assert passed
     assert stream.getvalue().splitlines() == NSLS2_LINES
 
 
+@NSLS2_GROUP
 def test_one_judged_block_scaled_by_a_tenth_exits_1(
     nsls2: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
