@@ -18,7 +18,13 @@ import { CATEGORY_ICON, oneLine, summarizeInput, toolCategory } from './chat-too
 /** @typedef {import('./chat-dom.js').WireEvent} WireEvent */
 
 /**
- * @typedef {{ is_error?: boolean, preview?: string, truncated?: boolean }} ToolOutcome
+ * What a refused write's result frame carries: the closed reason and the
+ * phrase, which says who can lift the refusal (C-FRAME; set only on an error).
+ * @typedef {{ reason: string, phrase: string }} Refusal
+ */
+
+/**
+ * @typedef {{ is_error?: boolean, preview?: string, truncated?: boolean, refusal?: Refusal | null }} ToolOutcome
  */
 
 /**
@@ -72,6 +78,43 @@ import { CATEGORY_ICON, oneLine, summarizeInput, toolCategory } from './chat-too
  * @property {() => void} settle - fold away, unless the operator chose its state
  *   or an agent or a waiting card in it is still working (it folds when the last one is done)
  */
+
+/**
+ * The line a refused write puts in the conversation: its phrase, in view
+ * without expanding anything. Null when the outcome carries no refusal.
+ * @param {ToolOutcome} outcome
+ * @returns {HTMLElement | null}
+ */
+export function refusalLine(outcome) {
+  const refusal = outcome.is_error ? outcome.refusal : null;
+  const phrase = typeof refusal?.phrase === 'string' ? refusal.phrase.trim() : '';
+  if (!refusal || !phrase) return null;
+  const line = elem('p', 'op-tool-refusal', phrase);
+  line.dataset.reason = String(refusal.reason ?? '');
+  line.setAttribute('role', 'note');
+  return line;
+}
+
+/**
+ * A chip whose finish also hands a refused write's line to `show`.
+ * @param {ToolChip} chip
+ * @param {(line: HTMLElement) => void} show
+ * @returns {ToolChip}
+ */
+function showingRefusal(chip, show) {
+  return {
+    el: chip.el,
+    finish(outcome) {
+      chip.finish(outcome);
+      const line = refusalLine(outcome);
+      if (line) show(line);
+    },
+    get hasCard() {
+      return chip.hasCard;
+    },
+    file: chip.file,
+  };
+}
 
 /** @returns {HTMLElement} */
 function spinner() {
@@ -378,6 +421,8 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
  * unless the operator opened or closed it, and then the state is theirs. An
  * approval card waiting in it holds it open. A subagent counts on its own, so
  * the folded row still says what it did: "1 agent finished · 3 tool calls".
+ * A write the hooks refused, its own or a subagent's, puts its phrase under
+ * the group's list, where folding does not hide it.
  * @returns {ToolGroup}
  */
 export function createToolGroup() {
@@ -390,7 +435,15 @@ export function createToolGroup() {
   const status = elem('span', 'op-tools-status');
   head.append(chevron, label, status);
   const list = elem('div', 'op-tools-list');
-  el.append(head, list);
+  const refusals = elem('div', 'op-tools-refusals');
+  refusals.hidden = true;
+  el.append(head, list, refusals);
+
+  /** @param {HTMLElement} line - a refused write's phrase */
+  function showRefusal(line) {
+    refusals.hidden = false;
+    refusals.append(line);
+  }
 
   let total = 0;
   let running = 0;
@@ -466,7 +519,7 @@ export function createToolGroup() {
       total += 1;
       running += 1;
       render();
-      const chip = createToolChip(event, holdOpen);
+      const chip = showingRefusal(createToolChip(event, holdOpen), showRefusal);
       list.append(chip.el);
       let done = false;
       return {
@@ -495,6 +548,9 @@ export function createToolGroup() {
         render();
         apply();
       }, holdOpen);
+      // The agent's trace is collapsed; its refused writes surface on the group.
+      const addNested = chip.addTool;
+      chip.addTool = (toolEvent) => showingRefusal(addNested(toolEvent), showRefusal);
       list.append(chip.el);
       return chip;
     },
