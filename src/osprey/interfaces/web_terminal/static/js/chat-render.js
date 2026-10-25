@@ -5,10 +5,10 @@
  * View-model for the operator chat log (the `op-*` console styled in
  * operator.css). A {@link createChatRenderer} instance owns the message-list
  * state a single stream of SSE-style events would otherwise scatter across the
- * controller: the agent turn being written (its text, thinking, tool calls,
- * plan and cards), the live loader, and the first-turn bookkeeping that decides
- * whether a `session_reset` is worth a divider. The blocks are built by the
- * chat-*.js modules it imports; markdown and math are rendered by chat-markdown.js.
+ * controller: the agent turn being written (chat-turn.js holds its blocks), the
+ * live loader, and the first-turn bookkeeping that decides whether a
+ * `session_reset` is worth a divider. The blocks are built by the chat-*.js
+ * modules it imports; markdown and math are rendered by chat-markdown.js.
  *
  * Trust boundary: chat renders *model* output — including verbatim tool
  * results from outside the trust boundary — so every markdown-to-HTML path
@@ -26,21 +26,19 @@
  */
 
 import {
-  createAgentEntry,
   createErrorBlock,
   createLoader,
   createNotice,
   createSessionDivider,
   createTextBlock,
-  createThinkingBlock,
-  createTurnFooter,
   createUserEntry,
+  createAgentEntry,
 } from './chat-blocks.js';
-import { createTaskCard } from './chat-plan.js';
-import { createToolGroup, refusalLine } from './chat-tool-cards.js';
+import { refusalLine } from './chat-tool-cards.js';
+import { createTurn } from './chat-turn.js';
 import { createApprovalCard } from './chat-approval.js';
 import { createQuestionCard, createQuestionReplay } from './chat-question.js';
-import { HIDDEN_TOOL_KEYS, PLAN_TOOL_KEY, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
+import { HIDDEN_TOOL_KEYS, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
 import { activityLabel } from './chat-activity.js';
 import { renderMarkdownInto } from './chat-markdown.js';
 import { linkArtifactIds } from './artifact-links.js';
@@ -50,13 +48,17 @@ import { endsTurn } from './chat-frames.js';
 
 export { elem } from './chat-dom.js';
 
+/**
+ * The frames that mark the agent's progress through a turn; a thinking row's
+ * time runs from the last of them. Heartbeats and status frames do not count.
+ */
+const TIMED_FRAMES = new Set(['text', 'delta', 'thinking', 'tool_use', 'tool_result']);
+
 /** @typedef {import('./chat-blocks.js').LoaderHandle} LoaderHandle */
-/** @typedef {import('./chat-blocks.js').ThinkingBlock} ThinkingBlock */
-/** @typedef {import('./chat-tool-cards.js').ToolGroup} ToolGroup */
+/** @typedef {import('./chat-turn.js').AgentTurn} AgentTurn */
 /** @typedef {import('./chat-tool-cards.js').ToolRow} ToolRow */
 /** @typedef {import('./chat-tool-cards.js').Decision} Decision */
 /** @typedef {import('./chat-tool-cards.js').ToolOutcome} ToolOutcome */
-/** @typedef {import('./chat-plan.js').TaskCard} TaskCard */
 /** @typedef {import('./chat-permission.js').PermissionBody} PermissionBody */
 
 /**
@@ -125,19 +127,6 @@ function renderAgentMarkdown(el, text) {
  */
 
 /**
- * The agent entry of the turn in flight, and the block it is writing into.
- * @typedef {object} AgentTurn
- * @property {HTMLElement} entry
- * @property {HTMLElement | null} body - the open text block's body, or null
- * @property {string[]} texts - raw markdown of each text block, in order
- * @property {ThinkingBlock | null} thinking - the open thinking block, or null
- * @property {ToolGroup | null} group - the open tool group, or null
- * @property {TaskCard | null} tasks - the turn's one plan card, once it has one
- * @property {boolean} streamed - the open text block was built from streamed pieces
- * @property {boolean} thinkingStreamed - the open thinking block was, too
- */
-
-/**
  * Create a chat renderer bound to a message-list container (the `op-messages`
  * element). The renderer appends entries in arrival order, keeps the loader
  * pinned to the bottom of the log while a turn runs, and routes each event to
@@ -173,26 +162,28 @@ export function createChatRenderer(container, options = {}) {
   let running = false;
   /** When the turn in flight began (epoch ms); the loader and footer count from here. */
   let startedAt = 0;
+  /** When the turn's last content frame landed (epoch ms): a thinking row's time starts here. */
+  let lastFrameAt = 0;
   /** The loader's label: the current activity. */
   let activity = 'Working…';
   /** Whether text is streaming now; the loader steps aside while it does. */
   let streamingText = false;
   /** The live loader, created on first use and then reused. */
   let loader = /** @type {LoaderHandle | null} */ (null);
-  /** The agent entry of the turn in flight, or null before its first block. */
+  /** The agent turn in flight, or null before its first block. */
   let turn = /** @type {AgentTurn | null} */ (null);
   /** Tool rows of the conversation, by `tool_use_id`: kept across turns, so a replayed call's approval finds its row. */
   const chips = new Map();
   /** Permission cards of the turn in flight, keyed by `request_id`. */
   const cards = new Map();
-  /** Subagent chips of the turn in flight, keyed by the call's `tool_use_id`. */
+  /** Subagent rows of the turn in flight, keyed by the call's `tool_use_id`. */
   const agents = new Map();
   /** Redraws each replayed AskUserQuestion from its call and result: history holds no card. */
   const questionReplay = createQuestionReplay();
 
   /**
-   * The agent chip a record belongs to, when it is a subagent's own. A record
-   * whose parent is not a chip here (a subagent of a subagent) has no place
+   * The agent row a record belongs to, when it is a subagent's own. A record
+   * whose parent is not a row here (a subagent of a subagent) has no place
    * in the operator log and is dropped rather than shown as the main agent's.
    * @param {Record<string, any>} event
    * @returns {{ agent: any, nested: boolean }}
@@ -220,193 +211,39 @@ export function createChatRenderer(container, options = {}) {
   }
 
   /**
-   * The current turn's agent entry, created with the turn's first block.
+   * The current turn, created with its first block.
    * @returns {AgentTurn}
    */
   function ensureTurn() {
     if (turn) return turn;
-    const entry = createAgentEntry();
+    turn = createTurn({
+      renderText: renderAgentMarkdown,
+      // A live finish of the reasoning: the osprey on the status line flies once.
+      onThinkingEnd: () => {
+        if (!replaying) loader?.flourish();
+      },
+    });
     count += 1;
     hasPriorExchange = true;
-    turn = {
-      entry,
-      body: null,
-      texts: [],
-      thinking: null,
-      group: null,
-      tasks: null,
-      streamed: false,
-      thinkingStreamed: false,
-    };
-    append(entry);
+    append(turn.entry);
     return turn;
-  }
-
-  /**
-   * Text blocks with a render waiting, coalesced to one render per frame: a
-   * streamed reply re-renders its markdown as it grows, not once per piece.
-   */
-  const pendingRenders = new Map();
-  const nextFrame =
-    typeof requestAnimationFrame === 'function'
-      ? requestAnimationFrame
-      : (/** @type {() => void} */ fn) => setTimeout(fn, 16);
-
-  /**
-   * @param {HTMLElement} body
-   * @param {string} text
-   */
-  function scheduleRender(body, text) {
-    const queued = pendingRenders.has(body);
-    pendingRenders.set(body, text);
-    if (queued) return;
-    nextFrame(() => {
-      const latest = pendingRenders.get(body);
-      pendingRenders.delete(body);
-      if (latest !== undefined) renderAgentMarkdown(body, latest);
-    });
-  }
-
-  /**
-   * @param {HTMLElement} body
-   * @param {string} text
-   */
-  function renderNow(body, text) {
-    pendingRenders.delete(body);
-    renderAgentMarkdown(body, text);
-  }
-
-  /** @param {AgentTurn} t */
-  function closeText(t) {
-    t.body = null;
-    t.streamed = false;
-  }
-
-  /** @param {AgentTurn} t */
-  function closeThinking(t) {
-    if (t.thinking) {
-      t.thinking.finish({ fly: !replaying });
-      t.thinking = null;
-      t.thinkingStreamed = false;
-    }
-  }
-
-  /** @param {AgentTurn} t */
-  function closeGroup(t) {
-    if (t.group) {
-      t.group.settle();
-      t.group = null;
-    }
-  }
-
-  /** @param {AgentTurn} t */
-  function closeAll(t) {
-    closeText(t);
-    closeThinking(t);
-    closeGroup(t);
-  }
-
-  /**
-   * Open a text block in the turn, or return the one already open.
-   * @param {AgentTurn} t
-   * @returns {HTMLElement}
-   */
-  function openText(t) {
-    closeThinking(t);
-    closeGroup(t);
-    if (!t.body) {
-      t.body = createTextBlock();
-      t.texts.push('');
-      t.entry.appendChild(t.body);
-    }
-    return t.body;
-  }
-
-  /**
-   * A whole text block. When the block was streamed it is the authoritative
-   * copy and replaces what the pieces built; either way the block then ends,
-   * so the next one starts a paragraph of its own.
-   * @param {string} chunk
-   */
-  function appendText(chunk) {
-    const t = ensureTurn();
-    const body = openText(t);
-    const i = t.texts.length - 1;
-    t.texts[i] = t.streamed ? chunk : t.texts[i] + chunk;
-    renderNow(body, t.texts[i]);
-    closeText(t);
-  }
-
-  /** @param {string} piece - a streamed piece of the text block being written */
-  function appendTextDelta(piece) {
-    const t = ensureTurn();
-    const body = openText(t);
-    t.streamed = true;
-    const i = t.texts.length - 1;
-    t.texts[i] += piece;
-    scheduleRender(body, t.texts[i]);
-  }
-
-  /**
-   * Reasoning: streamed pieces add up in the block, and the whole block, when
-   * it lands, replaces them.
-   * @param {string} chunk
-   * @param {boolean} [piece] - a streamed piece rather than the whole block
-   */
-  function appendThinking(chunk, piece = false) {
-    const t = ensureTurn();
-    closeText(t);
-    closeGroup(t);
-    if (!t.thinking) {
-      t.thinking = createThinkingBlock();
-      t.entry.appendChild(t.thinking.el);
-    }
-    if (piece) {
-      t.thinkingStreamed = true;
-      t.thinking.add(chunk);
-    } else if (t.thinkingStreamed) {
-      if (chunk) t.thinking.set(chunk);
-    } else {
-      t.thinking.add(chunk);
-    }
   }
 
   /** @param {Record<string, any>} event - a `tool_use` event */
   function appendToolUse(event) {
     const t = ensureTurn();
-    closeText(t);
-    closeThinking(t);
-    if (!t.group) {
-      t.group = createToolGroup();
-      t.entry.appendChild(t.group.el);
-    }
     const raw = String(event.tool_name_raw ?? '');
     const id = String(event.tool_use_id ?? '');
     if (raw === 'Agent' || raw === 'Task') {
-      const agent = t.group.addAgent(event, renderAgentMarkdown);
+      const agent = t.agent(event);
       if (id) {
         agents.set(id, agent);
         chips.set(id, agent);
       }
       return;
     }
-    const chip = t.group.addTool(event);
+    const chip = t.tool(event);
     if (id) chips.set(id, chip);
-  }
-
-  /** @param {Record<string, any>} event - a `tool_use` event for TodoWrite */
-  function upsertPlan(event) {
-    const todos = event.input?.todos;
-    const items = Array.isArray(todos)
-      ? todos.filter((item) => item && typeof item === 'object')
-      : [];
-    const t = ensureTurn();
-    if (!t.tasks) {
-      closeAll(t);
-      t.tasks = createTaskCard();
-      t.entry.appendChild(t.tasks.el);
-    }
-    t.tasks.update(items);
   }
 
   /**
@@ -445,20 +282,21 @@ export function createChatRenderer(container, options = {}) {
     let card;
     if (row) {
       // Under its own row the card belongs to the call, not to the message it came
-      // in: the text and reasoning around it close, and the group stays open.
+      // in: the text and reasoning around it close, and the row leaves its run.
       if (turn) {
-        closeText(turn);
-        closeThinking(turn);
+        turn.closeText();
+        turn.closeThinking();
+        turn.countApproval();
       }
       card = createApprovalCard(request, { ...hooks, row });
     } else {
       const t = ensureTurn();
-      closeAll(t);
+      if (request.kind !== 'question') t.countApproval();
       card =
         request.kind === 'question'
           ? createQuestionCard(request, hooks)
           : createApprovalCard(request, hooks);
-      t.entry.appendChild(card.el);
+      t.place(card.el);
     }
     cards.set(id, card);
     // A live card takes focus, but never from the composer's text box, and never while history is redrawn.
@@ -471,7 +309,7 @@ export function createChatRenderer(container, options = {}) {
     if (!turn) return;
     const durationMs =
       typeof event.duration_ms === 'number' ? event.duration_ms : Date.now() - startedAt;
-    turn.entry.appendChild(createTurnFooter({ durationMs, isError: Boolean(event.is_error) }));
+    turn.footer({ durationMs, isError: Boolean(event.is_error) });
   }
 
   /**
@@ -498,7 +336,7 @@ export function createChatRenderer(container, options = {}) {
    * them. The running state is left alone — see {@link endTurn}.
    */
   function dropTurn() {
-    if (turn) closeAll(turn);
+    turn?.close();
     turn = null;
     for (const card of cards.values()) card.cancel();
     cards.clear();
@@ -576,7 +414,7 @@ export function createChatRenderer(container, options = {}) {
           if (!content) continue;
           addUserMessage(content);
         } else if (events?.length) {
-          // The same path a live stream takes, so thinking, tool chips and the
+          // The same path a live stream takes, so thinking, tool rows and the
           // plan come back exactly as they were drawn; `result` closes the turn.
           for (const event of events) handleEvent(event);
           endTurn();
@@ -597,9 +435,20 @@ export function createChatRenderer(container, options = {}) {
   function beginTurn() {
     running = true;
     startedAt = Date.now();
+    lastFrameAt = startedAt;
     activity = 'Working…';
     streamingText = false;
     syncLoader();
+  }
+
+  /**
+   * When a thinking row's time starts: live, the turn's last frame before it;
+   * replay, the duration the history recorded, or null when it has none.
+   * @param {ChatEvent} event
+   */
+  function thinkingTiming(event) {
+    if (!replaying) return { since: lastFrameAt };
+    return { durationMs: typeof event.duration_ms === 'number' ? event.duration_ms : null };
   }
 
   /** @param {ChatEvent} event */
@@ -612,29 +461,29 @@ export function createChatRenderer(container, options = {}) {
           break;
         }
         streamingText = true;
-        appendText(event.content ?? '');
+        ensureTurn().text(event.content ?? '');
         break;
       }
       case 'delta': {
         // A streamed piece of the main agent's reply or reasoning; a
-        // subagent's pieces are not drawn — its chip gets each whole block.
+        // subagent's pieces are not drawn — its row gets each whole block.
         if (event.parent_tool_use_id) break;
         if (event.kind === 'thinking') {
           streamingText = false;
           activity = 'Thinking…';
-          appendThinking(event.content ?? '', true);
+          ensureTurn().think(event.content ?? '', true, thinkingTiming(event));
         } else {
           streamingText = true;
-          appendTextDelta(event.content ?? '');
+          ensureTurn().textDelta(event.content ?? '');
         }
         break;
       }
       case 'thinking':
-        // A subagent's reasoning stays inside it; its chip shows its work.
+        // A subagent's reasoning stays inside it; its row shows its work.
         if (ownerOf(event).nested) break;
         streamingText = false;
         activity = 'Thinking…';
-        appendThinking(event.content ?? '');
+        ensureTurn().think(event.content ?? '', false, thinkingTiming(event));
         break;
       case 'tool_use': {
         const { agent, nested } = ownerOf(event);
@@ -649,8 +498,7 @@ export function createChatRenderer(container, options = {}) {
         streamingText = false;
         const key = toolKey(event.tool_name_raw ?? event.tool_name);
         activity = key === QUESTION_TOOL_KEY ? 'Preparing a question…' : activityLabel(event);
-        if (key === PLAN_TOOL_KEY) upsertPlan(event);
-        else if (key === QUESTION_TOOL_KEY) {
+        if (key === QUESTION_TOOL_KEY) {
           if (replaying) questionReplay.ask(event);
         } else if (!HIDDEN_TOOL_KEYS.has(key)) appendToolUse(event);
         break;
@@ -659,9 +507,7 @@ export function createChatRenderer(container, options = {}) {
         streamingText = false;
         const trace = questionReplay.answer(event);
         if (trace) {
-          const t = ensureTurn();
-          closeAll(t);
-          t.entry.appendChild(trace);
+          ensureTurn().place(trace);
           break;
         }
         const row = chips.get(String(event.tool_use_id ?? ''));
@@ -673,13 +519,7 @@ export function createChatRenderer(container, options = {}) {
           // A refused write with no row here (a hidden tool, a subagent's subagent)
           // still says who can lift it.
           const line = refusalLine(/** @type {ToolOutcome} */ (event));
-          if (line) {
-            const t = ensureTurn();
-            closeText(t);
-            closeThinking(t);
-            closeGroup(t);
-            t.entry.appendChild(line);
-          }
+          if (line) ensureTurn().place(line);
         }
         break;
       }
@@ -714,7 +554,7 @@ export function createChatRenderer(container, options = {}) {
         count += 1;
         hasPriorExchange = true;
         const block = createErrorBlock(event.message ?? 'An error occurred.');
-        if (turn) turn.entry.appendChild(block);
+        if (turn) turn.append(block);
         else append(block);
         // An assistant-message error leaves the turn streaming; anything else ends it.
         if (endsTurn(event)) endTurn();
@@ -726,11 +566,11 @@ export function createChatRenderer(container, options = {}) {
         if (!effect) break;
         if (effect.stopStreaming) streamingText = false;
         if (effect.activity) activity = effect.activity;
-        if (effect.closeText && turn) closeText(turn);
+        if (effect.closeText && turn) turn.closeText();
         if (effect.agentDone) agents.get(effect.agentDone.id)?.finish(effect.agentDone.outcome);
         if (effect.notice) {
           const notice = createNotice(effect.notice);
-          if (turn) turn.entry.appendChild(notice);
+          if (turn) turn.append(notice);
           else append(notice);
         }
         break;
@@ -739,6 +579,7 @@ export function createChatRenderer(container, options = {}) {
         // Unknown types are not rendered in the operator log.
         break;
     }
+    if (TIMED_FRAMES.has(event.type)) lastFrameAt = Date.now();
     syncLoader();
     emitChat('frame', { event, replay: replaying });
   }

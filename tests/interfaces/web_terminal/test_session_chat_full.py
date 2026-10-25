@@ -434,3 +434,43 @@ async def test_the_decline_the_chat_sends_is_one_the_replay_reads(tmp_path):
         declined = await asyncio.wait_for(answer, timeout=2.0)
 
     assert declined.message in _DECLINED_RESULTS
+
+
+def _at(entry: dict, second: int | None) -> dict:
+    """*entry* stamped *second* seconds past noon, or with no timestamp at all."""
+    if second is None:
+        entry.pop("timestamp", None)
+    else:
+        entry["timestamp"] = datetime(2026, 2, 19, 12, 0, second, tzinfo=UTC).isoformat()
+    return entry
+
+
+def _thinking(second: int | None) -> dict:
+    entry = _entry("assistant", "")
+    entry["message"]["content"] = [{"type": "thinking", "thinking": "Let me check."}]
+    return _at(entry, second)
+
+
+@pytest.mark.parametrize(
+    ("prompt_at", "thought_at", "duration"),
+    [
+        pytest.param(0, 3, 3000, id="from-the-entry-before"),
+        pytest.param(None, 3, None, id="no-time-for-the-entry-before"),
+        pytest.param(0, None, None, id="no-time-for-the-reasoning"),
+    ],
+)
+def test_replayed_reasoning_says_how_long_it_took(
+    replay_client, transcripts, prompt_at, thought_at, duration
+):
+    """The time runs from the entry before the reasoning to the entry that holds it."""
+    _, transcript_dir = transcripts
+    entries = [
+        _at(_entry("user", "check the orbit"), prompt_at),
+        _thinking(thought_at),
+        _at(_entry("assistant", "It is fine."), 4),
+    ]
+    _write(transcript_dir, SESSION_KEY, entries)
+    resp = replay_client.get(f"/api/session-chat?session_id={SESSION_KEY}&events=1")
+    (agent_turn,) = [t for t in resp.json()["turns"] if t["role"] == "assistant"]
+    (thought,) = [e for e in agent_turn["events"] if e["type"] == "thinking"]
+    assert thought.get("duration_ms") == duration

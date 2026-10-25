@@ -454,6 +454,10 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     read off the transcript's timestamps. ``content`` holds the turn's joined
     text, so a client that ignores ``events`` still replays the words.
 
+    A ``thinking`` event carries ``duration_ms``: the time from the entry before
+    it to the entry that holds the reasoning, which is how long the agent spent
+    on it. It is left out when either timestamp is missing or unreadable.
+
     A ``tool_result`` event carries its call's ``decision`` when the transcript
     shows one; see :func:`_replayed_decision`. It carries ``refusal`` exactly as
     the live stream does (:func:`~osprey.interfaces.web_terminal.tool_preview.tool_result_refusal`).
@@ -466,6 +470,8 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     agent: dict[str, Any] | None = None
     started: datetime | None = None
     last: datetime | None = None
+    #: The timestamp of the conversation entry before the one being read.
+    previous: datetime | None = None
 
     def close_agent() -> None:
         nonlocal agent
@@ -496,6 +502,7 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
         if isinstance(blocks, str):
             blocks = [{"type": "text", "text": blocks}]
         stamp = _ts(entry.get("timestamp", ""))
+        since, previous = previous, stamp if stamp is not None else previous
 
         text = ""
         if kind == "user":
@@ -527,6 +534,8 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
             agent["events"].append(_agent_done_event(text))
             continue
         for event in _block_events(blocks, assistant=kind == "assistant", approved=approved):
+            if event["type"] == "thinking" and since is not None and stamp is not None:
+                event["duration_ms"] = max(0, round((stamp - since).total_seconds() * 1000))
             agent["events"].append(event)
             if event["type"] == "tool_use" and event["tool_name_raw"] in _SUBAGENT_TOOLS:
                 transcript = subagents.get(event["tool_use_id"])

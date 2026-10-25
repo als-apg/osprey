@@ -561,6 +561,80 @@ describe('createChatRenderer', () => {
       expect(agents[1].querySelector('.op-entry-body')?.textContent).toBe('live');
     });
 
+    test('a replayed turn with a run of calls and an approval draws exactly what the live turn drew', () => {
+      /** A read of one channel, as the stream carries it. */
+      const read = (/** @type {string} */ id) => ({
+        type: 'tool_use',
+        tool_name: 'Channel Read',
+        tool_name_raw: 'mcp__osprey__channel_read',
+        tool_use_id: id,
+        input: { channel: `SR:${id}:BPM` },
+      });
+      const done = (/** @type {string} */ id, /** @type {boolean} */ isError = false) => ({
+        type: 'tool_result',
+        tool_use_id: id,
+        is_error: isError,
+        preview: isError ? 'timeout' : '1.0',
+        truncated: false,
+      });
+      const write = {
+        type: 'tool_use',
+        tool_name: 'Channel Write',
+        tool_name_raw: 'mcp__osprey__channel_write',
+        tool_use_id: 'w1',
+        input: { channel: 'SR:C01:HCOR', value: 0.5 },
+      };
+      const events = [
+        read('t1'),
+        read('t2'),
+        read('t3'),
+        done('t1'),
+        done('t2', true),
+        done('t3'),
+        write,
+        {
+          type: 'permission_request',
+          request_id: 'req-w1',
+          kind: 'tool',
+          tool_name: 'Channel Write',
+          tool_name_raw: 'mcp__osprey__channel_write',
+          tool_use_id: 'w1',
+          input: write.input,
+          reason: null,
+          can_allow_session: false,
+        },
+        { type: 'permission_resolved', request_id: 'req-w1', allow: true, answers: null },
+        done('w1'),
+        { type: 'text', content: 'Corrected.' },
+        { type: 'result', is_error: false, duration_ms: 53_000 },
+      ];
+
+      const live = createChatRenderer(container, { answerPermission: vi.fn() });
+      live.beginTurn();
+      for (const event of events) live.handleEvent(event);
+
+      const replayed = document.createElement('div');
+      createChatRenderer(replayed, { answerPermission: vi.fn() }).replay([
+        { role: 'assistant', content: 'Corrected.', events },
+      ]);
+
+      expect(replayed.innerHTML).toBe(container.innerHTML);
+      // What both drew: the reads folded with the failure on the run row, the
+      // write on its own heavier row with the decision, and the footer's counts.
+      const run = qs(container, '.op-run');
+      expect(qs(run, '.op-row-label').textContent).toBe('Read 3 channels');
+      expect(run.dataset.state).toBe('error');
+      expect(run.nextElementSibling?.getAttribute('data-kind')).toBe('control-write');
+      expect(qs(container, '.op-tool-decision').dataset.decision).toBe('allowed');
+      expect(container.querySelector('.op-approval')).toBeNull();
+      expect([...container.querySelectorAll('.op-footer-part')].map((p) => p.textContent)).toEqual([
+        '53s',
+        '4 actions',
+        '1 approval',
+      ]);
+      expect(container.querySelectorAll('.pulse')).toHaveLength(0);
+    });
+
     test('an empty or missing turn list renders nothing', () => {
       const r = createChatRenderer(container);
       expect(r.replay([])).toBe(0);
@@ -646,8 +720,8 @@ describe('createChatRenderer', () => {
     r.handleEvent({ type: 'delta', kind: 'text', content: 'this first.' });
     await flushFrame();
 
-    // No chip, no group, and the CLI's planning instructions never reach the log.
-    expect(container.querySelector('.op-tool, .op-tools')).toBeNull();
+    // No row, no run, and the CLI's planning instructions never reach the log.
+    expect(container.querySelector('.op-tool, .op-run')).toBeNull();
     expect(container.textContent).not.toContain('Entered plan mode');
     // The text block stays open across the hidden call: one body, not two.
     const bodies = container.querySelectorAll('.op-entry-body');
@@ -726,21 +800,22 @@ describe('createChatRenderer', () => {
       expect(first.nextElementSibling).toBe(second);
     });
 
-    test('the group holding a waiting approval stays open once the agent moves on, and the operator cannot fold it away', () => {
+    test('a waiting approval stays in view once the agent moves on: its row never folds away', () => {
       const r = createChatRenderer(container, { answerPermission: vi.fn() });
       r.handleEvent(call('t1'));
-      r.handleEvent(ask('t1', 'req-1'));
+      r.handleEvent(call('t2'));
+      r.handleEvent(ask('t2', 'req-2'));
       r.handleEvent({ type: 'text', content: 'Waiting on you.' });
 
-      const group = qs(container, '.op-tools');
-      expect(group.classList.contains('open')).toBe(true);
-      expect(qs(container, '.op-approval').closest('[hidden]')).toBeNull();
-
-      qs(container, '.op-tools-head').click();
-      expect(group.classList.contains('open')).toBe(true);
+      const card = qs(container, '.op-approval');
+      expect(card.closest('[hidden]')).toBeNull();
+      expect(card.closest('.op-run')).toBeNull();
+      // The row that carries the card stands on its own in the turn, under no run.
+      expect(card.previousElementSibling).toBe(rows()[1]);
+      expect(rows()[1].parentElement?.classList.contains('op-entry')).toBe(true);
     });
 
-    test('once answered, a group the agent has left folds again', async () => {
+    test('once answered, the row keeps the decision in view where the card was', async () => {
       const answerPermission = vi.fn(async () => {});
       const r = createChatRenderer(container, { answerPermission });
       r.handleEvent(call('t1'));
@@ -750,7 +825,9 @@ describe('createChatRenderer', () => {
       await settle();
 
       expect(answerPermission).toHaveBeenCalledWith('req-1', { allow: true });
-      expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
+      const badge = qs(container, '.op-tool-decision');
+      expect(badge.closest('[hidden]')).toBeNull();
+      expect(badge.closest('.op-run')).toBeNull();
     });
 
     test.each([
@@ -832,7 +909,7 @@ describe('createChatRenderer', () => {
       expect(row.dataset.state).toBe('error');
       const badge = qs(row, '.op-tool-decision');
       expect(badge.textContent).toBe('Allowed by you');
-      expect(badge.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+      expect(badge.nextElementSibling?.classList.contains('op-row-status')).toBe(true);
       expect(qs(row, '.op-tool-pre.op-tool-error').textContent).toContain('NameError');
       expect(container.querySelector('.op-approval, .op-card-line')).toBeNull();
     });
@@ -918,7 +995,7 @@ describe('createChatRenderer', () => {
       );
 
       const card = qs(container, '.op-approval');
-      expect(card.closest('.op-tools')).toBeNull();
+      expect(card.closest('.op-run, .op-tool')).toBeNull();
       qs(container, '.op-btn-primary').click();
       await settle();
 
@@ -1029,7 +1106,7 @@ describe('createChatRenderer', () => {
         } else {
           expect(/** @type {HTMLElement} */ (badge).dataset.decision).toBe(decision);
           expect(badge?.textContent).toBe(label);
-          expect(badge?.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+          expect(badge?.nextElementSibling?.classList.contains('op-row-status')).toBe(true);
         }
         expect(container.querySelector('.op-approval')).toBeNull();
         expect(qs(container, '.op-tool').dataset.state).toBe(state);
@@ -1073,7 +1150,7 @@ describe('createChatRenderer', () => {
       expect(container.querySelector('.op-approval')).toBeNull();
       expect(container.querySelector('.op-tool-decision')).toBeNull();
       expect(rows()).toHaveLength(1);
-      expect(qs(container, '.op-tools').classList.contains('open')).toBe(false);
+      expect(qs(container, '.op-tool').closest('.op-run')).toBeNull();
     });
   });
 
