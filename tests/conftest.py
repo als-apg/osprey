@@ -179,11 +179,9 @@ def no_project_venv_outlives_the_session(tmp_path_factory):
     """Fail the session if a real project venv is still in the temp tree.
 
     A real ``osprey build`` installs the whole dependency tree into
-    ``build/.venv``, gigabytes per build. Pytest removes a passing test's
-    ``tmp_path`` but never a ``mktemp`` directory, and under xdist the whole
-    tree is only removed when the run ends green, so a fixture that leaves its
-    venv behind fills the disk during the run and keeps it full after a red
-    one. A fixture that runs a real build removes the venv itself, as soon as
+    ``build/.venv``, gigabytes per build. A fixture's tree is removed when its
+    scope ends, but a venv inside it costs gigabytes while the scope is live,
+    so a fixture that runs a real build removes the venv itself, as soon as
     nothing reads it any more.
 
     A real venv is told from a stub by its interpreter: ``uv venv`` links
