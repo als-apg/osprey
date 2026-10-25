@@ -20,6 +20,7 @@ import {
   deviceCardErrorHtml,
   directionOf,
   fmt,
+  deviceAddresses,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-render.js';
 
 const PAYLOAD = '<img src=x onerror=alert(1)>';
@@ -649,4 +650,143 @@ test('deviceCardErrorHtml escapes the server detail', () => {
   const html = deviceCardErrorHtml(PAYLOAD);
   assertInert(html, 'deviceCardErrorHtml');
   expect(parse(html).textContent).toContain(PAYLOAD);
+});
+
+// ---- columns ----
+
+const COLS = [
+  { key: 'chk', label: 'Select', width: 30, pin: /** @type {'start'} */ ('start') },
+  { key: 'address', label: 'Address', width: 200 },
+  { key: 'device', label: 'Device', width: 150 },
+  { key: 'system', label: 'System', width: 70 },
+  { key: 'act', label: 'Copy', width: 36, pin: /** @type {'end'} */ ('end') },
+];
+const ROW = {
+  fullPv: 'SR01C:QF1:SP', description: 'setpoint', device: 'QF1', device_uri: 'urn:QF1',
+  section: 'SR01C', system: 'MG', edges: ['WRITESSIGNAL'], signals: [{ uri: 'urn:s', name: 'current' }],
+};
+
+test('the table draws the columns it is given, in order, with their cells', () => {
+  const el = parse(resultsHtml([ROW], { selected: new Set() }, COLS));
+  expect([...el.querySelectorAll('thead th')].map((th) => th.getAttribute('data-col')))
+    .toEqual(['chk', 'address', 'device', 'system', 'act']);
+  const cells = [...el.querySelectorAll('tbody tr td')].map((td) => td.className);
+  expect(cells).toEqual(['chk', 'pv', 'dev', 'sys', 'act']);
+  expect(el.querySelector('td.sys')?.textContent).toBe('MG');
+});
+
+test('the colgroup carries every width but the last data column, which fills', () => {
+  const el = parse(resultsHtml([ROW], { selected: new Set() }, COLS));
+  const cols = [...el.querySelectorAll('col')];
+  expect(cols.map((c) => /** @type {HTMLElement} */ (c).style.width)).toEqual(['30px', '200px', '150px', '', '36px']);
+  expect(cols[3].hasAttribute('data-fill')).toBe(true);
+  expect(/** @type {HTMLElement} */ (el.querySelector('table')).style.minWidth).toBe('486px');
+});
+
+test('pinned headers are inert chrome; data headers sort, focus and carry a grip', () => {
+  const el = parse(resultsHtml([ROW], { selected: new Set() }, COLS));
+  for (const key of ['chk', 'act']) {
+    const th = el.querySelector(`th[data-col="${key}"]`);
+    expect(th?.hasAttribute('data-pinned')).toBe(true);
+    expect(th?.querySelector('.col-resize')).toBeNull();
+  }
+  const th = el.querySelector('th[data-col="device"]');
+  expect(th?.getAttribute('tabindex')).toBe('0');
+  expect(th?.getAttribute('aria-sort')).toBe('none');
+  expect(th?.querySelector('.col-resize')?.getAttribute('data-resize')).toBe('device');
+});
+
+test('the sorted column says so, to the eye and to assistive tech', () => {
+  const up = parse(resultsHtml([ROW], { selected: new Set(), sort: { key: 'device', dir: 'asc' } }, COLS));
+  expect(up.querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe('ascending');
+  expect(up.querySelector('th[data-col="device"] .sort-mark')?.textContent).toBe('▲');
+  expect(up.querySelector('th[data-col="address"] .sort-mark')).toBeNull();
+  const down = parse(resultsHtml([ROW], { selected: new Set(), sort: { key: 'device', dir: 'desc' } }, COLS));
+  expect(down.querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe('descending');
+});
+
+test('the table is one Tab stop: the named row, else the first', () => {
+  const rows = [ROW, { ...ROW, fullPv: 'SR01C:QF1:RB' }];
+  const first = parse(resultsHtml(rows, { selected: new Set() }, COLS));
+  expect([...first.querySelectorAll('tbody tr')].map((r) => r.getAttribute('tabindex'))).toEqual(['0', '-1']);
+  const second = parse(resultsHtml(rows, { selected: new Set() }, COLS, 'SR01C:QF1:RB'));
+  expect([...second.querySelectorAll('tbody tr')].map((r) => r.getAttribute('tabindex'))).toEqual(['-1', '0']);
+  const stale = parse(resultsHtml(rows, { selected: new Set() }, COLS, 'gone'));
+  expect(stale.querySelector('tbody tr')?.getAttribute('tabindex')).toBe('0');
+});
+
+test('the empty message spans exactly the drawn columns', () => {
+  const el = parse(resultsHtml([], { selected: new Set() }, COLS));
+  expect(el.querySelector('td.result-empty')?.getAttribute('colspan')).toBe('5');
+});
+
+test('a row carries its device URI for the inspector highlight and the keyboard', () => {
+  const el = parse(resultsHtml([ROW], { selected: new Set() }, COLS));
+  expect(el.querySelector('tbody tr')?.getAttribute('data-uri')).toBe('urn:QF1');
+});
+
+// ---- foldable facets ----
+
+const FACETS = { section: [{ value: 'SR01C', count: 3 }], system: [{ value: 'MG', count: 2 }] };
+
+test('a facet heading folds its group and shows a clear only while it filters', () => {
+  const idle = parse(facetRailHtml(FACETS, [], { section: new Set(), system: new Set() }));
+  const head = idle.querySelector('.facet[data-facet-group="section"] .facet-head');
+  expect(head?.querySelector('button[data-facet-toggle="section"]')?.getAttribute('aria-expanded')).toBe('true');
+  expect(head?.querySelector('.facet-active')).toBeNull();
+  expect(head?.querySelector('[data-clear-facet]')).toBeNull();
+
+  const busy = parse(facetRailHtml(FACETS, [], { section: new Set(['SR01C']), system: new Set() }, ['system']));
+  const section = busy.querySelector('.facet[data-facet-group="section"]');
+  expect(section?.querySelector('.facet-active')?.textContent).toBe('1');
+  expect(section?.querySelector('button[data-clear-facet="section"]')).not.toBeNull();
+  const system = busy.querySelector('.facet[data-facet-group="system"]');
+  expect(system?.classList.contains('collapsed')).toBe(true);
+  expect(system?.querySelector('[data-facet-toggle]')?.getAttribute('aria-expanded')).toBe('false');
+});
+
+test('the class facet is keyed cls and counts its one selection', () => {
+  const tree = [{ uri: 'urn:Dipole', name: 'Dipole', children: [] }];
+  const el = parse(facetRailHtml({ class: [{ value: 'urn:Dipole', count: 4 }] }, tree, { cls: 'urn:Dipole' }));
+  const group = el.querySelector('.facet[data-facet-group="cls"]');
+  expect(group?.querySelector('.facet-active')?.textContent).toBe('1');
+});
+
+// ---- inspector ----
+
+const DEVICE = {
+  uri: 'urn:QF1', device: 'QF1', section: 'SR01C',
+  signals: [{ name: 'current', bindings: [{ fullPv: 'A', edges: ['READSSIGNAL'] }, { fullPv: 'B', edges: ['WRITESSIGNAL'] }] }],
+};
+
+test('the inspector heading carries copy and close, and send only when embedded', () => {
+  const standalone = parse(deviceCardHtml(DEVICE));
+  expect(standalone.querySelector('[data-action="copy-device"]')).not.toBeNull();
+  expect(standalone.querySelector('[data-action="close-card"]')).not.toBeNull();
+  expect(standalone.querySelector('[data-action="send-device"]')).toBeNull();
+  const embedded = parse(deviceCardHtml(DEVICE, { embedded: true }));
+  expect(embedded.querySelector('[data-action="send-device"]')).not.toBeNull();
+  expect(embedded.querySelector('.device-card')?.getAttribute('data-uri')).toBe('urn:QF1');
+});
+
+test('a device with no channels offers nothing to copy or send', () => {
+  const el = parse(deviceCardHtml({ device: 'EMPTY', signals: [] }, { embedded: true }));
+  expect(el.querySelector('[data-action="copy-device"]')?.hasAttribute('disabled')).toBe(true);
+  expect(el.querySelector('[data-action="send-device"]')?.hasAttribute('disabled')).toBe(true);
+});
+
+test('inspector rows carry their address for the right-click menu', () => {
+  const el = parse(deviceCardHtml(DEVICE));
+  expect([...el.querySelectorAll('.sig-table tr')].map((r) => r.getAttribute('data-pv'))).toEqual(['A', 'B']);
+});
+
+test('deviceAddresses lists every binding in card order and tolerates junk', () => {
+  expect(deviceAddresses(DEVICE)).toEqual(['A', 'B']);
+  expect(deviceAddresses(/** @type {any} */ (null))).toEqual([]);
+  expect(deviceAddresses({ signals: [{ bindings: [{}, { fullPv: 'C' }] }, null] })).toEqual(['C']);
+});
+
+test('the inspector heading and meta stay inert under a hostile payload', () => {
+  const el = parse(deviceCardHtml({ ...DEVICE, device: PAYLOAD, section: PAYLOAD }));
+  expect(el.querySelector('img')).toBeNull();
 });
