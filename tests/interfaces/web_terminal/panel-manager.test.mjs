@@ -2853,3 +2853,194 @@ describe('sidecar start failure and retry', () => {
     expect(jupyter.classList.contains('dragging')).toBe(false);
   });
 });
+
+describe('panel frames — agent-writable panels are opaque, first-party panels keep their attributes', () => {
+  const FACTORY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-factory.js';
+  const FIRST_PARTY = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
+  const OPAQUE = 'allow-scripts allow-popups allow-modals';
+
+  /** @param {string} id @returns {HTMLIFrameElement | null} */
+  const frame = (id) => document.querySelector(`iframe[data-panel-id="${id}"]`);
+  /** @param {HTMLIFrameElement} el */
+  const tokens = (el) => (el.getAttribute('sandbox') || '').split(/\s+/).filter(Boolean);
+
+  /**
+   * Boot a hub showing one panel. `cap` answers `/api/panels/<id>/cap`.
+   * @param {{ enabled?: string[], custom?: any[], visible: string[],
+   *           cap?: (id: string) => any, prefix?: string }} opts
+   */
+  async function bootOne({ enabled = [], custom = [], visible, cap, prefix = '' }) {
+    window.__OSPREY_PREFIX__ = prefix;
+    renderContainer();
+    /** @type {string[]} */
+    const capCalls = [];
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === `${prefix}/api/panels`) {
+        return jsonOk({ enabled, custom, default: null, visible, active: null, labels: {} });
+      }
+      const m = url.match(/\/api\/panels\/([^/]+)\/cap$/);
+      if (m) {
+        capCalls.push(url);
+        if (!cap) return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) };
+        return cap(decodeURIComponent(m[1]));
+      }
+      if (url.endsWith('/api/artifact-server')) {
+        return jsonOk({ url: `${prefix}/panel/artifacts`, available: true });
+      }
+      return jsonOk({});
+    }));
+    const sse = stubEventSource();
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    // The operator opens the panel: its frame is built on first activation.
+    const button = document.querySelector(`.panel-rail-button[data-panel-id="${visible[0]}"]`);
+    if (button instanceof HTMLElement && !frame(visible[0])) button.click();
+    return { mod, capCalls, sse };
+  }
+
+  const discovered = {
+    id: 'agent-bundle', label: 'BUNDLE', url: '/panel-static/agent-bundle/',
+    healthEndpoint: null, path: '/', discovered: true,
+  };
+
+  test('an OSPREY catalog panel is framed at once with today\'s attributes and asks for no cap', async () => {
+    const { capCalls } = await bootOne({ enabled: ['artifacts'], visible: ['artifacts'] });
+    await settled(() => expect(frame('artifacts')).not.toBeNull());
+    const el = /** @type {HTMLIFrameElement} */ (frame('artifacts'));
+    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(new URL(el.src).pathname).toBe('/panel/artifacts');
+    expect(capCalls).toEqual([]);
+  });
+
+  test('a discovered bundle is framed at its cap URL with no same-origin and no forms', async () => {
+    const capUrl = '/panel-static/agent-bundle/~c/CAPTOKEN/';
+    const { capCalls } = await bootOne({
+      custom: [discovered], visible: ['agent-bundle'],
+      cap: (id) => jsonOk({ id, cap_url: capUrl }),
+    });
+    await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+    expect(tokens(el)).not.toContain('allow-same-origin');
+    expect(tokens(el)).not.toContain('allow-forms');
+    const src = new URL(el.src);
+    expect(src.pathname).toBe(capUrl);
+    expect(src.searchParams.get('embedded')).toBe('true');
+    expect(capCalls).toEqual(['/api/panels/agent-bundle/cap']);
+  });
+
+  test('the cap request rides the per-user prefix and the cap URL is used verbatim', async () => {
+    const capUrl = '/u/alice/panel-static/agent-bundle/~c/CAPTOKEN/';
+    const { capCalls } = await bootOne({
+      prefix: '/u/alice',
+      custom: [{ ...discovered, url: '/u/alice/panel-static/agent-bundle/' }],
+      visible: ['agent-bundle'],
+      cap: (id) => jsonOk({ id, cap_url: capUrl }),
+    });
+    await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
+    expect(new URL(/** @type {HTMLIFrameElement} */ (frame('agent-bundle')).src).pathname).toBe(capUrl);
+    expect(capCalls).toEqual(['/u/alice/api/panels/agent-bundle/cap']);
+  });
+
+  test('a runtime panel\'s subpath lands under its cap with no doubled slash', async () => {
+    const capUrl = '/panel/agent-dash/~c/CAPTOKEN/';
+    await bootOne({
+      custom: [{ id: 'agent-dash', label: 'DASH', url: '/panel/agent-dash', healthEndpoint: null, path: '/ui/' }],
+      visible: ['agent-dash'],
+      cap: (id) => jsonOk({ id, cap_url: capUrl }),
+    });
+    await settled(() => expect(frame('agent-dash')?.dataset.panelFrame).toBe('opaque'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('agent-dash'));
+    expect(new URL(el.src).pathname).toBe('/panel/agent-dash/~c/CAPTOKEN/ui/');
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+  });
+
+  test('a panel registered at runtime over SSE is framed opaque at its cap', async () => {
+    const capUrl = '/panel/live-dash/~c/CAPTOKEN/';
+    const { mod, sse } = await bootOne({
+      enabled: ['artifacts'], visible: ['artifacts'],
+      cap: (id) => jsonOk({ id, cap_url: capUrl }),
+    });
+    sse.emit({ type: 'panel_register', id: 'live-dash', label: 'LIVE', url: '/panel/live-dash', healthEndpoint: null, path: '/' });
+    await settled(() => expect(document.querySelector('.panel-rail-button[data-panel-id="live-dash"]')).not.toBeNull());
+    mod.navigateAndActivatePanel('live-dash', '');
+    await settled(() => expect(frame('live-dash')?.dataset.panelFrame).toBe('opaque'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('live-dash'));
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+    expect(new URL(el.src).pathname).toBe(capUrl);
+  });
+
+  test('a config-defined custom panel (the hub mints no cap: 404) keeps today\'s attributes', async () => {
+    await bootOne({
+      custom: [{ id: 'results', label: 'RESULTS', url: '/panel/results', healthEndpoint: null, path: '/', configDefined: true }],
+      visible: ['results'],
+    });
+    await settled(() => expect(frame('results')?.dataset.panelFrame).toBe('first-party'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('results'));
+    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(new URL(el.src).pathname).toBe('/panel/results');
+  });
+
+  test.each([
+    ['a 500', () => ({ ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) })],
+    ['a 401', () => ({ ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) })],
+    ['a body with no cap_url', () => jsonOk({})],
+    ['a network failure', () => { throw new TypeError('Failed to fetch'); }],
+  ])('%s from the cap mint fails closed: opaque sandbox, never same-origin', async (_name, answer) => {
+    await bootOne({ custom: [discovered], visible: ['agent-bundle'], cap: answer });
+    await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+    expect(new URL(el.src).pathname).toBe('/panel-static/agent-bundle/');
+  });
+
+  test('the sandbox is restrictive before the hub answers, and no src is set yet', async () => {
+    /** @type {(v: any) => void} */
+    let release = () => {};
+    const gate = new Promise((resolve) => { release = resolve; });
+    await bootOne({
+      custom: [discovered], visible: ['agent-bundle'],
+      cap: async (id) => { await gate; return jsonOk({ id, cap_url: '/panel-static/agent-bundle/~c/T/' }); },
+    });
+    await settled(() => expect(frame('agent-bundle')).not.toBeNull());
+    const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
+    expect(el.dataset.panelFrame).toBe('pending');
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
+    expect(el.getAttribute('src')).toBeNull();
+    release(undefined);
+    await settled(() => expect(el.dataset.panelFrame).toBe('opaque'));
+  });
+
+  test('an opaque panel receives the theme (target "*") and never the session or mode', async () => {
+    await bootOne({
+      custom: [discovered], visible: ['agent-bundle'],
+      cap: (id) => jsonOk({ id, cap_url: '/panel-static/agent-bundle/~c/T/' }),
+    });
+    await settled(() => expect(frame('agent-bundle')?.dataset.panelFrame).toBe('opaque'));
+    const el = /** @type {HTMLIFrameElement} */ (frame('agent-bundle'));
+    const win = /** @type {Window} */ (el.contentWindow);
+    const post = vi.spyOn(win, 'postMessage').mockImplementation(() => {});
+    el.dispatchEvent(new Event('load'));
+
+    const calls = post.mock.calls.map(([msg, target]) => ({ type: /** @type {any} */ (msg).type, target }));
+    expect(calls).toContainEqual({ type: 'osprey-theme-change', target: '*' });
+    // Everything else is addressed to the hub's own origin, which an opaque
+    // document (origin "null") never matches, so the browser drops it.
+    for (const c of calls.filter((c) => c.type !== 'osprey-theme-change')) {
+      expect(c.target).toBe(window.location.origin);
+    }
+  });
+
+  test('capTarget rebases under the cap and leaves foreign targets alone', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonOk({})));
+    await freshImport();
+    const { capTarget } = await import(FACTORY_PATH);
+    const cap = '/panel/p/~c/T/';
+    expect(capTarget('/panel/p', '/panel/p', cap)).toBe(cap);
+    expect(capTarget('/panel/p/', '/panel/p', cap)).toBe(cap);
+    expect(capTarget('/panel/p/ui/x.html?a=1', '/panel/p', cap)).toBe('/panel/p/~c/T/ui/x.html?a=1');
+    expect(capTarget('/panel-static/b/sub/', '/panel-static/b/', '/panel-static/b/~c/T/')).toBe('/panel-static/b/~c/T/sub/');
+    // A sibling id sharing a prefix is not under the base.
+    expect(capTarget('/panel/pp/x', '/panel/p', cap)).toBe('/panel/pp/x');
+  });
+});

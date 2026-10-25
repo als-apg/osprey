@@ -22,13 +22,19 @@ import { getCurrentSessionId } from './terminal.js';
  * The shared single-iframe send: guard a missing contentWindow (a not-yet-loaded
  * or detached iframe) and swallow the cross-origin postMessage throw. Every
  * host → follower message below funnels through here.
+ *
+ * The target origin is the hub's own, so an opaque panel (origin "null") never
+ * receives the session id, the mode or a header action: the browser drops a
+ * message whose target origin does not match. Only the theme message passes
+ * `targetOrigin: '*'` (see sendThemeToIframe).
  * @param {HTMLIFrameElement | null} iframe
  * @param {object} message
+ * @param {string} [targetOrigin]
  */
-function postToIframe(iframe, message) {
+function postToIframe(iframe, message, targetOrigin = window.location.origin) {
   if (!iframe?.contentWindow) return;
   try {
-    iframe.contentWindow.postMessage(message, window.location.origin);
+    iframe.contentWindow.postMessage(message, targetOrigin);
   } catch { /* cross-origin */ }
 }
 
@@ -44,10 +50,16 @@ function postToIframe(iframe, message) {
  *
  * 'osprey-theme-change' is the one message type theme-manager's follower
  * role (and every embedded interface) actually listens for.
+ *
+ * Sent with target origin "*", matching theme-manager's own hub broadcast: an
+ * opaque panel (an agent-writable bundle or runtime panel, origin "null") is
+ * unreachable by a named origin and must still follow the theme. The message
+ * carries a public theme id and nothing else — nothing secret may ever be
+ * added to it.
  * @param {HTMLIFrameElement | null} iframe
  */
 export function sendThemeToIframe(iframe) {
-  postToIframe(iframe, { type: 'osprey-theme-change', theme: getTheme() });
+  postToIframe(iframe, { type: 'osprey-theme-change', theme: getTheme() }, '*');
 }
 
 /**
