@@ -18,7 +18,7 @@ from osprey_connectors.factory import (
     register_builtin_connectors,
 )
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
-from tests.connectors._epics_fakes import fake_aioca  # noqa: F401 - fixture, used by name
+from osprey_connectors_tests._epics_fakes import fake_aioca  # noqa: F401 - fixture, used by name
 
 
 @pytest.fixture(autouse=True)

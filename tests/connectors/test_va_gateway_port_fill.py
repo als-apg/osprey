@@ -32,7 +32,7 @@ from osprey_connectors.control_system._va_connector import (
     VirtualAcceleratorConnector,
     fill_gateway_ports,
 )
-from tests.connectors._epics_fakes import (  # noqa: F401 - fixtures, used by name
+from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     clean_epics_env,
     fake_aioca,
 )

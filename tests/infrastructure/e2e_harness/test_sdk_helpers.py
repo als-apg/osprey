@@ -511,9 +511,12 @@ def test_the_one_shot_floor_is_the_scheduling_subset_of_the_headless_denies():
     assert "Bash" not in ONE_SHOT_DISALLOWED_TOOLS
 
 
-@pytest.mark.parametrize("runner", ["run_sdk_query", "run_sdk_query_with_hooks"])
-async def test_every_sdk_run_disallows_the_one_shot_floor(tmp_path, monkeypatch, runner):
-    """Both runners add the floor under whatever the caller disallowed."""
+def _runners_stopped_at_their_options(tmp_path, monkeypatch) -> dict:
+    """Stub what a runner resolves before it builds its options, and stop it there.
+
+    Returns the dict the options' keyword arguments land in once a run reaches them;
+    the run then raises ``RuntimeError("stop here ...")``.
+    """
     from tests.e2e import sdk_helpers
 
     (tmp_path / "build").mkdir()
@@ -528,12 +531,63 @@ async def test_every_sdk_run_disallows_the_one_shot_floor(tmp_path, monkeypatch,
     monkeypatch.setattr(sdk_helpers, "resolve_default_model", lambda render: "m")
     monkeypatch.setattr(sdk_helpers, "project_agent_cli_path", lambda render: "claude")
     monkeypatch.setattr(sdk_helpers, "sdk_env", lambda render: {})
+    return seen
+
+
+@pytest.mark.parametrize("runner", ["run_sdk_query", "run_sdk_query_with_hooks"])
+async def test_every_sdk_run_disallows_the_one_shot_floor(tmp_path, monkeypatch, runner):
+    """Both runners add the floor under whatever the caller disallowed."""
+    from tests.e2e import sdk_helpers
+
+    seen = _runners_stopped_at_their_options(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="stop here"):
         await getattr(sdk_helpers, runner)(tmp_path, "hello", disallowed_tools=["Bash"])
 
     assert "Bash" in seen["disallowed_tools"]
     for name in ONE_SHOT_DISALLOWED_TOOLS:
         assert name in seen["disallowed_tools"], name
+
+
+# ---------------------------------------------------------------------------
+# Claude Code state: the trust seed lands only in a directory the harness owns
+# (``harness_config_dir``, which the e2e conftest sets for a model-free test),
+# never in the developer's own. That the conftest sets it is proved where it
+# is relied on, by the scripted proofs that seed trust.
+# ---------------------------------------------------------------------------
+
+
+def test_trust_render_refuses_the_developers_own_state(tmp_path, monkeypatch):
+    """With no harness-owned directory, the seed is refused rather than written
+    into whatever ``~/.claude`` the process would otherwise resolve."""
+    from tests.e2e import sdk_helpers
+
+    written: list = []
+    monkeypatch.setattr(sdk_helpers, "seed_claude_state", lambda render: written.append(render))
+    monkeypatch.setattr(sdk_helpers, "harness_config_dir", None)
+
+    with pytest.raises(RuntimeError, match="model_free"):
+        sdk_helpers.trust_render(tmp_path)
+    assert written == []
+
+
+@pytest.mark.parametrize("harness_owned", [True, False], ids=["harness-state", "developer-state"])
+async def test_a_hooked_run_seeds_trust_only_under_the_harness_own_state(
+    tmp_path, monkeypatch, harness_owned
+):
+    """``run_sdk_query_with_hooks`` trusts the render when the state is the
+    harness's, and leaves the developer's state alone otherwise."""
+    from tests.e2e import sdk_helpers
+
+    _runners_stopped_at_their_options(tmp_path, monkeypatch)
+    seeded: list = []
+    monkeypatch.setattr(sdk_helpers, "seed_claude_state", lambda render: seeded.append(render))
+    monkeypatch.setattr(
+        sdk_helpers, "harness_config_dir", tmp_path / "claude-config" if harness_owned else None
+    )
+
+    with pytest.raises(RuntimeError, match="stop here"):
+        await sdk_helpers.run_sdk_query_with_hooks(tmp_path, "hello")
+    assert seeded == ([tmp_path / "build"] if harness_owned else [])
 
 
 # ---------------------------------------------------------------------------

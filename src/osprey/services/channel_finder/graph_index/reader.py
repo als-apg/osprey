@@ -90,12 +90,54 @@ _TOTALS_TAIL = "SELECT count(*), count(DISTINCT device_uri) FROM matched"
 
 #: One page of matches. ``device_uri`` breaks the ``full_pv`` tie a corpus that
 #: binds one address under two devices creates, so a page is reproducible.
-_ROWS_TAIL = """
+#: The columns a page may be ordered by, each mapped to the expression it
+#: sorts on. Keyed by the finder's column names, and the only text a request
+#: can reach in an ORDER BY: the key selects a fixed expression, it is never
+#: formatted in. Direction sorts on its most specific value (``RW`` for a
+#: binding with both edges), signal on its names joined in stored order.
+SEARCH_SORT_KEYS: dict[str, str] = {
+    "device": "device_name",
+    "section": "section",
+    "system": "system",
+    "address": "full_pv",
+    "dir": "list_extract(dir_values, -1)",
+    "signal": "array_to_string(signal_names, ', ')",
+    "description": "description",
+}
+
+
+def _rows_tail(sort: str | None, descending: bool) -> str:
+    """The page statement, ordered by one column or by address.
+
+    Whatever the column, the address and the device URI break ties, so a page
+    is the same slice on every read and paging never repeats or skips a row.
+    Empty values sort last in both directions: a blank is never the answer an
+    operator sorts to the top to find.
+
+    Args:
+        sort: A key of :data:`SEARCH_SORT_KEYS`, or ``None`` for address order.
+        descending: Reverse the chosen column; the tie-breakers stay ascending.
+
+    Returns:
+        The statement tail that reads ``matched``.
+
+    Raises:
+        ValueError: If ``sort`` names no sortable column.
+    """
+    if sort is None:
+        order = "full_pv, device_uri"
+    elif sort in SEARCH_SORT_KEYS:
+        direction = "DESC" if descending else "ASC"
+        order = f"{SEARCH_SORT_KEYS[sort]} {direction} NULLS LAST, full_pv, device_uri"
+    else:
+        raise ValueError(f"cannot sort by {sort!r}; choose one of {sorted(SEARCH_SORT_KEYS)}.")
+    return f"""
 SELECT full_pv, description, device_name, device_uri, section, system,
        edges, signal_uris, signal_names
 FROM matched
-ORDER BY full_pv, device_uri
+ORDER BY {order}
 LIMIT ? OFFSET ?"""
+
 
 #: One tail per facet, each lifting its own filter and applying the other four:
 #: what the rail shows is what a *second* selection in that facet would add,
@@ -288,7 +330,7 @@ matched AS (
 
 
 def _search_row(record: Sequence[Any]) -> dict[str, Any]:
-    """Shape one row of :data:`_ROWS_TAIL` into what the result table reads.
+    """Shape one row of :func:`_rows_tail` into what the result table reads.
 
     The signal URIs and names are stored as two parallel lists, one column
     each, and are zipped back into the ``{uri, name}`` entries the table and
@@ -296,7 +338,7 @@ def _search_row(record: Sequence[Any]) -> dict[str, Any]:
     from ``edges``, which is why the pill and the dir facet cannot disagree.
 
     Args:
-        record: One row, in :data:`_ROWS_TAIL` column order.
+        record: One row, in :func:`_rows_tail` column order.
 
     Returns:
         The row, keyed as ``graph-finder-render.js`` reads it.
@@ -440,6 +482,8 @@ class GraphIndex:
         skip: int = 0,
         page_size: int = DEFAULT_PAGE_SIZE,
         facet_cap: int = 500,
+        sort: str | None = None,
+        descending: bool = False,
     ) -> dict[str, Any]:
         """Answer one page of the finder, with the facets around it.
 
@@ -472,6 +516,10 @@ class GraphIndex:
             facet_cap: How many entries each facet list carries. One more is
                 asked for, so a list that comes back longer is a list the index
                 had more values for, which is reported as ``truncated``.
+            sort: A key of :data:`SEARCH_SORT_KEYS` to order the rows by, or
+                ``None`` for address order. Sorting happens before the page is
+                cut, so page two of a sorted search continues page one.
+            descending: Reverse the ``sort`` column.
 
         Returns:
             ``total`` and ``devices`` over every match, the ``page`` of
@@ -481,8 +529,8 @@ class GraphIndex:
             corpus and the command that regenerates it.
 
         Raises:
-            ValueError: If ``page_size`` is below one or ``skip`` or
-                ``facet_cap`` is negative.
+            ValueError: If ``page_size`` is below one, ``skip`` or
+                ``facet_cap`` is negative, or ``sort`` names no sortable column.
             RuntimeError: If the index has been closed.
         """
         if page_size < 1:
@@ -491,6 +539,7 @@ class GraphIndex:
             raise ValueError(f"skip cannot be negative, not {skip}.")
         if facet_cap < 0:
             raise ValueError(f"facet_cap cannot be negative, not {facet_cap}.")
+        rows_tail = _rows_tail(sort, descending)
 
         cte, params = _search_cte(
             tokens=tokens,
@@ -504,7 +553,7 @@ class GraphIndex:
         cursor = self.cursor()
         try:
             totals: Any = cursor.execute(cte + _TOTALS_TAIL, list(params)).fetchone()
-            page_rows = cursor.execute(cte + _ROWS_TAIL, [*params, page_size, skip]).fetchall()
+            page_rows = cursor.execute(cte + rows_tail, [*params, page_size, skip]).fetchall()
             facets: dict[str, list[dict[str, Any]]] = {}
             truncated = False
             for name in SEARCH_FACETS:

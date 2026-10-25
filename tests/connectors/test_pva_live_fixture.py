@@ -4,7 +4,7 @@ Everything here runs in **one process**: a real ``p4p`` server hosting real
 normative-type structures, the real EPICS connector routing addresses onto its
 PVA client, and — for the batch and artifact assertions — the real
 ``channel_read`` tool body deciding what the agent gets to see. No fake p4p
-module, no hand-rolled ``Value``. ``tests/connectors/test_pva_read_mapping.py``
+module, no hand-rolled ``Value``. ``packages/osprey-connectors/tests/osprey_connectors_tests/test_pva_read_mapping.py``
 already proves the mapping in process against an injected client; this file is
 the check that the wire agrees with it, and it is where success criteria 1-4 of
 the PVA feature are asserted concretely.
@@ -48,7 +48,7 @@ from p4p.server.thread import SharedPV
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from tests.connectors._epics_fakes import (
+from osprey_connectors_tests._epics_fakes import (
     install_fake_aioca,
     writes_enabled,  # noqa: F401 - fixture, used by name
 )

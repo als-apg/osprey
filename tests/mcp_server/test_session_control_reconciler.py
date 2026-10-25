@@ -55,7 +55,7 @@ from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
-from tests import _control_context_fixtures as fixtures
+from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
 
 SESSION_KEY = "session-abc"
 

@@ -233,6 +233,7 @@ class TestStagingNeverSilentlyFallsBack:
             return wheel
 
         monkeypatch.setattr(wb, "_build_dev_wheel_cached", _fake_build)
+        monkeypatch.setattr(wb, "_wheel_base_requirements", lambda wheel: [])
         monkeypatch.setattr(wb, "_write_local_requirements_manifest", lambda wheels, out: None)
 
         ctx = tmp_path / "ctx"
@@ -273,6 +274,80 @@ class TestStagingNeverSilentlyFallsBack:
         assert "workspace member" in str(exc.value)
         assert f"packages/{missing}" in exc.value.remedy
         assert not list(ctx.glob("*.whl")), "no wheel may be staged when a member is missing"
+
+
+class TestMemberWheelsSatisfyTheFramework:
+    """A member wheel the framework's requirement refuses stops staging, naming the tags."""
+
+    CONNECTORS_GLOB = "osprey-connectors-v2[0-9][0-9][0-9].*"
+
+    @classmethod
+    def _add_members(cls, checkout: Path) -> None:
+        for member in WORKSPACE_MEMBERS:
+            root = checkout / "packages" / member
+            root.mkdir(parents=True)
+            glob = cls.CONNECTORS_GLOB if member == "osprey-connectors" else "v[0-9]*"
+            (root / "pyproject.toml").write_text(
+                f"[project]\nname='{member}'\n"
+                "[tool.hatch.version]\n"
+                f'raw-options = {{ git_describe_command = "git describe --match {glob}" }}\n'
+            )
+
+    @staticmethod
+    def _wheel(directory: Path, name: str, version: str, requires: list[str]) -> Path:
+        import zipfile
+
+        stem = f"{name.replace('-', '_')}-{version}"
+        wheel = directory / f"{stem}-py3-none-any.whl"
+        metadata = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n" + "".join(
+            f"Requires-Dist: {line}\n" for line in requires
+        )
+        with zipfile.ZipFile(wheel, "w") as whl:
+            whl.writestr(f"{stem}.dist-info/METADATA", metadata)
+        return wheel
+
+    def _stage(self, editable_checkout, monkeypatch, tmp_path, connectors_version):
+        import osprey.deployment.wheel_build as wb
+
+        self._add_members(editable_checkout)
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        versions = {"osprey-connectors": connectors_version, "pyaml-cs-osprey": "2026.9.0b3.post7"}
+
+        def _fake_build(root):
+            if root == editable_checkout:
+                requires = [f"{m}>=2026.6.2" for m in WORKSPACE_MEMBERS] + ["aiohttp"]
+                return self._wheel(cache, "osprey-framework", "2026.9.0b3.post7", requires)
+            return self._wheel(cache, root.name, versions[root.name], [])
+
+        monkeypatch.setattr(wb, "_build_dev_wheel_cached", _fake_build)
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        return ctx
+
+    def test_a_member_built_without_its_tags_is_refused_before_staging(
+        self, editable_checkout, monkeypatch, tmp_path
+    ):
+        ctx = self._stage(editable_checkout, monkeypatch, tmp_path, "0.0.post3500+g0123abc")
+
+        with pytest.raises(DevModeUnavailableError) as exc:
+            _copy_local_framework_for_override(str(ctx))
+
+        assert "osprey-connectors" in str(exc.value)
+        assert "0.0.post3500+g0123abc" in str(exc.value)
+        assert "osprey-connectors>=2026.6.2" in str(exc.value)
+        assert self.CONNECTORS_GLOB in exc.value.remedy
+        assert "git fetch --tags" in exc.value.remedy
+        assert "osprey-connectors-v*" in exc.value.remedy
+        assert not list(ctx.glob("*")), "nothing may be staged for a refused member"
+
+    def test_a_dev_build_from_a_beta_tag_satisfies_the_floor(
+        self, editable_checkout, monkeypatch, tmp_path
+    ):
+        ctx = self._stage(editable_checkout, monkeypatch, tmp_path, "2026.9.0b3.post12+g0123abc")
+
+        assert _copy_local_framework_for_override(str(ctx)) is True
+        assert len(list(ctx.glob("*.whl"))) == 1 + len(WORKSPACE_MEMBERS)
 
 
 class TestPrepareComposeFilesPreflight:

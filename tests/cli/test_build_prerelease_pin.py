@@ -2,11 +2,12 @@
 
 ``osprey build`` installs ``osprey-framework==<version>`` into the project venv.
 uv admits a pre-release for a requirement that names one, but the framework's
-own ``osprey-connectors`` requirement carries no pre-release and osprey only
-ever ships the two as a pair, so a beta pin resolves to nothing unless the
-resolve as a whole admits pre-releases. The same applies to the recorded
-``pyproject.toml``: a later ``uv sync`` in the built directory re-resolves from
-it and must reach the same conclusion.
+own ``osprey-connectors`` requirement is a floor that names no pre-release
+(the package releases on its own tags), so a beta pin passes over the
+connectors pre-releases it was tested with unless the resolve as a whole
+admits pre-releases, which then lets it take the newest one. The same applies
+to the recorded ``pyproject.toml``: a later ``uv sync`` in the built directory
+re-resolves from it and must reach the same conclusion.
 """
 
 from __future__ import annotations

@@ -20,19 +20,22 @@ from pathlib import Path
 
 import pytest
 
-from tests.ci_diagnostics import (
+from osprey_connectors_tests._harness.ci_diagnostics import (
     CONTAINER_SNAPSHOT_PLUGIN,
     CONTAINER_SNAPSHOT_SUBDIR,
     ENV_DIR,
     ENV_E2E_RUNTIME,
     ENV_STACK_TIMEOUT,
+    RECORDER_PLUGIN,
     ContainerSnapshots,
     DiagnosticsRecorder,
     recorder_from_env,
     register_container_snapshots,
+    register_recorder,
     worker_id,
     worker_index,
 )
+from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SUMMARY = _REPO_ROOT / "scripts" / "ci" / "diag_summary.py"
@@ -434,6 +437,33 @@ def test_container_snapshots_register_once_when_armed(monkeypatch, tmp_path):
     assert register_container_snapshots(manager) is None
 
 
+def test_recorder_is_off_when_unset():
+    manager = pytest.PytestPluginManager()
+    assert register_recorder(manager) is None
+    assert not manager.has_plugin(RECORDER_PLUGIN)
+
+
+def test_registered_recorder_logs_each_event_once(monkeypatch, tmp_path):
+    """Registered once however many conftests ask, so an event the xdist
+    controller relays reaches one plugin instead of one hook per conftest."""
+    monkeypatch.setenv(ENV_DIR, str(tmp_path))
+    monkeypatch.setenv(ENV_STACK_TIMEOUT, "0")
+    manager = pytest.PytestPluginManager()
+    recorder = register_recorder(manager)
+    assert register_recorder(manager) is None
+    location = ("a.py", 0, "t")
+    manager.hook.pytest_runtest_logstart(nodeid="a.py::t", location=location)
+    manager.hook.pytest_runtest_logfinish(nodeid="a.py::t", location=location)
+    recorder.stop()
+    lines = (tmp_path / f"events-{recorder.worker}.jsonl").read_text().splitlines()
+    assert [(e["event"], e.get("nodeid")) for e in map(json.loads, lines)] == [
+        ("session_start", None),
+        ("start", "a.py::t"),
+        ("finish", "a.py::t"),
+        ("session_end", None),
+    ]
+
+
 def test_container_snapshot_engine_follows_the_e2e_runtime_switch(monkeypatch, tmp_path):
     monkeypatch.setenv(ENV_DIR, str(tmp_path / "diag"))
     monkeypatch.setenv(ENV_E2E_RUNTIME, "podman")
@@ -538,7 +568,7 @@ def test_snapshot_survives_an_engine_that_fails(tmp_path, monkeypatch):
 
 
 _RUN_CONFTEST = """\
-from tests import ci_diagnostics
+from osprey_connectors_tests._harness import ci_diagnostics
 
 
 def pytest_configure(config):
@@ -587,7 +617,7 @@ def test_snapshot_is_taken_before_the_module_fixture_tears_down(fake_engine, tmp
 
     env = {k: v for k, v in os.environ.items() if k not in ("PYTEST_XDIST_WORKER", ENV_DIR)}
     env.update(
-        PYTHONPATH=str(_REPO_ROOT),
+        PYTHONPATH=str(_HARNESS_ROOT),
         OSPREY_CI_DIAG_DIR="diag",
         OSPREY_E2E_RUNTIME=fake_engine.name,
         FAKE_STACK_FLAG=str(flag),

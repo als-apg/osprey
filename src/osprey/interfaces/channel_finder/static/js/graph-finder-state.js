@@ -33,7 +33,19 @@
  * @property {string|null} cls - Class uri, single-select.
  * @property {number} page - 1-based page number.
  * @property {Set<string>} selected - Picked device addresses, insertion-ordered.
+ * @property {Sort|null} sort - The column the server orders rows by, or null for address order.
  */
+
+/**
+ * @typedef {'device'|'section'|'system'|'address'|'dir'|'signal'|'description'} SortKey
+ *   The result columns the server can order by (``SEARCH_SORT_KEYS`` in the index).
+ */
+
+/** @typedef {{key: SortKey, dir: 'asc'|'desc'}} Sort */
+
+/** Every sortable column, for callers that must tell a data column from chrome. */
+export const SORT_KEYS = /** @type {readonly SortKey[]} */ (
+  ['device', 'section', 'system', 'address', 'dir', 'signal', 'description']);
 
 /**
  * @typedef {object} Chip
@@ -67,6 +79,7 @@ export function createFinderState() {
     cls: null,
     page: 1,
     selected: new Set(),
+    sort: null,
   };
 }
 
@@ -129,7 +142,117 @@ export function toSearchParams(state) {
   }
   if (state.cls) params.append('cls', state.cls);
   params.set('page', String(state.page));
+  if (state.sort) {
+    params.set('sort', state.sort.key);
+    params.set('order', state.sort.dir);
+  }
   return params;
+}
+
+/**
+ * Order the rows by one column, or return to address order with `null`. The
+ * server sorts the whole match before cutting pages, so a new order starts
+ * over at page 1.
+ * @param {FinderState} state
+ * @param {Sort|null} sort
+ * @returns {boolean} Whether the order changed.
+ */
+export function setSort(state, sort) {
+  const same = sort === null
+    ? state.sort === null
+    : state.sort !== null && state.sort.key === sort.key && state.sort.dir === sort.dir;
+  if (same) return false;
+  state.sort = sort;
+  state.page = 1;
+  return true;
+}
+
+/**
+ * The header click: ascending, then descending, then back to address order.
+ * @param {FinderState} state
+ * @param {SortKey} key
+ * @returns {void}
+ */
+export function cycleSort(state, key) {
+  if (!state.sort || state.sort.key !== key) setSort(state, { key, dir: 'asc' });
+  else if (state.sort.dir === 'asc') setSort(state, { key, dir: 'desc' });
+  else setSort(state, null);
+}
+
+/**
+ * Keep only one value of a facet — the "Only section SR01C" verb.
+ * @param {FinderState} state
+ * @param {Facet} facet
+ * @param {string} value
+ * @returns {boolean} Whether the filters changed.
+ */
+export function onlyFacet(state, facet, value) {
+  if (facet === 'cls') {
+    if (state.cls === value) return false;
+    state.cls = value;
+  } else if (MULTI_FACETS.includes(facet)) {
+    const set = state[facet];
+    if (set.size === 1 && set.has(value)) return false;
+    set.clear();
+    set.add(value);
+  } else {
+    throw new TypeError(`unknown facet: ${facet}`);
+  }
+  state.page = 1;
+  return true;
+}
+
+/**
+ * How many values of one facet are selected.
+ * @param {FinderState} state
+ * @param {Facet} facet
+ * @returns {number}
+ */
+export function facetCount(state, facet) {
+  if (facet === 'cls') return state.cls ? 1 : 0;
+  return MULTI_FACETS.includes(facet) ? state[facet].size : 0;
+}
+
+/**
+ * Whether one facet value is selected.
+ * @param {FinderState} state
+ * @param {Facet} facet
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function hasFacet(state, facet, value) {
+  if (facet === 'cls') return state.cls === value;
+  return MULTI_FACETS.includes(facet) && state[facet].has(value);
+}
+
+/**
+ * Drop every selection in one facet.
+ * @param {FinderState} state
+ * @param {Facet} facet
+ * @returns {boolean} Whether anything was cleared.
+ */
+export function clearFacet(state, facet) {
+  if (facetCount(state, facet) === 0) return false;
+  if (facet === 'cls') state.cls = null;
+  else state[facet].clear();
+  state.page = 1;
+  return true;
+}
+
+/**
+ * Drop the query and every facet selection, leaving the selection and the
+ * sort alone.
+ * @param {FinderState} state
+ * @returns {boolean} Whether anything was cleared.
+ */
+export function clearFilters(state) {
+  const had = state.q !== '' || state.cls !== null || MULTI_FACETS.some((f) => state[f].size > 0);
+  if (!had) return false;
+  state.q = '';
+  state.cls = null;
+  for (const facet of MULTI_FACETS) state[facet].clear();
+  state.page = 1;
+  return true;
 }
 
 /**

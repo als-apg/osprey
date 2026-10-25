@@ -551,7 +551,7 @@ def test_registered_on_the_top_level_cli():
 # virtual accelerator paired with the mock archiver is refused at BUILD time,
 # not at write time: set the pairing, and the next `osprey build`
 # refuses it. The pure predicate is pinned in
-# tests/connectors/test_honesty_rule.py; what this class pins is the two-verb
+# packages/osprey-connectors/tests/osprey_connectors_tests/test_honesty_rule.py; what this class pins is the two-verb
 # OPERATOR path — an `osprey set` that walks into the pairing is caught by the
 # very next build, with the profile-level fix in the message.
 

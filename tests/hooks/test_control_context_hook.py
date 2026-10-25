@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 
 SESSION_ID = "4f1c2a7e-0000-4000-8000-0000000000aa"
 

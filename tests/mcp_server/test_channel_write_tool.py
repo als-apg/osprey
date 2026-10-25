@@ -29,7 +29,7 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,

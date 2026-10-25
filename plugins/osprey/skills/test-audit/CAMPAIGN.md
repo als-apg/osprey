@@ -3,8 +3,9 @@
 Adapted from openclaw's test-audit skill; see [LICENSE.txt](LICENSE.txt).
 
 Campaign mode prunes one subsystem's whole test surface in one PR: a
-subsystem such as `tests/connectors` with its owners in
-`packages/osprey-connectors`, or one core area. The value bar, retention
+subsystem such as the connectors (`packages/osprey-connectors/tests` and
+`tests/connectors`) with their owners in `packages/osprey-connectors`, or one
+core area. The value bar, retention
 bar, candidate evidence, and validation in [SKILL.md](SKILL.md) apply to every
 lane. This file adds the order of work and the lessons of a full campaign.
 Each step ends on its completion criterion; do not start the next step early.
@@ -44,11 +45,14 @@ Example lanes, for `connectors`:
 - `va`: the virtual-accelerator connector and its gateway port fill;
 - `context/targets`: control context, owner context, identity ladder, target
   resolver and factory control-target selection;
-- `ipc`: `tests/connectors/ipc`;
+- `ipc`: `packages/osprey-connectors/tests/osprey_connectors_tests/ipc` and the
+  framework-side `tests/connectors/ipc`;
 - `shims`: `sys.modules` alias shims into `osprey_connectors`;
 - boundary: connector cases under `tests/mcp_server` write/read tools and
   `tests/integration` mock-pair suites;
-- harness: `tests/connectors/conftest.py` and `_mock_dynamic_connector.py`.
+- harness: `packages/osprey-connectors/tests/conftest.py`, its
+  `osprey_connectors_tests/_harness` and `_mock_dynamic_connector.py`, and
+  `tests/connectors/conftest.py`.
 
 Done when every test file and QA scenario the subsystem owns belongs to
 exactly one lane.
@@ -96,7 +100,9 @@ assertions to carry into keepers, and the test-only production seams unlocked.
 ## 5. Cutover
 
 Edit lane by lane. Serialize changes to shared harnesses and support files
-(tests/conftest.py, area conftests, `tests/_*.py`) through one owner. With each
+(tests/conftest.py, area conftests, `tests/_*.py`, and the harness both suites
+share under `packages/osprey-connectors/tests/osprey_connectors_tests/_harness`)
+through one owner. With each
 lane, remove the test-only production seams it unlocks: injection parameters,
 getters, `reset_*` exports, `_clear()` hooks, and indirection layers; never a
 sanctioned isolation seam without replacing the isolation. Register moved suites

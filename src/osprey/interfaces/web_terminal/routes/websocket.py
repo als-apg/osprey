@@ -3378,10 +3378,11 @@ async def operator_ws(websocket: WebSocket):
         return
 
     async def forward_events():
-        """Drain the session queue and send events to the WebSocket."""
+        """Forward the session's feed to the WebSocket."""
+        feed, _hello = session.subscribe()
         try:
             while True:
-                event = await session._queue.get()
+                event = await feed.get()
                 if event.get("type") == "keepalive":
                     continue
                 await websocket.send_json(event)
@@ -3389,6 +3390,8 @@ async def operator_ws(websocket: WebSocket):
             pass
         except Exception:
             pass
+        finally:
+            session.unsubscribe(feed)
 
     forward_task = asyncio.create_task(forward_events())
 

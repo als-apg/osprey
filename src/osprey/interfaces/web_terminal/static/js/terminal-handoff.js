@@ -35,6 +35,18 @@ export const HANDOFF_PENDING_MESSAGE = 'Finishing in the other view · ';
 /** Copy shown while an idle agent is stopped in the other view and started here. */
 export const HANDOFF_RESTARTING_MESSAGE = 'Restarting the agent in this view…';
 
+/** The way out of the wait: cut the other view's turn and take the session. */
+export const HANDOFF_INTERRUPT_LABEL = 'Stop and switch now';
+
+/** The action on a refusal that retrying can change. */
+export const HANDOFF_RETRY_LABEL = 'Retry';
+
+/** A refusal retrying does not change: another tab or view holds the session. */
+export const HANDOFF_HELD_ELSEWHERE_MESSAGE = 'This session is in use in another tab or view.';
+
+/** The refusal a retry is for: the outgoing agent had not finished exiting. */
+export const HANDOFF_OUTGOING_RUNNING_MESSAGE = 'The previous agent is still shutting down.';
+
 /**
  * How long a restart may take before it is shown as a wait. A restart is the
  * outgoing process exiting cleanly plus the incoming one connecting, a few
@@ -195,7 +207,7 @@ function showWait(overlay, onInterrupt) {
 
   const action = actionButton();
   if (!action) return;
-  action.textContent = 'Stop and switch now';
+  action.textContent = HANDOFF_INTERRUPT_LABEL;
   action.hidden = false;
   action.disabled = false;
   action.onclick = () => {
@@ -234,15 +246,13 @@ export function showHandoffRefused(code, onRetry) {
   const retryable = code === WS_CLOSE_OUTGOING_RUNNING;
   setMessage(
     overlay,
-    retryable
-      ? 'The previous agent is still shutting down.'
-      : 'This session is in use in another tab or view.',
+    retryable ? HANDOFF_OUTGOING_RUNNING_MESSAGE : HANDOFF_HELD_ELSEWHERE_MESSAGE,
     false,
   );
 
   const action = actionButton();
   if (!action) return;
-  action.textContent = 'Retry';
+  action.textContent = HANDOFF_RETRY_LABEL;
   action.hidden = !retryable;
   action.disabled = false;
   action.onclick = retryable

@@ -35,17 +35,25 @@ would starve the result set, so a filtered query asks the sidecar for
 :data:`OVERFETCH_FACTOR` times as many hits, capped at
 :data:`MAX_FETCH_LIMIT`.
 
+**The hybrid strategy is explicit.** The compatible ``qmd`` strategy sends both
+lexical and vector sub-queries to the sidecar. The opt-in ``rrf`` strategy asks
+qmd only for BM25, obtains the dense ranking from ARIEL's configured semantic
+provider, and combines their positions with equal-weight RRF. Keeping that merge
+in ARIEL makes it deterministic and testable without qmd's vector model or
+opaque weighted multi-search ordering.
+
 **Reranking is the deployment's choice, not this module's.** qmd's LLM reranker
 reads every candidate, so a reranked query is markedly slower than a plain one,
 at a cost driven by the candidate pool that grows far more slowly than the
 corpus does. One key — ``search_modules.hybrid.settings.rerank`` — governs both
 surfaces this module serves: the agent-facing tool, whose ``rerank`` argument
-overrides the key for the one call, and the search panel, whose toggle opens
-showing the configured value and whose click overrides it for that session's
-later searches, until Reset, rather than changing the config. The default is
-qmd's own (``True``), because an agent has no interactive budget to blow; a
-deployment that wants the fast path sets the key to ``false``. Reranking is also not load-bearing for correctness: a query whose
-rerank fails degrades to the non-reranked ordering rather than failing.
+may turn an enabled reranker off for one call, and the search panel, whose
+toggle exists only when the deployment enables reranking. ``false`` is a hard
+deployment disable. The default is qmd's own (``True``), because an agent has no
+interactive budget to blow. The ``rrf`` strategy is always unreranked, so it
+never loads qmd's reranker model. Reranking is also not load-bearing for
+correctness: a query whose rerank fails degrades to qmd's fast ordering rather
+than failing.
 """
 
 from __future__ import annotations
@@ -53,7 +61,7 @@ from __future__ import annotations
 import asyncio
 import math
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -80,6 +88,7 @@ from osprey.services.qmd import QMDClient, QMDUnavailableError
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
@@ -101,6 +110,17 @@ DEFAULT_RERANK = True
 #: Candidates the reranker considers (qmd's ``candidateLimit``) when config says
 #: nothing. Matches qmd's own default; lowering it trades recall for latency.
 DEFAULT_CANDIDATE_LIMIT = 40
+
+#: The existing all-qmd implementation remains the shipped behavior.  RRF is
+#: opt-in because it deliberately replaces qmd's baked-in vector model with
+#: ARIEL's configured semantic provider.
+DEFAULT_STRATEGY = "qmd"
+_HYBRID_STRATEGIES = frozenset(("qmd", "rrf"))
+
+#: Standard reciprocal-rank-fusion constant.  At this value agreement between
+#: the BM25 and Nomic lanes matters more than small score-scale differences
+#: within either backend, while the leading positions still contribute most.
+RRF_K = 60
 
 #: How many extra hits a filtered query asks for, so that post-filtering has
 #: something left to return. Four covers a filter that rejects three quarters of
@@ -133,15 +153,20 @@ class HybridSearchSettings:
     """Query knobs read from ``search_modules.hybrid.settings``.
 
     Attributes:
+        strategy: ``qmd`` retains qmd's combined lexical/vector query. ``rrf``
+            combines qmd's lexical BM25 ranking with ARIEL's configured dense
+            ranking using reciprocal-rank fusion.
         rerank: Whether qmd reranks candidates with its LLM reranker. Defaults
-            to :data:`DEFAULT_RERANK`.
-        candidate_limit: qmd's ``candidateLimit``. Defaults to
-            :data:`DEFAULT_CANDIDATE_LIMIT`; ``None`` leaves qmd's own default
-            in place.
+            to :data:`DEFAULT_RERANK`; ignored by the lightweight ``rrf``
+            strategy.
+        candidate_limit: Candidate depth for each lane in ``rrf`` and qmd's
+            ``candidateLimit`` in ``qmd``.
+            Defaults to :data:`DEFAULT_CANDIDATE_LIMIT`.
         collection: qmd collection the ARIEL mirror is indexed under. Not a
             config key — see :data:`ARIEL_COLLECTION`.
     """
 
+    strategy: str = DEFAULT_STRATEGY
     rerank: bool = DEFAULT_RERANK
     candidate_limit: int | None = DEFAULT_CANDIDATE_LIMIT
     collection: str = ARIEL_COLLECTION
@@ -163,13 +188,21 @@ class HybridSearchSettings:
             The resolved settings.
 
         Raises:
-            ValueError: If ``rerank`` is present but not a boolean, or
+            ValueError: If ``strategy`` is not supported, ``rerank`` is present
+                but not a boolean, or
                 ``candidate_limit`` is present but not a positive integer.
         """
         module = config.search_modules.get("hybrid") if config is not None else None
         settings = module.settings if module is not None else None
         if not isinstance(settings, dict):
             return cls()
+
+        strategy = settings.get("strategy", cls.strategy)
+        if strategy not in _HYBRID_STRATEGIES:
+            choices = ", ".join(sorted(_HYBRID_STRATEGIES))
+            raise ValueError(
+                f"{_SETTINGS_PREFIX}.strategy must be one of {choices}, got {strategy!r}"
+            )
 
         rerank = settings.get("rerank", cls.rerank)
         if not isinstance(rerank, bool):
@@ -186,7 +219,16 @@ class HybridSearchSettings:
                 f"got {candidate_limit!r}"
             )
 
-        return cls(rerank=rerank, candidate_limit=candidate_limit)
+        return cls(strategy=strategy, rerank=rerank, candidate_limit=candidate_limit)
+
+
+@dataclass(frozen=True)
+class _RankedTextHit:
+    """One backend-neutral text hit after identity recovery."""
+
+    entry_id: str
+    score: float
+    snippet: str = ""
 
 
 def _default_client() -> QMDClient:
@@ -250,6 +292,7 @@ async def hybrid_search(
     query: str,
     repository: ARIELRepository,
     config: ARIELConfig,
+    embedder: BaseProvider | None = None,
     *,
     max_results: int = 10,
     start_date: datetime | None = None,
@@ -263,7 +306,7 @@ async def hybrid_search(
     include_images: bool | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
-    """Execute a hybrid keyword+semantic search against the qmd sidecar.
+    """Execute the configured qmd or RRF hybrid strategy.
 
     The sidecar ranks; Postgres answers. Hits are decoded back to ``entry_id``s,
     hydrated by primary key, filtered, and returned in qmd's ranking order.
@@ -282,6 +325,9 @@ async def hybrid_search(
         query: Natural-language or keyword query.
         repository: ARIEL database repository, used to hydrate hits.
         config: ARIEL configuration, read for the module's query knobs.
+        embedder: Provider used by ARIEL's existing semantic search, for the
+            ``rrf`` strategy only. When omitted, the ``rrf`` path resolves the
+            configured provider class; the ``qmd`` strategy never touches it.
         max_results: Maximum text-lane entries to return (default: 10).
             Image-only entries are counted separately, at most
             ``ceil(max_results / 3)`` of them.
@@ -289,9 +335,13 @@ async def hybrid_search(
         end_date: Keep entries at or before this time.
         author: Keep entries whose author contains this text, case-insensitively.
         source_system: Keep entries from this source system (exact match).
-        rerank: Per-query override of ``settings.rerank``. ``None`` uses config.
-        candidate_limit: Per-query override of ``settings.candidate_limit``.
-            ``None`` uses config.
+        rerank: Per-query override when the ``qmd`` strategy's
+            ``settings.rerank`` enables the
+            reranker. A deployment setting of ``false`` is a hard disable and
+            cannot be overridden by a request. The ``rrf`` strategy never uses
+            the qmd reranker.
+        candidate_limit: Per-query override of ``settings.candidate_limit``;
+            RRF fetches this many candidates per lane. ``None`` uses config.
         client: Client for the sidecar. Defaults to the process-wide client
             built from the project's ``services.qmd`` block; tests pass a stub.
         query_expansion: Resolved vocabulary expansion for this query, passed by
@@ -308,12 +358,12 @@ async def hybrid_search(
     Returns:
         Without `query_expansion`: a list of ``(entry, score, snippets)`` tuples
         in descending relevance order — the bare-list contract every direct
-        caller relies on today, returned unchanged. ``score`` is qmd's 0-1
-        relevance, which is an **ordering signal, not a calibrated
-        probability** — do not threshold it. When a picture match survived
-        fusion, ``score`` is instead the fused reciprocal-rank score divided by
-        the best one, so the top entry scores 1.0; it orders this result only
-        and is no more comparable across queries than qmd's. ``snippets``
+        caller relies on today, returned unchanged. ``score`` is an **ordering
+        signal, not a calibrated probability** — do not threshold it. It is
+        qmd's score for the ``qmd`` strategy and the normalised RRF score for
+        the ``rrf`` strategy. A picture match likewise changes it to the fused
+        reciprocal-rank score divided by the best one, so the top entry scores
+        1.0. ``snippets``
         carries qmd's line-numbered, match-centered excerpt, or is empty when
         the sidecar supplied none or the entry matched only through a picture.
 
@@ -350,7 +400,8 @@ async def hybrid_search(
         # an untyped crash is reported to the agent as a broken sidecar, and it
         # goes looking at a service that is perfectly healthy. Message verbatim.
         raise SearchConfigurationError(str(exc)) from exc
-    effective_rerank = settings.rerank if rerank is None else bool(rerank)
+    rrf = settings.strategy == "rrf"
+    effective_rerank = False if rrf else settings.rerank and (rerank is None or bool(rerank))
     effective_candidates = settings.candidate_limit if candidate_limit is None else candidate_limit
 
     filters = _Filters(start_date, end_date, author, source_system)
@@ -382,8 +433,10 @@ async def hybrid_search(
             fetch_limit=fetch_limit,
             max_results=max_results,
             rerank=effective_rerank,
+            rrf=rrf,
             candidate_limit=effective_candidates,
             client=client,
+            embedder=embedder,
             query_expansion=query_expansion,
             img_task=img_task,
         )
@@ -434,8 +487,10 @@ async def _ranked_search(
     fetch_limit: int,
     max_results: int,
     rerank: bool,
+    rrf: bool,
     candidate_limit: int | None,
     client: QMDClient | None,
+    embedder: BaseProvider | None,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
@@ -475,19 +530,39 @@ async def _ranked_search(
 
     logger.info(
         f"hybrid_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "
-        f"rerank={rerank}, candidate_limit={candidate_limit}, "
+        f"strategy={settings.strategy}, rerank={rerank}, candidate_limit={candidate_limit}, "
         f"picture_lane={img_task is not None}"
     )
 
-    hits, diagnostics = await _fetch_hits(
-        qmd,
-        settings.collection,
-        query_expansion.flattened_text if query_expansion else query,
-        limit=fetch_limit,
-        rerank=rerank,
-        candidate_limit=candidate_limit,
-    )
-
+    lane_limit = max(fetch_limit, candidate_limit or fetch_limit)
+    semantic_task: asyncio.Task[list[_RankedTextHit]] | None = None
+    if rrf:
+        semantic_task = asyncio.create_task(
+            _semantic_hits(
+                query,
+                repository,
+                config,
+                embedder,
+                limit=lane_limit,
+                filters=filters,
+                query_expansion=query_expansion,
+            )
+        )
+    try:
+        hits, diagnostics = await _fetch_hits(
+            qmd,
+            settings.collection,
+            query_expansion.flattened_text if query_expansion else query,
+            limit=fetch_limit,
+            rerank=rerank,
+            lexical_only=rrf,
+            candidate_limit=candidate_limit,
+        )
+    except BaseException:
+        if semantic_task is not None:
+            semantic_task.cancel()
+            await asyncio.gather(semantic_task, return_exceptions=True)
+        raise
     image_hits = await img_task if img_task is not None else None
     if img_task is not None and image_hits is None:
         diagnostics = (
@@ -518,6 +593,8 @@ async def _ranked_search(
         )
 
     ranked = _decode_hits(hits)
+    if semantic_task is not None:
+        ranked = _rrf_hits(ranked, await semantic_task)
 
     if image_hits is not None:
         results = await _fused_results(
@@ -537,15 +614,15 @@ async def _ranked_search(
         logger.info("hybrid_search: returning 0 results")
         return shaped([])
 
-    entries = await repository.get_entries_by_ids([entry_id for entry_id, _ in ranked])
+    entries = await repository.get_entries_by_ids([hit.entry_id for hit in ranked])
     by_id = {entry["entry_id"]: entry for entry in entries}
 
     results = []
-    for entry_id, hit in ranked:
-        entry = by_id.get(entry_id)
+    for hit in ranked:
+        entry = by_id.get(hit.entry_id)
         if entry is None:
             # The mirror is a copy of the database and may lag a deletion.
-            logger.debug(f"hybrid_search: no row for mirrored entry {entry_id!r}, dropping hit")
+            logger.debug(f"hybrid_search: no row for ranked entry {hit.entry_id!r}, dropping hit")
             continue
         if not filters.accepts(entry):
             continue
@@ -566,7 +643,7 @@ async def _ranked_search(
 
 
 async def _fused_results(
-    ranked: list[tuple[str, QMDSearchResult]],
+    ranked: list[_RankedTextHit],
     image_hits: dict[str, fusion.ImageHit],
     repository: ARIELRepository,
     config: ARIELConfig,
@@ -585,7 +662,7 @@ async def _fused_results(
     an entry whose picture matched gets that picture's id after its caption
     ids in ``_matched_attachment_ids``.
     """
-    text_ids = [entry_id for entry_id, _ in ranked]
+    text_ids = [hit.entry_id for hit in ranked]
     seen = set(text_ids)
     ids = text_ids + [entry_id for entry_id in image_hits if entry_id not in seen]
     if not ids:
@@ -595,15 +672,15 @@ async def _fused_results(
 
     text_hits: list[tuple[str, float]] = []
     snippets: dict[str, list[str]] = {}
-    for entry_id, hit in ranked:
-        entry = by_id.get(entry_id)
+    for hit in ranked:
+        entry = by_id.get(hit.entry_id)
         if entry is None:
-            logger.debug(f"hybrid_search: no row for mirrored entry {entry_id!r}, dropping hit")
+            logger.debug(f"hybrid_search: no row for ranked entry {hit.entry_id!r}, dropping hit")
             continue
         if not filters.accepts(entry):
             continue
-        text_hits.append((entry_id, hit.score))
-        snippets[entry_id] = [hit.snippet] if hit.snippet else []
+        text_hits.append((hit.entry_id, hit.score))
+        snippets[hit.entry_id] = [hit.snippet] if hit.snippet else []
 
     accepted_images = {
         entry_id: hit
@@ -696,6 +773,7 @@ async def _fetch_hits(
     *,
     limit: int,
     rerank: bool,
+    lexical_only: bool,
     candidate_limit: int | None,
 ) -> tuple[list[QMDSearchResult], tuple[SearchDiagnostic, ...]]:
     """Ask the sidecar to rank, degrading to the unreranked ordering if it must.
@@ -710,7 +788,9 @@ async def _fetch_hits(
         text: The query text as the sidecar should see it.
         limit: How many hits to ask for.
         rerank: Whether to run the reranker at all.
-        candidate_limit: qmd's ``candidateLimit``; ``None`` leaves qmd's own.
+        lexical_only: Ask qmd for BM25 results only, for ARIEL's RRF strategy.
+        candidate_limit: Candidate depth for the RRF BM25 lane and qmd's
+            ``candidateLimit`` for a qmd query.
 
     Returns:
         The hits, and the diagnostics to carry back with them — one WARNING
@@ -721,7 +801,12 @@ async def _fetch_hits(
             too. One retry, not a loop: if the fast path is down, search is down.
     """
 
-    async def run(*, rerank: bool) -> list[QMDSearchResult]:
+    async def run(
+        *,
+        rerank: bool,
+        lexical_only: bool = False,
+        query_limit: int | None = None,
+    ) -> list[QMDSearchResult]:
         # The client is synchronous by design (stdlib urllib, no new dependency),
         # and a reranked query is measured in seconds — running it inline would
         # stall the event loop for every other request in the process.
@@ -729,13 +814,19 @@ async def _fetch_hits(
             qmd.query,
             collection,
             text,
-            limit=limit,
+            limit=query_limit or limit,
+            search_types=("lex",) if lexical_only else ("lex", "vec"),
             rerank=rerank,
             candidate_limit=candidate_limit,
         )
 
     if not rerank:
-        return await run(rerank=False), ()
+        lane_limit = max(limit, candidate_limit or limit)
+        return await run(
+            rerank=False,
+            lexical_only=lexical_only,
+            query_limit=lane_limit if lexical_only else None,
+        ), ()
 
     try:
         return await run(rerank=True), ()
@@ -763,6 +854,95 @@ async def _fetch_hits(
         )
 
 
+async def _semantic_hits(
+    query: str,
+    repository: ARIELRepository,
+    config: ARIELConfig,
+    embedder: BaseProvider | None,
+    *,
+    limit: int,
+    filters: _Filters,
+    query_expansion: QueryExpansion | None,
+) -> list[_RankedTextHit]:
+    """Run the existing Nomic/pgvector search and reduce it to an RRF lane."""
+    if not config.get_search_model():
+        return []
+    if embedder is None:
+        from osprey.services.ariel_search.search.semantic import semantic_provider_class
+
+        embedder = semantic_provider_class(config)()
+
+    from osprey.services.ariel_search.search.semantic import semantic_search
+
+    output = await semantic_search(
+        query,
+        repository,
+        config,
+        embedder,
+        max_results=limit,
+        # Hybrid needs a candidate ranking rather than semantic mode's
+        # operator-facing cutoff; RRF itself decides the final order.
+        similarity_threshold=0.0,
+        start_date=filters.start_date,
+        end_date=filters.end_date,
+        author=filters.author,
+        source_system=filters.source_system,
+        query_expansion=query_expansion,
+    )
+    rows = output.entries if isinstance(output, ModuleOutput) else output
+    return [_RankedTextHit(entry_id=entry["entry_id"], score=float(score)) for entry, score in rows]
+
+
+def _rrf_hits(
+    lexical: list[_RankedTextHit],
+    semantic: list[_RankedTextHit],
+    *,
+    k: int = RRF_K,
+) -> list[_RankedTextHit]:
+    """Fuse qmd BM25 and ARIEL/Nomic rankings by stable entry ID.
+
+    Raw BM25 and cosine scores are deliberately ignored because they live on
+    unrelated scales. Only rank positions contribute. The lexical hit is
+    retained when a document appears in both lists because it carries qmd's
+    matching snippet. Scores are normalised so the first result remains 1.0,
+    matching the existing UI contract.
+    """
+    if k < 1:
+        raise ValueError("RRF k must be positive")
+
+    hits: dict[str, _RankedTextHit] = {}
+    ranks: dict[str, list[int | None]] = {}
+    scores: dict[str, float] = {}
+
+    for lane, ranking in enumerate((lexical, semantic)):
+        seen: set[str] = set()
+        for rank, hit in enumerate(ranking, start=1):
+            key = hit.entry_id
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.setdefault(key, hit)
+            ranks.setdefault(key, [None, None])[lane] = rank
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+
+    if not scores:
+        return []
+
+    def order(key: str) -> tuple[float, int, int, str]:
+        lexical_rank, semantic_rank = ranks[key]
+        missing = len(lexical) + len(semantic) + 1
+        return (
+            -scores[key],
+            lexical_rank if lexical_rank is not None else missing,
+            semantic_rank if semantic_rank is not None else missing,
+            key,
+        )
+
+    ordered = sorted(scores, key=order)
+    top = scores[ordered[0]]
+    return [replace(hits[key], score=scores[key] / top) for key in ordered]
+
+
 def _fetch_limit(max_results: int, has_filters: bool) -> int:
     """Decide how many hits to ask the sidecar for.
 
@@ -782,7 +962,7 @@ def _fetch_limit(max_results: int, has_filters: bool) -> int:
     return max(wanted, min(wanted * OVERFETCH_FACTOR, MAX_FETCH_LIMIT))
 
 
-def _decode_hits(hits: list[QMDSearchResult]) -> list[tuple[str, QMDSearchResult]]:
+def _decode_hits(hits: list[QMDSearchResult]) -> list[_RankedTextHit]:
     """Map ranked qmd hits onto ``entry_id``s, keeping the first of each.
 
     Only the basename of a hit's path carries the identifier, so a hit decodes
@@ -793,12 +973,12 @@ def _decode_hits(hits: list[QMDSearchResult]) -> list[tuple[str, QMDSearchResult
         hits: Hits as the client returned them, in ranking order.
 
     Returns:
-        ``(entry_id, hit)`` pairs in ranking order. A hit whose title declares no
-        identifier is dropped with a warning: hydrating a guess would serve some
-        other entry's row under this hit's rank, and a wrong answer is worse than
-        a missing one.
+        Backend-neutral hits in ranking order. A hit whose title declares no
+        identifier is dropped with a warning: hydrating a guess would serve
+        some other entry's row under this hit's rank, and a wrong answer is
+        worse than a missing one.
     """
-    ranked: list[tuple[str, QMDSearchResult]] = []
+    ranked: list[_RankedTextHit] = []
     seen: set[str] = set()
     for hit in hits:
         entry_id = _entry_id_from_title(hit.title)
@@ -812,7 +992,7 @@ def _decode_hits(hits: list[QMDSearchResult]) -> list[tuple[str, QMDSearchResult
         if entry_id in seen:
             continue
         seen.add(entry_id)
-        ranked.append((entry_id, hit))
+        ranked.append(_RankedTextHit(entry_id, hit.score, hit.snippet))
     return ranked
 
 
@@ -1030,22 +1210,11 @@ def get_parameter_descriptors(config: ARIELConfig | None = None) -> list[Paramet
 
     descriptors = [
         ParameterDescriptor(
-            name="rerank",
-            label="Rerank Results",
-            description=(
-                "Re-order candidates with the sidecar's reranker model for better "
-                "ordering. Significantly slower — an LLM reviews each result. If "
-                "reranking fails, the results are shown without it."
-            ),
-            param_type="bool",
-            default=settings.rerank,
-            section="Retrieval",
-        ),
-        ParameterDescriptor(
             name="candidate_limit",
             label="Candidate Limit",
             description=(
-                "How many candidates the reranker considers. Lowering it trades recall for latency."
+                "How many candidates each RRF lane considers, or qmd's candidate "
+                "pool for its native strategy. Lowering it trades recall for latency."
             ),
             param_type="int",
             default=settings.candidate_limit,
@@ -1055,6 +1224,25 @@ def get_parameter_descriptors(config: ARIELConfig | None = None) -> list[Paramet
             section="Retrieval",
         ),
     ]
+    # A deployment setting of false is a hard disable, not merely the panel's
+    # initial toggle position. Omitting the descriptor keeps the panel on its
+    # one-phase RRF path and gives operators no control that can only no-op.
+    if settings.strategy == "qmd" and settings.rerank:
+        descriptors.insert(
+            0,
+            ParameterDescriptor(
+                name="rerank",
+                label="Rerank Results",
+                description=(
+                    "Re-order candidates with the sidecar's reranker model for better "
+                    "ordering. Significantly slower — an LLM reviews each result. If "
+                    "reranking fails, the results are shown without it."
+                ),
+                param_type="bool",
+                default=True,
+                section="Retrieval",
+            ),
+        )
     # Offered only where picture search can actually run: a knob that could
     # only ever no-op would invite an operator to believe it did something.
     if (
@@ -1082,14 +1270,17 @@ def get_tool_descriptor() -> SearchToolDescriptor:
     return SearchToolDescriptor(
         name="hybrid_search",
         description=(
-            "Hybrid keyword and semantic search over the mirrored logbook corpus, "
-            "ranked by the qmd sidecar. Use when a query mixes specific terms with "
-            "a described situation, or when keyword search returns too little."
+            "Hybrid logbook search that fuses qmd BM25 and ARIEL/Nomic semantic "
+            "rankings. Use when a query mixes specific terms with a described "
+            "situation, or when keyword search returns too little."
         ),
         search_mode="hybrid",
         args_schema=HybridSearchInput,
         execute=hybrid_search,
         format_result=format_qmd_result,
+        # Only the rrf strategy embeds, and it resolves its own provider, so the
+        # default qmd strategy depends on the sidecar alone.
+        needs_embedder=False,
         accepts_expansion=True,
         accepts_include_images=True,
     )

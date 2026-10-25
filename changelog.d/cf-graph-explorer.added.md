@@ -1,0 +1,1 @@
+Channel Finder: the graph-mode Explore view sorts on the server by any column, and its columns move, resize, fit and hide, remembered per browser. Rows, facets, chips, column headers and the device card have right-click menus, and the table is driven from the keyboard.

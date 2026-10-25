@@ -1896,9 +1896,10 @@ def _inject_project_metadata(config):
     config_with_labels = config.copy()
     config_with_labels["osprey_labels"] = project_label_values(config)
     config_with_labels["osprey_version"] = osprey_version
-    # A beta framework exists only beside a beta connectors, which pip never
-    # picks for a requirement that names none: the service recipes take this
-    # as OSPREY_PIP_PRE=1 and resolve their deps layer with --pre.
+    # The framework's floor on osprey-connectors names no pre-release, so pip
+    # never picks a connectors pre-release for it unasked: under a beta pin the
+    # service recipes take this as OSPREY_PIP_PRE=1 and resolve their deps
+    # layer with --pre.
     config_with_labels["osprey_pip_pre"] = is_prerelease(osprey_version)
 
     # Which env-chain files this deployment repo has, for the templates that

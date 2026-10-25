@@ -30,7 +30,7 @@ that it dials someone else's ports.
 
 The control-assistant preset is the only shipped one whose build injects
 anything, so the end-to-end cells here use it. Each is a real ``osprey init`` +
-``osprey build`` (``slow``, tens of seconds), built once per session and shared;
+``osprey build`` (``slow``, tens of seconds), built once per module and shared;
 the rest are unit tests of the two merges and cost nothing.
 """
 
@@ -143,11 +143,11 @@ def _service_leaves(document: dict[str, Any]) -> list[str]:
     return sorted(leaves)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def built_project(
     tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
 ) -> Path:
-    """One real ``osprey init`` + ``osprey build`` of the cell, shared by the session.
+    """One real ``osprey init`` + ``osprey build`` of the cell, shared by the module.
 
     Invoked exactly as the fixture freeze invoked it — same verbs, same fixed
     project name, same ``*_API_KEY``-stripped environment — so what it renders
@@ -186,7 +186,7 @@ def built_project(
     return project
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def rendered(built_project: Path) -> dict[str, dict[str, Any]]:
     """The cell's rendered documents, keyed by render name.
 
@@ -203,7 +203,7 @@ def _render_dir(built_project: Path, render: str) -> Path:
     return built_project / "build" / f"{built_project.name}-{render}"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def external_store_render(
     tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
 ) -> dict[str, Any]:

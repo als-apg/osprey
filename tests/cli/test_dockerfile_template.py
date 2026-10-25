@@ -376,7 +376,7 @@ class TestDockerfileContent:
         assert "exit 1" in deps
 
     def test_deps_run_admits_prereleases_when_the_pin_is_one(self, hello_project, tmp_path):
-        """A beta framework pin exists only beside a beta ``osprey-connectors``,
+        """The framework's ``osprey-connectors`` floor names no pre-release,
         and plain pip never picks a pre-release for a requirement that names
         none — so under ``OSPREY_PIP_PRE=1`` the primer install carries
         ``--pre`` and the whole resolve admits pre-releases."""

@@ -33,7 +33,7 @@ from osprey.audit.envelope import (
 )
 from osprey.mcp_server import audit_middleware as am
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 
 # --------------------------------------------------------------------------
 # Fixtures and helpers
@@ -984,7 +984,7 @@ class TestToolUseId:
 @pytest.fixture
 def ask_stamps(tmp_path, monkeypatch):
     """Where the approval hook leaves its ask stamps, as this server resolves it."""
-    from tests._control_context_fixtures import pin_identity, state_dir_under
+    from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
     pin_identity(monkeypatch)
     root = tmp_path / "agent_data"

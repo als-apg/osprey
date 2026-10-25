@@ -29,6 +29,7 @@ Public surface::
         AgentSessionBudgetExceeded,
         TurnResult,
         AgentEvent,
+        DeltaEvent,
         TextEvent,
         ThinkingEvent,
         ToolUseEvent,
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
     from osprey.agent_runner.events import (
         AgentEvent,
         ApiErrorEvent,
+        DeltaEvent,
         ResultEvent,
         SystemEvent,
         TextEvent,
@@ -95,6 +97,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "McpNotReadyError": ".errors",
     "AgentEvent": ".events",
     "ApiErrorEvent": ".events",
+    "DeltaEvent": ".events",
     "ResultEvent": ".events",
     "SystemEvent": ".events",
     "TextEvent": ".events",

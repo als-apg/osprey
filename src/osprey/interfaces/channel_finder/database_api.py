@@ -88,6 +88,11 @@ _GRAPH_SEARCH_PAGE_SIZE = DEFAULT_PAGE_SIZE
 #: asked a question it has no answer for.
 GraphDirection = Literal["R", "W", "RW", "none"]
 
+#: The result-table columns a search can be ordered by — the keys of the
+#: index's ``SEARCH_SORT_KEYS``, spelled out so FastAPI rejects anything else
+#: with a 422 before the index is asked.
+GraphSortKey = Literal["device", "section", "system", "address", "dir", "signal", "description"]
+
 #: What an operator is told when a device URI is not in the store. A miss is
 #: not a store failure — the finder that produced the link is simply older than
 #: the corpus behind it — so the remedy is to search again rather than to touch
@@ -799,6 +804,8 @@ async def graph_search(
     dir: list[GraphDirection] = Query([]),
     cls: str | None = Query(None),
     page: int = Query(1, ge=1),
+    sort: GraphSortKey | None = Query(None),
+    order: Literal["asc", "desc"] = Query("asc"),
 ):
     """Answer one page of the graph finder, with the facets around it.
 
@@ -816,6 +823,9 @@ async def graph_search(
         dir: Directions to keep, drawn from ``R``, ``W``, ``RW`` and ``none``.
         cls: One class URI, or nothing for no class filter.
         page: 1-based page of fifty rows.
+        sort: The result column to order rows by, or nothing for address order.
+            The whole match is ordered before the page is cut.
+        order: ``asc`` or ``desc`` for the ``sort`` column.
 
     Returns:
         ``total`` and ``devices`` over every match, the ``page`` of ``rows``
@@ -843,6 +853,8 @@ async def graph_search(
         # '' is a class no device is typed by; no filter is null.
         cls=cls or None,
         page=page,
+        sort=sort,
+        descending=order == "desc",
     )
     return await _serve_index_read(request, "search", read)
 
@@ -857,6 +869,8 @@ def _read_graph_search(
     dirs: list[str],
     cls: str | None,
     page: int,
+    sort: str | None = None,
+    descending: bool = False,
 ) -> dict[str, Any]:
     """Run the faceted search and answer the page it cuts.
 
@@ -875,6 +889,8 @@ def _read_graph_search(
         dirs: Directions to keep, empty for no filter.
         cls: One class URI, or ``None`` for no filter.
         page: 1-based page number.
+        sort: The column to order rows by, or ``None`` for address order.
+        descending: Reverse the ``sort`` column.
 
     Returns:
         The search payload.
@@ -892,6 +908,8 @@ def _read_graph_search(
         skip=(page - 1) * _GRAPH_SEARCH_PAGE_SIZE,
         page_size=_GRAPH_SEARCH_PAGE_SIZE,
         facet_cap=_GRAPH_EXPLORE_MAX_ROWS,
+        sort=sort,
+        descending=descending,
     )
 
 

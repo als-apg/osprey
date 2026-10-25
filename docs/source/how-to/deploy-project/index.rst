@@ -549,6 +549,14 @@ images carry your local checkout.
 
    uv pip install build   # or: pip install build
 
+It also needs the checkout's release tags. Each wheel takes its version from
+git tags: the framework from ``v*``, ``osprey-connectors`` from its own
+``osprey-connectors-v*``. A checkout without a connectors tag reachable builds
+that package as ``0.0.postN``, which the framework's requirement on it refuses,
+and ``--dev`` stops before staging and says so. Run ``git fetch --tags``; a
+fork or an internal mirror must sync the ``osprey-connectors-v*`` tags as well
+as the ``v*`` ones.
+
 Troubleshooting
 ===============
 

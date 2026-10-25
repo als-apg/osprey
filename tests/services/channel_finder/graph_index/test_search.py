@@ -408,6 +408,67 @@ class TestRowsAndPaging:
             "SR:MAG:TWICE:CURRENT",
         ]
 
+    @pytest.mark.parametrize(
+        ("sort", "key"),
+        [
+            ("address", lambda row: row["fullPv"]),
+            ("device", lambda row: row["device"]),
+            ("description", lambda row: row["description"]),
+        ],
+    )
+    def test_a_sort_orders_every_match_before_the_page_is_cut(
+        self, mixed_index: GraphIndex, sort, key
+    ):
+        rows = mixed_index.search(sort=sort, page_size=50)["rows"]
+        down = mixed_index.search(sort=sort, descending=True, page_size=50)["rows"]
+
+        values = [key(row) for row in rows if key(row) is not None]
+        assert values == sorted(values)
+        down_values = [key(row) for row in down if key(row) is not None]
+        assert down_values == sorted(down_values, reverse=True)
+
+    def test_a_blank_sorts_last_in_both_directions(self, mixed_index: GraphIndex):
+        up = mixed_index.search(sort="section", page_size=50)["rows"]
+        down = mixed_index.search(sort="section", descending=True, page_size=50)["rows"]
+
+        assert up[-1]["fullPv"] == down[-1]["fullPv"] == "NOWHERE:RB"
+        assert up[0]["section"] == "BR"
+        assert down[0]["section"] == "SR"
+
+    def test_ties_fall_back_to_address_order_so_pages_never_overlap(self, mixed_index: GraphIndex):
+        everything = _addresses(mixed_index.search(sort="section", page_size=50))
+        paged = [
+            pv
+            for skip in range(0, 10, 3)
+            for pv in _addresses(mixed_index.search(sort="section", skip=skip, page_size=3))
+        ]
+
+        assert paged == everything
+        sr = [
+            row["fullPv"]
+            for row in mixed_index.search(sort="section", page_size=50)["rows"]
+            if row["section"] == "SR"
+        ]
+        assert sr == sorted(sr)
+
+    def test_direction_sorts_on_its_most_specific_value(self, mixed_index: GraphIndex):
+        rows = mixed_index.search(sort="dir", page_size=50)["rows"]
+        dirs = [tuple(sorted(row["edges"])) for row in rows]
+
+        both = [i for i, d in enumerate(dirs) if len(d) == 2]
+        assert both, "the mixed corpus carries a read/write binding"
+        assert all(dirs[i] == dirs[both[0]] for i in both)
+
+    def test_signals_sort_on_their_joined_names(self, mixed_index: GraphIndex):
+        rows = mixed_index.search(sort="signal", page_size=50)["rows"]
+        joined = [", ".join(s["name"] for s in row["signals"]) for row in rows]
+
+        assert joined == sorted(joined)
+
+    def test_an_unknown_sort_column_is_refused(self, mixed_index: GraphIndex):
+        with pytest.raises(ValueError, match="cannot sort by 'full_pv; DROP'"):
+            mixed_index.search(sort="full_pv; DROP")
+
     def test_one_address_bound_under_two_devices_breaks_the_tie_on_the_device(
         self, mixed_index: GraphIndex
     ):

@@ -10,7 +10,7 @@ never selected the approval hook is asked for, and what counts as "stated".
 The **CLI** half runs the real ``osprey init`` + ``osprey build``, because the
 floor is only worth anything if it is wired into the gate a build actually
 passes through. Each preset is built once and cached for the
-session; the refusals then take one built hello-world repo, delete a single
+module; the refusals then take one built hello-world repo, delete a single
 required line from its ``profile.yml``, and rebuild — so the assertion is on the
 message the CLI prints, not on a function called in isolation.
 
@@ -20,7 +20,7 @@ Running it::
 
 The CLI half is marked ``slow``. Each build is seconds, not minutes: the
 presets that carry a virtual accelerator do the most work, and every cell is
-built at most once per session.
+built at most once per module.
 """
 
 from __future__ import annotations
@@ -460,11 +460,11 @@ def _output(result: subprocess.CompletedProcess[str]) -> str:
     return f"{result.stdout}\n{result.stderr}"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def built_preset(
     tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
 ) -> Any:
-    """Build a preset once per session and hand back its repo.
+    """Build a preset once per module and hand back its repo.
 
     Args:
         tmp_path_factory: Pytest's session-scoped directory factory.
@@ -476,11 +476,14 @@ def built_preset(
         verb fails the calling test with the CLI's own output.
     """
     built: dict[str, Path] = {}
+    # Made now, not on the first build, so it goes when the module ends.
+    root = tmp_path_factory.mktemp("posture")
 
     def _build(preset: str) -> Path:
         if preset in built:
             return built[preset]
-        workspace = tmp_path_factory.mktemp(f"posture-{preset}")
+        workspace = root / preset
+        workspace.mkdir()
         init = _run_cli(["init", PROJECT_NAME, "--preset", preset, "--no-git"], workspace)
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME

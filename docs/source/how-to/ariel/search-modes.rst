@@ -151,12 +151,13 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       **Module:** ``search/qmd.py``
 
-      Hybrid keyword-plus-semantic search, answered by the **qmd search sidecar** --- a separate container that indexes a markdown mirror of the logbook and returns one merged ranking. Best when a question mixes specific terms with a described situation, or when keyword search returned too little.
+      Hybrid keyword-plus-semantic search. The default ``qmd`` strategy leaves lexical and vector retrieval inside qmd, preserving the behavior of existing deployments. The optional lightweight ``rrf`` strategy has qmd supply a BM25 ranking from its markdown mirror, ARIEL's configured semantic search supply the dense ranking, and ARIEL combine their positions with equal-weight reciprocal-rank fusion (RRF, ``k=60``). Both are useful when a question mixes specific terms with a described situation, or when keyword search returned too little.
 
-      Unlike the other two modes, ``hybrid`` does not search PostgreSQL. It needs two things running together:
+      The ``rrf`` path searches both qmd and PostgreSQL. It needs three things running together:
 
       1. the ``services.qmd`` sidecar (see :ref:`qmd-search-sidecar`), and
-      2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes.
+      2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes; and
+      3. the same configured embedding model and populated pgvector table used by ``semantic`` search.
 
       Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own and reaches the hosting deployment's through ``services.qmd.port`` instead — a key the build copies from the hosting deployment's render into every tier and app, so nothing pins it by hand — and ``osprey build`` refuses a render that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
 
@@ -171,6 +172,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
              hybrid:
                enabled: true
                settings:
+                 strategy: qmd        # default; or rrf
                  rerank: true          # default
                  candidate_limit: 40   # default
 
@@ -178,7 +180,9 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
          The knobs **must** stay under ``settings:``. ARIEL's search-config loader keeps only ``enabled``, ``provider``, ``model`` and ``settings``, and drops every other key without a word. A knob written as a sibling of ``enabled`` is inert forever --- no error, no warning, just the defaults.
 
-      **The rerank decision.** ``rerank`` turns on qmd's LLM reranker, which reorders candidates for quality. It is the single most important knob here, because it is the dominant latency term. Measured against a 134,996-entry logbook:
+      **Choose the strategy first.** ``strategy: qmd`` is the compatible default and uses qmd's lexical/vector retrieval; it may optionally use qmd's LLM reranker. ``strategy: rrf`` is the lightweight option: it combines qmd BM25 with ARIEL's configured semantic provider, has no second embedding model in the logbook retrieval path, and never calls the qmd reranker. It therefore requires semantic search and its embeddings to be available.
+
+      **The rerank decision.** For ``strategy: qmd``, ``rerank`` turns on qmd's LLM reranker, which reorders candidates for quality. It is the single most important latency knob. For ``strategy: rrf`` it is ignored because RRF returns directly. Measured against a 134,996-entry logbook:
 
       .. list-table::
          :header-rows: 1
@@ -196,13 +200,13 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term: its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.
 
-      **One key, both surfaces.** ``search_modules.hybrid.settings.rerank`` governs the agent-facing ``hybrid_search`` tool *and* the web interface's search panel --- and ``candidate_limit`` likewise. There is no separate panel key. The two surfaces override it differently. The panel's **Rerank Results** toggle opens showing whatever the deployment configured, and clicking it overrides that value for every search you run from then on, until **Reset** returns the panel to the deployment's value. On the agent side, ``hybrid_search`` takes a ``rerank`` argument that applies to the one call: leave it unset and the tool follows the configured key, pass ``false`` and that one search takes the fast path and nothing else changes. Set the key itself to ``false`` only when you want the fast path for every search, on both surfaces. (The OKF bundle is a different key over a different corpus and defaults the other way; see :doc:`../facility-knowledge/okf-bundle`.)
+      **One key, both surfaces.** For the ``qmd`` strategy, ``search_modules.hybrid.settings.rerank`` governs the agent-facing ``hybrid_search`` tool *and* the web interface's search panel --- and ``candidate_limit`` likewise. There is no separate panel key. When the deployment enables reranking, the panel toggle and tool argument may turn it off for an individual search. Setting the deployment key to ``false`` is a hard disable: the panel offers no toggle and a request cannot turn the reranker back on. The ``rrf`` strategy also omits that toggle because reranking does not participate. (The OKF bundle is a different key over a different corpus and defaults the other way; see :doc:`../facility-knowledge/okf-bundle`.)
 
       **What the panel does with a reranked search.** Rather than hold an empty screen for the length of a reranked query, the panel runs it in two phases: it fetches and paints the fast ranking first, under a status line saying the results are being reranked, then replaces them with the reranked ranking under a line saying they were updated. The second response is drawn from a larger candidate pool, so *which* entries come back can change, not only the order they come back in.
 
       **Reranking is never load-bearing.** A reranked query that fails, for any reason, is retried once without the reranker; the results come back normally, carrying a WARNING diagnostic that says the ranking was not improved. The panel keeps the fast results on screen and says so in its status line. Only a failure of that retry is a failed search.
 
-      ``candidate_limit`` is how many candidates the reranker considers. Lowering it trades recall for latency.
+      ``candidate_limit`` is how many BM25 and dense candidates RRF considers per lane, or qmd's candidate pool under the qmd strategy. Lowering it trades recall for latency.
 
       **Filtering is best-effort.** ``hybrid_search`` ranks the corpus first and applies the date, author and source filters *afterwards*, to the top of that ranking --- not inside the database. A selective filter can therefore return fewer entries than you asked for even when more matching entries exist. Read a short result set as "the ranked window ran out", not as "there is nothing else". When a filter has to be exhaustive, use ``keyword_search`` or ``sql_query``, which filter in the database.
 
@@ -696,11 +700,12 @@ Both modes retrieve by meaning rather than by matching words, and a deployment
 can run either, both, or neither. They differ in what they depend on, what they
 cost per query, and how much of their ranking you can inspect.
 
-``hybrid`` is the stronger default for most deployments. It combines BM25 with
-vector search and an LLM reranker, and its models ship inside the qmd sidecar's
-image, so it needs no embedding provider on the host and no pgvector extension
-in the logbook database. It is also the mode the shipped templates set as
-``default_search_mode``.
+``hybrid`` defaults to qmd's all-in-one retrieval, which combines BM25, vector
+search and an optional LLM reranker without needing an embedding provider on the
+host or pgvector in the logbook database. Deployments that already run semantic
+search can instead select the lightweight RRF strategy, which reuses that same
+embedding model and combines it with qmd BM25. The shipped templates set hybrid
+as ``default_search_mode``.
 
 ``semantic`` is worth keeping — or choosing — when any of the following applies:
 
@@ -719,9 +724,10 @@ in the logbook database. It is also the mode the shipped templates set as
   ``text_embeddings_*`` tables in the logbook database, so they join against
   ordinary columns and are reachable from the ``sql_query`` tool. ``hybrid``
   ranks a markdown mirror and post-filters instead.
-* **Query latency matters more than ranking quality.** Reranking dominates a
-  hybrid query's cost; a pure vector lookup is the fast path. (``hybrid`` can
-  also be run with ``rerank: false``.)
+* **Query latency matters more than reranking quality.** Reranking dominates a
+  qmd hybrid query's cost; a pure vector lookup is the fast path. The RRF
+  strategy is a lightweight hybrid alternative when both lexical and dense
+  retrieval are wanted without a reranker.
 
 Running both is a reasonable configuration: they are independent modules, and
 ``default_search_mode`` decides only which one answers when the caller names no

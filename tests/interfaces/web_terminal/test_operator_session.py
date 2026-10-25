@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import json
 import logging
 import threading
 import time
@@ -17,11 +18,15 @@ import pytest
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     CLIConnectionError,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    PermissionUpdate,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
+from claude_agent_sdk.types import PermissionRuleValue
 
 from osprey.agent_runner import (
     ApiErrorEvent,
@@ -33,30 +38,37 @@ from osprey.agent_runner import (
     ToolUseEvent,
 )
 from osprey.agent_runner.clean_env import build_clean_env
+from osprey.agent_runner.write_tools import read_only_disallowed_tools
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
 from osprey.interfaces.web_terminal.operator_session import (
     OperatorRegistry,
     OperatorSession,
     TurnInProgressError,
     _event_to_wire,
-    _format_tool_name,
+    _render_arms_writes,
+    _standing_rules,
+    format_tool_name,
     validate_project_directory,
 )
 from tests._agent_cli import STUB_AGENT_CLI
 from tests.interfaces.web_terminal._fakes import (
     PRESET_SYSTEM_PROMPT,
+    armed_chat,
     assistant_message,
+    collect_turn,
     mock_sdk_client,
     result_message,
     sdk_seam,
+    start_turn,
     system_message,
+    unnumbered,
     user_message,
 )
 
 _OS = "osprey.interfaces.web_terminal.operator_session."
 
 # ---------------------------------------------------------------------------
-# _format_tool_name
+# format_tool_name
 # ---------------------------------------------------------------------------
 
 
@@ -75,7 +87,7 @@ class TestFormatToolName:
         ],
     )
     def test_formats_the_tool_name(self, raw, shown):
-        assert _format_tool_name(raw) == shown
+        assert format_tool_name(raw) == shown
 
 
 # ---------------------------------------------------------------------------
@@ -113,11 +125,11 @@ def _result(
 class TestEventToWire:
     def test_text_block(self):
         ev = _event_to_wire(TextEvent(text="hello", parent_tool_use_id=None))
-        assert ev == {"type": "text", "content": "hello"}
+        assert ev == {"type": "text", "content": "hello", "parent_tool_use_id": None}
 
     def test_thinking_block(self):
         ev = _event_to_wire(ThinkingEvent(text="pondering..."))
-        assert ev == {"type": "thinking", "content": "pondering..."}
+        assert ev == {"type": "thinking", "content": "pondering...", "parent_tool_use_id": None}
 
     def test_tool_use_block(self):
         ev = _event_to_wire(_tool_use("mcp__osprey__channel_read", "tu_1", {"channels": ["X"]}))
@@ -129,11 +141,17 @@ class TestEventToWire:
         assert ev["input"] == {"channels": ["X"]}
 
     @pytest.mark.parametrize("is_error", [False, True])
-    def test_tool_results_are_not_part_of_the_stream(self, is_error):
+    def test_tool_results_reach_the_stream_as_a_preview(self, is_error):
         event = ToolResultEvent(
             tool_use_id="tu_1", content="42.0", is_error=is_error, parent_tool_use_id=None
         )
-        assert _event_to_wire(event) is None
+        assert _event_to_wire(event) == {
+            "type": "tool_result",
+            "tool_use_id": "tu_1",
+            "is_error": is_error,
+            "preview": "42.0",
+            "truncated": False,
+        }
 
     def test_assistant_error(self):
         ev = _event_to_wire(ApiErrorEvent(error="overloaded"))
@@ -167,10 +185,24 @@ class TestEventToWire:
             _event_to_wire(_tool_use("Read", "tu_x", {"file": "a.py"})),
         ]
         assert [list(f) for f in frames if f is not None] == [
-            ["type", "content"],
-            ["type", "content"],
-            ["type", "tool_name", "tool_name_raw", "tool_use_id", "input"],
+            ["type", "content", "parent_tool_use_id"],
+            ["type", "content", "parent_tool_use_id"],
+            ["type", "tool_name", "tool_name_raw", "tool_use_id", "input", "parent_tool_use_id"],
         ]
+
+    def test_a_compaction_notice_carries_its_trigger_and_size(self):
+        ev = _event_to_wire(
+            SystemEvent(
+                subtype="compact_boundary",
+                data={"compact_metadata": {"trigger": "auto", "pre_tokens": 183000}},
+            )
+        )
+        assert ev == {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "trigger": "auto",
+            "pre_tokens": 183000,
+        }
 
 
 class TestSystemEventCarriesResumeIdentity:
@@ -189,7 +221,301 @@ class TestSystemEventCarriesResumeIdentity:
         """Absent, not ``None``: a message that says nothing about identity
         must not read as one reporting a missing id."""
         ev = _event_to_wire(SystemEvent(subtype="compact_boundary", data={}))
-        assert ev == {"type": "system", "subtype": "compact_boundary"}
+        assert "session_id" not in ev
+        assert ev == {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "trigger": None,
+            "pre_tokens": None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# The chat's approval gate: the child's own render, and session allows
+# ---------------------------------------------------------------------------
+
+
+def _session_allow(tool: str, *, kind: str = "addRules") -> list:
+    """A permission suggestion the CLI would offer for *tool*: an allow rule, aimed at
+    the project's settings. ``_standing_rules`` must narrow it, or refuse it outright."""
+    return [
+        PermissionUpdate(
+            type=kind,
+            rules=[PermissionRuleValue(tool_name=tool)],
+            behavior="allow",
+            destination="localSettings",
+        )
+    ]
+
+
+def _write_render(directory: Path, text: str) -> str:
+    """Write a ``config.yml`` into *directory*; return the directory's path."""
+    (directory / "config.yml").write_text(text, encoding="utf-8")
+    return str(directory)
+
+
+def _write_hook_config(
+    project: Path, write_tools: list, approval_prefixes: list | None = None
+) -> None:
+    """Write the ``write_tools`` list the render's writes-check hook reads, and the
+    ``approval_prefixes`` its approval hook reads when given."""
+    hooks = project / ".claude" / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    config: dict = {"write_tools": write_tools}
+    if approval_prefixes is not None:
+        config["approval_prefixes"] = approval_prefixes
+    (hooks / "hook_config.json").write_text(json.dumps(config), encoding="utf-8")
+
+
+class TestRenderArmsWrites:
+    """The approval gate arms from the render the chat child runs in, and fails closed."""
+
+    def test_a_write_armed_render_arms_writes(self, tmp_path):
+        project = _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        assert _render_arms_writes(project) is True
+
+    @pytest.mark.parametrize(
+        "render",
+        [
+            pytest.param("control_system:\n  writes_enabled: false\n", id="read-only"),
+            pytest.param("control_system: {writes_enabled: true\n", id="will-not-load"),
+            pytest.param(None, id="missing"),
+            pytest.param("project_name: demo\n", id="no-control-section"),
+        ],
+    )
+    def test_writes_stay_unarmed_unless_the_render_arms_them(self, tmp_path, render):
+        project = str(tmp_path) if render is None else _write_render(tmp_path, render)
+        assert _render_arms_writes(project) is False
+
+    def test_the_child_render_decides_not_the_server_process_config(self, tmp_path, monkeypatch):
+        """The server's own working directory may hold an armed config; the child's does not."""
+        child = tmp_path / "child"
+        child.mkdir()
+        project = _write_render(child, "control_system:\n  writes_enabled: false\n")
+        server = tmp_path / "server"
+        server.mkdir()
+        _write_render(server, "control_system:\n  writes_enabled: true\n")
+        monkeypatch.chdir(server)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        assert _render_arms_writes(project) is False
+
+    async def test_start_arms_the_session_from_its_own_render(self, tmp_path):
+        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_hook_config(tmp_path, ["mcp__controls__channel_write"])
+        session = OperatorSession(cwd=str(tmp_path))
+        with sdk_seam():
+            await session.start()
+        try:
+            assert session._approvals is True
+            assert "mcp__controls__channel_write" in session._side_effect_tools
+        finally:
+            await session.stop()
+
+    async def test_a_tool_the_approval_hook_asks_about_gets_no_session_allow(self, tmp_path):
+        """The hook asks on every call under its prefixes, so a standing allow for one
+        would either do nothing or let the hook's ask be skipped: none is offered."""
+        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        _write_hook_config(tmp_path, ["mcp__controls__channel_write"], ["mcp__controls__"])
+        session = OperatorSession(cwd=str(tmp_path))
+        with sdk_seam():
+            await session.start()
+        try:
+            asked = "mcp__controls__channel_read"
+            assert _standing_rules(asked, _session_allow(asked), session._side_effect_tools) == []
+            other = "mcp__weather__forecast"
+            kept = _standing_rules(other, _session_allow(other), session._side_effect_tools)
+            assert [rule.destination for rule in kept] == ["session"]
+        finally:
+            await session.stop()
+
+
+class TestStandingRules:
+    """A session allow is never offered for a tool on the side-effect surface.
+
+    The surface is ``read_only_disallowed_tools``, the list the headless read-only run
+    refuses, so whatever the CLI suggests, a tool that can act is approved per call.
+    """
+
+    def test_every_entry_of_the_side_effect_surface_is_refused_a_session_allow(self, tmp_path):
+        """The render's own write list is read, so each entry is tried by a tool it covers."""
+        _write_hook_config(
+            tmp_path, ["mcp__phoebus__phoebus_drive", "mcp__facility__.*", "mcp__controls__x"]
+        )
+        surface = read_only_disallowed_tools(tmp_path)
+        assert "mcp__phoebus__phoebus_drive" in surface
+        for entry in surface:
+            if entry.endswith(".*"):
+                tool = entry[: -len(".*")] + "probe"
+            elif entry.endswith("*"):
+                tool = entry[:-1] + "probe"
+            else:
+                tool = entry
+            assert _standing_rules(tool, _session_allow(tool), surface) == [], tool
+
+    def test_control_target_set_is_never_offered_a_session_allow(self, tmp_path):
+        """Regression pin: it moves the whole session to another machine. It is approval-gated
+        but not writes-check gated, so only the side-effect surface keeps it per call."""
+        surface = read_only_disallowed_tools(tmp_path)
+        assert "mcp__controls__control_target_set" in surface
+        tool = "mcp__controls__control_target_set"
+        assert _standing_rules(tool, _session_allow(tool), surface) == []
+
+    def test_phoebus_drive_is_never_offered_a_session_allow(self, tmp_path):
+        """Regression pin: the phoebus family was outside the hand-written prefixes."""
+        surface = read_only_disallowed_tools(tmp_path)
+        tool = "mcp__phoebus__phoebus_drive"
+        assert _standing_rules(tool, _session_allow(tool), surface) == []
+
+    def test_a_tool_off_the_surface_keeps_its_session_allow(self, tmp_path):
+        surface = read_only_disallowed_tools(tmp_path)
+        tool = "mcp__osprey_workspace__channel_find"
+        rules = _standing_rules(tool, _session_allow(tool), surface)
+        assert [rule.destination for rule in rules] == ["session"]
+        assert [r.tool_name for rule in rules for r in rule.rules] == [tool]
+
+    def test_a_server_level_entry_covers_every_tool_of_that_server(self):
+        """The disallow engine reads ``mcp__<server>`` as the whole server."""
+        surface = ["mcp__facility"]
+        assert (
+            _standing_rules("mcp__facility__probe", _session_allow("mcp__facility__probe"), surface)
+            == []
+        )
+        rules = _standing_rules(
+            "mcp__facilityx__probe", _session_allow("mcp__facilityx__probe"), surface
+        )
+        assert [rule.destination for rule in rules] == ["session"]
+
+    def test_a_malformed_entry_covers_nothing_and_does_not_raise(self):
+        tool = "mcp__osprey_workspace__channel_find"
+        rules = _standing_rules(tool, _session_allow(tool), [7, None])
+        assert [rule.destination for rule in rules] == ["session"]
+
+    def test_a_suggestion_wider_than_the_asked_tool_is_not_offered(self):
+        """A server-wide rule, or one for another tool, would let a session allow cover
+        calls the operator was never asked about; neither is kept."""
+        tool = "mcp__controls__channel_read"
+        assert _standing_rules(tool, _session_allow("mcp__controls"), []) == []
+        assert _standing_rules(tool, _session_allow("mcp__controls__channel_write"), []) == []
+        mixed = [
+            PermissionUpdate(
+                type="addRules",
+                rules=[
+                    PermissionRuleValue(tool_name="mcp__controls"),
+                    PermissionRuleValue(tool_name=tool),
+                ],
+                behavior="allow",
+                destination="projectSettings",
+            )
+        ]
+        (kept,) = _standing_rules(tool, mixed, [])
+        assert [r.tool_name for r in kept.rules] == [tool]
+        assert kept.destination == "session"
+
+    def test_a_replace_rules_suggestion_is_not_offered(self):
+        """``replaceRules`` would swap the session's whole rule set, not add one allow."""
+        tool = "mcp__controls__channel_read"
+        assert _standing_rules(tool, _session_allow(tool, kind="replaceRules"), []) == []
+
+    async def test_an_unreadable_surface_still_starts_and_offers_no_session_allow(
+        self, tmp_path, monkeypatch
+    ):
+        def unreadable(_project_dir):
+            raise RuntimeError("config.yml is not valid YAML")
+
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.operator_session.read_only_disallowed_tools",
+            unreadable,
+        )
+        _write_render(tmp_path, "control_system:\n  writes_enabled: true\n")
+        session = OperatorSession(cwd=str(tmp_path))
+        with sdk_seam():
+            await session.start()
+        try:
+            assert session._side_effect_tools == ("*",)
+            tool = "mcp__controls__channel_read"
+            rules = _standing_rules(tool, _session_allow(tool), session._side_effect_tools)
+            assert rules == []
+        finally:
+            await session.stop()
+
+
+# ---------------------------------------------------------------------------
+# A card nobody answers expires as a decline
+# ---------------------------------------------------------------------------
+
+
+class TestAskExpiry:
+    """An approval, question or plan card nobody answers is declined after ASK_EXPIRY_S."""
+
+    @pytest.fixture(autouse=True)
+    def _short_expiry(self, monkeypatch):
+        """Expire an unanswered card in 10 ms instead of 30 minutes."""
+        monkeypatch.setattr(_OS + "ASK_EXPIRY_S", 0.01)
+
+    @pytest.mark.parametrize(
+        ("tool", "tool_input", "told"),
+        [
+            pytest.param(
+                "mcp__python__execute", {"code": "1"}, "No answer from the operator", id="tool"
+            ),
+            pytest.param("ExitPlanMode", {"plan": "the plan"}, "keep planning", id="plan"),
+            pytest.param("AskUserQuestion", {"questions": []}, "not answered", id="question"),
+        ],
+    )
+    async def test_an_unanswered_card_is_declined_and_settles_as_expired(
+        self, tmp_path, tool, tool_input, told
+    ):
+        """The agent is told what the card's kind calls for, every tab settles the card as
+        expired rather than as the operator's "No", a tab that opens later is shown none, and
+        a late answer finds nothing waiting."""
+        async with armed_chat(tmp_path) as chat:
+            answer, card = await chat.ask(tool, tool_input)
+            result = await asyncio.wait_for(answer, timeout=2.0)
+            resolved = chat.feed.get_nowait()
+            _feed, hello = chat.session.subscribe()
+            late = await chat.session.resolve_permission(card["request_id"], allow=True)
+
+        assert isinstance(result, PermissionResultDeny)
+        assert told in result.message
+        assert result.interrupt is False
+        assert unnumbered(resolved) == {
+            "type": "permission_resolved",
+            "request_id": card["request_id"],
+            "allow": False,
+            "for_session": False,
+            "answers": None,
+            "expired": True,
+        }
+        assert hello["pending"] == []
+        assert late is False
+
+    async def test_an_answer_before_the_deadline_is_the_answer(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_OS + "ASK_EXPIRY_S", 5.0)
+        async with armed_chat(tmp_path) as chat:
+            answer, card = await chat.ask()
+            assert await chat.session.resolve_permission(card["request_id"], allow=True)
+            result = await asyncio.wait_for(answer, timeout=2.0)
+            resolved = chat.feed.get_nowait()
+
+        assert isinstance(result, PermissionResultAllow)
+        assert resolved["allow"] is True
+        assert resolved["expired"] is False
+
+    async def test_a_stop_before_the_deadline_declines_with_an_interrupt_not_an_expiry(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(_OS + "ASK_EXPIRY_S", 5.0)
+        async with armed_chat(tmp_path) as chat:
+            answer, _card = await chat.ask()
+            await chat.session.interrupt()
+            result = await asyncio.wait_for(answer, timeout=2.0)
+            _feed, hello = chat.session.subscribe()
+            later = [chat.feed.get_nowait() for _ in range(chat.feed.qsize())]
+
+        assert isinstance(result, PermissionResultDeny)
+        assert result.interrupt is True
+        assert hello["pending"] == []
+        assert not [frame for frame in later if frame.get("expired")]
 
 
 # ---------------------------------------------------------------------------
@@ -273,39 +599,17 @@ class TestOperatorSession:
 
     @pytest.mark.asyncio
     async def test_send_prompt_queues_events(self):
-        """Verify that send_prompt streams SDK messages into the queue."""
+        """A prompt's response reaches the turn's consumer as frames, in stream order."""
         session = OperatorSession(cwd="/tmp")
+        client = _ScriptedClient([assistant_message([TextBlock("hello")]), result_message()])
 
-        # Build a mock client whose receive_response yields real messages
-        fake_messages = [
-            assistant_message([TextBlock("hello")]),
-            result_message(),
-        ]
-
-        async def fake_receive():
-            for m in fake_messages:
-                yield m
-
-        mock_client = mock_sdk_client()
-        mock_client.query = AsyncMock()
-        mock_client.receive_response = fake_receive
-
-        with sdk_seam(mock_client):
+        with sdk_seam(client):
             await session.start()
-            await session.send_prompt("test")
-
-            # Wait for the response task to complete
-            await session._response_task
-
-            events = []
-            while not session._queue.empty():
-                events.append(session._queue.get_nowait())
-
-            assert len(events) == 2
-            assert events[0]["type"] == "text"
-            assert events[1]["type"] == "result"
-
+            frames = [unnumbered(f) for f in await collect_turn(session, "test")]
             await session.stop()
+
+        assert [f["type"] for f in frames] == ["turn_start", "text", "result"]
+        assert frames[1] == {"type": "text", "content": "hello", "parent_tool_use_id": None}
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +809,8 @@ class TestNoteTranscript:
 class FakeStreamClient:
     """Controllable fake ``ClaudeSDKClient`` for cancel/quiesce tests.
 
+    Each prompt sent gets a response: partial text, then, once interrupted, a
+    terminal result. ``hang`` keeps the response from ever ending on its own.
     ``interrupt`` is a coroutine so that a caller which forgets to ``await`` it
     (the historical bug) never runs its body — letting a test assert the await
     happened via ``interrupt_calls``.
@@ -515,6 +821,8 @@ class FakeStreamClient:
         self.interrupt_calls = 0
         self.query_calls = 0
         self._interrupted = asyncio.Event()
+        # As the SDK's, a response is only ever read for a prompt that was sent.
+        self._prompts: asyncio.Queue[str] = asyncio.Queue()
         # Set once the reader has yielded its first (partial) message, so a
         # test can be sure the turn is genuinely in-flight before cancelling.
         self.first_yielded = asyncio.Event()
@@ -525,14 +833,16 @@ class FakeStreamClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def query(self, _prompt):
+    async def query(self, prompt):
         self.query_calls += 1
+        self._prompts.put_nowait(prompt)
 
     async def interrupt(self):
         self.interrupt_calls += 1
         self._interrupted.set()
 
     async def receive_response(self):
+        await self._prompts.get()
         yield assistant_message([TextBlock("partial")])
         self.first_yielded.set()
         if self.hang:
@@ -558,10 +868,27 @@ async def _started_session(client):
             await session.stop()
 
 
+class _LateWordsClient(FakeStreamClient):
+    """Ignores the interrupt, and ends its response only once ``release`` is set."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+
+    async def receive_response(self):
+        await self._prompts.get()
+        yield assistant_message([TextBlock("partial")])
+        self.first_yielded.set()
+        await self.release.wait()
+        yield assistant_message([TextBlock("late")])
+        yield result_message()
+
+
 class _OneTurnClient(FakeStreamClient):
     """Answers each prompt with one text block and a terminal result."""
 
     async def receive_response(self):
+        await self._prompts.get()
         yield assistant_message([TextBlock("done")])
         yield result_message()
 
@@ -595,68 +922,84 @@ class TestRunTurnReleasesAtTheTerminalEvent:
 class TestOperatorSessionCancel:
     @pytest.mark.asyncio
     async def test_idle_cancel_is_noop_no_interrupt(self):
-        """No in-flight turn (never sent a prompt) → short-circuit, no hang."""
+        """No turn in flight → short-circuit, no hang."""
         client = FakeStreamClient()
         async with _started_session(client) as session:
-            assert session._response_task is None
+            assert session.is_busy is False
             await asyncio.wait_for(session.cancel(), timeout=1.0)
             # Short-circuits before touching the client.
             assert client.interrupt_calls == 0
 
     @pytest.mark.asyncio
-    async def test_cancel_noop_when_reader_already_done(self):
-        """A completed turn's reader → cancel short-circuits without interrupt."""
-        client = FakeStreamClient()
+    async def test_cancel_noop_when_turn_already_ended(self):
+        """A turn that has reached its result → cancel short-circuits without interrupt."""
+        client = _OneTurnClient()
         async with _started_session(client) as session:
-            await session.send_prompt("hi")
-            client._interrupted.set()  # let the reader reach its terminal message
-            await asyncio.wait_for(session._response_task, timeout=1.0)
-            assert session._response_task.done()
-
+            await collect_turn(session, "hi")
             await asyncio.wait_for(session.cancel(), timeout=1.0)
             assert client.interrupt_calls == 0
 
     @pytest.mark.asyncio
     async def test_cancel_awaits_interrupt_and_drains(self):
-        """In-flight turn: interrupt is awaited FIRST, then reader drains done."""
+        """In-flight turn: interrupt is awaited FIRST, then the turn drains to its result."""
         client = FakeStreamClient()
         async with _started_session(client) as session:
-            await session.send_prompt("hi")
+            consumer, frames = start_turn(session, "hi")
             await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
-            assert not session._response_task.done()
+            assert session.is_busy is True
 
             await asyncio.wait_for(session.cancel(), timeout=2.0)
+            await asyncio.wait_for(consumer, timeout=2.0)
 
             # interrupt ran exactly once (proves it was awaited, not discarded).
             assert client.interrupt_calls == 1
-            assert session._response_task.done()
-            # Drained cleanly to a terminal message — not force-cancelled.
-            assert not session._response_task.cancelled()
+            # Drained cleanly to its terminal message, not abandoned.
+            assert frames[-1]["type"] == "result"
+            assert session.is_busy is False
 
     @pytest.mark.asyncio
-    async def test_cancel_hard_cancels_on_drain_timeout(self):
-        """A reader that never terminates is hard-cancelled after the bound."""
+    async def test_cancel_abandons_a_turn_that_never_ends(self):
+        """A turn that does not end once interrupted is abandoned after the bound.
+
+        Its consumer is told so, and the turn closes.
+        """
         client = FakeStreamClient(hang=True)
         async with _started_session(client) as session:
-            await session.send_prompt("hi")
+            consumer, frames = start_turn(session, "hi")
             await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
 
-            with patch(
-                "osprey.interfaces.web_terminal.operator_session._QUIESCE_TIMEOUT_S",
-                0.05,
-            ):
+            with patch(_OS + "_QUIESCE_TIMEOUT_S", 0.01):
                 await asyncio.wait_for(session.cancel(), timeout=2.0)
+            await asyncio.wait_for(consumer, timeout=2.0)
 
             assert client.interrupt_calls == 1
-            assert session._response_task.done()
-            assert session._response_task.cancelled()
+            assert frames[-1]["type"] == "error"
+            assert frames[-1]["error_type"] == "TurnAbandoned"
+            assert session.is_busy is False
+
+    async def test_what_the_cli_says_after_an_abandon_still_reaches_the_feeds(self, monkeypatch):
+        """The abandon closes the turn, not the reading: the CLI's later words reach every feed."""
+        monkeypatch.setattr(_OS + "_QUIESCE_TIMEOUT_S", 0.01)
+        client = _LateWordsClient()
+        async with _started_session(client) as session:
+            consumer, frames = start_turn(session, "hi")
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+            await asyncio.wait_for(session.cancel(), timeout=2.0)
+            await asyncio.wait_for(consumer, timeout=2.0)
+            feed, _hello = session.subscribe()
+
+            client.release.set()
+            late = [await asyncio.wait_for(feed.get(), timeout=2.0) for _ in range(2)]
+
+        assert frames[-1]["error_type"] == "TurnAbandoned"
+        assert [(f["type"], f.get("content")) for f in late] == [("text", "late"), ("result", None)]
 
     @pytest.mark.asyncio
     async def test_spawn_quiesce_returns_stored_detached_task(self):
         """spawn_quiesce returns a task, stores it, and quiesces when awaited."""
         client = FakeStreamClient()
         async with _started_session(client) as session:
-            await session.send_prompt("hi")
+            consumer, _frames = start_turn(session, "hi")
             await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
 
             task = session.spawn_quiesce()
@@ -664,8 +1007,9 @@ class TestOperatorSessionCancel:
             assert session._quiesce_task is task
 
             await asyncio.wait_for(task, timeout=2.0)
+            await asyncio.wait_for(consumer, timeout=2.0)
             assert client.interrupt_calls == 1
-            assert session._response_task.done()
+            assert session.is_busy is False
 
     @pytest.mark.asyncio
     async def test_last_activity_initialized_at_creation(self):
@@ -677,12 +1021,10 @@ class TestOperatorSessionCancel:
 
     @pytest.mark.asyncio
     async def test_last_activity_restamped_on_turn_completion(self):
-        client = FakeStreamClient()
+        client = _OneTurnClient()
         async with _started_session(client) as session:
             before = session.last_activity
-            await session.send_prompt("hi")
-            client._interrupted.set()  # let the reader reach its terminal message
-            await asyncio.wait_for(session._response_task, timeout=1.0)
+            await collect_turn(session, "hi")
             assert session.last_activity > before
 
 
@@ -711,8 +1053,18 @@ class TestOperatorSessionConnectedAgent:
         async with _started_session(client) as session:
             assert session._connected_agent is not None
             assert session._connected_agent is session._agent
+            # The signal-only interrupt reaches the runner while a turn is in flight.
+            consumer, _frames = start_turn(session, "hi")
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
             await session.interrupt()
             assert client.interrupt_calls == 1
+            await asyncio.wait_for(consumer, timeout=2.0)
+
+    async def test_an_interrupt_with_no_turn_in_flight_reaches_no_runner(self):
+        client = FakeStreamClient()
+        async with _started_session(client) as session:
+            await session.interrupt()
+        assert client.interrupt_calls == 0
 
     @pytest.mark.asyncio
     async def test_a_stopped_session_keeps_the_handle_and_reaches_no_runner(self):
@@ -863,7 +1215,8 @@ class FakeChatSession:
         self.is_active = True
         self.last_activity = time.monotonic()
         self.in_flight = False
-        self._response_task = None
+        self._pump_task = None
+        self._turn_open = False
         self._quiesce_task = None
         self.start_calls = 0
         self.stop_calls = 0
@@ -899,9 +1252,9 @@ class FakeChatSession:
     @property
     def is_busy(self) -> bool:
         # Mirrors OperatorSession.is_busy against this double's plain attrs.
-        handler_running = self._response_task is not None and not self._response_task.done()
+        reader_running = self._pump_task is not None and not self._pump_task.done()
         quiesce_running = self._quiesce_task is not None and not self._quiesce_task.done()
-        return self.in_flight and (handler_running or quiesce_running)
+        return self.in_flight and ((reader_running and self._turn_open) or quiesce_running)
 
     async def teardown(self):
         await self.stop()
@@ -918,23 +1271,26 @@ class TestOperatorSessionBusyAndTeardown:
         session = OperatorSession(cwd="/tmp")
         assert session.is_busy is False
 
-    def test_guard_held_with_running_reader_is_busy(self):
-        session = OperatorSession(cwd="/tmp")
-        session.acquire_turn()
-        session._response_task = FakeTask(done=False)
-        assert session.is_busy is True
+    async def test_a_turn_in_flight_on_a_live_reader_is_busy(self):
+        client = FakeStreamClient()
+        async with _started_session(client) as session:
+            consumer, _frames = start_turn(session, "hi")
+            await asyncio.wait_for(client.first_yielded.wait(), timeout=1.0)
+            assert session.is_busy is True
+
+            await session.interrupt()
+            await asyncio.wait_for(consumer, timeout=2.0)
+            assert session.is_busy is False
 
     def test_guard_held_with_running_quiesce_is_busy(self):
         session = OperatorSession(cwd="/tmp")
         session.acquire_turn()
-        session._response_task = FakeTask(done=True)
         session._quiesce_task = FakeTask(done=False)
         assert session.is_busy is True
 
-    def test_zombie_guard_held_all_tasks_done_is_not_busy(self):
+    def test_zombie_guard_with_no_reader_or_quiesce_is_not_busy(self):
         session = OperatorSession(cwd="/tmp")
         session.acquire_turn()
-        session._response_task = FakeTask(done=True)
         session._quiesce_task = FakeTask(done=True)
         assert session.is_busy is False
 
@@ -1174,7 +1530,7 @@ def _session_factory(start_delay: float = 0.0):
     """Return a side_effect callable that builds FakeChatSessions and records them."""
     created: list[FakeChatSession] = []
 
-    def factory(cwd=None, env=None, session_key=None):
+    def factory(cwd=None, env=None, session_key=None, **_sink):
         s = FakeChatSession(cwd=cwd, env=env, session_key=session_key)
         s.start_delay = start_delay
         created.append(s)
@@ -1279,9 +1635,10 @@ class TestOperatorRegistryChatPool:
         factory = _session_factory()
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
-            # Genuinely busy: guard held and reader still running.
+            # Genuinely busy: guard held, and a turn open on a live reader.
             a.in_flight = True
-            a._response_task = FakeTask(done=False)
+            a._pump_task = FakeTask(done=False)
+            a._turn_open = True
 
             with pytest.raises(ChatCapacityError):
                 await registry.get_or_create_chat_session("b", cwd="/tmp")
@@ -1298,7 +1655,7 @@ class TestOperatorRegistryChatPool:
         with _patch_session(factory):
             a, _ = await registry.get_or_create_chat_session("a", cwd="/tmp")
             a.in_flight = True
-            a._response_task = FakeTask(done=True)
+            a._pump_task = FakeTask(done=True)
             a._quiesce_task = FakeTask(done=True)
 
             b, r = await registry.get_or_create_chat_session("b", cwd="/tmp")
@@ -1322,7 +1679,8 @@ class TestOperatorRegistryChatPool:
         b.last_activity = now  # fresh → kept
         c.last_activity = now - 100  # stale but busy → kept
         c.in_flight = True
-        c._response_task = FakeTask(done=False)
+        c._pump_task = FakeTask(done=False)
+        c._turn_open = True
 
         reaped = await registry.reap_idle_chat_sessions()
         assert reaped == 1
@@ -1359,7 +1717,8 @@ class TestOperatorRegistryChatPool:
             c, _ = await registry.get_or_create_chat_session("c", cwd="/tmp")
         c.last_activity = time.monotonic() - 100
         c.in_flight = True
-        c._response_task = FakeTask(done=False)
+        c._pump_task = FakeTask(done=False)
+        c._turn_open = True
 
         assert await registry.reap_idle_chat_sessions() == 0
         assert c.look_threads == []
@@ -1469,7 +1828,7 @@ class TestOperatorRegistryChatPool:
 
         created: list[FakeChatSession] = []
 
-        def factory(cwd=None, env=None, session_key=None):
+        def factory(cwd=None, env=None, session_key=None, **_sink):
             s = FakeChatSession(cwd=cwd, env=env, session_key=session_key)
             # First construction fails during start; later ones succeed.
             if not created:
@@ -1566,12 +1925,16 @@ _PRIMITIVES = "osprey.agent_runner.primitives."
 
 
 class _ScriptedClient:
-    """A client whose one response is *messages*, or *error* raised mid-turn."""
+    """A client whose response to each prompt is *messages*, or *error* raised mid-turn.
+
+    As the SDK's is, ``receive_response`` answers only a prompt that was sent.
+    """
 
     def __init__(self, messages=(), *, error: Exception | None = None) -> None:
         self.messages = list(messages)
         self.error = error
         self.interrupt_calls = 0
+        self._prompts: asyncio.Queue[str] = asyncio.Queue()
 
     async def __aenter__(self):
         return self
@@ -1579,27 +1942,18 @@ class _ScriptedClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def query(self, _prompt):
-        return None
+    async def query(self, prompt):
+        self._prompts.put_nowait(prompt)
 
     async def interrupt(self):
         self.interrupt_calls += 1
 
     async def receive_response(self):
+        await self._prompts.get()
         for message in self.messages:
             yield message
         if self.error is not None:
             raise self.error
-
-
-async def _drain(session: OperatorSession) -> list[dict]:
-    """Run the turn's reader to its end and return every frame it queued."""
-    assert session._response_task is not None
-    await asyncio.wait_for(session._response_task, timeout=2.0)
-    frames = []
-    while not session._queue.empty():
-        frames.append(session._queue.get_nowait())
-    return frames
 
 
 class TestOperatorChatLaunchParity:
@@ -1630,6 +1984,8 @@ class TestOperatorChatLaunchParity:
             mcp_servers="/tmp/.mcp.json",
             strict_mcp_config=True,
             cli_path=STUB_AGENT_CLI,
+            include_partial_messages=True,
+            can_use_tool=session._can_use_tool,
             **identity,
         )
         assert options.env["PATH"] == "/usr/bin"
@@ -1658,16 +2014,28 @@ class TestOperatorChatLaunchParity:
         await session.stop()
 
     @pytest.mark.asyncio
-    async def test_no_permission_callback_hook_or_bypass_reaches_the_child(self):
+    async def test_chat_child_rules_come_from_the_project_and_its_callback_answers_asks(self):
+        """What the chat child is launched with, and what its one SDK callback may do.
+
+        The project's settings and hooks are the rules: ``setting_sources`` loads them, and the
+        SDK is handed no hooks of its own. Nothing bypasses them: ``permission_mode`` stays
+        unset, so the CLI's default applies and the approval hook is not skipped. The one SDK
+        callback is the approval card, which answers a permission ask the CLI raises.
+
+        The rest is behaviour, so this test pins only the launch. That a call a hook denies never
+        reaches the callback, and that an allow runs the call, are proved on the real CLI by
+        ``tests/e2e/claude_code/test_chat_approval_gates_scripted.py`` (scenarios a to d).
+        """
         session = OperatorSession(cwd="/tmp", env={"PATH": "/usr/bin"}, session_key=_KEY)
 
         with sdk_seam() as captured:
             await session.start()
 
         (options,) = captured
-        assert options.can_use_tool is None
+        assert options.setting_sources == ["project"]
         assert options.hooks is None
-        assert options.permission_mode is None
+        assert options.permission_mode in (None, "default")
+        assert options.can_use_tool == session._can_use_tool
         await session.stop()
 
     @pytest.mark.asyncio
@@ -1708,24 +2076,34 @@ class TestOperatorChatStreamParity:
             ]
         )
         async with _started_session(client) as session:
-            await session.send_prompt("read it")
-            frames = await _drain(session)
+            frames = await collect_turn(session, "read it")
 
-        assert frames == [
+        # The feed numbers every frame in the order it was emitted.
+        assert [f["seq"] for f in frames] == list(range(1, len(frames) + 1))
+        assert [unnumbered(f) for f in frames] == [
+            {"type": "turn_start", "prompt": "read it"},
             {
                 "type": "error",
                 "message": "API error: rate_limit",
                 "error_type": "AssistantMessageError",
             },
-            {"type": "thinking", "content": "pondering"},
+            {"type": "thinking", "content": "pondering", "parent_tool_use_id": None},
             {
                 "type": "tool_use",
                 "tool_name": "Channel Read",
                 "tool_name_raw": tool,
                 "tool_use_id": "tu_1",
                 "input": {"channel": "SR:BPM"},
+                "parent_tool_use_id": None,
             },
-            {"type": "text", "content": "done"},
+            {"type": "text", "content": "done", "parent_tool_use_id": None},
+            {
+                "type": "tool_result",
+                "tool_use_id": "tu_1",
+                "is_error": False,
+                "preview": "42.0",
+                "truncated": False,
+            },
             {"type": "system", "subtype": "init", "session_id": "abc"},
             {
                 "type": "result",
@@ -1741,8 +2119,7 @@ class TestOperatorChatStreamParity:
     async def test_an_agent_sdk_failure_mid_turn_is_named_for_its_class(self):
         client = _ScriptedClient(error=CLIConnectionError("gone"))
         async with _started_session(client) as session:
-            await session.send_prompt("x")
-            frames = await _drain(session)
+            frames = [unnumbered(f) for f in await collect_turn(session, "x")]
 
         assert frames[-1] == {
             "type": "error",
@@ -1754,8 +2131,7 @@ class TestOperatorChatStreamParity:
     async def test_an_unexpected_failure_mid_turn_keeps_its_prefix(self):
         client = _ScriptedClient(error=ValueError("x"))
         async with _started_session(client) as session:
-            await session.send_prompt("x")
-            frames = await _drain(session)
+            frames = await collect_turn(session, "x")
 
         assert frames[-1]["type"] == "error"
         assert frames[-1]["message"] == "Unexpected error: x"

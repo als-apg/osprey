@@ -797,9 +797,16 @@ export function switchSession(sessionId) {
  * session over, and the key has to outlive the process that was serving it.
  * Falls back to the stored pointer for the window between page load and the
  * first connect, where the chat may ask before any confirmation has arrived.
+ *
+ * In the Simple view the chat runs the session and names it on the pointer,
+ * so the pointer wins there. The id this card kept from before a flip goes
+ * stale as soon as the chat moves to another conversation, and every panel
+ * told that id (the gallery's session filter, the activity log) would stay on
+ * the old session.
  * @returns {string|null}
  */
 export function getCurrentSessionId() {
+  if (isSimpleView()) return loadStoredSessionId() ?? currentSessionId;
   return currentSessionId ?? loadStoredSessionId();
 }
 

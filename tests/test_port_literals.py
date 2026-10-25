@@ -38,7 +38,8 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Shipped sources only.  ``tests/`` is deliberately out of scope: test files
+# Shipped sources only.  ``tests/`` and each package's own ``tests/`` are
+# deliberately out of scope: test files
 # pin old behaviour on purpose (overrides, fixtures, this file's own retired-set
 # definition), and a lint that flagged them would have to allowlist itself.
 SCAN_ROOTS = ("src/osprey", "packages", "docs/source")
@@ -60,6 +61,7 @@ SCAN_SUFFIXES = frozenset({".py", ".j2", ".yml", ".yaml", ".sh", ".conf", ".rst"
 # hash of the checkout, which can spell any 4-5 digit run by chance.
 EXCLUDED_PATH_PARTS = ("static/vendor/",)
 EXCLUDED_NAME_GLOBS = ("*.min.*", "_version.py")
+EXCLUDED_PATH_GLOBS = ("packages/*/tests/*",)
 
 MARKER = "osprey:not-a-port"
 
@@ -188,6 +190,8 @@ def _retired_on_line(line: str) -> list[int]:
 
 def _is_excluded(rel_path: str) -> bool:
     if any(part in rel_path for part in EXCLUDED_PATH_PARTS):
+        return True
+    if any(fnmatch(rel_path, glob) for glob in EXCLUDED_PATH_GLOBS):
         return True
     name = rel_path.rsplit("/", 1)[-1]
     return any(fnmatch(name, glob) for glob in EXCLUDED_NAME_GLOBS)

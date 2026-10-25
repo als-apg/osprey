@@ -136,9 +136,11 @@ Before judging a candidate, read the complete test and production owner, its
 entry point, callers, callees, sibling implementations, overlapping tests, CI
 routing (.github/workflows/ci.yml), and relevant history (`git log -L`,
 `git log -S`). Read tests/README.md and, for e2e, tests/e2e/README.md first,
-plus any scoped README next to the test data. Read tests/conftest.py before
-judging any test touching global state: its autouse guards may be the real
-isolation. When the test claims dependency-backed behavior (pyepics, p4p,
+plus any scoped README next to the test data. Read tests/conftest.py, and the
+harness it imports its guards from
+(packages/osprey-connectors/tests/osprey_connectors_tests/_harness/_guards.py),
+before judging any test touching global state: its autouse guards may be the
+real isolation. When the test claims dependency-backed behavior (pyepics, p4p,
 click, FastMCP, litellm), inspect the dependency source in `.venv` directly.
 
 ## Discovery

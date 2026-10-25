@@ -38,6 +38,7 @@ vi.mock('/design-system/js/frame-params.js', () => ({ isEmbedded: mocks.isEmbedd
 
 import { mountGraph, unmountGraph } from '../../../src/osprey/interfaces/channel_finder/static/js/explore-graph.js';
 import { state } from '../../../src/osprey/interfaces/channel_finder/static/js/state.js';
+import { COLUMNS_KEY, PREFS_KEY } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-prefs.js';
 
 const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
@@ -296,6 +297,9 @@ function drawnPvs() {
 }
 
 beforeEach(() => {
+  // The finder keeps its column layout and view preferences in localStorage;
+  // every test starts from the defaults.
+  localStorage.clear();
   document.body.innerHTML = '<div id="explore-content"></div>';
   state.setGraphInfo(['read_cypher', 'get_schema'], {
     uri: 'bolt://localhost:7687',
@@ -306,6 +310,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // An outside press closes any context menu a test left open.
+  document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
   unmountGraph();
   state.setGraphInfo([], null);
   vi.clearAllMocks();
@@ -343,12 +349,13 @@ describe('the first render', () => {
       .toContain(`${(64).toLocaleString()} devices`);
     expect(container.querySelector('.pager-pos')?.textContent).toBe('1 / 3');
 
-    // Panel chrome: tool chips and the store badge, and no failure pane.
-    expect([...container.querySelectorAll('.graph-tool-chip')].map((c) => c.textContent))
-      .toEqual(['read_cypher', 'get_schema']);
-    const badge = container.querySelector('.graph-store-badge');
-    expect(badge?.textContent).toContain('als_corpus.ttl');
-    expect(badge?.textContent).toContain('bolt://localhost:7687');
+    // Panel chrome: the toolbar and the three panes, and no failure pane.
+    // Provenance lives in the corpus strip now (stats-badges.js), not here.
+    expect(container.querySelector('.cf-toolbar #graph-finder-q')).not.toBeNull();
+    expect(container.querySelector('.finder-layout > .facet-rail')).not.toBeNull();
+    expect(container.querySelector('.finder-layout > .finder-results #graph-finder-table')).not.toBeNull();
+    expect(container.querySelector('.finder-layout > .finder-inspector')?.hasAttribute('hidden')).toBe(true);
+    expect(container.querySelector('.graph-store-badge')).toBeNull();
     expect(container.querySelector('.explore-unknown')).toBeNull();
     expect(container.querySelector('.graph-truncated')).toBeNull();
   });
@@ -871,7 +878,7 @@ describe('the selection', () => {
 
     await vi.waitFor(() => expect(mocks.showToast).toHaveBeenCalledTimes(1));
     expect(mocks.showToast).toHaveBeenCalledWith(
-      'Copy failed — select the table and copy manually', 'error');
+      'Copy failed — select the text and copy manually', 'error');
   });
 
   test("a row's copy button copies that one address", async () => {
@@ -926,4 +933,333 @@ test('unmounting clears the pane', async () => {
   unmountGraph();
 
   expect(host().innerHTML).toBe('');
+});
+
+// ---------------------------------------------------------------------------
+// The overhaul: sorting, right-click menus, columns, the inspector, keyboard
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire a right-click on one element of the mounted panel.
+ * @param {string} selector - CSS selector inside the host.
+ * @returns {MouseEvent} The event, to read whether the panel took it.
+ */
+function rightClick(selector) {
+  const el = host().querySelector(selector);
+  if (!el) throw new Error(`no element for ${selector}`);
+  const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 });
+  el.dispatchEvent(event);
+  return event;
+}
+
+/** @returns {string[]} The rows of the open context menu, by label. */
+function menuLabels() {
+  return [...document.querySelectorAll('.osprey-context-menu .osprey-context-label')]
+    .map((label) => label.textContent ?? '');
+}
+
+/**
+ * Run one row of the open context menu.
+ * @param {string} label - The row's full label text.
+ * @returns {void}
+ */
+function pick(label) {
+  const rowEl = [...document.querySelectorAll('.osprey-context-menu .osprey-context-item')]
+    .find((item) => item.querySelector('.osprey-context-label')?.textContent === label);
+  if (!rowEl) throw new Error(`no menu row "${label}" in ${menuLabels().join(' | ')}`);
+  /** @type {HTMLElement} */ (rowEl).click();
+}
+
+/**
+ * Press a key on one element.
+ * @param {Element} el
+ * @param {string} key
+ * @param {KeyboardEventInit} [init]
+ * @returns {void}
+ */
+function press(el, key, init = {}) {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+}
+
+/** @returns {string[]} The data columns drawn, in order. */
+function drawnColumns() {
+  return [...host().querySelectorAll('.result-table thead th[data-col]')].map((th) => th.getAttribute('data-col') ?? '');
+}
+
+describe('sorting', () => {
+  test('a header click sorts on the server: ascending, descending, then off', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    click('.result-table th[data-col="device"]');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
+    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=&page=1&sort=device&order=asc`);
+    await vi.waitFor(() => expect(host().querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe('ascending'));
+
+    click('.result-table th[data-col="device"]');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(3));
+    expect(callsTo(fetchMock, SEARCH_PATH)[2]).toContain('order=desc');
+
+    click('.result-table th[data-col="device"]');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(4));
+    expect(callsTo(fetchMock, SEARCH_PATH)[3]).toBe(`${SEARCH_PATH}?q=&page=1`);
+  });
+
+  test('a header menu sorts too, and a chrome column offers no menu', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    expect(rightClick('.result-table th[data-col="chk"]').defaultPrevented).toBe(false);
+    expect(rightClick('.result-table th[data-col="section"]').defaultPrevented).toBe(true);
+    pick('Sort descending');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
+    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toContain('sort=section&order=desc');
+  });
+});
+
+describe('right-click menus', () => {
+  test('a row menu narrows the search to the row’s section', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    rightClick(`tbody tr[data-pv="${DEMO_ROWS[2].fullPv}"]`);
+    expect(menuLabels()).toContain('Copy address');
+    expect(menuLabels()).toContain('Only section SR02C');
+    pick('Only section SR02C');
+
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
+    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=&section=SR02C&page=1`);
+  });
+
+  test('a row menu copies the address and opens the device', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    rightClick(`tbody tr[data-pv="${DEMO_ROWS[0].fullPv}"]`);
+    pick('Copy address');
+    await vi.waitFor(() => expect(mocks.copyText).toHaveBeenCalledWith(DEMO_ROWS[0].fullPv));
+
+    rightClick(`tbody tr[data-pv="${DEMO_ROWS[0].fullPv}"]`);
+    pick('Open device');
+    await vi.waitFor(() => expect(callsTo(fetchMock, DEVICE_PATH)).toHaveLength(1));
+  });
+
+  test('the search box keeps the browser’s own menu', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    expect(rightClick('#graph-finder-q').defaultPrevented).toBe(false);
+    expect(document.querySelector('.osprey-context-menu')).toBeNull();
+  });
+
+  test('a facet value menu keeps only that value', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    rightClick('.facet-item[data-facet="signal"][data-value="current"]');
+    pick('Only current');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
+    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toContain('signal=current');
+  });
+
+  test('Shift+F10 on a focused row opens the same menu from the keyboard', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    const rowEl = /** @type {HTMLElement} */ (host().querySelector('tbody tr[data-pv]'));
+    rowEl.focus();
+    press(rowEl, 'F10', { shiftKey: true });
+    expect(menuLabels()).toContain('Copy address');
+  });
+});
+
+describe('columns', () => {
+  test('hiding a column from its menu redraws without it and remembers it', async () => {
+    stubDemo();
+    await mountGraph(host());
+    expect(drawnColumns()).toContain('description');
+
+    rightClick('.result-table th[data-col="description"]');
+    pick('Hide Description');
+
+    expect(drawnColumns()).not.toContain('description');
+    expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '{}').hidden).toContain('description');
+
+    unmountGraph();
+    document.body.innerHTML = '<div id="explore-content"></div>';
+    stubDemo();
+    await mountGraph(host());
+    expect(drawnColumns()).not.toContain('description');
+  });
+
+  test('the System column is one toggle away, and Reset brings the defaults back', async () => {
+    stubDemo();
+    await mountGraph(host());
+    expect(drawnColumns()).not.toContain('system');
+
+    rightClick('.result-table th[data-col="device"]');
+    pick('System');
+    expect(drawnColumns()).toContain('system');
+    expect(host().querySelector('td.sys')?.textContent).toBe('MG');
+
+    rightClick('.result-table th[data-col="device"]');
+    pick('Move right');
+    expect(drawnColumns().slice(1, 3)).toEqual(['section', 'device']);
+
+    rightClick('.result-table th[data-col="device"]');
+    pick('Reset columns');
+    expect(drawnColumns()).toEqual(['chk', 'device', 'section', 'address', 'dir', 'signal', 'description', 'act']);
+  });
+
+  test('Alt+arrow moves a focused header and keeps focus on it', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    const th = /** @type {HTMLElement} */ (host().querySelector('th[data-col="section"]'));
+    th.focus();
+    press(th, 'ArrowLeft', { altKey: true });
+    expect(drawnColumns().slice(1, 3)).toEqual(['section', 'device']);
+    expect(document.activeElement?.getAttribute('data-col')).toBe('section');
+  });
+});
+
+describe('the rail', () => {
+  test('a facet heading folds its group, and the fold is remembered', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    click('button[data-facet-toggle="signal"]');
+    expect(host().querySelector('.facet[data-facet-group="signal"]')?.classList.contains('collapsed')).toBe(true);
+    expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').collapsed).toEqual(['signal']);
+  });
+
+  test('a facet’s ✕ clears every selection in it', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+    click('.facet-item[data-facet="section"][data-value="SR01C"]');
+    await vi.waitFor(() => expect(host().querySelector('button[data-clear-facet="section"]')).not.toBeNull());
+
+    click('button[data-clear-facet="section"]');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(3));
+    expect(callsTo(fetchMock, SEARCH_PATH)[2]).toBe(`${SEARCH_PATH}?q=&page=1`);
+  });
+});
+
+describe('the inspector and the keyboard', () => {
+  test('a device opens beside the results, its rows are marked, and Escape closes it', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    click('.result-table td.dev button.dev');
+    await vi.waitFor(() => expect(host().querySelector('.finder-inspector .device-card')).not.toBeNull());
+    expect(host().querySelector('.finder-inspector')?.hasAttribute('hidden')).toBe(false);
+    expect(host().querySelectorAll('tbody tr.open')).toHaveLength(2);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    expect(host().querySelector('.device-card')).toBeNull();
+    expect(host().querySelector('.finder-inspector')?.hasAttribute('hidden')).toBe(true);
+    expect(host().querySelectorAll('tbody tr.open')).toHaveLength(0);
+  });
+
+  test('a second click on the shown device closes it again', async () => {
+    stubDemo();
+    await mountGraph(host());
+    click('.result-table td.dev button.dev');
+    await vi.waitFor(() => expect(host().querySelector('.device-card')).not.toBeNull());
+
+    click('.result-table td.dev button.dev');
+    expect(host().querySelector('.device-card')).toBeNull();
+  });
+
+  test('the inspector copies every address its device binds', async () => {
+    stubDemo();
+    await mountGraph(host());
+    click('.result-table td.dev button.dev');
+    await vi.waitFor(() => expect(host().querySelector('.device-card')).not.toBeNull());
+
+    click('.device-card [data-action="copy-device"]');
+    await vi.waitFor(() => expect(mocks.copyText).toHaveBeenCalledWith('SR01C___QFA____AM00\nSR01C___QFA____SP00'));
+    expect(mocks.showToast).toHaveBeenCalledWith('Copied 2 addresses', 'success');
+  });
+
+  test('arrows walk the rows, Space selects, Enter opens the device', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    const rows = () => /** @type {HTMLElement[]} */ ([...host().querySelectorAll('tbody tr[data-pv]')]);
+    rows()[0].focus();
+    press(rows()[0], 'ArrowDown');
+    expect(document.activeElement).toBe(rows()[1]);
+
+    press(rows()[1], ' ');
+    expect(host().querySelector('.sel-count')?.textContent).toBe('1 selected');
+    // The redraw keeps the keyboard on the row it was on.
+    expect(document.activeElement?.getAttribute('data-pv')).toBe(DEMO_ROWS[1].fullPv);
+
+    press(/** @type {Element} */ (document.activeElement), 'Enter');
+    await vi.waitFor(() => expect(callsTo(fetchMock, DEVICE_PATH)).toHaveLength(1));
+  });
+
+  test('/ jumps to the search box, but not while typing', async () => {
+    stubDemo();
+    await mountGraph(host());
+    const input = /** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q'));
+    // happy-dom lays nothing out; give the box a client rect so it counts as shown.
+    vi.spyOn(input, 'getClientRects').mockReturnValue(/** @type {any} */ ([{}]));
+
+    document.body.focus();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(input);
+  });
+});
+
+describe('density', () => {
+  test('the density toggle compacts the rows and remembers it', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    click('button[data-density="compact"]');
+    expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
+    expect(host().querySelector('button[data-density="compact"]')?.getAttribute('aria-pressed')).toBe('true');
+    expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').density).toBe('compact');
+  });
+});
+
+describe('the hub tile bar', () => {
+  test('the search box and ⋯ menu are offered to the hub, and withdrawn on unmount', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    const items = state.viewHeader?.items ?? [];
+    expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual(['search:graph-search', 'menu:graph-more']);
+    const menu = items.find((item) => item.kind === 'menu');
+    expect(menu?.items?.map((entry) => entry.id)).toContain('columns');
+
+    unmountGraph();
+    expect(state.viewHeader).toBeNull();
+  });
+
+  test('a search typed in the tile bar runs here and fills the hidden box', async () => {
+    const fetchMock = stubDemo();
+    await mountGraph(host());
+
+    state.viewHeader?.onAction('graph-search', 'qfa');
+    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
+    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=qfa&page=1`);
+    expect(/** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q')).value).toBe('qfa');
+  });
+
+  test('the tile-bar menu reaches the same verbs', async () => {
+    stubDemo();
+    await mountGraph(host());
+
+    state.viewHeader?.onAction('graph-more', 'density-compact');
+    expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
+    const compact = state.viewHeader?.items.find((item) => item.kind === 'menu')?.items
+      ?.find((entry) => entry.id === 'density-compact');
+    expect(/** @type {any} */ (compact)?.checked).toBe(true);
+
+    state.viewHeader?.onAction('graph-more', 'columns');
+    expect(menuLabels()).toContain('Reset columns');
+  });
 });

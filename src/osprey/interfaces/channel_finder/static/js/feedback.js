@@ -190,10 +190,10 @@ async function _renderList() {
             ${entries.map((/** @type {any} */ e) => `
               <tr class="fb-table-row" data-key="${esc(e.key)}">
                 <td>${esc(e.query)}</td>
-                <td><span class="font-mono" style="font-size: var(--cf-text-xs);">${esc(e.facility)}</span></td>
+                <td><span class="font-mono" style="font-size: var(--text-sm);">${esc(e.facility)}</span></td>
                 <td><span class="fb-stat-value fb-stat-success">${e.success_count}</span></td>
                 <td><span class="fb-stat-value fb-stat-failure">${e.failure_count}</span></td>
-                <td style="color: var(--text-muted); font-size: var(--cf-text-xs);">${_formatTime(e.last_activity)}</td>
+                <td style="color: var(--text-muted); font-size: var(--text-sm);">${_formatTime(e.last_activity)}</td>
                 <td>
                   <button class="item-action-btn action-delete fb-row-delete" data-key="${esc(e.key)}" title="Delete entry">&times;</button>
                 </td>

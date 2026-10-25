@@ -124,7 +124,7 @@ uv run python scripts/mypy_gate.py
 if ! no_python_test "pytest sweep"; then
     step "pytest sweep"
     if [ "$mode" = full ]; then
-        uv run python scripts/run_bounded.py 5400 -- uv run pytest tests/ --ignore=tests/e2e -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
+        uv run python scripts/run_bounded.py 5400 -- uv run pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
     else
         uv run python scripts/run_bounded.py 1800 -- uv run pytest "$@" -m "not pty and not wallclock" -n auto --dist loadgroup -q --tb=short --timeout=600 --timeout-method=signal
     fi

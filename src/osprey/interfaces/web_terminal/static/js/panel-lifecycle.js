@@ -207,7 +207,39 @@ export function addPanel(spec) {
 
 // ---- Panel Initialization ----
 
-/** @param {Panel} panel */
+/**
+ * How long one config read may wait for an answer. A browser queues requests
+ * behind its per-host connection cap, and a read stuck in that queue would
+ * otherwise hold the panel's entry disabled for the life of the page.
+ */
+const CONFIG_READ_TIMEOUT_MS = 5000;
+
+/** The wait before retrying an unanswered config read; doubles up to the cap. */
+const CONFIG_RETRY_MS = 1000;
+const CONFIG_RETRY_MAX_MS = 15000;
+
+/**
+ * Read a panel's config endpoint once.
+ * @param {string} endpoint
+ * @returns {Promise<any>} the config, or `undefined` when the read failed or
+ *   timed out (a 200 answer, even one with no url, is never `undefined`)
+ */
+async function readConfig(endpoint) {
+  try {
+    return await fetchJSON(endpoint, { signal: AbortSignal.timeout(CONFIG_READ_TIMEOUT_MS) });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read the panel's config and act on it. A read that fails or times out is
+ * retried with backoff until one is answered, with the entry disabled in the
+ * meantime, so a request that was stalled or refused at page load does not
+ * leave the panel dead until the next reload. An answer is final, including
+ * one that says the panel has no url.
+ * @param {Panel} panel
+ */
 export async function initPanel(panel) {
   const c = ctx();
   const state = c.panelState[panel.id];
@@ -215,19 +247,26 @@ export async function initPanel(panel) {
   // /api/panels. Skip the fetch and leave the panel disabled until then.
   if (!panel.configEndpoint) { state.configLoaded = true; return; }
 
-  /** @type {any} */
-  let config = null;
-  try {
-    config = await fetchJSON(panel.configEndpoint);
-    // Artifact server returns { url }, ARIEL returns { url, available }
-    if (config.url && (config.available === undefined || config.available)) {
-      state.url = config.url;
+  let delay = CONFIG_RETRY_MS;
+  let config = await readConfig(panel.configEndpoint);
+  while (config === undefined) {
+    // Settled for the active-panel policy, which waits on every panel's first
+    // read: this one is unavailable until a retry is answered.
+    if (!state.configLoaded) {
+      state.configLoaded = true;
+      c.ensureActive();
     }
-  } catch {
-    // Config endpoint not available — panel stays disabled
-  } finally {
-    state.configLoaded = true;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    delay = Math.min(delay * 2, CONFIG_RETRY_MAX_MS);
+    // A url pushed by the server in the meantime (addPanel) supersedes the read.
+    if (state.url) return;
+    config = await readConfig(panel.configEndpoint);
   }
+  // Artifact server returns { url }, ARIEL returns { url, available }
+  if (config?.url && (config.available === undefined || config.available)) {
+    state.url = config.url;
+  }
+  state.configLoaded = true;
 
   // A sidecar reports its start outcome with its config: a failed one gets
   // its clickable failed entry, a starting one is followed until it settles.

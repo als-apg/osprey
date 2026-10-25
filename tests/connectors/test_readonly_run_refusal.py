@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
-from tests.connectors._write_fakes import RecordingConnector, writes_enabled_config
+from osprey_connectors_tests._write_fakes import RecordingConnector, writes_enabled_config
 
 
 @pytest.fixture

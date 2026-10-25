@@ -30,6 +30,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "GraphIndex": ".reader",
     "GraphIndexAbsence": ".reader",
     "GraphIndexMeta": ".reader",
+    "SEARCH_SORT_KEYS": ".reader",
     "SCHEMA_VERSION": ".schema",
     "META_KEYS": ".schema",
     "create_tables": ".schema",

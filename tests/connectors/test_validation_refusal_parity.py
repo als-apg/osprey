@@ -6,7 +6,7 @@ propagates to the caller, or it raises something else — which means the check
 could not be MADE. An unmade check is not permission to write.
 
 The EPICS connector already fails closed there
-(``tests/connectors/test_write_fail_closed.py``). This file holds the other
+(``packages/osprey-connectors/tests/osprey_connectors_tests/test_write_fail_closed.py``). This file holds the other
 three shipped connectors to the same word, through the same seams the parity
 suite uses: the mock's store, DOOCS' ``doocs4py.set``, TANGO's
 ``DeviceProxy.write_attribute``. Each one must answer REFUSED and must not

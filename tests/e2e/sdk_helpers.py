@@ -35,10 +35,11 @@ from typing import Any
 
 import yaml
 
+from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice, seed_claude_state
 from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors.simulation.view import SimulatorView
-from tests import ci_diagnostics
+from osprey_connectors_tests._harness import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider
 
@@ -145,6 +146,36 @@ def render_dir(repo: Path) -> Path:
     drift between this module and the build.
     """
     return Path(repo) / BUILD_DIR_NAME
+
+
+#: The Claude Code state directory the harness owns for the running test, or
+#: ``None`` when the run uses the developer's own state. The e2e conftest sets
+#: it, together with ``CLAUDE_CONFIG_DIR``, for every test marked
+#: ``model_free``; a test that reaches a model runs as it would on the
+#: developer's machine, and the harness seeds nothing into their state.
+harness_config_dir: Path | None = None
+
+
+def trust_render(repo: Path) -> None:
+    """Trust the render as a workspace in the Claude Code state this run uses.
+
+    Seeded the way the container entrypoint seeds a deployment's per-user
+    volume (:func:`seed_claude_state`): the render is a trusted workspace, so
+    its ``permissions.allow`` rules apply to the run as they do in a
+    deployment, and no first-run prompt is pending. The state directory is the
+    test's own (:data:`harness_config_dir`, set by the e2e conftest for a
+    ``model_free`` test), never the developer's home: a caller outside that
+    isolation is refused rather than let write into it. Untrusted, the CLI
+    leaves the allow rules off and says so on stderr
+    (:func:`is_untrusted_allow_rules_notice`); a run that seeds and still sees
+    the notice is a harness fault, not a scenario.
+    """
+    if harness_config_dir is None:
+        raise RuntimeError(
+            "trust_render seeds only the harness's own Claude Code state; "
+            "mark the test model_free so the e2e conftest gives it one"
+        )
+    seed_claude_state(render_dir(repo))
 
 
 def agent_data_dir(repo: Path) -> Path:
@@ -825,7 +856,8 @@ def read_audit_events(repo: Path) -> list[dict]:
     is pointed at.
 
     Uses TranscriptReader to extract events from the most recent transcript
-    in ``~/.claude/projects/<encoded>/``.
+    in ``<config-dir>/projects/<encoded>/``, the Claude Code state directory
+    the run uses (``CLAUDE_CONFIG_DIR``, else ``~/.claude``).
 
     Returns:
         List of event dicts (tool_call, agent_start, agent_stop).
@@ -1308,6 +1340,12 @@ async def run_sdk_query_with_hooks(
             return PermissionResultDeny(message="Denied by test approval policy")
 
     render = render_dir(repo)
+    # Under the harness's own state, trusted as a deployment's render is, so the
+    # project's allow rules apply here too. Under the developer's state, nothing
+    # is seeded and the run is what it would be on their machine.
+    trusted = harness_config_dir is not None
+    if trusted:
+        trust_render(repo)
     options = ClaudeAgentOptions(
         model=model if model is not None else resolve_default_model(render),
         cwd=str(render),
@@ -1367,6 +1405,10 @@ async def run_sdk_query_with_hooks(
     except Exception as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
         raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
+
+    untrusted = [line for line in stderr_lines if is_untrusted_allow_rules_notice(line)]
+    if trusted and untrusted:
+        raise RuntimeError(f"the CLI left the render's allow rules off: {untrusted[0]}")
 
     # See run_sdk_query: sub-agent tool calls live in on-disk transcripts.
     _harvest_subagent_traces(workflow, pending_tools, render)
@@ -1462,7 +1504,7 @@ def judge_result_preview(text: str) -> str:
 
 
 #: Sub-directory of ``OSPREY_CI_DIAG_DIR`` that transcripts are written to.
-#: Separate from the records :mod:`tests.ci_diagnostics` keeps in the same
+#: Separate from the records :mod:`ci_diagnostics` keeps in the same
 #: directory, so a per-worker event log and a per-test transcript can never
 #: collide on a name.
 TRANSCRIPT_SUBDIR = "agent"
@@ -1519,7 +1561,7 @@ def dump_agent_transcript(
 ) -> Path | None:
     """Persist one agent run's full response and tool traces as a CI artifact.
 
-    Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`tests.ci_diagnostics`:
+    Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`ci_diagnostics`:
     unset — which is every local run — writes nothing and returns ``None``.
     The lanes that set it already upload that directory, and
     ``capture-ci-diagnostics`` creates its own subdirectory rather than

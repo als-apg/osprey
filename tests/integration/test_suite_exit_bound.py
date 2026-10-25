@@ -2,8 +2,8 @@
 
 One facility test module, which imports the product, runs as a nested pytest
 under xdist, so one run puts every kind of pytest process the suite starts
-under the exit contract of ``tests/_live_threads.py``, and each assertion
-proves a different one:
+under the exit contract of ``osprey_connectors_tests._harness._live_threads``,
+and each assertion proves a different one:
 
 * ``quiet_before_exit`` is the time between the run's last word and its exit.
   That last word is the controller's summary, so this bounds the controller's
@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from tests import _live_threads
+from osprey_connectors_tests._harness import _live_threads
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

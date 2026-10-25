@@ -38,7 +38,7 @@ if TYPE_CHECKING:
         PermissionMode,
         SettingSource,
     )
-    from claude_agent_sdk.types import SystemPromptFile, SystemPromptPreset
+    from claude_agent_sdk.types import ContextUsageResponse, SystemPromptFile, SystemPromptPreset
 
 # SDK import — keep module importable even when SDK is absent.
 try:
@@ -283,6 +283,34 @@ class AgentSession:
         except ClaudeSDKError as exc:
             raise from_sdk_error(exc) from exc
 
+    async def stop_task(self, task_id: str) -> None:
+        """Stop one background task the agent started (a background subagent).
+
+        The CLI then reports it with a ``task_notification`` of status
+        ``stopped`` in the response stream.
+
+        Raises:
+            AgentRunError: When the agent SDK fails to deliver the request.
+        """
+        try:
+            await self._client.stop_task(task_id)
+        except ClaudeSDKError as exc:
+            raise from_sdk_error(exc) from exc
+
+    async def context_usage(self) -> ContextUsageResponse:
+        """The context window's usage, as the CLI's ``/context`` reports it.
+
+        The SDK's answer unchanged: the caller takes what it needs (the window's
+        occupancy) and leaves the category breakdown, file lists and API usage.
+
+        Raises:
+            AgentRunError: When the agent SDK fails to answer the request.
+        """
+        try:
+            return await self._client.get_context_usage()
+        except ClaudeSDKError as exc:
+            raise from_sdk_error(exc) from exc
+
     def _transport_process(self) -> Any:
         """The child process handle the client's transport holds, if any.
 
@@ -359,6 +387,7 @@ async def agent_session(
     pre_tool_use_hooks: Sequence[HookCallback] = (),
     stderr: Callable[[str], None] | None = None,
     await_mcp_servers: Collection[str] | None = None,
+    include_partial_messages: bool = False,
 ) -> AsyncIterator[AgentSession]:
     """Open a multi-turn :class:`AgentSession` for *project_dir*.
 
@@ -380,6 +409,8 @@ async def agent_session(
             read-only run; ``None`` when an approval callback mediates).
         await_mcp_servers: The MCP servers to wait for before the first turn;
             ``None`` for the project's declared ones, empty to skip the wait.
+        include_partial_messages: Stream text and reasoning deltas ahead of
+            each whole block.
 
     Yields:
         An :class:`AgentSession` ready to :meth:`~AgentSession.send` turns.
@@ -411,6 +442,7 @@ async def agent_session(
         can_use_tool=can_use_tool,
         pre_tool_use_hooks=pre_tool_use_hooks,
         stderr=stderr,
+        include_partial_messages=include_partial_messages,
     )
 
     async with ClaudeSDKClient(options=options) as client:

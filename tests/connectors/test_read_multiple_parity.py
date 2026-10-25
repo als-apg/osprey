@@ -40,7 +40,7 @@ from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelReadFailedError
-from tests.connectors._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
+from osprey_connectors_tests._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
 from tests.facility.served_tree import in_process_config, served_tree
 
 # The value each of the three requested channels holds; the middle one is the

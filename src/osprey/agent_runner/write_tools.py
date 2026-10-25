@@ -35,6 +35,33 @@ _FALLBACK_WRITE_TOOLS = [
 ]
 
 
+#: What :func:`load_approval_prefixes` answers when the render's hook config cannot
+#: be read: every MCP tool, so nothing is offered a standing allow by mistake.
+_FALLBACK_APPROVAL_PREFIXES: tuple[str, ...] = ("mcp__",)
+
+
+def load_approval_prefixes(project_dir: Path) -> list[str]:
+    """Return the tool-name prefixes the render's approval hook asks about.
+
+    Reads ``approval_prefixes`` from ``<project_dir>/.claude/hooks/hook_config.json``,
+    the list the approval hook itself reads to decide which calls it puts in front of
+    a person. A call under one of these prefixes is asked about on every call, so a
+    standing allow for it would either do nothing or let the hook's ask be skipped.
+    Fails closed: a file that is absent, unreadable or malformed answers
+    :data:`_FALLBACK_APPROVAL_PREFIXES`, which covers every MCP tool.
+    """
+    hook_config_path = project_dir / ".claude" / "hooks" / "hook_config.json"
+    try:
+        config = json.loads(hook_config_path.read_text(encoding="utf-8"))
+        prefixes = config.get("approval_prefixes") if isinstance(config, dict) else None
+        if isinstance(prefixes, list) and all(isinstance(p, str) and p for p in prefixes):
+            return list(dict.fromkeys(prefixes))
+        logger.warning("approval_prefixes malformed in %s — using fallback", hook_config_path)
+    except (OSError, ValueError) as exc:
+        logger.warning("could not read %s (%s) — using fallback", hook_config_path, exc)
+    return list(_FALLBACK_APPROVAL_PREFIXES)
+
+
 def load_write_tools(project_dir: Path) -> list[str]:
     """Return the MCP tool names that are subject to the writes kill switch.
 
