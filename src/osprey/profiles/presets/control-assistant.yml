@@ -135,8 +135,8 @@ virtual_accelerator:
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
   # meets there is a real machine's behaviour — approval prompts, limit
-  # refusals, the "Rehearsal — nothing moves" banner — on something that
-  # cannot move a magnet.
+  # refusals, the LIVE MACHINE (stand-in) banner — on something that cannot
+  # move a magnet.
   # Delete the line on a laptop: the simulator image is amd64-only, so a
   # second emulated container on Apple Silicon doubles what QEMU has to run —
   # one more emulated soft-IOC for the life of the deployment.
