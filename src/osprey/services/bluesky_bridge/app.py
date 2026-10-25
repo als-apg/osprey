@@ -50,6 +50,7 @@ from .figure import (
     Point,
     RowWindow,
     Series,
+    bind_units,
     decimate,
     default_figure,
     rows_from_columnar,
@@ -2531,7 +2532,9 @@ def _compose_figure(
     degrades to no role context — the row-index figure — never to a failure.
 
     ``units`` is each column's declared unit as the source holds it; the
-    `RowWindow` a render is handed carries it.
+    `RowWindow` a render is handed carries it, and every figure served from
+    here has its axes' units stated from it by `bind_units`, before
+    decimation, on every path.
 
     The reason ladder, in the order it is walked:
 
@@ -2554,7 +2557,9 @@ def _compose_figure(
       window claiming more rows than its run, or ragged rows — same treatment:
       the stored shape no longer matches what the code expects).
     - ``render_failed`` — the plan's `render` raised, returned a non-`Figure`,
-      or produced marks whose decimation truth is inconsistent.
+      returned a figure `bind_units` refuses (a unit set by hand, an axis
+      bound to a column the rows do not hold), or produced marks whose
+      decimation truth is inconsistent.
     """
     try:
         window = rows_from_columnar(columns, rows, total_seen, units)
@@ -2564,20 +2569,28 @@ def _compose_figure(
             rows=[], columns=list(columns), rows_complete=False, total_seen=max(total_seen, 0)
         )
         figure = _decimate_figure(
-            default_figure(window, reason=REASON_PARAMS_MISMATCH, partial=partial, source=source)
+            bind_units(
+                default_figure(
+                    window, reason=REASON_PARAMS_MISMATCH, partial=partial, source=source
+                ),
+                window,
+            )
         )
         return figure, True
 
     def _default(reason: str, roles: tuple[Sequence[str], Sequence[str]] = ((), ())) -> Figure:
         movable, readable = roles
         return _decimate_figure(
-            default_figure(
+            bind_units(
+                default_figure(
+                    window,
+                    reason=reason,
+                    partial=partial,
+                    source=source,
+                    movable=movable,
+                    readable=readable,
+                ),
                 window,
-                reason=reason,
-                partial=partial,
-                source=source,
-                movable=movable,
-                readable=readable,
             )
         )
 
@@ -2622,7 +2635,7 @@ def _compose_figure(
         if not isinstance(rendered, Figure):
             raise TypeError(f"render returned {type(rendered).__name__}, not a Figure")
         figure = _decimate_figure(
-            rendered.model_copy(update={"partial": partial, "source": source})
+            bind_units(rendered.model_copy(update={"partial": partial, "source": source}), window)
         )
         return figure, True
     except Exception:
@@ -2708,8 +2721,9 @@ def get_run_figure(run_id: str) -> dict:
             exc_info=True,
         )
         window = RowWindow(rows=[], columns=[], rows_complete=False, total_seen=0)
-        return default_figure(
-            window, reason=REASON_SOURCE_UNAVAILABLE, partial=True, source="tiled"
+        return bind_units(
+            default_figure(window, reason=REASON_SOURCE_UNAVAILABLE, partial=True, source="tiled"),
+            window,
         ).model_dump()
 
     if snapshot is None:

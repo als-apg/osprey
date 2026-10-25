@@ -22,6 +22,7 @@ import pytest
 from pydantic import ValidationError
 
 from osprey.services.bluesky_bridge.figure import (
+    _MIXED_UNITS_NOTE,
     FIGURE_REASONS,
     REASON_NO_RENDER,
     REASON_PARAMS_MISMATCH,
@@ -30,12 +31,15 @@ from osprey.services.bluesky_bridge.figure import (
     REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS,
     REASON_SOURCE_UNAVAILABLE,
     BarsMark,
+    Columns,
     Figure,
     HeatmapMark,
     LinesMark,
     Panel,
     Point,
+    RowWindow,
     Series,
+    bind_units,
 )
 
 # The bridge's import boundary (`app._BRIDGE_ONLY_MODULES`), restated here so
@@ -47,9 +51,9 @@ def _lines_panel() -> Panel:
     return Panel(
         title="BPM 3 vs corrector 1",
         x_label="corrector setpoint",
-        x_units="A",
+        x_columns=Columns(["hcm1"]),
         y_label="orbit",
-        y_units="mm",
+        y_columns=Columns(["bpm3"]),
         annotations=["decimated from 5000 points"],
         mark=LinesMark(
             series=[
@@ -71,12 +75,14 @@ def _heatmap_panel() -> Panel:
         title="response matrix",
         x_label="corrector",
         y_label="BPM",
+        x_columns=None,
+        y_columns=None,
         mark=HeatmapMark(
             x_labels=["HCM1", "HCM2"],
             y_labels=["BPM1", "BPM2", "BPM3"],
             values=[[1.0, 2.0], [3.0, None], [5.0, 6.0]],
             value_label="slope",
-            value_units="mm/A",
+            value_columns=Columns(["bpm1", "bpm2", "bpm3"], per=["hcm1", "hcm2"]),
             source_points=6,
         ),
     )
@@ -85,6 +91,8 @@ def _heatmap_panel() -> Panel:
 def _bars_panel() -> Panel:
     return Panel(
         title="column anomaly",
+        x_columns=None,
+        y_columns=None,
         mark=BarsMark(
             label="anomaly",
             categories=["HCM1", "HCM2"],
@@ -126,6 +134,8 @@ def test_dumped_field_names_are_the_wire_contract() -> None:
         "y_label",
         "x_units",
         "y_units",
+        "x_columns",
+        "y_columns",
         "annotations",
         "mark",
         "section",
@@ -144,9 +154,11 @@ def test_dumped_field_names_are_the_wire_contract() -> None:
         "values",
         "value_label",
         "value_units",
+        "value_columns",
         "decimated",
         "source_points",
     }
+    assert set(dumped["panels"][0]["x_columns"]) == {"names", "per"}
     assert set(dumped["panels"][2]["mark"]) == {
         "kind",
         "label",
@@ -186,6 +198,151 @@ def test_extra_fields_are_forbidden() -> None:
     dumped["y_labl"] = "typo"
     with pytest.raises(ValidationError):
         Panel.model_validate(dumped)
+
+
+# --- Column bindings ---------------------------------------------------------
+
+
+def test_columns_names_at_least_one_column() -> None:
+    with pytest.raises(ValidationError):
+        Columns([])
+
+
+@pytest.mark.parametrize(
+    ("names", "per"),
+    [(["a", "a"], []), (["a"], ["b", "b"])],
+)
+def test_columns_names_each_column_once(names: list[str], per: list[str]) -> None:
+    with pytest.raises(ValidationError):
+        Columns(names, per=per)
+
+
+def test_columns_take_their_names_by_keyword_too() -> None:
+    assert Columns(names=["a"]) == Columns(["a"])
+
+
+@pytest.mark.parametrize("field", ["x_columns", "y_columns"])
+def test_a_panel_says_which_columns_each_axis_plots(field: str) -> None:
+    dumped = _lines_panel().model_dump()
+    del dumped[field]
+    with pytest.raises(ValidationError):
+        Panel.model_validate(dumped)
+
+
+def test_a_heatmap_says_which_columns_its_values_are() -> None:
+    with pytest.raises(ValidationError):
+        HeatmapMark(source_points=1)  # type: ignore[call-arg]
+
+
+def _window(units: dict[str, str]) -> RowWindow:
+    columns = ["m1", "m2", "d1", "d2", "d3"]
+    return RowWindow(rows=[], columns=columns, rows_complete=True, total_seen=0, units=units)
+
+
+def _bindable(
+    x: Columns | None = None, y: Columns | None = None, value: Columns | None = None
+) -> Figure:
+    return Figure(
+        panels=[
+            Panel(
+                title="lines",
+                x_columns=x,
+                y_columns=y,
+                mark=LinesMark(source_points=0),
+            ),
+            Panel(
+                title="map",
+                x_columns=x,
+                y_columns=y,
+                mark=HeatmapMark(value_columns=value, source_points=0),
+            ),
+        ],
+        partial=False,
+        source="live",
+    )
+
+
+_DISTINCT = {name: f"u:{name}" for name in ("m1", "m2", "d1", "d2", "d3")}
+
+
+def test_each_bound_axis_states_the_unit_its_column_declares() -> None:
+    window = _window(_DISTINCT)
+    figure = bind_units(
+        _bindable(x=Columns(["m1"]), y=Columns(["d1"]), value=Columns(["d2"])), window
+    )
+    for panel in figure.panels:
+        assert (panel.x_units, panel.y_units) == (window.units["m1"], window.units["d1"])
+    assert figure.panels[1].mark.value_units == window.units["d2"]  # type: ignore[union-attr]
+
+
+def test_an_axis_over_columns_sharing_a_unit_states_it() -> None:
+    window = _window({"d1": "u", "d2": "u"})
+    (panel, _) = bind_units(_bindable(y=Columns(["d1", "d2"])), window).panels
+    assert panel.y_units == window.units["d1"]
+    assert panel.annotations == []
+
+
+def test_a_slope_axis_states_its_unit_per_the_other() -> None:
+    window = _window(_DISTINCT)
+    figure = bind_units(_bindable(value=Columns(["d1"], per=["m1"])), window)
+    mark = figure.panels[1].mark
+    assert mark.value_units == f"{window.units['d1']} / {window.units['m1']}"  # type: ignore[union-attr]
+
+
+def test_a_slope_axis_with_an_undeclared_side_states_none() -> None:
+    window = _window({"d1": "u"})
+    figure = bind_units(_bindable(value=Columns(["d1"], per=["m1"])), window)
+    assert figure.panels[1].mark.value_units is None  # type: ignore[union-attr]
+
+
+def test_an_axis_that_plots_no_column_states_no_unit() -> None:
+    (panel, _) = bind_units(_bindable(), _window(_DISTINCT)).panels
+    assert (panel.x_units, panel.y_units) == (None, None)
+
+
+def test_columns_declaring_different_units_state_none_and_say_so_once() -> None:
+    figure = bind_units(
+        _bindable(y=Columns(["d1", "d2"]), value=Columns(["d1", "d2"], per=["m1"])),
+        _window(_DISTINCT),
+    )
+    for panel in figure.panels:
+        assert panel.y_units is None
+        assert panel.annotations.count(_MIXED_UNITS_NOTE) == 1
+    assert figure.panels[1].mark.value_units is None  # type: ignore[union-attr]
+
+
+def test_an_undeclared_column_states_none_without_a_note() -> None:
+    (panel, _) = bind_units(_bindable(y=Columns(["d1", "d2"])), _window({"d1": "u"})).panels
+    assert panel.y_units is None
+    assert panel.annotations == []
+
+
+def test_an_axis_naming_a_column_the_rows_do_not_hold_is_refused() -> None:
+    with pytest.raises(ValueError, match="absent"):
+        bind_units(_bindable(y=Columns(["absent"])), _window(_DISTINCT))
+
+
+@pytest.mark.parametrize("field", ["x_units", "y_units"])
+def test_a_figure_carrying_a_typed_axis_unit_is_refused(field: str) -> None:
+    figure = _bindable(y=Columns(["d1"]))
+    setattr(figure.panels[0], field, "typed")
+    with pytest.raises(ValueError, match=field):
+        bind_units(figure, _window(_DISTINCT))
+
+
+def test_a_figure_carrying_a_typed_value_unit_is_refused() -> None:
+    figure = _bindable(value=Columns(["d1"]))
+    figure.panels[1].mark.value_units = "typed"  # type: ignore[union-attr]
+    with pytest.raises(ValueError, match="value_units"):
+        bind_units(figure, _window(_DISTINCT))
+
+
+def test_a_bound_figure_round_trips_through_model_validate() -> None:
+    figure = bind_units(
+        _bindable(x=Columns(["m1"]), y=Columns(["d1"]), value=Columns(["d2"], per=["m2"])),
+        _window(_DISTINCT),
+    )
+    assert Figure.model_validate(figure.model_dump()) == figure
 
 
 # --- Honesty fields ----------------------------------------------------------
@@ -233,7 +390,7 @@ def test_reason_vocabulary_is_complete_and_stable() -> None:
 
 def test_every_mark_carries_decimation_provenance() -> None:
     lines = LinesMark(source_points=10)
-    heatmap = HeatmapMark(source_points=10)
+    heatmap = HeatmapMark(value_columns=None, source_points=10)
     bars = BarsMark(source_points=10)
     for mark in (lines, heatmap, bars):
         assert mark.decimated is False
@@ -253,7 +410,7 @@ def test_non_finite_y_becomes_a_gap(bad: float) -> None:
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
 def test_non_finite_heatmap_and_bar_values_become_gaps(bad: float) -> None:
-    heatmap = HeatmapMark(values=[[bad, 1.0]], source_points=2)
+    heatmap = HeatmapMark(values=[[bad, 1.0]], value_columns=None, source_points=2)
     assert heatmap.values == [[None, 1.0]]
     bars = BarsMark(categories=["a"], values=[bad], source_points=1)
     assert bars.values == [None]
@@ -276,7 +433,7 @@ def test_numpy_nan_is_a_gap_not_a_nan() -> None:
     # Renders compute with numpy; np.nan reaching the wire would be invalid JSON.
     point = Point(x=1.0, y=np.float64("nan"))
     assert point.y is None
-    heatmap = HeatmapMark(values=[[np.float32("nan")]], source_points=1)
+    heatmap = HeatmapMark(values=[[np.float32("nan")]], value_columns=None, source_points=1)
     assert heatmap.values == [[None]]
 
 

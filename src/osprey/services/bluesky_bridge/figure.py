@@ -2,8 +2,9 @@
 
 A plan's ``render(window, params)`` returns a `Figure`: a list of `Panel`s, each
 carrying exactly one mark (`LinesMark`, `HeatmapMark`, or `BarsMark`) alongside
-its title, axis labels/units, and annotations. The bridge serves that object as
-JSON from `GET /runs/{run_id}/figure`; the panel's ``figure-renderer.js`` draws
+its title, axis labels, the columns each axis plots (`Columns`), and
+annotations. The bridge states every axis's unit from those columns
+(`bind_units`) and serves the figure as JSON from `GET /runs/{run_id}/figure`; the panel's ``figure-renderer.js`` draws
 it and the MCP ``get_run_figure`` tool projects it for the agent. Both consumers
 dispatch on ``mark.kind`` and read snake_case field names straight out of
 `model_dump()`, so this module is the contract between them: neither can be
@@ -36,7 +37,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Annotated, Any, Literal, NamedTuple
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from .plan_fields import resolve_column
 
@@ -50,7 +51,8 @@ REASON_NO_RENDER = "no_render"
 """The plan declares no ``render()`` -- the default figure *is* its view."""
 
 REASON_RENDER_FAILED = "render_failed"
-"""The plan's ``render()`` raised; the default figure stands in for it."""
+"""The plan's ``render()`` raised, or returned a figure `bind_units` refused;
+the default figure stands in for it."""
 
 REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS = "render_not_supported_for_session_plans"
 """The plan came from the session/unreviewed layer, whose ``render()`` is never run."""
@@ -136,6 +138,39 @@ class _FigureNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# --- Column bindings ---------------------------------------------------------
+
+
+class Columns(_FigureNode):
+    """The row columns an axis plots, named as `RowWindow.columns` names them.
+
+    An axis's unit is never typed: `bind_units` states it from what these
+    columns declare. With ``per`` the axis is a slope -- ``names`` per unit of
+    ``per`` -- and its unit reads ``"<names' unit> / <per's unit>"``.
+
+    ``Columns(["a", "b"])`` and ``Columns(names=["a", "b"])`` are the same
+    binding. An axis that plots no column is bound to ``None``, never to an
+    empty ``Columns``.
+    """
+
+    names: list[str]
+    per: list[str] = Field(default_factory=list)
+
+    def __init__(self, names: Sequence[str] | None = None, /, **data: Any) -> None:
+        if names is not None:
+            data["names"] = list(names)
+        super().__init__(**data)
+
+    @model_validator(mode="after")
+    def _each_column_once(self) -> Columns:
+        if not self.names:
+            raise ValueError("an axis names at least one column; one that plots none is None")
+        for field, values in (("names", self.names), ("per", self.per)):
+            if len(set(values)) != len(values):
+                raise ValueError(f"{field} names a column more than once: {values}")
+        return self
+
+
 # --- Marks -------------------------------------------------------------------
 
 
@@ -187,7 +222,14 @@ class HeatmapMark(_FigureNode):
     value_label: str = ""
     """What the cell values *are* -- the heatmap's third axis (e.g. ``"slope"``)."""
 
+    value_columns: Columns | None
+    """The columns the cell values come from, or ``None`` when they come from
+    none. Required: a heatmap that says nothing is a validation error."""
+
     value_units: str | None = None
+    """Set by `bind_units` from ``value_columns``; a render that sets it is
+    refused."""
+
     decimated: bool = False
     source_points: int
     """Number of cells the heatmap was built from, before any summarization."""
@@ -222,7 +264,19 @@ class Panel(_FigureNode):
     x_label: str = ""
     y_label: str = ""
     x_units: str | None = None
+    """Set by `bind_units` from ``x_columns``; a render that sets it is refused."""
+
     y_units: str | None = None
+    """Set by `bind_units` from ``y_columns``; a render that sets it is refused."""
+
+    x_columns: Columns | None
+    """The columns the x axis plots, or ``None`` when it plots none (a row or
+    BPM index, a category). Required: an axis that says nothing about its
+    columns is a validation error, never a silent missing unit."""
+
+    y_columns: Columns | None
+    """The columns the y axis plots, or ``None`` when it plots none."""
+
     annotations: list[str] = Field(default_factory=list)
     """Short operator-facing notes about what the panel does *not* show -- a
     decimation cap, dropped rows, series omitted past a limit. Rendered as text
@@ -395,8 +449,8 @@ class RowWindow(NamedTuple):
     must fall back to something position-free when this is ``False``.
 
     ``units`` maps a column to the unit the run declared for it; a column it
-    does not name declared none. A panel takes its units from here
-    (`shared_unit`), never from a unit typed into the plan.
+    does not name declared none. A figure's axes take their units from here
+    (`bind_units`), never from a unit typed into the plan.
     """
 
     rows: list[dict[str, Any]]
@@ -406,7 +460,7 @@ class RowWindow(NamedTuple):
     units: Mapping[str, str] = MappingProxyType({})
 
 
-def shared_unit(window: RowWindow, columns: Sequence[str]) -> str | None:
+def _shared_unit(window: RowWindow, columns: Sequence[str]) -> str | None:
     """The one unit every column in ``columns`` declares, or ``None``.
 
     ``None`` when any of them declares no unit, when they declare two
@@ -418,6 +472,72 @@ def shared_unit(window: RowWindow, columns: Sequence[str]) -> str | None:
         return None
     (unit,) = declared
     return unit
+
+
+_MIXED_UNITS_NOTE = "The plotted columns declare different units, so no unit is shown."
+"""The one sentence a panel carries when an axis's columns disagree on a unit."""
+
+
+def _declares_two_units(window: RowWindow, columns: Sequence[str]) -> bool:
+    return len({window.units[column] for column in columns if column in window.units}) > 1
+
+
+def _axis_unit(window: RowWindow, title: str, columns: Columns | None) -> tuple[str | None, bool]:
+    """An axis's unit and whether its columns disagree on one."""
+    if columns is None:
+        return None, False
+    absent = [name for name in (*columns.names, *columns.per) if name not in window.columns]
+    if absent:
+        raise ValueError(f"panel {title!r} binds columns the rows do not hold: {absent}")
+    mixed = _declares_two_units(window, columns.names) or _declares_two_units(window, columns.per)
+    unit = _shared_unit(window, columns.names)
+    if columns.per:
+        per = _shared_unit(window, columns.per)
+        unit = None if unit is None or per is None else f"{unit} / {per}"
+    return unit, mixed
+
+
+def bind_units(figure: Figure, window: RowWindow) -> Figure:
+    """State every axis's unit from the columns it names, as ``window`` declares them.
+
+    The one place a served figure gets its units, so the table and the plot
+    agree. Per axis: ``Columns(names)`` states the one unit every name
+    declares; ``Columns(names, per=...)`` states ``"<names> / <per>"`` when
+    both sides have one; ``None`` states none. When the columns on an axis
+    declare two different units the axis states none and the panel says so,
+    once (`_MIXED_UNITS_NOTE`). Mutates ``figure`` in place and returns it.
+
+    Raises:
+        ValueError: If a panel already carries a unit (a render typed one), or
+            an axis names a column ``window`` does not hold.
+    """
+    for panel in figure.panels:
+        heatmap = panel.mark if isinstance(panel.mark, HeatmapMark) else None
+        typed = [
+            field
+            for field, value in (
+                ("x_units", panel.x_units),
+                ("y_units", panel.y_units),
+                ("value_units", None if heatmap is None else heatmap.value_units),
+            )
+            if value is not None
+        ]
+        if typed:
+            raise ValueError(
+                f"panel {panel.title!r} sets {', '.join(typed)}; "
+                "the bridge states units from the columns each axis names"
+            )
+
+        panel.x_units, x_mixed = _axis_unit(window, panel.title, panel.x_columns)
+        panel.y_units, y_mixed = _axis_unit(window, panel.title, panel.y_columns)
+        value_mixed = False
+        if heatmap is not None:
+            heatmap.value_units, value_mixed = _axis_unit(
+                window, panel.title, heatmap.value_columns
+            )
+        if (x_mixed or y_mixed or value_mixed) and _MIXED_UNITS_NOTE not in panel.annotations:
+            panel.annotations = [*panel.annotations, _MIXED_UNITS_NOTE]
+    return figure
 
 
 def rows_from_columnar(
@@ -678,8 +798,8 @@ def default_figure(
                 title=name,
                 x_label="Row" if x_column is None else x_column,
                 y_label=name,
-                x_units=None if x_column is None else window.units.get(x_column),
-                y_units=window.units.get(name),
+                x_columns=None if x_column is None else Columns([x_column]),
+                y_columns=Columns([name]),
                 annotations=annotations if not panels else [],
                 mark=LinesMark(
                     series=[Series(label=name, **kept._asdict())],

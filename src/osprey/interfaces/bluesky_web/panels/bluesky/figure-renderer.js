@@ -49,12 +49,13 @@ import {
 /** @typedef {import('./figure-controls.js').FigureSelection} FigureSelection */
 
 /** @typedef {{x: number, y: number|null}} FigurePoint */
+/** @typedef {{names: string[], per: string[]}} FigureColumns */
 /** @typedef {{label: string, points: FigurePoint[], decimated: boolean, source_points: number}} FigureSeries */
 /** @typedef {{kind: 'lines', series: FigureSeries[], decimated: boolean, source_points: number}} LinesMark */
-/** @typedef {{kind: 'heatmap', x_labels: string[], y_labels: string[], values: Array<Array<number|null>>, value_label: string, value_units: string|null, decimated: boolean, source_points: number}} HeatmapMark */
+/** @typedef {{kind: 'heatmap', x_labels: string[], y_labels: string[], values: Array<Array<number|null>>, value_label: string, value_units: string|null, value_columns: FigureColumns|null, decimated: boolean, source_points: number}} HeatmapMark */
 /** @typedef {{kind: 'bars', label: string, categories: string[], values: Array<number|null>, decimated: boolean, source_points: number}} BarsMark */
 /** @typedef {LinesMark|HeatmapMark|BarsMark} FigureMark */
-/** @typedef {{title: string, x_label: string, y_label: string, x_units: string|null, y_units: string|null, annotations: string[], mark: FigureMark, section?: string|null, series_picker?: boolean}} FigurePanel */
+/** @typedef {{title: string, x_label: string, y_label: string, x_units: string|null, y_units: string|null, x_columns: FigureColumns|null, y_columns: FigureColumns|null, annotations: string[], mark: FigureMark, section?: string|null, series_picker?: boolean}} FigurePanel */
 /** @typedef {{panels: FigurePanel[], partial: boolean, source: 'live'|'tiled', reason: string|null}} Figure */
 
 

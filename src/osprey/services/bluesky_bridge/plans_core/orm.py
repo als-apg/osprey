@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal, NamedTuple
 
 from bluesky import plan_stubs as bps
@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field, model_validator
 # load time and quarantines the plan.
 from osprey.services.bluesky_bridge.figure import (
     BarsMark,
+    Columns,
     Figure,
     HeatmapMark,
     LinesMark,
@@ -46,7 +47,6 @@ from osprey.services.bluesky_bridge.figure import (
     RowWindow,
     Series,
     decimate,
-    shared_unit,
 )
 from osprey.services.bluesky_bridge.orm_analysis import (
     SlicedResponseFit,
@@ -291,49 +291,53 @@ _SPECTRUM_SECTION = "Singular values"
 matrix above, consulted rather than scanned."""
 
 
-class _Units(NamedTuple):
-    """The units the run declared for what this figure plots, or ``None`` where it did not."""
+class _Resolved(NamedTuple):
+    """Each requested channel's data column, as the fit resolves it."""
 
-    bpm: str | None
-    """The one unit every BPM column the fit reads declares."""
+    bpm: Mapping[str, str]
+    """BPM name to the column `resolve_column` reads it from."""
 
-    corrector: str | None
-    """The one unit every corrector column the regressor reads declares."""
-
-    bpms_disagree: bool
-    """Whether the BPM columns declare more than one unit between them."""
-
-    @property
-    def response(self) -> str | None:
-        """A slope's unit: BPM unit per corrector unit, when both are known."""
-        if self.bpm is None or self.corrector is None:
-            return None
-        return f"{self.bpm} / {self.corrector}"
+    regressor: Mapping[str, str]
+    """Corrector name to the column `resolve_regressor_column` regresses on."""
 
 
-def _units(window: RowWindow, params: PARAMS) -> _Units:
-    """The units the run declared for its BPM columns and its regressor columns.
+def _resolve(window: RowWindow, params: PARAMS) -> _Resolved:
+    """The columns the fit reads, resolved exactly as the fit resolves them.
 
-    Columns resolve exactly as the fit resolves them (`resolve_column`,
-    `resolve_regressor_column`), so a unit is read off the very column a
-    plotted value came from.
+    An axis names these columns, so the unit the bridge states for it is the
+    one the run declared for the very column a plotted value came from.
     """
-    bpm_columns = [
-        column
-        for name in params.readbacks
-        if (column := resolve_column(name, window.columns)) is not None
-    ]
-    corrector_columns = [
-        column
-        for name in params.correctors
-        if (column := resolve_regressor_column(name, window.columns, params.regressor)) is not None
-    ]
-    declared = {window.units[column] for column in bpm_columns if column in window.units}
-    return _Units(
-        bpm=shared_unit(window, bpm_columns),
-        corrector=shared_unit(window, corrector_columns),
-        bpms_disagree=len(declared) > 1,
+    return _Resolved(
+        bpm={
+            name: column
+            for name in params.readbacks
+            if (column := resolve_column(name, window.columns)) is not None
+        },
+        regressor={
+            name: column
+            for name in params.correctors
+            if (column := resolve_regressor_column(name, window.columns, params.regressor))
+            is not None
+        },
     )
+
+
+def _columns(names: Iterable[str], resolved: Mapping[str, str]) -> list[str]:
+    """The resolved columns of *names*, each once, in order; unresolved names are skipped."""
+    return list(dict.fromkeys(resolved[name] for name in names if name in resolved))
+
+
+def _bound(names: Iterable[str], resolved: Mapping[str, str]) -> Columns | None:
+    """An axis over *names*' columns, or ``None`` when none of them resolved."""
+    columns = _columns(names, resolved)
+    return Columns(columns) if columns else None
+
+
+def _slope(fit: SlicedResponseFit, resolved: _Resolved) -> Columns | None:
+    """The response slope's columns: every BPM per every fitted corrector's regressor."""
+    bpms = _columns(fit.readbacks, resolved.bpm)
+    regressors = _columns(fit.fitted_correctors, resolved.regressor)
+    return Columns(bpms, per=regressors) if bpms and regressors else None
 
 
 def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], bool, int, int]:
@@ -367,12 +371,12 @@ def _trace_panels(
     lead_annotations: list[str],
     *,
     section: str | None,
-    units: _Units,
+    resolved: _Resolved,
 ) -> list[Panel]:
     """One panel per traced corrector: BPM readings against that corrector's regressor.
 
     The x axis is the column the fit regressed on (``fit.regressor``), and the
-    axis label names it.
+    axis label names it; the y axis plots the BPM columns the panel draws.
 
     A corrector that has recorded no value yet -- the sweep has not reached
     it, or the run's rows never carried that device -- gets no panel at all; an
@@ -386,6 +390,7 @@ def _trace_panels(
     if hidden:
         traced = traced[-_MAX_TRACE_PANELS:]
     shown_readbacks = min(len(fit.readbacks), _MAX_TRACE_SERIES)
+    bpm_columns = _bound(fit.readbacks[:shown_readbacks], resolved.bpm)
 
     panels: list[Panel] = []
     for j in traced:
@@ -419,9 +424,9 @@ def _trace_panels(
             Panel(
                 title=f"{fit.correctors[j]} sweep",
                 x_label=f"Corrector {fit.regressor}",
-                x_units=units.corrector,
+                x_columns=_bound([fit.correctors[j]], resolved.regressor),
                 y_label="BPM reading",
-                y_units=units.bpm,
+                y_columns=bpm_columns,
                 annotations=annotations,
                 section=section,
                 mark=LinesMark(series=series, decimated=decimated, source_points=source_points),
@@ -430,7 +435,7 @@ def _trace_panels(
     return panels
 
 
-def _response_by_bpm_panel(fit: SlicedResponseFit, units: _Units) -> Panel:
+def _response_by_bpm_panel(fit: SlicedResponseFit, resolved: _Resolved) -> Panel:
     """The matrix read column-wise: each corrector's response across the BPMs.
 
     The same numbers as the heatmap in the encoding that makes a *shape*
@@ -462,7 +467,8 @@ def _response_by_bpm_panel(fit: SlicedResponseFit, units: _Units) -> Panel:
         title="Response by BPM",
         x_label="BPM index",
         y_label="Response slope",
-        y_units=units.response,
+        x_columns=None,
+        y_columns=_slope(fit, resolved),
         annotations=[
             "Each line is one corrector's column of the matrix above. The "
             "oscillation in sign is betatron phase advance; a flat line is a "
@@ -505,6 +511,8 @@ def _spectrum_panel(fit: SlicedResponseFit) -> Panel | None:
         title="Singular values",
         x_label="Singular value index",
         y_label="log10 singular value",
+        x_columns=None,
+        y_columns=None,
         annotations=[
             "How many independent correction modes the measured machine "
             "supports: where this curve flattens is the noise floor an orbit "
@@ -530,16 +538,15 @@ def _spectrum_panel(fit: SlicedResponseFit) -> Panel | None:
     )
 
 
-def _fit_panels(fit: SlicedResponseFit, units: _Units) -> list[Panel]:
+def _fit_panels(fit: SlicedResponseFit, resolved: _Resolved) -> list[Panel]:
     """The response matrix and its two model-free anomaly views.
 
     Only completed sweeps have columns, so the heatmap's x axis is
     `fitted_correctors` (a subsequence of the requested correctors) and says so
     when the two differ -- an in-flight corrector must not read as a dead one.
     The matrix panel also says what its slopes are per unit of
-    (``fit.regressor``); the unit itself is the panels' own, the one the run
-    declared. BPMs that declared two different units leave the slopes with
-    none, and the matrix says why.
+    (``fit.regressor``); its cells and the Response-by-BPM lines are bound to
+    the BPM columns per the fitted correctors' regressor columns.
     """
     incomplete = len(fit.correctors) - len(fit.fitted_correctors)
     matrix_note = (
@@ -555,21 +562,17 @@ def _fit_panels(fit: SlicedResponseFit, units: _Units) -> list[Panel]:
         if fit.regressor == "setpoint"
         else "Slopes are per unit of measured readback (the corrector readback)."
     )
-    units_note = (
-        ["The BPMs declare different units, so no unit is shown for these slopes."]
-        if units.bpms_disagree
-        else []
-    )
 
     return [
         Panel(
             title="Response matrix",
             x_label="Corrector",
             y_label="BPM",
+            x_columns=None,
+            y_columns=None,
             annotations=[
                 *matrix_note,
                 regressor_note,
-                *units_note,
                 "Colour is signed: one hue each side of zero, scaled "
                 "symmetrically, so an unresponsive BPM reads as background "
                 "rather than as a mid-scale response.",
@@ -579,15 +582,17 @@ def _fit_panels(fit: SlicedResponseFit, units: _Units) -> list[Panel]:
                 y_labels=list(fit.readbacks),
                 values=[[float(cell) for cell in row] for row in fit.matrix],
                 value_label="Response slope",
-                value_units=units.response,
+                value_columns=_slope(fit, resolved),
                 source_points=int(fit.matrix.size),
             ),
         ),
-        _response_by_bpm_panel(fit, units),
+        _response_by_bpm_panel(fit, resolved),
         Panel(
             title="Corrector anomaly score",
             x_label="Corrector",
             y_label="Anomaly score",
+            x_columns=None,
+            y_columns=None,
             annotations=[
                 "Each corrector's column scored against the median of its peers "
                 "-- higher is more unlike the rest of the machine."
@@ -603,6 +608,8 @@ def _fit_panels(fit: SlicedResponseFit, units: _Units) -> list[Panel]:
             title="BPM anomaly score",
             x_label="BPM",
             y_label="Anomaly score",
+            x_columns=None,
+            y_columns=None,
             annotations=[
                 "Each BPM's row scored against the median of its peers -- "
                 "higher is more unlike the rest of the machine."
@@ -648,10 +655,10 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
     # `lead_annotations` is only ever non-empty when `truncated`, and a
     # truncated run has no fitted panels -- so the warning always lands on an
     # inline sweep panel, never inside a collapsed section.
-    units = _units(window, params)
+    resolved = _resolve(window, params)
     fitted: list[Panel] = []
     if with_fit and not truncated and fit.fitted_correctors:
-        fitted.extend(_fit_panels(fit, units))
+        fitted.extend(_fit_panels(fit, resolved))
         spectrum = _spectrum_panel(fit)
         if spectrum is not None:
             fitted.append(spectrum)
@@ -661,7 +668,7 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
         params.num,
         lead_annotations,
         section=_SWEEPS_SECTION if fitted else None,
-        units=units,
+        resolved=resolved,
     )
 
     panels = [*fitted, *sweeps]

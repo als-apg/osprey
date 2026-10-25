@@ -18,7 +18,7 @@ import math
 
 import pytest
 
-from osprey.services.bluesky_bridge.figure import RowWindow, rows_from_columnar, shared_unit
+from osprey.services.bluesky_bridge.figure import RowWindow, rows_from_columnar
 
 _COLUMNS = ["corrector_1", "bpm3"]
 
@@ -187,26 +187,3 @@ def test_the_units_are_copied_not_aliased():
     units["bpm3"] = "changed"
 
     assert window.units["bpm3"] == "u-b"
-
-
-def _units_window(units: dict[str, str]) -> RowWindow:
-    return rows_from_columnar(["a", "b", "c"], [[1.0, 2.0, 3.0]], 1, units)
-
-
-def test_shared_unit_is_the_one_unit_every_named_column_declares():
-    window = _units_window({"a": "u-1", "b": "u-1", "c": "u-2"})
-
-    assert shared_unit(window, ["a", "b"]) == window.units["a"]
-    assert shared_unit(window, ["c"]) == window.units["c"]
-
-
-def test_shared_unit_is_none_over_columns_declaring_two_units():
-    assert shared_unit(_units_window({"a": "u-1", "b": "u-2"}), ["a", "b"]) is None
-
-
-def test_shared_unit_is_none_when_a_named_column_declares_none():
-    assert shared_unit(_units_window({"a": "u-1"}), ["a", "b"]) is None
-
-
-def test_shared_unit_over_no_columns_is_none():
-    assert shared_unit(_units_window({"a": "u-1"}), []) is None

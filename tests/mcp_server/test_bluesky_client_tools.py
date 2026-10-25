@@ -23,6 +23,7 @@ from osprey.services.bluesky_bridge.figure import (
     FIGURE_REASONS,
     REASON_SOURCE_UNAVAILABLE,
     BarsMark,
+    Columns,
     Figure,
     HeatmapMark,
     LinesMark,
@@ -470,7 +471,12 @@ def _serve(monkeypatch, body, status=200):
 
 
 def _lines_panel(title="Sweep", *, series):
-    return Panel(title=title, mark=LinesMark(**_lines_mark_kwargs(series)))
+    return Panel(
+        title=title,
+        x_columns=None,
+        y_columns=None,
+        mark=LinesMark(**_lines_mark_kwargs(series)),
+    )
 
 
 def _lines_mark_kwargs(series):
@@ -495,11 +501,14 @@ def _heatmap_panel(rows, columns, *, title="Grid", values=None):
     grid = values or [[float(j * columns + i) for i in range(columns)] for j in range(rows)]
     return Panel(
         title=title,
+        x_columns=None,
+        y_columns=None,
         mark=HeatmapMark(
             x_labels=[f"C{i}" for i in range(columns)],
             y_labels=[f"B{j}" for j in range(rows)],
             values=grid,
             value_label="Response slope",
+            value_columns=Columns(["bpm"], per=["corrector"]),
             value_units="mm/A",
             source_points=rows * columns,
         ),
@@ -939,6 +948,8 @@ async def test_bars_are_restrided_with_their_categories(monkeypatch):
         _figure(
             Panel(
                 title="Corrector anomaly",
+                x_columns=None,
+                y_columns=None,
                 mark=BarsMark(
                     label="anomaly",
                     categories=[f"C{i}" for i in range(5_000)],
@@ -969,6 +980,8 @@ async def test_bars_share_the_budget_with_series(monkeypatch):
         _figure(
             Panel(
                 title="Anomaly",
+                x_columns=None,
+                y_columns=None,
                 mark=BarsMark(
                     categories=[f"C{i}" for i in range(100)],
                     values=[float(i) for i in range(100)],
@@ -1051,7 +1064,7 @@ async def test_a_figure_with_nothing_in_it_yet_keeps_its_empty_marks(monkeypatch
         monkeypatch,
         _figure(
             _lines_panel(series=[_series("det1", 0)]),
-            Panel(title="Anomaly", mark=BarsMark(source_points=0)),
+            Panel(title="Anomaly", x_columns=None, y_columns=None, mark=BarsMark(source_points=0)),
             partial=True,
         ),
     )
