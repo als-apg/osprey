@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 
 from bluesky import plans as bp
 from pydantic import BaseModel, Field, model_validator
 
 from osprey.services.bluesky_bridge.figure import (
+    Columns,
     Figure,
     HeatmapMark,
     LinesMark,
@@ -224,9 +225,7 @@ def _lines_mark(series: list[Series]) -> LinesMark:
     )
 
 
-def _one_axis_panels(
-    rows: list[dict[str, Any]], params: PARAMS, units: Mapping[str, str]
-) -> list[Panel]:
+def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
     """One readback-versus-setpoint line panel per readback channel.
 
     ``snake_axes`` is a no-op with a single axis (there is no outer axis to
@@ -271,8 +270,8 @@ def _one_axis_panels(
                 title=f"{readback} vs {axis.setpoint}",
                 x_label=axis.setpoint,
                 y_label=readback,
-                x_units=units.get(axis_column),
-                y_units=units.get(readable_column),
+                x_columns=Columns([axis_column]),
+                y_columns=Columns([readable_column]),
                 annotations=annotations,
                 mark=_lines_mark([Series(label=readback, **kept._asdict())]),
             )
@@ -280,9 +279,7 @@ def _one_axis_panels(
     return panels
 
 
-def _two_axis_panels(
-    rows: list[dict[str, Any]], params: PARAMS, units: Mapping[str, str]
-) -> list[Panel]:
+def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
     """One heatmap panel per readback channel over the two-axis grid.
 
     The inner (fast) axis runs along x and the outer (slow) axis along y, the
@@ -334,15 +331,15 @@ def _two_axis_panels(
                 title=f"{readback} over the {outer.setpoint} × {inner.setpoint} grid",
                 x_label=inner.setpoint,
                 y_label=outer.setpoint,
-                x_units=units.get(inner_column),
-                y_units=units.get(outer_column),
+                x_columns=Columns([inner_column]),
+                y_columns=Columns([outer_column]),
                 annotations=annotations,
                 mark=HeatmapMark(
                     x_labels=x_labels,
                     y_labels=y_labels,
                     values=values,
                     value_label=readback,
-                    value_units=units.get(readable_column),
+                    value_columns=Columns([readable_column]),
                     source_points=len(cells),
                 ),
             )
@@ -362,9 +359,7 @@ def _combination_label(axes: list[GridAxis], indices: tuple[int, ...]) -> str:
     )
 
 
-def _multi_axis_panels(
-    rows: list[dict[str, Any]], params: PARAMS, units: Mapping[str, str]
-) -> list[Panel]:
+def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
     """One panel per readback channel: lines along the innermost axis.
 
     A 3-D grid has no honest single picture, so this draws the scan the way it
@@ -434,8 +429,8 @@ def _multi_axis_panels(
                 title=f"{readback} vs {inner.setpoint}",
                 x_label=inner.setpoint,
                 y_label=readback,
-                x_units=units.get(inner_column),
-                y_units=units.get(readable_column),
+                x_columns=Columns([inner_column]),
+                y_columns=Columns([readable_column]),
                 annotations=annotations,
                 mark=_lines_mark(series),
             )
@@ -480,11 +475,11 @@ def render(window: RowWindow, params: PARAMS) -> Figure:
     panels: list[Panel] = []
     try:
         if len(params.axes) == 1:
-            panels = _one_axis_panels(window.rows, params, window.units)
+            panels = _one_axis_panels(window.rows, params)
         elif len(params.axes) == 2:
-            panels = _two_axis_panels(window.rows, params, window.units)
+            panels = _two_axis_panels(window.rows, params)
         else:
-            panels = _multi_axis_panels(window.rows, params, window.units)
+            panels = _multi_axis_panels(window.rows, params)
     except Exception:
         logger.warning("grid_scan render failed; serving an empty figure", exc_info=True)
         panels = []

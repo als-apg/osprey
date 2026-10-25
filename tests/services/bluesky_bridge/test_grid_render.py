@@ -32,6 +32,7 @@ from osprey.services.bluesky_bridge.figure import (
     HeatmapMark,
     LinesMark,
     RowWindow,
+    bind_units,
 )
 from osprey.services.bluesky_bridge.plans_core import grid_scan
 from osprey.services.bluesky_bridge.plans_core.grid_scan import (
@@ -604,3 +605,43 @@ def test_the_figure_round_trips_through_its_own_wire_form() -> None:
 
 def test_render_is_bound_to_the_signature_planspec_declares() -> None:
     assert grid_scan._RENDER_CONFORMANCE is render
+
+
+# =========================================================================
+# Units: every axis states the unit its column declares
+# =========================================================================
+
+
+@pytest.mark.parametrize(
+    "axes",
+    [
+        [_axis("motor1", 0.0, 4.0, 5)],
+        [_axis("motor1", 0.0, 2.0, 3), _axis("motor2", 0.0, 3.0, 4)],
+        [_axis("motor1", 0.0, 1.0, 2), _axis("motor2", 0.0, 2.0, 3), _axis("motor3", 0.0, 3.0, 4)],
+    ],
+    ids=["1-D", "2-D", "3-D"],
+)
+def test_every_axis_states_the_unit_its_column_declares(axes: list[GridAxis]) -> None:
+    readbacks = {"det1": "det1", "det2": "det2"}
+    rows = _rows(axes, readbacks)
+    window = _window(rows)._replace(units={column: f"u:{column}" for column in rows[0]})
+    params = PARAMS(readbacks=list(readbacks), axes=axes)
+
+    figure = bind_units(render(window, params), window)
+
+    assert figure.panels
+    inner = axes[-1].setpoint
+    for panel in figure.panels:
+        assert panel.x_columns is not None and panel.x_columns.names == [inner]
+        assert panel.x_units == window.units[inner]
+        assert panel.y_columns is not None
+        (y_column,) = panel.y_columns.names
+        assert panel.y_units == window.units[y_column]
+        if isinstance(panel.mark, HeatmapMark):
+            assert y_column == axes[0].setpoint
+            assert panel.mark.value_columns is not None
+            (value_column,) = panel.mark.value_columns.names
+            assert value_column in readbacks
+            assert panel.mark.value_units == window.units[value_column]
+        else:
+            assert y_column in readbacks

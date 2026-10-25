@@ -1,9 +1,11 @@
-"""Every shipped render states the unit the run declared for the columns it draws.
+"""Every shipped render, bound, states the unit the run declared for the columns it draws.
 
 One relation, checked over every render the bridge ships (the default figure
-and every built-in plan's ``render``): an axis bound to columns states the one
-unit those columns declare, and none when any of them declares none or two of
-them disagree. Each render is drawn over three windows:
+and every built-in plan's ``render``), each routed through `bind_units` as the
+figure route routes it: every axis names the columns the tables below say it
+draws, and states the one unit those columns declare, none when any of them
+declares none or two of them disagree. A render that types a unit by hand is
+refused. Each render is drawn over three windows:
 
 - distinct: every column declares its own unit, so a single-column axis states
   exactly that column's unit and an axis over several columns states none;
@@ -29,14 +31,17 @@ pytest.importorskip("bluesky")
 from osprey.services.bluesky_bridge import plans_core
 from osprey.services.bluesky_bridge.figure import (
     REASON_NO_RENDER,
+    Columns,
     Figure,
     HeatmapMark,
     Panel,
     RowWindow,
+    bind_units,
     default_figure,
     rows_from_columnar,
 )
 from osprey.services.bluesky_bridge.plans_core import grid_scan, orm
+from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep as bump
 from tests.services.bluesky_bridge import test_bump_render, test_grid_render, test_orm_render
 
 
@@ -59,10 +64,13 @@ class Binding(NamedTuple):
 
 
 class Case(NamedTuple):
-    """One render over its rows: the columns by role, and each panel's binding."""
+    """One render over its rows: the columns by role, and each panel's binding.
+
+    ``draw`` returns the render's own figure, unbound, and the window it drew.
+    """
 
     roles: Mapping[str, Sequence[str]]
-    draw: Callable[[Mapping[str, str]], Figure]
+    draw: Callable[[Mapping[str, str]], tuple[Figure, RowWindow]]
     bindings: Mapping[str, Binding]
 
 
@@ -87,9 +95,9 @@ def _default_row_index() -> Case:
     columns = ["bpm1", "bpm2"]
     values = [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
 
-    def draw(units: Mapping[str, str]) -> Figure:
+    def draw(units: Mapping[str, str]) -> tuple[Figure, RowWindow]:
         window = rows_from_columnar(columns, values, len(values), units=units)
-        return default_figure(window, reason=REASON_NO_RENDER, partial=False, source="live")
+        return default_figure(window, reason=REASON_NO_RENDER, partial=False, source="live"), window
 
     return Case(
         roles={"readable": columns},
@@ -102,9 +110,9 @@ def _default_movable_x() -> Case:
     columns = ["motor1", "det1", "det2"]
     values = [[0.0, 1.0, 4.0], [1.0, 2.0, 5.0], [2.0, 3.0, 6.0]]
 
-    def draw(units: Mapping[str, str]) -> Figure:
+    def draw(units: Mapping[str, str]) -> tuple[Figure, RowWindow]:
         window = rows_from_columnar(columns, values, len(values), units=units)
-        return default_figure(
+        figure = default_figure(
             window,
             reason=REASON_NO_RENDER,
             partial=False,
@@ -112,6 +120,7 @@ def _default_movable_x() -> Case:
             movable=["motor1"],
             readable=["det1", "det2"],
         )
+        return figure, window
 
     return Case(
         roles={"movable": ["motor1"], "readable": ["det1", "det2"]},
@@ -120,14 +129,24 @@ def _default_movable_x() -> Case:
     )
 
 
-def _grid_window(rows: list[dict[str, Any]], units: Mapping[str, str]) -> RowWindow:
+def _complete_window(rows: list[dict[str, Any]], units: Mapping[str, str]) -> RowWindow:
     return RowWindow(
         rows=rows,
-        columns=list(rows[0]),
+        columns=sorted({name for row in rows for name in row}),
         rows_complete=True,
         total_seen=len(rows),
         units=units,
     )
+
+
+def _drawing(
+    render: Callable[[RowWindow, Any], Figure], rows: list[dict[str, Any]], params: Any
+) -> Callable[[Mapping[str, str]], tuple[Figure, RowWindow]]:
+    def draw(units: Mapping[str, str]) -> tuple[Figure, RowWindow]:
+        window = _complete_window(rows, units)
+        return render(window, params), window
+
+    return draw
 
 
 def _grid(axes: list[grid_scan.GridAxis]) -> Case:
@@ -151,7 +170,7 @@ def _grid(axes: list[grid_scan.GridAxis]) -> Case:
 
     return Case(
         roles={**{name: [name] for name in setpoints}, "readable": readbacks},
-        draw=lambda units: grid_scan.render(_grid_window(rows, units), params),
+        draw=_drawing(grid_scan.render, rows, params),
         bindings=bindings,
     )
 
@@ -169,7 +188,7 @@ def _orbit_bump_sweep() -> Case:
             "corrector": list(params.correctors),
             "monitor": list(params.monitors),
         },
-        draw=lambda units: test_bump_render._render(rows, params, units=dict(units)),
+        draw=_drawing(bump.render, rows, params),
         bindings={
             "Orbit shift across BPMs": Binding(y=bpms),
             "Band residual at constrained BPMs": Binding(y=constrained),
@@ -191,14 +210,14 @@ def _orm() -> Case:
     response = Ratio(over=bpms, per=correctors)
     return Case(
         roles={"corrector": correctors, "bpm": bpms},
-        draw=lambda units: orm.render(test_orm_render._window(rows, units=dict(units)), params),
+        draw=_drawing(orm.render, rows, params),
         bindings={
             "Response matrix": Binding(value=response),
             "Response by BPM": Binding(y=response),
             "Corrector anomaly score": Binding(),
             "BPM anomaly score": Binding(),
             "Singular values": Binding(),
-            **{f"{name} sweep": Binding(x=correctors, y=bpms) for name in correctors},
+            **{f"{name} sweep": Binding(x=(name,), y=bpms) for name in correctors},
         },
     )
 
@@ -266,6 +285,19 @@ def _shared(case: Case) -> dict[str, str]:
     return {column: f"u:{role}" for role, columns in case.roles.items() for column in columns}
 
 
+def _axis(columns: Columns | None) -> Axis:
+    if columns is None:
+        return ()
+    if columns.per:
+        return Ratio(over=tuple(columns.names), per=tuple(columns.per))
+    return tuple(columns.names)
+
+
+def _named(panel: Panel) -> Binding:
+    value = panel.mark.value_columns if isinstance(panel.mark, HeatmapMark) else None
+    return Binding(x=_axis(panel.x_columns), y=_axis(panel.y_columns), value=_axis(value))
+
+
 def _stated(panel: Panel) -> Binding:
     value = panel.mark.value_units if isinstance(panel.mark, HeatmapMark) else None
     return Binding(x=panel.x_units, y=panel.y_units, value=value)
@@ -276,10 +308,26 @@ def _expected(binding: Binding, units: Mapping[str, str]) -> Binding:
 
 
 def _drawn(case: Case, units: Mapping[str, str]) -> list[Panel]:
-    figure = case.draw(units)
+    figure = bind_units(*case.draw(units))
     assert figure.panels, "the case draws no panel, so it proves nothing"
     assert {panel.title for panel in figure.panels} == set(case.bindings)
     return figure.panels
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_each_axis_names_the_columns_it_draws(name: str) -> None:
+    case = CASES[name]()
+    for panel in _drawn(case, _distinct(case)):
+        assert _named(panel) == case.bindings[panel.title], panel.title
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_a_render_that_types_a_unit_is_refused(name: str) -> None:
+    case = CASES[name]()
+    figure, window = case.draw(_distinct(case))
+    figure.panels[0].y_units = "typed"
+    with pytest.raises(ValueError, match="y_units"):
+        bind_units(figure, window)
 
 
 @pytest.mark.parametrize("window", ["distinct", "shared"])

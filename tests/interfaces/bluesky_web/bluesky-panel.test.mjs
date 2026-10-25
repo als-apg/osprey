@@ -1438,6 +1438,8 @@ describe('createResultsView', () => {
         y_label: 'signal',
         x_units: 's',
         y_units: 'counts',
+        x_columns: { names: ['time'], per: [] },
+        y_columns: { names: ['signal'], per: [] },
         annotations: [],
         mark: {
           kind: 'lines',

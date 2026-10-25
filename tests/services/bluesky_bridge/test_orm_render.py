@@ -26,11 +26,13 @@ import pytest
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.figure import (
+    _MIXED_UNITS_NOTE,
     BarsMark,
     Figure,
     HeatmapMark,
     LinesMark,
     RowWindow,
+    bind_units,
 )
 from osprey.services.bluesky_bridge.orm_analysis import (
     DegenerateFitError,
@@ -257,7 +259,8 @@ def test_every_panel_states_the_units_the_run_declared(regressor: str) -> None:
         f"{params.correctors[0]}_setpoint" if regressor == "setpoint" else params.correctors[0]
     ]
 
-    figure = orm.render(_window(rows, units=units), params)
+    window = _window(rows, units=units)
+    figure = bind_units(orm.render(window, params), window)
 
     trace = _panel(figure, "hcm1 sweep")
     assert (trace.x_units, trace.y_units) == (corrector, bpm)
@@ -270,7 +273,8 @@ def test_every_panel_states_the_units_the_run_declared(regressor: str) -> None:
 def test_a_run_that_declared_no_units_states_none() -> None:
     params, rows = _unit_rows()
 
-    figure = orm.render(_window(rows), params)
+    window = _window(rows)
+    figure = bind_units(orm.render(window, params), window)
 
     trace = _panel(figure, "hcm1 sweep")
     assert (trace.x_units, trace.y_units) == (None, None)
@@ -278,23 +282,37 @@ def test_a_run_that_declared_no_units_states_none() -> None:
     heatmap = _panel(figure, "Response matrix").mark
     assert isinstance(heatmap, HeatmapMark)
     assert heatmap.value_units is None
-    assert not any(
-        "different units" in note for note in _panel(figure, "Response matrix").annotations
-    )
+    assert all(_MIXED_UNITS_NOTE not in panel.annotations for panel in figure.panels)
 
 
 def test_bpms_declaring_two_units_state_none_and_say_so() -> None:
     params, rows = _unit_rows()
     units = {**_declared(params), params.readbacks[-1]: "another-unit"}
 
-    figure = orm.render(_window(rows, units=units), params)
+    window = _window(rows, units=units)
+    figure = bind_units(orm.render(window, params), window)
 
     matrix = _panel(figure, "Response matrix")
     assert isinstance(matrix.mark, HeatmapMark)
     assert matrix.mark.value_units is None
-    assert _panel(figure, "Response by BPM").y_units is None
-    assert _panel(figure, "hcm1 sweep").y_units is None
-    assert any("different units" in note for note in matrix.annotations)
+    disagreeing = [matrix, _panel(figure, "Response by BPM"), _panel(figure, "hcm1 sweep")]
+    assert [panel.y_units for panel in disagreeing[1:]] == [None, None]
+    for panel in disagreeing:
+        assert panel.annotations.count(_MIXED_UNITS_NOTE) == 1, panel.title
+
+
+def test_each_sweep_panel_states_its_own_correctors_regressor_unit() -> None:
+    params, rows = _unit_rows()
+    units = {
+        **_declared(params),
+        **{f"{name}_setpoint": f"unit-of-{name}" for name in params.correctors},
+    }
+    window = _window(rows, units=units)
+
+    figure = bind_units(orm.render(window, params), window)
+
+    for name in params.correctors:
+        assert _panel(figure, f"{name} sweep").x_units == units[f"{name}_setpoint"]
 
 
 # =========================================================================
