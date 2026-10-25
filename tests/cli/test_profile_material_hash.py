@@ -115,13 +115,12 @@ def test_empty_directory_does_not_move_the_hash(data_profile):
     assert compute_profile_hash(data_profile) == before
 
 
-def test_shared_parent_data_tree_marks_sibling_profiles_stale(tmp_path):
-    """Render profiles share one ``../data`` tree; an edit must reach all of them.
+def test_shared_parent_data_tree_marks_profiles_outside_a_repository_stale(tmp_path):
+    """The hash folds a data tree wherever it sits, for a profile outside any repository.
 
-    Sibling profiles live in their own directories beside a single data tree they
-    all declare as ``../data``. Anchoring on the profile directory alone would
-    resolve nothing there, so each render project would keep deploying against a
-    tree that has since changed.
+    Profiles outside any repository are hashed like any other: each names the
+    tree beside it as ``../data``, and an edit to that tree moves every hash
+    that folds it.
     """
     _write(tmp_path / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
     profiles = [
@@ -225,7 +224,7 @@ def test_a_label_disagreeing_with_the_role_fails_at_construction(tmp_path):
 
 
 def test_the_data_key_is_the_tree_the_profile_names(tmp_path):
-    """A shared parent tree is named as the profile spells it, not as ``data/``."""
+    """For a profile outside any repository, the data key is the tree as spelled."""
     from osprey.cli.build_profile_document import _read_profile_document
     from osprey.cli.build_profile_merge import profile_inputs, resolve_profile_document
 
@@ -240,7 +239,7 @@ def test_the_data_key_is_the_tree_the_profile_names(tmp_path):
 
 
 def test_resolved_document_records_the_repo_local_extends_files(tmp_path):
-    """The chain's repo-local files are recorded nearest first; a bundled preset is not."""
+    """The chain's non-preset files are recorded nearest first; a bundled preset is not."""
     from osprey.cli.build_profile_document import _read_profile_document
     from osprey.cli.build_profile_merge import resolve_profile_document
 

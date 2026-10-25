@@ -338,9 +338,8 @@ class BuildProfile:
     """
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
-    profile directory (``data`` for a materialized profile, ``../data`` for a
-    sibling render profile that shares its parent's tree; may therefore
-    resolve above the profile dir). The build copies this tree and no other:
+    profile directory that resolves inside the repository (``data`` for a
+    materialized profile). The build copies this tree and no other:
     it is the whole source of the project's ``data/``, with no packaged
     fallback behind it, so :meth:`validate` requires it of every profile file.
     ``None`` only for a bundled preset, which has no profile directory to
@@ -1481,9 +1480,9 @@ class BuildProfile:
                 f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
 
-        # The data tree may legitimately sit above the profile dir (render
-        # profiles share their parent's tree via ``data: ../data``), so only
-        # existence and shape are checked, never containment.
+        # Containment is the loader's rule over every input
+        # (`refuse_inputs_outside_repository`); here only existence and shape
+        # are checked.
         #
         # It is also required. ``data:`` is the ONLY source of the project's
         # ``data/`` tree — the build copies it and nothing else — so a profile

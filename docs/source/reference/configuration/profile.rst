@@ -45,9 +45,8 @@ Profile YAML reference
      - *required*
      - Facility data tree, relative to the profile directory (``data`` in a
        materialized profile). It is the only source of the project's ``data/``
-       tree, so a profile that names none is refused. May resolve outside the
-       profile directory; only existence and shape are checked
-       (see :ref:`profile-self-contained`).
+       tree, so a profile that names none is refused. Must resolve inside the
+       repository; a path outside it is refused (see :ref:`profile-self-contained`).
    * - ``provider``
      - string
      - *required*
