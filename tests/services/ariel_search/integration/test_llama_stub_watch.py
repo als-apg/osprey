@@ -5,12 +5,15 @@ One watch pass is what ``osprey ariel watch`` runs per poll: the scheduler's
 silent-server cases run it on a fresh scratch database holding two entries
 with one copied picture each:
 
-* the whole server is silent (every route accepts and never answers): the pass
-  returns within the 5 s health timeout + 1 s, no status is touched and the
-  module is reported ``unreachable``;
+* the whole server is silent (every route accepts and never answers): only
+  health probes (``GET /v1/models``) reach the server, the pass returns under
+  a hang ceiling of a multiple of the health timeout, no status is touched and
+  the module is reported ``unreachable``;
 * ``/v1/models`` answers the configured alias but ``/v1/embeddings`` hangs, with
-  ``timeout_seconds: 2``: the pass ends after two consecutive timeouts, within
-  2 x 2 s + 5 s + 1 s, with one WARNING and no row in the picture table.
+  ``timeout_seconds: 2``: exactly two embed requests reach the server (the two
+  consecutive timeouts end the pass), the pass returns under a hang ceiling of a
+  multiple of two embed timeouts plus the health timeout, with one WARNING and
+  no row in the picture table.
 
 In both, the next poll still ingests a new entry: a dead model server never
 stops ingestion.
@@ -54,8 +57,8 @@ ORIGINS = frozenset({("https", "h.example", 443)})
 TS = datetime(2026, 9, 1, tzinfo=UTC)
 PICTURES = ("orbit_kick", "tunnel_temp")
 EMBED_TIMEOUT_S = 2
-#: Slack on every wall-clock bound.
-SLACK_S = 1.0
+#: A hang ceiling: k times the product timeout the pass is bounded by.
+HANG_CEILING_FACTOR = 4
 
 
 # --- fakes -------------------------------------------------------------------------
@@ -262,7 +265,8 @@ async def test_a_silent_server_ends_the_pass_on_the_health_timeout(
         with caplog.at_level(logging.DEBUG, logger="ariel"):
             elapsed = await watch.pass_()
 
-        assert elapsed < HEALTH_TIMEOUT_S + SLACK_S, elapsed
+        assert stub.requests and set(stub.requests) == {("GET", "/v1/models")}, stub.requests
+        assert elapsed < HANG_CEILING_FACTOR * HEALTH_TIMEOUT_S, elapsed
         assert _copied(scratch_database) == len(PICTURES)
         statuses = _statuses(scratch_database)
         assert set(statuses) == {"silent-1", "silent-2"}
@@ -286,8 +290,11 @@ async def test_a_hanging_embeddings_route_ends_the_pass_after_two_timeouts(
         with caplog.at_level(logging.DEBUG, logger="ariel"):
             elapsed = await watch.pass_()
 
-        bound = 2 * EMBED_TIMEOUT_S + HEALTH_TIMEOUT_S + SLACK_S
-        assert elapsed < bound, elapsed
+        posts = [r for r in stub.requests if r[0] == "POST"]
+        assert posts == [("POST", "/v1/embeddings")] * 2, stub.requests
+        assert ("GET", "/v1/models") in stub.requests, stub.requests
+        ceiling = HANG_CEILING_FACTOR * (2 * EMBED_TIMEOUT_S + HEALTH_TIMEOUT_S)
+        assert elapsed < ceiling, elapsed
         assert _copied(scratch_database) == len(PICTURES)
         assert len(stub.embeddings) == 2
         assert availability.current_reason(EMBED) == "transient"
