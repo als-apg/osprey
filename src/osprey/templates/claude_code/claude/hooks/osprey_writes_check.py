@@ -70,10 +70,12 @@ order:
    whole, reads included: nothing in the render tells its reads from its
    writes.
 
-Every refusal is worded by the twin's `refusal_phrase` and names no config key.
-The one exception is the posture-unknown deny, for an unstamped process whose
-guessed directory holds no record: there is no verdict to word, because there
-is no record to ask.
+Every refusal is the twin's `refusal_text` — the phrase, which names no config
+key and ends with who can lift it, then the trailer line
+`[osprey-refusal: <reason>]`. The posture-unknown deny, for an unstamped
+process whose guessed directory holds no record, has no verdict to word: it
+speaks the `record_unavailable` refusal, because a switch nobody can read is
+exactly that.
 
 Lane-bound queue tools skip stage 2. A queue operation is addressed by *lane*,
 and the tool decides on its lane's machine; the session's target says nothing
@@ -124,21 +126,15 @@ except Exception:  # pragma: no cover - older render without the reader
 #: prefix — keeps the carve-out.
 _LANE_ADDRESSED_KEY = "lane_addressed_tools"
 
-#: What every verdict deny opens with; the twin's phrase follows it.
+#: What every deny opens with; the twin's refusal text follows it.
 _DENY_HEADER = "\U0001f512 WRITES OFF — "
 
-#: The refusal for the one cell where the switch cannot be READ: the agent-data
-#: root was not stamped on this process, and the directory this hook derived
-#: instead holds no readable control-context record. An empty answer read there
-#: proves nothing, and an unreadable state is not a permissive one.
+#: The reason spoken for the one cell where the switch cannot be READ: the
+#: agent-data root was not stamped on this process, and the directory this hook
+#: derived instead holds no readable control-context record. An empty answer
+#: read there proves nothing, and an unreadable state is not a permissive one.
 #: See ``osprey_target_state.posture_unknown``.
-_POSTURE_UNKNOWN_DENY_REASON = (
-    "\U0001f512 WRITE STATE UNKNOWN — no control-context record was found "
-    "where this hook looks, so the write state set on the control-target chip "
-    "in the header cannot be read.\n\n"
-    "Writes stay refused until the controls MCP server is running; config.yml "
-    "is not the gate here."
-)
+_POSTURE_UNKNOWN_REASON = "record_unavailable"
 
 #: The machine-ish reason every refusal here records. Deliberately the same
 #: word the MCP audit middleware and the python executor's gates record, so a
@@ -155,7 +151,8 @@ _POSTURE_UNKNOWN_DETAIL = "posture unknown"
 #: than the twin). Copies of the twin's ``readonly_run`` and
 #: ``record_unavailable`` phrases, pinned equal to them by the hook tests.
 _READONLY_RUN_PHRASE = (
-    "Writes are refused because the deployment is running read-only; the chip cannot lift this."
+    "Writes are refused because the deployment is running read-only; "
+    "the chip cannot lift this — ask the deployment admin."
 )
 _RECORD_UNAVAILABLE_PHRASE = (
     "Writes are refused because the write switch cannot be read; "
@@ -234,13 +231,22 @@ def _record_refusal(hook_input, tool_name, reason, detail=None):
         )
 
 
-def _phrase(reason, kind=None):
-    """The twin's phrase for *reason*, or this file's copy when the twin is missing."""
-    if _target_state is not None:
-        return _target_state.refusal_phrase(reason, kind)
+def _fallback_text(reason):
+    """This file's copy of the twin's refusal text, for a render without the twin.
+
+    Only ``readonly_run`` is answerable without the twin; anything else is the
+    twin's unanswered stage 2, which refuses ``record_unavailable``.
+    """
     if reason == "readonly_run":
-        return _READONLY_RUN_PHRASE
-    return _RECORD_UNAVAILABLE_PHRASE
+        return f"{_READONLY_RUN_PHRASE}\n[osprey-refusal: readonly_run]"
+    return f"{_RECORD_UNAVAILABLE_PHRASE}\n[osprey-refusal: record_unavailable]"
+
+
+def _text(reason, kind=None):
+    """The twin's refusal text for *reason*, or this file's copy when the twin is missing."""
+    if _target_state is not None:
+        return _target_state.refusal_text(reason, kind)
+    return _fallback_text(reason)
 
 
 def _stage_two(hook_input, tool_name, short_name):
@@ -280,11 +286,33 @@ def _stage_two(hook_input, tool_name, short_name):
         return refused
 
 
+def _emit_deny(reason, kind=None):
+    """Write the PreToolUse deny worded for *reason* and exit 0. Does not return.
+
+    A twin that raises while wording it falls back to this file's
+    ``record_unavailable`` text: the deny is never lost to its words.
+    """
+    try:
+        text = _text(reason, kind)
+    except Exception:
+        text = _fallback_text("record_unavailable")
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": _DENY_HEADER + text,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
 def _deny(hook_input, tool_name, reason, target=None, kind=None):
     """Emit the verdict deny for *reason* and exit 0. Does not return.
 
-    Worded by the twin's phrase for *reason*, naming the machine *kind* when it
-    is known, and never a config key. Recorded under
+    Worded by the twin's refusal text for *reason* (the phrase, naming the
+    machine *kind* when it is known and never a config key, then the
+    ``[osprey-refusal: <reason>]`` trailer). Recorded under
     :data:`_POSTURE_DENY_AUDIT_REASON` with detail ``reason=<r> target=<t>``.
 
     Nothing here may raise (see :func:`_record_refusal` for why). Both calls that
@@ -296,19 +324,7 @@ def _deny(hook_input, tool_name, reason, target=None, kind=None):
     with contextlib.suppress(Exception):
         log_hook("writes-check", hook_input, status="deny", detail=detail)
     _record_refusal(hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON, detail=detail)
-    try:
-        phrase = _phrase(reason, kind)
-    except Exception:
-        phrase = _RECORD_UNAVAILABLE_PHRASE
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": _DENY_HEADER + phrase,
-        }
-    }
-    json.dump(output, sys.stdout)
-    sys.exit(0)
+    _emit_deny(reason, kind)
 
 
 def _deny_posture_unknown(hook_input, tool_name):
@@ -317,7 +333,8 @@ def _deny_posture_unknown(hook_input, tool_name):
     Records the posture reason with :data:`_POSTURE_UNKNOWN_DETAIL`, so
     refusals under the sandbox posture still join across the three layers on one
     spelling while the ledger keeps "could not be read" apart from "was
-    narrowed". Same no-raise rule as :func:`_deny`.
+    turned off". Worded as the ``record_unavailable`` refusal. Same no-raise
+    rule as :func:`_deny`.
     """
     # logging must never cost the deny
     with contextlib.suppress(Exception):
@@ -330,15 +347,7 @@ def _deny_posture_unknown(hook_input, tool_name):
     _record_refusal(
         hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON, detail=_POSTURE_UNKNOWN_DETAIL
     )
-    output = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": _POSTURE_UNKNOWN_DENY_REASON,
-        }
-    }
-    json.dump(output, sys.stdout)
-    sys.exit(0)
+    _emit_deny(_POSTURE_UNKNOWN_REASON)
 
 
 def main():

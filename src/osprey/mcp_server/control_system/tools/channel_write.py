@@ -139,7 +139,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
 )
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict, write_verdict
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import refusal_text
 from osprey_connectors.types import baseline_target
 from osprey_connectors.workspace import load_osprey_config
 
@@ -663,8 +663,11 @@ def _check_write_verdict(record: control_context.ControlContext | None, config: 
     reason = verdict.reason or "record_unavailable"
     make_error(
         WRITES_DISABLED_ERROR,
-        f"{refusal_phrase(reason, verdict.kind)} channel_write was refused before reaching "
-        "the control system.",
+        refusal_text(
+            reason,
+            verdict.kind,
+            detail="channel_write was refused before reaching the control system.",
+        ),
         [
             "Nothing was written: the refusal happened before the control system was touched.",
             "Report the refusal to the operator; do not retry until they say writes are on.",

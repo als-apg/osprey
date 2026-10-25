@@ -59,5 +59,5 @@ def readonly_gateway_refusal(kind: str | None = None) -> str:
     machine = f"This {kind} machine" if kind else "This machine"
     return (
         f"{machine} has no read-only gateway, and a read-only run never reads through "
-        "its write gateway; the deployment admin can add a gateways.read_only entry."
+        "its write gateway; the deployment admin can add a read-only gateway."
     )

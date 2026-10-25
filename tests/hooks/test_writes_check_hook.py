@@ -87,7 +87,7 @@ def test_the_switch_off_denies_channel_write(tmp_path, hook_runner, make_config,
 
     reason = _reason(_channel_write(tmp_path, hook_runner, config))
 
-    assert reason == "\U0001f512 WRITES OFF — " + _TWIN.refusal_phrase("switch_off", "real")
+    assert reason == "\U0001f512 WRITES OFF — " + _TWIN.refusal_text("switch_off", "real")
     _assert_names_no_key(reason)
 
 
@@ -324,7 +324,7 @@ def test_a_readonly_run_denies_with_the_switch_on(
 
     reason = _reason(_channel_write(tmp_path, hook_runner, config))
 
-    assert reason == "\U0001f512 WRITES OFF — " + _TWIN.refusal_phrase("readonly_run")
+    assert reason == "\U0001f512 WRITES OFF — " + _TWIN.refusal_text("readonly_run")
     _assert_names_no_key(reason)
 
 
@@ -483,8 +483,8 @@ def test_a_render_without_the_twin_refuses(tmp_path, hook_module, monkeypatch):
     answer = hook._stage_two({}, "mcp__controls__channel_write", "channel_write")
 
     assert answer == (False, "record_unavailable", None, None)
-    assert hook._phrase("record_unavailable") == _TWIN.refusal_phrase("record_unavailable")
-    assert hook._phrase("readonly_run") == _TWIN.refusal_phrase("readonly_run")
+    assert hook._text("record_unavailable") == _TWIN.refusal_text("record_unavailable")
+    assert hook._text("readonly_run") == _TWIN.refusal_text("readonly_run")
 
 
 def test_the_fallback_phrases_are_the_twins(hook_module):
@@ -492,6 +492,54 @@ def test_the_fallback_phrases_are_the_twins(hook_module):
 
     assert hook._READONLY_RUN_PHRASE == _TWIN.refusal_phrase("readonly_run")
     assert hook._RECORD_UNAVAILABLE_PHRASE == _TWIN.refusal_phrase("record_unavailable")
+
+
+@pytest.mark.parametrize("reason", _TWIN.REASONS)
+def test_every_deny_ends_with_the_refusal_trailer(hook_module, monkeypatch, capsys, reason):
+    """The writes-check deny is the twin's refusal text: phrase, then the trailer line."""
+    hook = hook_module("osprey_writes_check")
+    monkeypatch.setattr(hook, "_record_refusal", lambda *args, **kwargs: None)
+
+    with pytest.raises(SystemExit):
+        hook._deny({}, "mcp__controls__channel_write", reason, target="live", kind="real")
+
+    text = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert text == "\U0001f512 WRITES OFF — " + _TWIN.refusal_text(reason, "real")
+    assert text.splitlines()[-1] == f"[osprey-refusal: {reason}]"
+    _assert_names_no_key(text)
+
+
+def test_the_posture_unknown_deny_is_the_record_unavailable_refusal(
+    hook_module, monkeypatch, capsys
+):
+    """No record where the hook looks reads as an unreadable switch, in the shared words."""
+    hook = hook_module("osprey_writes_check")
+    recorded = []
+    monkeypatch.setattr(
+        hook, "_record_refusal", lambda *args, **kwargs: recorded.append((args, kwargs))
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        hook._deny_posture_unknown({}, "mcp__controls__channel_write")
+
+    assert exit_info.value.code == 0
+    text = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecisionReason"]
+    assert text == "\U0001f512 WRITES OFF — " + _TWIN.refusal_text("record_unavailable")
+    _assert_names_no_key(text)
+    assert "config.yml" not in text
+    assert not hasattr(hook, "_POSTURE_UNKNOWN_DENY_REASON")
+    # The ledger still tells "could not be read" apart from "was turned off".
+    (args, kwargs) = recorded[0]
+    assert args[1:] == ("mcp__controls__channel_write", "posture")
+    assert kwargs == {"detail": "posture unknown"}
+
+
+def test_a_render_without_the_twin_still_ends_with_the_trailer(hook_module, monkeypatch):
+    hook = hook_module("osprey_writes_check")
+    monkeypatch.setattr(hook, "_target_state", None)
+
+    assert hook._text("readonly_run") == _TWIN.refusal_text("readonly_run")
+    assert hook._text("switch_off", "real") == _TWIN.refusal_text("record_unavailable")
 
 
 def test_a_deny_records_posture_with_the_reason_and_target(hook_module, monkeypatch, capsys):
@@ -510,7 +558,7 @@ def test_a_deny_records_posture_with_the_reason_and_target(hook_module, monkeypa
     assert args[1:] == ("mcp__controls__channel_write", "posture")
     assert kwargs == {"detail": "reason=switch_off target=live"}
     reason = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["permissionDecisionReason"]
-    assert reason == "\U0001f512 WRITES OFF — " + _TWIN.refusal_phrase("switch_off", "real")
+    assert reason == "\U0001f512 WRITES OFF — " + _TWIN.refusal_text("switch_off", "real")
 
 
 def test_the_writes_disabled_audit_word_is_retired(hook_module):

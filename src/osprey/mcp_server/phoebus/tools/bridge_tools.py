@@ -274,7 +274,7 @@ def _check_drive_switch() -> None:
     The message is the verdict's phrase, which says who can lift the refusal
     and names no config key; ``details`` carries the reason and the target.
     """
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import refusal_text
 
     try:
         config = load_osprey_config()
@@ -291,8 +291,9 @@ def _check_drive_switch() -> None:
     reason = verdict.reason or "record_unavailable"
     make_error(
         "writes_disabled",
-        f"{refusal_phrase(reason, verdict.kind)} phoebus_drive was refused before "
-        "reaching the bridge.",
+        refusal_text(
+            reason, verdict.kind, detail="phoebus_drive was refused before reaching the bridge."
+        ),
         ["Hand the action to the operator, who can perform it on the Phoebus panel."],
         details={"reason": reason, "target": verdict.target},
     )

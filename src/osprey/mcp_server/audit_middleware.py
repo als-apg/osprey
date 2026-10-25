@@ -143,7 +143,7 @@ from osprey.mcp_server.approval_record import (
 )
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import refusal_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt
@@ -973,7 +973,7 @@ class AuditMiddleware(Middleware):
                     "`osprey` if its name or launch changed."
                 )
             make_error(
-                "safety_error", f"{tool} is refused: {refusal_phrase(refused_for)}", suggestions
+                "safety_error", f"{tool} is refused: {refusal_text(refused_for)}", suggestions
             )
 
         # One dedup scope per call: the innermost layer that recorded a

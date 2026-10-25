@@ -568,52 +568,6 @@ def _launch_reason(control_target: str | None) -> str | None:
     )
 
 
-def _unreadable_reason(control_target: str | None, reason: str | None) -> str:
-    """The sentence for a record that could not be read at all.
-
-    Nobody decided this, so the chip is not offered, and *reason* — the
-    reader's own sentence naming the path that failed — is quoted because no
-    other code can compose it.
-    """
-    unreadable_for = f" for '{control_target}'" if control_target else ""
-    cause = reason or "the reader that refused did not say which path failed"
-    return (
-        f"the recorded write state{unreadable_for} could not be read, so the write "
-        f"is refused rather than run at the deployment ceiling: {cause}. This is "
-        "not a narrowing anybody set, and the control-target chip does not lift "
-        "it: the store answered control_context_unavailable."
-    )
-
-
-def _chip_reason(control_target: str | None, *, deployment_arms: bool) -> str:
-    """The sentence for a write the operator has turned off from the chip."""
-    if control_target:
-        where = f"the '{control_target}' control target"
-        remedy = f"Turn writes back on for '{control_target}' from the chip"
-    else:
-        # No stamp, so the most restrictive entry decided and this connector
-        # genuinely cannot say which target that was. Naming one would be a
-        # guess an operator then acts on.
-        where = (
-            "at least one control target (this connector was built "
-            "without one, so the most restrictive of them decides)"
-        )
-        remedy = "Turn writes back on from the chip"
-    narrowing = (
-        f"writes are off for {where} — turned off from the control-target chip in the header"
-    )
-    if not deployment_arms:
-        # A reason, not a remedy: the deployment refuses this write whichever way
-        # the chip is set, so the flip is not offered and config.yml is not
-        # denied as the gate.
-        return f"{narrowing}. The store answered narrowing."
-    return (
-        f"{narrowing}; applies to every session of this login. {remedy} if the write "
-        "is intended; "
-        "config.yml is not the gate here. The store answered narrowing."
-    )
-
-
 def _writes_disabled_result(
     channel_address: str,
     value: Any,
@@ -621,9 +575,7 @@ def _writes_disabled_result(
     control_target: str | None = None,
     *,
     store_verdict: "StoreVerdict | None" = None,
-    store_reason: str | None = None,
     record_verdict: "StoreVerdict | None" = None,
-    record_reason: str | None = None,
 ) -> ChannelWriteResult:
     """Build the pre-verdict refusal result: deployment posture and chip narrowing.
 
@@ -641,17 +593,9 @@ def _writes_disabled_result(
     reason that is nobody's decision, and a message that reports that as a chip
     somebody set sends an operator to undo something they never did.
 
-    *store_reason* is the sentence that belongs with that verdict — which
-    record could not be read, which bind names no path — and it is set for
-    ``CONTROL_CONTEXT_UNAVAILABLE`` alone. It is composed where the read
-    failed and nowhere this function could reconstruct it, so without it that
-    refusal names a cause and no remedy. It rides down beside the verdict on
-    the guarded path and comes off the same single read on the direct one.
-
-    *record_verdict* and *record_reason* are the record clause without the
-    pin, handed down so a pinned batch reads the record once. They matter only
-    when the pin refused: the pin answers the store without opening the record,
-    so without them a pinned run would name the pin and hide a narrowing or an
+    *record_verdict* is the record clause without the pin, handed down so a
+    pinned batch reads the record once. It matters only when the pin refused: the pin answers the store without opening the record,
+    so without it a pinned run would name the pin and hide a narrowing or an
     unreadable record behind it. ``None`` means nobody answered, and the record
     is read here — once, and only where the pin left that read unspent.
 
@@ -709,21 +653,15 @@ def _writes_disabled_result(
     launched: str | None = None
     if not readonly:
         if store_verdict is None:
-            # Both halves off the one read: asking separately for the sentence
-            # would be a second read of a file that can change between them.
-            detail = _posture_store_verdict(control_target)
-            store_verdict = detail.verdict
-            store_reason = detail.reason
+            store_verdict = _posture_store_verdict(control_target).verdict
         launched = _launch_reason(control_target)
         if launched is not None:
             # The pin refused without the record being opened, so the read this
             # spends is the one this write has not spent.
             if record_verdict is None:
-                record = _posture_record_verdict(control_target)
-                record_verdict = record.verdict
-                record_reason = record.reason
+                record_verdict = _posture_record_verdict(control_target).verdict
         else:
-            record_verdict, record_reason = store_verdict, store_reason
+            record_verdict = store_verdict
 
     deployment_arms, answering_key = _deployment_posture(connector_type)
 
@@ -733,14 +671,18 @@ def _writes_disabled_result(
     else:
         if launched is not None:
             run_reasons.append(launched)
+        from osprey_connectors.refusals import refusal_phrase
+
         # By NAME, never by truthiness: every verdict is a non-empty string.
         # Anything that is not the unavailable verdict and not a grant words as
-        # a narrowing, so a verdict added later refuses rather than reads as
-        # permitted.
+        # the switch being off, so a verdict added later refuses rather than
+        # reads as permitted. An unreadable record is nobody's decision, so its
+        # phrase offers no chip, and the reader's own sentence is not quoted:
+        # it names the store's path, which no refusal an agent reads may carry.
         if record_verdict is StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE:
-            run_reasons.append(_unreadable_reason(control_target, record_reason))
+            run_reasons.append(refusal_phrase("record_unavailable"))
         elif record_verdict is not StoreVerdict.PERMITTED:
-            run_reasons.append(_chip_reason(control_target, deployment_arms=deployment_arms))
+            run_reasons.append(refusal_phrase("switch_off"))
 
     reasons: list[str] = []
     if not deployment_arms:
@@ -821,29 +763,31 @@ def _verdict_refusal(
 ) -> ChannelWriteResult:
     """The REFUSED result the monitor returns for a write *verdict* refused.
 
-    The operator's words are :func:`~osprey_connectors.refusals.refusal_phrase`
+    The operator's words are :func:`~osprey_connectors.refusals.refusal_text`
     for the verdict's reason and machine kind — the same phrase the hooks
-    speak — after the channel it concerns. A read-only run's refusal also
+    speak, ending with the ``[osprey-refusal: <reason>]`` trailer — after the
+    channel it concerns. A read-only run's refusal also
     carries :data:`_READONLY_MARKER`, and in a script the executor ran for one
     readonly submission :data:`_READONLY_SCRIPT_REMEDY` as well. A verdict that
     allowed (an overriding subclass refused on its own) names no contract reason.
     """
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import refusal_text
 
-    if verdict.allowed or verdict.reason is None:
-        spoken = _OVERRIDE_REFUSAL
-    else:
-        try:
-            spoken = refusal_phrase(verdict.reason, verdict.kind)
-        except ValueError:
-            spoken = _OVERRIDE_REFUSAL
     marker = ""
+    remedy = None
     if verdict.reason == "readonly_run":
         marker = f" ({_READONLY_MARKER})"
         if not _in_mcp_server_process():
             # One script submitted readonly, not the deployment: the same
             # refusal, and the one remedy that applies to it alone.
-            spoken = f"{spoken} {_READONLY_SCRIPT_REMEDY}"
+            remedy = _READONLY_SCRIPT_REMEDY
+    if verdict.allowed or verdict.reason is None:
+        spoken = _OVERRIDE_REFUSAL
+    else:
+        try:
+            spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy)
+        except ValueError:
+            spoken = _OVERRIDE_REFUSAL
     return ChannelWriteResult(
         channel_address=channel_address,
         value_written=value,

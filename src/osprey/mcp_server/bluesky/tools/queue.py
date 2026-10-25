@@ -426,18 +426,23 @@ def _refuse_writes_disabled(
 ) -> NoReturn:
     """The local write-verdict refusal: the verdict refused, so this arms nothing.
 
-    The message is the verdict's phrase
-    (:func:`osprey_connectors.refusals.refusal_phrase`), which says who can lift
-    the refusal and names no config key, file or command: every reason the
-    verdict can give is lifted by a person (the chip, the deployment admin), never
-    by an edit the agent could attempt. ``details`` carries the reason and the
-    target the verdict was asked about, and the lane when one was bound, so a
-    caller branches on the reason rather than on the wording.
+    The message ends with the verdict's refusal text
+    (:func:`osprey_connectors.refusals.refusal_text`: the phrase, which says who
+    can lift the refusal, then the ``[osprey-refusal: <reason>]`` trailer) and
+    names no config key, file or command: every reason the verdict can give is
+    lifted by a person (the chip, the deployment admin), never by an edit the
+    agent could attempt. ``details`` carries the reason and the target the
+    verdict was asked about, and the lane when one was bound, so a caller
+    branches on the reason rather than on the wording.
     """
-    reason, phrase = _refusal_text(verdict)
+    from osprey_connectors.refusals import refusal_text
+
+    reason, _phrase = _refusal_text(verdict)
     make_error(
         "writes_disabled",
-        f"{phrase} {refused} was refused before reaching the bridge.",
+        refusal_text(
+            reason, verdict.kind, detail=f"{refused} was refused before reaching the bridge."
+        ),
         [
             f"Hand the action to the operator, who can perform {refused} from the "
             f"BLUESKY queue panel.",

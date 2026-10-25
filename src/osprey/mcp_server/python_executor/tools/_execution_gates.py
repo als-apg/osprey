@@ -325,12 +325,12 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
 
     _record_posture_clamp(tool, verdict)
 
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import refusal_text
 
     reason = verdict.reason or "record_unavailable"
     make_error(
         "safety_error",
-        refusal_phrase(reason, verdict.kind),
+        refusal_text(reason, verdict.kind),
         ['Re-run with execution_mode="readonly" — reads are unaffected.'],
         details={"reason": reason, "target": verdict.target},
     )
