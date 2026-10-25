@@ -202,13 +202,36 @@ describe('inputView', () => {
     expect(qs(inputView({ value }), 'pre.op-kv-json').textContent).toBe(JSON.stringify(value, null, 2));
   });
 
+  /** The machine kinds the chip holds from GET, keyed by target (C-KIND). */
+  const KINDS = { va: 'simulator', live: 'real', standin: 'rehearsal' };
+
   test.each([
     ['va', 'Simulator'],
     ['live', 'Real machine'],
+    ['standin', 'Rehearsal'],
     ['ioc2', 'ioc2'],
     ['constructor', 'constructor'],
   ])('reads approved_target %s as a Target row labelled %s', (target, label) => {
-    expect(valueOf(inputView({ approved_target: target }), 'Target')).toBe(label);
+    expect(valueOf(inputView({ approved_target: target }, KINDS), 'Target')).toBe(label);
+  });
+
+  test('a non-live standin GET calls the real machine never reads "Rehearsal"', () => {
+    // The kind comes from GET, never from the target's name: a `standin` no
+    // live server vouched for is the real machine.
+    expect(valueOf(inputView({ approved_target: 'standin' }, { standin: 'real' }), 'Target')).toBe(
+      'Real machine',
+    );
+  });
+
+  test.each([['standin'], ['va'], ['live']])(
+    'with no kind handed in, approved_target %s reads as the id given, never a guessed kind',
+    (target) => {
+      expect(valueOf(inputView({ approved_target: target }), 'Target')).toBe(target);
+    },
+  );
+
+  test('a kind outside the vocabulary is not a word to look up', () => {
+    expect(valueOf(inputView({ approved_target: 'x' }, { x: 'constructor' }), 'Target')).toBe('x');
   });
 
   test.each([[{}], [undefined]])('shows an empty input (%o) as no input', (input) => {
@@ -258,7 +281,9 @@ describe('the approval card', () => {
     expect(detail.hidden).toBe(true);
     expect(detail.textContent).not.toContain('Print two lines');
     expect(qs(detail, 'pre.op-kv-block').textContent).toBe('print("hi")\nprint(2)');
-    expect(valueOf(detail, 'Target')).toBe('Simulator');
+    // The card hands inputView no kinds yet, so the target reads by its id
+    // rather than by a kind guessed from the name.
+    expect(valueOf(detail, 'Target')).toBe('va');
 
     qs(card.el, '.op-card-toggle').click();
     expect(detail.hidden).toBe(false);

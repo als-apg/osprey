@@ -18,13 +18,21 @@
  * does — the consequence line, the server's own label, the endpoint — live
  * behind the name's ⓘ tooltip, never at rest.
  *
- * **One switch per machine.** The write state is a switch: position and
- * control are the same widget, so nothing says "writes on" twice. The old
- * verbs' asymmetry survives in behaviour — turning off applies on click, it
- * only ever removes reach; turning on parks the knob mid-track and confirms
- * first, because it is the gesture after which a write can land somewhere
- * new. Locked, the switch stays on screen, disabled, with the reason on
- * hover.
+ * **One switch per machine.** The write state is this login's switch for
+ * that machine: position and control are the same widget, so nothing says
+ * "writes on" twice. Turning off applies on click — it only ever removes
+ * reach, and no lock refuses it; turning on parks the knob mid-track and
+ * confirms first, because it is the gesture after which a write can land
+ * somewhere new. Locked, a switch that is on keeps its off control and shows
+ * the verdict's own sentence; a switch that is off and cannot be turned on
+ * stays on screen, disabled, with the reason on hover.
+ *
+ * **The epoch the chip read.** Every switch gesture carries the
+ * `switch_epoch` of the payload the operator was shown. A stop that landed
+ * since refuses a turn-on (409 `stopped_since`): the popover re-reads and the
+ * operator clicks again — a turn-on never silently re-arms after a stop. The
+ * one exception is a 409 that says it just STAMPED the record's first epoch,
+ * which is retried once with that epoch.
  *
  * **No process claims.** Nothing rendered here says whether a write will ask
  * for approval or what limits apply — that is deployment configuration this
@@ -51,6 +59,7 @@
  */
 
 import {
+  LIFTED_BY_TURN_ON,
   SWITCH_APPLIED,
   bannerNote,
   confirmSkipKeyBase,
@@ -67,6 +76,7 @@ import {
   reasonPhrase,
   statePhrase,
   switchConfirm,
+  TURN_ON_SENTENCE,
   turnOnConfirm,
 } from './control-target-facts.js';
 import { confirmSkipped } from './confirm-skip.js';
@@ -80,17 +90,19 @@ import {
   isPending,
   kindAttr,
   markPending,
+  postSwitch,
   refetch,
   setExpanded,
   stateWord,
   subscribe,
+  switchRefusal,
   targetRequest,
 } from './control-target-chip.js';
 
 /**
- * The `target` value that narrows every configured target at once. Mirrors
- * `ALL_TARGETS` in routes/websocket.py; there is deliberately no matching
- * "turn everything on", because each target's ceiling is its own.
+ * The `target` value that turns every machine in this login's record off at
+ * once. Mirrors `ALL_TARGETS` in routes/websocket.py; there is deliberately no
+ * matching "turn everything on" — the route refuses it.
  */
 export const ALL_TARGETS = 'all';
 
@@ -126,15 +138,23 @@ let pendingTarget = null;
 /**
  * What the last gesture on a row did, when the ROUTE cannot say.
  *
- * Two things live here and nothing else: a refusal the POST came back with
- * (the operator clicked something and is owed the server's own sentence), and
- * a target `Turn all writes off` reported in `skipped`. Both are facts about a
- * click, not about the session, so they are cleared by the next gesture rather
+ * One thing lives here: a refusal the POST came back with — the operator
+ * clicked something and is owed the server's own sentence. It is a fact about
+ * a click, not about the session, so it is cleared by the next gesture rather
  * than by the next read — a re-render from the 5 s poll must not silently
  * swallow the reason a click did nothing.
  * @type {Map<string, string>}
  */
 const gestureNotes = new Map();
+
+/**
+ * The popover's status line: the turn-on sentence, after a turn-on whose
+ * confirm was waived lands — the one place it can be read when no dialog said
+ * it. Shown until the next gesture or the popover closes; never beside the
+ * off control.
+ * @type {string|null}
+ */
+let statusNote = null;
 
 /** Whether a POST from this popover is in flight (one gesture at a time). */
 let posting = false;
@@ -205,6 +225,7 @@ export function teardownControlTargetPopover() {
   posting = false;
   pendingTarget = null;
   confirmingTarget = null;
+  statusNote = null;
   gestureNotes.clear();
 }
 
@@ -276,6 +297,7 @@ function openPopover() {
 function closePopover() {
   if (!open) return;
   open = false;
+  statusNote = null;
   dismissConfirm();
   popover?.classList.remove('open');
   setExpanded(false);
@@ -384,7 +406,13 @@ function render() {
     popover.append(outcome);
   }
 
-  popover.append(renderFoot(state, rows));
+  if (statusNote) {
+    const status = el('div', 'ctc-outcome ctc-status', statusNote);
+    status.dataset.status = 'notice';
+    popover.append(status);
+  }
+
+  popover.append(renderFoot(state));
 }
 
 /**
@@ -401,7 +429,6 @@ function renderCard(row, state) {
   card.dataset.target = row.target;
   card.dataset.targetKind = kind;
   card.dataset.state = word;
-  card.dataset.real = String(Boolean(row.real_machine));
 
   card.append(el('div', 'ctc-card-eyebrow', 'The agent is on'));
 
@@ -415,6 +442,8 @@ function renderCard(row, state) {
   card.append(title);
 
   card.append(renderSwitch(row, state, word, lock));
+  const phrase = writePhraseLine(row, word, lock);
+  if (phrase) card.append(phrase);
 
   // The reach exception sits on the title line: the switch carries the write
   // state, so the card has no separate state line to put it on.
@@ -452,7 +481,6 @@ function renderRow(row, state) {
   node.dataset.target = row.target;
   node.dataset.targetKind = kind;
   node.dataset.state = word;
-  node.dataset.real = String(Boolean(row.real_machine));
 
   const ident = el('div', 'ctc-ident');
   const name = el('div', 'ctc-name-line');
@@ -467,6 +495,8 @@ function renderRow(row, state) {
     name.append(bad);
   }
   ident.append(name);
+  const phrase = writePhraseLine(row, word, lock);
+  if (phrase) ident.append(phrase);
   for (const line of outcomeLines(row, state)) ident.append(line);
   node.append(ident);
 
@@ -537,14 +567,16 @@ function outcomeLines(row, state) {
 /**
  * The switch that both states and changes a machine's writes.
  *
- * One widget instead of pill + verb: the position is the state, the word
- * beside it (`on` / `off` / `locked`) is the glance-and-screen-reader copy,
- * and the click is the gesture. The old verbs' asymmetry survives in
- * behaviour — off applies on click, on confirms first — said on the hover
- * title, and while that confirm is up the knob parks mid-track
- * (`data-pending`) rather than claiming a state nothing has applied. Locked
- * it stays on screen, disabled, with the reason on hover — the gap where the
- * control would be is explained rather than merely empty.
+ * One widget instead of pill + verb: the knob's position is this login's
+ * switch, the word beside it (`on` / `off` / `locked`, the row's `data-state`)
+ * is the glance-and-screen-reader copy, and the click is the gesture. Off
+ * applies on click, on confirms first — said on the hover title — and while
+ * that confirm is up the knob parks mid-track (`data-pending`) rather than
+ * claiming a state nothing has applied.
+ *
+ * Under every lock a switch that is on — or one nobody can read — keeps its
+ * off control: no lock refuses a stop. Only a switch that is off and cannot
+ * be turned on is disabled, with the reason on hover.
  * @param {any} row
  * @param {any} state
  * @param {string} word
@@ -553,35 +585,51 @@ function outcomeLines(row, state) {
  */
 function renderSwitch(row, state, word, lock) {
   const name = displayName(row, kindAttr(row));
-  const on = word === 'writes';
+  // An unreadable switch is shown as one that may be on: the loud answer, and
+  // the one that leaves the operator a way to stop it.
+  const armed = row.switch !== 'off';
   const wrap = el('span', 'ctc-switchwrap');
   wrap.dataset.state = word;
-  wrap.dataset.real = String(Boolean(row.real_machine));
   wrap.append(el('span', 'ctc-switch-word', 'Writes'));
   const toggle = button('ctc-toggle', '');
   toggle.setAttribute('role', 'switch');
-  toggle.setAttribute('aria-checked', String(on));
+  toggle.setAttribute('aria-checked', String(row.switch === 'on'));
   toggle.setAttribute('aria-label', `${statePhrase(word)} for ${name}`);
-  toggle.dataset.real = String(Boolean(row.real_machine));
   if (confirmingTarget === row.target) toggle.dataset.pending = 'on';
-  if (lock) {
-    toggle.disabled = true;
-    toggle.title = lock;
-  } else {
-    toggle.title = on
-      ? `Turn writes off for ${name} — applies now`
-      : `Turn writes on for ${name} — asks first`;
-    toggle.addEventListener('click', (event) => {
-      event.stopPropagation();
-      if (on) void setPosture(row.target, 'sandbox', state);
-      else confirmTurnOn(row, state, event.shiftKey);
-    });
-  }
+  toggle.disabled = !armed && Boolean(lock);
+  toggle.title = armed
+    ? `Turn writes off for ${name} — applies now`
+    : lock || `Turn writes on for ${name} — asks first`;
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (armed) void setSwitch(row.target, 'off', state);
+    else confirmTurnOn(row, state, event.shiftKey);
+  });
   wrap.append(toggle);
-  const stateWordEl = el('span', 'ctc-switch-state', on ? 'on' : word === 'sandbox' ? 'off' : 'locked');
-  if (lock) stateWordEl.title = lock;
+  const stateWordEl = el('span', 'ctc-switch-state', word);
+  const why = word === 'locked' ? row.write_phrase || lock : armed ? null : lock;
+  if (why) stateWordEl.title = why;
   wrap.append(stateWordEl);
   return wrap;
+}
+
+/**
+ * The verdict's own sentence for a refused machine, at rest: what stopped the
+ * write and who lifts it (C-PHRASE). Shown for a locked row — on and still
+ * refused, or unreadable — and for an off row held by a lock no turn-on lifts;
+ * never for a row that is merely off, whose switch already says so.
+ * @param {any} row
+ * @param {string} word
+ * @param {string|null} lock
+ * @returns {HTMLElement|null}
+ */
+function writePhraseLine(row, word, lock) {
+  const held = word === 'off' && row.write_reason && !LIFTED_BY_TURN_ON.has(row.write_reason);
+  const text = word === 'locked' || held ? row.write_phrase || lock : null;
+  if (!text) return null;
+  const line = el('div', 'ctc-write-phrase', text);
+  line.dataset.state = word;
+  return line;
 }
 
 /**
@@ -623,24 +671,23 @@ function renderAction(row, state) {
 }
 
 /**
- * The foot: the one-gesture narrowing, and the popover's scope said once.
- * `Turn all writes off` only ever removes reach, so it applies on click; it is
- * disabled when there is nothing left to turn off.
+ * The foot: all-off, and the popover's scope said once. `Turn all writes off`
+ * only ever removes reach, so it applies on click; it is enabled exactly when
+ * the read says some switch of this login's is on (`any_on`) — including a
+ * machine no longer configured, which no row shows.
  *
- * The note beside it is the popover's scope, said once at rest: one control
- * context per deployment, so a narrowing recorded here reaches every session,
- * notebook kernel and hook, not just the page it was made on.
+ * The note beside it is the popover's scope, said once at rest: the switch is
+ * the login's, so a stop recorded here reaches every session, notebook kernel
+ * and hook of that login, not just the page it was made on.
  * @param {any} state
- * @param {any[]} rows
  */
-function renderFoot(state, rows) {
+function renderFoot(state) {
   const foot = el('div', 'ctc-foot');
   const all = button('ctc-all-off', 'Turn all writes off');
-  const liftable = rows.some((row) => !lockReason(row, state) && stateWord(row) === 'writes');
-  all.disabled = !liftable;
+  all.disabled = state.any_on !== true;
   all.addEventListener('click', (event) => {
     event.stopPropagation();
-    void setPosture(ALL_TARGETS, 'sandbox', state);
+    void setSwitch(ALL_TARGETS, 'off', state);
   });
   foot.append(all);
   foot.append(el('span', 'ctc-foot-note', 'Applies to every session of this login'));
@@ -659,67 +706,77 @@ function renderFoot(state, rows) {
  * (nothing was applied, and dismissing it to put the reason on a row behind
  * would hide the answer to the question they had just been asked), otherwise
  * on `noteKey`'s row — the server's own sentence is more specific than
- * anything this module could invent.
- * @param {string} path
- * @param {object} json
+ * anything this module could invent. The one refusal that closes the confirm
+ * is one that says the question it asked no longer holds (`close`).
+ * @param {() => Promise<any>} send  the request
  * @param {string} noteKey  the row a dialog-less refusal lands on
  * @param {ConfirmUi|undefined} ui  the confirm this gesture came from, if any
  * @param {(body: any) => void} onAccepted  what this gesture means, applied
  *   before the confirm is dismissed and the state re-read
+ * @param {(err: unknown) => {message: string, close: boolean}} [refusal]
  * @returns {Promise<void>}
  */
-async function postGesture(path, json, noteKey, ui, onAccepted) {
+async function postGesture(send, noteKey, ui, onAccepted, refusal = plainRefusal) {
   if (posting) return;
   posting = true;
   gestureNotes.clear();
+  statusNote = null;
   if (ui) {
     ui.confirm.disabled = true;
     ui.cancel.disabled = true;
   }
   try {
-    onAccepted(await targetRequest(path, { method: 'POST', json }));
+    onAccepted(await send());
+    ui?.done();
   } catch (err) {
-    posting = false;
-    const message = err instanceof Error ? err.message : String(err);
-    if (ui) {
+    const { message, close } = refusal(err);
+    if (ui && !close) {
       ui.error.textContent = message;
       ui.error.hidden = false;
       ui.confirm.disabled = false;
       ui.cancel.disabled = false;
     } else {
+      ui?.done();
       gestureNotes.set(noteKey, message);
     }
-    // The refusal may itself be news about the render, so re-read rather than
-    // keeping whatever the rows showed.
-    await refetch();
-    render();
-    return;
   }
   posting = false;
-  ui?.done();
+  // A refusal may itself be news about the render, so every outcome re-reads.
   await refetch();
   render();
 }
 
+/** @param {unknown} err @returns {{message: string, close: boolean}} */
+function plainRefusal(err) {
+  return { message: err instanceof Error ? err.message : String(err), close: false };
+}
+
 /**
- * Turn one target's writes off or on (or every target's off).
+ * Turn one machine's switch on or off for this login, or every machine's off
+ * (C-POST), carrying the `switch_epoch` of the payload the operator was shown
+ * — {@link postSwitch} owns the one stamped retry. A stop that overtook a
+ * turn-on closes its confirm and wants a new click on what the re-read shows;
+ * a stop that was not taken says so, and the re-read keeps showing the machine
+ * on — nothing here paints an off the record does not hold.
  * @param {string} target  a configured target name, or {@link ALL_TARGETS}
- * @param {'sandbox'|'writes'} posture
+ * @param {'on'|'off'} to
  * @param {any} state  the payload the operator was shown
  * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
+ * @param {boolean} [waived]  a turn-on whose confirm was skipped: its
+ *   sentence goes to the status line once it lands
  * @returns {Promise<void>}
  */
-function setPosture(target, posture, state, ui) {
-  const json = { session_id: state.session_id, target, posture };
-  return postGesture('/api/terminal/posture', json, target, ui, (body) => {
-    // `all` narrows what it can and reports the rest rather than dropping it:
-    // a target whose writes stayed on is exactly what an operator who just
-    // clicked "Turn all writes off" must not be left believing otherwise
-    // about.
-    for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
-      if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
-    }
-  });
+function setSwitch(target, to, state, ui, waived = false) {
+  const epoch = typeof state.switch_epoch === 'number' ? state.switch_epoch : null;
+  return postGesture(
+    () => postSwitch(state.session_id ?? null, target, to, epoch),
+    target,
+    ui,
+    () => {
+      if (waived && to === 'on') statusNote = TURN_ON_SENTENCE;
+    },
+    (err) => switchRefusal(err, to)
+  );
 }
 
 /**
@@ -744,7 +801,8 @@ function setPosture(target, posture, state, ui) {
  */
 function requestSwitch(row, state, ui) {
   const json = { session_id: state.session_id, target: row.target };
-  return postGesture('/api/terminal/target', json, row.target, ui, (body) => {
+  const send = () => targetRequest('/api/terminal/target', { method: 'POST', json });
+  return postGesture(send, row.target, ui, (body) => {
     const generation = typeof body?.generation === 'number' ? body.generation : null;
     const held = row.target === state.control_target;
     if (held && generation !== null && generation === state.generation) {
@@ -787,13 +845,13 @@ function confirmTurnOn(row, state, reshow = false) {
   const skippable = confirmSkippable('writes-on', kind);
   const keyBase = confirmSkipKeyBase('writes-on', row);
   if (skippable && !reshow && confirmSkipped(keyBase)) {
-    void setPosture(row.target, 'writes', state);
+    void setSwitch(row.target, 'on', state, undefined, true);
     return;
   }
   showConfirm({
     ...turnOnConfirm(row, kind),
     skipKeyBase: skippable ? keyBase : null,
-    onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
+    onConfirm: (ui) => void setSwitch(row.target, 'on', state, ui),
     onDismiss: releaseParkedSwitch,
   });
   // After showConfirm: its stale-dialog sweep dismisses (and releases) any

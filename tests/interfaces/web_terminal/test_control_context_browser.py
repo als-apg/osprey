@@ -56,7 +56,7 @@ import requests
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.interfaces.web_terminal.session_handoff import ERROR_SESSION_ATTACHED_ELSEWHERE
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 
 # The stack, the waits and the vocabulary all come from the sibling suite. The
 # brief for this task is explicit that there must be ONE chip stack fixture in
@@ -68,6 +68,7 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     CHIP,
     CHIP_SHORT,
     CHIP_STATE,
+    KINDS,
     MODAL_CONFIRM,
     MODAL_TITLE,
     NAMES,
@@ -77,14 +78,16 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     RECORD_GENERATION,
     SWITCH_TARGET,
     TIMEOUT,
+    _assert_chip_matches_verdict,
     _chip_hub,
     _open_popover,
     _publish_report,
     _read_record,
-    _recorded_posture,
+    _recorded_switch,
     _row,
     _settled_chip,
     _toggle,
+    _verdict,
 )
 
 if TYPE_CHECKING:
@@ -315,8 +318,11 @@ def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
             )
             assert switcher_session != watcher_session
 
+            # The two machines are of different kinds, which is what makes the
+            # chip's `data-target-kind` an observable of the switch at all.
+            assert KINDS[ACTIVE_TARGET] != KINDS[SWITCH_TARGET]
             expect(watcher.locator(CHIP)).to_have_attribute(
-                "data-target-kind", ACTIVE_TARGET, timeout=TIMEOUT
+                "data-target-kind", KINDS[ACTIVE_TARGET], timeout=TIMEOUT
             )
 
             # Everything expensive about the gesture happens before the window.
@@ -339,7 +345,7 @@ def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
             switcher.close()
 
     # The second tab names the machine the deployment moved to.
-    assert probe["changedKind"] == SWITCH_TARGET, probe
+    assert probe["changedKind"] == KINDS[SWITCH_TARGET], probe
 
     # …and it learned it off-cycle. The read that carried the change is the
     # FIRST one after the tick this test watched go past, and it came before
@@ -478,24 +484,26 @@ def test_a_chip_gesture_sends_no_session_and_audits_on_the_lab_surface(
     shipped module actually sends. A chip that quietly regained a session id
     would still pass every route test in the tree.
 
-    The narrowing is used rather than the switch because it asks nothing —
-    turning writes off only ever removes reach — so the audit record is the
-    only thing between the click and the assertion.
+    Turning writes off is used rather than the switch because it asks
+    nothing — it only ever removes reach — so the audit record is the only
+    thing between the click and the assertion.
     """
-    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+    with _chip_hub(tmp_path, monkeypatch) as (base_url, app, _root):
         page, _session_id = _settled_chip(chromium_browser, base_url)
         try:
             _open_popover(page)
             _toggle(page, POSTURE_TARGET).click()
             expect(_row(page, POSTURE_TARGET)).to_have_attribute(
-                "data-state", "sandbox", timeout=TIMEOUT
+                "data-state", "off", timeout=TIMEOUT
             )
+            _assert_chip_matches_verdict(page, app)
         finally:
             page.close()
 
-        # The gesture landed where the connector reads it, so the record below
-        # is about a POST that really did something.
-        assert _recorded_posture() == {POSTURE_TARGET: posture_store.POSTURE_SANDBOX}
+        # The gesture landed where every write path reads it, so the record
+        # below is about a POST that really did something.
+        assert POSTURE_TARGET not in _recorded_switch(), _recorded_switch()
+        assert _verdict(app, POSTURE_TARGET).reason == "switch_off"
 
     gestures = [
         entry

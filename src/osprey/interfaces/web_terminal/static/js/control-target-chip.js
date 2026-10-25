@@ -57,8 +57,11 @@
 
 import {
   REASON_SWITCH_FAILED,
+  STOP_NOT_TAKEN_SENTENCE,
   contextWritable,
   displayName,
+  machineKind,
+  reasonPhrase,
   resolvePendingSwitch,
   statePhrase,
   switchFailureNote,
@@ -73,21 +76,27 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *   state key, never display text
  * @property {string} label  what the controls server calls that machine
  * @property {string} short_label  the chip's word: LIVE / STAND-IN / VIRTUAL,
- *   derived server-side from `real_machine` and the label's shape
- * @property {string} kind  the plain-language word for the same derivation
- *   (`live machine` / `stand-in` / `virtual accelerator`)
+ *   derived server-side from `machine_kind`
+ * @property {'real'|'rehearsal'|'simulator'} machine_kind  the write verdict's
+ *   kind, read from the controls server's published report (C-KIND) — a
+ *   stand-in no live server vouched for is `real`
+ * @property {string} [display_name]  the deployment's configured name, or `''`
  * @property {string} endpoint
  * @property {boolean} real_machine  true for the facility's own machine AND
- *   for a stand-in — both get every limit and prompt hardware gets
+ *   for a stand-in. Nothing here keys on it: the kind is `machine_kind`'s
  * @property {boolean} active  the target the deployment stands on
  * @property {boolean} is_baseline
  * @property {boolean} available_now  whether a Switch is offered
  * @property {string|null} reason  the switch tool's own refusal code when not
  * @property {string|null} reason_detail  the eligibility verdict's operator
  *   sentence for that code — the popover's tooltip, never its row text
- * @property {boolean} ceiling_writes  what the render permits
- * @property {'writes'|'sandbox'} posture  the deployment's recorded narrowing
- * @property {boolean} effective  the whole rule the connector applies
+ * @property {'on'|'off'|null} switch  this login's switch for the machine;
+ *   `null` when the record cannot be read
+ * @property {boolean} write_allowed  the verdict a new write by this login
+ *   would meet
+ * @property {string|null} write_reason  the verdict's refusal reason, or null
+ * @property {string|null} write_phrase  that refusal's operator sentence —
+ *   what stopped the write and who lifts it (C-PHRASE)
  * @property {{state: string, role: string|null, probed_at: string|null,
  *             age_s: number|null, role_detail?: Record<string, string>}} reachability
  */
@@ -129,6 +138,12 @@ import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
  *             age_s: number|null}[]} execution_in_flight
  * @property {LastSwitch|null} last_switch
  * @property {{state: string, at?: string}|null} last_posture_realign
+ * @property {number|null} switch_epoch  the login's switch epoch as read; a
+ *   turn-on carries it back so a stop that landed since refuses it (C-POST)
+ * @property {boolean} any_on  whether any machine's switch is on for this
+ *   login — what enables "Turn all writes off"
+ * @property {{readonly_run?: boolean, tier?: string}} [locks]  the locks no
+ *   chip gesture lifts
  * @property {TargetRow[]} targets
  */
 
@@ -191,19 +206,6 @@ export const TARGET_SWITCH_TOOL = 'control_target_set';
  * `detail.expanded` carries the state the chip has just moved TO.
  */
 export const CHIP_TOGGLE_EVENT = 'osprey-control-target-toggle';
-
-/**
- * The plain-language `kind` the route publishes → the `data-target-kind` value
- * the stylesheet keys the dot and the border on. Two vocabularies on purpose:
- * the route's is what the popover SHOWS a simple-mode operator, this one is a
- * CSS selector value.
- */
-/** @type {Record<string, string>} */
-const KIND_ATTR = {
-  'live machine': 'live',
-  'stand-in': 'standin',
-  'virtual accelerator': 'va',
-};
 
 /**
  * The chip and the popover travel together inside one positioning context —
@@ -406,10 +408,16 @@ function onChipClick() {
  * the refusal word under a Switch, the reason a toggle 409'd — so this reads
  * the body itself and unwraps the sentence.
  *
+ * A refusal keeps its status and its `detail` beside the sentence: the posture
+ * route answers `{detail: {reason, phrase?, epoch?, stamped?, taken?}}`, and a
+ * stamped 409 is retried with the epoch it carries, which a message alone
+ * could not say.
+ *
  * @param {string} path
  * @param {{method?: string, json?: any}} [opts]
  * @returns {Promise<any>} the parsed body
- * @throws {Error} on a non-OK response, carrying the server's own message
+ * @throws {TargetRequestError} on a non-OK response, carrying the server's own
+ *   sentence, the status and the detail
  */
 export async function targetRequest(path, { method = 'GET', json } = {}) {
   /** @type {RequestInit} */
@@ -420,22 +428,113 @@ export async function targetRequest(path, { method = 'GET', json } = {}) {
   }
   const resp = await fetch(withPrefix(path), init);
   const body = await resp.json().catch(() => null);
-  if (!resp.ok) throw new Error(refusalMessage(body, resp.status));
+  if (!resp.ok) {
+    const detail = body && typeof body === 'object' ? body.detail : null;
+    throw new TargetRequestError(refusalMessage(body, resp.status), resp.status, detail ?? null);
+  }
   return body;
 }
 
 /**
- * The most specific human sentence a refusal body carries. Handles all three
- * shapes rather than guessing at one: FastAPI's dict detail (what these routes
- * raise), the plain string detail every other route uses, and a body with
- * neither — where the status code is all there is to say.
+ * A refused request: the sentence to show, plus what the route answered it
+ * with. `detail` is the body's `detail` as sent — a dict for these routes, a
+ * string for most others, a list for a body FastAPI could not parse — or
+ * `null` when the body carried none.
+ */
+export class TargetRequestError extends Error {
+  /** @param {string} message @param {number} status @param {any} detail */
+  constructor(message, status, detail) {
+    super(message);
+    this.name = 'TargetRequestError';
+    /** @type {number} */
+    this.status = status;
+    /** @type {any} */
+    this.detail = detail;
+  }
+}
+
+/* ---- the switch gesture (C-POST) ---- */
+
+/**
+ * What a turn-on a stop overtook says. The 409 carries no phrase of its own:
+ * it is an answer about the request, and the operator is owed the next step.
+ */
+export const STOPPED_SINCE_SENTENCE =
+  'Writes were turned off after this turn-on began — nothing was turned on. Click again to turn them on.';
+
+/**
+ * POST one switch gesture: `{session_id, target, state, epoch}`, where `epoch`
+ * is the `switch_epoch` the chip read (`null` when it read none).
+ *
+ * A 409 that says it just STAMPED the record's first epoch is retried once
+ * with that epoch — the route never retries itself. Any other 409 is a stop
+ * that landed after the gesture began, and is thrown: a turn-on never
+ * silently re-arms after a stop.
+ * @param {string|null} sessionId
+ * @param {string} target  a configured target name, or `all` (off only)
+ * @param {'on'|'off'} state
+ * @param {number|null} epoch
+ * @returns {Promise<any>} the route's `{target, state, switch_epoch}`
+ * @throws {TargetRequestError} the refusal, after at most one retry
+ */
+export async function postSwitch(sessionId, target, state, epoch) {
+  /** @param {number|null} at */
+  const send = (at) =>
+    targetRequest('/api/terminal/posture', {
+      method: 'POST',
+      json: { session_id: sessionId, target, state, epoch: at },
+    });
+  try {
+    return await send(epoch);
+  } catch (err) {
+    const detail = err instanceof TargetRequestError ? err.detail : null;
+    const stamped =
+      err instanceof TargetRequestError &&
+      err.status === 409 &&
+      detail?.stamped === true &&
+      typeof detail.epoch === 'number';
+    if (!stamped) throw err;
+    return send(detail.epoch);
+  }
+}
+
+/**
+ * The sentence a refused switch gesture shows, and whether the confirm that
+ * raised it should close. The route's `phrase` wins; a 409 is a stop that
+ * overtook the gesture (the dialog's question no longer holds); a 503 on a
+ * stop is the stop sentence even with no phrase — the one thing the operator
+ * must not miss is that writes are still on.
+ * @param {unknown} err
+ * @param {'on'|'off'} to
+ * @returns {{message: string, close: boolean}}
+ */
+export function switchRefusal(err, to) {
+  const e = err instanceof TargetRequestError ? err : null;
+  const detail = e?.detail && typeof e.detail === 'object' && !Array.isArray(e.detail) ? e.detail : {};
+  if (e?.status === 409) return { message: STOPPED_SINCE_SENTENCE, close: true };
+  /** @param {string} message */
+  const say = (message) => ({ message, close: false });
+  if (typeof detail.phrase === 'string' && detail.phrase.trim()) return say(detail.phrase);
+  if (e?.status === 503 && to === 'off') return say(STOP_NOT_TAKEN_SENTENCE);
+  if (typeof detail.reason === 'string' && detail.reason) return say(reasonPhrase(detail.reason));
+  return say(err instanceof Error ? err.message : String(err));
+}
+
+/**
+ * The most specific human sentence a refusal body carries. Handles every
+ * shape rather than guessing at one: the posture route's dict detail (its
+ * `phrase`), the target route's (its `message`), the plain string detail every
+ * other route uses, and a body with neither — where the status code is all
+ * there is to say.
  * @param {any} body @param {number} status @returns {string}
  */
 function refusalMessage(body, status) {
   const detail = body && typeof body === 'object' ? body.detail : null;
   if (typeof detail === 'string' && detail.trim()) return detail;
-  if (detail && typeof detail === 'object' && typeof detail.message === 'string') {
-    if (detail.message.trim()) return detail.message;
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    for (const key of ['phrase', 'message']) {
+      if (typeof detail[key] === 'string' && detail[key].trim()) return detail[key];
+    }
   }
   if (body && typeof body === 'object' && typeof body.message === 'string' && body.message.trim()) {
     return body.message;
@@ -807,14 +906,14 @@ function activeRow(state) {
 }
 
 /**
- * The `data-target-kind` value for one row.
+ * The `data-target-kind` value for one row: its `machine_kind`, exactly as GET
+ * published it.
  *
- * The route already made this decision (from `real_machine` and the label's
- * SHAPE, never from the target name, so a stand-in never renders as the
- * facility's own machine); this restates the mapping onto CSS values and keeps
- * the same derivation as a fallback for a row that carries no `kind`. The
- * fallback fails loud on purpose — an unrecognised real machine is `live`, the
- * direction this stack must fail in.
+ * The route already made this decision from the controls server's report
+ * (C-KIND) — never from the target name or the label's shape — so a `standin`
+ * no live server vouched for arrives as `real` and renders as the real
+ * machine. A row with no recognised `machine_kind` reads as `real` too: the
+ * loud answer is the direction this stack must fail in.
  *
  * Exported for the popover, which keys each ROW's dot and tints on the same
  * attribute: one derivation for the chip and the row it speaks for, so a
@@ -823,37 +922,35 @@ function activeRow(state) {
  * @returns {string}
  */
 export function kindAttr(row) {
-  const published = KIND_ATTR[String(row.kind || '').trim().toLowerCase()];
-  if (published) return published;
-  const label = String(row.label || '').trim().toLowerCase();
-  if (row.real_machine) return label.includes('(stand-in)') ? 'standin' : 'live';
-  return 'va';
+  return machineKind(row);
 }
 
 /**
- * The effective state word for one row: `writes`, `sandbox` or `read-only`.
+ * The state word for one row (C-GET): `on`, `off` or `locked`.
  *
- * Three terms collapse to one word here, and which of the two "no" cases it is
- * matters: `sandbox` is the operator's own narrowing and one click undoes it,
- * `read-only` is the deployment's ceiling (or a read-only run) and no gesture
- * in this interface will move it. A single "no" word would leave an operator
- * clicking a toggle that was never going to open.
+ * Derived from `switch` and `write_allowed` only — never from the legacy
+ * `posture` mirror. `on` is a switch that is on and a write that would pass;
+ * `off` is a switch that is off, which one click undoes; `locked` is a switch
+ * that is on and still refused (its row shows `write_phrase` and keeps the
+ * off control), or a switch nobody can read. A single "no" word would leave
+ * an operator clicking a toggle that was never going to open.
  *
  * Exported for the popover, whose rows and confirms have to name the state in
- * the same three words the chip does — the confirm for a switch tells the
- * operator the posture they will land in, and it must be the word the chip
- * shows a moment later.
+ * the same words the chip does — the confirm for a switch tells the operator
+ * the state they will land in, and it must be the word the chip shows a
+ * moment later.
  * @param {TargetRow} row
- * @returns {'writes'|'sandbox'|'read-only'}
+ * @returns {'on'|'off'|'locked'}
  */
 export function stateWord(row) {
-  if (row.effective) return 'writes';
-  return row.posture === 'sandbox' ? 'sandbox' : 'read-only';
+  if (row?.switch === 'off') return 'off';
+  if (row?.switch === 'on' && row.write_allowed === true) return 'on';
+  return 'locked';
 }
 
 /**
- * The kind of machine the deployment stands on — `live`, `standin` or `va` —
- * or `null` while nothing has been read yet.
+ * The kind of machine the deployment stands on — `real`, `rehearsal` or
+ * `simulator` — or `null` while nothing has been read yet.
  *
  * The chip's own two steps, the row it speaks for and that row's kind, handed
  * out as one answer. A consumer that phrases what a read or a write MEANS here
@@ -893,19 +990,20 @@ function render() {
       chip.removeAttribute('data-pending');
     } else {
       const word = stateWord(row);
+      const kind = kindAttr(row);
       if (anchor) anchor.hidden = false;
       chip.hidden = false;
-      chip.dataset.targetKind = kindAttr(row);
+      chip.dataset.targetKind = kind;
       chip.dataset.state = word;
-      // A question about the CONTEXT, not about the ceiling: whether a change
-      // made here would be written at all, or refused because there is no
-      // context to write or because another terminal holds it. When it would
-      // be refused the chip is dimmed and still opens — the roster is worth
-      // reading even where every gesture on it is refused.
+      // A question about the CONTEXT, not about the switch: whether a target
+      // switch made here would be written at all, or refused because there is
+      // no context to write or because another terminal holds it. When it
+      // would be refused the chip is dimmed and still opens — the roster is
+      // worth reading, and this login's own switches still work.
       chip.dataset.enforceable = String(contextWritable(state));
       if (pending) chip.dataset.pending = 'true';
       else chip.removeAttribute('data-pending');
-      shortEl.textContent = displayName(row, kindAttr(row));
+      shortEl.textContent = displayName(row, kind);
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the deployment is on until the
       // switch actually lands.
@@ -913,7 +1011,7 @@ function render() {
       chip.title = row.label || row.target;
       chip.setAttribute(
         'aria-label',
-        `Control target: ${displayName(row, kindAttr(row))} · ${pending ? 'switching' : statePhrase(word)}`
+        `Control target: ${displayName(row, kind)} · ${pending ? 'switching' : statePhrase(word)}`
       );
     }
   }
