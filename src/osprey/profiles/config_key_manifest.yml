@@ -2380,13 +2380,21 @@ keys:
   ariel.search_modules.hybrid.settings:
     evidence: '_SETTINGS_PREFIX = "search_modules\.hybrid\.settings"'
     default: {}
+  ariel.search_modules.hybrid.settings.strategy:
+    evidence: '_SETTINGS_PREFIX\}\.strategy must be one of'
+    note: >-
+      `qmd` retains the shipped all-qmd lexical/vector hybrid behavior. `rrf`
+      requests qmd's lexical BM25 ranking plus ARIEL's configured dense ranking,
+      then combines their positions with reciprocal-rank fusion. The latter is
+      lightweight and never invokes qmd's reranker.
+    default: qmd
   ariel.search_modules.hybrid.settings.rerank:
     evidence: '_SETTINGS_PREFIX\}\.rerank must be a boolean'
     note: >-
       Shipped as `true`, matching DEFAULT_RERANK and qmd's own default. One
       key, both surfaces: the agent-facing hybrid_search tool and the ARIEL
-      search panel read it, and each can override it without changing the
-      deployment — the tool per call, the panel per session until Reset. The
+      search panel read it. A request can turn an enabled reranker off; `false`
+      in the deployment is a hard disable and removes the panel toggle. The
       reranker dominates query latency — an LLM reviews each candidate — but
       it is not load-bearing: a reranked query that fails is
       retried once without it. The OKF side is a separate key and defaults the
@@ -2398,8 +2406,9 @@ keys:
     evidence: '_SETTINGS_PREFIX\}\.candidate_limit must be a positive integer'
     note: >-
       Shipped as `40`, matching DEFAULT_CANDIDATE_LIMIT and qmd's own
-      `candidateLimit`. One key for both surfaces, like `rerank` above. The
-      other documented latency lever: lowering it trades recall for speed.
+      `candidateLimit`. It is the candidate depth for each BM25 and dense
+      lane in RRF and the candidate pool for the optional qmd reranker. One key for both surfaces,
+      like `rerank` above; lowering it trades recall for speed.
     default: 40
   ariel.enhancement_modules:
     evidence: 'get\("enhancement_modules", \{\}\)'
@@ -4028,7 +4037,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 392
+  expected_union_size: 393
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

@@ -53,7 +53,7 @@ from osprey_connectors.ipc._verification import (
     verify_host_report,
 )
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
-from tests._control_context_fixtures import state_dir_under
+from osprey_connectors_tests._harness import state_dir_under
 from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (

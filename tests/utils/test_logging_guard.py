@@ -1,4 +1,4 @@
-"""Tests for the ``restore_root_logging`` guard in tests/conftest.py.
+"""Tests for the ``restore_root_logging`` guard both conftests import from the harness.
 
 ``configure_logging()`` mutates process-global logging state. The guard undoes
 that between tests so ``caplog`` behaves identically no matter what ran before.
@@ -30,7 +30,7 @@ from rich.logging import RichHandler
 from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS, configure_logging
 
 # Private by name, but this is the module that tests it.
-from tests.conftest import _PRISTINE_LOGGING
+from osprey_connectors_tests._harness._guards import _PRISTINE_LOGGING
 
 _PROBE = "osprey.tests.logging_guard_probe"
 

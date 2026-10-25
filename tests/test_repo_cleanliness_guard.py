@@ -10,7 +10,11 @@ comparison, on directories of their own under ``tmp_path``; none of them touches
 
 import os
 
-from tests._repo_cleanliness import DirectoryState, snapshot, what_this_run_did
+from osprey_connectors_tests._harness._repo_cleanliness import (
+    DirectoryState,
+    snapshot,
+    what_this_run_did,
+)
 
 
 def test_a_directory_this_run_created_is_named(tmp_path):

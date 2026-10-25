@@ -53,7 +53,7 @@ from osprey.mcp_server.python_executor import executor as py_executor
 from osprey_connectors import control_context
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from osprey_connectors.types import LIVE_STANDIN
-from tests._control_context_fixtures import owner, write_control_context, write_server_report
+from osprey_connectors_tests._harness import owner, write_control_context, write_server_report
 from tests.mcp_server._switch_harness import SETTLE_TIMEOUT_S, raw_config
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 

@@ -352,11 +352,12 @@ def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
 #
 # Every recipe that installs the framework by version, discovered by the ARG it
 # reads rather than listed, so a new framework-primed recipe is covered the day
-# it lands. osprey-framework and osprey-connectors ship as a pair from one tag,
-# so a beta framework exists only beside a beta connectors — and plain pip
-# never picks a pre-release for a requirement that names none, which the
-# framework's own connectors requirement does not. The deps layer therefore
-# takes an `OSPREY_PIP_PRE` build arg and, when it is set, resolves with `--pre`.
+# it lands. osprey-connectors releases on its own tags and the framework
+# declares only a floor on it, which names no pre-release — and plain pip never
+# picks a pre-release for such a requirement, so a beta framework would pass
+# over the connectors pre-releases it was tested with. The deps layer therefore
+# takes an `OSPREY_PIP_PRE` build arg and, when it is set, resolves with `--pre`,
+# free to take the newest connectors pre-release.
 
 FRAMEWORK_PINNED_DOCKERFILES = [
     p for p in SHIPPED_DOCKERFILES if "$OSPREY_VERSION" in p.read_text(encoding="utf-8")

@@ -220,24 +220,28 @@ dependencies = [
     # `--extra dev` would otherwise satisfy every other --dev precondition and
     # fail only at wheel-build time.
     "build",
-    # The connectors package versions with this repo's own calendar stream
-    # (same v-tags, same describe — see its pyproject.toml), so the two wheels
-    # built from one checkout always agree; the floor below is the last stable
-    # release tag, which any same-checkout build satisfies. The floor admits no
-    # pre-release by itself; a pre-release framework pairs with the connectors
-    # beside it because the install admits pre-releases. Every install OSPREY
-    # drives from a pre-release pin does so for the whole resolve (`--pre` for
+    # The connectors package has its own calendar stream, on its own
+    # osprey-connectors-v* tags (see its pyproject.toml), and stays
+    # backward-compatible with every supported framework release, so this is a
+    # floor and never a pin. 2026.6.2 is a placeholder left from the shared
+    # stream, not a connectors release: PyPI carries 0.1.0 and 2026.9.0b1–b3,
+    # so today the floor resolves to 2026.9.0b3. It is raised to the first
+    # independent stable connectors release (planned 2026.10.0) at the
+    # cut-over, before the first stable framework release under the split,
+    # and stays unchanged until that release exists. A same-checkout build
+    # describes from the newest connectors tag, which satisfies it.
+    #
+    # The floor admits no pre-release by itself. Every install OSPREY drives
+    # from a pre-release pin admits them for the whole resolve (`--pre` for
     # pip, `--prerelease allow` for uv; see osprey.version.pins_prerelease),
-    # and pip also takes a pre-release when no stable release satisfies the
-    # floor. A `>=2026.9.0b1` floor would refuse every same-checkout dev wheel
-    # (`2026.6.2.postN` sorts below it) and break `osprey up --dev` until the
-    # tag exists — found live on the release PR's image-building e2e lanes.
-    # uv resolves transitive pre-releases only when told
-    # (`--prerelease=allow`); it fails loudly with that hint, never silently
-    # pairs the old stable.
+    # which lets it take the newest connectors pre-release, and pip also takes
+    # a pre-release when no stable release satisfies the floor. uv resolves
+    # transitive pre-releases only when told (`--prerelease=allow`); it fails
+    # loudly with that hint, never silently pairs an older stable.
     "osprey-connectors>=2026.6.2",
     # pyAML control-system backend over the connector; versions with this repo's
-    # calendar stream exactly as osprey-connectors does, hence the same specifier.
+    # own calendar stream (same v-tags, same describe), so the floor is the last
+    # stable framework release tag, which any same-checkout build satisfies.
     "pyaml-cs-osprey>=2026.6.2",
     # pyAML itself, installed from accelerator-middle-layer-apg: the ALS-APG
     # staging distribution of pyAML, which carries upstream commits only and
@@ -615,8 +619,12 @@ minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"
 testpaths = [
     "tests",
+    "packages/osprey-connectors/tests",
     "src/applications/*/tests"
 ]
+# The connectors suite's helpers (osprey_connectors_tests) are imported by the
+# framework's own connector tests, which may be collected before that suite is.
+pythonpath = ["packages/osprey-connectors/tests"]
 python_files = [
     "test_*.py",
     "*_test.py"
@@ -732,6 +740,7 @@ src = [
     "interfaces",
     "deployment",
     "packages/osprey-connectors/src",
+    "packages/osprey-connectors/tests",
     "packages/pyaml-cs-osprey/src",
 ]
 # Executable Python scripts without a .py suffix. Ruff selects files by suffix and

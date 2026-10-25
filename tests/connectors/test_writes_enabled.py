@@ -13,7 +13,7 @@ from osprey_connectors.control_system._base import (
     ControlSystemConnector,
     WriteOutcome,
 )
-from tests.connectors._write_fakes import (
+from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     config_reader,
     writes_enabled_config,

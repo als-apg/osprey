@@ -20,7 +20,7 @@ properties only a *generator* wrapper has: the owner is visible at every yield,
 not merely at the call, and the binding is gone the moment the generator closes
 — whether it ran to completion or was closed mid-plan, which is what an aborted
 run does. Those rows drive the wrappers as the plain generators they are.
-``tests/connectors/test_owner_context.py`` owns the ladder and the sentinel and
+``packages/osprey-connectors/tests/osprey_connectors_tests/test_owner_context.py`` owns the ladder and the sentinel and
 is not restated.
 
 The rows about the *line a refusal earns* cannot be driven that way, because a

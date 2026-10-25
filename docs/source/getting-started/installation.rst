@@ -232,8 +232,8 @@ Step 5: Install OSPREY
          # One specific pre-release
          uv tool install --prerelease allow "osprey-framework==2026.9.0b2"
 
-      Pinning the version alone is not enough: ``osprey-connectors``, which
-      ships alongside the framework under the same number, is a pre-release
+      Pinning the version alone is not enough: the ``osprey-connectors``
+      release a pre-release framework is tested with can be a pre-release
       too, and ``--prerelease allow`` is what lets the resolver take it.
       ``uv tool upgrade --prerelease allow osprey-framework`` moves an
       installation on to the next pre-release.

@@ -78,7 +78,7 @@ import yaml
 
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import write_control_context, write_server_report
+from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server

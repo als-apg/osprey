@@ -1,4 +1,4 @@
-"""Tests for the xdist scheduler override in tests/conftest.py.
+"""Tests for the xdist scheduler override both conftests import from the harness.
 
 `FileOrGroupScheduling` overrides `_split_scope`, an underscore method of
 xdist's scheduler extension point. These tests pin both its grouping behaviour
@@ -9,7 +9,10 @@ suite.
 
 import pytest
 
-from tests.conftest import FileOrGroupScheduling, pytest_xdist_make_scheduler
+from osprey_connectors_tests._harness._guards import (
+    FileOrGroupScheduling,
+    pytest_xdist_make_scheduler,
+)
 
 pytest.importorskip("xdist", reason="scheduler override only applies when xdist is installed")
 

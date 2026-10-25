@@ -78,8 +78,11 @@ differences, each load-bearing:
   The installation page carries the command under *Pre-releases*; repeat the
   exact command at the top of the GitHub Release body, because a reader who
   follows the stable instructions from the pre-release's own docs directory
-  gets the last stable release and not the beta. The final release moves the
-  floor to its own stable version; run `uv lock --check` after that edit.
+  gets the last stable release and not the beta. The floor names a
+  connectors release (its own `osprey-connectors-v*` stream, below), never a
+  framework version: raise it only when the framework starts needing
+  something a newer stable connectors release carries, and run
+  `uv lock --check` after that edit.
 - **The GitHub Release is marked pre-release automatically.** `release.yml`
   classifies the tag (exactly `X.Y.Z` = stable, anything else = pre-release)
   and sets the flag, so the beta never shows as "Latest".
@@ -107,6 +110,24 @@ Tagging `v2026.7.0` *is* the act of setting the version to `2026.7.0`.
 Between releases the version reports its distance from the last tag
 (`2026.6.2.post783+g83fda5e60`), which is how a development build is
 distinguishable from the release it descends from.
+
+### osprey-connectors has its own version stream
+
+The `osprey-connectors` workspace package is versioned the same way — CalVer,
+derived from a tag, no literal — but from its **own** tags,
+`osprey-connectors-vYYYY.M.P` (`bN` / `rcN` for pre-releases), cut when the
+package changes rather than with every framework tag. Its describe glob
+(`osprey-connectors-v2[0-9][0-9][0-9].*`) skips both the framework's `v*` tags
+and the retired `osprey-connectors-v0.1.0`; the framework's `v[0-9]*` glob
+never reads a connectors tag. Each connectors release must stay
+backward-compatible with every supported framework release, which is why the
+framework declares only a floor on it.
+
+A checkout with no connectors calendar tag reachable builds the package as
+`0.0.postN+g…`, which the framework's floor refuses — `osprey up --dev` then
+stops before staging and names the tag glob. Fetch tags (`git fetch --tags`)
+before building; a fork or mirror must sync the `osprey-connectors-v*` tags,
+not only the framework's `v*` ones.
 
 The one version literal that does exist is the **plugin's**: the two manifests
 under `plugins/osprey/` carry their own CalVer, kept in sync by

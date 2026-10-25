@@ -14,7 +14,7 @@ import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
-import { refreshStatsBadges } from './stats-badges.js';
+import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
 
 // Standalone, this page owns its own theme chrome (the header
 // <osprey-display-menu>), so it runs theme-manager.js in the hub role:
@@ -60,6 +60,7 @@ async function init() {
     state.availablePipelines = info.available_pipelines || [info.pipeline_type];
     state.dbPath = info.db_path || null;
     state.setGraphInfo(info.tools, info.graph_store);
+    renderProvenance();
     updatePipelineBadge(info.pipeline_type);
     buildPipelineDropdown();
   } catch (e) {
@@ -73,8 +74,13 @@ async function init() {
   // Set up navigation
   setupNav();
   onHeaderAction((id, value) => {
-    if (id === 'view' && value && VIEWS[value]) location.hash = value;
+    if (id === 'view') {
+      if (value && VIEWS[value]) location.hash = value;
+      return;
+    }
+    state.viewHeader?.onAction(id, value);
   });
+  state.on('viewHeaderChanged', () => contributeViewNav());
 
   // Route to initial view
   routeFromHash();
@@ -141,10 +147,15 @@ function setupNav() {
 
 /**
  * Publish the Explore/Feedback tabs into the hub's tile bar, marking the
- * current view active. Sent whole on every view change — the hub renders
- * only the latest contribution. No-op standalone, where `.header-nav`
- * carries the same tabs; Simple mode hides those tabs there, so it
- * contributes nothing here either (a mode flip re-mounts, so this re-runs).
+ * current view active, behind whatever the active view adds of its own (the
+ * graph finder's search box and ⋯ menu). The view's items come first: they
+ * exist only in one view, and the header contract puts conditional items
+ * before the persistent switcher so the switcher never slides. Sent whole on
+ * every change — the hub renders only the latest contribution. No-op
+ * standalone, where `.header-nav` carries the same tabs; Simple mode hides
+ * those tabs there and collapses the tile bar, so it contributes nothing
+ * here either and the view keeps its in-body controls (a mode flip
+ * re-mounts, so this re-runs).
  */
 function contributeViewNav() {
   if (document.documentElement.getAttribute('data-ui-mode') === 'simple') {
@@ -152,6 +163,7 @@ function contributeViewNav() {
     return;
   }
   contributeHeader([
+    ...(state.viewHeader?.items ?? []),
     {
       kind: 'nav',
       id: 'view',
@@ -240,6 +252,8 @@ async function switchPipeline(newType) {
     const info = await fetchJSON('/api/info');
     state.setPipelineInfo(info.pipeline_type, info.metadata);
     state.dbPath = info.db_path || null;
+    state.setGraphInfo(info.tools, info.graph_store);
+    renderProvenance();
     updatePipelineBadge(info.pipeline_type);
 
     // Update dropdown active state

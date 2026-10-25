@@ -39,7 +39,7 @@ from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice, se
 from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors.simulation.view import SimulatorView
-from tests import ci_diagnostics
+from osprey_connectors_tests._harness import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider
 
@@ -1504,7 +1504,7 @@ def judge_result_preview(text: str) -> str:
 
 
 #: Sub-directory of ``OSPREY_CI_DIAG_DIR`` that transcripts are written to.
-#: Separate from the records :mod:`tests.ci_diagnostics` keeps in the same
+#: Separate from the records :mod:`ci_diagnostics` keeps in the same
 #: directory, so a per-worker event log and a per-test transcript can never
 #: collide on a name.
 TRANSCRIPT_SUBDIR = "agent"
@@ -1561,7 +1561,7 @@ def dump_agent_transcript(
 ) -> Path | None:
     """Persist one agent run's full response and tool traces as a CI artifact.
 
-    Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`tests.ci_diagnostics`:
+    Gated on ``OSPREY_CI_DIAG_DIR`` exactly like :mod:`ci_diagnostics`:
     unset — which is every local run — writes nothing and returns ``None``.
     The lanes that set it already upload that directory, and
     ``capture-ci-diagnostics`` creates its own subdirectory rather than

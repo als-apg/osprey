@@ -3,53 +3,54 @@
  * OSPREY Channel Finder — Graph Explore (the facility finder).
  *
  * The graph paradigm has no channel database to browse, so Explore is a
- * search: a query box, a facet rail built from the store's own vocabulary, a
- * page of matching channels, and a device card for the row an operator drills
- * into. The panel also names its provenance — the store the answers came from
- * and the tools the assistant queries it with — so a stale corpus can be told
- * from a live one at a glance.
+ * search: a toolbar with the query box, a facet rail built from the store's
+ * own vocabulary, a page of matching channels, and a device inspector for the
+ * row an operator drills into. It is laid out like the fleet's other panels —
+ * full height, the rail and the inspector as panes behind the shared splitter,
+ * a right-click menu on every surface that has verbs — and the store the
+ * answers came from is named in the corpus strip below it (stats-badges.js).
  *
  * Three states, one panel: the finder, an informational pane for a store that
  * is reachable but unseeded, and the same pane carrying the store's own remedy
  * when a read failed. None of them is styled as an error.
  *
- * This module is the only owner of the DOM and of the network in graph mode.
- * The state it searches with is a plain object from graph-finder-state.js and
- * every string it draws comes from graph-finder-render.js; both are pure, so
- * what is left here is the fetch lifecycle, the event delegation, and the one
- * shape the server sends that the render module does not take directly (see
- * {@link buildForest}).
+ * This module owns the finder's state, its network lifecycle and its DOM
+ * regions. Around it, each piece is pure or nearly so:
  *
- * The endpoints are read with `fetch` rather than `api.js`'s `fetchJSON`: the
- * graph routes carry `error_type` and `suggestions` beside `detail`, and
- * `fetchJSON` keeps only `detail`.
+ *   graph-finder-state.js   what the operator asks for (query, facets, page, sort, selection)
+ *   graph-finder-render.js  every string drawn
+ *   graph-finder-menus.js   which verbs each right-click menu offers
+ *   graph-finder-verbs.js   the verbs, and the hub tile-bar contribution
+ *   graph-finder-events.js  which input reaches which verb
+ *   graph-finder-prefs.js   the column layout and view preferences kept per render
+ *   graph-finder-data.js    reading an endpoint, and the class forest
+ *
+ * The verbs and the event handlers reach this module only through the
+ * {@link FinderHost} built in {@link mountGraph}: a narrow, live view of the
+ * state and the redraws, so none of them holds state of its own.
  *
  * Every request kind carries its own abort controller and its own generation
  * counter. A reply is applied only when it is still the newest of its kind and
  * the panel it was asked for is still mounted, so a slow answer to an abandoned
  * query can never overwrite a faster answer to the current one.
+ *
+ * Embedded in the web terminal (outside Simple mode) the toolbar's search box
+ * and ⋯ menu move into the hub's tile bar (graph-finder-verbs.js
+ * contributeHeader → state.setViewHeader → app.js), so the panel body starts
+ * at the filters like every other tile. Simple mode hides the hub's tile bar,
+ * so there the in-body toolbar stays.
  */
 
 import { state } from './state.js';
-import { esc, messageOf } from './utils.js';
+import { esc } from './utils.js';
 import { refreshStatsBadges } from './stats-badges.js';
 import { showToast } from './app.js';
 import { copyText as writeClipboard } from '/design-system/js/clipboard.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
-import {
-  activeChips,
-  clampPage,
-  clearSelection,
-  copyText,
-  createFinderState,
-  removeChip,
-  sendText,
-  setQuery,
-  toggleFacet,
-  togglePageSelection,
-  toggleSelection,
-  toSearchParams,
-} from './graph-finder-state.js';
+import { initSplitter } from '/design-system/js/splitter.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { attachColumnGestures, moveColumn, resizeColumn, visibleColumns } from '/design-system/js/table-columns.js';
+import { activeChips, clampPage, copyText, createFinderState, toSearchParams } from './graph-finder-state.js';
 import {
   chipsHtml,
   deviceCardErrorHtml,
@@ -59,29 +60,16 @@ import {
   footerHtml,
   resultsHtml,
 } from './graph-finder-render.js';
+import { buildForest, classNameIn, fetchJson, stringList } from './graph-finder-data.js';
+import { contributeHeader, createActions } from './graph-finder-verbs.js';
+import { bindFinderEvents } from './graph-finder-events.js';
+import { COLUMN_SPECS, INSPECTOR_KEY, RAIL_KEY, loadColumns, loadPrefs, saveColumns } from './graph-finder-prefs.js';
 
 /** @typedef {import('./graph-finder-state.js').FinderState} FinderState */
-/** @typedef {import('./graph-finder-state.js').Facet} Facet */
-
-/**
- * One class of the store's taxonomy while the forest is being built. `parents`
- * is what the store declared; `parent` is the one it is drawn under.
- * @typedef {object} ClassNode
- * @property {string} uri
- * @property {string} name
- * @property {string[]} parents
- * @property {string|null} parent
- * @property {boolean} abstract
- * @property {ClassNode[]} children
- */
-
-/**
- * A settled request: the payload, a failure carrying the store's own remedy, or
- * `null` when the request was abandoned because the view moved on.
- * @typedef {{ok: true, data: any}
- *   | {ok: false, status: number, detail: string, errorType: string, suggestions: string[]}
- *   | null} Reply
- */
+/** @typedef {import('./graph-finder-data.js').ClassNode} ClassNode */
+/** @typedef {import('./graph-finder-data.js').Reply} Reply */
+/** @typedef {import('./graph-finder-verbs.js').FinderHost} FinderHost */
+/** @typedef {import('/design-system/js/splitter.js').SplitterApi} SplitterApi */
 
 /** One request kind's in-flight controller and its generation counter. */
 /** @typedef {{controller: AbortController|null, generation: number}} Flight */
@@ -90,22 +78,22 @@ const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
 const DEVICE_PATH = '/api/graph/device';
 
-/** How long typing settles before the query is sent, in ms. */
-const SEARCH_DEBOUNCE_MS = 200;
-
 const SEARCH_INPUT_ID = 'graph-finder-q';
 const COUNT_ID = 'graph-finder-count';
 const CHIPS_ID = 'graph-finder-chips';
 const RAIL_ID = 'graph-finder-rail';
+const RAIL_SPLIT_ID = 'graph-finder-rail-split';
 const CAUTION_ID = 'graph-finder-caution';
 const CARD_ID = 'graph-finder-card';
+const CARD_SPLIT_ID = 'graph-finder-card-split';
 const TABLE_ID = 'graph-finder-table';
+
+/** Splitters only drive the side-by-side layout; a narrow viewport stacks. */
+const WIDE_QUERY = '(min-width: 769px)';
 
 const LOADING_HTML =
   '<div class="loading-center"><div class="loading-spinner"></div> Searching the facility graph&hellip;</div>';
 const EMPTY_TITLE = 'The graph store is reachable, but holds no facility corpus yet.';
-const PANEL_TITLE = 'Facility graph';
-const PANEL_SUBTITLE = 'Search the graph store for devices and the channels bound to them.';
 const SEARCH_PLACEHOLDER = 'Search devices, addresses and descriptions';
 const TRUNCATED_TEXT =
   'The store holds more values than this query returned, so the rail below is a '
@@ -127,15 +115,29 @@ let ontology = { tree: [], truncated: false };
 /** @type {any} */
 let results = null;
 
-/** The device card's markup, or '' when no card is open. */
+/** The inspector's markup, or '' when no device is open. */
 let cardHtml = '';
+
+/** The device the inspector shows: its URI and its payload (null on a miss). */
+/** @type {{uri: string, data: any}|null} */
+let card = null;
 
 /** Whether an assistant session is hosting the panel and can be sent to. */
 let embedded = false;
 
-/** Pending debounce for the query box. */
-/** @type {number|undefined} */
-let debounceTimer;
+/** The column layout and view preferences the operator arranged. */
+let layout = loadColumns();
+let prefs = loadPrefs();
+
+/** The filter rail's splitter, for the verbs that hide and show it. */
+/** @type {SplitterApi|null} */
+let railSplit = null;
+
+/** Teardowns: the listeners of the mount, and what the skeleton wires. */
+/** @type {(() => void)|null} */
+let unbindEvents = null;
+/** @type {Array<() => void>} */
+let skeletonTeardown = [];
 
 /**
  * One flight per request kind. A new request of a kind aborts the previous one
@@ -146,6 +148,34 @@ const flights = {
   ontology: { controller: null, generation: 0 },
   search: { controller: null, generation: 0 },
   device: { controller: null, generation: 0 },
+};
+
+/** The mount as the verbs and handlers see it. @type {FinderHost} */
+const host = {
+  finder: () => finder,
+  results: () => results,
+  card: () => card,
+  layout: () => layout,
+  setLayout: (next) => { layout = next; },
+  prefs: () => prefs,
+  embedded: () => embedded,
+  railSplit: () => railSplit,
+  pane: () => paneEl,
+  part,
+  searchInputId: SEARCH_INPUT_ID,
+  runSearch,
+  renderTable,
+  renderRail,
+  commitColumns,
+  toggleDevice,
+  openDevice,
+  closeCard,
+  copy: copyAndSay,
+  send: sendAddresses,
+  copySelection: () => {
+    if (finder.selected.size) void copyAndSay(copyText(finder), addresses(finder.selected.size));
+  },
+  turnPage,
 };
 
 // ---------------------------------------------------------------------------
@@ -165,9 +195,15 @@ export async function mountGraph(content) {
   paneEl = content;
   finder = createFinderState();
   ontology = { tree: [], truncated: false };
+  layout = loadColumns();
+  prefs = loadPrefs();
   embedded = isEmbedded() && window.parent !== window;
-  content.innerHTML = shellHtml();
-  bindEvents(content);
+  content.innerHTML = `
+    <div class="graph-explorer${prefs.density === 'compact' ? ' compact' : ''}" data-pipeline="graph">
+      <div class="graph-explorer-body">${LOADING_HTML}</div>
+    </div>`;
+  unbindEvents = bindFinderEvents(content, host);
+  contributeHeader(host);
   await load();
 }
 
@@ -178,12 +214,17 @@ export async function mountGraph(content) {
  */
 export function unmountGraph() {
   for (const kind of /** @type {const} */ (['ontology', 'search', 'device'])) abort(kind);
-  window.clearTimeout(debounceTimer);
-  debounceTimer = undefined;
-  if (paneEl) paneEl.innerHTML = '';
+  teardownSkeleton();
+  unbindEvents?.();
+  unbindEvents = null;
+  if (paneEl) {
+    paneEl.innerHTML = '';
+    if (state.viewHeader) state.setViewHeader(null);
+  }
   paneEl = null;
   results = null;
   cardHtml = '';
+  card = null;
 }
 
 /**
@@ -199,10 +240,6 @@ function abort(kind) {
   flight.controller = null;
   flight.generation += 1;
 }
-
-// ---------------------------------------------------------------------------
-// Requests
-// ---------------------------------------------------------------------------
 
 /**
  * Run one request of `kind`, superseding whatever else that kind had running.
@@ -228,42 +265,6 @@ async function request(kind, url) {
   return reply;
 }
 
-/**
- * Read one graph endpoint, keeping the remedy fields a failure carries.
- *
- * @param {string} url - The url to read.
- * @param {AbortSignal} signal - Abort signal for the request.
- * @returns {Promise<Reply>} The payload, a failure, or null if aborted.
- */
-async function fetchJson(url, signal) {
-  try {
-    const resp = await fetch(url, { signal });
-    const body = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      return {
-        ok: false,
-        status: Number(resp.status) || 0,
-        detail: String(body.detail || resp.statusText || 'The graph store did not answer.'),
-        errorType: String(body.error_type || ''),
-        suggestions: stringList(body.suggestions),
-      };
-    }
-    return { ok: true, data: body };
-  } catch (e) {
-    if (e instanceof Error && e.name === 'AbortError') return null;
-    return { ok: false, status: 0, detail: messageOf(e), errorType: '', suggestions: [] };
-  }
-}
-
-/**
- * Coerce an untyped payload field into a list of display strings.
- * @param {unknown} value - The field as the server sent it.
- * @returns {string[]} The strings it held, or an empty list.
- */
-function stringList(value) {
-  return Array.isArray(value) ? value.map((item) => String(item)) : [];
-}
-
 /** @returns {string} The search url for the current state. */
 function searchUrl() {
   return `${SEARCH_PATH}?${toSearchParams(finder).toString()}`;
@@ -283,6 +284,7 @@ function searchUrl() {
 async function load() {
   const body = bodyEl();
   if (!body) return;
+  teardownSkeleton();
   body.innerHTML = LOADING_HTML;
 
   const [ontReply, searchReply] = await Promise.all([
@@ -339,57 +341,12 @@ async function applySearch(data) {
 }
 
 // ---------------------------------------------------------------------------
-// Panel shell
+// Regions
 // ---------------------------------------------------------------------------
-
-/**
- * The panel chrome: title, provenance badge, subtitle with the tool chips, and
- * the body every later render replaces.
- * @returns {string} Markup for the panel.
- */
-function shellHtml() {
-  return `
-    <div class="graph-panel" data-pipeline="graph">
-      <div class="graph-panel-head">
-        <div class="graph-panel-title">${esc(PANEL_TITLE)}</div>
-        ${storeBadgeHtml()}
-        <div class="graph-panel-sub">${esc(PANEL_SUBTITLE)}${toolChipsHtml()}</div>
-      </div>
-      <div class="graph-panel-body">${LOADING_HTML}</div>
-    </div>
-  `;
-}
-
-/**
- * Name the store behind these answers. Both halves are optional: a store seeded
- * from a TTL file is named `file @ uri`, one seeded another way by its URI
- * alone. A missing half is left out rather than printed as an empty word.
- * @returns {string} Markup for the badge, or '' when nothing is known.
- */
-function storeBadgeHtml() {
-  const store = state.graphStore;
-  const uri = store && store.uri ? store.uri : '';
-  const file = store && store.ttl_filename ? store.ttl_filename : '';
-  const label = file && uri ? `${file} @ ${uri}` : (file || uri);
-  if (!label) return '';
-  return `<div class="graph-store-badge" title="Graph store"><code>${esc(label)}</code></div>`;
-}
-
-/**
- * The tools the assistant reads this same store with, so the reader knows the
- * panel and the agent are looking at one corpus.
- * @returns {string} Markup for the chips, or '' when none are reported.
- */
-function toolChipsHtml() {
-  const tools = state.tools || [];
-  if (tools.length === 0) return '';
-  const chips = tools.map((tool) => `<span class="graph-tool-chip">${esc(tool)}</span>`).join(' ');
-  return ` The assistant queries it with ${chips}`;
-}
 
 /** @returns {Element|null} The panel body, or null when nothing is mounted. */
 function bodyEl() {
-  return paneEl ? paneEl.querySelector('.graph-panel-body') : null;
+  return paneEl ? paneEl.querySelector('.graph-explorer-body') : null;
 }
 
 /**
@@ -401,31 +358,109 @@ function part(id) {
   return paneEl ? /** @type {HTMLElement|null} */ (paneEl.querySelector(`#${id}`)) : null;
 }
 
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
 /**
  * The finder's skeleton. The query box lives here rather than in a re-rendered
  * region: replacing an input while it has focus would drop the caret mid-word.
- * @returns {string} Markup for the search row, the rail and the results column.
+ * @returns {string} Markup for the toolbar, the panes and the regions inside them.
  */
 function skeletonHtml() {
+  const density = (/** @type {'comfortable'|'compact'} */ d, /** @type {string} */ label) =>
+    `<button type="button" data-density="${d}" aria-pressed="${prefs.density === d}">${label}</button>`;
   return `
-    <div class="finder-search">
-      <input type="search" id="${SEARCH_INPUT_ID}" placeholder="${esc(SEARCH_PLACEHOLDER)}"
-             aria-label="${esc(SEARCH_PLACEHOLDER)}" autocomplete="off" spellcheck="false">
+    <div class="cf-toolbar">
+      <label class="cf-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="${SEARCH_INPUT_ID}" placeholder="${esc(SEARCH_PLACEHOLDER)}"
+               aria-label="${esc(SEARCH_PLACEHOLDER)}" autocomplete="off" spellcheck="false">
+        <kbd title="Press / to search">/</kbd>
+      </label>
       <span class="finder-count" id="${COUNT_ID}"></span>
+      <span class="cf-spacer"></span>
+      <span class="cf-seg" role="group" aria-label="Row density">${density('comfortable', 'Comfortable')}${density('compact', 'Compact')}</span>
+      <button type="button" class="cf-iconbtn" data-more aria-haspopup="menu"
+              title="More options" aria-label="More options">⋯</button>
     </div>
     <div class="active-filters" id="${CHIPS_ID}"></div>
     <div class="finder-layout">
       <div class="facet-rail" id="${RAIL_ID}"></div>
+      <div class="osprey-splitter" id="${RAIL_SPLIT_ID}" role="separator" aria-orientation="vertical"
+           aria-label="Resize the filters" tabindex="0" title="Drag to resize · double-click to hide"></div>
       <div class="finder-results">
-        <div id="${CAUTION_ID}"></div><div id="${CARD_ID}"></div><div id="${TABLE_ID}"></div>
+        <div id="${CAUTION_ID}"></div>
+        <div class="finder-table" id="${TABLE_ID}"></div>
       </div>
+      <div class="osprey-splitter" id="${CARD_SPLIT_ID}" role="separator" aria-orientation="vertical"
+           aria-label="Resize the device inspector" tabindex="0" hidden></div>
+      <div class="finder-inspector" id="${CARD_ID}" hidden></div>
     </div>
   `;
 }
+
+/**
+ * Wire what the skeleton carries: the two splitters and the column gestures.
+ * Called each time the skeleton is (re)written, after any previous wiring is
+ * torn down.
+ * @returns {void}
+ */
+function wireSkeleton() {
+  teardownSkeleton();
+  const wide = () => window.matchMedia?.(WIDE_QUERY).matches ?? true;
+  const rail = initSplitter({
+    handle: part(RAIL_SPLIT_ID),
+    pane: part(RAIL_ID),
+    storageKey: scopedStorageKey(RAIL_KEY),
+    min: 160,
+    max: 480,
+    collapsedSize: 0,
+    isEnabled: wide,
+    onCommit: () => contributeHeader(host),
+  });
+  const inspector = initSplitter({
+    handle: part(CARD_SPLIT_ID),
+    pane: part(CARD_ID),
+    storageKey: scopedStorageKey(INSPECTOR_KEY),
+    anchor: 'end',
+    min: 260,
+    max: () => Math.max(320, Math.round((paneEl?.clientWidth || 1200) * 0.6)),
+    isEnabled: wide,
+  });
+  if (wide()) {
+    rail.restoreSize();
+    inspector.restoreSize();
+  }
+  railSplit = rail;
+
+  const table = part(TABLE_ID);
+  const detach = table
+    ? attachColumnGestures(table, {
+      onResizing: (key, width) => {
+        resizeColumn(COLUMN_SPECS, layout, key, width);
+        applyWidths();
+      },
+      onResize: (key, width) => {
+        resizeColumn(COLUMN_SPECS, layout, key, width);
+        saveColumns(layout);
+        applyWidths();
+      },
+      onMove: (key, target, before) => {
+        if (moveColumn(layout, key, target, before)) commitColumns();
+      },
+      onAutosize: (key) => createActions(host).autosize(key),
+    })
+    : () => {};
+  skeletonTeardown = [() => rail.destroy(), () => inspector.destroy(), detach];
+}
+
+/** Undo {@link wireSkeleton}. Safe when nothing is wired. @returns {void} */
+function teardownSkeleton() {
+  for (const fn of skeletonTeardown) fn();
+  skeletonTeardown = [];
+  railSplit = null;
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
 
 /**
  * Draw the finder for the current state and the newest search payload.
@@ -442,13 +477,20 @@ function renderFinder() {
     body.innerHTML = skeletonHtml();
     const input = /** @type {HTMLInputElement|null} */ (part(SEARCH_INPUT_ID));
     if (input) input.value = finder.q;
+    wireSkeleton();
   }
 
-  const rail = part(RAIL_ID);
-  if (rail) rail.innerHTML = facetRailHtml(results.facets || {}, ontology.tree, finder);
+  renderRail();
 
   const chips = part(CHIPS_ID);
-  if (chips) chips.innerHTML = chipsHtml(activeChips(finder));
+  if (chips) {
+    // A class chip is named by its class, not its URI.
+    const list = activeChips(finder).map((chip) => (chip.key.startsWith('cls:')
+      ? { ...chip, label: `Device class: ${classNameIn(ontology.tree, chip.key.slice(4))}` }
+      : chip));
+    chips.innerHTML = chipsHtml(list)
+      + (list.length > 1 ? '<button type="button" class="clear-all-filters" data-clear-all>Clear all</button>' : '');
+  }
 
   const count = part(COUNT_ID);
   if (count) count.innerHTML = `<strong>${fmt(results.total)}</strong> channels`;
@@ -462,31 +504,75 @@ function renderFinder() {
 
   renderCard();
   renderTable();
+  contributeHeader(host);
+}
+
+/** Redraw the facet rail. @returns {void} */
+function renderRail() {
+  const rail = part(RAIL_ID);
+  if (rail && results) rail.innerHTML = facetRailHtml(results.facets || {}, ontology.tree, finder, prefs.collapsed);
 }
 
 /**
- * Redraw the rows and the footer. Called on its own after a selection change,
- * which moves no other part of the page.
+ * Redraw the rows and the footer. Called on its own after a selection or a
+ * column change, which moves no other part of the page. The row holding the
+ * table's Tab stop keeps it, and keeps focus if it had it, so a keyboard
+ * selection does not throw the operator out of the table.
  * @returns {void}
  */
 function renderTable() {
   const table = part(TABLE_ID);
   if (!table || !results) return;
-  table.innerHTML = resultsHtml(results.rows || [], finder)
-    + footerHtml(
-      results.total,
-      results.devices,
-      finder.page,
-      results.pages,
-      finder.selected.size,
-      embedded,
-    );
+  const active = document.activeElement;
+  const hadFocus = active instanceof HTMLTableRowElement && table.contains(active);
+  const stop = table.querySelector('tbody tr[data-pv][tabindex="0"]')?.getAttribute('data-pv') ?? null;
+  table.innerHTML = resultsHtml(results.rows || [], finder, visibleColumns(COLUMN_SPECS, layout), stop)
+    + footerHtml(results.total, results.devices, finder.page, results.pages, finder.selected.size, embedded);
+  markOpenRows();
+  if (hadFocus) {
+    /** @type {HTMLElement|null} */ (table.querySelector('tbody tr[data-pv][tabindex="0"]'))?.focus();
+  }
 }
 
-/** Redraw the device card region from `cardHtml`. @returns {void} */
+/**
+ * Write the current widths onto the drawn table without redrawing it — the
+ * per-frame half of an edge drag.
+ * @returns {void}
+ */
+function applyWidths() {
+  const table = /** @type {HTMLTableElement|null} */ (paneEl?.querySelector('.result-table') ?? null);
+  if (!table) return;
+  let floor = 0;
+  for (const col of visibleColumns(COLUMN_SPECS, layout)) {
+    floor += col.width;
+    const el = table.querySelector(`col[data-col="${col.key}"]`);
+    if (el instanceof HTMLElement && !el.hasAttribute('data-fill')) el.style.width = `${col.width}px`;
+  }
+  table.style.minWidth = `${floor}px`;
+}
+
+/** Persist the layout and redraw the table. @returns {void} */
+function commitColumns() {
+  saveColumns(layout);
+  renderTable();
+}
+
+/** Mark the rows of the device the inspector shows. @returns {void} */
+function markOpenRows() {
+  for (const row of paneEl?.querySelectorAll('.result-table tbody tr[data-uri]') ?? []) {
+    row.classList.toggle('open', card !== null && row.getAttribute('data-uri') === card.uri);
+  }
+}
+
+/** Redraw the inspector region from `cardHtml`. @returns {void} */
 function renderCard() {
-  const card = part(CARD_ID);
-  if (card) card.innerHTML = cardHtml;
+  const region = part(CARD_ID);
+  if (!region) return;
+  region.innerHTML = cardHtml;
+  region.hidden = cardHtml === '';
+  const split = part(CARD_SPLIT_ID);
+  if (split) split.hidden = cardHtml === '';
+  markOpenRows();
 }
 
 /**
@@ -502,6 +588,7 @@ function renderCard() {
 function renderInfo(detail, suggestions) {
   const body = bodyEl();
   if (!body) return;
+  teardownSkeleton();
   body.innerHTML = '';
   const pane = document.createElement('div');
   pane.className = 'explore-unknown explore-unknown--info';
@@ -533,6 +620,10 @@ function renderInfo(detail, suggestions) {
   body.appendChild(pane);
 }
 
+// ---------------------------------------------------------------------------
+// Effects the verbs ask for
+// ---------------------------------------------------------------------------
+
 /**
  * Pluralise the word an address count is reported with.
  * @param {number} n - How many addresses.
@@ -540,177 +631,6 @@ function renderInfo(detail, suggestions) {
  */
 function addresses(n) {
   return `${fmt(n)} ${n === 1 ? 'address' : 'addresses'}`;
-}
-
-// ---------------------------------------------------------------------------
-// Payload shapes the render module does not take directly
-// ---------------------------------------------------------------------------
-
-/**
- * Build the class forest the rail draws from the flat taxonomy the ontology
- * endpoint answers with.
- *
- * The endpoint sends one row per class naming its parents by URI; the rail
- * needs those rows nested. A class with several known parents is attached under
- * the parent whose URI sorts first, parents absent from the payload are
- * ignored, and a `parents` cycle is broken by dropping the link that closes it,
- * so a corpus with a cyclic taxonomy still draws rather than recursing forever.
- * Siblings are ordered by name, URI breaking a tie, so the rail is stable
- * across reloads.
- *
- * @param {unknown} classes - The `classes` block of an ontology payload.
- * @returns {ClassNode[]} The roots, each carrying its children.
- */
-function buildForest(classes) {
-  /** @type {Map<string, ClassNode>} */
-  const nodes = new Map();
-  for (const cls of Array.isArray(classes) ? classes : []) {
-    const uri = cls && cls.uri != null ? String(cls.uri) : '';
-    if (!uri || nodes.has(uri)) continue;
-    const parents = Array.isArray(cls.parents) ? cls.parents.map(String) : [];
-    const name = cls.name ? String(cls.name) : uri;
-    const abstract = Boolean(cls.abstract);
-    nodes.set(uri, { uri, name, parents, parent: null, abstract, children: [] });
-  }
-
-  for (const node of nodes.values()) {
-    const known = node.parents.filter((uri) => uri !== node.uri && nodes.has(uri)).sort();
-    node.parent = known.length > 0 ? known[0] : null;
-  }
-
-  // Break a cycle at a class that is ON it: the walk is only allowed to demote
-  // a node it returns to, so a class that merely descends from a cycle keeps
-  // its parent. Every cycle still breaks, because each of its members closes on
-  // itself, and once the first one is demoted the rest walk out to a root.
-  for (const node of nodes.values()) {
-    const seen = new Set([node.uri]);
-    let cursor = node.parent;
-    while (cursor && !seen.has(cursor)) {
-      seen.add(cursor);
-      cursor = nodes.get(cursor)?.parent ?? null;
-    }
-    if (cursor === node.uri) node.parent = null;
-  }
-
-  /** @type {ClassNode[]} */
-  const roots = [];
-  for (const node of nodes.values()) {
-    const parent = node.parent ? nodes.get(node.parent) : undefined;
-    if (parent) parent.children.push(node);
-    else roots.push(node);
-  }
-
-  /** @param {ClassNode[]} siblings @returns {void} */
-  const order = (siblings) => {
-    siblings.sort((a, b) => (a.name === b.name ? cmp(a.uri, b.uri) : cmp(a.name, b.name)));
-    for (const node of siblings) order(node.children);
-  };
-  order(roots);
-  return roots;
-}
-
-/**
- * Compare two strings for a stable sort.
- * @param {string} a - First string.
- * @param {string} b - Second string.
- * @returns {number} Negative, zero or positive per `Array.prototype.sort`.
- */
-function cmp(a, b) {
-  return a === b ? 0 : (a < b ? -1 : 1);
-}
-
-// ---------------------------------------------------------------------------
-// Interaction
-// ---------------------------------------------------------------------------
-
-/**
- * Wire the panel's one click, change and input listener. They sit on the pane,
- * which outlives every re-render inside it, so nothing has to be re-bound.
- *
- * @param {HTMLElement} content - The mounted pane.
- * @returns {void}
- */
-function bindEvents(content) {
-  content.addEventListener('click', onClick);
-  content.addEventListener('change', onChange);
-  content.addEventListener('input', onInput);
-}
-
-/**
- * Typing settles for {@link SEARCH_DEBOUNCE_MS} before it becomes a request,
- * so a typed word costs one search rather than one per keystroke.
- * @param {Event} event - The input event.
- * @returns {void}
- */
-function onInput(event) {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement) || target.id !== SEARCH_INPUT_ID) return;
-  const value = target.value;
-  window.clearTimeout(debounceTimer);
-  debounceTimer = window.setTimeout(() => {
-    setQuery(finder, value);
-    void runSearch();
-  }, SEARCH_DEBOUNCE_MS);
-}
-
-/**
- * Selection: one row, or every row on the page. Neither refetches — the
- * selection is the operator's, not the server's.
- * @param {Event} event - The change event.
- * @returns {void}
- */
-function onChange(event) {
-  const target = event.target;
-  if (!(target instanceof HTMLInputElement)) return;
-
-  if (target.hasAttribute('data-select-page')) {
-    togglePageSelection(finder, pagePvs(), target.checked);
-    renderTable();
-    return;
-  }
-
-  const pv = target.getAttribute('data-pv');
-  if (pv !== null && target.type === 'checkbox') {
-    toggleSelection(finder, pv);
-    renderTable();
-  }
-}
-
-/**
- * Every click the finder answers, in the order the render module's contract
- * lists them.
- * @param {Event} event - The click event.
- * @returns {void}
- */
-function onClick(event) {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-
-  const facet = target.closest('button.facet-item[data-facet][data-value]');
-  if (facet) {
-    const name = /** @type {Facet} */ (facet.getAttribute('data-facet'));
-    toggleFacet(finder, name, facet.getAttribute('data-value') || '');
-    void runSearch();
-    return;
-  }
-
-  const chip = target.closest('button.active-filter[data-chip]');
-  if (chip) {
-    if (removeChip(finder, chip.getAttribute('data-chip') || '')) void runSearch();
-    return;
-  }
-
-  const copy = target.closest('button.copy-btn[data-copy]');
-  if (copy) return void copyOne(copy.getAttribute('data-copy') || '');
-
-  const dev = target.closest('button.dev[data-uri]');
-  if (dev) return void openDevice(dev.getAttribute('data-uri') || '');
-
-  const pager = target.closest('[data-page]');
-  if (pager) return turnPage(pager.getAttribute('data-page'));
-
-  const action = target.closest('[data-action]');
-  if (action) runAction(action.getAttribute('data-action'));
 }
 
 /**
@@ -727,91 +647,76 @@ function turnPage(direction) {
 }
 
 /**
- * Run one footer or card action.
- * @param {string|null} action - `copy`, `send`, `clear` or `close-card`.
- * @returns {void}
- */
-function runAction(action) {
-  if (action === 'copy') void copySelection();
-  else if (action === 'send') sendSelection();
-  else if (action === 'clear') {
-    clearSelection(finder);
-    renderTable();
-  } else if (action === 'close-card') closeCard();
-}
-
-/** @returns {string[]} The addresses drawn on the current page. */
-function pagePvs() {
-  const rows = (results && Array.isArray(results.rows)) ? results.rows : [];
-  return rows.map((/** @type {any} */ row) => String(row.fullPv ?? ''));
-}
-
-/**
- * Copy the whole selection, newline-joined — the form an editor or a script
- * takes.
+ * Copy text and say what was copied.
+ * @param {string} text - What goes on the clipboard.
+ * @param {string} what - How the toast names it.
  * @returns {Promise<void>} Resolves once the toast has been raised.
  */
-async function copySelection() {
-  const count = finder.selected.size;
-  if (count === 0) return;
-  const ok = await writeClipboard(copyText(finder));
-  if (ok) showToast(`Copied ${addresses(count)}`, 'success');
-  else showToast('Copy failed — select the table and copy manually', 'error');
+async function copyAndSay(text, what) {
+  if (!text) return;
+  const ok = await writeClipboard(text);
+  if (ok) showToast(`Copied ${what}`, 'success');
+  else showToast('Copy failed — select the text and copy manually', 'error');
 }
 
 /**
- * Copy one address from a row or from the device card.
- * @param {string} pv - The address to copy.
- * @returns {Promise<void>} Resolves once the toast has been raised.
- */
-async function copyOne(pv) {
-  if (!pv) return;
-  const ok = await writeClipboard(pv);
-  if (ok) showToast(`Copied ${pv}`, 'success');
-  else showToast('Copy failed — select the address and copy manually', 'error');
-}
-
-/**
- * Post the selection to the assistant prompt, space-joined on one line.
+ * Post addresses to the assistant prompt, space-joined on one line.
  *
  * The message is addressed to this page's own origin rather than to `*`, so a
  * host on another origin cannot be handed the operator's selection.
+ * @param {string[]} pvs - The addresses to send.
  * @returns {void}
  */
-function sendSelection() {
-  const count = finder.selected.size;
-  if (count === 0 || !embedded) return;
-  window.parent.postMessage(
-    { type: 'osprey-paste-to-terminal', text: sendText(finder) },
-    window.location.origin,
-  );
-  showToast(`Posted ${addresses(count)} to the prompt`, 'success');
+function sendAddresses(pvs) {
+  if (pvs.length === 0 || !embedded) return;
+  window.parent.postMessage({ type: 'osprey-paste-to-terminal', text: pvs.join(' ') }, window.location.origin);
+  showToast(`Posted ${addresses(pvs.length)} to the prompt`, 'success');
 }
 
 /**
- * Open the card for one device, replacing whatever card is open.
+ * Open a device in the inspector, or close it when it is the one shown.
+ * @param {string} uri
+ * @returns {Promise<void>}
+ */
+async function toggleDevice(uri) {
+  if (card && card.uri === uri) {
+    closeCard();
+    return;
+  }
+  await openDevice(uri);
+}
+
+/**
+ * Open the inspector for one device, replacing whatever it shows.
  *
  * A URI the store no longer holds draws the error card and leaves the finder
- * standing under it. A read the store could not serve at all goes to the
+ * standing beside it. A read the store could not serve at all goes to the
  * panel's informational pane instead, which is the only place with room for
  * the remedy such a failure carries.
  *
  * @param {string} uri - The device URI, as a row carries it.
- * @returns {Promise<void>} Resolves once the card has been drawn.
+ * @returns {Promise<void>} Resolves once the inspector has been drawn.
  */
 async function openDevice(uri) {
   if (!uri) return;
   const reply = await request('device', `${DEVICE_PATH}?uri=${encodeURIComponent(uri)}`);
   if (reply === null) return;
-  if (reply.ok) cardHtml = deviceCardHtml(reply.data);
-  else if (reply.errorType === 'not_found') cardHtml = deviceCardErrorHtml(reply.detail);
-  else return renderInfo(reply.detail, reply.suggestions);
+  if (reply.ok) {
+    card = { uri, data: reply.data };
+    cardHtml = deviceCardHtml(reply.data, { embedded });
+  } else if (reply.errorType === 'not_found') {
+    card = { uri, data: null };
+    cardHtml = deviceCardErrorHtml(reply.detail);
+  } else {
+    return renderInfo(reply.detail, reply.suggestions);
+  }
   renderCard();
 }
 
-/** Close the device card and abandon a lookup still in flight. @returns {void} */
+/** Close the inspector and abandon a lookup still in flight. @returns {void} */
 function closeCard() {
   abort('device');
+  card = null;
   cardHtml = '';
   renderCard();
 }

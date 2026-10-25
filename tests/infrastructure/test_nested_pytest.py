@@ -17,34 +17,39 @@ import pytest
 
 from tests._nested_pytest import run_nested_pytest
 
-_TALKER = "import time\nfor _ in range(6):\n    print('.', flush=True)\n    time.sleep(0.5)\n"
+# Every stall window here is generous: it starts at Popen, so the child's
+# interpreter start-up counts as silence, and a loaded runner can take over a
+# second to reach the first print.
+_TALKER = "import time\nfor _ in range(30):\n    print('.', flush=True)\n    time.sleep(0.5)\n"
 
 
 def test_a_run_that_keeps_writing_is_not_stopped_by_its_length():
     result = run_nested_pytest(
-        [sys.executable, "-c", _TALKER], cwd=None, env=None, stall_seconds=1.5
+        [sys.executable, "-c", _TALKER], cwd=None, env=None, stall_seconds=10.0
     )
     assert result.returncode == 0
-    assert result.stdout.count(".") == 6
+    assert result.stdout.count(".") == 30
 
 
 def test_a_finished_run_reports_its_silence_before_exit():
     result = run_nested_pytest(
-        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(1)"],
+        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(2)"],
         cwd=None,
         env=None,
     )
     assert result.returncode == 0
-    assert result.quiet_before_exit >= 0.8
+    # The poll sees the line up to one interval late, later still on a loaded
+    # runner, so the bound leaves most of a second for that lag.
+    assert result.quiet_before_exit >= 1.0
 
 
 def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks():
-    with pytest.raises(pytest.fail.Exception, match="no new output for 1.0 s") as stopped:
+    with pytest.raises(pytest.fail.Exception, match="no new output for 10.0 s") as stopped:
         run_nested_pytest(
             [sys.executable, "-c", "print('started', flush=True)\nimport time\ntime.sleep(60)"],
             cwd=None,
             env=None,
-            stall_seconds=1.0,
+            stall_seconds=10.0,
         )
     report = str(stopped.value)
     assert "started" in report

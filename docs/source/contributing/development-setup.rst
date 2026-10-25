@@ -20,6 +20,12 @@ Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the `
    git clone https://github.com/YOUR-USERNAME/osprey.git
    cd osprey
 
+   # The package versions come from the upstream release tags: the framework's
+   # v* and osprey-connectors' own osprey-connectors-v* tags. A fork or mirror
+   # that lacks them builds osprey-connectors as 0.0.postN.
+   git remote add upstream https://github.com/als-apg/osprey.git
+   git fetch --tags upstream
+
 **2. Install Dependencies**
 
 .. code-block:: bash

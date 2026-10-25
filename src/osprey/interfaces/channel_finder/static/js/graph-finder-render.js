@@ -19,13 +19,17 @@
  * | Attribute                   | Element                        | Meaning |
  * | --------------------------- | ------------------------------ | ------- |
  * | `data-facet` + `data-value` | `button.facet-item`            | Toggle that facet value. `data-facet` is one of `section`, `system`, `signal`, `dir`, `cls`; `cls` is single-select, the rest multi-select. |
+ * | `data-facet-toggle`         | `button.facet-toggle`          | Fold or unfold that facet group; the value is the facet key. |
+ * | `data-clear-facet`          | `button.facet-clear`           | Clear every selection in that facet. |
  * | `data-chip`                 | `button.active-filter`         | Remove that active filter. The key is opaque to this module. |
  * | `data-select-page`          | `thead input[type=checkbox]`   | Select or clear every row on the page. |
- * | `data-pv`                   | `tbody input[type=checkbox]`   | Select or clear that one channel; the value is the channel address. |
- * | `data-uri`                  | `button.dev`                   | Open the device card for that device URI. |
+ * | `data-col`                  | `thead th`                     | The column's key. A click sorts by it, a drag moves it (table-columns.js); `data-pinned` marks chrome columns. |
+ * | `data-resize`               | `span.col-resize`              | The column-edge grip: drag to resize, double-click to fit. |
+ * | `data-pv`                   | `tbody tr`, its checkbox       | The channel address. On the row it is the right-click and keyboard target; on the checkbox it selects. |
+ * | `data-uri`                  | `button.dev`                   | Open the device inspector for that device URI. |
  * | `data-copy`                 | `button.copy-btn`              | Copy that one address. |
  * | `data-page`                 | `button` in the footer         | `prev` or `next`. |
- * | `data-action`               | `button` in the footer or card | `copy`, `send`, `clear`, `close-card`. |
+ * | `data-action`               | `button` in the footer or card | `copy`, `send`, `clear`, `close-card`, `copy-device`, `send-device`. |
  *
  * `data-depth` on a class-facet item is presentational, not a click target: the
  * stylesheet indents the ontology tree from it, so this module emits no inline
@@ -50,11 +54,14 @@
  */
 
 import { esc } from './utils.js';
+import { COLUMN_SPECS } from './graph-finder-prefs.js';
+import { defaultLayout, visibleColumns } from '/design-system/js/table-columns.js';
 
 /** @typedef {{value: string, count: number}} FacetEntry */
 /** @typedef {{section?: FacetEntry[], system?: FacetEntry[], class?: FacetEntry[], signal?: FacetEntry[], dir?: FacetEntry[]}} Facets */
 /** @typedef {{uri: string, name?: string, abstract?: boolean, children?: TreeNode[]}} TreeNode */
-/** @typedef {{section?: Set<string>, system?: Set<string>, signal?: Set<string>, dir?: Set<string>, cls?: string | null, selected?: Set<string>}} FinderState */
+/** @typedef {{section?: Set<string>, system?: Set<string>, signal?: Set<string>, dir?: Set<string>, cls?: string | null, selected?: Set<string>, sort?: {key: string, dir: 'asc'|'desc'} | null}} FinderState */
+/** @typedef {{key: string, label: string, width: number, pin?: 'start'|'end'}} DrawnColumn */
 /** @typedef {Record<string, any>} Row */
 /** @typedef {Record<string, any>} Device */
 
@@ -155,14 +162,29 @@ function facetItem(facet, value, label, count, opts = {}) {
 }
 
 /**
- * Wrap a group of facet buttons in its titled section.
+ * Wrap a group of facet buttons in its titled section. The heading folds the
+ * group, shows how many of its values are selected, and carries a ✕ that
+ * clears them — the same verbs its right-click menu offers.
+ * @param {string} key - The facet key (`cls` for the class tree).
  * @param {string} title
  * @param {string} body - Already-rendered items.
+ * @param {number} active - How many values of this facet are selected.
+ * @param {boolean} collapsed - Whether the group is folded.
  * @returns {string}
  */
-function facetGroup(title, body) {
+function facetGroup(key, title, body, active, collapsed) {
   if (!body) return '';
-  return `<div class="facet"><div class="facet-head"><span>${esc(title)}</span></div>`
+  const k = esc(key);
+  const count = active > 0
+    ? `<span class="facet-active" title="${active} selected">${active}</span>`
+      + `<button type="button" class="facet-clear" data-clear-facet="${k}"`
+      + ` title="Clear ${esc(title)}" aria-label="Clear ${esc(title)}">✕</button>`
+    : '';
+  return `<div class="facet${collapsed ? ' collapsed' : ''}" data-facet-group="${k}">`
+    + '<div class="facet-head">'
+    + `<button type="button" class="facet-toggle" data-facet-toggle="${k}" aria-expanded="${!collapsed}">`
+    + `<span class="tw" aria-hidden="true">▾</span><span class="facet-title">${esc(title)}</span></button>`
+    + `${count}</div>`
     + `<div class="facet-body">${body}</div></div>`;
 }
 
@@ -216,11 +238,13 @@ function classItems(tree, counts, active) {
  * @param {Facets} facets - The `facets` block of a search response.
  * @param {TreeNode[]} tree - The pruned ontology forest.
  * @param {FinderState} state - Active facet selections.
+ * @param {Iterable<string>} [collapsed] - Facet keys whose groups are folded.
  * @returns {string}
  */
-export function facetRailHtml(facets, tree, state) {
+export function facetRailHtml(facets, tree, state, collapsed = []) {
   const f = facets || {};
   const s = state || {};
+  const folded = new Set(collapsed);
 
   /** @type {Map<string, number>} */
   const classCounts = new Map();
@@ -230,7 +254,8 @@ export function facetRailHtml(facets, tree, state) {
 
   return FACET_GROUPS.map(group => {
     if (group.key === 'cls') {
-      return facetGroup(group.title, classItems(tree || [], classCounts, s.cls));
+      return facetGroup('cls', group.title, classItems(tree || [], classCounts, s.cls),
+        s.cls ? 1 : 0, folded.has('cls'));
     }
     const entries = /** @type {FacetEntry[]} */ (
       /** @type {Record<string, any>} */ (f)[group.key] || []);
@@ -245,7 +270,7 @@ export function facetRailHtml(facets, tree, state) {
         on: Boolean(active && active.has(value)),
       });
     }).join('');
-    return facetGroup(group.title, body);
+    return facetGroup(group.key, group.title, body, active ? active.size : 0, folded.has(group.key));
   }).join('');
 }
 
@@ -262,6 +287,77 @@ export function chipsHtml(chips) {
   ).join('');
 }
 
+/** The columns drawn when the caller passes none: the default layout. */
+const DEFAULT_COLUMNS = visibleColumns(COLUMN_SPECS, defaultLayout(COLUMN_SPECS));
+
+/**
+ * One data cell.
+ * @param {string} key - The column key.
+ * @param {Row} row - The search payload row.
+ * @param {string} pv - The row's address.
+ * @param {boolean} isChecked
+ * @returns {string}
+ */
+function cellHtml(key, row, pv, isChecked) {
+  switch (key) {
+    case 'chk':
+      return `<td class="chk"><input type="checkbox" data-pv="${esc(pv)}"`
+        + `${isChecked ? ' checked' : ''} aria-label="Select ${esc(pv)}"></td>`;
+    case 'device':
+      return `<td class="dev"><button type="button" class="dev" data-uri="${esc(row.device_uri ?? '')}" tabindex="-1">`
+        + `${esc(row.device ?? '')}</button></td>`;
+    case 'section':
+      return `<td class="sec">${esc(row.section ?? '')}</td>`;
+    case 'system':
+      return `<td class="sys">${esc(row.system ?? '')}</td>`;
+    case 'address':
+      return `<td class="pv" title="${esc(pv)}">${esc(pv)}</td>`;
+    case 'dir':
+      return `<td class="rw">${dirPill(directionOf(row))}</td>`;
+    case 'signal': {
+      const signals = Array.isArray(row.signals)
+        ? row.signals.map((/** @type {any} */ sig) => String((sig && sig.name) ?? '')).join(', ')
+        : '';
+      return `<td class="sig" title="${esc(signals)}">${esc(signals)}</td>`;
+    }
+    case 'description': {
+      const desc = String(row.description ?? '');
+      return `<td class="desc" title="${esc(desc)}">${esc(desc)}</td>`;
+    }
+    case 'act':
+      return `<td class="act"><button type="button" class="copy-btn" data-copy="${esc(pv)}"`
+        + ` title="Copy address" aria-label="Copy ${esc(pv)}" tabindex="-1">⎘</button></td>`;
+    default:
+      return '<td></td>';
+  }
+}
+
+/**
+ * One header cell. A data column is focusable (its menu opens from the
+ * keyboard), carries its sort state for assistive tech, and ends in the grip
+ * the column controller resizes it by.
+ * @param {DrawnColumn} col
+ * @param {FinderState} state
+ * @param {boolean} allChecked
+ * @returns {string}
+ */
+function headHtml(col, state, allChecked) {
+  if (col.key === 'chk') {
+    return `<th class="chk" data-col="chk" data-pinned><input type="checkbox" data-select-page${allChecked ? ' checked' : ''}`
+      + ' aria-label="Select every channel on this page"></th>';
+  }
+  if (col.pin) {
+    return `<th class="${esc(col.key)}" data-col="${esc(col.key)}" data-pinned aria-label="${esc(col.label)}"></th>`;
+  }
+  const sort = state && state.sort && state.sort.key === col.key ? state.sort.dir : null;
+  const aria = sort === 'asc' ? 'ascending' : sort === 'desc' ? 'descending' : 'none';
+  const arrow = sort ? `<span class="sort-mark" aria-hidden="true">${sort === 'asc' ? '▲' : '▼'}</span>` : '';
+  return `<th data-col="${esc(col.key)}" aria-sort="${aria}" tabindex="0"`
+    + ' title="Click to sort · drag to move · right-click for options">'
+    + `<span class="th-label">${esc(col.label)}${arrow}</span>`
+    + `<span class="col-resize" data-resize="${esc(col.key)}" aria-hidden="true"></span></th>`;
+}
+
 /**
  * Render the result table for one page of channels.
  *
@@ -269,46 +365,52 @@ export function chipsHtml(chips) {
  * only when every row drawn here is selected, so it never claims a selection
  * that reaches beyond what the operator can see.
  *
+ * The table is laid out fixed, from a `<colgroup>` carrying each column's
+ * width, so a resize is one attribute write and a long description truncates
+ * instead of pushing its neighbours aside. Rows are focusable — one Tab stop
+ * for the table, arrows within it — which is what makes the keyboard verbs
+ * and the row menu reachable without a mouse.
+ *
  * @param {Row[]} rows - The `rows` block of a search response.
- * @param {FinderState} state - Carries `selected`, the set of chosen addresses.
+ * @param {FinderState} state - Carries `selected`, the set of chosen addresses, and `sort`.
+ * @param {DrawnColumn[]} [columns] - The visible columns in order, with widths.
+ * @param {string|null} [focusPv] - The address whose row holds the table's Tab stop.
  * @returns {string}
  */
-export function resultsHtml(rows, state) {
+export function resultsHtml(rows, state, columns = DEFAULT_COLUMNS, focusPv = null) {
   const list = rows || [];
+  const cols = columns && columns.length ? columns : DEFAULT_COLUMNS;
   const selected = (state && state.selected) || new Set();
   const allChecked = list.length > 0 && list.every(r => selected.has(String(r.fullPv ?? '')));
+  const tabStop = list.some((r) => String(r.fullPv ?? '') === focusPv)
+    ? focusPv
+    : (list.length ? String(list[0].fullPv ?? '') : null);
 
   const body = list.length === 0
-    ? '<tr><td colspan="8" class="result-empty">No channels match.</td></tr>'
+    ? `<tr><td colspan="${cols.length}" class="result-empty">No channels match.</td></tr>`
     : list.map(row => {
       const pv = String(row.fullPv ?? '');
       const isChecked = selected.has(pv);
-      const signals = Array.isArray(row.signals)
-        ? row.signals.map((/** @type {any} */ sig) => String((sig && sig.name) ?? '')).join(', ')
-        : '';
-      const desc = String(row.description ?? '');
-      return `<tr data-pv="${esc(pv)}"${isChecked ? ' class="checked"' : ''}>`
-        + `<td class="chk"><input type="checkbox" data-pv="${esc(pv)}"`
-        + `${isChecked ? ' checked' : ''} aria-label="Select ${esc(pv)}"></td>`
-        + `<td class="dev"><button type="button" class="dev" data-uri="${esc(row.device_uri ?? '')}">`
-        + `${esc(row.device ?? '')}</button></td>`
-        + `<td class="sec">${esc(row.section ?? '')}</td>`
-        + `<td class="pv">${esc(pv)}</td>`
-        + `<td>${dirPill(directionOf(row))}</td>`
-        + `<td class="sig">${esc(signals)}</td>`
-        + `<td class="desc" title="${esc(desc)}">${esc(desc)}</td>`
-        + `<td class="act"><button type="button" class="copy-btn" data-copy="${esc(pv)}"`
-        + ` title="Copy address" aria-label="Copy ${esc(pv)}">⎘</button></td>`
+      return `<tr data-pv="${esc(pv)}" data-uri="${esc(row.device_uri ?? '')}"`
+        + ` tabindex="${pv === tabStop ? '0' : '-1'}"${isChecked ? ' class="checked"' : ''}>`
+        + cols.map((col) => cellHtml(col.key, row, pv, isChecked)).join('')
         + '</tr>';
     }).join('');
 
-  return '<div class="result-wrap"><table class="result-table">'
-    + '<thead><tr>'
-    + `<th class="chk"><input type="checkbox" data-select-page${allChecked ? ' checked' : ''}`
-    + ' aria-label="Select every channel on this page"></th>'
-    + '<th>Device</th><th>Sec</th><th>Address</th><th>R/W</th>'
-    + '<th>Signal</th><th>Description</th><th></th>'
-    + `</tr></thead><tbody>${body}</tbody></table></div>`;
+  // The last data column takes whatever width the pane has to spare, so the
+  // table fills it without stretching every column; the sum of the stored
+  // widths is the table's floor, so a narrow pane scrolls sideways instead.
+  const fill = cols.map((col) => !col.pin).lastIndexOf(true);
+  const floor = cols.reduce((sum, col) => sum + (Number(col.width) || 80), 0);
+  const colgroup = '<colgroup>'
+    + cols.map((col, i) => (i === fill
+      ? `<col data-col="${esc(col.key)}" data-fill>`
+      : `<col data-col="${esc(col.key)}" style="width:${Number(col.width) || 80}px">`)).join('')
+    + '</colgroup>';
+  return `<div class="result-wrap"><table class="result-table" style="min-width:${floor}px">`
+    + colgroup
+    + `<thead><tr>${cols.map((col) => headHtml(col, state, allChecked)).join('')}</tr></thead>`
+    + `<tbody>${body}</tbody></table></div>`;
 }
 
 /**
@@ -364,8 +466,8 @@ export function footerHtml(total, devices, page, pages, selectedCount, embedded)
  * @returns {string}
  */
 function closeButton() {
-  return '<button type="button" class="close" data-action="close-card"'
-    + ' title="Close" aria-label="Close">✕</button>';
+  return '<button type="button" class="close card-btn" data-action="close-card"'
+    + ' title="Close (Esc)" aria-label="Close">✕</button>';
 }
 
 /**
@@ -379,7 +481,7 @@ function signalRow(binding, signal) {
   const b = binding || {};
   const pv = String(b.fullPv ?? '');
   const sub = b.description || '';
-  return '<tr>'
+  return `<tr data-pv="${esc(pv)}">`
     + `<td class="sig">${esc(signal)}</td>`
     + `<td>${dirPill(directionOf(b))}</td>`
     + `<td class="pv">${esc(pv)} <button type="button" class="copy-btn copy-btn-static"`
@@ -396,10 +498,15 @@ function signalRow(binding, signal) {
  * the graph does not carry for this device is left out rather than drawn empty,
  * so the line never asserts a position or an ordinal that nothing measured.
  *
+ * The card is the finder's inspector: it docks beside the results, so its
+ * heading carries the device-wide verbs — copy every address, send them when
+ * an assistant hosts the panel, close.
+ *
  * @param {Device} device - The device-card payload.
+ * @param {{embedded?: boolean}} [opts]
  * @returns {string}
  */
-export function deviceCardHtml(device) {
+export function deviceCardHtml(device, opts = {}) {
   const d = device || {};
 
   /** @type {string[]} */
@@ -435,11 +542,35 @@ export function deviceCardHtml(device) {
     ? `<table class="sig-table"><tbody>${rows}</tbody></table>`
     : '<div class="card-empty">No channels on this device.</div>';
 
-  return '<div class="device-card"><div class="device-card-head">'
-    + `<span class="name">${esc(d.device ?? '')}</span>`
-    + (meta.length ? `<span class="meta">${esc(meta.join(' · '))}</span>` : '')
+  const hasRows = rows !== '';
+  const send = opts.embedded
+    ? '<button type="button" class="card-btn" data-action="send-device"'
+      + `${hasRows ? '' : ' disabled'} title="Send every address to the assistant"`
+      + ' aria-label="Send every address to the assistant">➤</button>'
+    : '';
+  return `<div class="device-card" data-uri="${esc(d.uri ?? '')}"><div class="device-card-head">`
+    + `<span class="name" title="${esc(d.device ?? '')}">${esc(d.device ?? '')}</span>`
+    + '<span class="card-actions">'
+    + '<button type="button" class="card-btn" data-action="copy-device"'
+    + `${hasRows ? '' : ' disabled'} title="Copy every address" aria-label="Copy every address">⎘</button>`
+    + send
     + closeButton()
-    + `</div><div class="device-card-body">${descriptions}${table}</div></div>`;
+    + '</span></div><div class="device-card-body">'
+    + (meta.length ? `<div class="meta">${esc(meta.join(' · '))}</div>` : '')
+    + `${descriptions}${table}</div></div>`;
+}
+
+/**
+ * Every address a device-card payload binds, in the order the card draws them.
+ * @param {Device} device
+ * @returns {string[]}
+ */
+export function deviceAddresses(device) {
+  /** @type {any[]} */
+  const groups = Array.isArray(device && device.signals) ? device.signals : [];
+  return groups.flatMap((group) => (Array.isArray(group && group.bindings) ? group.bindings : []))
+    .map((binding) => String((binding && binding.fullPv) ?? ''))
+    .filter(Boolean);
 }
 
 /**
@@ -451,7 +582,7 @@ export function deviceCardHtml(device) {
 export function deviceCardErrorHtml(detail) {
   return '<div class="device-card device-card-error"><div class="device-card-head">'
     + '<span class="name">Device unavailable</span>'
-    + closeButton()
+    + `<span class="card-actions">${closeButton()}</span>`
     + '</div><div class="device-card-body">'
     + `<div class="card-error">${esc(detail ?? '')}</div>`
     + '</div></div>';
