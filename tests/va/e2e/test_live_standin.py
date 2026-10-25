@@ -785,10 +785,10 @@ class TestTheRosterNamesTheStandIn:
     def test_the_standin_row_is_labelled_as_the_stand_in(self, deployment) -> None:
         rows = target_rows(deployment, control_target=TARGET_VA, baseline=TARGET_VA)
 
-        assert rows[TARGET_STANDIN]["label"] == "LIVE MACHINE (stand-in)"
+        assert rows[TARGET_STANDIN]["label"] == "Rehearsal — nothing moves"
 
     def test_the_stand_in_is_still_the_real_machine(self, deployment) -> None:
-        """The parenthesis is the *whole* of what is said differently.
+        """The rehearsal words are the *whole* of what is said differently.
 
         A stand-in that reported ``real_machine: false`` would be a rehearsal of
         the wrong ritual: every strict limit, approval prompt and banner an

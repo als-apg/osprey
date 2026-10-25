@@ -70,7 +70,10 @@ STANDIN_PORT = 5074
 #: are pointed at the same deployment and must be told the same thing about it.
 RENDERS = ("readonly", "readwrite")
 
-STANDIN_LABEL = "LIVE MACHINE (stand-in)"
+#: The stand-in's published label (C-WORDS): the rehearsal, never "LIVE MACHINE".
+STANDIN_LABEL = "Rehearsal — nothing moves"
+#: The words only this deployment's own stand-in may carry.
+NOTHING_MOVES = "nothing moves"
 LIVE_LABEL = "LIVE MACHINE"
 
 
@@ -169,6 +172,8 @@ def test_the_standin_slot_is_labelled_a_stand_in(standin_repo, render: str) -> N
     metadata = target_display_metadata(_render_config(standin_repo, render))["standin"]
 
     assert metadata["label"] == STANDIN_LABEL
+    assert "LIVE MACHINE" not in metadata["label"]
+    assert metadata["machine_kind"] == "rehearsal"
     assert metadata["real_machine"] is True
     assert metadata["endpoint"] == f"localhost:{STANDIN_PORT}"
 
@@ -187,6 +192,7 @@ def test_the_live_slot_is_never_renamed_a_stand_in(standin_repo, render: str) ->
     metadata = target_display_metadata(_render_config(standin_repo, render))["live"]
 
     assert metadata["label"] == LIVE_LABEL
+    assert NOTHING_MOVES not in metadata["label"].lower()
     assert metadata["real_machine"] is True
     host, _, port = metadata["endpoint"].rpartition(":")
     assert host not in ("localhost", "127.0.0.1"), metadata["endpoint"]
@@ -288,4 +294,6 @@ def test_a_render_of_a_deployment_with_no_stand_in_is_told_of_none(plain_repo, r
     assert metadata["live"]["label"] == LIVE_LABEL
     assert metadata["live"]["real_machine"] is True
     assert metadata["standin"]["label"] != STANDIN_LABEL
+    assert NOTHING_MOVES not in metadata["standin"]["label"].lower()
+    assert metadata["standin"]["machine_kind"] == "real"
     assert metadata["standin"]["endpoint"] == ""

@@ -53,6 +53,7 @@ import osprey.health.core.containers as containers_mod
 from osprey.cli.build_cmd import build as build_command
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
+from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.port_layout import default_port
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -66,6 +67,10 @@ CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 #: The port the stand-in is reserved on throughout the codebase.
 STANDIN_PORT = 5074
+
+#: The stand-in's published label (C-WORDS), and the words only it may carry.
+REHEARSAL_LABEL = "Rehearsal — nothing moves"
+NOTHING_MOVES = "nothing moves"
 
 #: The exemplar's own virtual accelerator, and therefore the port the stand-in
 #: must NOT land on.
@@ -379,6 +384,24 @@ class TestTheRenderedConfigDescribesTheStandIn:
         prose = "\n".join(row for row in reversed(rows[:key]) if row.strip().startswith("#"))
         assert LIMITS_COMMENT in prose, "the comment explaining the key no longer sits above it"
 
+    def test_live_standin_render_publishes_the_stand_in_as_the_rehearsal(
+        self, standin_build
+    ) -> None:
+        """Every rendered config names its own stand-in the rehearsal (C-WORDS).
+
+        The label is what the roster, the identity line and a tool error read,
+        so a whole build is where the words are pinned against the endpoint
+        the build itself pointed the ``standin`` slot at. The facility's own
+        machine and the simulator never say "nothing moves".
+        """
+        for name, config in _rendered_configs(standin_build).items():
+            metadata = target_display_metadata(config)
+            assert metadata["standin"]["label"] == REHEARSAL_LABEL, name
+            assert metadata["standin"]["machine_kind"] == "rehearsal", name
+            assert "LIVE MACHINE" not in metadata["standin"]["label"], name
+            assert NOTHING_MOVES not in metadata["live"]["label"].lower(), name
+            assert NOTHING_MOVES not in metadata["va"]["label"].lower(), name
+
     def test_live_standin_render_derives_no_operator_acknowledgment(self, standin_build) -> None:
         """``live`` has nothing to acknowledge that the operator did not say.
 
@@ -572,6 +595,19 @@ class TestABuildWithoutTheKeyIsUntouched:
             assert "live_standin" not in (config.get("deployed_services") or []), name
             connector = config["control_system"].get("connector") or {}
             assert "live_standin" not in connector, name
+
+    def test_live_standin_render_off_never_publishes_a_rehearsal(self, plain_build) -> None:
+        """No stand-in built: no slot, in any rendered config, says "nothing moves".
+
+        A ``standin`` target that is not this deployment's stand-in reads as
+        the real machine — the label and the kind both — as it did before the
+        rehearsal had a name.
+        """
+        for name, config in _rendered_configs(plain_build).items():
+            metadata = target_display_metadata(config)
+            for target, meta in metadata.items():
+                assert NOTHING_MOVES not in meta["label"].lower(), f"{name}/{target}"
+            assert metadata["standin"]["machine_kind"] == "real", name
 
     def test_live_standin_render_off_leaves_no_stand_in_container(self, plain_build) -> None:
         """No second instance, and nothing waiting on or reading from one."""

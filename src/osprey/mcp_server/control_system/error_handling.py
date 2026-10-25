@@ -82,7 +82,15 @@ LOOK_IT_UP = (
 
 
 def _target_clause(identity: dict[str, str] | None) -> str:
-    """The human half: `` (active target: LIVE MACHINE at 127.0.0.1:5064)``."""
+    """The human half: `` (active target: LIVE MACHINE at 127.0.0.1:5064)``.
+
+    Renders the label the controls server published for the active target and
+    never a word of its own, so a tool error names the machine in the same
+    words as the roster and the identity line: this deployment's stand-in
+    reads `` (active target: Rehearsal — nothing moves at localhost:5074)``,
+    and a ``standin`` target pointing anywhere else reads ``LIVE MACHINE``.
+    Total: no identity renders ``""``.
+    """
     if not identity:
         return ""
     where = f" at {identity['endpoint']}" if identity.get("endpoint") else ""
