@@ -147,7 +147,6 @@ NO_MODEL_RUN_STEP = "Run the model-free E2E files"
 NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 #: The files the model-free lane names, in the order its run step names them.
 NO_MODEL_TEST_FILES = (
-    "tests/e2e/test_telemetry_store_e2e.py",
     "tests/e2e/test_telemetry_access_e2e.py",
     "tests/e2e/test_agent_record_smoke_e2e.py",
     "tests/e2e/test_sdk_helpers.py",
@@ -3656,7 +3655,7 @@ def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_th
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
     lines = step["run"].splitlines(keepends=True)
-    kept = [line for line in lines if "tests/e2e/test_telemetry_store_e2e.py" not in line]
+    kept = [line for line in lines if "tests/e2e/test_agent_record_smoke_e2e.py" not in line]
     assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
     step["run"] = "".join(kept)
     # the neighbour survives, so the mutation is one file wide
@@ -3815,15 +3814,15 @@ def test_shared_lane_hands_over_every_model_free_file(workflow: dict[str, Any]) 
     )
 
 
-def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_telemetry_ignore() -> (
+def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_record_smoke_ignore() -> (
     None
 ):
-    telemetry = "tests/e2e/test_telemetry_store_e2e.py"
+    telemetry = "tests/e2e/test_agent_record_smoke_e2e.py"
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], telemetry)
     others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
-    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    assert _run_step_ignores_all(mutated, others) == []  # every other file survives
     with pytest.raises(AssertionError, match="still swept"):
         test_shared_lane_hands_over_every_model_free_file(mutated)
 
@@ -5979,8 +5978,6 @@ def _two_shape_resource_names() -> list[str]:
 
     project = _two_shape_module_constant("PROJECT_NAME")
     compose_project = resolve_project_name({"project_name": project})
-    telemetry = _two_shape_module_constant("TELEMETRY_PROJECT_NAME")
-    telemetry_compose = resolve_project_name({"project_name": telemetry})
     return [
         f"{project}-event-dispatcher",
         f"{project}-dispatch-worker-1",
@@ -5988,27 +5985,14 @@ def _two_shape_resource_names() -> list[str]:
         f"{compose_project}_osprey-network",
         f"{project}:local",
         f"{project}-dispatch:local",
-        f"{telemetry}-telemetry-store",
-        f"{telemetry}-telemetry-gateway",
-        f"{telemetry_compose}_telemetry_store_data",
-        f"{telemetry_compose}_gateway-state",
-        f"{telemetry_compose}_osprey-network",
     ]
 
 
 def _two_shape_module_ports() -> list[str]:
-    """The host ports the module binds: the dispatch pair's, and the telemetry
-    case's gateway, gateway counters and store, resolved from that case's port
-    block exactly as the deployment resolves them."""
-    from osprey.deployment import telemetry_config
-
-    config = {"deployment": {"port_base": _two_shape_module_constant("TELEMETRY_PORT_BASE")}}
+    """The host ports the module binds: the dispatcher's and the worker's."""
     return [
         str(_two_shape_module_constant("DISPATCHER_PORT")),
         str(_two_shape_module_constant("WORKER_PORT")),
-        str(telemetry_config.gateway_port(config)),
-        str(telemetry_config.metrics_port(config)),
-        str(telemetry_config.store_port(config)),
     ]
 
 
@@ -6075,20 +6059,11 @@ def test_two_shape_lane_ports_match_the_module__mutation_drifts_the_probed_ports
     symptom the mutation is meant to expose."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
-    loop = "for port in 21781 21791 18151 18152 18904; do"
+    loop = "for port in 21781 21791; do"
     assert loop in step["run"], "the pre-flight loop moved — mutation is stale"
-    step["run"] = step["run"].replace(loop, "for port in 8020 9190 18151 18152 18904; do")
+    step["run"] = step["run"].replace(loop, "for port in 8020 9190; do")
     assert "21781" in step["run"], "the echo must still carry the real ports"
     with pytest.raises(AssertionError, match="does not probe"):
-        test_two_shape_lane_ports_match_the_module(mutated)
-
-
-def test_two_shape_lane_ports_match_the_module__mutation_drops_a_telemetry_port() -> None:
-    """The telemetry case publishes its own ports beside the dispatch pair's."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, PORT_PREFLIGHT_STEP)
-    step["run"] = step["run"].replace(" 18904; do", "; do")
-    with pytest.raises(AssertionError, match="18904"):
         test_two_shape_lane_ports_match_the_module(mutated)
 
 
@@ -9222,7 +9197,7 @@ def test_full_chain_auth_cleanup_removes_the_history_page_and_its_image__mutatio
 # Model-spending lanes: `full-ci` on a pull request, on demand on main
 # ---------------------------------------------------------------------------
 #
-# Nine jobs drive real Claude sessions through the gateway. Measured on its
+# Ten jobs drive real Claude sessions through the gateway. Measured on its
 # ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
 # The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
@@ -9238,6 +9213,7 @@ SPENDING_LANES = frozenset(
         "e2e-tests",
         "dispatch-deploy-e2e",
         "single-user-narrowing-e2e",
+        "host-record-e2e",
         "dispatch-overlay-e2e",
         "scan-agentic-e2e",
         "nextcloud-talk-bridge-e2e",
@@ -10257,10 +10233,10 @@ _STACK_LANE_PROJECTS: dict[str, tuple[str, ...]] = {
     "dispatch-deploy-e2e": ("osprey-e2e-dispatch",),
     "dispatch-overlay-e2e": ("osprey-e2e-overlay",),
     "single-user-narrowing-e2e": ("suproj",),
+    "host-record-e2e": ("osprey-e2e-host-record",),
     "va-substrate-equivalence-e2e": ("osprey-e2e-va-substrate",),
     "va-bluesky-deploy-e2e": ("lane-e2e",),
     "e2e-no-model": (
-        "osprey-e2e-telemetry-store",
         "osprey-e2e-telemetry-access",
         "osprey-e2e-agent-record",
     ),
@@ -10284,14 +10260,14 @@ _STACK_PROJECT_SOURCES: dict[str, str] = {
     "suproj": "tests/e2e/test_single_user_narrowing_e2e.py",
     "osprey-e2e-va-substrate": "tests/e2e/test_va_substrate_equivalence.py",
     "lane-e2e": "tests/va/e2e/test_bluesky_lanes.py",
-    "osprey-e2e-telemetry-store": "tests/e2e/test_telemetry_store_e2e.py",
     "osprey-e2e-telemetry-access": "tests/e2e/test_telemetry_access_e2e.py",
     "osprey-e2e-agent-record": "tests/e2e/test_agent_record_smoke_e2e.py",
+    "osprey-e2e-host-record": "tests/e2e/test_host_record_e2e.py",
 }
 
 #: The lane projects whose deployment runs no old telemetry store: the agent
 #: record and its ClickHouse store are what a killed run leaves behind there.
-_RECORD_ONLY_PROJECTS = frozenset({"osprey-e2e-agent-record"})
+_RECORD_ONLY_PROJECTS = frozenset({"osprey-e2e-agent-record", "osprey-e2e-host-record"})
 
 TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
     (
@@ -10302,9 +10278,6 @@ TELEMETRY_CLEANUP_STEPS: dict[tuple[str, str], tuple[str, ...]] = {
         "multi-user-deploy-lifecycle-e2e-podman",
         "Clean up any stranded lifecycle-e2e resources",
     ): ("osprey-e2e-mus-p3",),
-    (TWO_SHAPE_JOB, "Clean up any stranded two-shape resources"): (
-        "osprey-e2e-two-shape-telemetry",
-    ),
     (
         "full-chain-auth-e2e",
         "Clean up any stranded full-chain-auth resources",
@@ -10453,11 +10426,15 @@ def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_gate
 
 def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_a_volume() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, TWO_SHAPE_JOB, "Clean up any stranded two-shape resources")
+    step = _find_named_step(
+        mutated,
+        "multi-user-deploy-lifecycle-e2e-podman",
+        "Clean up any stranded lifecycle-e2e resources",
+    )
     before = step["run"]
     step["run"] = "\n".join(line for line in before.splitlines() if "_gateway-state" not in line)
     assert step["run"] != before, "no gateway-state volume in the cleanup — mutation is stale"
-    with pytest.raises(AssertionError, match="osprey-e2e-two-shape-telemetry_gateway-state"):
+    with pytest.raises(AssertionError, match="osprey-e2e-mus-p3_gateway-state"):
         test_store_deploying_lanes_remove_the_store_by_name(mutated)
 
 
@@ -10472,6 +10449,288 @@ def test_store_deploying_lanes_remove_the_store_by_name__mutation_drops_the_volu
     assert step["run"] != before, "no project volume sweep — mutation is stale"
     with pytest.raises(AssertionError, match="osprey-e2e-jnb_telemetry_store_data"):
         test_store_deploying_lanes_remove_the_store_by_name(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Every lane that can bring up a stack removes the agent record by exact name
+# ---------------------------------------------------------------------------
+
+#: The step that tears down what ``deploy-e2e``'s ``osprey up`` started, and
+#: the step that does the same for ``archiver-world-e2e``.
+DEPLOY_STACK_CLEANUP_STEP = "Clean up any stranded hello-world resources"
+ARCHIVER_CLEANUP_STEP = "Clean up any stranded archiver-world resources"
+TWO_SHAPE_CLEANUP_STEP = "Clean up any stranded two-shape resources"
+
+
+def _deploy_e2e_project(wf: dict[str, Any]) -> str:
+    """The project ``deploy-e2e`` creates, read off its own ``osprey init``."""
+    for step in _jobs(wf)[DEPLOY_JOB]["steps"]:
+        found = re.search(r"\bosprey init (\S+)", str(step.get("run", "")))
+        if found:
+            return found.group(1)
+    raise AssertionError(f"'{DEPLOY_JOB}' runs no `osprey init <project>`")
+
+
+def _record_cleanup_steps(wf: dict[str, Any]) -> dict[tuple[str, str], tuple[str, ...]]:
+    """Every belt-and-suspenders cleanup step of a lane that can bring up a
+    stack, with the compose projects that lane deploys.
+
+    The agent record renders into every deployment, so every lane that runs
+    ``osprey up`` (directly or through its module) owes it, whichever other
+    services the lane also deploys.
+    """
+    return {
+        **TELEMETRY_CLEANUP_STEPS,
+        **WEB_TERMINAL_CLEANUP_STEPS,
+        (WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP): tuple(
+            f"{WRITEBACK_PROJECT_PREFIX}{case}" for case in sorted(_writeback_project_cases())
+        ),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP): (_two_shape_module_constant("PROJECT_NAME"),),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP): (
+            _module_constant(REPO_ROOT / ARCHIVER_TEST_FILE, "PROJECT_NAME"),
+        ),
+        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP): (_deploy_e2e_project(wf),),
+    }
+
+
+#: Lanes that run a docker-backed module or carry a docker cleanup step but
+#: never run ``osprey up``, so no agent record can exist there to strand.
+RECORD_CLEANUP_EXEMPT: dict[str, str] = {
+    "dockerfile-e2e": "runs the generated image on its own; no compose deployment",
+    "execution-environment-parity-e2e": "builds and runs the project image only",
+    "graph-reseed-e2e": "runs the graph store container only",
+    "nextcloud-talk-bridge-e2e": "runs fixture containers and the bridge process only",
+    "target-switch-agentic-e2e": "runs the VA and an agent turn; no osprey up deployment",
+    "privilege-split-e2e": "starts hand-named containers and sweeps their name prefix",
+}
+
+_OSPREY_UP = re.compile(r"\bosprey (?:deploy )?up\b")
+_COMPOSE_DOWN = re.compile(r"\b(?:docker|podman)[ -]compose\b[^\n]*\bdown\b")
+
+
+def _expand_shell_loops(run: str) -> str:
+    """*run* with each ``for <var> in <cases>; do … done`` loop unrolled, and
+    each plain ``name="…"`` assignment in the unrolled body substituted, so a
+    removal spelled ``"${project}-agent-record"`` reads as the names it removes.
+    """
+    loop = re.compile(r"for (\w+) in ([^;\n]+); do\n(.*?)\ndone", re.DOTALL)
+
+    def _unroll(match: re.Match[str]) -> str:
+        var, cases, body = match.group(1), match.group(2).split(), match.group(3)
+        out = []
+        for case in cases:
+            text = body.replace(f"${{{var}}}", case).replace(f"${var}", case)
+            for name, value in re.findall(r'^\s*(\w+)="([^"$]*)"\s*$', text, re.MULTILINE):
+                text = text.replace(f"${{{name}}}", value).replace(f"${name}", value)
+            out.append(text)
+        return "\n".join(out)
+
+    return loop.sub(_unroll, run)
+
+
+def _record_cleanup_gaps(run: str, project: str) -> list[str]:
+    """What *run* fails to remove of *project*'s agent record, its ClickHouse
+    store and the store's data volume.
+
+    The volume counts as removed when the step names it exactly or sweeps the
+    project's own volume prefix (``--filter "name=^<project>_"``).
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    expanded = _expand_shell_loops(run)
+    removed = set(_CONTAINER_REMOVAL.findall(expanded))
+    name = resolve_project_name({"project_name": project})
+    gaps = [
+        container
+        for container in (f"{name}-agent-record", f"{name}-agent-record-clickhouse")
+        if container not in removed
+    ]
+    volume = f"{name}_agent_record_clickhouse_data"
+    swept = f'name=^{name}_"' in expanded
+    if not swept and not re.search(
+        rf"volume rm (?:-f )?\"?{re.escape(volume)}\"?(?:\s|$)", expanded
+    ):
+        gaps.append(volume)
+    return gaps
+
+
+def _stack_capable_jobs(wf: dict[str, Any]) -> set[str]:
+    """Every job that can bring up a stack: it runs a docker-backed e2e module,
+    runs ``osprey up`` itself, or carries an ``if: always()`` docker or podman
+    cleanup step."""
+    jobs = {job for f in _dockerbuild_marked_e2e_files() for job in _jobs_running_e2e_file(wf, f)}
+    for job, spec in _jobs(wf).items():
+        for step in spec.get("steps") or []:
+            run = str(step.get("run", ""))
+            if _OSPREY_UP.search(run):
+                jobs.add(job)
+            if step.get("if") == "always()" and (
+                _CONTAINER_REMOVAL.search(run)
+                or _COMPOSE_DOWN.search(run)
+                or re.search(r"\b(?:docker|podman) ps -aq\b", run)
+            ):
+                jobs.add(job)
+    return jobs
+
+
+def test_every_stack_lane_owes_the_record_cleanup(workflow: dict[str, Any]) -> None:
+    """A lane that can bring up a stack and has no record cleanup leaves the
+    record container holding the next lane's port and volume after a failed
+    run. Each such lane is either in the record-cleanup table or exempt with
+    a reason; an exemption for a lane outside the rule is stale."""
+    covered = {job for job, _ in _record_cleanup_steps(workflow)}
+    unowned = sorted(_stack_capable_jobs(workflow) - covered - set(RECORD_CLEANUP_EXEMPT))
+    assert unowned == [], f"stack lanes with no agent-record cleanup: {unowned}"
+    stale = sorted(
+        job
+        for job in RECORD_CLEANUP_EXEMPT
+        if job in covered or job not in _stack_capable_jobs(workflow)
+    )
+    assert stale == [], f"record-cleanup exemptions that no longer apply: {stale}"
+
+
+def test_stack_lanes_remove_the_agent_record_by_name(workflow: dict[str, Any]) -> None:
+    """Each cleanup step removes ``<project>-agent-record``,
+    ``<project>-agent-record-clickhouse`` and the store's data volume for every
+    project its lane deploys."""
+    gaps = {
+        job: missing
+        for (job, step_name), projects in _record_cleanup_steps(workflow).items()
+        if (
+            missing := [
+                gap
+                for project in projects
+                for gap in _record_cleanup_gaps(
+                    _cleanup_step_run(workflow, job, step_name), project
+                )
+            ]
+        )
+    }
+    assert gaps == {}, f"cleanup steps that do not remove the agent record: {gaps}"
+
+
+def test_record_cleanup_steps_run_always_after_the_failure_capture(
+    workflow: dict[str, Any],
+) -> None:
+    """The record cleanup runs on a failed or cancelled run, and only after the
+    failure capture has read the containers' logs."""
+    misplaced = []
+    for job, step_name in _record_cleanup_steps(workflow):
+        steps = workflow["jobs"][job]["steps"]
+        step = _find_named_step(workflow, job, step_name)
+        captures = [
+            i for i, s in enumerate(steps) if "capture-ci-diagnostics" in str(s.get("uses", ""))
+        ]
+        if step.get("if") != "always()" or any(i > steps.index(step) for i in captures):
+            misplaced.append(job)
+    assert misplaced == [], (
+        f"record cleanup not always() or before the failure capture: {misplaced}"
+    )
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_cleanup_step() -> None:
+    """A stack lane whose cleanup step is gone is named by the rule."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[ARCHIVER_JOB]["steps"]
+    before = len(steps)
+    steps[:] = [s for s in steps if s.get("name") != ARCHIVER_CLEANUP_STEP]
+    assert len(steps) == before - 1, "no archiver-world cleanup step — mutation is stale"
+    with pytest.raises(AssertionError, match=ARCHIVER_JOB):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_every_stack_lane_owes_the_record_cleanup__mutation_adds_an_unowned_lane() -> None:
+    """A new lane that runs ``osprey up`` with no table entry is named."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["stray-stack-e2e"] = {
+        "steps": [{"name": "boot", "run": "uv run osprey up -d --dev"}]
+    }
+    with pytest.raises(AssertionError, match="stray-stack-e2e"):
+        test_every_stack_lane_owes_the_record_cleanup(mutated)
+
+
+def test_every_stack_lane_owes_the_record_cleanup__mutation_stale_exemption() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _jobs(mutated)["graph-reseed-e2e"]
+    with pytest.raises(AssertionError, match="graph-reseed-e2e"):
+        test_every_stack_lane_owes_the_record_cleanup(mutated)
+
+
+@pytest.mark.parametrize(
+    ("job", "step_name", "dropped"),
+    [
+        ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e-agent-record"),
+        ("e2e-tests", STACK_CLEANUP_STEP, "suproj-agent-record-clickhouse"),
+        (
+            "auth-perimeter-e2e",
+            "Clean up any stranded auth-perimeter resources",
+            "osprey-e2e-auth-perimeter-agent-record",
+        ),
+        (TWO_SHAPE_JOB, TWO_SHAPE_CLEANUP_STEP, "osprey-e2e-two-shape-agent-record-clickhouse"),
+        (DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP, "hello-world-test-agent-record"),
+        (ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP, "archiver-world-agent-record"),
+    ],
+)
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
+    job: str, step_name: str, dropped: str
+) -> None:
+    """Dropping one record removal from one lane is a gap naming that lane."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job, step_name)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if not line.rstrip().endswith(f"{dropped} || true")
+    )
+    assert step["run"] != before, f"no {dropped} removal in '{job}' — mutation is stale"
+    with pytest.raises(
+        AssertionError, match=rf"'{re.escape(job)}': \[[^\]]*'{re.escape(dropped)}'"
+    ):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_loop_removal() -> None:
+    """The write-back lane removes its records inside its per-project loop."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, WRITEBACK_JOB, WRITEBACK_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if '"${project}-agent-record" ' not in line
+    )
+    assert step["run"] != before, "no looped record removal — mutation is stale"
+    with pytest.raises(AssertionError, match="osprey-e2e-wb-render-agent-record'"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_record_volume() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, ARCHIVER_JOB, ARCHIVER_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = "\n".join(
+        line for line in before.splitlines() if "agent_record_clickhouse_data" not in line
+    )
+    assert step["run"] != before, "no record volume removal — mutation is stale"
+    with pytest.raises(AssertionError, match="archiver-world_agent_record_clickhouse_data"):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_record_cleanup_steps_run_always_after_the_failure_capture__mutation_drops_always() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, DEPLOY_JOB, DEPLOY_STACK_CLEANUP_STEP)["if"]
+    with pytest.raises(AssertionError, match=DEPLOY_JOB):
+        test_record_cleanup_steps_run_always_after_the_failure_capture(mutated)
+
+
+def test_expand_shell_loops_unrolls_cases_and_assignments() -> None:
+    run = (
+        "for case in a b; do\n"
+        '  project="p-${case}"\n'
+        '  docker rm -f "${project}-agent-record" || true\n'
+        "done\n"
+    )
+    assert _CONTAINER_REMOVAL.findall(_expand_shell_loops(run)) == [
+        "p-a-agent-record",
+        "p-b-agent-record",
+    ]
 
 
 _YAML_KEY_LINE = re.compile(r"^\s*[A-Za-z_][\w-]*:(?:\s|$)")

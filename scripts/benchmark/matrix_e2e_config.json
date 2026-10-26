@@ -151,10 +151,6 @@
       "reason": "Wire-contract check: one fixed turn of the pinned CLI compared structurally with the recorded OTLP fixture (event names and attribute keys); what the model says is never judged, so it measures nothing about the model-under-test."
     },
     {
-      "path": "tests/e2e/test_telemetry_store_e2e.py",
-      "reason": "Model-free: telemetry gateway and store deploy with synthetic ledger lines and OTLP — no LLM call anywhere."
-    },
-    {
       "path": "tests/e2e/test_thinking_display_live.py",
       "reason": "Launch-wiring check: the pinned CLI on each launch route (interactive settings, `osprey chat --print`, SDK) is asked to record thinking, and the transcripts are checked for thinking text; the answers are never judged, so it measures nothing about the model-under-test."
     },
