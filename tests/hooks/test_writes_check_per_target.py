@@ -1,11 +1,13 @@
 """Stage 2 of ``osprey_writes_check``: which machine a write tool writes to.
 
 A framework write tool writes to the session's target, and follows that
-target's switch. A facility write tool — every tool of a whole-server
-``writes_check`` custom server, and every ``control_system.write_tools`` entry —
-follows the real machine's switch, whatever the session points at: the
-deployment declared it, and only ``live``'s switch covers it. A refusal is worded
-by the twin's ``refusal_phrase`` and names no config key.
+target's switch. A facility write tool — the rendered ``facility_write_tools``
+set (each tool a custom server declares in ``writes:``, every tool of a
+whole-server ``writes_check`` custom server) and every
+``control_system.write_tools`` entry — follows the real machine's switch,
+whatever the session points at: the deployment declared it, and only ``live``'s
+switch covers it. A declaring server's other tools are reads, and answer while
+``live`` is off. A refusal is the twin's ``refusal_text`` and names no config key.
 
 The hook is run as a subprocess through ``hook_runner``, the way Claude Code
 runs it, against a record written under the agent-data root the hook derives
@@ -44,10 +46,13 @@ TWO_TARGETS = {
 #: A simulator-only deployment: it has no ``live`` target at all.
 SIMULATOR_ONLY = {"type": "virtual_accelerator", "writes": "allowed"}
 
-#: A facility-custom server gated whole, and a declared write tool, as the
-#: render writes them into hook_config.
+#: A facility-custom server gated whole, a server that declares its one write
+#: tool, and a ``control_system.write_tools`` extra, as the render writes them
+#: into hook_config.
 FACILITY_SERVER_TOOL = "mcp__magnets__set_current"
 FACILITY_SERVER_READ = "mcp__magnets__read_current"
+DECLARED_WRITE = "mcp__plc__set_value"
+DECLARED_READ = "mcp__plc__get_value"
 FACILITY_EXTRA = "mcp__orbit__apply_correction"
 HOOK_CONFIG = {
     "server_prefixes": [
@@ -56,6 +61,7 @@ HOOK_CONFIG = {
         "mcp__bluesky__",
         "mcp__magnets__",
         "mcp__orbit__",
+        "mcp__plc__",
     ],
     "write_tools": [
         "mcp__controls__channel_write",
@@ -63,9 +69,11 @@ HOOK_CONFIG = {
         "mcp__bluesky__queue_start",
         "mcp__python__execute",
         "mcp__magnets__.*",
+        DECLARED_WRITE,
         FACILITY_EXTRA,
     ],
     "control_system_write_tools": [FACILITY_EXTRA],
+    "facility_write_tools": [DECLARED_WRITE, "mcp__magnets__.*"],
     "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
 }
 
@@ -138,7 +146,7 @@ def reason_of(result):
 
 
 def deny_text(reason, kind=None):
-    return "\U0001f512 WRITES OFF — " + twin.refusal_phrase(reason, kind)
+    return "\U0001f512 WRITES OFF — " + twin.refusal_text(reason, kind)
 
 
 # ---------------------------------------------------------------------------
@@ -176,14 +184,13 @@ def test_another_target_switched_on_does_not_arm_the_session(tmp_path, hook_runn
     )
 
 
-def test_a_narrowed_target_is_off_with_its_switch_on(tmp_path, hook_runner, make_config):
-    """A recorded `sandbox` for the target refuses as `switch_off`."""
+def test_an_old_narrowing_with_its_switch_on_is_allowed(tmp_path, hook_runner, make_config):
+    """The record's ``posture`` mirror is never an input to a write decision: an old
+    ``sandbox`` narrowing with the target's switch on writes."""
     config = make_config({"control_system": TWO_TARGETS})
     write_record(tmp_path, "live", on=["live"], posture={"live": "sandbox"})
 
-    assert reason_of(channel_write(tmp_path, hook_runner, config)) == deny_text(
-        "switch_off", "real"
-    )
+    assert channel_write(tmp_path, hook_runner, config) is None
 
 
 def test_no_record_under_a_stamped_root_is_off(tmp_path, hook_runner, make_config):
@@ -225,7 +232,7 @@ def test_readonly_execution_passes_with_every_switch_off(tmp_path, hook_runner, 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tool", [FACILITY_SERVER_TOOL, FACILITY_EXTRA])
+@pytest.mark.parametrize("tool", [FACILITY_SERVER_TOOL, DECLARED_WRITE, FACILITY_EXTRA])
 def test_a_facility_tool_is_refused_while_live_is_off_with_the_session_on_va(
     tmp_path, hook_runner, make_config, tool
 ):
@@ -238,7 +245,7 @@ def test_a_facility_tool_is_refused_while_live_is_off_with_the_session_on_va(
     assert reason == deny_text("switch_off", "real")
 
 
-@pytest.mark.parametrize("tool", [FACILITY_SERVER_TOOL, FACILITY_EXTRA])
+@pytest.mark.parametrize("tool", [FACILITY_SERVER_TOOL, DECLARED_WRITE, FACILITY_EXTRA])
 def test_a_facility_tool_is_allowed_while_live_is_on_with_the_session_on_va(
     tmp_path, hook_runner, make_config, tool
 ):
@@ -260,7 +267,31 @@ def test_a_whole_server_facility_server_refuses_its_reads_while_live_is_off(
     assert reason == deny_text("switch_off", "real")
 
 
-@pytest.mark.parametrize("tool", [FACILITY_SERVER_TOOL, FACILITY_EXTRA])
+def test_a_declaring_servers_read_answers_while_live_is_off(tmp_path, hook_runner, make_config):
+    """Only the declared tool is a write: the server's other tools are reads."""
+    config = make_config({"control_system": TWO_TARGETS})
+    write_record(tmp_path, "va", on=["va"])
+
+    assert call(tmp_path, hook_runner, config, DECLARED_READ) is None
+    assert reason_of(call(tmp_path, hook_runner, config, DECLARED_WRITE)) == deny_text(
+        "switch_off", "real"
+    )
+
+
+def test_a_declared_write_follows_live_not_the_session(tmp_path, hook_runner, make_config):
+    """Session on `live` with `live` off refuses; `live` on lets it through to approval."""
+    config = make_config({"control_system": TWO_TARGETS})
+    write_record(tmp_path, "live")
+    assert reason_of(call(tmp_path, hook_runner, config, DECLARED_WRITE)) == deny_text(
+        "switch_off", "real"
+    )
+    assert call(tmp_path, hook_runner, config, DECLARED_READ) is None
+
+    write_record(tmp_path, "live", on=["live"])
+    assert call(tmp_path, hook_runner, config, DECLARED_WRITE) is None
+
+
+@pytest.mark.parametrize("tool", [FACILITY_SERVER_TOOL, DECLARED_WRITE, FACILITY_EXTRA])
 def test_a_facility_tool_is_always_refused_on_a_deployment_with_no_live_target(
     tmp_path, hook_runner, make_config, tool
 ):
@@ -308,6 +339,9 @@ def test_the_classifier_places_every_kind_of_call(tmp_path, classify):
     assert classify(config, "mcp__python__execute", {"execution_mode": "readonly"}) is None
     assert classify(config, "mcp__controls__channel_write") == "va"
     assert classify(config, FACILITY_SERVER_TOOL) == "live"
+    assert classify(config, FACILITY_SERVER_READ) == "live"
+    assert classify(config, DECLARED_WRITE) == "live"
+    assert classify(config, DECLARED_READ) is None
     assert classify(config, FACILITY_EXTRA) == "live"
 
 
@@ -402,13 +436,8 @@ def test_the_hook_never_denies_a_lane_tool_with_the_real_machine_off(
 # posture unknown — exactly one cell
 # ---------------------------------------------------------------------------
 
-POSTURE_UNKNOWN_TEXT = (
-    "\U0001f512 WRITE STATE UNKNOWN — no control-context record was found "
-    "where this hook looks, so the write state set on the control-target "
-    "chip in the header cannot be read.\n\n"
-    "Writes stay refused until the controls MCP server is running; "
-    "config.yml is not the gate here."
-)
+#: The posture-unknown deny has no verdict to word: it speaks ``record_unavailable``.
+POSTURE_UNKNOWN_TEXT = deny_text("record_unavailable")
 
 
 def test_posture_unknown_fires_unstamped_with_no_record(

@@ -40,6 +40,8 @@ TWO_TARGETS = {
 }
 
 FACILITY_SERVER_TOOL = "mcp__magnets__set_current"
+DECLARED_WRITE = "mcp__plc__set_value"
+DECLARED_READ = "mcp__plc__get_value"
 FACILITY_EXTRA = "mcp__orbit__apply_correction"
 
 HOOK_CONFIG: dict[str, Any] = {
@@ -50,6 +52,7 @@ HOOK_CONFIG: dict[str, Any] = {
         "mcp__magnets__",
         "mcp__orbit__",
         "mcp__phoebus__",
+        "mcp__plc__",
     ],
     "write_tools": [
         "mcp__controls__channel_write",
@@ -59,10 +62,18 @@ HOOK_CONFIG: dict[str, Any] = {
         "mcp__python__execute_file",
         "mcp__phoebus__phoebus_drive",
         "mcp__magnets__.*",
+        DECLARED_WRITE,
         FACILITY_EXTRA,
     ],
     "control_system_write_tools": [FACILITY_EXTRA],
+    "facility_write_tools": [DECLARED_WRITE, "mcp__magnets__.*"],
     "lane_addressed_tools": ["queue_add", "queue_start", "queue_stop", "queue_remove"],
+}
+
+#: The same render from before the ``facility_write_tools`` key: both sides read
+#: the whole-server matchers in ``write_tools`` as the facility set.
+NO_FACILITY_KEY: dict[str, Any] = {
+    k: v for k, v in HOOK_CONFIG.items() if k != "facility_write_tools"
 }
 
 #: A hook_config the render wrote with no write list: both sides fall back.
@@ -97,6 +108,8 @@ CALLS: list[tuple[str, str, dict[str, Any]]] = [
     ("facility-server", FACILITY_SERVER_TOOL, {}),
     ("facility-server-read", "mcp__magnets__read_current", {}),
     ("facility-extra", FACILITY_EXTRA, {}),
+    ("declared-write", DECLARED_WRITE, {}),
+    ("declared-read", DECLARED_READ, {}),
     ("queue-start-no-lane", "mcp__bluesky__queue_start", {}),
     ("queue-start-va", "mcp__bluesky__queue_start", {"lane": "bluesky_va"}),
     ("queue-start-live", "mcp__bluesky__queue_start", {"lane": "bluesky_live"}),
@@ -229,7 +242,7 @@ def test_an_unstamped_process_with_no_record_cannot_place_a_session_write(
     assert package == hooked == ("<unresolved>" if record == "missing" else record)
 
 
-def test_the_placement_is_the_session_target_not_a_gateway_role(tmp_path, monkeypatch, stamped):
+def test_the_placement_is_the_sessions_machine_not_a_gateway_role(tmp_path, monkeypatch, stamped):
     """A framework write follows the session's machine; a facility write the real one."""
     write_control_context(stamped, target="va", generation=3)
     config = CONFIGS["two-lanes"]
@@ -246,6 +259,48 @@ def test_the_placement_is_the_session_target_not_a_gateway_role(tmp_path, monkey
     )
 
 
+@pytest.mark.parametrize("hook_config", [HOOK_CONFIG, NO_FACILITY_KEY], ids=["keyed", "pre-key"])
+@pytest.mark.parametrize("record", RECORDS)
+@pytest.mark.parametrize("call", CALLS, ids=[c[0] for c in CALLS])
+def test_both_read_the_facility_set_alike(
+    tmp_path, monkeypatch, stamped, hook_config, record, call
+):
+    _id, tool, tool_input = call
+    _set_record(stamped, record)
+
+    package, hooked = _both(
+        tmp_path, monkeypatch, CONFIGS["two-lanes"], hook_config, tool, tool_input
+    )
+
+    assert package == hooked
+
+
+def test_a_declaring_server_sends_its_declared_tool_to_live_and_its_read_nowhere(
+    tmp_path, monkeypatch, stamped
+):
+    write_control_context(stamped, target="va", generation=3)
+    config = CONFIGS["two-lanes"]
+
+    assert _both(tmp_path, monkeypatch, config, HOOK_CONFIG, DECLARED_WRITE, {}) == (
+        "live",
+        "live",
+    )
+    assert _both(tmp_path, monkeypatch, config, HOOK_CONFIG, DECLARED_READ, {}) == (None, None)
+    assert _both(tmp_path, monkeypatch, config, HOOK_CONFIG, "mcp__magnets__read_current", {}) == (
+        "live",
+        "live",
+    )
+
+
+def test_without_the_key_a_whole_server_matcher_is_still_facility(tmp_path, monkeypatch, stamped):
+    """A render from before the key keeps sending its whole-server servers to `live`."""
+    write_control_context(stamped, target="va", generation=3)
+
+    assert _both(
+        tmp_path, monkeypatch, CONFIGS["two-lanes"], NO_FACILITY_KEY, FACILITY_SERVER_TOOL, {}
+    ) == ("live", "live")
+
+
 def test_the_fallback_write_lists_match():
     assert list(FALLBACK_WRITE_TOOLS) == hook_log.FALLBACK_WRITE_TOOLS
 
@@ -256,6 +311,7 @@ def test_the_lane_keys_match():
     assert write_target._LANE_KEYS == twin._LANE_KEYS
     assert write_target._LANE_ADDRESSED_KEY == twin._LANE_ADDRESSED_KEY
     assert write_target._FACILITY_EXTRAS_KEY == twin._FACILITY_EXTRAS_KEY
+    assert write_target._FACILITY_WRITES_KEY == twin._FACILITY_WRITES_KEY
 
 
 @pytest.mark.usefixtures("stamped")

@@ -82,6 +82,10 @@ _LANE_ADDRESSED_KEY = "lane_addressed_tools"
 #: render appended to ``write_tools``: the deployment's own write tools.
 _FACILITY_EXTRAS_KEY = "control_system_write_tools"
 
+#: The hook_config key naming the facility (custom-server) write set: exact
+#: names for a declaring server, ``mcp__<name>__.*`` for one with no list.
+_FACILITY_WRITES_KEY = "facility_write_tools"
+
 #: The hook_config keys naming server prefixes, longest match stripped.
 _PREFIX_KEYS = ("server_prefixes", "approval_prefixes")
 
@@ -160,14 +164,24 @@ def _hook_prefixes(hook_config: Mapping[str, Any]) -> list[str]:
 
 
 def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
-    """Whether *tool_name* is a write tool the deployment declared, not the framework."""
-    for entry in hook_config.get("write_tools") or ():
-        if (
-            isinstance(entry, str)
-            and entry.endswith(_MATCHER_WILDCARD)
-            and is_write_tool(tool_name, [entry])
-        ):
+    """Whether *tool_name* is a write tool the deployment declared, not the framework.
+
+    The rendered ``facility_write_tools`` set, plus the ``control_system.write_tools``
+    entries the render appended. A render from before that key carried no exact
+    names, so there the whole-server matchers in ``write_tools`` are the set.
+    """
+    declared = hook_config.get(_FACILITY_WRITES_KEY)
+    if isinstance(declared, list):
+        if is_write_tool(tool_name, declared):
             return True
+    else:
+        for entry in hook_config.get("write_tools") or ():
+            if (
+                isinstance(entry, str)
+                and entry.endswith(_MATCHER_WILDCARD)
+                and is_write_tool(tool_name, [entry])
+            ):
+                return True
     extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
 

@@ -496,7 +496,9 @@ def _is_side_effect_tool(tool_name: str, side_effect_tools: Sequence[str]) -> bo
 
     The surface is :func:`~osprey.agent_runner.write_tools.read_only_disallowed_tools`,
     the list the headless read-only run refuses. An exact name, or a name ending in
-    ``*``, matches as in :func:`~osprey.utils.tool_rules.matches_denylist`. A
+    ``*``, matches as in :func:`~osprey.utils.tool_rules.matches_denylist`; a
+    facility server that declares ``writes:`` reaches the surface that way, one
+    exact name per write tool, so only those tools are covered, not its reads. A
     whole-server matcher ``mcp__<server>__.*`` covers that server's tools, as the
     writes-check hook reads it. A server-level entry ``mcp__<server>`` covers every
     tool of that server, as the disallow engine reads it. A non-string entry covers

@@ -1921,6 +1921,12 @@ _LANE_ADDRESSED_KEY = "lane_addressed_tools"
 #: render appended to ``write_tools``: the deployment's own write tools.
 _FACILITY_EXTRAS_KEY = "control_system_write_tools"
 
+#: The hook_config key naming the facility (custom-server) write set, fully
+#: qualified: one exact name per tool a declaring server gates, and the
+#: whole-server matcher ``mcp__<name>__.*`` of a server with no list. Rendered
+#: verbatim from ``osprey.registry.mcp.facility_write_tools``, its one producer.
+_FACILITY_WRITES_KEY = "facility_write_tools"
+
 #: The wildcard a whole-server ``writes_check`` matcher ends in.
 _SERVER_MATCHER_WILDCARD = ".*"
 
@@ -1934,18 +1940,25 @@ _LANE_KEYS = (_LANE_ONE, "bluesky_va", "bluesky_live", "bluesky_standin")
 def _is_facility_tool(tool_name, hook_config):
     """Whether *tool_name* is a write tool the deployment declared, not the framework.
 
-    Two producers, both read from the render: a whole-server ``writes_check``
-    matcher (``mcp__<name>__.*``), which only a facility-custom server carries,
-    and a ``control_system.write_tools`` entry the render appended. An extra
-    that names a framework tool was not appended, and stays a framework tool.
+    Two producers, both read from the render: the ``facility_write_tools`` set
+    (exact names for a server that declares ``writes:``, the whole-server
+    matcher for one that does not), and a ``control_system.write_tools`` entry
+    the render appended. An extra that names a framework tool was not appended,
+    and stays a framework tool. A render from before that key carried no exact
+    names, so there the whole-server matchers in ``write_tools`` are the set.
     """
-    for entry in hook_config.get("write_tools") or ():
-        if (
-            isinstance(entry, str)
-            and entry.endswith(_SERVER_MATCHER_WILDCARD)
-            and is_write_tool(tool_name, [entry])
-        ):
+    declared = hook_config.get(_FACILITY_WRITES_KEY)
+    if isinstance(declared, list):
+        if is_write_tool(tool_name, declared):
             return True
+    else:
+        for entry in hook_config.get("write_tools") or ():
+            if (
+                isinstance(entry, str)
+                and entry.endswith(_SERVER_MATCHER_WILDCARD)
+                and is_write_tool(tool_name, [entry])
+            ):
+                return True
     extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
 
@@ -2019,6 +2032,8 @@ def hook_write_target(config, tool_name, short_name, hook_input):
       ``write_tools``, or a readonly execution.
     * :data:`TARGET_LIVE` for a facility write tool (:func:`_is_facility_tool`):
       the deployment declared it, and only the real machine's switch covers it.
+      A declaring server's other tools are in no write list, so they are
+      reads, and answer while ``live`` is off.
     * The lane's target for a lane-addressed tool (:func:`_lane_machine`).
     * The session's target for every other framework write tool
       (:func:`_session_machine`).

@@ -47,6 +47,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     OperatorSession,
     TurnInProgressError,
     _event_to_wire,
+    _is_side_effect_tool,
     _read_render,
     _standing_rules,
     format_tool_name,
@@ -411,7 +412,7 @@ class TestCardTarget:
         return card
 
     @pytest.mark.parametrize(
-        ("session_target", "published", "expected"),
+        ("session_machine", "published", "expected"),
         [
             pytest.param(
                 "live",
@@ -456,9 +457,9 @@ class TestCardTarget:
         ],
     )
     async def test_a_write_card_names_its_machine(
-        self, tmp_path, root, session_target, published, expected
+        self, tmp_path, root, session_machine, published, expected
     ):
-        write_control_context(root, target=session_target, generation=2)
+        write_control_context(root, target=session_machine, generation=2)
         if published:
             self._publish(root, published)
 
@@ -586,6 +587,36 @@ class TestStandingRules:
             else:
                 tool = entry
             assert _standing_rules(tool, _session_allow(tool), surface) == [], tool
+
+    def test_a_declaring_servers_write_is_on_the_surface_and_its_read_is_not(self, tmp_path):
+        """A server that declares ``writes:`` renders one exact write-list entry per write
+        tool, so only that tool is approved per call; its reads keep a session allow."""
+        (tmp_path / "config.yml").write_text(
+            "claude_code:\n"
+            "  servers:\n"
+            "    plc:\n"
+            "      command: node\n"
+            "      writes: [set_value]\n"
+            "      permissions: {allow: [get_value, set_value]}\n",
+            encoding="utf-8",
+        )
+        _write_hook_config(tmp_path, ["mcp__controls__channel_write", "mcp__plc__set_value"])
+        surface = read_only_disallowed_tools(tmp_path)
+        write, read = "mcp__plc__set_value", "mcp__plc__get_value"
+
+        assert _is_side_effect_tool(write, surface)
+        assert not _is_side_effect_tool(read, surface)
+        assert _standing_rules(write, _session_allow(write), surface) == []
+        rules = _standing_rules(read, _session_allow(read), surface)
+        assert [r.tool_name for rule in rules for r in rule.rules] == [read]
+
+    def test_a_whole_server_facility_server_is_covered_whole(self, tmp_path):
+        """A list-less server's whole-server matcher covers its reads too."""
+        _write_hook_config(tmp_path, ["mcp__magnets__.*"])
+        surface = read_only_disallowed_tools(tmp_path)
+
+        assert _is_side_effect_tool("mcp__magnets__read_current", surface)
+        assert not _is_side_effect_tool("mcp__magnetsx__read_current", surface)
 
     def test_control_target_set_is_never_offered_a_session_allow(self, tmp_path):
         """Regression pin: it moves the whole session to another machine. It is approval-gated
