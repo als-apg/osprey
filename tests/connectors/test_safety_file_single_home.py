@@ -35,6 +35,10 @@ ALLOWED: dict[tuple[str, str], str] = {
     (f"{_HOOKS}/osprey_safety_file.py", "atomic_replace"): (
         "the hooks' byte-identical copy of the one way"
     ),
+    (f"{_HOOKS}/osprey_hook_log.py", "_spool_write_sealed"): (
+        "seals a fresh spool segment under a new name, as the record's writer does; "
+        "never over an existing file"
+    ),
     ("src/osprey/agent_record/ingest/spool.py", "_quarantine"): (
         "moves a hostile spool entry aside as evidence"
     ),
