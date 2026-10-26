@@ -21,15 +21,18 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.agent_record.client import ClientAnswer
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.operator_session import _EXPIRED_MESSAGES
+from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.interfaces.web_terminal.routes.session import (
     _APPROVED_CALL_NOTE,
     _DECLINED_RESULTS,
     router,
 )
 from osprey.mcp_server.workspace.transcript_reader import MAX_CHAT_MESSAGE_LENGTH
+from tests.agent_record.fakes import FakeRecordClient
 from tests.interfaces.web_terminal._fakes import armed_chat
 
 from .conftest import bare_route_app
@@ -56,12 +59,27 @@ def _write(transcript_dir: Path, transcript_id: str, entries: list[dict]) -> Non
 
 @pytest.fixture
 def transcripts(tmp_path, monkeypatch):
-    """A project whose Claude Code transcript directory lives under ``tmp_path``."""
+    """A project whose Claude Code transcripts live under ``tmp_path``, and a record serving them.
+
+    The record is a fake answering each session's timeline with the nodes the
+    agent record's own parser and timeline builder make of that session's
+    transcript, so a test writes what the CLI writes and reads what the
+    record would serve.
+    """
     monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(tmp_path / "claude-config"))
     project = tmp_path / "project"
     project.mkdir()
     transcript_dir = claude_project_dir(project)
     transcript_dir.mkdir(parents=True)
+
+    def timeline(**kwargs) -> ClientAnswer:
+        path = transcript_dir / f"{kwargs['session_id']}.jsonl"
+        nodes = session_routes._transcript_nodes(path) if path.is_file() else []
+        return ClientAnswer(data=nodes, complete=True)
+
+    record = FakeRecordClient({"timeline": timeline})
+    monkeypatch.setattr(session_routes, "record_client", lambda: record)
+    monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
     return project, transcript_dir
 
 
@@ -130,7 +148,7 @@ class TestSessionChatFull:
         resp = client.get("/api/session-chat?session_id=no-such-key&full=1")
 
         assert resp.status_code == 200
-        assert resp.json() == {"turns": [], "count": 0}
+        assert resp.json() == {"turns": [], "count": 0, "record": "complete"}
 
     def test_full_accepts_the_other_true_spellings(self, client, transcripts):
         """``true`` reads the same as ``1``; an unrecognized value keeps the cap."""
