@@ -1658,18 +1658,36 @@ def test_the_declared_set_is_the_schema_accessor_applied_per_block():
 # --- reader links ------------------------------------------------------------
 
 
-def _reader_config(web: dict | None = None, **store) -> dict:
-    """A store with two readers; ``web`` adds the web tier in front of it."""
+def _reader_config(web: dict | None = None, *, method: str = "oidc") -> dict:
+    """Three named readers of the agent record, a store with readers of its own,
+    and, with ``web``, a signed-in web tier serving the history page.
+
+    ``carol`` is a roster person, ``ext`` an IdP identity off the roster, and
+    ``script`` has neither: they read on the deploy host only.
+    """
     config: dict = {
         "project_name": "demo",
         "deploy": {"host": "demo-deploy", "fqdn": "demo.example.org"},
         "deployed_services": ["telemetry_store"],
-        "services": {
-            "telemetry_store": {"readers": [{"name": "2nd-shift"}, {"name": "jean-luc"}], **store}
+        "services": {"telemetry_store": {"readers": [{"name": "2nd-shift"}]}},
+        "agent_record": {
+            "readers": [
+                {"name": "carol", "kinds": ["prompt"]},
+                {"name": "ext", "oidc_subject": "ext@partner.org"},
+                {"name": "script", "days_back": 2},
+            ]
         },
     }
     if web is not None:
-        config["modules"] = {"web_terminals": {"enabled": True, **web}}
+        config["modules"] = {
+            "web_terminals": {
+                "enabled": True,
+                "users": ["alice", "carol"],
+                "auth": {"method": method},
+                "tls": {"enabled": True, "cert": "/c", "key": "/k"},
+                **web,
+            }
+        }
     return config
 
 
@@ -1680,115 +1698,69 @@ def _reader_rows(
     return [entry for entry in entries if entry[1].startswith("reader ")]
 
 
-def test_without_web_terminals_a_reader_gets_the_stores_loopback_page_and_a_tunnel():
-    """No readers' origin exists: the store's own page on loopback, by reader
-    name and never with a key, and the tunnel that reaches it from elsewhere."""
-    port = layout_ports(DEFAULT_PORT_BASE)["telemetry_store"]
-
-    assert _reader_rows(_reader_config()) == [
-        ("stores", "reader 2nd-shift", f"http://127.0.0.1:{port}/play?user=2nd-shift"),
-        ("stores", "reader jean-luc", f"http://127.0.0.1:{port}/play?user=jean-luc"),
-        (
-            "stores",
-            "reader tunnel",
-            f"ssh -N -L {port}:127.0.0.1:{port} demo-deploy"
-            "  (from another machine, then open a reader link there)",
-        ),
-    ]
-    assert deploy_summary.reader_tunnel_command(_reader_config()) == (
-        f"ssh -N -L {port}:127.0.0.1:{port} demo-deploy"
-    )
-
-
-def test_the_loopback_form_follows_a_moved_store_port_and_an_unnamed_host():
-    config = _reader_config(port=19000)
-    del config["deploy"]
-    rows = _reader_rows(config)
-
-    assert rows[0][2] == "http://127.0.0.1:19000/play?user=2nd-shift"
-    assert rows[-1][2].startswith("ssh -N -L 19000:127.0.0.1:19000 <deploy host>")
-
-
-def test_the_reader_rows_sit_right_under_the_store_they_open(tmp_path):
-    port = layout_ports(DEFAULT_PORT_BASE)["telemetry_store"]
-    path = tmp_path / "docker-compose.yml"
-    path.write_text(
-        f'services:\n  telemetry_store:\n    ports:\n      - "127.0.0.1:{port}:8123"\n'
-        f'  postgresql:\n    ports:\n      - "127.0.0.1:5432:5432"\n',
-        encoding="utf-8",
-    )
-    entries = deploy_summary.endpoint_entries(_reader_config(), [str(path)])
-    services = [service for _tier, service, _address in entries]
-    start = services.index("telemetry_store")
-
-    assert services[start : start + 4] == [
-        "telemetry_store",
-        "reader 2nd-shift",
-        "reader jean-luc",
-        "reader tunnel",
-    ]
-
-
-def test_with_web_terminals_a_reader_gets_the_page_on_the_readers_origin():
-    """The readers' origin, already pointed at its own query endpoint, under
-    the gateway tier beside the landing page; no tunnel, the origin is public."""
+def test_a_reader_who_signs_in_gets_the_history_page_on_the_readers_origin():
+    """The roster reader and the IdP reader; the reader nothing signs in reads
+    on the deploy host only, through the read API, and has no row."""
     port = layout_ports(DEFAULT_PORT_BASE)["reader"]
-    origin = f"http://demo.example.org:{port}"
-    endpoint = f"http%3A%2F%2Fdemo.example.org%3A{port}%2Ftelemetry%2F"
+    page = f"https://demo.example.org:{port}/history/"
     config = _reader_config(web={})
 
     assert _reader_rows(config) == [
-        ("gateway", "reader 2nd-shift", f"{origin}/telemetry/play?url={endpoint}&user=2nd-shift"),
-        ("gateway", "reader jean-luc", f"{origin}/telemetry/play?url={endpoint}&user=jean-luc"),
+        ("gateway", "reader carol", page),
+        ("gateway", "reader ext", page),
     ]
-    assert deploy_summary.reader_tunnel_command(config) is None
+    assert deploy_summary.reader_page_url(config, "script") is None
     services = [service for _tier, service, _address in deploy_summary.endpoint_entries(config, [])]
-    assert services.index("web terminal") < services.index("reader 2nd-shift")
+    assert services.index("web terminal") < services.index("reader carol")
 
 
-def test_a_stated_reader_origin_is_the_one_printed_and_the_one_nginx_redirects_to():
-    """One derivation: the printed link and the rendered redirect name the same
-    endpoint, character for character."""
-    from osprey.deployment.web_terminals.render import render_web_terminals
+def test_under_password_sign_in_only_a_roster_reader_gets_a_link():
+    """No IdP asserts a subject under password sign-in."""
+    port = layout_ports(DEFAULT_PORT_BASE)["reader"]
+    config = _reader_config(web={}, method="password")
 
+    assert _reader_rows(config) == [
+        ("gateway", "reader carol", f"https://demo.example.org:{port}/history/"),
+    ]
+
+
+def test_a_stated_reader_origin_is_the_one_printed():
     config = _reader_config(
         web={
             "external_origin": "https://terminals.example.org",
             "reader_origin": "https://terminals.example.org:8443",
-            "users": ["alice"],
-            "default_tier": "assistant",
-            "renders": {"assistant": tier_render("assistant", "demo-assistant")},
         }
     )
-    config["facility"] = {"prefix": "demo"}
-    config["registry"] = {"url": "git.example.org:5050/demo/profiles"}
-    link = deploy_summary.reader_page_url(config, "jean-luc")
-
-    assert link == (
-        "https://terminals.example.org:8443/telemetry/play"
-        "?url=https%3A%2F%2Fterminals.example.org%3A8443%2Ftelemetry%2F&user=jean-luc"
+    assert deploy_summary.reader_page_url(config, "carol") == (
+        "https://terminals.example.org:8443/history/"
     )
-    relative = link[len("https://terminals.example.org:8443") : -len("&user=jean-luc")]
-    nginx = render_web_terminals(config, facility_name="Demo")["nginx/nginx.conf"]
-    assert f"return 302 {relative}&$args;" in nginx
 
 
-def test_a_reader_link_never_carries_a_key():
+def test_no_link_names_the_query_endpoint_the_query_page_or_a_key():
     for config in (_reader_config(), _reader_config(web={})):
         for _tier, _service, address in _reader_rows(config):
-            assert "password" not in address
+            for gone in ("/telemetry/", "/play", "password", "user="):
+                assert gone not in address
+    assert not hasattr(deploy_summary, "reader_tunnel_command")
 
 
-def test_no_reader_and_no_store_print_no_reader_row():
-    no_readers = _reader_config(web={})
-    no_readers["services"]["telemetry_store"]["readers"] = []
-    no_store = _reader_config(web={})
-    no_store["deployed_services"] = []
+def test_without_the_history_page_no_reader_row_is_printed():
+    """A store and its readers alone serve nothing to open: no ``/play`` link,
+    no tunnel. Token sign-in serves no history page either."""
+    assert _reader_rows(_reader_config()) == []
+    assert deploy_summary.reader_page_url(_reader_config(), "carol") is None
+    token = _reader_config(web={})
+    token["modules"]["web_terminals"]["auth"] = {}
+    assert _reader_rows(token) == []
 
-    assert _reader_rows(no_readers) == []
-    assert _reader_rows(no_store) == []
-    assert deploy_summary.reader_page_url(no_store, "jean-luc") is None
-    assert deploy_summary.reader_tunnel_command(no_store) is None
+
+def test_the_store_readers_print_no_row_and_the_page_needs_no_store():
+    config = _reader_config(web={})
+    config["deployed_services"] = []
+    names = [service for _tier, service, _address in _reader_rows(config)]
+
+    assert names == ["reader carol", "reader ext"]
+    assert deploy_summary.reader_page_url(config, "2nd-shift") is None
 
 
 def test_an_underivable_readers_origin_prints_no_row_and_fails_nothing():
@@ -1798,4 +1770,4 @@ def test_an_underivable_readers_origin_prints_no_row_and_fails_nothing():
 
     assert _reader_rows(config) == []
     with pytest.raises(ValueError, match="reader_origin"):
-        deploy_summary.reader_page_url(config, "jean-luc")
+        deploy_summary.reader_page_url(config, "carol")

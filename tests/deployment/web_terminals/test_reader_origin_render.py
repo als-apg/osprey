@@ -1,12 +1,13 @@
 """The readers' origin: the second nginx server, and the one origin behind it.
 
-The rendered server is pinned byte for byte in ``golden/reader_origin/``, from
-its opening comment to the end of the file, for the shapes its text can take:
-an origin derived from the deploy host over plain HTTP, and one stated beside
-an external origin with TLS on — each without the history page (token sign-in)
-and with it (password sign-in). The terminal servers above it are pinned
-by ``test_golden_render.py``; a deployment without the store renders exactly
-those and nothing more, which the goldens there already hold.
+The server exists exactly when the history page does, and serves that page and
+nothing else: no query endpoint (``/telemetry/``) and no query page (``/play``)
+render, whatever the store. It is pinned byte for byte in
+``golden/reader_origin/``, from its opening comment to the end of the file, for
+the shapes its text can take: an origin derived from the deploy host over plain
+HTTP, and one stated beside an external origin with TLS on. The terminal
+servers above it are pinned by ``test_golden_render.py``; a deployment without
+the page renders exactly those and nothing more.
 
 Regenerate the goldens with
 ``python tests/deployment/web_terminals/test_reader_origin_render.py`` after a
@@ -24,6 +25,7 @@ from typing import Any
 
 import pytest
 
+from osprey.agent_record.config import history_page_deployed
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_credentials
 from osprey.deployment.web_terminals.render import (
@@ -50,8 +52,6 @@ _FACILITY_NAME = "Demo Light Source"
 
 #: The first line of the readers' part of the rendered file.
 _MARKER = "# The readers' origin.\n"
-
-_HASH = tc.PLAY_SCRIPT_SHA256["26.8.18.2"]
 
 
 def _config(web: dict[str, Any] | None = None, store: dict[str, Any] | None = None) -> dict:
@@ -112,8 +112,6 @@ def _history_stated_config() -> dict:
 
 
 _VARIANTS = {
-    "derived.conf": _config,
-    "stated.conf": _stated_config,
     "history_derived.conf": _history_config,
     "history_stated.conf": _history_stated_config,
 }
@@ -145,192 +143,83 @@ def test_the_readers_server_matches_its_golden_byte_for_byte(name: str) -> None:
     assert _reader_part(_VARIANTS[name]()) == golden.read_text(encoding="utf-8")
 
 
-def test_the_goldens_hold_what_each_shape_is_for() -> None:
-    """A stale or truncated golden cannot pass by matching an equally wrong render."""
-    derived = (_GOLDEN_DIR / "derived.conf").read_text(encoding="utf-8")
-    stated = (_GOLDEN_DIR / "stated.conf").read_text(encoding="utf-8")
-
-    assert "    listen 10002;\n    listen [::]:10002;\n" in derived
-    assert "proxy_pass http://127.0.0.1:10804/?$osprey_reader_query;" in derived
-    assert (
-        "return 302 /telemetry/play?url=http%3A%2F%2Fdls-deploy.dls.example.org"
-        "%3A10002%2Ftelemetry%2F&$args;"
-    ) in derived
-    assert "proxy_read_timeout 40s;" in derived
-
-    assert "    listen 18443 ssl;\n    listen [::]:18443 ssl;\n" in stated
-    assert "ssl_certificate /etc/nginx/certs/dls.crt;" in stated
-    assert "proxy_pass http://127.0.0.1:19000/?$osprey_reader_query;" in stated
-    assert (
-        "return 302 /telemetry/play?url=https%3A%2F%2Fterminals.dls.example.org"
-        "%3A8443%2Ftelemetry%2F&$args;"
-    ) in stated
-    assert "proxy_read_timeout 100s;" in stated
-    for golden in (derived, stated):
-        assert golden.rstrip().endswith("}")
-        assert f"script-src 'sha256-{_HASH}' 'wasm-unsafe-eval'" in golden
+def test_only_the_history_goldens_remain() -> None:
+    """A store without the page renders no readers' server, so it has no golden."""
+    assert sorted(path.name for path in _GOLDEN_DIR.iterdir()) == sorted(_VARIANTS)
 
 
 # --- when the server exists --------------------------------------------------
 
 
-def test_no_store_means_no_readers_server() -> None:
-    config = _config()
-    config["deployed_services"] = ["telemetry_gateway"]
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_config(), id="store-and-token-sign-in"),
+        pytest.param(_stated_config(), id="store-stated-origins"),
+        pytest.param(_config(web={"auth": {"method": "none"}}), id="store-and-no-sign-in"),
+    ],
+)
+def test_a_store_without_the_history_page_renders_no_readers_server(config: dict) -> None:
+    assert not history_page_deployed(config)
     assert not serves_reader_origin(config)
     conf = _nginx(config)
     assert _MARKER not in conf
     assert "osprey_reader" not in conf
-    assert "10002" not in conf
+    assert "\n    listen 10002;" not in conf
 
 
-def test_the_server_is_gated_exactly_as_the_port_preflight_is() -> None:
-    """The preflight probes the readers' port for the configs that listen on it."""
-    from osprey.deployment.host_ports import derive_reader_origin_bindings
-
-    with_store = _config()
-    without_store = _config()
+def test_the_server_exists_exactly_when_the_history_page_does() -> None:
+    with_store = _history_config()
+    without_store = _history_config()
     without_store["deployed_services"] = []
-    web_off = _config(web={"enabled": False})
-    for config in (with_store, without_store, web_off):
-        assert bool(derive_reader_origin_bindings(config)) is serves_reader_origin(config)
-    assert serves_reader_origin(with_store)
+    web_off = _history_config()
+    web_off["modules"]["web_terminals"]["enabled"] = False
+    for config in (with_store, without_store):
+        assert serves_reader_origin(config)
+        assert _MARKER in _nginx(config)
     assert not serves_reader_origin(web_off)
 
 
 def test_the_server_listens_on_the_port_the_preflight_probes() -> None:
     from osprey.deployment.host_ports import derive_reader_origin_bindings
 
-    config = _config(web={"reader_port": 12345})
+    config = _signed_in(_config(web={"reader_port": 12345}))
     (binding,) = derive_reader_origin_bindings(config)
     assert binding.host_port == 12345
     assert "    listen 12345;\n" in _reader_part(config)
 
 
-# --- the query endpoint ------------------------------------------------------
+# --- no query endpoint, no query page ------------------------------------------
 
 
-def test_only_four_request_headers_go_upstream_and_never_the_body_length() -> None:
-    body = _location(_reader_part(_config()), "location = /telemetry/")
-    assert "proxy_pass_request_headers off;" in body
-    sent = re.findall(r"^\s*proxy_set_header (\S+) (\S+);$", body, flags=re.MULTILINE)
-    assert sent == [
-        ("Authorization", "$http_authorization"),
-        ("Content-Type", "$http_content_type"),
-        ("Content-Encoding", "$http_content_encoding"),
-        ("Accept-Encoding", "$http_accept_encoding"),
-    ]
-    assert "proxy_set_header Content-Length" not in _reader_part(_config())
+#: Every spelling the store's query endpoint and query page were served under.
+_GONE = ("/telemetry/", "/telemetry/play", "/play", "osprey_reader_query", "osprey_reader_401")
 
 
-def test_the_wait_parameter_is_appended_and_the_query_string_is_never_edited() -> None:
-    part = _reader_part(_config())
-    assert (
-        "map $args $osprey_reader_query {\n"
-        '    "" "http_wait_end_of_query=1";\n'
-        '    default "$args&http_wait_end_of_query=1";\n'
-        "}\n"
-    ) in part
-    # One mechanism: nothing rewrites or filters what the reader sent.
+@pytest.mark.parametrize("build", [_history_config, _history_stated_config])
+def test_telemetry_and_play_do_not_render(build) -> None:
+    conf = _nginx(build())
+    for gone in _GONE:
+        assert gone not in conf, gone
+    part = _reader_part(build())
     directives = "\n".join(line for line in part.splitlines() if not line.lstrip().startswith("#"))
-    assert "rewrite" not in directives
-    assert "$arg_wait_end_of_query" not in directives
-    assert directives.count("http_wait_end_of_query") == 2
+    for word in ("proxy_pass http://127.0.0.1:10804", "http_wait_end_of_query", "sha256-"):
+        assert word not in directives, word
+    assert "WWW-Authenticate" not in directives
 
 
-def _anonymous(authorization: str, user: str, password: str) -> bool:
-    """The 401 map, evaluated as nginx evaluates it: an exact match on the key."""
-    part = _reader_part(_config())
-    match = re.search(
-        r'^map "(?P<key>[^"]+)" \$osprey_reader_anonymous \{\n'
-        r'    "" 1;\n'
-        r"    default 0;\n"
-        r"\}$",
-        part,
-        flags=re.MULTILINE,
+def test_the_render_names_no_store_port_or_query_page_hash() -> None:
+    """The store's port, limit and image no longer shape the readers' server."""
+    plain = _reader_part(_history_config())
+    moved = _history_config()
+    moved["services"]["telemetry_store"].update(
+        {"port": 19000, "limits": {"seconds": 90}, "image": "clickhouse/clickhouse-server:99.1.1.1"}
     )
-    assert match is not None
-    assert match.group("key") == "$http_authorization$arg_user$arg_password"
-    return authorization + user + password == ""
-
-
-@pytest.mark.parametrize(
-    ("authorization", "user", "password", "refused"),
-    [
-        pytest.param("Basic Y2Fyb2w6a2V5", "", "", False, id="basic"),
-        pytest.param("never", "carol", "key", False, id="never-with-parameters"),
-        pytest.param("", "carol", "key", False, id="parameters-only"),
-        pytest.param("", "", "", True, id="nothing"),
-    ],
-)
-def test_only_a_request_naming_no_account_is_answered_401_by_nginx(
-    authorization: str, user: str, password: str, refused: bool
-) -> None:
-    assert _anonymous(authorization, user, password) is refused
-
-
-def test_the_401_carries_the_basic_challenge_and_nothing_else_does() -> None:
-    part = _reader_part(_config())
-    endpoint = _location(part, "location = /telemetry/")
-    assert "if ($osprey_reader_anonymous) {\n            return 401;\n        }" in endpoint
-    assert "error_page 401 @osprey_reader_401;" in endpoint
-    challenge = _location(part, "location @osprey_reader_401")
-    assert "add_header WWW-Authenticate 'Basic realm=\"telemetry\"' always;" in challenge
-    assert challenge.rstrip().endswith("return 401;")
-    assert part.count("WWW-Authenticate") == 1
-
-
-@pytest.mark.parametrize("opening", ["location = /telemetry/", "location @osprey_reader_401"])
-def test_no_result_can_run_as_a_document(opening: str) -> None:
-    body = _location(_reader_part(_config()), opening)
-    assert "add_header X-Content-Type-Options nosniff always;" in body
-    assert "add_header Content-Security-Policy \"default-src 'none'; sandbox\" always;" in body
-
-
-def test_the_stores_cors_grant_is_not_passed_on() -> None:
-    part = _reader_part(_config())
-    for opening in ("location = /telemetry/", "location = /telemetry/play"):
-        assert "proxy_hide_header Access-Control-Allow-Origin;" in _location(part, opening)
-
-
-#: Response headers a reader could name through `http_response_headers` that
-#: act on the browser or the host beyond the answer itself.
-_BROWSER_ACTING_HEADERS = (
-    "Set-Cookie",
-    "Refresh",
-    "Location",
-    "Link",
-    "Clear-Site-Data",
-    "Strict-Transport-Security",
-    "Alt-Svc",
-    "NEL",
-    "Report-To",
-    "Reporting-Endpoints",
-    "Content-Security-Policy",
-    "Content-Security-Policy-Report-Only",
-    "Access-Control-Allow-Credentials",
-    "Access-Control-Allow-Headers",
-    "Access-Control-Allow-Methods",
-    "Access-Control-Expose-Headers",
-    "Access-Control-Allow-Private-Network",
-)
-
-
-def test_no_header_a_query_names_acts_on_the_browser_or_on_nginx() -> None:
-    body = _location(_reader_part(_config()), "location = /telemetry/")
-    for header in _BROWSER_ACTING_HEADERS:
-        assert f"proxy_hide_header {header};" in body, header
-    # Download names its file and its type; both still reach the browser.
-    assert "proxy_hide_header Content-Disposition;" not in body
-    assert "proxy_hide_header Content-Type;" not in body
-    assert (
-        "proxy_ignore_headers X-Accel-Redirect X-Accel-Expires X-Accel-Limit-Rate "
-        "X-Accel-Buffering X-Accel-Charset;" in body
-    )
+    assert _reader_part(moved) == plain
 
 
 def test_nothing_throttles_and_the_logs_hold_no_query_string() -> None:
-    part = _reader_part(_config())
+    part = _reader_part(_history_config())
     directives = "\n".join(line for line in part.splitlines() if not line.lstrip().startswith("#"))
     assert "limit_req" not in directives
     assert "limit_conn" not in directives
@@ -346,101 +235,30 @@ def test_nothing_throttles_and_the_logs_hold_no_query_string() -> None:
 # --- every other path --------------------------------------------------------
 
 
-def test_every_other_path_is_a_404_and_the_root_answers_the_pages_ping() -> None:
-    part = _reader_part(_config())
-    assert _location(part, "location /telemetry/").rstrip().endswith("return 404;")
+def test_every_other_path_is_a_404() -> None:
+    part = _reader_part(_history_config())
     assert _location(part, "location /").rstrip().endswith("return 404;")
-    root = _location(part, "location = /")
-    assert "if ($request_method = OPTIONS) {\n            return 204;\n        }" in root
-    assert root.rstrip().endswith("return 404;")
     assert "\n    root " not in part
     assert "try_files" not in part
-    assert re.findall(r"^    location (.+) \{$", part, flags=re.MULTILINE) == [
-        "= /",
-        "= /telemetry/",
-        "@osprey_reader_401",
-        "= /telemetry/play",
-        "/telemetry/",
-        "/",
-    ]
 
 
 def test_redirects_stay_relative() -> None:
-    assert "\n    absolute_redirect off;\n" in _reader_part(_config())
-    assert "\n    absolute_redirect off;\n" in _reader_part(_stated_config())
+    assert "\n    absolute_redirect off;\n" in _reader_part(_history_config())
+    assert "\n    absolute_redirect off;\n" in _reader_part(_history_stated_config())
 
 
-# --- the query page ----------------------------------------------------------
-
-
-def test_the_query_page_runs_one_script_named_by_the_images_hash() -> None:
-    page = _location(_reader_part(_config()), "location = /telemetry/play")
-    assert (
-        "add_header Content-Security-Policy \"default-src 'none'; "
-        f"script-src 'sha256-{_HASH}' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; "
-        "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; "
-        "base-uri 'none'; form-action 'self'\" always;"
-    ) in page
-    policy = page[page.index("script-src") : page.index("style-src")]
-    assert "'self'" not in policy
-    assert "'unsafe-inline'" not in policy
-
-
-def test_the_query_page_is_fetched_without_the_readers_parameters() -> None:
-    page = _location(_reader_part(_config()), "location = /telemetry/play")
-    assert "if ($request_method != GET) {\n            return 405;\n        }" in page
-    assert "set $osprey_reader_play /play;" in page
-    assert "proxy_pass http://127.0.0.1:10804$osprey_reader_play;" in page
-    assert "proxy_pass_request_headers off;" in page
-    assert "$osprey_reader_anonymous" not in page
-    directives = [line for line in page.splitlines() if not line.lstrip().startswith("#")]
-    assert not any("$args" in line and "return 302" not in line for line in directives)
-
-
-@pytest.mark.parametrize(
-    ("config", "origin"),
-    [
-        pytest.param(_config(), "http://dls-deploy.dls.example.org:10002", id="derived"),
-        pytest.param(_stated_config(), "https://terminals.dls.example.org:8443", id="stated"),
-    ],
-)
-def test_a_bare_bookmark_is_healed_from_the_resolved_origin(config: dict, origin: str) -> None:
-    """The redirect names the origin the printed link names, never the request's own."""
-    page = _location(_reader_part(config), "location = /telemetry/play")
-    link = tc.reader_play_url(reader_origin(config).origin)
-    assert link.startswith(f"{origin}/telemetry/play?url=")
-    relative = link[len(origin) :]
-    assert f'if ($arg_url = "") {{\n            return 302 {relative}&$args;\n        }}' in page
-    for forbidden in ("$scheme", "$http_host", "$host", "$is_args", "$server_port"):
-        assert forbidden not in page
-
-
-def test_an_image_nobody_has_read_serves_no_query_page() -> None:
-    config = _config(store={"image": "clickhouse/clickhouse-server:99.1.1.1"})
-    part = _reader_part(config)
-    page = _location(part, "location = /telemetry/play")
-    assert page.rstrip().endswith("return 404;")
-    assert "PLAY_SCRIPT_SHA256" in page
-    assert "proxy_pass" not in page
-    assert "script-src" not in part
-    # The query endpoint does not depend on the page.
-    assert "proxy_pass http://127.0.0.1:10804/?$osprey_reader_query;" in part
-
-
-def test_a_render_asks_no_store_and_writes_the_same_policy_every_time(monkeypatch) -> None:
-    """A roster change re-renders the web tier with the store down, and must not move the hash."""
+def test_a_render_asks_no_store_and_writes_the_same_server_every_time(monkeypatch) -> None:
+    """A roster change re-renders the web tier with every service down."""
 
     def _refuse(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("the render opened a network connection")
 
-    first = _reader_part(_config())
+    first = _reader_part(_history_config())
     monkeypatch.setattr(socket, "create_connection", _refuse)
     monkeypatch.setattr(socket.socket, "connect", _refuse)
-    grown = _config()
+    grown = _history_config()
     grown["modules"]["web_terminals"]["users"] = ["alice", "bob", "dana"]
-    again = _reader_part(grown)
-    assert again == first
-    assert f"'sha256-{_HASH}'" in again
+    assert _reader_part(grown) == first
 
 
 # --- the one origin ----------------------------------------------------------
@@ -480,7 +298,8 @@ def test_a_stated_origin_that_is_not_one_is_refused_by_name(stated: Any) -> None
 
 
 def test_an_external_origin_alone_cannot_name_the_readers_origin() -> None:
-    config = _config(web={"external_origin": "https://terminals.dls.example.org"})
+    config = _signed_in(_config(web={"external_origin": "https://terminals.dls.example.org"}))
+    config["modules"]["web_terminals"]["tls"] = {"enabled": True, "cert": "/c", "key": "/k"}
     with pytest.raises(ValueError, match="reader_origin is not"):
         reader_origin(config)
     with pytest.raises(ValueError, match="reader_origin is not"):
@@ -494,9 +313,8 @@ def test_no_deploy_host_and_no_stated_origin_is_refused_by_name() -> None:
         reader_origin(config)
 
 
-def test_a_deployment_without_the_store_is_never_asked_for_a_readers_origin() -> None:
+def test_a_deployment_without_the_page_is_never_asked_for_a_readers_origin() -> None:
     config = _config(web={"external_origin": "https://terminals.dls.example.org"})
-    config["deployed_services"] = []
     assert _MARKER not in _nginx(config)
 
 
@@ -508,7 +326,6 @@ _HISTORY_HEADERS = (
     verify_history.SCOPE_HEADER,
     verify_history.VIEW_HEADER,
     verify_history.ROLE_HEADER,
-    verify_history.TABLES_HEADER,
     verify_history.ENTRY_HEADER,
     verify_history.CHOICES_HEADER,
 )
@@ -586,9 +403,11 @@ def test_the_history_goldens_hold_what_each_shape_is_for() -> None:
 def test_the_page_exists_exactly_when_the_history_app_is_deployed(
     config: dict, deployed: bool
 ) -> None:
-    assert tc.history_page_deployed(config) is deployed
+    assert history_page_deployed(config) is deployed
     artifacts = render_web_terminals(config, facility_name=_FACILITY_NAME)
-    part = artifacts["nginx/nginx.conf"][artifacts["nginx/nginx.conf"].index(_MARKER) :]
+    conf = artifacts["nginx/nginx.conf"]
+    assert (_MARKER in conf) is deployed
+    part = conf[conf.index(_MARKER) :] if deployed else ""
     for text in ("/history", "verify-history", "osprey_history", "/auth/logout"):
         assert (text in part) is deployed, text
     # The snippet and its include are emitted together or not at all: an
@@ -600,17 +419,12 @@ def test_the_page_exists_exactly_when_the_history_app_is_deployed(
 def test_the_history_locations_sit_before_the_catch_alls() -> None:
     part = _reader_part(_history_config())
     assert re.findall(r"^    location (.+) \{$", part, flags=re.MULTILINE) == [
-        "= /",
-        "= /telemetry/",
-        "@osprey_reader_401",
-        "= /telemetry/play",
         "/history/",
         "= /history",
         "= /verify-history",
         "@osprey_history_401",
         "= /history-403.html",
         "= /auth/logout",
-        "/telemetry/",
         "/",
     ]
 
@@ -846,12 +660,12 @@ def test_nginx_reads_the_gate_file_and_is_recreated_when_it_changes() -> None:
 
 @pytest.mark.parametrize(
     "config",
-    [pytest.param(_config(), id="token"), pytest.param(_history_config(), id="no-store")],
+    [
+        pytest.param(_config(), id="token"),
+        pytest.param(_config(web={"auth": {"method": "none"}}), id="auth-none"),
+    ],
 )
 def test_without_the_page_nginx_names_no_gate_file(config: dict) -> None:
-    config = copy.deepcopy(config)
-    if config["modules"]["web_terminals"].get("auth"):
-        config["deployed_services"] = []
     service = _nginx_service(config)
     assert "env_file" not in service
     assert telemetry_credentials.DIGEST_LABEL not in service["labels"]

@@ -119,13 +119,38 @@ def test_a_reader_named_twice_is_refused_once() -> None:
     assert "'carol'" in finding.message and "'dave'" not in finding.message
 
 
+#: Password sign-in over TLS: what deploys the history page and its carriers.
+SIGNED_IN = {"auth": {"method": "password"}, "tls": {"enabled": True}}
+
+
+def _record_readers(config: dict[str, Any], *names: str) -> dict[str, Any]:
+    """``config`` with ``agent_record.readers`` naming *names*."""
+    config["agent_record"] = {"readers": [{"name": name} for name in names]}
+    return config
+
+
 def test_jean_luc_and_jean_underscore_luc_share_a_suffix() -> None:
-    config = _config(readers=[{"name": "jean-luc"}, {"name": "jean_luc"}, {"name": "carol"}])
+    """The sidecar's reader carriers are keyed by the agent record's reader names."""
+    config = _record_readers(_config(web=SIGNED_IN), "jean-luc", "jean_luc", "carol")
     finding = _one(config, "telemetry.reader_suffix_collision")
     assert finding.severity == "error"
-    assert "'jean-luc' and 'jean_luc'" in finding.message
+    assert "agent_record.readers 'jean-luc' and 'jean_luc'" in finding.message
     assert "JEAN_LUC" in finding.message
     assert reader_suffix_collision_problems(_config()) == []
+
+
+def test_store_readers_never_collide_on_the_sidecars_carriers() -> None:
+    """The store's own readers key no carrier; only the record's readers do."""
+    config = _config(readers=[{"name": "jean-luc"}, {"name": "jean_luc"}], web=SIGNED_IN)
+    assert "telemetry.reader_suffix_collision" not in _codes(config)
+
+
+def test_a_carrier_collision_is_refused_without_the_store_and_only_with_the_page() -> None:
+    with_page = _record_readers(_config(web=SIGNED_IN), "jean-luc", "jean_luc")
+    with_page["deployed_services"] = []
+    assert _one(with_page, "telemetry.reader_suffix_collision").severity == "error"
+    no_page = _record_readers(_config(web={}), "jean-luc", "jean_luc")
+    assert "telemetry.reader_suffix_collision" not in _codes(no_page)
 
 
 @pytest.mark.parametrize("days", [0, -1, "7", 1.5, True, None])
@@ -281,7 +306,9 @@ def test_neither_service_may_sit_on_the_host_network(service: str) -> None:
 
 # ── The readers' origin ──────────────────────────────────────────────────────
 
-TLS = {"tls": {"enabled": True}}
+#: Password sign-in over TLS, which is what deploys the history page and so
+#: the readers' origin.
+TLS = {"tls": {"enabled": True}, "auth": {"method": "password"}}
 
 
 def test_an_external_origin_needs_a_reader_origin_beside_it() -> None:
@@ -318,66 +345,48 @@ def test_a_reader_origin_alone_is_allowed() -> None:
     assert lint_telemetry(_config(web=web)) == []
 
 
-def test_reader_keys_in_cleartext_on_a_reachable_origin_draw_a_warning() -> None:
-    web = {"reader_origin": "http://osprey.lab.example:10002"}
-    finding = _one(_config(web=web), "telemetry.reader_cleartext")
-    assert finding.severity == "warn"
+def test_the_origin_rules_are_asked_without_the_store_when_the_page_is_deployed() -> None:
+    web = {**TLS, "external_origin": "https://osprey.lab.example"}
+    config = _config(web=web)
+    config["deployed_services"] = []
+    assert _one(config, "telemetry.reader_origin_required").severity == "error"
+
+
+def test_without_the_history_page_there_is_no_readers_origin_to_check() -> None:
+    """Token sign-in serves no history page, so ``reader_origin`` is read by nothing."""
+    web = {"tls": {"enabled": True}, "external_origin": "https://osprey.lab.example"}
+    assert "telemetry.reader_origin_required" not in _codes(_config(web=web))
 
 
 @pytest.mark.parametrize(
-    "web",
+    "config",
     [
-        {"reader_origin": "http://127.0.0.1:10002"},
-        {"reader_origin": "http://localhost:10002"},
-        {"reader_origin": "https://osprey.lab.example"},
-        {"tls": {"enabled": True}, "reader_origin": "http://osprey.lab.example:10002"},
+        pytest.param(
+            _config(web={"reader_origin": "http://osprey.lab.example:10002"}), id="cleartext"
+        ),
+        pytest.param(
+            _config(store={"image": "clickhouse/clickhouse-server:99.1.1.1"}, web={}),
+            id="unread-image",
+        ),
+        pytest.param(
+            _config(
+                web={},
+                deploy={"fqdn": "osprey.lab.example"},
+                deployment={"bind_address": "0.0.0.0"},
+            ),
+            id="reachable",
+        ),
     ],
 )
-def test_no_cleartext_warning_on_loopback_behind_tls_or_with_tls_on(web: dict[str, Any]) -> None:
-    assert "telemetry.reader_cleartext" not in _codes(_config(web=web))
-
-
-def test_a_derived_loopback_or_underivable_origin_draws_no_cleartext_warning() -> None:
-    """With no reader_origin the terminals' own derived origin decides."""
-    assert "telemetry.reader_cleartext" not in _codes(_config(web={}))
-    loopback = _config(web={}, deploy={"fqdn": "localhost"})
-    assert "telemetry.reader_cleartext" not in _codes(loopback)
-
-
-@pytest.mark.parametrize("bind", ["0.0.0.0", "::", "10.0.0.5"])
-@pytest.mark.parametrize(
-    ("web", "deploy"),
-    [
-        ({}, {"fqdn": "localhost"}),
-        ({}, None),
-        ({"reader_origin": "http://127.0.0.1:10002"}, None),
-    ],
-)
-def test_a_port_published_beyond_this_machine_is_exposed_whatever_its_name(
-    bind: str, web: dict[str, Any], deploy: dict[str, Any] | None
-) -> None:
-    """The bind decides too: a loopback name, or none, over a network bind."""
-    top: dict[str, Any] = {"deployment": {"bind_address": bind}}
-    if deploy is not None:
-        top["deploy"] = deploy
-    assert _one(_config(web=web, **top), "telemetry.reader_cleartext").severity == "warn"
-
-
-def test_an_https_reader_origin_is_not_cleartext_in_any_spelling_or_on_any_bind() -> None:
-    web = {"reader_origin": "HTTPS://osprey.lab.example"}
-    config = _config(web=web, deployment={"bind_address": "0.0.0.0"})
-    assert "telemetry.reader_cleartext" not in _codes(config)
-
-
-def test_no_reader_means_no_key_to_carry_in_cleartext() -> None:
-    web = {"reader_origin": "http://osprey.lab.example:10002"}
-    config = _config(readers=[], web=web, deployment={"bind_address": "0.0.0.0"})
-    assert "telemetry.reader_cleartext" not in _codes(config)
-
-
-def test_a_derived_reachable_origin_draws_the_cleartext_warning() -> None:
-    config = _config(web={}, deploy={"fqdn": "osprey.lab.example"})
-    assert "telemetry.reader_cleartext" in _codes(config)
+def test_no_rule_speaks_of_a_query_endpoint_or_a_query_page(config: dict[str, Any]) -> None:
+    """The readers' origin carries neither ``/telemetry/`` nor ``/play``: no key, no page."""
+    findings = lint_telemetry(config)
+    codes = [f.code for f in findings]
+    assert "telemetry.reader_cleartext" not in codes
+    assert "telemetry.unknown_query_page" not in codes
+    for finding in findings:
+        assert "/telemetry/" not in finding.message
+        assert "/play" not in finding.message
 
 
 # ── history ──────────────────────────────────────────────────────────────────
@@ -568,7 +577,7 @@ def test_every_lane_queueserver_identity_is_reserved() -> None:
 
 
 def test_the_preflight_holds_the_two_start_blocking_rules() -> None:
-    config = _config(readers=[{"name": "jean-luc"}, {"name": "jean_luc"}], store={"memory": "1g"})
+    config = _record_readers(_config(store={"memory": "1g"}, web=SIGNED_IN), "jean-luc", "jean_luc")
     problems = preflight_problems(config)
     assert len(problems) == 2
     (suffix_problem, suffix_remedy), (memory_problem, memory_remedy) = problems
@@ -583,7 +592,7 @@ def test_osprey_up_refuses_a_start_over_them(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(container_lifecycle, "_required_env_problems", lambda *a, **k: [])
     monkeypatch.setattr(container_lifecycle, "_unreleased_pin_problem", lambda *a, **k: None)
-    config = _config(readers=[{"name": "jean-luc"}, {"name": "jean_luc"}])
+    config = _record_readers(_config(web=SIGNED_IN), "jean-luc", "jean_luc")
     # The pass sits below the step that provisions the credential files it reads.
     ensure_telemetry_credentials(tmp_path, config, reader_keys=True)
     with pytest.raises(UnmetPreconditionsError) as raised:
@@ -634,42 +643,6 @@ def test_the_lint_verb_fails_on_a_telemetry_error(tmp_path) -> None:
     assert "'own'" in result.output
 
 
-# --- the query page ----------------------------------------------------------
-
-
-def test_an_image_with_no_query_page_hash_draws_a_warning_naming_the_way_out() -> None:
-    image = "clickhouse/clickhouse-server:99.1.1.1"
-    finding = _one(_config(store={"image": image}, web={}), "telemetry.unknown_query_page")
-    assert finding.severity == "warn"
-    for needle in (
-        "services.telemetry_store.image",
-        image,
-        "PLAY_SCRIPT_SHA256",
-        "/telemetry/play",
-        "404",
-        "26.8.18.2",
-    ):
-        assert needle in finding.message
-    assert finding.message in telemetry_warnings(_config(store={"image": image}, web={}))
-    assert not any(
-        image in error for error in telemetry_errors(_config(store={"image": image}, web={}))
-    )
-
-
-@pytest.mark.parametrize(
-    "store",
-    [{}, {"image": tc.DEFAULT_STORE_IMAGE}, {"image": "mirror.example.org:5000/ch:26.8.18.2"}],
-)
-def test_a_known_image_draws_no_query_page_warning(store: dict[str, Any]) -> None:
-    assert "telemetry.unknown_query_page" not in _codes(_config(store=store, web={}))
-
-
-def test_without_web_terminals_no_query_page_is_served_and_none_is_warned_about() -> None:
-    config = _config(store={"image": "clickhouse/clickhouse-server:99.1.1.1"})
-    assert "telemetry.unknown_query_page" not in _codes(config)
-
-
 def test_an_image_that_is_not_a_reference_is_the_value_rules_finding_alone() -> None:
     codes = _codes(_config(store={"image": ""}, web={}))
     assert "telemetry.invalid_value" in codes
-    assert "telemetry.unknown_query_page" not in codes

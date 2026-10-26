@@ -425,6 +425,8 @@ _RENDERED_FAMILIES = (
 #: asserted below as "spells none of these".
 _LAYOUT_PORTS = frozenset(
     [default_port("nginx", base=resolve_port_base(EXAMPLE_CONFIG))]
+    # The agent record's loopback publish, which every terminal dials.
+    + [default_port("agent_record", base=resolve_port_base(EXAMPLE_CONFIG))]
     + [
         default_port(family, index, base=resolve_port_base(EXAMPLE_CONFIG))
         for family in _RENDERED_FAMILIES
@@ -514,6 +516,17 @@ _ALLOWED_COMPOSE_LINES = Counter(
         "      - ./var/spool/bob:/app/dls_controls-assistant/var/spool/bob": 1,
         "      - ./var/state/alice:/app/dls_controls-assistant/var/state/alice": 1,
         "      - ./var/state/bob:/app/dls_controls-assistant/var/state/bob": 1,
+        # The agent-record login and URL — the FOURTEENTH exception to SC6, on
+        # the same argument as the spool pair above. Each per-user container is
+        # handed its own record login file, named for the roster name
+        # OSPREY_AUDIT_IDENTITY already spells, and the record's loopback
+        # address, whatever the method. The login file joins `.env.users` in
+        # an `env_file` list, which replaces the scalar form below.
+        "    env_file:": 2,
+        "      - .env.users": 2,
+        "      - .env.agent-record.login.alice": 1,
+        "      - .env.agent-record.login.bob": 1,
+        "      - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:<port>": 2,
     }
 )
 
@@ -527,6 +540,9 @@ _REPLACED_COMPOSE_LINES = frozenset(
         "      # so the record survives a recreate and is readable from the host.",
         "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit",
         "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit",
+        # The scalar `env_file`, which the list carrying the agent-record
+        # login above replaces.
+        "    env_file: .env.users",
     }
 )
 

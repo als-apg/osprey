@@ -24,15 +24,15 @@ directory in every posture; this module holds the rules about the store.
 
 from __future__ import annotations
 
-import contextlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+from osprey.agent_record.config import history_page_deployed
+from osprey.agent_record.identities import reader_entries
 from osprey.deployment import telemetry_config as tc
-from osprey.deployment.qmd_service import is_loopback_bind, resolve_bind_address
 from osprey.services.auth_sidecar.roster_env import env_var_suffix_collisions
 
 __all__ = [
@@ -53,7 +53,7 @@ READER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _STORE = "services.telemetry_store"
 _GATEWAY = "services.telemetry_gateway"
 _WEB = "modules.web_terminals"
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_READERS = "agent_record.readers"
 
 
 @dataclass(frozen=True)
@@ -100,12 +100,19 @@ def lint_telemetry(
 
     Returns:
         Every finding, empty when the config says nothing wrong. A deployment
-        that does not deploy the store gets the rules about ``history`` values
-        only: the other keys are read by nothing there.
+        that does not deploy the store gets the rules about ``history`` values,
+        the readers' origin and the named readers' carriers only: the other
+        keys are read by nothing there.
     """
     config = _mapping(config)
     web_terminals = _mapping(_mapping(config.get("modules")).get("web_terminals"))
     findings = _check_history_values(web_terminals)
+    if history_page_deployed(config):
+        findings.extend(_check_reader_origin(web_terminals))
+        findings.extend(
+            _error("reader_suffix_collision", f"{problem}. {remedy}")
+            for problem, remedy in reader_suffix_collision_problems(config)
+        )
     if not tc.store_deployed(config):
         return findings
     findings.extend(_check_values(config))
@@ -115,9 +122,6 @@ def lint_telemetry(
     if receivers is not None:
         findings.extend(_check_gateway_memory(config, receivers))
     if web_terminals.get("enabled"):
-        findings.extend(_check_reader_origin(web_terminals))
-        findings.extend(_check_reader_transport(config, web_terminals))
-        findings.extend(_check_query_page(config))
         findings.extend(_check_unbound_history_roles(web_terminals))
     if runtime_user is not None:
         findings.extend(_check_host_identity(config, runtime_user))
@@ -137,18 +141,19 @@ def telemetry_warnings(config: Mapping[str, Any] | None, **kwargs: Any) -> list[
 def reader_suffix_collision_problems(
     config: Mapping[str, Any] | None,
 ) -> list[tuple[str, str]]:
-    """Reader names that would share one set of sidecar carriers.
+    """Named readers that would share one set of sidecar carriers.
 
-    ``jean-luc`` and ``jean_luc`` both key ``..._JEAN_LUC``, so one reader's
-    subject and tables would be read as the other's.
+    The sidecar's reader carriers are keyed by the ``agent_record.readers``
+    names: ``jean-luc`` and ``jean_luc`` both key ``..._JEAN_LUC``, so one
+    reader's subject and kinds would be read as the other's.
 
     Returns:
         One ``(problem, remedy)`` pair per shared suffix, naming both readers.
     """
-    collisions = env_var_suffix_collisions(tc.reader_names(config))
+    collisions = env_var_suffix_collisions([entry["name"] for entry in reader_entries(config)])
     return [
         (
-            f"{_STORE}.readers {' and '.join(repr(name) for name in names)} share the "
+            f"{_READERS} {' and '.join(repr(name) for name in names)} share the "
             f"environment-variable suffix {suffix} (a name is upper-cased and '-' "
             "becomes '_'), so the sign-on settings of one would be read as the other's",
             "Rename one of them",
@@ -161,15 +166,17 @@ def preflight_problems(config: Mapping[str, Any] | None) -> list[tuple[str, str]
     """What ``osprey up`` refuses a start over, before anything is touched.
 
     The two rules whose violation the running stack cannot survive or contain:
-    reader names sharing a carrier suffix, and a store whose query limits do
-    not fit its memory limit. Pure: reads the config and nothing else.
+    named readers sharing a sidecar carrier suffix, when the history page that
+    reads those carriers is deployed, and a store whose query limits do not fit
+    its memory limit. Pure: reads the config and nothing else.
 
     Returns:
         ``(problem, remedy)`` pairs, empty when the start may go on.
     """
-    if not tc.store_deployed(config):
-        return []
-    return [*reader_suffix_collision_problems(config), *_store_memory_problems(_mapping(config))]
+    problems = reader_suffix_collision_problems(config) if history_page_deployed(config) else []
+    if tc.store_deployed(config):
+        problems.extend(_store_memory_problems(_mapping(config)))
+    return problems
 
 
 def host_identity_advisories(
@@ -313,10 +320,6 @@ def _check_readers(
                 "state each reader once",
             )
         )
-    findings.extend(
-        _error("reader_suffix_collision", f"{problem}. {remedy}")
-        for problem, remedy in reader_suffix_collision_problems(config)
-    )
     return findings
 
 
@@ -463,10 +466,11 @@ def _origin_host(value: Any) -> str | None:
 def _check_reader_origin(web_terminals: Mapping[str, Any]) -> list[TelemetryFinding]:
     """``reader_origin`` mirrors ``external_origin``, on the same host.
 
-    When a load balancer is what browsers reach, nothing here can derive the
-    readers' origin either, so it has to be stated beside ``external_origin``.
-    And the sign-in cookie crosses ports on one host only: a readers' origin on
-    another host would never see it.
+    Asked only where the history page is deployed, because the page is all the
+    readers' origin serves. When a load balancer is what browsers reach,
+    nothing here can derive the readers' origin either, so it has to be stated
+    beside ``external_origin``. And the sign-in cookie crosses ports on one
+    host only: a readers' origin on another host would never see it.
     """
     external = web_terminals.get("external_origin")
     reader = web_terminals.get("reader_origin")
@@ -504,79 +508,6 @@ def _check_reader_origin(web_terminals: Mapping[str, Any]) -> list[TelemetryFind
             )
         ]
     return []
-
-
-def _check_reader_transport(
-    config: Mapping[str, Any], web_terminals: Mapping[str, Any]
-) -> list[TelemetryFinding]:
-    """Reader keys over cleartext HTTP, on a port reachable from elsewhere.
-
-    Two things expose the readers' port: the interface it is published on, and
-    the name clients are told to reach it by. Either one alone is enough, so a
-    loopback name over a wildcard bind is exposed, and so is a config whose
-    origin cannot be derived at all. With no reader there is no key to carry.
-    """
-    # Imported in-function: render pulls in the whole web-terminals package,
-    # and this module is read by commands that deploy none.
-    from osprey.deployment.web_terminals.render import _tls_enabled, deployment_origin
-
-    if _tls_enabled(dict(web_terminals)) or not tc.reader_names(config):
-        return []
-    exposed = not is_loopback_bind(resolve_bind_address(config))
-    reader = web_terminals.get("reader_origin")
-    if isinstance(reader, str) and reader.strip():
-        host = _origin_host(reader)
-        if host is None or urlsplit(reader.strip()).scheme == "https":
-            # An invalid origin is the origin rule's finding; an https one is
-            # served by something that terminates TLS in front of the port.
-            return []
-        exposed = exposed or host not in _LOOPBACK_HOSTS
-    else:
-        # A config no origin can be derived from is refused by the render in
-        # its own words; the bind alone answers here.
-        with contextlib.suppress(ValueError):
-            origin = deployment_origin(dict(config))
-            if origin.scheme == "https":
-                return []
-            exposed = exposed or not origin.is_loopback
-    if not exposed:
-        return []
-    return [
-        _warn(
-            "reader_cleartext",
-            f"{_WEB}.tls.enabled is false and the readers' origin is reachable from "
-            "other machines: a reader's key travels in every query, in cleartext, "
-            "where anything on the network path can read and reuse it. Enable tls for "
-            "any deployment reachable beyond a trusted host",
-        )
-    ]
-
-
-def _check_query_page(config: Mapping[str, Any]) -> list[TelemetryFinding]:
-    """The store image's query page is one whose script this code has read.
-
-    The readers' origin lets exactly one script run, named by its hash, and the
-    hash is known per image tag. An image outside that table still stores and
-    answers queries; only the page is withheld.
-    """
-    try:
-        if tc.play_script_sha256(config) is not None:
-            return []
-        image = tc.store_image(config)
-    except ValueError:
-        # An image that is not a reference is the value rule's finding.
-        return []
-    known = ", ".join(tc.PLAY_SCRIPT_SHA256)
-    return [
-        _warn(
-            "unknown_query_page",
-            f"{_STORE}.image is {image!r}, and the query page of that image has no "
-            f"entry in PLAY_SCRIPT_SHA256 (known tags: {known}). The readers' origin "
-            "answers /telemetry/play with 404 for it; queries are not affected. Add "
-            "the tag's script hash as osprey.deployment.telemetry_config describes, "
-            "or keep a known tag",
-        )
-    ]
 
 
 # --- history -----------------------------------------------------------------
