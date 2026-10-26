@@ -9123,6 +9123,42 @@ def test_full_chain_auth_lane_installs_chromium_before_its_module__mutation_drop
         test_full_chain_auth_lane_installs_chromium_before_its_module(mutated)
 
 
+def test_full_chain_auth_lane_caps_and_reads_the_playwright_install(
+    workflow: dict[str, Any],
+) -> None:
+    """A trickling apt mirror has to fail the install in minutes, not after the
+    lane's 85; the Playwright cache is restored before it and never saved here,
+    so this lane cannot write a second copy of what the browser lane stores."""
+    steps = _jobs(workflow)[FULL_CHAIN_JOB]["steps"]
+    names = [step.get("name") for step in steps]
+    install = names.index(FULL_CHAIN_PLAYWRIGHT_STEP)
+    cap = steps[install].get("timeout-minutes")
+    assert isinstance(cap, int) and cap <= 10, f"'{FULL_CHAIN_JOB}' install cap is {cap!r}"
+    uses = [str(step.get("uses", "")) for step in steps]
+    restores = [i for i, u in enumerate(uses) if u.startswith("actions/cache/restore@")]
+    assert len(restores) == 1 and restores[0] < install, (
+        f"'{FULL_CHAIN_JOB}' restores the Playwright cache at {restores}, install at {install}"
+    )
+    assert not any(u.startswith(("actions/cache/save@", "actions/cache@")) for u in uses), (
+        f"'{FULL_CHAIN_JOB}' saves a cache of its own"
+    )
+
+
+def test_full_chain_auth_lane_caps_and_reads_the_playwright_install__mutation_uncapped() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_PLAYWRIGHT_STEP)["timeout-minutes"]
+    with pytest.raises(AssertionError, match="install cap"):
+        test_full_chain_auth_lane_caps_and_reads_the_playwright_install(mutated)
+
+
+def test_full_chain_auth_lane_caps_and_reads_the_playwright_install__mutation_saves() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[FULL_CHAIN_JOB]["steps"]
+    steps.append({"uses": "actions/cache/save@v6", "with": {"path": "~/apt-archives"}})
+    with pytest.raises(AssertionError, match="saves a cache"):
+        test_full_chain_auth_lane_caps_and_reads_the_playwright_install(mutated)
+
+
 def test_full_chain_auth_lane_outbudgets_the_single_build_lanes(workflow: dict[str, Any]) -> None:
     """The lane builds BOTH real framework images — the deployed sidecar
     Dockerfile and the production project image — where each sibling below

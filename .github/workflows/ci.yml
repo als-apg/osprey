@@ -4718,9 +4718,52 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
+    # `--with-deps` apt-installs chromium's system debs from the runner's
+    # default mirror, azure.archive.ubuntu.com, which some days serves them at
+    # 30-100 kB/s. The same treatment as the visual-theming lane: apt prefers
+    # archive.ubuntu.com, and the install has its own cap. That lane writes the
+    # Playwright cache (both browsers and their debs); this one only reads it,
+    # so the two never store a second copy under a second key.
+    - name: Resolve Playwright browser cache key
+      id: playwright-key
+      run: |
+        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
+        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
+        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
+        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+    - name: Configure apt for the Playwright system deps
+      # See the visual-theming lane's step of the same name.
+      run: |
+        sudo sed -i -E \
+          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
+          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
+          /etc/apt/apt-mirrors.txt
+        cat /etc/apt/apt-mirrors.txt
+        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
+          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
+        mkdir -p "$HOME/apt-archives/partial"
+        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
+        Dir::Cache::Archives "$HOME/apt-archives";
+        APT::Keep-Downloaded-Packages "true";
+        Acquire::http::Timeout "15";
+        Acquire::Retries "3";
+        EOF
+
+    - name: Restore Playwright browsers and apt debs
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
+        restore-keys: |
+          ${{ steps.playwright-key.outputs.prefix }}
+
     # The reader origin's `/play` page and the history page are proved in a
     # real browser against this lane's stack.
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
