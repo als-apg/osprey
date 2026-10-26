@@ -552,8 +552,8 @@ def captured_combined_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
-    def _fake_build(config, dev_mode, _env, _build_context=None):
-        build_calls.append({"config": config, "dev_mode": dev_mode})
+    def _fake_build(config, dev_mode, _env, _build_context=None, compose_files=None):
+        build_calls.append({"config": config, "dev_mode": dev_mode, "compose_files": compose_files})
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_build)
 
@@ -2376,7 +2376,9 @@ def test_a_second_deploy_restages_the_ca_the_first_one_cleared(tmp_path, monkeyp
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -2434,7 +2436,9 @@ def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -2477,7 +2481,9 @@ def _attached_start(monkeypatch, repo, staged, **kwargs):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,
@@ -4908,7 +4914,9 @@ def test_a_failed_start_still_clears_the_ca_it_staged(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
     monkeypatch.setattr(
-        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+        container_lifecycle,
+        "_build_project_image",
+        lambda config, dev, env, ctx=None, compose_files=None: None,
     )
     monkeypatch.setattr(
         container_lifecycle.subprocess,

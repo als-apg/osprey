@@ -23,6 +23,7 @@ from typing import Any, NamedTuple
 
 import yaml
 
+from osprey.agent_record.config import history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_env_prefix
 from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
@@ -2342,20 +2343,36 @@ def _resolve_prebuilt_images(config: dict) -> bool:
 _PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
 
 
-def _deployed_project_image_services(config: dict) -> list[str]:
+def _deployed_project_image_services(
+    config: dict, compose_files: Sequence[str] | None = None
+) -> list[str]:
     """Every service this deployment renders on the project image's compose line.
 
     The :data:`_PROJECT_IMAGE_SERVICES` it deploys by name, plus the two derived
     services, which are never ``deployed_services`` entries: the history page,
     rendered exactly when
-    :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds, and
-    agent-record (``services.agent_record``), which every deployment runs.
+    :func:`~osprey.agent_record.config.history_page_deployed` holds, and
+    agent-record (``services.agent_record``), which every project that deploys
+    its own stack runs.
+
+    agent-record is counted from the render when one is given: a start passes
+    the compose files it hands to compose, so an attached project, whose render
+    holds no agent-record because the stack it attaches to runs the record,
+    plans no image for it, and the image list and the compose call read one
+    service set. Without compose files the build's own rule is used — the
+    record is rendered for every deployment
+    (:func:`~osprey.deployment.compose_generator.derived_compose_dirs`).
+
+    :param config: Raw deploy config.
+    :param compose_files: The compose files this start hands to compose, or
+        ``None`` to ask of the config alone.
     """
     deployed = {str(s) for s in (config.get("deployed_services") or [])}
     services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
-    if telemetry_config.history_page_deployed(config):
+    if history_page_deployed(config):
         services.append(telemetry_config.HISTORY_SERVICE)
-    services.append(AGENT_RECORD_TEMPLATE_DIR)
+    if compose_files is None or _stack_runs_record(compose_files):
+        services.append(AGENT_RECORD_TEMPLATE_DIR)
     return services
 
 
@@ -2444,7 +2461,9 @@ def _build_referenced_renders(
     build_render_images(config, resolved_users, dev_mode, env, serves_roster=web_terminals_enabled)
 
 
-def _project_image_build_target(config: dict, env: dict) -> str | None:
+def _project_image_build_target(
+    config: dict, env: dict, compose_files: Sequence[str] | None = None
+) -> str | None:
     """The image tag :func:`_build_project_image` will build, or ``None``.
 
     The gate in front of that build, split out so a caller can ask whether the
@@ -2471,6 +2490,8 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     :param config: Raw deploy config.
     :param env: Environment the build would run with, read for
         ``OSPREY_WORKER_IMAGE``.
+    :param compose_files: The compose files the start hands to compose
+        (:func:`_deployed_project_image_services`), or ``None``.
     :return: The project image's tag, or ``None`` when nothing is built.
     """
     if _resolve_prebuilt_images(config):
@@ -2478,13 +2499,15 @@ def _project_image_build_target(config: dict, env: dict) -> str | None:
     project_image = str(resolve_image_defaults(config)["worker"])
     if any(
         _service_image_target(config, env, service) == project_image
-        for service in _deployed_project_image_services(config)
+        for service in _deployed_project_image_services(config, compose_files)
     ):
         return project_image
     return None
 
 
-def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[str, str] | None:
+def _unreleased_pin_problem(
+    config: dict, env: dict, dev_mode: bool, compose_files: Sequence[str] | None = None
+) -> tuple[str, str] | None:
     """Whether the project-image build would refuse over an unreleased pin.
 
     :func:`_resolve_pip_spec` asked as a question, behind
@@ -2503,11 +2526,13 @@ def _unreleased_pin_problem(config: dict, env: dict, dev_mode: bool) -> tuple[st
     :param config: Raw deploy config.
     :param env: Environment the build would run with.
     :param dev_mode: Whether ``--dev`` was passed.
+    :param compose_files: The compose files the start hands to compose, or
+        ``None`` (:func:`_project_image_build_target`).
     :return: The refusal as a ``(problem, remedy)`` pair — the one probed
         refusal that already carries its two halves apart, so the collected
         report can keep them apart too — or ``None``.
     """
-    if dev_mode or _project_image_build_target(config, env) is None:
+    if dev_mode or _project_image_build_target(config, env, compose_files) is None:
         return None
     from osprey.deployment.errors import UnreleasedVersionPinError
 
@@ -2580,7 +2605,11 @@ def _project_image_build_cmd(
 
 
 def _build_project_image(
-    config: dict, dev_mode: bool, env: dict, build_context: Path | str | None = None
+    config: dict,
+    dev_mode: bool,
+    env: dict,
+    build_context: Path | str | None = None,
+    compose_files: Sequence[str] | None = None,
 ) -> None:
     """Build the project image the dispatch worker, the ARIEL sync service and the record archive run.
 
@@ -2627,8 +2656,11 @@ def _build_project_image(
         project directory. Building from ``<repo>/build`` instead would produce
         an image whose every recorded path — ``project_root``, and the
         ``OSPREY_CONFIG`` each MCP server is handed — names this machine.
+    :param compose_files: The compose files this start hands to compose; the
+        services counted are the ones they render
+        (:func:`_deployed_project_image_services`). ``None`` asks of the config.
     """
-    project_image = _project_image_build_target(config, env)
+    project_image = _project_image_build_target(config, env, compose_files)
     if project_image is None:
         # Only SOME of the no-op cases are worth a line. A deployment with none
         # of the project-image services was never going to build this image and
@@ -2644,7 +2676,7 @@ def _build_project_image(
             project_tag = resolve_image_defaults(config)["worker"]
             if any(
                 _service_image_target(config, env, service) == project_tag
-                for service in _deployed_project_image_services(config)
+                for service in _deployed_project_image_services(config, compose_files)
             ):
                 _report_group("images")
                 _report_step("skipped image build (prebuilt images)")
@@ -6096,6 +6128,7 @@ def _collect_unmet_preconditions(
     *,
     dev_mode: bool,
     web_terminals_enabled: bool,
+    compose_files: Sequence[str] | None = None,
 ) -> None:
     """Probe every cheaply checkable start precondition, and report them all.
 
@@ -6122,6 +6155,9 @@ def _collect_unmet_preconditions(
         dev_mode: Whether ``--dev`` was passed.
         web_terminals_enabled: Whether the web tier is part of this deploy;
             three of the probes are about artifacts only it has.
+        compose_files: The compose files the start hands to compose; the
+            unreleased-pin probe asks only about an image they run. ``None``
+            asks of the config alone.
 
     Raises:
         UnmetPreconditionsError: One or more probes reported a problem. Nothing
@@ -6164,7 +6200,7 @@ def _collect_unmet_preconditions(
     # under the account that built the deployment.
     for advisory in host_identity_advisories(config, _invoking_account()):
         _warn_fact(advisory)
-    if (pin := _unreleased_pin_problem(config, env, dev_mode)) is not None:
+    if (pin := _unreleased_pin_problem(config, env, dev_mode, compose_files)) is not None:
         findings.append(pin)
 
     if findings:
@@ -6245,6 +6281,235 @@ def _report_unmounted_host_transcripts(
         "deployment was built. Run `osprey build`, then `osprey up`, after the first "
         "host session to record them."
     )
+
+
+# ---------------------------------------------------------------------------
+# One owner of the record: the host-local agent-record and the stack's
+# ---------------------------------------------------------------------------
+
+#: Seconds a start waits for the stack's agent-record to answer the host login
+#: before it lets host sessions back to the ensure lock. Not fatal when it
+#: passes: an ensure under a live ``stack-owner`` marker waits on its own.
+STACK_RECORD_HEALTH_WAIT_S = 60.0
+
+
+def _preflight_record_store_group_writable(repo_root: Path | str) -> None:
+    """Refuse a start whose embedded record the stack's agent-record could not write.
+
+    The host-local agent-record and the stack's write one ``record.duckdb``
+    (and its WAL) under different uids, and meet through the record
+    directory's group: both run under umask 0o002. A file that is not
+    group-writable by that group leaves the stack's agent-record unable to
+    open the store the host-local one wrote. Refused with the fix rather than
+    repaired: who may write the record is the operator's to decide.
+
+    Raises:
+        RuntimeError: Naming each such file and the ``chmod g+w`` (with a
+            ``chgrp`` when its group is not the directory's) that fixes it.
+    """
+    import grp
+    import stat
+
+    from osprey.agent_record.service import EMBEDDED_FILENAME
+    from osprey_connectors.workspace import RECORD_DIR_RELPATH
+
+    record_dir = Path(repo_root) / RECORD_DIR_RELPATH
+    try:
+        gid = record_dir.stat().st_gid
+    except OSError:
+        return
+    try:
+        group = grp.getgrgid(gid).gr_name
+    except KeyError:
+        group = str(gid)
+    fixes: list[str] = []
+    for name in (EMBEDDED_FILENAME, f"{EMBEDDED_FILENAME}.wal"):
+        path = record_dir / name
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        steps = []
+        if info.st_gid != gid:
+            steps.append(f"chgrp {group} {path}")
+        if steps or not info.st_mode & stat.S_IWGRP:
+            steps.append(f"chmod g+w {path}")
+            fixes.append(" && ".join(steps))
+    if fixes:
+        raise RuntimeError(
+            f"the agent record in {record_dir} is not group-writable by the directory's "
+            f"group {group}, so the stack's agent-record cannot write it. Fix: " + "; ".join(fixes)
+        )
+
+
+def _host_record_state_dir(config: Mapping[str, Any] | None, repo_root: Path | str) -> Path | None:
+    """The host identity's state directory, or ``None`` when host sessions are not recorded."""
+    from osprey.agent_record import host as host_record
+
+    if not config:
+        return None
+    try:
+        return host_record.host_state_dir(repo_root, config)
+    except host_record.HostRecordRefused:
+        return None
+
+
+def _record_container_name(config: Mapping[str, Any]) -> str:
+    """The stack's agent-record container, the name the ``stack-owner`` marker carries."""
+    from osprey.agent_record.credentials import RECORD_SERVICE
+
+    return f"{resolve_project_name(config)}-{RECORD_SERVICE}"
+
+
+def _wait_for_stack_record(config: Mapping[str, Any], repo_root: Path | str) -> None:
+    """Wait until the stack's agent-record answers the host login on its loopback port.
+
+    Never fatal: the stack is started either way, and an ensure under the live
+    marker waits for it in its own turn. A start that cannot read the host
+    login (no ``osprey build`` minted it) has nothing to wait with.
+    """
+    from osprey.agent_record import credentials as creds
+    from osprey.agent_record import host as host_record
+    from osprey.agent_record import identities as ids
+    from osprey.agent_record.config import parse_agent_record_block
+    from osprey.port_layout import resolve_port_base
+
+    host = ids.host_identity(config)
+    if host is None:
+        return
+    login = ids.login_for(host)
+    token = creds.read_login(Path(repo_root) / creds.login_file(login), login)
+    if token is None:
+        logger.warning(
+            "not waiting for the stack's agent-record: the host login file %s is missing",
+            Path(repo_root) / creds.login_file(login),
+        )
+        return
+    port = parse_agent_record_block(config, base=resolve_port_base(config)).port
+    url = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + STACK_RECORD_HEALTH_WAIT_S
+    while True:
+        state, why = host_record._probe(url, login, token)
+        if state == host_record._READY:
+            return
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "the stack's agent-record on %s did not answer healthy within %.0f s (%s); "
+                "host sessions wait for it on their own",
+                url,
+                STACK_RECORD_HEALTH_WAIT_S,
+                why,
+            )
+            return
+        time.sleep(host_record._PROBE_INTERVAL_S)
+
+
+@contextlib.contextmanager
+def _stack_takes_over_host_record(config: Mapping[str, Any], repo_root: Path | str):
+    """Hand the record from the host-local agent-record to the stack's, around the ``up``.
+
+    One process owns the record's store at a time. Under the ensure lock this
+    writes the ``stack-owner`` marker (first line: the container) and stops a
+    running host-local agent-record, which seals and closes the store. The body
+    starts the stack, whose agent-record publishes the same loopback port;
+    once it returns, the stack's agent-record is waited for on the host login,
+    and only then is the lock released. A host session's ensure that arrives
+    meanwhile waits on the lock and then finds the stack answering, so it
+    never spawns; its lease, and every earlier one, stays valid because the
+    marker keeps the last release from stopping anything.
+
+    The body must leave the stack's agent-record container running: the
+    marker counts as live only while it runs, so a lock released before then
+    hands the record straight back to the host.
+
+    A deployment that records no host sessions has no host-local record and no
+    lock: the body runs alone.
+
+    Raises:
+        RuntimeError: When the ensure lock is not had in time; nothing was
+            started.
+    """
+    from osprey.agent_record import host as host_record
+
+    state_dir = _host_record_state_dir(config, repo_root)
+    if state_dir is None:
+        yield
+        return
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(host_record.host_record_lock(state_dir))
+        except host_record.HostRecordRefused as exc:
+            raise RuntimeError(f"the stack cannot take over the agent record: {exc}") from exc
+        host_record.write_stack_marker(state_dir, _record_container_name(config))
+        if host_record.stop_host_process(state_dir):
+            _report_fact("stopped the host-local agent-record; the stack's takes over the record")
+        yield
+        _wait_for_stack_record(config, repo_root)
+
+
+def _stack_runs_record(compose_files: Sequence[str]) -> bool:
+    """Whether this start's compose files render the stack's agent-record."""
+    return any(Path(path).parent.name == AGENT_RECORD_TEMPLATE_DIR for path in compose_files)
+
+
+def _start_stack_record(
+    config: Mapping[str, Any],
+    repo_root: Path | str,
+    compose_files: Sequence[str],
+    base_cmd: list[str],
+    run_env: Mapping[str, str],
+) -> None:
+    """Start the stack's agent-record alone, taking the record over from the host.
+
+    Runs ahead of the rest of the stack, and of every build that start does,
+    so the ensure lock is held for one container's start and its health wait
+    only: a host session's ensure waits on the lock for that long and no
+    longer. Once it returns the agent-record container runs, so the
+    ``stack-owner`` marker is live for the rest of the start, an attached
+    ``up`` that replaces this process included; that ``up`` finds the
+    container current and reattaches to it.
+
+    A start whose deployment records no host sessions, or whose stack runs no
+    agent-record, has no record to take over and starts nothing here.
+
+    Raises:
+        RuntimeError: When the ensure lock is not had in time; nothing was
+            started.
+        subprocess.CalledProcessError: When compose cannot start agent-record.
+    """
+    from osprey.agent_record.credentials import RECORD_SERVICE
+
+    if not _stack_runs_record(compose_files):
+        return
+    if _host_record_state_dir(config, repo_root) is None:
+        return
+    cmd = [*base_cmd, "up", "-d", "--no-build", RECORD_SERVICE]
+    logger.debug(f"Running command:\n    {' '.join(cmd)}")
+    with _stack_takes_over_host_record(config, repo_root):
+        run_captured(cmd, env=run_env, spool_name="compose-up-agent-record", repo_root=repo_root)
+    _report_step("agent-record started; the stack holds the record")
+
+
+def _hand_record_back_to_host(config: Mapping[str, Any] | None, repo_root: Path | str) -> None:
+    """Remove the ``stack-owner`` marker once the stack's agent-record is stopped.
+
+    The next host session's ensure then starts the host-local agent-record. A
+    lock another command holds past its wait does not keep the marker: its
+    container is gone, so it is stale whoever holds the lock.
+    """
+    from osprey.agent_record import host as host_record
+
+    state_dir = _host_record_state_dir(config, repo_root)
+    if state_dir is None:
+        return
+    marker = state_dir / host_record.MARKER_FILE_NAME
+    if not marker.exists():
+        return
+    try:
+        with host_record.host_record_lock(state_dir):
+            marker.unlink(missing_ok=True)
+    except host_record.HostRecordRefused:
+        marker.unlink(missing_ok=True)
 
 
 def _start_stack(
@@ -6336,6 +6601,13 @@ def _start_stack(
     preflight_qmd_models_dir(config)
     preflight_qmd_corpora(config, repo_root)
     _preflight_legacy_ariel_mirror(config, Path(repo_root))
+    # A record file the host-local agent-record left that the stack's cannot
+    # write is refused here, in seconds, before any build. Only a stack whose
+    # agent-record opens that file, the embedded store, is asked.
+    from osprey.agent_record.config import uses_clickhouse
+
+    if _stack_runs_record(compose_files) and not uses_clickhouse(config):
+        _preflight_record_store_group_writable(repo_root)
 
     # And the same shape once more for the graph store: a `graphdb` in
     # deployed_services with no `services.graphdb` block describes no store at
@@ -6563,6 +6835,7 @@ def _start_stack(
         env,
         dev_mode=dev_mode,
         web_terminals_enabled=web_terminals_enabled,
+        compose_files=compose_files,
     )
 
     # Fail-fast web-terminal preflight (render + credential gate)
@@ -6636,7 +6909,10 @@ def _start_stack(
     # AFTER the graph staging above: that step bakes the live store's schema
     # into the agent prompts inside this image's build context, and an image
     # built before the bake ships the placeholder prompt.
-    _build_project_image(config, dev_mode, env, build_context)
+    # Handed the compose files this start hands to compose, so the image list
+    # and the stack read one service set: an attached project's render holds
+    # no agent-record, and the build counts only the services it does hold.
+    _build_project_image(config, dev_mode, env, build_context, compose_files=compose_files)
 
     # And the telemetry store: its schema and its accounts must be in place
     # before the gateway inserts and before any reader or page queries it.
@@ -6691,6 +6967,27 @@ def _start_stack(
             # same reason: all three describe ONE invocation, and the web path
             # re-resolving the root can only answer the working directory — which
             # is where the podman shape would then write its merged document.
+            #
+            # The stack's agent-record starts first, alone, on the backend
+            # invocation's argv and environment: the record is handed over
+            # before the render and service builds below, never under them.
+            _start_stack_record(
+                config,
+                repo_root,
+                compose_files,
+                compose_base_cmd(
+                    with_plain_progress(get_runtime_command(config), provider=provider),
+                    compose_files,
+                    repo_root,
+                    _env_file_args(repo_root, provider),
+                    provider,
+                ),
+                runtime_env(
+                    config,
+                    {**env, **compose_provider_env(provider, repo_root)},
+                    ignore_orphans=True,
+                ),
+            )
             deploy_up_web_terminals(
                 config,
                 compose_files,
@@ -6788,6 +7085,12 @@ def _start_stack(
             # The images have read the bundle, and the `up` below carries
             # `--no-build`; a context keeps no copy of it between deploys.
             clear_staged_service_site_ca(compose_files, repo_root)
+
+        # The stack's agent-record starts alone before the rest of the stack,
+        # after every build above: the record is handed over from the host for
+        # one container's start, and the attached `up` below, which replaces
+        # this process, finds it already running.
+        _start_stack_record(config, repo_root, compose_files, base_cmd, run_env)
 
         # --remove-orphans reconciles away containers whose service left the
         # config since the last deploy (including a formerly-enabled web-terminal
@@ -7591,6 +7894,9 @@ def down_deployment(repo_root: Path | str) -> None:
     databases, the artifact store: all of it survives a ``down`` and is
     ``osprey reset``'s to destroy, deliberately and with a confirmation.
 
+    A stopped stack hands the record back to the host: the ``stack-owner``
+    marker goes, and the next host session starts the host-local agent-record.
+
     Unlike the legacy path this does not ``execvpe``-replace the process: the
     label fallback runs after the compose invocation on the same call, and
     :func:`restart_deployment` needs to still be here afterwards to start the
@@ -7634,6 +7940,7 @@ def down_deployment(repo_root: Path | str) -> None:
 
     if not compose_files:
         _down_by_label(config, repo_root)
+        _hand_record_back_to_host(config, repo_root)
         return
 
     provider = _compose_provider(config)
@@ -7668,6 +7975,7 @@ def down_deployment(repo_root: Path | str) -> None:
             "containers may still be running."
         )
     _report_step("containers stopped")
+    _hand_record_back_to_host(config, repo_root)
 
 
 def restart_deployment(
@@ -7822,6 +8130,7 @@ def deploy_down(config_path, dev_mode=False):
     )
     if proc.returncode == 0:
         _report_step("containers stopped")
+        _hand_record_back_to_host(config, repo_root)
     # A signal-killed child reports a NEGATIVE returncode, which sys.exit would
     # mask to its low byte (-15 -> 241). Shells spell "killed by signal N" as
     # 128+N, and 128+N is exactly what the exec'd child's own status used to be.

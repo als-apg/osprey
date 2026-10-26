@@ -179,7 +179,7 @@ def started(monkeypatch):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
-    def _fake_image_build(_config, _dev_mode, _env, build_context=None):
+    def _fake_image_build(_config, _dev_mode, _env, build_context=None, **_kwargs):
         record["build_context"] = build_context
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_image_build)
@@ -318,7 +318,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
 
     seen: dict = {}
 
-    def _probe(_config, _dev_mode, _env, _build_context=None):
+    def _probe(_config, _dev_mode, _env, _build_context=None, **_kwargs):
         seen["tz"] = str(get_facility_timezone())
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _probe)
