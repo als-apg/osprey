@@ -117,6 +117,20 @@ def clear_dependency_overrides() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def contain_launched_jobs() -> Generator[None, None, None]:
+    """Contain the launcher's process-global record of the workers it spawned.
+
+    ``launch_job`` records every worker for the shutdown in
+    ``stop_launched_jobs``; a test's fake process left there would be "stopped"
+    by the lifespan of whatever ``TestClient(app)`` runs next on the worker.
+    """
+    from osprey_optimizer.api import job_control
+
+    yield
+    job_control._launched.clear()
+
+
+@pytest.fixture(autouse=True)
 def mock_api_redis_client() -> Generator[None, None, None]:
     """Mock the Redis client used by the API lifespan so TestClient(app) does not
     require a running Redis server. Tests that need real Redis should use the

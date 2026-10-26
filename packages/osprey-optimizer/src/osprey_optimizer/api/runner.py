@@ -6,6 +6,7 @@ from osprey_optimizer.api.job_tracker import JobLifecycle
 from osprey_optimizer.config.logging import setup_logging
 from osprey_optimizer.models.config import OptimizationConfig
 from osprey_optimizer.services.execution import ExecutionService
+from osprey_optimizer.utils.process import install_worker_signal_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,9 @@ def run_optimization_process(
 ) -> None:
     """Execute the optimization process in a background job."""
     setup_logging(level=logging.INFO)
+    # Before anything can write: a SIGTERM from here on stops the run through
+    # the cancel path instead of ending the worker wherever it is.
+    install_worker_signal_handlers()
     logger.info("Starting background optimization process %s", job_id)
 
     with JobLifecycle(job_id):

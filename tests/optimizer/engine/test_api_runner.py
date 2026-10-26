@@ -76,6 +76,20 @@ class TestRunOptimizationProcess:
         )
         service.start_optimization.assert_called_once_with(_runner_mocks["config"])
 
+    def test_worker_signal_handlers_installed_before_the_run(self, _runner_mocks) -> None:
+        """SIGTERM to the worker must reach the cancel path from the job's first write."""
+
+        def _install() -> None:
+            assert not _runner_mocks["lifecycle"].called
+
+        with patch(
+            "osprey_optimizer.api.runner.install_worker_signal_handlers", side_effect=_install
+        ) as install:
+            run_optimization_process("job-123", {"environment_name": "test_env"})
+
+        install.assert_called_once_with()
+        _runner_mocks["lifecycle"].assert_called_once_with("job-123")
+
 
 @pytest.fixture()
 def clean_redis(redis_server: str) -> Generator[None, None, None]:

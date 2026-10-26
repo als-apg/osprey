@@ -15,6 +15,19 @@ from osprey_optimizer.utils.redis_client import StrRedis, as_str
 
 logger = logging.getLogger(__name__)
 
+# Set in a job worker by its SIGTERM/SIGINT handler (see
+# utils.process.install_worker_signal_handlers): every token in that process
+# then reports a cancel, exactly as if the API had requested one. A plain flag,
+# not a Redis write: a handler runs on the main thread between bytecodes, and
+# that thread may be holding the Redis connection pool's lock at the time.
+_cancel_signalled = False
+
+
+def cancel_on_signal() -> None:
+    """Cancel this process's run from a signal handler (async-signal safe)."""
+    global _cancel_signalled
+    _cancel_signalled = True
+
 
 class CancellationState(TypedDict):
     """Type definition for the cancellation state stored in Redis."""
@@ -72,7 +85,7 @@ class CancellationToken:
             return int(data.get(name) or 0)
 
         return {
-            "cancelled": bool(field("cancelled")),
+            "cancelled": bool(field("cancelled")) or _cancel_signalled,
             "paused": bool(field("paused")),
             "waiting": bool(field("waiting")),
             "poll_count": field("poll_count"),

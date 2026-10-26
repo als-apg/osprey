@@ -4,6 +4,7 @@ Creates the app, wires up the lifespan handler (shared singletons on
 ``app.state``), and includes all domain routers.
 """
 
+import asyncio
 import logging
 import math
 import os
@@ -20,6 +21,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from osprey_optimizer.api.job_control import stop_launched_jobs
 from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.routers.environments import router as environments_router
 from osprey_optimizer.api.routers.jobs import router as jobs_router
@@ -111,7 +113,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     with _init_or_fatal(f"Redis unreachable at {redis_url}"):
         ping_redis()
     logger.info("Connected to Redis at %s", redis_url)
-    app.state.job_tracker = JobTracker()
+    tracker = JobTracker()
+    app.state.job_tracker = tracker
 
     with _init_or_fatal("Failed to initialize environment registry"):
         env_registry = EnvironmentRegistry()
@@ -121,6 +124,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     logger.info("Shutting down API")
+    # A redeploy must not kill a running job mid-step: cancel it and give its
+    # worker the shutdown grace to stop on its own. Off the event loop, since it
+    # joins the workers; bounded so it finishes inside the container stop grace.
+    await asyncio.to_thread(stop_launched_jobs, tracker)
 
 
 app = FastAPI(title="OSPREY Optimizer API", lifespan=lifespan)

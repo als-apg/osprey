@@ -6,20 +6,32 @@ claim_active_job, create_job_state, and the JobLifecycle context manager
 integration), consolidating what was previously split out into
 test_job_lifecycle.py. Also covers the small api/ job-lifecycle ops that sit
 next to the tracker: launch (job_control.launch_job) and status read
-(job_status), folded in from test_job_ops.py.
+(job_status), folded in from test_job_ops.py, and the service-shutdown stop of
+launched jobs (job_control.stop_launched_jobs) with the worker's signal handler.
 """
 
 from __future__ import annotations
 
 import json
+import multiprocessing
+import signal
+import time
+from collections.abc import Generator
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from osprey_optimizer.api import job_control
 from osprey_optimizer.api import job_status as js
-from osprey_optimizer.api.job_control import launch_job
+from osprey_optimizer.api.job_control import (
+    KILL_WAIT_SECONDS,
+    SHUTDOWN_KILLED_MESSAGE,
+    TERMINATE_WAIT_SECONDS,
+    launch_job,
+    stop_launched_jobs,
+)
 from osprey_optimizer.api.job_tracker import (
     ACTIVE_JOB_KEY,
     CANCELLED_MESSAGE,
@@ -34,11 +46,20 @@ from osprey_optimizer.core.state import TERMINAL_STATE_TTL_SECONDS
 from osprey_optimizer.models.enums import JobStatus, JobType
 from osprey_optimizer.models.exceptions import CancellationError
 from osprey_optimizer.optimization.state import OptimizationStateWriter, _OptimizationState
+from osprey_optimizer.utils import cancellation
 from osprey_optimizer.utils.cancellation import get_cancellation_token
 from osprey_optimizer.utils.job_keys import job_scan_pattern, meta_key, state_prefix
+from osprey_optimizer.utils.process import (
+    DEFAULT_SHUTDOWN_GRACE_SECONDS,
+    SHUTDOWN_GRACE_ENV,
+    install_worker_signal_handlers,
+    shutdown_grace_seconds,
+)
 from osprey_optimizer.utils.redis_client import get_redis_client
 from osprey_optimizer.utils.redis_state_store import RUNNING_STATE_TTL_SECONDS
 from osprey_optimizer.utils.serialization import deserialize_obj
+
+from . import _shutdown_workers
 
 _JC = "osprey_optimizer.api.job_control"
 _JS = "osprey_optimizer.api.job_status"
@@ -901,3 +922,347 @@ class TestJobLifecycleSlotIntegration:
             assert writer.get_status() == JobStatus.PAUSED
         finally:
             lc.__exit__(None, None, None)
+
+
+# --- Service shutdown: job_control.stop_launched_jobs -----------------------------
+
+_SPAWN = multiprocessing.get_context("spawn")
+
+
+class _FakeProcess:
+    """A worker process that exits at a chosen point of the shutdown.
+
+    ``exits_on``: "join" (within the grace), "terminate", "kill", or "never".
+    """
+
+    def __init__(self, exits_on: str, exitcode: int = 0) -> None:
+        self._exits_on = exits_on
+        self._alive = True
+        self._exitcode = exitcode
+        self.pid = 4321
+        self.calls: list[str] = []
+
+    def is_alive(self) -> bool:
+        return self._alive
+
+    @property
+    def exitcode(self) -> int | None:
+        return None if self._alive else self._exitcode
+
+    def _event(self, name: str) -> None:
+        self.calls.append(name)
+        if name == self._exits_on:
+            self._alive = False
+
+    def join(self, timeout: float | None = None) -> None:
+        del timeout
+        if self.calls and self.calls[-1] in ("terminate", "kill"):
+            return
+        self._event("join")
+
+    def terminate(self) -> None:
+        self._event("terminate")
+
+    def kill(self) -> None:
+        self._event("kill")
+
+
+def _writer(*statuses: JobStatus) -> MagicMock:
+    """A state writer whose successive ``get_status`` reads return ``statuses``."""
+    writer = MagicMock()
+    writer.get_status.side_effect = list(statuses)
+    writer.set_status_cas.return_value = True
+    return writer
+
+
+@pytest.fixture
+def shutdown_seams() -> Generator[dict[str, MagicMock], None, None]:
+    """Patch the cancel path's collaborators where job_control looks them up."""
+    with (
+        patch(f"{_JC}.cancel_with_reread") as cancel,
+        patch(f"{_JC}.create_job_state") as make_writer,
+        patch(f"{_JC}.get_cancellation_token") as get_token,
+    ):
+        yield {"cancel": cancel, "make_writer": make_writer, "get_token": get_token}
+
+
+def _record(job_id: str, process: object) -> None:
+    job_control._launched[job_id] = (JobType.OPTIMIZATION, process)  # type: ignore[assignment]
+
+
+class TestStopLaunchedJobs:
+    """Mocked collaborators: what the shutdown calls, and in what order."""
+
+    def test_running_job_is_cancelled_through_the_cancel_path(self, shutdown_seams):
+        """The shutdown cancels like POST /jobs/{id}/cancel: cancel_with_reread with the
+        job's own writer and token. A worker that then stops on its own recorded its
+        terminal status itself, so it is left as is and never terminated."""
+        tracker = MagicMock()
+        process = _FakeProcess(exits_on="join")
+        _record("j1", process)
+        cancel_writer, end_writer = _writer(), _writer(JobStatus.CANCELLED)
+        shutdown_seams["make_writer"].side_effect = [cancel_writer, end_writer]
+
+        stop_launched_jobs(tracker, grace_s=5)
+
+        shutdown_seams["cancel"].assert_called_once_with(
+            "j1", cancel_writer, shutdown_seams["get_token"].return_value, tracker
+        )
+        shutdown_seams["get_token"].assert_called_once_with("j1")
+        assert process.calls == ["join"]
+        end_writer.set_status_cas.assert_not_called()
+        end_writer.set_error_message.assert_not_called()
+        tracker.mark_completed.assert_called_once_with("j1")
+        assert "j1" not in job_control._launched
+
+    @pytest.mark.parametrize("exits_on", ["terminate", "kill"])
+    def test_worker_past_the_grace_is_ended_and_the_job_cancelled(
+        self, shutdown_seams, exits_on: str
+    ):
+        """A worker still running after the grace is terminated, then killed if that
+        does not end it; the job is driven CANCELLED with the shutdown reason and its
+        slot released at once (mark_completed), not when the heartbeat TTL lapses."""
+        tracker = MagicMock()
+        process = _FakeProcess(exits_on=exits_on)
+        _record("j1", process)
+        end_writer = _writer(JobStatus.CANCELLING)
+        shutdown_seams["make_writer"].side_effect = [_writer(), end_writer]
+
+        stop_launched_jobs(tracker, grace_s=0)
+
+        expected = ["join", "terminate"] + (["kill"] if exits_on == "kill" else [])
+        assert process.calls == expected
+        end_writer.set_status_cas.assert_called_once_with(JobStatus.CANCELLING, JobStatus.CANCELLED)
+        end_writer.set_error_message.assert_called_once_with(SHUTDOWN_KILLED_MESSAGE)
+        tracker.mark_completed.assert_called_once_with("j1")
+
+    def test_worker_that_exits_without_an_outcome_ends_the_job_as_error(self, shutdown_seams):
+        tracker = MagicMock()
+        _record("j1", _FakeProcess(exits_on="join", exitcode=-11))
+        end_writer = _writer(JobStatus.CANCELLING)
+        shutdown_seams["make_writer"].side_effect = [_writer(), end_writer]
+
+        stop_launched_jobs(tracker, grace_s=5)
+
+        end_writer.set_status_cas.assert_called_once_with(JobStatus.CANCELLING, JobStatus.ERROR)
+        assert "code -11" in end_writer.set_error_message.call_args.args[0]
+        tracker.mark_completed.assert_called_once_with("j1")
+
+    def test_a_worker_that_survives_the_kill_keeps_its_slot(self, shutdown_seams):
+        """Freeing the slot under a live process could let a second job drive the
+        machine beside it, so that one is left to the heartbeat TTL."""
+        tracker = MagicMock()
+        _record("j1", _FakeProcess(exits_on="never"))
+        shutdown_seams["make_writer"].side_effect = [_writer()]
+
+        stop_launched_jobs(tracker, grace_s=0)
+
+        tracker.mark_completed.assert_not_called()
+
+    def test_a_failed_cancel_still_stops_the_worker(self, shutdown_seams):
+        """Redis down at shutdown: the cancel raises, and the worker is still waited
+        for and ended rather than left running past the service."""
+        tracker = MagicMock()
+        process = _FakeProcess(exits_on="terminate")
+        _record("j1", process)
+        shutdown_seams["cancel"].side_effect = RuntimeError("redis down")
+        shutdown_seams["make_writer"].side_effect = [_writer(), _writer(JobStatus.RUNNING)]
+
+        stop_launched_jobs(tracker, grace_s=0)
+
+        assert process.calls == ["join", "terminate"]
+        tracker.mark_completed.assert_called_once_with("j1")
+
+    def test_only_running_workers_are_stopped(self, shutdown_seams):
+        tracker = MagicMock()
+        finished = _FakeProcess(exits_on="join")
+        finished.join()
+        _record("done", finished)
+
+        stop_launched_jobs(tracker, grace_s=0)
+
+        shutdown_seams["cancel"].assert_not_called()
+        tracker.mark_completed.assert_not_called()
+
+    def test_shutdown_writes_no_setpoint(self, shutdown_seams):
+        """No automatic restore: a stopped run holds the machine where it is. The
+        shutdown loads no environment, so it cannot write one."""
+        tracker = MagicMock()
+        _record("j1", _FakeProcess(exits_on="terminate"))
+        shutdown_seams["make_writer"].side_effect = [_writer(), _writer(JobStatus.CANCELLING)]
+
+        with (
+            patch(
+                "osprey_optimizer.services.plugin_registry.EnvironmentRegistry.load_environment"
+            ) as load_env,
+            patch(
+                "osprey_optimizer.services.execution.ExecutionService._restore_on_completion"
+            ) as restore,
+        ):
+            stop_launched_jobs(tracker, grace_s=0)
+
+        load_env.assert_not_called()
+        restore.assert_not_called()
+
+    def test_launch_records_the_worker_and_drops_finished_ones(self):
+        tracker = MagicMock()
+        tracker.claim_active_job.return_value = True
+        _record("old", _FakeProcess(exits_on="join"))
+        job_control._launched["old"][1].join()
+
+        with patch(f"{_JC}.reap_finished_children"), patch(f"{_JC}.multiprocessing") as mp:
+            proc = mp.get_context.return_value.Process.return_value
+            proc.pid = 4321
+            _call(tracker, MagicMock())
+
+        assert job_control._launched == {"job-1": (JobType.OPTIMIZATION, proc)}
+
+    def test_grace_defaults_to_the_env_setting(self, shutdown_seams, monkeypatch):
+        monkeypatch.setenv(SHUTDOWN_GRACE_ENV, "0")
+        process = _FakeProcess(exits_on="terminate")
+        _record("j1", process)
+        shutdown_seams["make_writer"].side_effect = [_writer(), _writer(JobStatus.CANCELLING)]
+
+        stop_launched_jobs(MagicMock())
+
+        assert process.calls == ["join", "terminate"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        pytest.param(None, DEFAULT_SHUTDOWN_GRACE_SECONDS, id="unset"),
+        pytest.param("", DEFAULT_SHUTDOWN_GRACE_SECONDS, id="empty"),
+        pytest.param("2.5", 2.5, id="number"),
+        pytest.param("0", 0.0, id="zero"),
+        pytest.param("soon", DEFAULT_SHUTDOWN_GRACE_SECONDS, id="not_a_number"),
+        pytest.param("-1", DEFAULT_SHUTDOWN_GRACE_SECONDS, id="negative"),
+        pytest.param("inf", DEFAULT_SHUTDOWN_GRACE_SECONDS, id="unbounded"),
+    ],
+)
+def test_shutdown_grace_from_env(monkeypatch, raw: str | None, expected: float) -> None:
+    if raw is None:
+        monkeypatch.delenv(SHUTDOWN_GRACE_ENV, raising=False)
+    else:
+        monkeypatch.setenv(SHUTDOWN_GRACE_ENV, raw)
+    assert shutdown_grace_seconds() == expected
+
+
+def test_default_grace_fits_dockers_stop_grace() -> None:
+    """Grace + terminate + kill waits stay under Docker's default 10 s stop grace."""
+    assert DEFAULT_SHUTDOWN_GRACE_SECONDS + TERMINATE_WAIT_SECONDS + KILL_WAIT_SECONDS < 10
+
+
+def _spawn(target, *args, ready_timeout: float = 60.0):  # type: ignore[no-untyped-def]
+    """Start a spawn-context daemon worker and wait for it to report ready."""
+    ready = _SPAWN.Event()
+    process = _SPAWN.Process(target=target, args=(*args, ready), daemon=True)
+    process.start()
+    if not ready.wait(ready_timeout):
+        process.kill()
+        pytest.fail("worker never became ready")
+    return process
+
+
+class TestWorkerSignalHandler:
+    """The worker's SIGTERM/SIGINT handler, in real spawn children (no Redis)."""
+
+    def test_sigterm_cancels_the_run_through_its_token(self):
+        """A worker signalled directly stops through the cancel path: its token
+        raises CancellationError, the run returns, and the process exits 0 instead
+        of dying of the signal."""
+        process = _spawn(_shutdown_workers.signalled_token_loop)
+        process.terminate()
+        process.join(10)
+        assert process.exitcode == 0
+
+    def test_a_worker_that_never_stops_is_ended_by_the_deadline(self, monkeypatch):
+        """After the first signal the kernel ends a worker that does not stop within
+        the grace (SIGALRM at its default action), so multiprocessing's exit hook,
+        which joins terminated daemon children without a timeout, stays bounded."""
+        monkeypatch.setenv(SHUTDOWN_GRACE_ENV, "1")
+        process = _spawn(_shutdown_workers.signalled_but_stuck)
+        started = time.monotonic()
+        process.terminate()
+        process.join(10)
+        assert process.exitcode == -signal.SIGALRM
+        assert time.monotonic() - started < 5
+
+    def test_a_second_signal_ends_the_worker_at_once(self, monkeypatch):
+        monkeypatch.setenv(SHUTDOWN_GRACE_ENV, "30")
+        process = _spawn(_shutdown_workers.signalled_but_stuck)
+        process.terminate()
+        # The handler resets SIGTERM to its default before it returns; poll briefly
+        # until the second one is the one that lands on the default action.
+        deadline = time.monotonic() + 5
+        while process.is_alive() and time.monotonic() < deadline:
+            process.terminate()
+            process.join(0.1)
+        assert process.exitcode == -signal.SIGTERM
+
+    def test_not_installed_outside_a_worker(self):
+        """The API process (and a test running a job in-process) keeps its handlers."""
+        before = signal.getsignal(signal.SIGTERM)
+        install_worker_signal_handlers()
+        assert signal.getsignal(signal.SIGTERM) is before
+
+    def test_a_signalled_cancel_reads_as_cancelled(self, monkeypatch):
+        """The handler's flag makes every token in the worker report a cancel,
+        whatever Redis holds, so check_cancellation and wait_if_paused both stop."""
+        monkeypatch.setattr(cancellation, "_cancel_signalled", False)
+        redis = MagicMock()
+        redis.hgetall.return_value = {"cancelled": "0", "paused": "1"}
+        token = cancellation.CancellationToken(redis_client=redis, redis_key="k")
+        assert not token.is_cancelled()
+
+        cancellation.cancel_on_signal()
+
+        assert token.is_cancelled()
+        with pytest.raises(CancellationError):
+            token.wait_if_paused()
+
+
+@pytest.mark.usefixtures("tracker")
+class TestStopLaunchedJobsIntegration:
+    """Real Redis and real spawn workers: the shutdown end to end."""
+
+    def _launch(self, target, job_id: str):  # type: ignore[no-untyped-def]
+        tracker = JobTracker()
+        ready = _SPAWN.Event()
+        launch_job(
+            tracker=tracker,
+            job_id=job_id,
+            job_type=JobType.OPTIMIZATION,
+            make_writer=lambda jid: create_job_state(JobType.OPTIMIZATION, jid),
+            spawn_target=target,
+            spawn_args=(job_id, ready),
+        )
+        assert ready.wait(60), "worker never became ready"
+        return tracker, job_control._launched[job_id][1]
+
+    def test_a_cooperative_worker_records_its_own_cancel(self):
+        tracker, process = self._launch(_shutdown_workers.cooperative_job, "shutdown-coop")
+
+        stop_launched_jobs(tracker, grace_s=30)
+
+        assert process.exitcode == 1  # the CancellationError propagates out of the run
+        writer = create_job_state(JobType.OPTIMIZATION, "shutdown-coop")
+        assert writer.get_status() == JobStatus.CANCELLED
+        assert writer.get_error_message() == CANCELLED_MESSAGE
+        assert tracker.get_active_job() is None
+
+    def test_a_stuck_worker_is_killed_and_its_slot_freed(self):
+        tracker, process = self._launch(_shutdown_workers.stubborn_job, "shutdown-stuck")
+        started = time.monotonic()
+
+        stop_launched_jobs(tracker, grace_s=0.5)
+
+        elapsed = time.monotonic() - started
+        assert process.exitcode == -signal.SIGKILL
+        assert elapsed < 0.5 + TERMINATE_WAIT_SECONDS + KILL_WAIT_SECONDS + 2
+        writer = create_job_state(JobType.OPTIMIZATION, "shutdown-stuck")
+        assert writer.get_status() == JobStatus.CANCELLED
+        assert writer.get_error_message() == SHUTDOWN_KILLED_MESSAGE
+        str_client = get_redis_client(binary=False)
+        assert str_client.get(ACTIVE_JOB_KEY) is None
+        assert tracker.claim_active_job("next-job", 0, job_type=JobType.OPTIMIZATION)

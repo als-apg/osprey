@@ -56,6 +56,20 @@ class TestLifespanFailFast:
             _drive_lifespan(fake_app)
 
 
+class TestLifespanShutdown:
+    def test_lifespan_shutdown_stops_launched_jobs(self) -> None:
+        """Shutdown stops the jobs this process launched, with the tracker it built,
+        so a redeploy cancels a running job instead of killing it mid-step."""
+        fake_app = SimpleNamespace(state=SimpleNamespace())
+        with (
+            patch.object(main, "ping_redis"),
+            patch.object(main, "EnvironmentRegistry"),
+            patch.object(main, "stop_launched_jobs") as stop,
+        ):
+            _drive_lifespan(fake_app)
+        stop.assert_called_once_with(fake_app.state.job_tracker)
+
+
 class TestHealthEndpoint:
     def test_health_returns_ok(self, client: TestClient) -> None:
         resp = client.get("/health")
