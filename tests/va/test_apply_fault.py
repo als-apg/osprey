@@ -51,16 +51,27 @@ def _free_port() -> str:
         return str(probe.getsockname()[1])
 
 
-# import-time required because libca latches the EPICS_CA_* environment when
-# the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Loopback only, on an ephemeral port unless the environment
-# pins one, with the server and CAS ports equal -- a search reply carries the
-# server's own port, so a server listening anywhere else hands clients a dead
-# address. The spawned server inherits the same values.
-os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
-os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
-os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())
-os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"])
+# Loopback only, on an ephemeral port of this module's own -- an inherited
+# EPICS_CA_SERVER_PORT may be one another module's server already listens on --
+# with the server and CAS ports equal: a search reply carries the server's own
+# port, so a server listening anywhere else hands clients a dead address.
+CA_PORT = _free_port()
+# What this module's client searches with. libca reads its settings once, when
+# the process's CA context is created, and other modules collected into the same
+# process write their own at import (test_lume_pva_seam.py names an address list
+# of its own servers). So these are not written into os.environ at import: `live`
+# hands them to CaLoop.point_at just before its first CA call, which writes them
+# and drops a context already created under different ones, whichever module ran
+# first.
+CA_CLIENT_ENV: dict[str, str | None] = {
+    "EPICS_CA_ADDR_LIST": f"127.0.0.1:{CA_PORT}",
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_SERVER_PORT": CA_PORT,
+    "EPICS_CA_NAME_SERVERS": None,
+}
+# import-time required because libca reads the repeater port when the first CA
+# context in the process is created, which may be another module's, before any
+# of this module's fixtures run; point_at does not carry it.
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
 # Floor for this module's own test count -- a guard against a refactor that
@@ -434,9 +445,14 @@ def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
         "EPICS_PVAS_BROADCAST_PORT": _free_port(),
         "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
         "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
+        "EPICS_CA_SERVER_PORT": CA_PORT,
+        "EPICS_CAS_SERVER_PORT": CA_PORT,
         "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
         "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
     }
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
+
+    _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
     served = _Served(env)
     try:
         deadline = time.monotonic() + STARTUP_TIMEOUT_S

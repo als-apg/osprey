@@ -3,6 +3,10 @@
 This provider uses LiteLLM as the backend for unified API access.
 """
 
+import osprey._litellm_env  # noqa: F401 -- sets LiteLLM's import-time environment
+
+# isort: split
+
 from .health import HealthResult, failure_reason
 from .litellm_adapter import check_litellm_health, execute_litellm_completion
 from .litellm_delegating import LiteLLMDelegatingProvider
@@ -51,8 +55,9 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     supports_thinking = False
     self_hosted = False
 
-    # LiteLLM integration - OpenAI models don't need a prefix in LiteLLM
-    litellm_prefix = ""
+    # Explicit, not bare: LiteLLM routes a bare id only when its model map lists
+    # it, so an OpenAI model newer than the installed LiteLLM would be refused.
+    litellm_prefix = "openai"
     # OpenAI's API takes max_completion_tokens on every chat model and refuses
     # max_tokens on its reasoning models, whichever generation LiteLLM knows.
     max_tokens_param = "max_completion_tokens"

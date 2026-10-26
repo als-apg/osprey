@@ -16,8 +16,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
-from starlette.staticfiles import StaticFiles
 
+from osprey.interfaces._media_types import PinnedTypeStaticFiles
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
     HttpAuditMiddleware,
@@ -134,8 +134,12 @@ def configure_interface_app(app: FastAPI, *, static_dir: Path | str) -> None:
 
     # Mount shared fonts before /static (Starlette matches in declaration order).
     if fonts_dir.exists():
-        app.mount("/static/fonts", StaticFiles(directory=fonts_dir), name="shared-fonts")
+        app.mount("/static/fonts", PinnedTypeStaticFiles(directory=fonts_dir), name="shared-fonts")
     if design_system_dir.exists():
-        app.mount("/design-system", StaticFiles(directory=design_system_dir), name="design-system")
+        app.mount(
+            "/design-system",
+            PinnedTypeStaticFiles(directory=design_system_dir),
+            name="design-system",
+        )
     if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        app.mount("/static", PinnedTypeStaticFiles(directory=static_dir), name="static")

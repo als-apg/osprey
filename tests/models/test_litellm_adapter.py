@@ -31,9 +31,9 @@ class TestGetLiteLLMModelName:
         assert result == "gemini/gemini-2.5-flash"
 
     def test_openai_model(self):
-        """OpenAI models don't need prefix."""
+        """OpenAI models are routed explicitly, not by LiteLLM's model map."""
         result = get_litellm_model_name("openai", "gpt-4o")
-        assert result == "gpt-4o"
+        assert result == "openai/gpt-4o"
 
     def test_ollama_model(self):
         """Ollama models get ollama/ prefix."""
@@ -164,7 +164,7 @@ class TestGetLiteLLMModelName:
 
         monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _EmptyRegistry())
         assert get_litellm_model_name("anthropic", "claude-x") == "anthropic/claude-x"
-        assert get_litellm_model_name("openai", "gpt-4o") == "gpt-4o"  # empty prefix
+        assert get_litellm_model_name("openai", "gpt-4o") == "openai/gpt-4o"
 
 
 class TestSupportsNativeStructuredOutput:

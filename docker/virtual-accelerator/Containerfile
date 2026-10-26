@@ -66,17 +66,21 @@ COPY packages/ /opt/osprey/packages/
 # SETUPTOOLS_SCM_PRETEND_VERSION is the one that works here: the
 # ``_FOR_<DIST_NAME>`` form needs the backend to hand setuptools-scm a dist
 # name, which hatch-vcs does not, so that form is silently ignored and the
-# build fails as if nothing had been set. The un-scoped variable reaches both
-# source builds in this layer -- osprey and each workspace member beside it.
-# pyaml-cs-osprey versions with the framework, so the number is its own;
-# osprey-connectors has its own calendar stream and carries the framework's
-# number here as a stand-in. Nothing in the image compares it beyond the
-# framework's floor, which any framework number satisfies. The build hook stamps
-# whatever lands here into src/osprey/_version.py, which is what
+# build fails as if nothing had been set. So the un-scoped variable is set per
+# pip call below rather than once for the layer: osprey and pyaml-cs-osprey
+# (which versions with the framework) build with OSPREY_VERSION, and
+# osprey-connectors, which has its own calendar stream on its own
+# osprey-connectors-v* tags, with OSPREY_CONNECTORS_VERSION -- the number
+# scripts/va/connectors_version.py derives on the host with the package's own
+# describe glob. A build that passes only OSPREY_VERSION (any caller from before
+# the split) stamps connectors with the framework's number instead, as the image
+# always did; the framework's connectors floor accepts either. The build hook
+# stamps whatever lands here into src/osprey/_version.py, which is what
 # ``osprey.__version__`` reports at runtime -- so a build that does not pass
 # OSPREY_VERSION yields an image that honestly reports an unknown version
 # rather than a plausible wrong one.
 ARG OSPREY_VERSION=0.0.0.dev0+unknown
+ARG OSPREY_CONNECTORS_VERSION=
 
 # The `virtual-accelerator` extra rather than a bare install, matching the
 # service Dockerfile, so both images resolve the serving dependency set the
@@ -115,7 +119,11 @@ ARG OSPREY_VERSION=0.0.0.dev0+unknown
 # carries no C toolchain at all.
 RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
     && for member in ./packages/*/; do \
-           SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
+           version="${OSPREY_VERSION}"; \
+           case "$member" in \
+               */osprey-connectors/) version="${OSPREY_CONNECTORS_VERSION:-${OSPREY_VERSION}}" ;; \
+           esac; \
+           SETUPTOOLS_SCM_PRETEND_VERSION="$version" \
            pip install --no-cache-dir "$member" || exit 1; \
        done \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
