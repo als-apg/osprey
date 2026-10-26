@@ -157,6 +157,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         profile_root=profile_root,
         project_name=build_profile.project_name,
         dispatch_tier=dispatch_tier,
+        agent_record=build_profile.agent_record,
     )
     # A sibling call, not a line inside `deploy_aware_config_errors`: that
     # function judges the multi-user web stack against the deploy block, and
@@ -187,6 +188,7 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
             profile_root=profile_root,
             project_name=build_profile.project_name,
             dispatch_tier=dispatch_tier,
+            agent_record=build_profile.agent_record,
         ),
         # The same line `osprey build` prints for a `web.bar_items` entry the
         # served default drops because its panel is not selected.
