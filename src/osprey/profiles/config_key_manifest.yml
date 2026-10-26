@@ -61,8 +61,9 @@
 # the manifest otherwise). The bare entries are domain identifiers, not English
 # words, so deleting the reader really would drop the count toward zero. Where
 # an obvious anchored form existed it was preferred instead — e.g.
-# claude_code.telemetry.backend cites `telemetry_cfg.get("backend")` rather
-# than the bare word, and services.postgresql.path cites
+# claude_code.telemetry.content_max_length cites
+# `telemetry.get("content_max_length")` rather than the bare word, and
+# services.postgresql.path cites
 # the compose generator's `service_config["path"]` read after the bare word
 # crossed the ceiling. The rest have no clean single reader to anchor on (the
 # value is unpacked from a block, or read in several places with different
@@ -79,7 +80,7 @@
 #   required       No fallback exists and none may be invented. Exactly the
 #                  posture floor — control_system.type, archiver.type,
 #                  approval.enabled, approval.default_policy,
-#                  claude_code.telemetry.enabled, hooks.debug — plus
+#                  hooks.debug — plus
 #                  facility_knowledge.bundle_path. The guard checks this set
 #                  in BOTH directions.
 #   n/a            The leaf has no independent reader, so the parent block's
@@ -1077,9 +1078,9 @@ keys:
       where under the templates it was a per-template divergence.
     default: required
     default_note: >-
-      true or false. true logs one line per hook call to stderr and appends to
-      .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
-      panel hook feed reads; false writes neither.
+      true or false. true logs one line per hook call to stderr and records it
+      as a hook debug entry on the agent record, which is what the web
+      terminal's Safety panel hook feed reads; false writes neither.
 
   # ── Simulation ──────────────────────────────────────────────────────
   simulation: {evidence: 'rendered_config\.get\("simulation"\)', default: {}}
@@ -1883,17 +1884,12 @@ keys:
   file_paths:
     evidence: 'config\.get\("file_paths", \{\}\)'
     default: {}
-  file_paths.api_calls_dir:
-    evidence: 'get_agent_dir\("api_calls_dir"\)'
+  file_paths.registry_exports_dir:
+    evidence: 'get_agent_dir\("registry_exports_dir"\)'
     note: >-
       Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
       (utils/config.get_agent_dir), so a missing entry silently renames the
       directory rather than failing.
-    default: derived
-    default_note: >-
-      the key's own name, api_calls_dir, as a directory under agent_data.base_dir
-  file_paths.registry_exports_dir:
-    evidence: 'get_agent_dir\("registry_exports_dir"\)'
     default: derived
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
@@ -2013,66 +2009,27 @@ keys:
   claude_code.agents.logbook-deep-research.enabled: {covered-by: claude_code.agents.logbook-deep-research, default: derived, default_note: the logbook-deep-research agent's FRAMEWORK_AGENTS default_enabled}
   claude_code.telemetry:
     all-templates: true
-    covered-by: claude_code
+    forward-declared: true
+    note: >-
+      Accepted and read by no exporter: Claude Code's OTLP logs always go to
+      the agent record, under each sender's own record login, and no value in
+      this block selects another destination, signal or capture level. Only
+      content_max_length is still read, by the telemetry gateway's sizing.
     default: {}
-  claude_code.telemetry.enabled:
-    all-templates: true
-    covered-by: claude_code.telemetry
-    default: required
-    default_note: >-
-      true or false. true exports the agent's OTLP metrics, logs and traces
-      (the ones claude_code.telemetry.signals names) to the backend named
-      below; false exports none and the rest of the block is inert.
-  claude_code.telemetry.backend:
-    evidence: 'telemetry_cfg\.get\("backend"\)'
-    default: null
-  claude_code.telemetry.protocol: {evidence: 'http/protobuf', default: http/protobuf}
-  claude_code.telemetry.endpoint:
-    rendered: false
-    evidence: 'telemetry_cfg\.get\("endpoint"\)'
-    note: >-
-      The collector's OTLP/HTTP base URL on the generic backend. The gateway
-      backend derives its own address per network context, and a stated
-      endpoint there is refused. Documented as a commented example in the
-      control-assistant preset.
-    default: null
-  claude_code.telemetry.resource_attributes:
-    rendered: false
-    evidence: 'telemetry_cfg\.get\("resource_attributes"\)'
-    note: >-
-      Extra OTLP resource attributes every record carries, as a mapping (or a
-      `k=v,k=v` string). Under the gateway the terminal session is OSPREY's
-      own attribute and may not be named here.
-    default: {}
-  claude_code.telemetry.auth:
-    rendered: false
-    evidence: 'telemetry_cfg\.get\("auth"\)'
-    note: Documented as a commented example in the control-assistant preset.
-    default: {}
-  claude_code.telemetry.auth.token_env:
-    rendered: false
-    covered-by: claude_code.telemetry.auth
-    default: null
-    note: >-
-      The environment variable holding the collector's bearer token; the agent
-      sends `Authorization: Bearer <value>`. Web terminals receive it through
-      their own compose environment, never `.env.users`.
-  claude_code.telemetry.signals:
-    rendered: false
-    evidence: 'telemetry_cfg\.get\("signals"\)'
-    note: >-
-      Which of metrics, logs and traces the agent exports. A signal left out
-      is exported as `none`, so no inherited setting turns it back on. Empty
-      or an unknown name is refused at build; `enabled: false` exports
-      nothing. Documented as a commented example in the control-assistant
-      preset.
-    default: [metrics, logs, traces]
+  claude_code.telemetry.enabled: {covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.backend: {covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.protocol: {covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.endpoint: {rendered: false, covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.resource_attributes: {rendered: false, covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.auth: {rendered: false, covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.auth.token_env: {rendered: false, covered-by: claude_code.telemetry.auth, default: n/a}
+  claude_code.telemetry.signals: {rendered: false, covered-by: claude_code.telemetry, default: n/a}
   # Every preset that ships the bundled store opens its gate block "Content gates, all on",
   # so the capture posture is one claim about one store.
-  claude_code.telemetry.log_user_prompts: {same-value: true, evidence: 'log_user_prompts', default: true}
-  claude_code.telemetry.log_assistant_responses: {same-value: true, evidence: 'log_assistant_responses', default: true}
-  claude_code.telemetry.log_tool_details: {same-value: true, evidence: 'log_tool_details', default: true}
-  claude_code.telemetry.log_raw_api_bodies: {same-value: true, evidence: 'log_raw_api_bodies', default: true}
+  claude_code.telemetry.log_user_prompts: {same-value: true, covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.log_assistant_responses: {same-value: true, covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.log_tool_details: {same-value: true, covered-by: claude_code.telemetry, default: n/a}
+  claude_code.telemetry.log_raw_api_bodies: {same-value: true, covered-by: claude_code.telemetry, default: n/a}
   claude_code.transcripts: {evidence: '\.get\("transcripts"\)', default: {}}
   claude_code.transcripts.retention_days:
     evidence: '_transcripts_retention_days'
@@ -2103,13 +2060,12 @@ keys:
       unknown version gets the settings route alone. Any other value is
       refused at build.
     default: summarized
-  claude_code.telemetry.log_tool_content: {evidence: 'log_tool_content', default: true}
+  claude_code.telemetry.log_tool_content: {covered-by: claude_code.telemetry, default: n/a}
   claude_code.telemetry.content_max_length:
-    evidence: '_content_max_length'
+    evidence: 'telemetry\.get\("content_max_length"\)'
     note: >-
-      The longest content value Claude Code puts in one telemetry attribute
-      before it truncates it, in UTF-16 code units. Unset, Claude Code's own
-      limit (61440) applies.
+      Read only by the telemetry gateway, which sizes its largest accepted
+      request body from it. Claude Code's export never carries content.
     default: null
   audit: {evidence: 'audit\.tool_call\.enabled', default: {}}
   audit.tool_call: {covered-by: audit, default: {}}
@@ -3049,12 +3005,14 @@ keys:
       it: the formatter wraps this call across lines on length alone.
     default: true
   web.feedback:
+    rendered: false
     evidence: 'get_config_value\("web\.feedback\.'
     note: >-
-      The block is never read as a mapping — each of the three leaves below
-      has its own dotted lookup in the web terminal's lifespan. The evidence
-      anchors on the prefix those readers share, so this entry dies with the
-      last of them rather than outliving them all.
+      The block is never read as a mapping — each leaf below has its own
+      dotted lookup in the web terminal's lifespan. The evidence anchors on
+      the prefix those readers share, so this entry dies with the last of
+      them rather than outliving them all. No preset states a live leaf, so
+      nothing renders the block.
     default: {}
   web.feedback.github_repo:
     # Documented in every preset that carries a `web:` block as a commented
@@ -3147,9 +3105,6 @@ keys:
     evidence: 'get_config_value\("provenance\.preset_hash", None\)'
     default: derived
     default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
-  web.feedback.max_store_bytes:
-    evidence: 'get_config_value\(\s*"web\.feedback\.max_store_bytes",\s*DEFAULT_FEEDBACK_MAX_STORE_BYTES\s*\)'
-    default: 268435456
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)', default: {}}
   web.channel_suggestions.enabled: {evidence: 'section\.get\("enabled", True\)', default: true}
   web.channel_suggestions.max_channels:
@@ -3591,6 +3546,10 @@ deleted:
   # A derived key born and retired on one unreleased branch; no orphan_sites
   # row, because the back-test baseline never held a site of it.
 - approval.hook_wired
+  # Recorded API calls and feedback submissions are agent-record entries, so
+  # no file directory names the one and no on-disk store bounds the other.
+- file_paths.api_calls_dir
+- web.feedback.max_store_bytes
   # The roster's retired spellings. A person's access level is a tier and a
   # shared card is an app: `default_tier` and `shared` are authored, and the
   # render catalog is the build's `renders`. A profile that still spells either
@@ -4037,7 +3996,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 393
+  expected_union_size: 390
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

@@ -508,9 +508,9 @@ config:
   approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # On here. Every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # On here. Every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on regardless of this key.
   hooks.debug: true
 
@@ -1034,9 +1034,6 @@ config:
   # over `owner.email` above, on the same grounds as `github_repo`, and
   # commented for the same reason.
   # web.feedback.email: controls@example.org
-  # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
-  # oldest saved session contexts are deleted; submission headers are kept.
-  web.feedback.max_store_bytes: 268435456
   # Channel-name typeahead in the web panels: the build snapshots the names in
   # this deployment's channel-finder database next to the generated config, so
   # a form field can complete what an operator types. No control-system

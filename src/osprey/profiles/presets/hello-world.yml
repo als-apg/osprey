@@ -194,9 +194,9 @@ config:
   approval.tools.register_panel: always
 
   # ── Hook observability ─────────────────────────────────────────────────────
-  # Off here. On, every hook call logs one line to stderr and appends to
-  # .claude/hooks/hook_debug.jsonl (never rotated: prune it yourself), which
-  # is what the web terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
+  # Off here. On, every hook call logs one line to stderr and records it
+  # as a hook debug entry on the agent record, which is what the web
+  # terminal's Safety panel hook feed reads. OSPREY_HOOK_DEBUG
   # in the environment forces it on; the Safety panel's toggle writes it back.
   hooks.debug: false
 

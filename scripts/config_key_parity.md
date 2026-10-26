@@ -101,7 +101,6 @@ holds this table and the marks to one set of keys.
 | `system.timezone` | `UTC` everywhere | pinned for reproducibility |
 | `approval.enabled` | `true` everywhere | |
 | `approval.default_policy` | `always` everywhere | fail-closed for hook-wired tools not listed |
-| `claude_code.telemetry.enabled` | diverges | `true` in both shipped presets, which each deploy a telemetry store; a deployment that runs none states `false`, since telemetry would have nowhere local to land. Presence is required because it is a posture-floor key |
 | `hooks.debug` | diverges | `false` in `hello-world`, `true` in `control-assistant`. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
 | `artifact_server.host` | `127.0.0.1` everywhere | |
 | `artifact_server.auto_launch` | `true` everywhere | |
@@ -137,8 +136,8 @@ agreement among the presets that state the key.
 | keys | reason |
 |---|---|
 | `services.<name>.*` sizes, intervals, images, paths | capacity or per-deployment layout; host ports come from the layout fill and no preset states them |
+| `claude_code.telemetry.enabled` | read by no exporter: Claude Code's OTLP logs always go to the agent record, so the value decides nothing and presence is not required |
 | `claude_code.telemetry.{protocol,backend,endpoint}` | wiring to the bundled store: correct when it matches the provisioner, which agreement among presets cannot show |
-| `web.feedback.max_store_bytes` | capacity |
 | `ariel.*` tuning | per-deployment, and `ariel.vocabulary.enabled` already diverges |
 | `control_system.*` | `type` and `writes_enabled` already diverge |
 | `facility.*`, `channel_finder.query_max_rows`, `claude_code.servers.<name>.enabled` | capability-scoped |
