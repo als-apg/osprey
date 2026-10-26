@@ -24,7 +24,8 @@ from typing import TYPE_CHECKING, Any
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
-    type_writes_enabled,
+    WRITES_KEY,
+    tier_allows,
     writes_enabled_answering_key,
     writes_enabled_key,
     writes_enabled_remedy,
@@ -451,11 +452,16 @@ def _posture_record_verdict(control_target: str | None) -> "StoreVerdictDetail":
 def _deployment_posture(connector_type: str | None) -> tuple[bool, str]:
     """The deployment half of the write posture, and the key that answered it.
 
-    Config alone, fail-safe, reading no environment: see
-    :func:`~osprey_connectors.types.type_writes_enabled`. The key comes back
-    beside the verdict because a refusal names the line that refused, and on a
-    deployment that states its posture once for everything that line is the
-    deployment-wide key rather than the per-type one an operator would edit.
+    Config alone, fail-safe, reading no environment: the login tier's ceiling
+    (:func:`~osprey_connectors.types.tier_allows`), the same answer the write
+    verdict starts from, so a normalized ``control_system.writes: allowed``
+    render arms here as it arms there. The ceiling is target- and type-blind.
+
+    The key comes back beside the answer because a refusal names the line that
+    refused. A section stating :data:`~osprey_connectors.types.WRITES_KEY`
+    answered by it; one still carrying only the retired ``writes_enabled``
+    leaves answered by the leaf an operator would edit there
+    (:func:`~osprey_connectors.types.writes_enabled_answering_key`).
 
     A config nothing can read arms nothing, and names the key the remedy names:
     no line answered, so there is no second line to point at.
@@ -463,13 +469,13 @@ def _deployment_posture(connector_type: str | None) -> tuple[bool, str]:
     try:
         from osprey_connectors.config import get_config_value
 
-        if connector_type is None:
-            return get_config_value(WRITES_ENABLED_KEY, False) is True, WRITES_ENABLED_KEY
         section = get_config_value("control_system", {})
-        return (
-            type_writes_enabled(section, connector_type),
-            writes_enabled_answering_key(section, connector_type),
-        )
+        arms = tier_allows(section)
+        if isinstance(section, dict) and "writes" in section:
+            return arms, WRITES_KEY
+        if connector_type is None:
+            return arms, WRITES_ENABLED_KEY
+        return arms, writes_enabled_answering_key(section, connector_type)
     except (FileNotFoundError, RuntimeError):
         return False, writes_enabled_key(connector_type)
 
@@ -497,7 +503,16 @@ def _deployment_reason(
 
     *one_line* keeps the sentence on one line, for a message that carries more
     than this reason.
+
+    A refusal answered by :data:`~osprey_connectors.types.WRITES_KEY` sends the
+    operator to that key, never to a retired ``writes_enabled`` leaf.
     """
+    if answering_key == WRITES_KEY:
+        return (
+            f"writes are disabled by {WRITES_KEY}. Set {WRITES_KEY}: allowed in the "
+            "build profile (profile.yml on the host) or the tier file. "
+            "Then rebuild and redeploy."
+        )
     remedy = writes_enabled_remedy(connector_type, one_line=one_line)
     speak_key = (
         answering_key is not None
@@ -606,14 +621,15 @@ def _writes_disabled_result(
 
     The reasons, in the order they are spoken:
 
-    1. the **deployment** does not arm writes for this connector type, which is
-       the only one ``writes_enabled`` governs. First because it outlives every
-       run and every session: whatever else is lifted, this one still refuses.
-       Posture is per type, so the remedy names the block an operator actually
-       edits — ``control_system.connector.<type>.writes_enabled`` when the
-       connector knows its type, the deployment-wide key when it does not —
-       while the reason names the key that answered, which on a deployment with
-       one posture for everything is the deployment-wide key
+    1. the **deployment**'s login tier does not allow writes
+       (:func:`~osprey_connectors.types.tier_allows`). First because it
+       outlives every run and every session: whatever else is lifted, this one
+       still refuses. A normalized section is refused by ``control_system.writes``
+       and the remedy names that key; a section still carrying only the retired
+       ``writes_enabled`` leaves keeps the per-type remedy — the block an
+       operator edits, ``control_system.connector.<type>.writes_enabled`` when
+       the connector knows its type, the deployment-wide key when it does not —
+       while the reason names the key that answered
        (:func:`~osprey_connectors.types.writes_enabled_answering_key`).
     2. the run is **readonly** — the whole deployment started that way
        (``OSPREY_EXECUTION_MODE=readonly``, which refuses control-system writes

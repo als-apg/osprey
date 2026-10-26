@@ -45,7 +45,6 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     connector_transport,
     resolve_target,
-    target_writes_enabled,
     tier_allows,
 )
 
@@ -176,13 +175,15 @@ def connector_block(config: Any, connector_type: str) -> Any:
 
 
 def config_writes_enabled(config: Any, target: str) -> bool:
-    """Whether this config arms writes for *target*, as the connector reads it.
+    """Whether this config's login tier allows writes, as the write verdict reads it.
 
-    Per connector type, through the resolver rather than off the section: the
-    type *target* selects may carry its own ``writes_enabled``, and the
-    deployment-wide key answers only for a type that carries none.
+    The tier's ceiling (:func:`~osprey_connectors.types.tier_allows`), so a
+    normalized ``control_system.writes: allowed`` render answers ``True``. The
+    ceiling is target-blind: *target* is kept for the callers that name one,
+    and which machine is actually written is the session's switch to decide.
     """
-    return target_writes_enabled(config_section(config, "control_system"), target)
+    del target
+    return tier_allows(config_section(config, "control_system"))
 
 
 def _mode(gateway: dict[str, Any], key: str) -> str:

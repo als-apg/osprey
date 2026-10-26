@@ -130,6 +130,8 @@ __all__ = [
     "target_writes_enabled",
     "target_writes_enabled_key",
     "tier_allows",
+    "tier_checks_limits",
+    "tier_limits_targets",
     "tier_writes",
     "type_limits_posture",
     "type_writes_enabled",
@@ -1534,6 +1536,46 @@ def any_armed_target_checks_limits(section: Any) -> bool:
     return (
         type_writes_enabled(section, built) and type_limits_posture(section, built).enabled is True
     )
+
+
+def tier_limits_targets(section: Any) -> list[str]:
+    """The targets whose limits checking the login tier's write ceiling arms.
+
+    The tier twin of :func:`any_armed_target_checks_limits`. The tier is a
+    ceiling, not a selection: a render whose :func:`tier_writes` answers
+    ``allowed`` lets a session write to every :func:`configured_targets`, so
+    every one of them whose resolved :func:`target_limits_posture` states
+    ``enabled: true`` may open the channel-limits database. A ``never`` render
+    writes nowhere and so arms none.
+
+    ``enabled`` alone decides the limits half, for the reason
+    :func:`any_armed_target_checks_limits` gives; a caller that also refuses
+    half-written blocks reads :attr:`LimitsPosture.incomplete` itself.
+
+    Args:
+        section: The ``control_system:`` config section.
+
+    Returns:
+        The qualifying targets in :func:`configured_targets` order; empty for a
+        ``never`` render. Never raises.
+    """
+    if not tier_allows(section):
+        return []
+    return [
+        target
+        for target in configured_targets(section)
+        if target_limits_posture(section, target).enabled is True
+    ]
+
+
+def tier_checks_limits(section: Any) -> bool:
+    """Whether an ``allowed`` tier meets limits checking on some reachable target.
+
+    The question a deployment-level caller asks before it demands a channel-
+    limits database, read off the render's tier (:func:`tier_limits_targets`).
+    Never raises.
+    """
+    return bool(tier_limits_targets(section))
 
 
 def incomplete_limits_blocks(section: Any) -> list[str]:

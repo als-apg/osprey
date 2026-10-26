@@ -291,7 +291,7 @@ def isolation_settings(port: int, probe: str) -> list[str]:
     }
     return [
         "connector=virtual_accelerator",
-        "config.control_system.writes_enabled=false",
+        "config.control_system.writes=never",
         f"config.control_system.connector={json.dumps(connector)}",
         f"virtual_accelerator.port={port}",
         "virtual_accelerator.live_standin=null",
@@ -328,9 +328,9 @@ def isolation_errors(section: Any) -> list[str]:
         One line per violation; empty when the section is isolated.
     """
     from osprey_connectors.types import (
-        any_target_writes_enabled,
         configured_targets,
         resolve_target,
+        tier_writes,
     )
 
     if not isinstance(section, dict):
@@ -369,7 +369,7 @@ def isolation_errors(section: Any) -> list[str]:
             for lane, gateway in sorted(gateways.items())
             if not _is_loopback((gateway or {}).get("address"))
         ]
-    if any_target_writes_enabled(section):
+    if tier_writes(section) == "allowed":
         errors.append("a configured target is armed for writes")
     return errors
 
@@ -378,7 +378,7 @@ def _isolated_section(port: int = 45000) -> dict[str, Any]:
     gateway = {"address": LOOPBACK_HOST, "port": port, "use_name_server": True}
     return {
         "type": "virtual_accelerator",
-        "writes_enabled": False,
+        "writes": "never",
         "connector": {
             "virtual_accelerator": {"gateways": {"read_only": gateway, "write_access": gateway}}
         },
@@ -900,7 +900,15 @@ def test_a_remote_pva_gateway_fails_the_preflight() -> None:
 
 def test_an_armed_target_fails_the_preflight() -> None:
     section = _isolated_section()
+    del section["writes"]
     section["writes_enabled"] = True
+    assert "a configured target is armed for writes" in isolation_errors(section)
+
+
+def test_a_normalized_allowed_render_fails_the_preflight() -> None:
+    section = _isolated_section()
+    section["writes"] = "allowed"
+    assert "writes_enabled" not in repr(section)
     assert "a configured target is armed for writes" in isolation_errors(section)
 
 
@@ -912,7 +920,7 @@ def test_the_isolation_settings_state_the_connector_table_whole() -> None:
     for lane_name in ("read_only", "write_access"):
         gateway = table["virtual_accelerator"]["gateways"][lane_name]
         assert (gateway["address"], gateway["port"]) == (LOOPBACK_HOST, 45123)
-    assert settings["config.control_system.writes_enabled"] == "false"
+    assert settings["config.control_system.writes"] == "never"
     assert settings["connector"] == "virtual_accelerator"
 
 

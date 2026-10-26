@@ -24,8 +24,9 @@ No executor gate reads this config. Whether a run may write is the write
 verdict's to decide (:func:`osprey_connectors.posture_store.write_verdict`):
 the executor's entry gate, its launch pin and the connector's reference
 monitor all ask it about the control target the run is on, and refuse in its
-words. ``control_system_writes_enabled`` reports the deployment config's own
-per-target key and nothing more; it arms nothing.
+words. ``control_system_writes_enabled`` reports the login tier's ceiling
+(``control_system.writes``, :func:`osprey_connectors.types.tier_allows`) and
+nothing more; it arms nothing.
 
 .. note::
    The posture is about control-system access in general; it reads no
@@ -53,10 +54,9 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.types import (
     UNSET_TYPE_WARNING,
     VIRTUAL_ACCELERATOR,
-    WRITES_ENABLED_KEY,
+    WRITES_KEY,
     baseline_target,
-    target_writes_enabled,
-    target_writes_enabled_key,
+    tier_allows,
 )
 
 logger = get_logger("execution_control")
@@ -114,20 +114,20 @@ class ExecutionControlConfig:
     control target. It decides nothing: the executor's gates ask the write
     verdict instead.
 
-    :param control_system_writes_enabled: Whether control system write operations are permitted for :attr:`active_target`
+    :param control_system_writes_enabled: Whether the login tier allows control-system writes
+        (``control_system.writes: allowed``); target-blind
     :type control_system_writes_enabled: bool
     :param control_system_type: Type of control system (epics, virtual_accelerator, tango, etc.).
         Defaults to the simulator, served in process, so an under-specified config
         never claims a live system.
     :type control_system_type: str
-    :param active_target: Control target whose posture ``control_system_writes_enabled``
-        answers, or ``None`` when the config was built without reading one.
+    :param active_target: Control target the config was built for, or ``None``
+        when the config was built without reading one.
     :type active_target: str | None
-    :param writes_enabled_key: Dotted config key that governs that posture — the
-        per-type block when the target resolves to a connector type, the
-        deployment-wide key when it does not. Carried on the config rather than
-        re-derived by a refusal, so an operator is never sent to a key that had
-        no say in the answer.
+    :param writes_enabled_key: Dotted config key that governs that posture:
+        ``control_system.writes``. Carried on the config rather than re-derived
+        by a refusal, so an operator is never sent to a key that had no say in
+        the answer.
     :type writes_enabled_key: str
 
     .. note::
@@ -149,7 +149,7 @@ class ExecutionControlConfig:
     # Fail-closed: never assume a live system; the simulator, served in process.
     control_system_type: str = VIRTUAL_ACCELERATOR
     active_target: str | None = None
-    writes_enabled_key: str = WRITES_ENABLED_KEY
+    writes_enabled_key: str = WRITES_KEY
 
     def validate(self) -> list[str]:
         """
@@ -163,7 +163,7 @@ class ExecutionControlConfig:
         # Live writes are potentially dangerous - log warning
         if self.control_system_writes_enabled:
             warnings.append(
-                f"WARNING: {self.writes_enabled_key}=true (live control-system writes enabled!)"
+                f"WARNING: {self.writes_enabled_key}=allowed (live control-system writes enabled!)"
             )
 
         return warnings
@@ -174,10 +174,10 @@ def get_execution_control_config(target: str | None = None) -> ExecutionControlC
     Get execution control configuration from global config.
 
     This is the single entry point for getting execution control configuration.
-    Write posture is per control target, so the answer is for one target:
-    ``control_system.connector.<type>.writes_enabled`` for the type that target
-    resolves to, inheriting ``control_system.writes_enabled`` where the block
-    says nothing.
+    The write posture reported is the login tier's ceiling,
+    ``control_system.writes`` (:func:`osprey_connectors.types.tier_allows`):
+    target-blind, so a normalized ``allowed`` render reports writes for every
+    target. The target is still resolved and carried on the config.
 
     Args:
         target: The control target. ``None`` — the caller has no
@@ -195,7 +195,7 @@ def get_execution_control_config(target: str | None = None) -> ExecutionControlC
 
         control_system_config = get_config_value("control_system", {})
         active_target = target if target is not None else baseline_target(control_system_config)
-        writes_enabled = target_writes_enabled(control_system_config, active_target)
+        writes_enabled = tier_allows(control_system_config)
 
         # Get control system type for proper configuration. Fail closed: an
         # unset (or blank) key must not be read as a live control system.
@@ -209,7 +209,7 @@ def get_execution_control_config(target: str | None = None) -> ExecutionControlC
             control_system_writes_enabled=writes_enabled,
             control_system_type=control_system_type,
             active_target=active_target,
-            writes_enabled_key=target_writes_enabled_key(control_system_config, active_target),
+            writes_enabled_key=WRITES_KEY,
         )
 
         # Validate configuration and log warnings
