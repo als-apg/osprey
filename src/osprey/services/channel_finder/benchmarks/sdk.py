@@ -18,7 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from osprey.agent_runner import SDKWorkflowResult, run_query
+from osprey.agent_record.contract import unrecorded_env as unrecorded_env
+from osprey.agent_runner import SDKWorkflowResult, build_agent_options, run_query
 from osprey.agent_runner import ToolTrace as ToolTrace
 from osprey.agent_runner import combined_text as combined_text
 from osprey.agent_runner import sdk_env as sdk_env
@@ -98,6 +99,9 @@ async def run_sdk_query(
     measures the channel-finding capability of a given information
     representation paradigm.
 
+    The run is routed on the project's provider as any launch is, and then
+    handed that env through :func:`unrecorded_env`, so it records nothing.
+
     Args:
         project_dir: Path to an initialized OSPREY project.
         prompt: The user prompt to send.
@@ -122,6 +126,9 @@ async def run_sdk_query(
     """
     cf_servers = _read_channel_finder_mcp(project_dir)
     stderr_lines: list[str] = []
+    routed = build_agent_options(
+        project_dir, disallowed_tools=[], model=model, provider=provider, setting_sources=[]
+    )
 
     try:
         return await run_query(
@@ -135,8 +142,8 @@ async def run_sdk_query(
             setting_sources=[],
             max_turns=max_turns,
             max_budget_usd=max_budget_usd,
-            model=model,
-            provider=provider,
+            env=unrecorded_env(routed.env),
+            model=routed.model,
             stderr=stderr_lines.append,
         )
     except RuntimeError as exc:
