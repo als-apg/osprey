@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.agent_record.config import history_page_deployed
 from osprey.agent_runner.claude_state import (
     CLAUDE_CONFIG_VOLUME_SUFFIX,
     CLAUDE_PROJECTS_VOLUME_SUFFIX,
@@ -51,7 +52,7 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
 )
 from osprey.deployment.subprocess_capture import run_captured
-from osprey.deployment.telemetry_config import HISTORY_SERVICE, history_page_deployed
+from osprey.deployment.telemetry_config import HISTORY_SERVICE
 from osprey.deployment.telemetry_store.render import (
     render_context as telemetry_store_render_context,
 )
@@ -1462,8 +1463,10 @@ def agent_record_host_projects_dir(config, repo_root=None):
 
     ``<claude config dir>/projects/<encoded build dir>/`` for a deployment that
     records its host sessions (``deployment.host_identity``), else ``None``.
-    The build directory is the config's ``build_dir`` under the repo root,
-    which is where a host session runs.
+    The build directory is the shipped build zone under the repo root, which is
+    where a host session runs: ``deployed_build_dir`` when a render has
+    replaced ``build_dir`` with its own output base (see
+    :func:`prepare_compose_files`), else ``build_dir``.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -1480,7 +1483,8 @@ def agent_record_host_projects_dir(config, repo_root=None):
     if host_identity(config) is None:
         return None
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
-    return claude_project_dir(root / str(config.get("build_dir") or "./build"))
+    build_dir = config.get("deployed_build_dir") or config.get("build_dir") or "./build"
+    return claude_project_dir(root / str(build_dir))
 
 
 def _resolve_agent_record_render_context(config, repo_root=None):
@@ -1490,9 +1494,9 @@ def _resolve_agent_record_render_context(config, repo_root=None):
     config. It mounts each terminal and dispatch transcripts volume whole and
     read-only under its transcripts directory, as the transcript root the record
     names it by, and the host build's project directory when
-    :func:`agent_record_host_projects_dir` names one that exists at render time:
-    the bind is never created, so a directory absent now is mounted by the first
-    build after it appears.
+    :func:`agent_record_host_projects_dir` names one that exists at render time.
+    The render never creates it; ``osprey build`` does, before it renders, so
+    every build of a deployment that records its host sessions renders the bind.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -1624,24 +1628,21 @@ def _resolve_history_render_context(config):
     """Build the ``osprey_history`` render context for the history page template.
 
     Computed for every config, so the template renders on its own; the origin
-    and the queueservers are filled in only when the page is deployed
-    (:func:`~osprey.deployment.telemetry_config.history_page_deployed`), the one
+    is filled in only when the page is deployed
+    (:func:`~osprey.agent_record.config.history_page_deployed`), the one
     case where the readers' origin is required to exist.
 
     :param config: Configuration dictionary
     :type config: dict
-    :return: ``port``, ``container_port``, ``store_url``, ``external_origin``,
-        ``queueservers``, ``max_days`` and ``url`` (the page's browser URL,
-        ``<readers' origin>/history/``, or ``""``)
+    :return: ``port``, ``container_port``, ``external_origin``, ``max_days``
+        and ``url`` (the page's browser URL, ``<readers' origin>/history/``,
+        or ``""``)
     :rtype: dict
     """
     from osprey.deployment import telemetry_config as tc
 
-    deployed = tc.history_page_deployed(config)
     origin = ""
-    queueservers: list[str] = []
-    if deployed:
-        from osprey.deployment.telemetry_gateway import trusted_on_behalf_of
+    if history_page_deployed(config):
         from osprey.deployment.web_terminals.render import reader_origin
 
         # A deployment that names no readers' origin is refused where the web
@@ -1649,13 +1650,10 @@ def _resolve_history_render_context(config):
         # no dashboard link.
         with contextlib.suppress(ValueError):
             origin = reader_origin(config).origin
-        queueservers = list(trusted_on_behalf_of(config)[1])
     return {
         "port": tc.history_port(config),
         "container_port": HISTORY_CONTAINER_PORT,
-        "store_url": tc.store_url(config, bridge=True),
         "external_origin": origin,
-        "queueservers": queueservers,
         "max_days": tc.retention_days(config),
         "url": f"{origin}/history/" if origin else "",
     }
@@ -3444,7 +3442,7 @@ def service_audit_identities(config):
     The :data:`FIXED_SERVICE_AUDIT_IDENTITIES` half of the identity set, beside
     :func:`dispatch_worker_audit_identities` (which derives one identity per
     worker) and the web overlay's per-user identities, plus the history page's
-    when :func:`~osprey.deployment.telemetry_config.history_page_deployed`
+    when :func:`~osprey.agent_record.config.history_page_deployed`
     holds. Empty when the deployment deploys none of them, so a stack without
     them provisions nothing.
 
@@ -5104,7 +5102,7 @@ def derived_compose_dirs(config):
 
     A derived service is decided by the config rather than listed in
     ``deployed_services``: the history page is rendered exactly when
-    :func:`~osprey.deployment.telemetry_config.history_page_deployed` holds.
+    :func:`~osprey.agent_record.config.history_page_deployed` holds.
     :func:`prepare_compose_files` renders one compose file per name and
     :func:`find_existing_compose_files` hands the same files to compose, so the
     stack ``osprey up`` starts is the stack the build wrote.
@@ -5451,6 +5449,10 @@ def prepare_compose_files(
     # disk keeps its own ``build_dir``, so what is shipped still says where the
     # compose files live relative to the repo root, and only this run's output
     # base moves. See the parameter's docstring for the case that needs it.
+    # The shipped value is kept beside it: what reads the build zone a deployment
+    # runs from (the host build's Claude Code project directory) must not read
+    # this run's output base instead.
+    config["deployed_build_dir"] = config.get("build_dir") or "./build"
     if output_root is not None:
         config["build_dir"] = output_root
 

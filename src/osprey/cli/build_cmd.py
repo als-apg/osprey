@@ -1219,9 +1219,11 @@ def _render_compose_files(
 
     from osprey.deployment.compose_generator import prepare_compose_files
 
-    unrenderable = _service_existence_errors(_rendered_config(zones.stage), zones.stage)
+    staged_config = _rendered_config(zones.stage)
+    unrenderable = _service_existence_errors(staged_config, zones.stage)
     if unrenderable:
         raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrenderable))
+    _ensure_host_projects_dir(staged_config, zones.repo_root)
 
     previous = Path.cwd()
     os.chdir(zones.stage)
@@ -1255,6 +1257,36 @@ def _render_compose_files(
     # moment this returns and says the same thing.
     logger.debug("Rendered %d compose file(s)", len(compose_files))
     return dict(config)
+
+
+def _ensure_host_projects_dir(config: dict[str, Any], repo_root: Path) -> Path | None:
+    """Create the host build's Claude Code project directory when it is absent.
+
+    agent-record mounts that directory, which a host session fills, and the
+    render binds it only when it exists: ``osprey up`` starts what the build
+    rendered and re-renders nothing. Creating it here, empty and private to the
+    account (``0700``), makes every build of a deployment that records its host
+    sessions (``deployment.host_identity``) render the bind before the first
+    host session has run. A directory that already exists is left as it is.
+
+    Args:
+        config: The staged render's ``config.yml``.
+        repo_root: The deployment repo, under whose shipped build zone a host
+            session runs.
+
+    Returns:
+        The directory when this call created it, else ``None``.
+    """
+    from osprey.deployment.compose_generator import agent_record_host_projects_dir
+
+    host_dir = agent_record_host_projects_dir(config, repo_root)
+    if host_dir is None or host_dir.exists():
+        return None
+    host_dir.parent.mkdir(parents=True, exist_ok=True)
+    host_dir.mkdir(mode=0o700)
+    # ``mkdir``'s mode is narrowed by the umask, never widened; state it outright.
+    host_dir.chmod(0o700)
+    return host_dir
 
 
 def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str) -> None:
@@ -2477,21 +2509,15 @@ def _render_project(
             "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
         )
     try:
-        # Reachability: with defer_unresolved_telemetry_creds=True, a sender's
-        # gateway login or a collector token absent at build time does not
-        # raise here — a build never carries the secret, so
-        # _gateway_auth_header and _bearer_header (claude_code_telemetry.py)
-        # omit the auth header instead. Only a malformed credential still
-        # raises ObservabilityCredentialError into this ValueError catch.
-        #
-        # A provider base_url still spelled "${VAR}" is deferred for the same
-        # reason: this render may start on another host (a container image is
-        # built here and handed its gateway there), so the reference is the
-        # render's contract with its runtime. The launch paths resolve it for
-        # real and refuse by name when nothing supplies it.
+        # Reachability: a provider base_url still spelled "${VAR}" is
+        # deferred, because this render may start on another host (a container
+        # image is built here and handed its gateway there), so the reference
+        # is the render's contract with its runtime. The launch paths resolve
+        # it for real and refuse by name when nothing supplies it. The OTLP
+        # block is a launch's, never a build's, so it is not resolved here.
         spec = load_provider_spec(
             render_dir,
-            defer_unresolved_telemetry_creds=True,
+            include_telemetry=False,
             defer_unresolved_base_url=True,
         )
     except ValueError as e:

@@ -492,12 +492,19 @@ def test_worker_template_declares_env_file_when_present() -> None:
     )
 
 
+_RECORD_LOGIN = ".env.agent-record.login.dispatch-worker-1"
+
+
 def test_worker_template_omits_env_file_when_absent() -> None:
+    """No chain file is listed when the project has no .env.
+
+    An ``env_file:`` entry pointing at a missing path errors ``compose up``.
+    The worker's agent-record login is the one entry left: ``osprey build``
+    writes it before the file is rendered.
+    """
     rendered = _render_worker_template(env_present=False)
-    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered, (
-        "no env_file should be emitted when the project has no .env "
-        "(an env_file: pointing at a missing path errors compose up)"
-    )
+    assert _ENV_FILE_LINE not in rendered
+    assert _worker_service(rendered)["env_file"] == [_RECORD_LOGIN]
 
 
 def test_inject_project_metadata_flags_env_presence(
@@ -1635,7 +1642,7 @@ def test_worker_env_file_lists_the_whole_chain_in_precedence_order() -> None:
     default overwrite the local secret it exists to be overridden by.
     """
     rendered = _render_worker_template(env_present=True, env_chain=_ENV_CHAIN_BOTH)
-    assert _worker_service(rendered)["env_file"] == _ENV_CHAIN_BOTH
+    assert _worker_service(rendered)["env_file"] == [*_ENV_CHAIN_BOTH, _RECORD_LOGIN]
     assert "env_file:\n      - ./.env.shared\n      - ./.env\n" in rendered
 
 
@@ -1646,12 +1653,12 @@ def test_worker_env_file_lists_only_the_chain_files_that_exist() -> None:
     whose path is missing errors ``compose up`` outright.
     """
     rendered = _render_worker_template(env_present=False, env_chain=["./.env.shared"])
-    assert _worker_service(rendered)["env_file"] == ["./.env.shared"]
+    assert _worker_service(rendered)["env_file"] == ["./.env.shared", _RECORD_LOGIN]
 
 
 def test_worker_env_file_block_is_absent_for_an_empty_chain() -> None:
     rendered = _render_worker_template(env_present=False, env_chain=[])
-    assert "env_file" not in _worker_service(rendered)
+    assert _worker_service(rendered)["env_file"] == [_RECORD_LOGIN]
 
 
 def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4512,10 +4519,10 @@ def test_nextcloud_bridge_command_runs_the_bridge_module() -> None:
 
 
 def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger, history, and offsets.
+    """/data is a NAMED volume — it holds the dedup ledger and the poll offsets.
 
-    All three state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``, ``OFFSETS_PATH``). Without a persisted volume a restart
+    Both state files default to paths under /data (``DEDUP_PATH``,
+    ``OFFSETS_PATH``); conversation history lives in the agent record. Without a persisted volume a restart
     loses the in-flight dedup ledger (re-answering or dropping questions) and
     resets the poll offsets (replaying or skipping room history), so this is a
     correctness requirement, not a convenience. Named rather than a bind mount so
@@ -4618,7 +4625,7 @@ def test_nextcloud_bridge_never_mounts_the_project_env_in_bulk(env_present: bool
 def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclasses' defaults.
 
-    These three are the only vars whose ``:-`` fallback restates a code default
+    These two are the only vars whose ``:-`` fallback restates a code default
     instead of passing through empty: their readers are plain
     ``e.get(NAME, default)`` calls, for which "" is an accepted value, so the
     empty-fallback trick the neutral tunables use would point the stores at the
@@ -4634,11 +4641,11 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     nextcloud_defaults = NextcloudBridgeConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
         "OFFSETS_PATH": nextcloud_defaults.offsets_path,
     }
 
     environment = _nextcloud_bridge_service()["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -4666,11 +4673,10 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config objects under the names they read —
-    # an empty value would NOT, which is why these three are not passed through
+    # an empty value would NOT, which is why these two are not passed through
     # with an empty fallback.
     cfg = NextcloudBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
     assert cfg.offsets_path == "/srv/state/offsets_path.json"
 
 
@@ -4921,8 +4927,8 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     assert cfg.core.trigger == "nextcloud-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # The three state files must land on the mounted volume, not the image layer.
-    for path in (cfg.offsets_path, cfg.core.dedup_path, cfg.core.history_path):
+    # Both state files must land on the mounted volume, not the image layer.
+    for path in (cfg.offsets_path, cfg.core.dedup_path):
         assert path.startswith("/data/"), path
 
 
@@ -5210,10 +5216,10 @@ def test_gchat_bridge_command_runs_the_bridge_module() -> None:
 
 
 def test_gchat_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+    """/data is a NAMED volume — it holds the dedup ledger.
 
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
+    history lives in the agent record. Without a persisted volume a restart loses the in-flight
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. Named rather than a
     bind mount so it is namespaced per compose project and survives
@@ -5399,8 +5405,8 @@ def test_gchat_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) ->
 def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclass's defaults.
 
-    These two are the only environment vars whose ``:-`` fallback restates a code
-    default instead of passing through empty: their reader is a plain
+    ``DEDUP_PATH`` is the only environment var whose ``:-`` fallback restates a
+    code default instead of passing through empty: its reader is a plain
     ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
     the empty-fallback trick the neutral tunables use would point the stores at
     the empty path. That duplication is the thing this test exists to bind — the
@@ -5413,10 +5419,10 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     core_defaults = CoreConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
     }
 
     environment = _gchat_bridge_service()["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -5444,13 +5450,12 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config object under the names it reads — an
-    # empty value would NOT, which is why these two are not passed through with
+    # empty value would NOT, which is why it is not passed through with
     # an empty fallback.
     from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
 
     cfg = GoogleChatBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
 
 
 def test_gchat_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
@@ -5671,9 +5676,8 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.trigger == "gchat-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # Both state files must land on the mounted volume, not the image layer.
-    for path in (cfg.core.dedup_path, cfg.core.history_path):
-        assert path.startswith("/data/"), path
+    # The state file must land on the mounted volume, not the image layer.
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
 @pytest.mark.parametrize("worker_timeout", [None, 600])
@@ -6028,10 +6032,10 @@ def test_teams_bridge_command_runs_the_bridge_module() -> None:
 
 
 def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the history store.
+    """/data is a NAMED volume — it holds the dedup ledger.
 
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``HISTORY_PATH``). Without a persisted volume a restart loses the in-flight
+    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
+    history lives in the agent record. Without a persisted volume a restart loses the in-flight
     dedup ledger and the bridge re-answers or drops questions that were mid-run,
     so this is a correctness requirement, not a convenience. There is no third
     state file: unlike the nextcloud poller the bridge keeps no read cursor of
@@ -6199,8 +6203,8 @@ def test_teams_bridge_never_mounts_the_project_env_in_bulk(env_present: bool) ->
 def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     """The state paths' compose defaults equal the config dataclass's defaults.
 
-    These two are the only environment vars whose ``:-`` fallback restates a code
-    default instead of passing through empty: their reader is a plain
+    ``DEDUP_PATH`` is the only environment var whose ``:-`` fallback restates a
+    code default instead of passing through empty: its reader is a plain
     ``e.get(NAME, default)`` call, for which "" is a value the code accepts, so
     the empty-fallback trick the neutral tunables use would point the stores at
     the empty path. That duplication is the thing this test exists to bind — the
@@ -6213,10 +6217,10 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     core_defaults = CoreConfig.from_env({})
     code_defaults = {
         "DEDUP_PATH": core_defaults.dedup_path,
-        "HISTORY_PATH": core_defaults.history_path,
     }
 
     environment = _teams_bridge_service()["environment"]
+    assert "HISTORY_PATH" not in environment
     for var, code_default in code_defaults.items():
         match = _COMPOSE_VAR_RE.match(str(environment[var]))
         assert match is not None and match.group("default") is not None, (
@@ -6244,13 +6248,12 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
         assert overridden[var] == f"/srv/state/{var.lower()}.json"
 
     # And the override reaches the config object under the names it reads — an
-    # empty value would NOT, which is why these two are not passed through with
+    # empty value would NOT, which is why it is not passed through with
     # an empty fallback.
     from osprey.bridges.teams.config import TeamsBridgeConfig
 
     cfg = TeamsBridgeConfig.from_env(overridden)
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
-    assert cfg.core.history_path == "/srv/state/history_path.json"
 
 
 def test_teams_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
@@ -6478,9 +6481,8 @@ def test_teams_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.trigger == "teams-question"
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
-    # Both state files must land on the mounted volume, not the image layer.
-    for path in (cfg.core.dedup_path, cfg.core.history_path):
-        assert path.startswith("/data/"), path
+    # The state file must land on the mounted volume, not the image layer.
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
 @pytest.mark.parametrize("worker_timeout", [None, 600])
