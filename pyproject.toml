@@ -266,6 +266,10 @@ docs = [
 
 # Development and testing
 dev = [
+    # The optimizer's base install, so the unit lanes run its model and
+    # environment-file tests; its engine suite needs the package's `service` extra.
+    # Versions from the same v-tags as pyaml-cs-osprey, so the floor follows its rule.
+    "osprey-optimizer>=2026.6.2",
     "pytest",
     "setuptools-scm",  # The build backend under hatch-vcs, called directly by the version-parity test
     "pytest-asyncio",
@@ -431,17 +435,34 @@ virtual-accelerator = [
     "aioca>=1.7",
 ]
 
+# Optimizer (packages/osprey-optimizer): the base install only, its models and
+# environment-file format. The search stack is that package's own `service`
+# extra and is installed only in the optimizer's image; it never enters `all`.
+optimizer = [
+    # Versions with this repo's own calendar stream (same v-tags, same describe),
+    # so the floor is the last stable framework release tag, which any
+    # same-checkout build satisfies; the same rule as pyaml-cs-osprey above.
+    "osprey-optimizer>=2026.6.2",
+]
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,ariel,screen-capture-linux,gchat,teams]"
 ]
 
 [tool.uv.workspace]
-members = ["packages/osprey-connectors", "packages/pyaml-cs-osprey"]
+members = ["packages/osprey-connectors", "packages/osprey-optimizer", "packages/pyaml-cs-osprey"]
 
 [tool.uv.sources]
 osprey-connectors = { workspace = true }
+osprey-optimizer = { workspace = true }
 pyaml-cs-osprey = { workspace = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"
@@ -555,11 +576,12 @@ python_version = "3.11"
 # report the same errors. `explicit_package_bases` is the half that makes the
 # roots count: it derives each module's name from them rather than from the
 # directory the file happens to live in.
-mypy_path = "src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src:packages/dock-engine/src"
+mypy_path = "src:packages/osprey-connectors/src:packages/osprey-optimizer/src:packages/pyaml-cs-osprey/src:packages/dock-engine/src"
 explicit_package_bases = true
 files = [
     "src",
     "packages/osprey-connectors/src",
+    "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
     "packages/dock-engine/src",
 ]
@@ -764,6 +786,7 @@ src = [
     "deployment",
     "packages/osprey-connectors/src",
     "packages/osprey-connectors/tests",
+    "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
     "packages/dock-engine/src",
 ]
@@ -775,6 +798,7 @@ extend-include = ["tests/pty/stub_runtime/docker"]
 extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_optimizer/_version.py",
     "*/src/pyaml_cs_osprey/_version.py",
     "*/src/dock_engine/_version.py",
     # Generated from the facility schema by gen-pydantic; compared byte for byte
@@ -854,6 +878,7 @@ source = [
     "interfaces",
     "deployment",
     "packages/osprey-connectors/src",
+    "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
     "packages/dock-engine/src",
 ]
@@ -874,6 +899,7 @@ omit = [
     # Written by the hatch-vcs build hook (gitignored); not source anyone maintains.
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_optimizer/_version.py",
     "*/src/dock_engine/_version.py",
 ]
 

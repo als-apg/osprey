@@ -6,8 +6,8 @@ on:
       - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
 # PAIRED PUBLISHING: the framework and the workspace members that version with
-# it (today pyaml-cs-osprey: same v-tags, same describe — see its
-# pyproject.toml) build and publish from one v-tag, always carrying the same
+# it (today osprey-optimizer and pyaml-cs-osprey: same v-tags, same describe —
+# see their pyproject.toml) build and publish from one v-tag, always carrying the same
 # number. osprey-connectors is NOT one of them: it has its own calendar stream
 # on its own osprey-connectors-v* tags and publishes from
 # release-connectors.yml, so nothing here builds or uploads it. The framework
@@ -106,6 +106,7 @@ jobs:
       # this list to the workspace members minus osprey-connectors.
       run: |
         uv build
+        uv build --package osprey-optimizer
         uv build --package pyaml-cs-osprey
 
     - name: Verify built versions match tag
@@ -205,6 +206,15 @@ jobs:
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling \
           --prerelease if-necessary-or-explicit
         osprey --version
+        # The framework's `optimizer` extra names osprey-optimizer, whose wheel
+        # the loop above staged with the other members. The base only: the
+        # `service` extra is the optimizer image's, and its pins (torch, xopt)
+        # are checked by that image's build.
+        FRAMEWORK_WHEEL=$(ls "$PWD"/dist/osprey_framework-*.whl)
+        uv venv /tmp/optimizer-check
+        uv pip install --python /tmp/optimizer-check/bin/python \
+          "osprey-framework[optimizer] @ file://$FRAMEWORK_WHEEL" --find-links /tmp/sibling
+        /tmp/optimizer-check/bin/python -c "import osprey, osprey_optimizer.models.api, osprey_optimizer.environments.spec"
 
   publish-to-pypi:
     name: Publish to PyPI
