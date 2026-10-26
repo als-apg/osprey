@@ -8,6 +8,7 @@ import subprocess
 import sys
 import textwrap
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +24,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
 )
+from tests._archive_composites import held_state_directories
 from tests.facility.served_tree import in_process_config, served_tree
 
 
@@ -665,6 +667,44 @@ def _archived_tree(tmp_path, *readings):
 
 class TestMockArchiverConnector:
     """Test MockArchiverConnector functionality."""
+
+    @pytest.mark.asyncio
+    async def test_a_rebuild_after_an_active_set_change_closes_the_previous_composite(
+        self, tmp_path, monkeypatch
+    ):
+        """The composite a rebuild replaces gives up its state directory."""
+        from osprey_connectors.control_system._va_in_process_connector import (
+            simulation_state_dir,
+        )
+        from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
+
+        view = _archived_tree(tmp_path, "BEAM:CURRENT")
+        connector = MockArchiverConnector()
+        with held_state_directories(monkeypatch) as held:
+            await connector.connect(in_process_config(view))
+            [previous] = held
+            state_file = simulation_state_dir(view) / ACTIVE_SCENARIOS_FILENAME
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text("nominal\n", encoding="utf-8")
+
+            await connector.check_availability(["BEAM:CURRENT"])
+
+            [_, current] = held
+            assert not Path(previous.name).exists()
+            assert Path(current.name).is_dir()
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_disconnect_closes_the_composite(self, tmp_path, monkeypatch):
+        """Disconnecting removes the served composite's state directory."""
+        connector = MockArchiverConnector()
+        with held_state_directories(monkeypatch) as held:
+            await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+            [state] = held
+
+            await connector.disconnect()
+
+            assert not Path(state.name).exists()
 
     @pytest.mark.asyncio
     async def test_connect_disconnect(self, tmp_path):
