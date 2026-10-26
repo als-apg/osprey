@@ -7,6 +7,7 @@ The guards here keep that blast radius contained.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import Iterator
@@ -48,6 +49,30 @@ def _guard_os_exit(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError(f"os._exit({code}) called in-process")
 
     monkeypatch.setattr(os, "_exit", _raise)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the host launchers from starting a real agent record.
+
+    Leak guarded: ``osprey web``, ``chat`` and ``query`` hold a lease on the
+    host-local agent record for their lifetime, starting an ``osprey
+    agent-record serve`` process when none answers. Under an in-process
+    ``CliRunner`` that process would outlive the test. The launchers reach the
+    record only through ``provider_env.host_record_launch`` (and the detached
+    web parent through ``host.host_record_refusal``), so both are replaced with
+    "no record needed". A test about the record itself imports the real ones at
+    module scope (collection runs before this patch) and puts them back.
+    """
+    from osprey.agent_record import host
+    from osprey.agent_runner import provider_env
+
+    @contextlib.contextmanager
+    def _no_record(*_args: object, **_kwargs: object) -> Iterator[None]:
+        yield None
+
+    monkeypatch.setattr(provider_env, "host_record_launch", _no_record)
+    monkeypatch.setattr(host, "host_record_refusal", lambda *_args, **_kwargs: None)
 
 
 @pytest.fixture(autouse=True)

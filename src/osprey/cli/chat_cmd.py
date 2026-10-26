@@ -22,6 +22,7 @@ to launch at all — no ``build/``, no chat.
 
 from __future__ import annotations
 
+import contextlib
 import os
 
 # Module level so tests can scope a stand-in to this module without patching the
@@ -327,7 +328,6 @@ def chat(
       $ osprey chat --resume SESSION_ID
       $ osprey chat --repo ~/als-assistant
     """
-    import sys
 
     import yaml
 
@@ -363,8 +363,7 @@ def chat(
     # afterwards — it has to be taken while the overlay's values are not yet in.
     shell_managed_env = _snapshot_managed_env()
     _overlay_repo_env(repo_root)
-    # Who this session is, to the ledger and to the telemetry gateway alike:
-    # the one name the build recorded, with that name's login.
+    # Who this session is, to the ledger: the one name the build recorded.
     from osprey.build.claude_code_telemetry import export_host_terminal_session
     from osprey.deployment.telemetry_credentials import export_built_host_identity
 
@@ -477,6 +476,27 @@ def chat(
         prompt=" ".join(prompt) if prompt else None,
     )
 
+    # The agent record, held for the whole session and handed to the agent and
+    # its MCP servers through this environment. Before the companion servers:
+    # a refusal starts nothing on behalf of a session that will not run.
+    from osprey.agent_record.host import HostRecordRefused
+    from osprey.agent_runner.provider_env import host_record_launch
+
+    record_stack = contextlib.ExitStack()
+    try:
+        record_stack.enter_context(host_record_launch(repo_root, config, config_path=config_path))
+    except HostRecordRefused as exc:
+        output.fail("No agent record for this session", str(exc))
+        raise SystemExit(1) from exc
+    with record_stack:
+        returncode = _run_agent(args, build_dir)
+    raise SystemExit(returncode)
+
+
+def _run_agent(args: list[str], build_dir: Path) -> int:
+    """Start the companion servers and run the agent in *build_dir*; its exit code."""
+    import sys
+
     # build/ IS the rendered project, and the agent CLI uses the working
     # directory as its project root — this is what points it at this
     # deployment's .mcp.json, .claude/ tree and CLAUDE.md.
@@ -528,4 +548,4 @@ def chat(
     if started_servers:
         child_env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
 
-    raise SystemExit(subprocess.run(args, env=child_env).returncode)
+    return subprocess.run(args, env=child_env).returncode
