@@ -15,8 +15,8 @@ login.
 from __future__ import annotations
 
 import dataclasses
-import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.audit import writer
+from osprey.agent_record.contract import KIND_AUDIT, SURFACE_FIELD
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import create_app
 from osprey.services.auth_sidecar.passwords import hash_password
@@ -143,23 +143,36 @@ def _inputs(body: str) -> list[str]:
     return re.findall(r"<input[^>]*>", body, flags=re.IGNORECASE | re.DOTALL)
 
 
+_ZONES: dict[Path, Any] = {}
+
+
 @pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it."""
-    directory = tmp_path / "var" / "audit" / "sidecar"
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
+def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_zone: Any) -> Iterator[Path]:
+    """The sidecar's own spool directory, as compose gives it.
+
+    Also binds the service's state directory and pins the identity ladder to
+    what the sidecar's container env supplies.
+    """
+    state = tmp_path / "var" / "state" / "sidecar"
+    state.mkdir(parents=True)
+    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
+    spool = spool_zone.spool_for("sidecar")
+    _ZONES[spool] = spool_zone
+    try:
+        yield spool
+    finally:
+        _ZONES.pop(spool, None)
 
 
 def _records(zone: Path) -> list[dict[str, Any]]:
-    """Every ledger record filed so far, in append order."""
-    path = zone / f"{audit.SURFACE}{writer.LEDGER_SUFFIX}"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
+    """The body of every sidecar ``audit`` entry the record holds, in write order."""
+    return [
+        dict(entry.body)
+        for entry in _ZONES[zone].recorded_entries(KIND_AUDIT)
+        if entry.body.get(SURFACE_FIELD) == audit.SURFACE
+    ]
 
 
 def _throttle_window(client: TestClient, key: str) -> float:

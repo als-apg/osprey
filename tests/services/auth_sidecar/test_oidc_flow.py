@@ -37,6 +37,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.agent_record.contract import KIND_AUDIT
 from osprey.deployment.web_terminals.roster import access_wire_value
 from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
@@ -69,6 +70,7 @@ from osprey.services.auth_sidecar.sessions import (
     UnlockedUser,
 )
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from tests.conftest import SpoolZone
 from tests.services.auth_sidecar.mock_idp import (
     DISCOVERY_AS_HTML,
     DISCOVERY_WITHOUT_AUTHORIZATION_ENDPOINT,
@@ -122,25 +124,26 @@ def _reset_idp(idp: MockIdP) -> Iterator[None]:
 
 
 @pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it.
+def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_zone: SpoolZone) -> SpoolZone:
+    """The sidecar's own spool directory, as compose gives it, and the record it feeds.
 
-    Only the shared-card tests ask for it: they pin the *categories* the ledger
+    Only the shared-card tests ask for it: they pin the *categories* the record
     files a refusal under, which no assertion on the response alone can see.
+    Also binds the service's state directory (``OSPREY_AUTH_AUDIT_DIR``) and pins
+    the identity ladder to the sidecar's container identity.
     """
-    directory = tmp_path / "var" / "audit" / "sidecar"
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
+    state = tmp_path / "var" / "state" / "sidecar"
+    state.mkdir(parents=True)
+    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
+    spool_zone.spool_for("sidecar")
+    return spool_zone
 
 
-def _records(zone: Path) -> list[dict[str, Any]]:
-    path = zone / f"{audit.SURFACE}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
+def _records(zone: SpoolZone) -> list[dict[str, Any]]:
+    """The body of every ``audit`` entry the record holds so far, in the order written."""
+    return [dict(entry.body) for entry in zone.recorded_entries(KIND_AUDIT)]
 
 
 def _bind_roster_role(monkeypatch: pytest.MonkeyPatch, user: str, role: str) -> None:
@@ -910,7 +913,7 @@ def test_an_entry_that_never_logs_into_its_own_card_can_open_a_shared_one(idp: M
 
 
 def test_an_identity_matching_no_entry_is_refused_on_a_shared_card(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SpoolZone
 ) -> None:
     """A verified stranger is still a stranger: zero matches is the same
     ``identity_mismatch`` an own card refuses with, filed post-exchange."""
@@ -927,7 +930,7 @@ def test_an_identity_matching_no_entry_is_refused_on_a_shared_card(
 
 
 def test_an_identity_mapped_to_two_entries_is_refused_as_ambiguous(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SpoolZone
 ) -> None:
     """alice and carol both mapped to one identity: opening a shared card with
     it must not be resolved by roster order, so it is refused under its own
@@ -948,7 +951,7 @@ def test_an_identity_mapped_to_two_entries_is_refused_as_ambiguous(
 
 
 def test_a_matched_identity_that_cannot_be_carried_is_refused_not_a_crash(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SpoolZone
 ) -> None:
     """The uncarryable-subject refusal moves post-match on a shared card.
 
@@ -992,7 +995,7 @@ def test_a_shared_card_on_an_unmapped_roster_never_reaches_the_provider(idp: Moc
 
 
 def test_the_claims_binding_is_not_consulted_on_a_shared_card(
-    idp: MockIdP, zone: Path, monkeypatch: pytest.MonkeyPatch
+    idp: MockIdP, zone: SpoolZone, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Membership gating and shared cards do not compose.
 
@@ -1268,7 +1271,7 @@ def test_the_owner_of_a_self_and_domain_card_still_logs_into_it(idp: MockIdP) ->
 
 
 def test_the_owner_of_a_domain_only_card_outside_that_domain_is_refused(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SpoolZone
 ) -> None:
     """The other half of the same rule: a card narrowed to a domain alone does
     not carry ``self``, so its own user is admitted no more than anybody else —
@@ -1290,7 +1293,7 @@ def test_the_owner_of_a_domain_only_card_outside_that_domain_is_refused(
 
 
 def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SpoolZone
 ) -> None:
     """Being on the roster is not admission once the card stops saying so.
 
@@ -1325,7 +1328,7 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
     ids=["hosted-domain-disagrees", "address-unverified", "no-covering-principal"],
 )
 def test_every_rule_refusal_answers_alike_and_files_its_own_category(
-    idp: MockIdP, zone: Path, email: str, claims: dict[str, Any], reason: str
+    idp: MockIdP, zone: SpoolZone, email: str, claims: dict[str, Any], reason: str
 ) -> None:
     """One answer for the caller, three categories for the operator.
 
@@ -1526,7 +1529,7 @@ def test_the_single_sign_on_entry_opens_exactly_the_cards_the_card_login_opens(
     assert _without_expiry(card_less) == _without_expiry(by_card)
 
 
-def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: Path) -> None:
+def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: SpoolZone) -> None:
     idp.subject = "idp|stranger"
     with _browser(_sidecar(idp)) as client:
         response = _enter(client)
@@ -1540,7 +1543,7 @@ def test_an_identity_no_card_admits_is_refused_and_filed(idp: MockIdP, zone: Pat
 
 
 def test_a_card_refused_for_its_role_is_left_out_and_filed(
-    idp: MockIdP, zone: Path, monkeypatch: pytest.MonkeyPatch
+    idp: MockIdP, zone: SpoolZone, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
     monkeypatch.setenv("OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator"}')
@@ -1558,7 +1561,7 @@ def test_a_card_refused_for_its_role_is_left_out_and_filed(
     ]
 
 
-def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: Path) -> None:
+def test_an_ambiguous_shared_card_is_left_out_not_fatal(idp: MockIdP, zone: SpoolZone) -> None:
     app = _sidecar(
         idp,
         OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
@@ -1590,7 +1593,7 @@ def test_a_card_less_callback_cannot_be_replayed(idp: MockIdP) -> None:
 
 
 def test_a_token_without_an_id_token_is_filed_under_the_sign_in_subject(
-    idp: MockIdP, zone: Path
+    idp: MockIdP, zone: SpoolZone
 ) -> None:
     idp.omit_id_token = True
     with _browser(_sidecar(idp)) as client:

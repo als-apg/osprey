@@ -4,21 +4,22 @@ The sidecar decides one thing — may this browser become this roster user — a
 that decision is a safety decision like any tool call. These tests pin the four
 properties that make its records usable next to the rest of the ledger:
 
-* **Where.** Records land in the directory ``OSPREY_AUTH_AUDIT_DIR`` names, in
-  a file named for the surface. The sidecar is not an Osprey project (one
-  uvicorn app, no ``osprey.yml`` to resolve a root from), so the env var is the
-  *only* source of that path — a project-root resolution here would either
-  raise or invent a directory outside the one subdirectory the container binds.
+* **Where.** Every record is one ``audit`` entry written through the one
+  record writer into the spool directory ``OSPREY_SPOOL_DIR`` names. The
+  sidecar is not an Osprey project (one uvicorn app, no ``osprey.yml`` to
+  resolve a root from), so that variable is the *only* source of the path — a
+  project-root resolution here would either raise or invent a directory outside
+  the one the container binds.
 * **Who.** The service is the actor and the roster user is the SUBJECT. Every
-  record files under the sidecar's own identity, so a user's own audit
-  subdirectory can never be made to look as though they wrote their own login
-  history.
+  entry is the sidecar's — the record takes the identity from the spool
+  directory — and carries the person in ``on_behalf_of``, which the record
+  keeps because the sidecar is on its trusted on-behalf list.
 * **What.** ``posture_source`` is the app's own stamp and ``session`` is null:
   a login has no posture store and no session key, and inventing either would
   join these records to a session that never existed.
-* **What it costs.** Nothing. An unset variable degrades to a log line, an
-  unwritable ledger degrades to a log line, and both a 303 and a 403 arrive
-  exactly as they would have with the audit trail working.
+* **What it costs.** Nothing. An unwritable spool degrades to a log line and a
+  health report, and both a 303 and a 403 arrive exactly as — and as fast as —
+  they would have with the audit trail working.
 
 Apps are built from explicit env mappings and the OIDC client is replaced at
 the route boundary, so nothing here reaches an IdP or reads the real process
@@ -29,7 +30,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from base64 import b64encode
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -40,8 +44,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.agent_record import writer as record_writer
+from osprey.agent_record.contract import (
+    KIND_AUDIT,
+    RECORD_OFF_ENV,
+    RECORD_OFF_VALUE,
+    SPOOL_DIR_ENV,
+    WRITER_ERRORS_FILE,
+)
 from osprey.audit import writer
-from osprey.audit.envelope import POSTURE_SOURCE_APP
+from osprey.audit.envelope import POSTURE_SOURCE_APP, AuditEnvelope
 from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import (
@@ -79,8 +91,8 @@ ALICE_HASH = hash_password(ALICE_PASSWORD)
 ALICE_SUBJECT = "idp|alice"
 BOB_SUBJECT = "idp|bob"
 
-#: The identity the sidecar's container is given, and therefore the directory
-#: component its records file under.
+#: The identity the sidecar's container is given, and therefore the name of the
+#: spool directory its entries are written in.
 SIDECAR_IDENTITY = "sidecar"
 
 GROUP_CLAIM = "groups"
@@ -117,32 +129,69 @@ OIDC_ENV = {
 # --- harness ----------------------------------------------------------------
 
 
-@pytest.fixture
-def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """The sidecar's own bound audit subdirectory, as compose gives it.
+class _Zone:
+    """What one test's ``zone`` fixture set up: the spool it writes, its state dir."""
 
-    Also pins the identity ladder to what the sidecar's container env supplies,
-    so a developer's local account can never become the actor in an assertion.
+    def __init__(self, spool_zone: Any, state: Path) -> None:
+        self.spool_zone = spool_zone
+        self.state = state
+
+
+_ZONES: dict[Path, _Zone] = {}
+
+
+@pytest.fixture
+def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_zone: Any) -> Iterator[Path]:
+    """The sidecar's own spool directory, as compose gives it; not yet created.
+
+    Also binds the service's state directory (``OSPREY_AUTH_AUDIT_DIR``) and
+    pins the identity ladder to what the sidecar's container env supplies, so a
+    developer's local account can never become the actor in an assertion.
     """
-    directory = tmp_path / "var" / "audit" / SIDECAR_IDENTITY
-    directory.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
+    state = tmp_path / "var" / "state" / SIDECAR_IDENTITY
+    state.mkdir(parents=True)
+    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
-    return directory
+    spool = spool_zone.spool_for(SIDECAR_IDENTITY)
+    _ZONES[spool] = _Zone(spool_zone, state)
+    try:
+        yield spool
+    finally:
+        _ZONES.pop(spool, None)
 
 
-def _ledger(zone: Path) -> Path:
-    """The one file the sidecar's records land in."""
-    return zone / f"{audit.SURFACE}{writer.LEDGER_SUFFIX}"
+def _entries(zone: Path) -> list[Any]:
+    """Every ``audit`` entry the record holds so far, in the order it was written."""
+    return list(_ZONES[zone].spool_zone.recorded_entries(KIND_AUDIT))
 
 
 def _records(zone: Path) -> list[dict[str, Any]]:
-    """Every record stored so far, decoded in the order it was appended."""
-    path = _ledger(zone)
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
+    """The body of every ``audit`` entry stored so far, in the order it was written."""
+    return [dict(entry.body) for entry in _entries(zone)]
+
+
+def _spool_text(zone: Path) -> str:
+    """Every byte the sidecar has put in its spool directory, as text."""
+    if not zone.exists():
+        return ""
+    return "".join(
+        path.read_text("utf-8", errors="replace")
+        for path in sorted(zone.rglob("*"))
+        if path.is_file()
+    )
+
+
+def _unfiled(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The records this module put on the log because they could not be stored."""
+    return [record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()]
+
+
+def _blocked(tmp_path: Path) -> Path:
+    """A spool path that is a file, not a directory — a bind that never materialised."""
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("", encoding="utf-8")
+    return blocked
 
 
 def _login(
@@ -221,22 +270,40 @@ def _callback(app: FastAPI, user: str = "alice") -> httpx.Response:
 
 
 class TestWhereARecordLands:
-    """The env var is the whole path resolution, and the file names the surface."""
+    """The spool variable is the whole path resolution, and the entry names the surface."""
 
-    def test_records_land_in_the_directory_the_env_names(self, zone: Path) -> None:
+    def test_a_login_writes_one_audit_entry_in_the_sidecars_spool(self, zone: Path) -> None:
         with _password_client() as client:
             assert _login(client).status_code == 303
-        assert _ledger(zone).exists()
-        assert len(_records(zone)) == 1
+        assert any(path.is_file() for path in zone.iterdir())
+        entries = _entries(zone)
+        assert len(entries) == 1
+        assert entries[0].kind == KIND_AUDIT
+        assert entries[0].identity == SIDECAR_IDENTITY
 
-    def test_the_ledger_is_named_for_the_surface(self, zone: Path) -> None:
-        """One file per surface inside the identity's directory — the same
-        ``<identity>/<surface>.jsonl`` shape every other emitter files under,
-        so the sidecar's records read next to the rest without a special case."""
+    def test_the_entry_carries_the_trusted_on_behalf(self, zone: Path) -> None:
+        """Written under the sidecar's own identity with ``on_behalf_of`` set
+        to the person logging in — and kept by the record, because the sidecar
+        is on the trusted on-behalf list, where any other source's claim is
+        dropped."""
+        with _password_client() as client:
+            assert _login(client).status_code == 303
+        (entry,) = _entries(zone)
+        assert entry.identity == SIDECAR_IDENTITY
+        assert entry.on_behalf_of == "alice"
+
+    def test_the_entry_names_the_surface(self, zone: Path) -> None:
         with _password_client() as client:
             _login(client)
-        assert [path.name for path in zone.iterdir()] == ["auth_sidecar.jsonl"]
-        assert audit.ledger_path() == _ledger(zone)
+        assert _records(zone)[0]["surface"] == audit.SURFACE
+
+    def test_nothing_is_filed_in_the_state_directory(self, zone: Path) -> None:
+        """The state directory holds the revoked-session file and nothing else:
+        a record filed there would be a second copy outside the record."""
+        with _password_client() as client:
+            _login(client)
+            _login(client, password="wrong")
+        assert list(_ZONES[zone].state.iterdir()) == []
 
     def test_the_path_never_asks_for_a_project_root(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
@@ -253,39 +320,40 @@ class TestWhereARecordLands:
             assert _login(client).status_code == 303
         assert len(_records(zone)) == 1
 
-    def test_each_record_is_one_line(self, zone: Path) -> None:
+    def test_each_decision_is_one_entry(self, zone: Path) -> None:
         with _password_client() as client:
             _login(client, password="wrong")
             _login(client, user="bob", password="wrong")
-        assert len(_ledger(zone).read_text("utf-8").splitlines()) == 2
+        assert len(_records(zone)) == 2
 
-    def test_an_unset_variable_degrades_to_a_log_line(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    def test_an_unset_spool_variable_degrades_to_a_log_line(
+        self, zone: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A sidecar rendered before the audit mount existed still logs what it
-        could not file — the record is readable, just not durable."""
-        monkeypatch.delenv(audit.AUDIT_DIR_ENV, raising=False)
-        monkeypatch.chdir(tmp_path)
+        """Without ``OSPREY_SPOOL_DIR`` the writer would have to resolve a
+        project root the image does not have; the write fails, and the record
+        is still readable on the log — just not durable."""
+
+        def _no_root(*args: Any, **kwargs: Any) -> Path:
+            raise RuntimeError("no project root in this image")
+
+        monkeypatch.delenv(SPOOL_DIR_ENV, raising=False)
+        monkeypatch.setattr("osprey_connectors.workspace.resolve_project_root", _no_root)
         with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
             assert _login(client).status_code == 303
-        assert not list(tmp_path.rglob("*.jsonl"))
-        logged = [
-            record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
-        ]
+        logged = _unfiled(caplog)
         assert len(logged) == 1
         assert "alice" in logged[0]
+        assert not zone.exists()
 
-    def test_a_blank_variable_degrades_the_same_way(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_the_state_directory_is_not_needed_to_record(
+        self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A variable rendered from an empty ctx key is unset, not a relative
-        path to the process's working directory."""
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, "   ")
-        monkeypatch.chdir(tmp_path)
+        """An unset ``OSPREY_AUTH_AUDIT_DIR`` costs the revocation file its
+        home, never the record its entry."""
+        monkeypatch.delenv(audit.AUDIT_DIR_ENV, raising=False)
         with _password_client() as client:
             assert _login(client).status_code == 303
-        assert audit.ledger_path() is None
-        assert not list(tmp_path.rglob("*.jsonl"))
+        assert len(_records(zone)) == 1
 
 
 # --- what a successful login records ----------------------------------------
@@ -316,11 +384,12 @@ class TestASuccessfulLogin:
         reader of the leading columns finds: directly after ``session``."""
         with _password_client() as client:
             _login(client)
-        record = _records(zone)[0]
+        (entry,) = _entries(zone)
+        record = dict(entry.body)
         keys = list(record)
         assert record["on_behalf_of"] == "alice"
         assert keys.index("on_behalf_of") == keys.index("session") + 1
-        assert _ledger(zone).parent.name == SIDECAR_IDENTITY
+        assert entry.identity == SIDECAR_IDENTITY
 
     def test_the_posture_is_the_apps_own_stamp(self, zone: Path) -> None:
         """The sidecar governs entry, not writes: it holds no posture store and
@@ -345,7 +414,8 @@ class TestASuccessfulLogin:
         with _password_client() as client:
             _login(client)
             _login(client, password="a-guess-that-failed")
-        stored = _ledger(zone).read_text("utf-8")
+        stored = _spool_text(zone)
+        assert len(_records(zone)) == 2
         assert ALICE_PASSWORD not in stored
         assert "a-guess-that-failed" not in stored
 
@@ -514,7 +584,8 @@ class TestAnUnevaluableCredential:
     def test_the_stored_value_never_reaches_the_ledger(self, zone: Path) -> None:
         with TestClient(create_app(BROKEN_ALICE_ENV), base_url="https://testserver") as client:
             _login(client, user="alice", password=ALICE_PASSWORD)
-        text = _ledger(zone).read_text("utf-8")
+        text = _spool_text(zone)
+        assert len(_records(zone)) == 1
         assert "c2FsdA" not in text
         assert "scrypt.16384" not in text
 
@@ -634,35 +705,71 @@ class TestAnOidcLoginResolvedFromSeveralRoles:
 
 
 class TestTheEmitterNeverCostsTheDecision:
-    """An audit gap must never become an outage."""
+    """An audit gap must never become an outage, nor a slower login."""
 
-    def test_an_unwritable_zone_still_lets_a_login_succeed(
+    @pytest.mark.usefixtures("zone")
+    def test_an_unwritable_spool_still_lets_a_login_succeed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The variable points at something that is not a directory — a bind
-        that never materialised. The login is still a login."""
-        blocked = tmp_path / "not-a-directory"
-        blocked.write_text("", encoding="utf-8")
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(blocked))
+        """The spool variable points at something that is not a directory — a
+        bind that never materialised. The login is still a login."""
+        monkeypatch.setenv(SPOOL_DIR_ENV, str(_blocked(tmp_path)))
         with _password_client() as client:
             assert _login(client).status_code == 303
 
-    def test_an_unwritable_zone_still_refuses(
+    @pytest.mark.usefixtures("zone")
+    def test_an_unwritable_spool_still_refuses(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        blocked = tmp_path / "not-a-directory"
-        blocked.write_text("", encoding="utf-8")
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(blocked))
+        monkeypatch.setenv(SPOOL_DIR_ENV, str(_blocked(tmp_path)))
         assert _callback(_oidc_app(userinfo={"sub": BOB_SUBJECT})).status_code == 403
 
-    def test_a_missing_directory_is_created(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes a read-only directory"
+    )
+    def test_an_unwritable_spool_does_not_delay_the_login(self, zone: Path) -> None:
+        """The write is one local append with no retry and no wait, so a spool
+        that refuses it answers as fast as one that takes it: the login's time
+        is the login's, never the audit trail's."""
+
+        def _timed_login() -> float:
+            with _password_client() as client:
+                started = time.monotonic()
+                assert _login(client).status_code == 303
+                return time.monotonic() - started
+
+        _timed_login()  # warm the app and the writer before anything is measured
+        usual = min(_timed_login() for _ in range(3))
+        record_writer.seal_all()
+        zone.chmod(0o500)
+        try:
+            unwritable = min(_timed_login() for _ in range(3))
+            assert record_writer.write(KIND_AUDIT, {"probe": True}) is None
+        finally:
+            zone.chmod(0o700)
+        assert unwritable <= usual + 0.25
+
+    def test_a_failed_write_is_reported_to_health(
+        self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The deploy path provisions this directory; the emitter creating it
-        is the laptop and first-run case, not a second owner of the mode."""
-        zone = tmp_path / "var" / "audit" / SIDECAR_IDENTITY
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(zone))
-        monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
+        """The writer appends the failure to the spool directory's ``.errors``,
+        which the record reports on its health, and the login goes on."""
+
+        def _explode(_directory: Path, _data: bytes) -> None:
+            raise OSError("the spool is full")
+
+        monkeypatch.setattr(record_writer, "_append", _explode)
+        with _password_client() as client:
+            assert _login(client).status_code == 303
+        errors = (zone / WRITER_ERRORS_FILE).read_text("utf-8").splitlines()
+        assert len(errors) == 1
+        assert json.loads(errors[0])["kind"] == KIND_AUDIT
+        assert "the spool is full" in json.loads(errors[0])["error"]
+
+    def test_a_missing_spool_directory_is_created(self, zone: Path) -> None:
+        """The deploy path provisions the spool directory; the writer creating
+        it is the laptop and first-run case."""
+        assert not zone.exists()
         with _password_client() as client:
             assert _login(client).status_code == 303
         assert len(_records(zone)) == 1
@@ -689,35 +796,49 @@ class TestTheEmitterNeverCostsTheDecision:
 
 
 class TestTheSharedWriterDoesTheWriting:
-    """The sidecar supplies the directory; the ledger's own writer supplies the
-    line shaping and the atomic append, so its byte budget and its append-only
-    guarantee are not re-implemented one service over."""
+    """The sidecar supplies the envelope; the one record writer supplies the
+    body shaping and the append, so neither is re-implemented one service over."""
 
     def test_the_reused_seam_exists(self) -> None:
-        """A rename in the writer must fail here, not in production: the seam
-        is the writer's, and the sidecar bypasses its routing entry points only
-        because they resolve a project root it does not have."""
-        assert callable(writer.append_envelope)
-        assert callable(writer._line_for)
-        assert callable(writer._append)
+        """A rename in the writer must fail here, not in production."""
+        assert callable(writer.record_envelope)
+        assert callable(record_writer.write)
 
-    def test_the_append_goes_through_the_writer(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.usefixtures("zone")
+    def test_the_write_goes_through_the_record_writer(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        appended: list[tuple[Path, bytes]] = []
+        written: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
 
-        def _capture(path: Path, line: bytes) -> bool:
-            appended.append((path, line))
-            return True
+        def _capture(kind: str, body: Any, **ids: Any) -> str:
+            written.append((kind, dict(body), ids))
+            return "entry-1"
 
-        monkeypatch.setattr(writer, "_append", _capture)
+        monkeypatch.setattr(record_writer, "write", _capture)
         with _password_client() as client:
             _login(client)
-        assert len(appended) == 1
-        path, line = appended[0]
-        assert path == _ledger(zone)
-        assert line.endswith(b"\n")
-        assert json.loads(line)["subject"] == "alice"
+        assert len(written) == 1
+        kind, body, ids = written[0]
+        assert kind == KIND_AUDIT
+        assert body["subject"] == "alice"
+        assert ids["on_behalf_of"] == "alice"
+
+    @pytest.mark.usefixtures("zone")
+    def test_the_seam_returns_the_entry_id(self) -> None:
+        envelope = AuditEnvelope(
+            surface=audit.SURFACE,
+            actor=SIDECAR_IDENTITY,
+            posture=audit.SIDECAR_POSTURE,
+            posture_source=POSTURE_SOURCE_APP,
+            session=None,
+            on_behalf_of="alice",
+            subject="alice",
+            decision="allowed",
+            reason=audit.REASON_PASSWORD_LOGIN,
+        )
+        entry_id = audit.write_envelope(envelope)
+        assert isinstance(entry_id, str)
+        assert entry_id
 
 
 # --- the degrade ladder has no missing rung ---------------------------------
@@ -726,104 +847,92 @@ class TestTheSharedWriterDoesTheWriting:
 class TestTheDegradeLadderIsMonotone:
     """*File, else log* — for every way the write can fail, not just the easy one.
 
-    A CONFIGURED-but-unwritable ledger must not be a worse degrade than a
-    variable that was never set. The failure that is actually likely in a
-    deployment — a bind that mounted read-only, a full disk, a root-owned file
-    this process cannot open — is precisely the one that would otherwise erase
-    the record, while the merely cosmetic one (an unset variable on a laptop)
-    kept it.
+    The failure that is actually likely in a deployment — a bind that mounted
+    read-only, a full disk, a directory this process cannot open — must not
+    erase the record: whatever rung gave way, the record reaches the log.
     """
 
-    def test_an_unwritable_zone_still_logs_the_record(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    @pytest.mark.usefixtures("zone")
+    def test_an_unwritable_spool_still_logs_the_record(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        blocked = tmp_path / "not-a-directory"
-        blocked.write_text("", encoding="utf-8")
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(blocked))
+        monkeypatch.setenv(SPOOL_DIR_ENV, str(_blocked(tmp_path)))
         with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
             assert _login(client).status_code == 303
-        unfiled = [
-            record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
-        ]
+        unfiled = _unfiled(caplog)
         assert len(unfiled) == 1
         stored = json.loads(unfiled[0].split("unfiled): ", 1)[1])
         assert stored["subject"] == "alice"
         assert stored["decision"] == "allowed"
         assert stored["reason"] == audit.REASON_PASSWORD_LOGIN
 
-    def test_a_refusal_in_an_unwritable_zone_keeps_its_category(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    @pytest.mark.usefixtures("zone")
+    def test_a_refusal_in_an_unwritable_spool_keeps_its_category(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """The category is the half a human cannot reconstruct from the route's
         own log line, which says only that the login was refused."""
-        blocked = tmp_path / "not-a-directory"
-        blocked.write_text("", encoding="utf-8")
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(blocked))
+        monkeypatch.setenv(SPOOL_DIR_ENV, str(_blocked(tmp_path)))
         with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
             assert _login(client, password="wrong").status_code == 401
-        unfiled = [
-            record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
-        ]
+        unfiled = _unfiled(caplog)
         assert len(unfiled) == 1
         assert json.loads(unfiled[0].split("unfiled): ", 1)[1])["reason"] == (
             audit.REASON_BAD_CREDENTIAL
         )
 
     @pytest.mark.usefixtures("zone")
-    def test_a_torn_append_logs_the_record_too(
+    def test_the_record_off_switch_logs_the_record_too(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """The quietest failure of the three: ``_append`` returns False, nothing
-        raises, and the writer's own warning names the path rather than the
-        record it lost."""
-        monkeypatch.setattr(writer, "_append", lambda path, line: False)
+        """The quietest failure: nothing raises and nothing is stored."""
+        monkeypatch.setenv(RECORD_OFF_ENV, RECORD_OFF_VALUE)
         with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
             assert _login(client).status_code == 303
-        assert [
-            record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
-        ]
+        assert _unfiled(caplog)
 
     @pytest.mark.usefixtures("zone")
-    def test_a_seam_that_raises_logs_the_record_too(
+    def test_an_append_that_raises_logs_the_record_too(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def _explode(_path: Path, _line: bytes) -> bool:
-            raise OSError("the audit zone is gone")
+        def _explode(_directory: Path, _data: bytes) -> None:
+            raise OSError("the spool is gone")
 
-        monkeypatch.setattr(writer, "_append", _explode)
+        monkeypatch.setattr(record_writer, "_append", _explode)
         with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
             assert _login(client).status_code == 303
-        assert [
-            record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
-        ]
+        assert _unfiled(caplog)
 
 
 class TestThePathTheVariableNames:
-    """What the variable may hold, and what the file may be called."""
+    """What the state-directory variable may hold, and what it never changes."""
 
-    def test_a_relative_directory_is_refused_like_a_blank_one(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    def test_a_relative_state_directory_is_refused_and_costs_no_record(
+        self, zone: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Resolved against the process's working directory it would name a path
-        inside the image that the host binds nothing at: the records would
-        accumulate in the container's writable layer and vanish with it, while
-        the emitter reported them as durably stored."""
+        inside the image that the host binds nothing at; it is refused like a
+        blank one, and the record does not depend on it."""
         monkeypatch.setenv(audit.AUDIT_DIR_ENV, "relative/audit")
         monkeypatch.chdir(tmp_path)
-        with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
+        assert audit.audit_directory() is None
+        with _password_client() as client:
             assert _login(client).status_code == 303
-        assert audit.ledger_path() is None
-        assert not list(tmp_path.rglob("*.jsonl"))
-        assert [
-            record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
-        ]
+        assert len(_records(zone)) == 1
+        assert not (tmp_path / "relative").exists()
 
     def test_a_dot_relative_directory_is_refused_too(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv(audit.AUDIT_DIR_ENV, "./audit")
         monkeypatch.chdir(tmp_path)
-        assert audit.ledger_path() is None
+        assert audit.audit_directory() is None
 
     def test_audit_directory_reads_the_mapping_it_is_given(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -848,19 +957,17 @@ class TestThePathTheVariableNames:
             if audit.AUDIT_DIR_ENV in record.getMessage()
         ]
 
-    def test_the_writer_marker_cannot_rename_this_ledger(
+    def test_the_writer_marker_cannot_move_this_record(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """``writer.ledger_name`` routes on ``OSPREY_AUDIT_WRITER``, whose whole
-        purpose — one uid per file across the project image's root phase — has
-        no analogue in a single-uvicorn container with no entrypoint. Borrowing
-        it would let a stray marker in this environment silently rename the file
-        the e2e grep and an operator's ``tail`` both look for."""
-        monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
-        assert writer.ledger_name(audit.SURFACE) != audit.SURFACE
+        """A stray ``OSPREY_AUDIT_WRITER`` in this environment changes nothing:
+        the entry is still the sidecar's, on the sidecar's surface."""
+        monkeypatch.setenv("OSPREY_AUDIT_WRITER", "maintenance")
         with _password_client() as client:
             assert _login(client).status_code == 303
-        assert [path.name for path in zone.iterdir()] == ["auth_sidecar.jsonl"]
+        (entry,) = _entries(zone)
+        assert entry.identity == SIDECAR_IDENTITY
+        assert entry.body["surface"] == audit.SURFACE
 
 
 class TestTheCategorySetIsClosed:
@@ -960,20 +1067,19 @@ class TestTheRuleAdmissionCategories:
         keep; the refusal sites pin it where the claim values enter.
         """
         audit.record_login_refusal(user="bob", reason=reason, detail="email_verified")
-        line = _ledger(zone).read_text("utf-8")
-        assert "email_verified" in line
+        assert _records(zone)[0]["detail"] == "email_verified"
 
 
 class TestTheWriterShapesTheLine:
-    """The line shaping is the half the reuse exists for, so it is pinned by
+    """The body shaping is the half the reuse exists for, so it is pinned by
     BEHAVIOUR rather than by the symbol's existence.
 
-    ``_line_for`` carries the 2 KB budget that makes concurrent appends
-    non-interleaving, the oversize-``detail`` replacement, and the
-    identifiers-only escape hatch. A local re-implementation that still called
-    ``writer._append`` would pass a test that only asserted the name is
-    callable — and would not show up until a long ``detail`` (the ambiguity
-    category joins role names into one) tore a line in production.
+    :func:`osprey.audit.writer.record_envelope` carries the record bound, the
+    oversize-``detail`` replacement, and the identifiers-only escape hatch. A
+    local re-implementation that still reached the record writer would pass a
+    test that only asserted the name is callable — and would not show up until
+    a long ``detail`` (the ambiguity category joins role names into one) grew
+    an entry past its bound in production.
     """
 
     def test_an_over_budget_detail_is_replaced_by_the_writers_marker(
@@ -987,16 +1093,17 @@ class TestTheWriterShapesTheLine:
         assert len(stored) == 1
         assert stored[0]["detail"] == writer.DETAIL_DROPPED
 
-    def test_the_stored_line_stays_inside_the_append_bound(
+    def test_the_stored_body_stays_inside_the_record_bound(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The property the replacement buys: one record is still one atomic
-        write, so two containers appending at once cannot interleave."""
+        """The property the replacement buys: one record stays a bounded
+        entry, whatever the caller handed it."""
         monkeypatch.setenv(TERMINAL_USER_ENV, "a" * 300)
         audit.record_login_refusal(
             user="u" * 300, reason="r" * 300, detail="d" * 4096, role="R" * 300
         )
-        assert len(_ledger(zone).read_bytes()) <= writer.MAX_RECORD_BYTES
+        (stored,) = _records(zone)
+        assert len(writer._encode(stored)) <= writer.MAX_RECORD_BYTES
 
     def test_an_ordinary_detail_is_stored_whole(self, zone: Path) -> None:
         """The control: the degrade is for records that do not fit, not for
