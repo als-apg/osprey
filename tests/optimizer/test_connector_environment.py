@@ -201,6 +201,16 @@ def test_readback_within_tolerance_is_accepted(fake):
     env.set_variables({"VCM1": 2.0})
 
 
+def test_an_unreadable_readback_fails_at_once_not_at_the_deadline(fake):
+    env, _ = _env(fake)
+    fake.stuck.add("VCM1:RB")
+    del fake.values["VCM1:RB"]
+    with pytest.raises(EvaluationError, match="VCM1:RB of VCM1:SP could not be read"):
+        env.set_variables({"VCM1": 2.0})
+    # One failed read, not polling until readback_timeout_seconds.
+    assert fake.writes == [{"VCM1:SP": 2.0}]
+
+
 def test_cancellation_is_checked_while_waiting_for_readbacks(fake):
     env, _ = _env(fake)
     fake.stuck.add("VCM1:RB")

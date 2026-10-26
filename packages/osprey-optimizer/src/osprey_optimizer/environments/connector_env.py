@@ -15,6 +15,7 @@ target; the first channel access without one is refused.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -41,7 +42,6 @@ from .spec import EnvironmentFile
 
 logger = logging.getLogger(__name__)
 
-_READBACK_POLL_S = 0.1
 _SETTLE_POLL_S = 0.2
 
 LimitsLookup = Callable[[str | None], Mapping[str, Any] | None]
@@ -134,6 +134,16 @@ def _numeric(reading: PVReading | None) -> float | None:
     if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
         return None
     return float(v)
+
+
+class _ReadOne:
+    """The awaitable ``read_channel`` the settle step reads through, over the sync interface."""
+
+    def __init__(self, interface: InterfaceProtocol) -> None:
+        self._interface = interface
+
+    async def read_channel(self, address: str) -> PVReading:
+        return self._interface.read_one(address)
 
 
 class ConnectorEnvironment:
@@ -261,30 +271,40 @@ class ConnectorEnvironment:
     def _verify_readbacks(
         self, variable_inputs: dict[str, float], check_cancellation: Callable[[], None] | None
     ) -> None:
-        pending = {
-            self._all_variables[n].readback_pv: (n, v, self._spec.readback_tolerance(n))
+        """Wait for each readback with the connectors' settle step, as every other writer does.
+
+        The bound is the variable's ``readback_tolerance`` (one ``step_size``
+        when the file states none). A readback that cannot be read fails at
+        once rather than at the deadline.
+        """
+        from osprey_connectors.settle import Landing, SettleReadError, SettleTimeoutError, settle
+
+        landings = [
+            Landing(
+                self._all_variables[n].setpoint_pv,
+                self._all_variables[n].readback_pv,
+                float(v),
+                self._spec.readback_tolerance(n),
+            )
             for n, v in variable_inputs.items()
-        }
-        deadline = time.monotonic() + self._spec.readback_timeout_seconds
-        last: dict[str, float | None] = {}
-        while pending:
-            readings = self.interface.read_many(list(pending))
-            for rb in list(pending):
-                name, expected, tol = pending[rb]
-                got = _numeric(readings.get(rb))
-                last[name] = got
-                if got is not None and abs(got - expected) <= tol:
-                    del pending[rb]
-            if not pending:
-                return
-            if time.monotonic() >= deadline:
-                failed = ", ".join(
-                    f"{n} (readback={last.get(n)}, expected={v})" for n, v, _ in pending.values()
-                )
-                raise EvaluationError(f"Readback verification timed out for: {failed}")
+        ]
+
+        async def sleep(seconds: float) -> None:
             if check_cancellation is not None:
                 check_cancellation()
-            time.sleep(_READBACK_POLL_S)
+            await asyncio.sleep(seconds)
+
+        try:
+            asyncio.run(
+                settle(
+                    _ReadOne(self.interface),
+                    landings,
+                    timeout_s=self._spec.readback_timeout_seconds,
+                    sleep=sleep,
+                )
+            )
+        except (SettleTimeoutError, SettleReadError) as exc:
+            raise EvaluationError(f"Readback verification failed: {exc}") from exc
 
     def _settle(self, check_cancellation: Callable[[], None] | None) -> None:
         end = time.monotonic() + self._spec.settle_seconds
