@@ -1,0 +1,45 @@
+{
+  "name": "self-sole-tab-own-edge",
+  "rule": "rule-3",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "planDrop",
+    "source": {
+      "tab": "b"
+    },
+    "target": {
+      "tile": "t2",
+      "edge": "right"
+    },
+    "dock": {
+      "px": {
+        "width": 1000,
+        "height": 600
+      },
+      "minPx": 40
+    }
+  },
+  "after": "unchanged"
+}

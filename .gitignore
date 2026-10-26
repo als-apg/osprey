@@ -51,7 +51,7 @@ coverage.json
 .hypothesis/
 
 # CI diagnostics drop (per-worker event logs, stack dumps, container logs).
-# Written by tests/ci_diagnostics.py and .github/actions/capture-ci-diagnostics
+# Written by _harness/ci_diagnostics.py and .github/actions/capture-ci-diagnostics
 # whenever OSPREY_CI_DIAG_DIR is set; uploaded as an artifact, never committed.
 /ci-diag/
 .pytest_cache/
@@ -212,6 +212,7 @@ src/osprey/_version.py
 packages/osprey-connectors/src/osprey_connectors/_version.py
 packages/osprey-optimizer/src/osprey_optimizer/_version.py
 packages/pyaml-cs-osprey/src/pyaml_cs_osprey/_version.py
+packages/dock-engine/src/dock_engine/_version.py
 
 # feature-scaffolding logs (not committed)
 .claude/.logs/

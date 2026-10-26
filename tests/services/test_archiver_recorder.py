@@ -540,7 +540,7 @@ async def test_the_channel_access_reader_drops_channels_that_did_not_answer(
     unreachable channel must not cost the whole sample. Dropping it here is
     what turns "did not answer" into an absent field downstream."""
     from osprey.services.archiver_recorder.recorder import channel_access_reader
-    from tests.connectors._epics_fakes import FakeChannel, ca_reading, install_fake_aioca
+    from osprey_connectors_tests._epics_fakes import FakeChannel, ca_reading, install_fake_aioca
 
     install_fake_aioca(monkeypatch, {"SR:BPM01:X": FakeChannel(ca_reading(1.5))})
 
@@ -555,7 +555,7 @@ async def test_each_sample_costs_one_read_per_channel(monkeypatch: pytest.Monkey
     import aioca
 
     from osprey.services.archiver_recorder.recorder import channel_access_reader
-    from tests.connectors._epics_fakes import FakeChannel, ca_reading, install_fake_aioca
+    from osprey_connectors_tests._epics_fakes import FakeChannel, ca_reading, install_fake_aioca
 
     addresses = ["SR:BPM01:X", "SR:BPM02:X"]
     fake = install_fake_aioca(monkeypatch, {a: FakeChannel(ca_reading(1.5)) for a in addresses})
@@ -578,7 +578,7 @@ async def test_the_recorders_ca_environment_is_left_as_it_stands(
     written for the agent's side of the network."""
     from osprey.services.archiver_recorder import recorder
     from osprey_connectors.control_system._epics_connector import EPICSConnector
-    from tests.connectors._epics_fakes import install_fake_aioca
+    from osprey_connectors_tests._epics_fakes import install_fake_aioca
 
     install_fake_aioca(monkeypatch)
     monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "virtual-accelerator:5064")

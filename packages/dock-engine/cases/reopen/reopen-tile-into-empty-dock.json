@@ -1,0 +1,31 @@
+{
+  "name": "reopen-tile-into-empty-dock",
+  "rule": "rule-8",
+  "before": null,
+  "op": {
+    "fn": "reopen",
+    "record": {
+      "kind": "tile",
+      "tile": "t1",
+      "tabs": ["a", "e"],
+      "showing": "e",
+      "neighbour": null,
+      "side": null
+    },
+    "context": {
+      "focusedTile": null,
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      }
+    }
+  },
+  "after": {
+    "tile": "t1",
+    "tabs": ["a", "e"],
+    "showing": "e"
+  }
+}

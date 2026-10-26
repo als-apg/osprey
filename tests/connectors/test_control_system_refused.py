@@ -32,9 +32,9 @@ from osprey_connectors.control_system._base import (
     raise_for_write_result,
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
-from tests.connectors._epics_fakes import ECA_NOWTACCESS
-from tests.connectors._write_fakes import make_mock_epics_connector
-from tests.connectors._write_fakes import writes_enabled_config as _writes_enabled_config
+from osprey_connectors_tests._epics_fakes import ECA_NOWTACCESS
+from osprey_connectors_tests._write_fakes import make_mock_epics_connector
+from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
 CHANNEL = "TEST:MAG:PS:SP"

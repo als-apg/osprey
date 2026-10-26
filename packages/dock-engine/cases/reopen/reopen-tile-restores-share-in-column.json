@@ -1,0 +1,67 @@
+{
+  "name": "reopen-tile-restores-share-in-column",
+  "rule": "rule-8",
+  "before": {
+    "split": "column",
+    "items": [
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.25
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.75
+      }
+    ]
+  },
+  "op": {
+    "fn": "reopen",
+    "record": {
+      "kind": "tile",
+      "tile": "t1",
+      "tabs": ["a"],
+      "showing": "a",
+      "neighbour": "t3",
+      "side": "bottom",
+      "share": 0.6
+    },
+    "context": {
+      "focusedTile": "t3",
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      }
+    }
+  },
+  "after": {
+    "split": "column",
+    "items": [
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.25
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.15
+      },
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.6,
+        "from": "t3"
+      }
+    ]
+  }
+}

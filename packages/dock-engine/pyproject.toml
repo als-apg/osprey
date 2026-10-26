@@ -1,0 +1,45 @@
+# Not a workspace member and never published. Inside OSPREY, `dock_engine` ships
+# in the framework wheel (the root pyproject's wheel target bundles
+# src/dock_engine, cases/ and dist/manifest.json). This file exists so CANOPY
+# can install the same directory from git without the framework:
+#   osprey-dock-engine @ git+https://github.com/als-apg/osprey@<ref>#subdirectory=packages/dock-engine
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "osprey-dock-engine"
+dynamic = ["version"]
+description = "The dock layout rules shared by OSPREY and CANOPY, with the engine's case corpus"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "BSD-3-Clause"}
+# Standard library only: the package is imported by the framework, by CANOPY and
+# by the live-CA venue, none of which should pull anything in through it.
+dependencies = []
+
+[tool.hatch.version]
+source = "vcs"
+# Versions with the framework's calendar stream, from the same v-tags and the
+# same describe command as the framework (see the root pyproject.toml): the two
+# wheels built from one checkout carry the same number. No fallback version: a
+# build that cannot describe the checkout fails rather than stamping a number
+# that names no release.
+raw-options = { root = "../..", version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/dock_engine/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dock_engine"]
+
+# The case corpus and the manifest live beside the TypeScript, outside the import
+# root; the wheel carries them as package data, which `dock_engine._data` reads.
+[tool.hatch.build.targets.wheel.force-include]
+"cases" = "dock_engine/cases"
+"dist/manifest.json" = "dock_engine/manifest.json"
+
+# The sdist keeps the package's own layout, so a wheel built from it finds the
+# manifest where the wheel's force-include above expects it.
+[tool.hatch.build.targets.sdist.force-include]
+"dist/manifest.json" = "dist/manifest.json"

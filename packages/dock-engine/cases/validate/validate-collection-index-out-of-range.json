@@ -1,0 +1,13 @@
+{
+  "name": "validate-collection-index-out-of-range",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tabs": [0, 5]
+  },
+  "options": {
+    "form": "collection",
+    "members": 2
+  },
+  "reason": "bad_key",
+  "where": "layout.tabs[1]"
+}

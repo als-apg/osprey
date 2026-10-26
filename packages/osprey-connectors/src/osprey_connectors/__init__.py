@@ -4,9 +4,10 @@ Installable without the OSPREY agent platform: no LLM, web, or agent
 dependencies. Main osprey depends on this package and imports it directly.
 """
 
-# The version rides the framework's calendar stream (see pyproject.toml): a
-# built distribution answers from its own metadata, and a bare source tree —
-# no dist installed, no build hook run — answers honestly that it is unbuilt.
+# The version comes from the package's own osprey-connectors-v* calendar tags
+# (see pyproject.toml): a built distribution answers from its own metadata, and
+# a bare source tree — no dist installed, no build hook run — answers honestly
+# that it is unbuilt.
 try:
     from importlib.metadata import PackageNotFoundError
     from importlib.metadata import version as _dist_version

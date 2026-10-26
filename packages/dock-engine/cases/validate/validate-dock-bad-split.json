@@ -1,0 +1,21 @@
+{
+  "name": "validate-dock-bad-split",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "diagonal",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a"
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b"
+      }
+    ]
+  },
+  "reason": "bad_split",
+  "where": "layout.split"
+}

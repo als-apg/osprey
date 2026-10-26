@@ -1,0 +1,226 @@
+{
+  "name": "no-depth-cap-deep-alternation",
+  "rule": "no-depth-cap",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["k1"],
+        "showing": "k1",
+        "size": 0.5
+      },
+      {
+        "split": "column",
+        "size": 0.5,
+        "items": [
+          {
+            "tile": "t2",
+            "tabs": ["k2"],
+            "showing": "k2",
+            "size": 0.5,
+            "from": "t1"
+          },
+          {
+            "split": "row",
+            "size": 0.5,
+            "items": [
+              {
+                "tile": "t3",
+                "tabs": ["k3"],
+                "showing": "k3",
+                "size": 0.5,
+                "from": "t2"
+              },
+              {
+                "split": "column",
+                "size": 0.5,
+                "items": [
+                  {
+                    "tile": "t4",
+                    "tabs": ["k4"],
+                    "showing": "k4",
+                    "size": 0.5,
+                    "from": "t3"
+                  },
+                  {
+                    "split": "row",
+                    "size": 0.5,
+                    "items": [
+                      {
+                        "tile": "t5",
+                        "tabs": ["k5"],
+                        "showing": "k5",
+                        "size": 0.5,
+                        "from": "t4"
+                      },
+                      {
+                        "split": "column",
+                        "size": 0.5,
+                        "items": [
+                          {
+                            "tile": "t6",
+                            "tabs": ["k6"],
+                            "showing": "k6",
+                            "size": 0.5,
+                            "from": "t5"
+                          },
+                          {
+                            "split": "row",
+                            "size": 0.5,
+                            "items": [
+                              {
+                                "tile": "t7",
+                                "tabs": ["k7"],
+                                "showing": "k7",
+                                "size": 0.5,
+                                "from": "t6"
+                              },
+                              {
+                                "tile": "t8",
+                                "tabs": ["k8"],
+                                "showing": "k8",
+                                "size": 0.5,
+                                "from": "t7"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "op": {
+    "fn": "planDrop",
+    "source": {
+      "new": "k9"
+    },
+    "target": {
+      "tile": "t8",
+      "edge": "bottom"
+    },
+    "dock": {
+      "px": {
+        "width": 1000,
+        "height": 1000
+      },
+      "minPx": 40
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["k1"],
+        "showing": "k1",
+        "size": 0.5
+      },
+      {
+        "split": "column",
+        "size": 0.5,
+        "items": [
+          {
+            "tile": "t2",
+            "tabs": ["k2"],
+            "showing": "k2",
+            "size": 0.5,
+            "from": "t1"
+          },
+          {
+            "split": "row",
+            "size": 0.5,
+            "items": [
+              {
+                "tile": "t3",
+                "tabs": ["k3"],
+                "showing": "k3",
+                "size": 0.5,
+                "from": "t2"
+              },
+              {
+                "split": "column",
+                "size": 0.5,
+                "items": [
+                  {
+                    "tile": "t4",
+                    "tabs": ["k4"],
+                    "showing": "k4",
+                    "size": 0.5,
+                    "from": "t3"
+                  },
+                  {
+                    "split": "row",
+                    "size": 0.5,
+                    "items": [
+                      {
+                        "tile": "t5",
+                        "tabs": ["k5"],
+                        "showing": "k5",
+                        "size": 0.5,
+                        "from": "t4"
+                      },
+                      {
+                        "split": "column",
+                        "size": 0.5,
+                        "items": [
+                          {
+                            "tile": "t6",
+                            "tabs": ["k6"],
+                            "showing": "k6",
+                            "size": 0.5,
+                            "from": "t5"
+                          },
+                          {
+                            "split": "row",
+                            "size": 0.5,
+                            "items": [
+                              {
+                                "tile": "t7",
+                                "tabs": ["k7"],
+                                "showing": "k7",
+                                "size": 0.5,
+                                "from": "t6"
+                              },
+                              {
+                                "split": "column",
+                                "size": 0.5,
+                                "items": [
+                                  {
+                                    "tile": "t8",
+                                    "tabs": ["k8"],
+                                    "showing": "k8",
+                                    "size": 0.5,
+                                    "from": "t7"
+                                  },
+                                  {
+                                    "tile": "t9",
+                                    "tabs": ["k9"],
+                                    "showing": "k9",
+                                    "size": 0.5,
+                                    "from": "t8"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

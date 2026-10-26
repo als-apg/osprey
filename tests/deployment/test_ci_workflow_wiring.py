@@ -54,6 +54,8 @@ import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from osprey_connectors_tests._paths import TESTS_ROOT as CONNECTORS_TESTS_ROOT
+
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
 TILED_JOB = "tiled-roundtrip-e2e"
@@ -176,7 +178,16 @@ PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_E
 # passing over an empty list. Raise this when probe lanes are added.
 EXPECTED_MIN_ALS_APG_PROBES = 10
 
-CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
+#: Where the scheduler override is defined. Both conftests import it by name
+#: from here (see ``test_both_conftests_import_the_scheduler_override``).
+SCHEDULER_SOURCE = CONNECTORS_TESTS_ROOT / "osprey_connectors_tests" / "_harness" / "_guards.py"
+#: The module both conftests import the override from.
+SCHEDULER_MODULE = "osprey_connectors_tests._harness._guards"
+#: The conftests that must carry the override for pytest to call it.
+SCHEDULER_CONFTESTS = (
+    Path(__file__).resolve().parents[1] / "conftest.py",
+    CONNECTORS_TESTS_ROOT / "conftest.py",
+)
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 
 #: The per-test hang-breaker on the unit lane. Both halves are load-bearing and
@@ -185,7 +196,7 @@ PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
 #: minutes) while still ending a hang far inside the step cap, and the method
 #: has to be ``signal`` — ``thread`` ends a timed-out test with ``os._exit`` of
 #: the xdist worker, which is the "node down: Not properly terminated" wedge
-#: tests/ci_diagnostics.py documents.
+#: osprey_connectors_tests._harness.ci_diagnostics documents.
 PER_TEST_TIMEOUT_FLAGS = ("--timeout=600", "--timeout-method=signal")
 SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
 SCHEDULER_CLASS = "FileOrGroupScheduling"
@@ -1456,7 +1467,7 @@ def test_coverage_cell_pins__mutation_back_to_the_floor_version() -> None:
 
 
 def _conftest_source() -> str:
-    return CONFTEST.read_text(encoding="utf-8")
+    return SCHEDULER_SOURCE.read_text(encoding="utf-8")
 
 
 def _hook_source(source: str) -> str:
@@ -1487,7 +1498,7 @@ def _missing_scheduler_parts(source: str) -> list[str]:
 
 def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
     """Source-level counterpart to the ci.yml pin above. `--dist loadgroup` is
-    only safe for this suite because ``tests/conftest.py`` replaces stock
+    only safe for this suite because the conftests replace stock
     ``LoadGroupScheduling`` — which gives every unmarked nodeid its own scope
     — with one that falls back to file scope. Deleting the override while
     leaving the CI flag in place would parallelize the lane per-test again,
@@ -1496,13 +1507,30 @@ def test_conftest_defines_the_loadgroup_scheduler_override() -> None:
     assert _missing_scheduler_parts(_conftest_source()) == []
 
 
+def test_both_conftests_import_the_scheduler_override() -> None:
+    """The override is defined in the harness, and pytest calls a hook only from
+    a conftest or a registered plugin. A conftest that stopped importing it
+    would hand its tree back to stock scheduling while the definition above
+    still passed."""
+    for conftest in SCHEDULER_CONFTESTS:
+        imported = {
+            alias.name
+            for node in ast.parse(conftest.read_text(encoding="utf-8")).body
+            if isinstance(node, ast.ImportFrom) and node.module == SCHEDULER_MODULE
+            for alias in node.names
+        }
+        assert SCHEDULER_HOOK in imported, f"{conftest} does not import {SCHEDULER_HOOK}"
+
+
 def test_conftest_scheduler_override__mutation_renames_hook() -> None:
     """A hook pytest never calls is the same as no hook at all: renaming the
     definition must be reported, not papered over by the class still being
     defined below it."""
     source = _conftest_source()
     mutated = source.replace(f"def {SCHEDULER_HOOK}(", f"def _disabled_{SCHEDULER_HOOK}(")
-    assert mutated != source, f"no `def {SCHEDULER_HOOK}(` in {CONFTEST} — mutation is stale"
+    assert mutated != source, (
+        f"no `def {SCHEDULER_HOOK}(` in {SCHEDULER_SOURCE} — mutation is stale"
+    )
     assert _missing_scheduler_parts(mutated) == [
         f"def {SCHEDULER_HOOK}",
         "loadgroup guard",
@@ -1517,7 +1545,7 @@ def test_conftest_scheduler_override__mutation_drops_loadgroup_guard() -> None:
     override's reach beyond the lane it was written for."""
     source = _conftest_source()
     mutated = "\n".join(line for line in source.splitlines() if 'getoption("dist"' not in line)
-    assert mutated != source, f"no dist-option guard in {CONFTEST} — mutation is stale"
+    assert mutated != source, f"no dist-option guard in {SCHEDULER_SOURCE} — mutation is stale"
     assert _missing_scheduler_parts(mutated) == ["loadgroup guard"]
 
 
@@ -1583,18 +1611,19 @@ def _invocation_reaches(command: str, test_file: str) -> bool:
     sharded unit lane counts as the whole-tree sweep it is. An invocation
     whose only path is a bare variable (``$E2E_FILTER``) is an operator-chosen
     debug path on a manual dispatch, not a lane, and reaches nothing here; an
-    invocation with no path at all collects ``testpaths``, which is ``tests``.
+    invocation with no path at all collects ``testpaths``, which is ``tests``
+    and the packages' own suites (:data:`PACKAGE_TEST_ROOTS`).
     """
     try:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
-    paths = [t for t in tokens if t == "tests" or t.startswith("tests/")]
+    paths = [t for t in tokens if t == "tests" or t.startswith(("tests/", "packages/"))]
     ignores = [t.removeprefix("--ignore=") for t in tokens if t.startswith("--ignore=")]
     if not paths:
         if any(t.startswith("$") for t in tokens):
             return False
-        paths = ["tests"]
+        paths = ["tests", *PACKAGE_TEST_ROOTS]
 
     def _covers(path: str) -> bool:
         path = path.split("::", 1)[0]
@@ -4071,6 +4100,20 @@ def _browser_lane_files(wf: dict[str, Any]) -> str:
 #: proven nothing.
 _STEP_OUTPUT_CONDITION = re.compile(r"steps\.[A-Za-z0-9_-]+\.outputs")
 
+#: The one step a step output may switch off: saving the Playwright cache. It
+#: proves nothing and installs nothing, and skipping it on an exact cache hit
+#: only spares re-uploading what the cache already holds.
+_CACHE_SAVE_ACTION = "actions/cache/save@"
+
+
+def _browser_steps_gated_on_outputs(wf: dict[str, Any]) -> list[str | None]:
+    return [
+        step.get("name")
+        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
+        and not str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+    ]
+
 
 def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None:
     """Three ways this lane could stop running, all of them silent.
@@ -4089,11 +4132,7 @@ def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None
         if str(step.get("uses", "")).startswith("dorny/paths-filter")
     ]
     assert filters == [], f"the '{BROWSER_JOB}' lane computes a paths filter: {filters}"
-    gated = [
-        step.get("name")
-        for step in job["steps"]
-        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
-    ]
+    gated = _browser_steps_gated_on_outputs(workflow)
     assert gated == [], (
         f"steps of the '{BROWSER_JOB}' lane gated on another step's output, which would "
         f"report the lane green having run nothing: {gated}"
@@ -4127,12 +4166,19 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_the_run_step() ->
     _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)["if"] = (
         "steps.changes.outputs.theming == 'true'"
     )
-    gated = [
-        step.get("name")
-        for step in _jobs(mutated)[BROWSER_JOB]["steps"]
-        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
-    ]
-    assert gated == [BROWSER_RUN_STEP]
+    assert _browser_steps_gated_on_outputs(mutated) == [BROWSER_RUN_STEP]
+
+
+def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the_cache_hit() -> (
+    None
+):
+    """The cache-save exemption is by action, not by condition: an install
+    skipped on a cache hit must still be reported."""
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, BROWSER_JOB, "Install Playwright webkit")["if"] = (
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    assert _browser_steps_gated_on_outputs(mutated) == ["Install Playwright webkit"]
 
 
 def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
@@ -4237,6 +4283,10 @@ def test_lattice_dashboard_browser_test_runs_in_the_browser_lane__mutation_drops
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = TESTS_ROOT.parent
+#: Workspace packages' own suites, which the root ``testpaths`` lists beside
+#: ``tests``. Each is one entry of the unit shards' partition, like a top-level
+#: ``tests/<dir>``.
+PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 
 
 #: The marker a module applies to itself to say it drives a browser. It is
@@ -4442,6 +4492,113 @@ def test_every_engine_is_installed__mutation_drops_the_webkit_install() -> None:
     job = _jobs(mutated)[BROWSER_JOB]
     job["steps"] = [s for s in job["steps"] if s.get("name") != "Install Playwright webkit"]
     assert set(_browser_engines()) - _engines_the_lane_installs(mutated) == {"webkit"}
+
+
+# ---------------------------------------------------------------------------
+# (h4) the browser lane's installs are cached and capped: their `--with-deps`
+# debs come from an Ubuntu mirror that some days crawls, and an uncapped,
+# uncached install then eats the whole job timeout before a test runs
+# ---------------------------------------------------------------------------
+
+_PLAYWRIGHT_INSTALL_STEPS = ("Install Playwright chromium", "Install Playwright webkit")
+_PLAYWRIGHT_INSTALL_CAP_MINUTES = 10
+_APT_ARCHIVES_SETTING = re.compile(r'Dir::Cache::Archives\s+"\$HOME/([^"]+)"')
+
+
+def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
+    """Every way the Playwright cache fails to cover the installs.
+
+    The restore has to come before both installs and the save after them but
+    before any suite, so a failing suite still leaves the next run a warm
+    cache; both have to name the same key and paths; and the paths have to
+    hold the browsers and the directory apt is told to keep its debs in.
+    Between the installs and the save, that directory has to be handed back
+    to the runner user: apt leaves it root-owned, and a save that cannot read
+    it only warns, so the cache would silently never be written.
+    """
+    steps = _jobs(wf)[BROWSER_JOB]["steps"]
+
+    def where(pred: Callable[[dict[str, Any]], bool]) -> list[int]:
+        return [i for i, s in enumerate(steps) if pred(s)]
+
+    restores = where(lambda s: str(s.get("uses", "")).startswith("actions/cache/restore@"))
+    saves = where(lambda s: str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
+    installs = where(lambda s: s.get("name") in _PLAYWRIGHT_INSTALL_STEPS)
+    suites = where(lambda s: _BROWSER_PYTEST_INVOCATION in s.get("run", ""))
+    archives = [
+        m.group(1) for s in steps for m in _APT_ARCHIVES_SETTING.finditer(str(s.get("run", "")))
+    ]
+    if len(restores) != 1 or len(saves) != 1 or len(archives) != 1:
+        return [f"restores={restores} saves={saves} apt archive dirs={archives}"]
+    restore, save = steps[restores[0]], steps[saves[0]]
+    problems = []
+    if not restores[0] < min(installs) or not max(installs) < saves[0] < min(suites):
+        problems.append("order")
+    if restore["with"]["key"] != save["with"]["key"]:
+        problems.append("key")
+    paths = set(restore["with"]["path"].split())
+    if paths != set(save["with"]["path"].split()):
+        problems.append("paths")
+    if not {"~/.cache/ms-playwright", f"~/{archives[0]}"} <= paths:
+        problems.append("coverage")
+    handbacks = where(
+        lambda s: "chown" in s.get("run", "") and f"~/{archives[0]}" in s.get("run", "")
+    )
+    if not any(max(installs) < i < saves[0] for i in handbacks):
+        problems.append("ownership")
+    return problems
+
+
+def test_the_playwright_cache_brackets_the_installs(workflow: dict[str, Any]) -> None:
+    assert _browser_cache_problems(workflow) == []
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_saves_after_the_suites() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[BROWSER_JOB]["steps"]
+    save = next(s for s in steps if str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
+    steps.remove(save)
+    steps.append(save)
+    assert _browser_cache_problems(mutated) == ["order"]
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_drops_the_apt_archive() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for step in _jobs(mutated)[BROWSER_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/cache/"):
+            step["with"]["path"] = "~/.cache/ms-playwright\n"
+    assert _browser_cache_problems(mutated) == ["coverage"]
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_drops_the_handback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[BROWSER_JOB]
+    job["steps"] = [s for s in job["steps"] if "chown" not in s.get("run", "")]
+    assert _browser_cache_problems(mutated) == ["ownership"]
+
+
+def test_the_playwright_installs_carry_their_own_cap(workflow: dict[str, Any]) -> None:
+    """A stalled mirror has to fail the install in minutes, not after the job's
+    whole timeout, so the log points at the install rather than the job."""
+    job = _jobs(workflow)[BROWSER_JOB]
+    caps = {
+        name: _find_named_step(workflow, BROWSER_JOB, name).get("timeout-minutes")
+        for name in _PLAYWRIGHT_INSTALL_STEPS
+    }
+    assert all(
+        isinstance(cap, int) and cap <= _PLAYWRIGHT_INSTALL_CAP_MINUTES for cap in caps.values()
+    ), caps
+    assert sum(c for c in caps.values() if isinstance(c, int)) < job["timeout-minutes"], (
+        caps,
+        job["timeout-minutes"],
+    )
+
+
+def test_the_playwright_installs_carry_their_own_cap__mutation_drops_one() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, BROWSER_JOB, "Install Playwright webkit")["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_the_playwright_installs_carry_their_own_cap(mutated)
 
 
 def test_every_browser_engine_has_its_fixture() -> None:
@@ -5248,8 +5405,8 @@ def test_unit_test_step_timeout_is_below_the_job_cap__mutation_raises_it_to_the_
 
 
 def test_unit_lane_arms_the_diagnostics_recorder(workflow: dict[str, Any]) -> None:
-    """``tests/ci_diagnostics.py`` installs nothing unless this variable is set,
-    so without it the lane runs exactly as blind as before."""
+    """``osprey_connectors_tests._harness.ci_diagnostics`` installs nothing unless
+    this variable is set, so without it the lane runs exactly as blind as before."""
     step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
     assert step.get("env", {}).get("OSPREY_CI_DIAG_DIR"), (
         "the unit lane must set OSPREY_CI_DIAG_DIR on the pytest step to enable the "
@@ -5338,8 +5495,9 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
     frames without holding the GIL. A sample landing inside one of the parsers
     this suite lives in — PyYAML, ruamel, Jinja2 — reads a frame that is being
     freed and takes the worker down with it, which xdist reports only as ``node
-    down: Not properly terminated``. ``tests/ci_diagnostics.py`` samples from an
-    ordinary Python thread for that reason, and setting this option would put
+    down: Not properly terminated``.
+    ``osprey_connectors_tests._harness.ci_diagnostics`` samples from an ordinary
+    Python thread for that reason, and setting this option would put
     the unsafe watchdog back, on a per-test timer.
 
     Its dumps would also reach only the job log, which is exactly what a
@@ -5350,7 +5508,7 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
         "the unit lane must not pass `-o faulthandler_timeout`: pytest implements it "
         "with faulthandler.dump_traceback_later, whose GIL-free watchdog segfaults "
         "workers that are inside a YAML or Jinja parser. See the docstring of "
-        "tests/ci_diagnostics.py."
+        "osprey_connectors_tests._harness.ci_diagnostics."
     )
 
 
@@ -5367,8 +5525,8 @@ def test_unit_lane_passes_per_test_timeout(workflow: dict[str, Any]) -> None:
     ``--timeout-method=signal`` is the other half. pytest-timeout's ``thread``
     method ends the test with ``os._exit`` of the worker, and a dead worker
     under ``--dist loadgroup`` takes the whole lane with it rather than one
-    test — see the docstring of tests/ci_diagnostics.py. The cost of ``signal``
-    is that it cannot interrupt a hang inside a C extension holding the GIL;
+    test — see the docstring of ``osprey_connectors_tests._harness.ci_diagnostics``.
+    The cost of ``signal`` is that it cannot interrupt a hang inside a C extension holding the GIL;
     for that case the step cap is still the backstop.
     """
     line = _unit_test_pytest_line(workflow)
@@ -8464,6 +8622,12 @@ GATE_CI_STEPS = (
     GateCiStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "npm run typecheck"),
     GateCiStep(FRONTEND_JS_JOB, "Lint (eslint)", "npm run lint"),
     GateCiStep(
+        FRONTEND_JS_JOB,
+        "Check the dock-engine bundle is current",
+        "node packages/dock-engine/scripts/build.mjs --check",
+    ),
+    GateCiStep(FRONTEND_JS_JOB, "Run dock-engine tests (vitest)", "npm run test:dock-engine"),
+    GateCiStep(
         DOCS_JOB,
         "Build documentation",
         'uv run{extra} make html SPHINXOPTS="-W --keep-going"',
@@ -10536,6 +10700,16 @@ PYAML_WHEEL_GLOBS = (
     "dist/osprey_connectors-*.whl",
     "dist/pyaml_cs_osprey-*.whl",
 )
+DOCK_ENGINE_COVERAGE_FLAG = "--cov=packages/dock-engine/src/dock_engine"
+DOCK_ENGINE_WHEEL_STEP = "Check the framework wheel carries dock_engine and its package data"
+#: What the framework wheel must carry for ``dock_engine``: the module itself
+#: (bundled from packages/dock-engine, not a wheel of its own) and the package
+#: data ``dock_engine._data`` reads through ``importlib.resources``.
+DOCK_ENGINE_WHEEL_DATA = (
+    "dock_engine/__init__.py",
+    "dock_engine/cases/validate/",
+    "dock_engine/manifest.json",
+)
 RELEASE_VERIFY_JOB = "verify-pypi-resolvable"
 RELEASE_SIBLING_DIR = "/tmp/sibling"
 
@@ -10565,6 +10739,24 @@ def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() 
     step["run"] = step["run"].replace(f" {PYAML_COVERAGE_FLAG}", "")
     with pytest.raises(AssertionError, match="does not measure the pyAML member"):
         test_the_coverage_cell_measures_the_pyaml_member(mutated)
+
+
+def test_the_coverage_cell_measures_the_dock_engine_member(workflow: dict[str, Any]) -> None:
+    """The dock-engine member's tests run in the unit lane, so its tree is on
+    the coverage command line beside the other members'."""
+    flags = _coverage_cell_flags(workflow)
+    assert DOCK_ENGINE_COVERAGE_FLAG in flags, (
+        f"the coverage cell does not measure the dock-engine member; COV_ARGS names {flags}"
+    )
+
+
+def test_the_coverage_cell_measures_the_dock_engine_member__mutation_drops_the_flag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    assert DOCK_ENGINE_COVERAGE_FLAG in step["run"], "the flag moved; this mutation is stale"
+    step["run"] = step["run"].replace(f" {DOCK_ENGINE_COVERAGE_FLAG}", "")
+    with pytest.raises(AssertionError, match="does not measure the dock-engine member"):
+        test_the_coverage_cell_measures_the_dock_engine_member(mutated)
 
 
 def _package_step_index(wf: dict[str, Any], step_name: str) -> int:
@@ -10637,6 +10829,63 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_upl
         test_the_package_job_import_walks_the_pyaml_wheel(mutated)
 
 
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
+    workflow: dict[str, Any],
+) -> None:
+    """``dock_engine`` ships inside the framework wheel, not as a wheel of its own,
+    so the package job reads the framework wheel's file list for the module and
+    the package data ``dock_engine._data`` needs. No dock-engine wheel is built
+    anywhere in the job."""
+    steps = _jobs(workflow)[PACKAGE_JOB]["steps"]
+    check = _package_step_index(workflow, DOCK_ENGINE_WHEEL_STEP)
+    script = steps[check]["run"]
+    assert "dist/osprey_framework-*.whl" in script, "the check does not read the framework wheel"
+    for member in DOCK_ENGINE_WHEEL_DATA:
+        assert member in script, f"the dock-engine check does not look for {member}"
+    job_text = "\n".join(step.get("run", "") for step in steps)
+    assert "osprey-dock-engine" not in job_text and "osprey_dock_engine" not in job_text, (
+        "the package job builds or installs a dock-engine wheel; the engine ships inside "
+        "the framework wheel and has no distribution of its own"
+    )
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_drops_the_step() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[PACKAGE_JOB]["steps"]
+    steps.pop(_package_step_index(mutated, DOCK_ENGINE_WHEEL_STEP))
+    with pytest.raises(AssertionError, match="no step named"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(mutated)
+
+
+@pytest.mark.parametrize("member", DOCK_ENGINE_WHEEL_DATA)
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_skips_data(
+    member: str,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _jobs(mutated)[PACKAGE_JOB]["steps"][
+        _package_step_index(mutated, DOCK_ENGINE_WHEEL_STEP)
+    ]
+    assert member in step["run"], f"the check no longer names {member}; mutation is stale"
+    step["run"] = step["run"].replace(member, "")
+    with pytest.raises(AssertionError, match=f"does not look for {re.escape(member)}"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(mutated)
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_builds_a_wheel() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    step = _jobs(mutated)[PACKAGE_JOB]["steps"][_package_step_index(mutated, PYAML_WHEEL_STEP)]
+    step["run"] = step["run"].replace(
+        "uv build --package pyaml-cs-osprey",
+        "uv build --package osprey-dock-engine\n        uv build --package pyaml-cs-osprey",
+    )
+    with pytest.raises(AssertionError, match="no distribution of its own"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(mutated)
+
+
 def _release_staging_script(release: dict[str, Any]) -> str:
     """The sibling-staging lines of the release gate, up to the install itself."""
     steps = release["jobs"][RELEASE_VERIFY_JOB]["steps"]
@@ -10688,7 +10937,7 @@ def _with_staging(release: dict[str, Any], staging: str) -> dict[str, Any]:
 
 
 def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: Path) -> None:
-    """The framework depends on every member, so a sibling left out of the
+    """The framework depends on members, so a sibling left out of the
     find-links fails the gate on the tag that first ships it; the framework's
     own wheel or any sdist staged there would let an unpublished pin resolve."""
     _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)
@@ -10883,8 +11132,11 @@ def _shard_reaches(wf: dict[str, Any], shard: str, test_file: str) -> bool:
 def _test_tree_entries(root: Path = TESTS_ROOT) -> list[str]:
     """The top level of ``tests/`` as the shards see it: every directory that
     holds a test module somewhere below it, and every test module directly in
-    ``tests/``, as repo-relative posix paths."""
-    entries = set()
+    ``tests/``, as repo-relative posix paths, plus each package suite in
+    :data:`PACKAGE_TEST_ROOTS`."""
+    entries = {
+        package for package in PACKAGE_TEST_ROOTS if any((root.parent / package).rglob("test_*.py"))
+    }
     for pattern in ("test_*.py", "*_test.py"):
         for path in root.rglob(pattern):
             if "__pycache__" in path.parts:
@@ -10928,6 +11180,7 @@ def _shard_coverage_problems(wf: dict[str, Any], entries: list[str]) -> list[str
 def test_the_unit_shards_cover_the_test_tree_exactly_once(workflow: dict[str, Any]) -> None:
     entries = _test_tree_entries()
     assert "tests/cli" in entries and len(entries) > 10, f"test tree scan broke: {entries}"
+    assert set(PACKAGE_TEST_ROOTS) <= set(entries), f"package suite scan broke: {entries}"
     problems = _shard_coverage_problems(workflow, entries)
     assert problems == [], "the unit lane's shards do not partition tests/:\n" + "\n".join(problems)
 

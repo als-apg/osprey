@@ -47,7 +47,7 @@ from osprey.interfaces.web_terminal.control_context_owner import (
 )
 from osprey_connectors import control_context
 from osprey_connectors.control_context import ControlContext, Owner
-from tests import _control_context_fixtures as fixtures
+from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
 
 #: A live web terminal that is not this one, and a controls server likewise.
 #: Both are fictional PIDs, made live by the ``liveness`` fixture rather than

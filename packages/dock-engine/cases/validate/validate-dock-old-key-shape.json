@@ -1,0 +1,17 @@
+{
+  "name": "validate-dock-old-key-shape",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "key": "a"
+      },
+      {
+        "key": "b"
+      }
+    ]
+  },
+  "reason": "old_key_shape",
+  "where": "layout.items[0]"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "validate-collection-from-refused",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tabs": [0]
+      },
+      {
+        "tabs": [1],
+        "from": "t1"
+      }
+    ]
+  },
+  "options": {
+    "form": "collection",
+    "members": 2
+  },
+  "reason": "unknown_field",
+  "where": "layout.items[1].from"
+}

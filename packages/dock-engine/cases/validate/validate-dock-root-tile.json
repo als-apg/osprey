@@ -1,0 +1,10 @@
+{
+  "name": "validate-dock-root-tile",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tile": "t1",
+    "tabs": ["a"],
+    "showing": "a"
+  },
+  "valid": true
+}

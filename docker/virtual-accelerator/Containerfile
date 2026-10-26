@@ -67,9 +67,11 @@ COPY packages/ /opt/osprey/packages/
 # ``_FOR_<DIST_NAME>`` form needs the backend to hand setuptools-scm a dist
 # name, which hatch-vcs does not, so that form is silently ignored and the
 # build fails as if nothing had been set. The un-scoped variable reaches both
-# source builds in this layer -- osprey and each workspace member beside it --
-# and that is the point: they all version with the same calendar stream, so one
-# number is the correct answer for every one of them. The build hook stamps
+# source builds in this layer -- osprey and each workspace member beside it.
+# pyaml-cs-osprey versions with the framework, so the number is its own;
+# osprey-connectors has its own calendar stream and carries the framework's
+# number here as a stand-in. Nothing in the image compares it beyond the
+# framework's floor, which any framework number satisfies. The build hook stamps
 # whatever lands here into src/osprey/_version.py, which is what
 # ``osprey.__version__`` reports at runtime -- so a build that does not pass
 # OSPREY_VERSION yields an image that honestly reports an unknown version

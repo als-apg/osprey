@@ -1,0 +1,96 @@
+{
+  "name": "close-tile-from-split-again",
+  "rule": "rule-5",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t4",
+        "tabs": ["d"],
+        "showing": "d",
+        "size": 0.15,
+        "from": "t2"
+      },
+      {
+        "split": "column",
+        "size": 0.15,
+        "items": [
+          {
+            "tile": "t2",
+            "tabs": ["b"],
+            "showing": "b",
+            "size": 0.5
+          },
+          {
+            "tile": "t5",
+            "tabs": ["e"],
+            "showing": "e",
+            "size": 0.5,
+            "from": "t2"
+          }
+        ]
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "closeTile",
+    "tile": "t4"
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "split": "column",
+        "size": 0.3,
+        "items": [
+          {
+            "tile": "t2",
+            "tabs": ["b"],
+            "showing": "b",
+            "size": 0.5
+          },
+          {
+            "tile": "t5",
+            "tabs": ["e"],
+            "showing": "e",
+            "size": 0.5,
+            "from": "t2"
+          }
+        ]
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "record": {
+    "kind": "tile",
+    "tile": "t4",
+    "tabs": ["d"],
+    "showing": "d",
+    "neighbour": "t2",
+    "side": "left",
+    "share": 0.15
+  }
+}

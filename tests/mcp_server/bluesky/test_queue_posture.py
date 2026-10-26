@@ -40,7 +40,7 @@ from osprey.mcp_server.bluesky.server_context import initialize_server_context, 
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
-from tests._control_context_fixtures import write_control_context
+from osprey_connectors_tests._harness import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MOD = "osprey.mcp_server.bluesky.tools.queue"

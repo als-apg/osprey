@@ -1,0 +1,64 @@
+{
+  "name": "hit-one-tile-strip",
+  "rule": "rule-9",
+  "layout": {
+    "tile": "t1",
+    "tabs": ["a", "b"],
+    "showing": "a"
+  },
+  "dockRect": {
+    "x": 0,
+    "y": 40,
+    "width": 1000,
+    "height": 560
+  },
+  "tabRects": {
+    "t1": {
+      "barRect": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 32
+      },
+      "tabRects": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 32
+        },
+        {
+          "x": 120,
+          "y": 0,
+          "width": 120,
+          "height": 32
+        }
+      ]
+    }
+  },
+  "point": {
+    "x": 200,
+    "y": 5
+  },
+  "source": {
+    "new": "c"
+  },
+  "target": {
+    "tile": "t1",
+    "zone": "tab",
+    "index": 2
+  },
+  "resultRect": {
+    "rect": {
+      "x": 0,
+      "y": 40,
+      "width": 1000,
+      "height": 560
+    },
+    "marker": {
+      "x": 240,
+      "y": 0,
+      "height": 32
+    }
+  }
+}

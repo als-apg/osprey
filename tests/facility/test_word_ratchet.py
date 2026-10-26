@@ -55,6 +55,7 @@ EXCLUDED: tuple[str, ...] = (
     "**/static/**/vendor/**",
     "**/*.min.js",
     "**/*.svg",
+    "packages/*/tests/**",
 )
 
 QUOTE_MARKER = "outside-format-quote"

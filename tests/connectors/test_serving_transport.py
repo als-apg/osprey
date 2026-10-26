@@ -201,7 +201,8 @@ def test_no_reader_names_the_wire_by_type():
     """Every check asks the transport; none spells the type list it used to."""
     root = Path(__file__).resolve().parents[2]
     listed = subprocess.run(
-        ["git", "ls-files", "src", "packages"],
+        # Package sources only: the packages' own suites compare types freely.
+        ["git", "ls-files", "src", "packages/*/src"],
         cwd=root,
         capture_output=True,
         text=True,

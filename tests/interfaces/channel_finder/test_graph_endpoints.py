@@ -788,6 +788,9 @@ class TestSearch:
             {"page": "-1"},
             {"dir": "X"},
             {"dir": "r"},
+            {"sort": "fullPv"},
+            {"sort": "address; DROP TABLE bindings"},
+            {"sort": "device", "order": "down"},
         ],
     )
     def test_a_request_outside_the_contract_is_refused_before_the_index_is_read(
@@ -802,6 +805,39 @@ class TestSearch:
         assert resp.status_code == 422
         assert calls == []
         assert ctx.calls == []
+
+    def test_sort_and_order_reach_the_index(self, client):
+        install_graph_paradigm(client, demo_context())
+        calls = _spy_search(client.app.state.graph_index)
+
+        assert (
+            client.get("/api/graph/search", params={"sort": "dir", "order": "desc"}).status_code
+            == 200
+        )
+        assert client.get("/api/graph/search").status_code == 200
+
+        assert (calls[0]["sort"], calls[0]["descending"]) == ("dir", True)
+        assert (calls[1]["sort"], calls[1]["descending"]) == (None, False)
+
+    def test_a_sorted_page_two_continues_page_one(self, client):
+        install_graph_paradigm(client, demo_context())
+
+        def page(n: int) -> list[str]:
+            params = {"sort": "description", "order": "desc", "page": str(n)}
+            rows = client.get("/api/graph/search", params=params).json()["rows"]
+            return [row["description"] for row in rows]
+
+        first, second = page(1), page(2)
+        assert first == sorted(first, reverse=True)
+        assert first[-1] >= second[0]
+
+    def test_every_sortable_column_the_route_accepts_is_one_the_index_sorts(self):
+        from typing import get_args
+
+        from osprey.interfaces.channel_finder.database_api import GraphSortKey
+        from osprey.services.channel_finder.graph_index import SEARCH_SORT_KEYS
+
+        assert set(get_args(GraphSortKey)) == set(SEARCH_SORT_KEYS)
 
     def test_the_read_never_touches_the_store(self, client):
         ctx = demo_context()

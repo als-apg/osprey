@@ -42,9 +42,9 @@ service = [
 
 [tool.hatch.version]
 source = "vcs"
-# Versions with the framework's calendar stream from the same v-tags, as
-# osprey-connectors does (see its pyproject.toml): one tag builds every
-# workspace wheel, and they all carry the same number.
+# Versions with the framework's calendar stream from the same v-tags (unlike
+# osprey-connectors, which has its own osprey-connectors-v* stream): one tag
+# builds the framework and optimizer wheels, and they carry the same number.
 raw-options = { root = "../..", version_scheme = "post-release", git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match v[0-9]*" }
 
 [tool.hatch.build.hooks.vcs]

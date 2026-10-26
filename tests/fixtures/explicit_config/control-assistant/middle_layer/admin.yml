@@ -81,6 +81,7 @@ ariel:
       settings:
         candidate_limit: 40
         rerank: true
+        strategy: qmd
     keyword:
       enabled: true
       settings:

@@ -95,7 +95,15 @@ importing `osprey_connectors` never requires them:
 
 ## Stability
 
-`osprey-connectors` follows semantic versioning starting at `0.1.0`.
+`osprey-connectors` versions by calendar, `YYYY.M.P` (with `bN` / `rcN` for
+pre-releases), on its own release tags: `osprey-connectors-vYYYY.M.P`, cut when
+the package changes rather than with every framework release. Its numbers are
+not the framework's, and no framework release requires a matching one. (The
+`0.1.0` release on PyPI predates this scheme; its tag is retired.)
+
+Each release must stay backward-compatible with every supported
+`osprey-framework` release. The framework therefore declares only a floor on
+this package, never a pin.
 
 The exception taxonomy in `osprey_connectors.errors` is public API: the class
 names `ChannelWriteBlockedError`, `ChannelWriteFailedError`,
@@ -125,5 +133,6 @@ codes, are load-bearing for callers that branch on them.
   it; `reason` is `CHANNEL_NOT_FOUND`, the refusal reason a write to such an
   address carries.
 
-Removing or renaming any of these classes or reason codes is a major version
-bump. Adding new classes or reason codes is a minor version bump.
+Adding classes or reason codes is compatible. Removing or renaming one breaks
+the compatibility guarantee above, so it waits until no supported framework
+release relies on it.

@@ -10,7 +10,7 @@ restart is how an edit takes effect).
 
 The rule itself — which spelling is live in which kind of config, and why an
 unset ``archiver.type`` counts as the mock — is proven in
-``tests/connectors/test_honesty_rule.py``. Asserted here: that this surface asks
+``packages/osprey-connectors/tests/osprey_connectors_tests/test_honesty_rule.py``. Asserted here: that this surface asks
 it, that it raises rather than warns, and that what it says is actionable by
 whoever ran the deploy.
 """
@@ -27,7 +27,7 @@ VA_MOCK_NESTED = {
 VA_ARCHIVER_UNSET = {"control_system": {"type": "virtual_accelerator"}}
 
 # Top-level dotted lines a rendered config.yml's readers never honour — see the
-# bypass regressions in tests/connectors/test_honesty_rule.py. Each of these
+# bypass regressions in packages/osprey-connectors/tests/osprey_connectors_tests/test_honesty_rule.py. Each of these
 # deploys a VA whose live archiver is the mock, behind a line that looks like it
 # said otherwise.
 INERT_FLAT_ARCHIVER = VA_MOCK_NESTED | {"archiver.type": "mongodb_archiver"}

@@ -108,11 +108,11 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # before the RUN ends, so no image ships it. Later layers install with pip.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
-# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
-# connectors ship as a pair from one tag, and an installer prefers a stable
-# release for a requirement that names none (the framework's own connectors
-# requirement), so the deps layer then resolves as a whole with
-# --prerelease=allow.
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. osprey-connectors releases
+# on its own tags, the framework declares only a floor on it, and an installer
+# prefers a stable release for a requirement that names no pre-release (that
+# floor), so the deps layer then resolves as a whole with --prerelease=allow,
+# which lets it take the newest connectors pre-release.
 ARG OSPREY_PIP_PRE=""
 # The three pip ARGs are the rest of the site build settings the compose build
 # hands this image (the same producer that passes OSPREY_SITE_CA above).

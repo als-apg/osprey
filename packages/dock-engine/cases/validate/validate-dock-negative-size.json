@@ -1,0 +1,22 @@
+{
+  "name": "validate-dock-negative-size",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": -0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b"
+      }
+    ]
+  },
+  "reason": "bad_size",
+  "where": "layout.items[0].size"
+}

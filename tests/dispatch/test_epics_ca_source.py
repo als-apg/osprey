@@ -715,7 +715,7 @@ class TestConnect:
     async def test_the_dispatchers_ca_environment_is_left_as_it_stands(self, monkeypatch) -> None:
         """``dispatch.env`` hands the gateway over; a gateway block would rewrite it."""
         from osprey_connectors.control_system._epics_connector import EPICSConnector
-        from tests.connectors._epics_fakes import install_fake_aioca
+        from osprey_connectors_tests._epics_fakes import install_fake_aioca
 
         install_fake_aioca(monkeypatch)
         monkeypatch.setenv("EPICS_CA_ADDR_LIST", "gateway.example.org")
@@ -734,7 +734,7 @@ class TestThroughTheEpicsConnector:
 
     @pytest.mark.asyncio
     async def test_a_trigger_stays_armed_across_a_repoint(self, monkeypatch) -> None:
-        from tests.connectors._epics_fakes import ca_reading, install_fake_aioca
+        from osprey_connectors_tests._epics_fakes import ca_reading, install_fake_aioca
 
         fake = install_fake_aioca(monkeypatch)
         connector = await epics_ca._connect()

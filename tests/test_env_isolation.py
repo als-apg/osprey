@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-from tests import _env_scope_guard as guard
-from tests._env_scope_guard import (
+from osprey_connectors_tests._harness import _env_scope_guard as guard
+from osprey_connectors_tests._harness._env_scope_guard import (
     LONG_LIVED_ENV_WRITES,
     SCOPES_OUTLIVING_A_MODULE,
     record_env_delta,

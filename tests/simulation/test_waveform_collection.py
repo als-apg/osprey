@@ -63,7 +63,7 @@ def test_no_other_code_spells_the_suffix():
     """One derivation, so a renamed suffix can never leave a writer behind."""
     archive_py = Path(archive.__file__).resolve()
     hits: list[str] = []
-    for root in (REPO_ROOT / "src", REPO_ROOT / "packages"):
+    for root in (REPO_ROOT / "src", *(REPO_ROOT / "packages").glob("*/src")):
         for path in root.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
             for number, line in enumerate(text.splitlines(), start=1):
