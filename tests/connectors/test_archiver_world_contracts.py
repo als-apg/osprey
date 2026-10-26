@@ -47,7 +47,9 @@ those stores out from under their assertions.
 
 from __future__ import annotations
 
+import sys
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -78,9 +80,17 @@ from osprey_connectors.simulation.archive import (
     tier_expiry,
 )
 from osprey_connectors.simulation.series import epoch_seconds_array
+from tests._archive_composites import archives_closed
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
+
+
+@pytest.fixture(autouse=True)
+def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    with archives_closed(monkeypatch, sys.modules[__name__]):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # The world under test
