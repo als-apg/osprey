@@ -440,7 +440,8 @@ def redis_server() -> Generator[str, None, None]:
     ``$OPTIMIZER_TEST_REDIS_URL`` names a server to use (each xdist worker
     takes its own database number on it, flushed by the tests), e.g. ``docker run -d -p 6390:6379 redis:7.4-alpine`` with
     ``redis://localhost:6390/0``; otherwise a ``redis-server`` on ``PATH`` is
-    started on a free port. With neither, the test is skipped.
+    started on a free port. With neither, the test is skipped, except under
+    GitHub Actions, where it fails: the ``optimizer`` lane exists to run these.
     """
     import os
     import shutil
@@ -457,7 +458,10 @@ def redis_server() -> Generator[str, None, None]:
     else:
         binary = shutil.which("redis-server")
         if binary is None:
-            pytest.skip("no Redis: set OPTIMIZER_TEST_REDIS_URL or put redis-server on PATH")
+            reason = "no Redis: set OPTIMIZER_TEST_REDIS_URL or put redis-server on PATH"
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                pytest.fail(reason)
+            pytest.skip(reason)
         # A free port per xdist worker so parallel workers don't collide.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.bind(("", 0))
