@@ -45,8 +45,11 @@ from osprey_optimizer.models.types import PVValues, VariableInputs
 logger = logging.getLogger(__name__)
 
 # Backstop on one bridged call (read, or write plus its confirming re-read).
-# Longer than the connector's own timeouts so their typed errors arrive first.
-OP_TIMEOUT: float = 30.0
+# Longer than the pool's own deadline for a call with no timeout
+# (osprey_connectors.ipc.DEFAULT_CALL_DEADLINE_S, 60 s) plus its ping and the
+# kill that follows, so the pool's typed errors arrive first and its kill of a
+# child whose write timed out is never cut short by this one.
+OP_TIMEOUT: float = 75.0
 
 CONTROL_TARGETS = ("va", "standin", "live")
 
@@ -116,7 +119,11 @@ class _PoolBridge:
             target=self._loop.run_forever, name="optimizer-connector-pool", daemon=True
         )
         self._thread.start()
-        self._pool = ConnectorHostPool(pool_section(section), config_file=default_config_path())
+        # The engine re-writes the same setpoints every step and restores them
+        # after a run, so a write that timed out must not land after a newer one.
+        self._pool = ConnectorHostPool(
+            pool_section(section), config_file=default_config_path(), kill_on_write_timeout=True
+        )
         self._connectors: dict[tuple[str, str | None], Any] = {}
 
     def run(self, coro: Coroutine[Any, Any, Any], timeout: float = OP_TIMEOUT) -> Any:
@@ -244,6 +251,8 @@ class ConnectorInterface:
                     ) from exc
                 raise EvaluationError(f"Write to {channel} failed [{exc.reason}]: {exc}") from exc
             except TimeoutError as exc:
+                # Before ConnectionError: a ConnectorHostWriteTimeoutError is both,
+                # and a write that may or may not have landed is a timeout.
                 raise OptimizerTimeoutError(f"Write timed out for {channel}") from exc
             except ConnectionError as exc:
                 raise OptimizerConnectionError(

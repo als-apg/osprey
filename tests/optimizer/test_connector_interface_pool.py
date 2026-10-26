@@ -5,6 +5,7 @@ channel limits (bounds and ``max_step``) and by an unarmed write posture, in
 the child that owns the channel, not by anything in the optimizer.
 """
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,7 @@ from osprey_optimizer.environments import interface as iface_module
 from osprey_optimizer.environments.connector_env import ConnectorEnvironment
 from osprey_optimizer.environments.interface import ConnectorInterface
 from osprey_optimizer.environments.spec import EnvironmentFile
+from osprey_optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey_optimizer.models.exceptions import WriteRefusedError
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -145,3 +147,41 @@ def test_an_environment_wider_than_the_limits_database_is_narrowed_to_it(project
     env = ConnectorEnvironment({"spec": spec, "control_target": "live"})
     meta = env.variables["KNOB:POS:SP"]
     assert (meta.min_value, meta.max_value) == (-5.0, 5.0)
+
+
+def test_the_pool_kills_a_child_whose_write_timed_out(project):
+    project()
+    assert iface_module.get_bridge()._pool._kill_on_write_timeout is True
+
+
+def test_the_bridge_backstop_outlasts_the_pools_own_deadline_and_kill():
+    from osprey_connectors.ipc import DEFAULT_CALL_DEADLINE_S, DEFAULT_PING_TIMEOUT_S
+
+    # Deadline, then a ping, then SIGTERM grace and proxy settle on the kill.
+    assert iface_module.OP_TIMEOUT > DEFAULT_CALL_DEADLINE_S + DEFAULT_PING_TIMEOUT_S + 4.0
+
+
+def test_a_write_timeout_kill_is_a_timeout_not_a_refusal():
+    from osprey_connectors.ipc import ConnectorHostWriteTimeoutError
+
+    class _Connector:
+        async def write_channel_checked(self, *args, **kwargs):
+            raise ConnectorHostWriteTimeoutError(
+                "write missed its deadline",
+                target="live",
+                execution_mode=None,
+                pid=1,
+                cause="write_timeout",
+                returncode=None,
+            )
+
+    class _Bridge:
+        def connector(self, *args):
+            return _Connector()
+
+        def run(self, coro):
+            return asyncio.run(coro)
+
+    interface = ConnectorInterface("live", bridge=_Bridge())
+    with pytest.raises(OptimizerTimeoutError):
+        interface.set_values({"KNOB:POS:SP": 0.5})
