@@ -37,8 +37,8 @@ flagged via :attr:`~AuditEnvelope.source_truncated`, because a truncated script
 that did not say so would read like the whole script.
 
 This module is **schema only** — it writes nothing. The writer that turns an
-envelope into a line of ``var/audit/<identity>/<surface>.jsonl`` lives beside
-it in ``osprey.audit.writer``. Like ``osprey.utils.sensitive_env``, it stays a
+envelope into an ``audit`` entry of the agent record lives beside it in
+``osprey.audit.writer``. Like ``osprey.utils.sensitive_env``, it stays a
 stdlib-only leaf: the writer, the MCP middleware, the HTTP layer and the hooks
 all import it, and none of them may inherit an import cycle by doing so.
 """

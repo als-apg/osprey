@@ -2,10 +2,14 @@
 
 The gateway's operators take the fields the store keeps by position, never
 by parsing the whole line: the anchor reads ``ts`` and ``surface``, then the
-``tool_call`` regex or the envelope regex reads the rest. Every line here is
-built by the writer that writes it in production — ``tool_call.build_record``,
-``AuditEnvelope.to_dict`` with the writer's encoder, and the hook twin's
-``emit_audit`` — so a writer that reorders its fields fails here.
+``tool_call`` regex or the envelope regex reads the rest. Envelope lines are
+built with ``AuditEnvelope.to_dict`` and the writer's encoder, so an envelope
+that reorders its fields fails here. A ``tool_call`` line is the legacy
+ledger shape the gateway still reads, spelled out here: the surface is now
+written to the agent record, trimmed, and no longer lands in a ledger file.
+The hooks' ``emit_audit`` writes only to the agent record, so no hook line
+reaches these regexes (its record entries are pinned in
+``tests/hooks/test_hook_audit_emitter.py``).
 
 Python's ``re`` reads these patterns as RE2 does (named groups, no
 backtracking-only constructs); the pinned Collector runs them in
@@ -14,17 +18,9 @@ backtracking-only constructs); the pinned Collector runs them in
 
 from __future__ import annotations
 
-import importlib.util
-import json
 import re
-from pathlib import Path
-from types import ModuleType
 
-import pytest
-
-import osprey
 from osprey.audit.envelope import AuditEnvelope
-from osprey.audit.tool_call import build_record
 from osprey.audit.writer import _encode
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_gateway as gw
@@ -52,14 +48,17 @@ def _parse(line: bytes | str) -> dict[str, str]:
 
 
 def _tool_call(**overrides) -> dict:
+    """A legacy ``tool_call`` ledger line's fields, in the order the regex reads them."""
     record = {
         "ts": _TS,
+        "surface": "tool_call",
         "actor": "alice",
         "posture": "writes",
         "posture_source": "app",
         "session": "term-1",
         "session_id": "sess-1",
         "tool_use_id": "toolu_01",
+        "duration_ms": 12.5,
         "server": "controls",
         "subject": "write_channel",
         "decision": "allowed",
@@ -68,16 +67,13 @@ def _tool_call(**overrides) -> dict:
         "target": None,
         "generation": None,
         "arguments": {"channel": "X"},
-        "arguments_ref": None,
         "result": {"ok": True},
-        "result_ref": None,
         "error": None,
         "is_error": False,
         "facts": {},
-        "duration_ms": 12.5,
     }
     record.update(overrides)
-    return build_record(**record)
+    return record
 
 
 def _envelope(**overrides) -> bytes:
@@ -184,45 +180,6 @@ def test_an_executor_line_captures_the_real_tool_use_id_before_its_source() -> N
     fields = _parse(line)
     assert fields["ledger_tool_use_id"] == "toolu_real"
     assert fields["ledger_decision"] == "refused"
-
-
-def _hook_module() -> ModuleType:
-    path = (
-        Path(osprey.__file__).parent
-        / "templates"
-        / "claude_code"
-        / "claude"
-        / "hooks"
-        / "osprey_hook_log.py"
-    )
-    spec = importlib.util.spec_from_file_location("_ledger_regex_hook_log", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_a_hook_approval_keeps_its_decision_and_tool_use_id(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    hook = _hook_module()
-    target = tmp_path / "approval.jsonl"
-    monkeypatch.setattr(hook, "audit_ledger_path", lambda *a, **k: target)
-    written = hook.emit_audit(
-        "approval",
-        {"tool_use_id": "toolu_hook"},
-        hook.AUDIT_DECISION_ASK,
-        "write_channel",
-        "needs_approval",
-        detail="limits",
-    )
-    assert written == str(target)
-    line = target.read_bytes()
-    assert json.loads(line)["tool_use_id"] == "toolu_hook"
-    fields = _parse(line)
-    assert fields["ledger_decision"] == hook.AUDIT_DECISION_ASK
-    assert fields["ledger_tool_use_id"] == "toolu_hook"
-    assert fields["ledger_surface"] == hook.audit_surface("approval")
 
 
 def test_a_garbage_time_still_parses_the_surface() -> None:

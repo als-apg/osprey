@@ -4,17 +4,14 @@ Five writers guard the framework the agent runs under — the ``setup_patch``
 tool, the config routes, the Claude-setup panel, the scaffold gallery and the
 container-start restore — and each of them can refuse a write aimed at a
 protected key or a reserved path. They all refuse for the same reason and an
-operator reads them together, so they file through one funnel rather than five,
-exactly as they did when the answer was ``protected-writes.jsonl``. What
-changed is where a record lands: :mod:`osprey.audit.writer` routes it to
-``var/audit/<identity>/<surface>.jsonl``, so a refusal is filed under the
-identity that made it and can be joined with every other decision that identity
-took, instead of into one deployment-wide file no per-user mount could isolate.
+operator reads them together, so they file through one funnel rather than five.
+:mod:`osprey.audit.writer` records each refusal as an ``audit`` entry in the
+acting identity's spool, so a refusal is filed under the identity that made it
+and can be joined with every other decision that identity took.
 
-**The surface is the file name**, which is why the five spellings live here as
-constants rather than as a literal at each site: the name is what an operator
-greps for and what the per-surface ledger is called, and two writers that
-disagree about it would split one question across two files.
+**The surface is the name an operator reads by**, which is why the five
+spellings live here as constants rather than as a literal at each site: two
+writers that disagreed about it would split one question across two surfaces.
 
 **Claiming the call.** Four of the five refuse the operation the caller asked
 for: the tool raises, the routes answer 403. Each of those runs *inside* an
