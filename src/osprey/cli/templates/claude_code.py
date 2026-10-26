@@ -82,8 +82,20 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     root anchors on the repo this render sits in. Resolved as the server resolves
     it, so a symlinked repo path reads the same on both sides.
     """
+    from osprey_connectors.workspace import CHAT_UPLOADS_SUBDIR
+
+    return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
+
+
+def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
+    """The render's agent-data root as an absolute path, as the runtime resolves it.
+
+    Anchored on the repo root the config's ``project_root`` names: a container
+    render names the root the container will run at, which exists only there. A
+    config naming no root anchors on the repo this render sits in, so a render in
+    ``build/`` still names the root beside it.
+    """
     from osprey_connectors.workspace import (
-        CHAT_UPLOADS_SUBDIR,
         agent_data_base_dir,
         anchored_path,
         dotted_config_str,
@@ -96,17 +108,44 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
         if configured
         else repo_root_for_config(project_dir.absolute() / "config.yml")
     )
-    root = anchored_path(agent_data_base_dir(config), anchor).resolve()
-    uploads = str(root / CHAT_UPLOADS_SUBDIR)
-    # The path is interpolated into a JSON string and read as a glob: a quote would
-    # cut the string, and a wildcard would widen the rule past the one directory.
-    unspellable = set(uploads) & set('"*?[\\')
+    return anchored_path(agent_data_base_dir(config), anchor).resolve()
+
+
+def _spellable(path: str) -> str:
+    """*path*, refused when a permission rule cannot spell it.
+
+    The path is interpolated into a JSON string and read as a glob: a quote would
+    cut the string, and a wildcard would widen the rule past the one directory.
+    """
+    unspellable = set(path) & set('"*?[\\')
     if unspellable:
         raise ValueError(
-            f"The agent-data root {uploads!r} contains {sorted(unspellable)}, which a "
+            f"The agent-data root {path!r} contains {sorted(unspellable)}, which a "
             "permission rule cannot spell; move the deployment or its agent_data.base_dir."
         )
-    return uploads
+    return path
+
+
+def store_deny(config: dict, project_dir: Path) -> list[str]:
+    """The file-tool denies on the control-context store, ``<agent-data root>/control_target``.
+
+    The store holds each identity's control-context record and the writes switch;
+    an agent that could edit it could arm its own writes. Claude Code checks every
+    file-writing tool (Edit, Write, NotebookEdit) against ``Edit(path)`` rules, so
+    two ``Edit`` rules cover them all: the absolute ``//`` form from the root the
+    runtime resolves (the in-container root for a terminal render), which holds
+    whatever the agent's working directory, and the relative form spelled like
+    the render's other agent-data rules.
+
+    Rendered through its own context key, after ``killswitch_deny`` and never
+    filtered, so no profile ``remove_deny`` can lift it.
+    """
+    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.workspace import agent_data_base_dir
+
+    absolute = _spellable(str(_resolved_agent_data_root(config, project_dir) / STATE_DIR_NAME))
+    relative = f"{agent_data_base_dir(config)}/{STATE_DIR_NAME}"
+    return [f"Edit(/{absolute}/**)", f"Edit({relative}/**)"]
 
 
 def resolve_hierarchy_context(channel_finder: dict, project_dir: Path) -> dict[str, object] | None:
@@ -396,6 +435,11 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # create_project path never runs that block, so the empty default is
         # what it renders (and must render: writes state is not settled there).
         "killswitch_deny": [],
+        # The file-tool denies on the control-context store (see store_deny).
+        # Its own key for the same reason as `killswitch_deny`: settings.json.j2
+        # appends it after that list and never filters it, so no `remove_deny`
+        # reaches it. Config-derived, so both render paths carry it.
+        "store_deny": store_deny(config, project_dir),
         # The render's read/write-MIXED tools, fully qualified — the writes
         # kill switch's documented exception (mcp__python__execute and any
         # extends clone of it), which a readonly posture keeps reachable
@@ -406,6 +450,12 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # The render's facility (custom-server) write set, fully qualified: one
+        # exact name per tool a declaring server gates, the whole-server
+        # matcher for a server with no list. Like mixed_read_write_tools it
+        # needs resolved servers, so build_claude_code_context writes the real
+        # list; this default only keeps the key from ever being absent.
+        "facility_write_tools": [],
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
@@ -846,7 +896,12 @@ def build_claude_code_context(
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})
 
-    from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
+    from osprey.registry.mcp import (
+        facility_write_tools,
+        mixed_read_write_tools,
+        resolve_agents,
+        resolve_servers,
+    )
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
@@ -864,6 +919,10 @@ def build_claude_code_context(
     # classification is a property of the tool, not of the current posture,
     # and its consumers are read at run time under either one.
     ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+    # The facility write set, from its one producer, unconditionally for the
+    # same reason: hook_config.json renders it verbatim, and both write-target
+    # twins send exactly those tools to `live` under either posture.
+    ctx["facility_write_tools"] = facility_write_tools(ctx["servers"])
 
     # Build-time index of the Bluesky plan catalog, for the bundled plans skill.
     #
@@ -923,133 +982,103 @@ def build_claude_code_context(
         model_spec = None
     ctx["claude_code_model_spec"] = model_spec
 
-    # Kill-switch hard-block: when control-system writes are disabled, render
-    # pure-write tools into permissions.deny. That takes the tool out of the agent's
-    # view, and the permission layer refuses any call to it, so it is never asked
-    # about. The osprey_writes_check PreToolUse hook is also a gate on its own: on
-    # the pinned Claude Code its deny wins even when a static ask names the tool, so
-    # no approval card is raised for the call (scenario b of
-    # tests/e2e/claude_code/test_chat_approval_gates_scripted.py).
-    # mcp__python__execute cannot be denied wholesale (it has a legitimate readonly
-    # path), so instead it is pulled OUT of permissions.ask: the writes_check deny on
-    # a readwrite execute then stands alone, with no prompt raised for it.
+    # The writes kill switch, keyed on the tier (`control_system.writes`) alone.
     #
-    # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
-    # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
-    # defaults to a hard deny (covers controls' channel_write and the bluesky
-    # queue's arming tools automatically, plus any future write server with no code
-    # change here). python's execute is the one documented exception — it
-    # accepts both read_only and write_access kernels, so it is pulled into
-    # remove_ask instead (see docstring above); every other writes-check-gated
-    # tool is presumed pure-write and denied outright. WHICH tools are
-    # read/write-mixed is the registry's call (is_mixed_matcher), not
-    # this renderer's: the rendered hook config and the MCP audit middleware
-    # classify off that same entry, and a second spelling here is how the
-    # three would drift.
+    # * `never` — no write succeeds on any machine a session here reaches, so
+    #   the write-only tools are denied statically, in settings.json: the
+    #   writes-check-gated framework matchers, every facility write tool
+    #   `facility_write_tools` produces (exact names; a list-less writes_check
+    #   server whole, as `mcp__<srv>`, since a `mcp__<srv>__.*` regex is not
+    #   permission syntax). The deny takes the tool out of the agent's view and
+    #   no profile `remove_deny` can lift it (see `killswitch_deny` below).
+    #   Read/write-mixed tools (python's execute, execute_file) and
+    #   `control_system.write_tools` entries keep their reads: they stay out of
+    #   the deny, are pulled from `ask`, and the writes-check hook refuses their
+    #   writes per call. A `write_tools` entry leaves `ask` only when a wired
+    #   writes-check rule actually matches it — writes-check is server-attached,
+    #   so an entry no enabled server's rule covers keeps its static `ask`
+    #   rather than run ungated. WHICH tools are mixed is the registry's call
+    #   (`is_mixed_matcher`), the same entry hook_config.json and the audit
+    #   middleware classify off.
+    # * `allowed` — nothing is denied: the runtime switch decides each call.
+    #   Every write tool stays behind `ask` unless its own rule carries BOTH the
+    #   writes-check hook and an approval hook (the Bluesky preflight variant
+    #   included). Such a tool is pulled from `ask`: its approval hook raises
+    #   the prompt when the switch is on, and with the switch off writes-check
+    #   refuses it before any operator is offered an approval for a write the
+    #   switch forbids. A tool missing either hook keeps its static `ask`.
     #
-    # Write posture is per target, so the render is three-way rather than two:
-    #
-    # * NO target may write — the kill switch above, unchanged. One static deny
-    #   is correct because the tool is illegal wherever the session points.
-    # * EVERY target may write — nothing rendered, unchanged.
-    # * The targets DISAGREE — the deny cannot be static, because the same tool
-    #   is legal on one target and refused on the other and settings.json is
-    #   rendered once, before any session picks a target. So the render steps
-    #   aside: every writes-check-gated matcher is pulled from `ask` and none is
-    #   denied, and the runtime carries it per call in three places —
-    #   osprey_writes_check (stage 1 the session posture, stage 2 the active
-    #   target's posture), the approval hook's defer, and, for the lane-addressed
-    #   `queue_*` tools that stage 2 deliberately skips, the lane-bound posture
-    #   re-read inside the bluesky queue tools themselves. Dropping the `ask` keeps the
-    #   operator from being offered an approval for a write the target's posture forbids.
-    #   On the pinned Claude Code that is defense in depth, not the only gate: the
-    #   writes_check deny wins even over a static ask (scenario b of
-    #   tests/e2e/claude_code/test_chat_approval_gates_scripted.py).
-    #
-    # The postures come from `session_posture`, which yields both targets only
-    # on a deployment that renders the switch and otherwise yields the built
-    # connector's own posture alone. Looping CONTROL_TARGETS here instead would
-    # call a deployment mixed on the strength of a target no session can select
-    # — a mock deployment carrying an armed epics block would lose its hard deny
-    # over a machine it never reaches.
-    from osprey_connectors.types import session_posture
+    # Either way an approval-gated tool an enabled agent hard-requires and that
+    # was just pulled from `ask` is re-granted via `allow` — mixed tools only,
+    # a whole policy unit at a time (`_policy_unit_of`) — so the agent keeps its
+    # read-only compute and no pure-write tool ever reaches `allow`.
+    from osprey.registry.mcp import (
+        _WRITES_CHECK,
+        FRAMEWORK_SERVERS,
+        is_mixed_matcher,
+        rule_carries_writes_check,
+    )
+    from osprey_connectors.types import tier_writes
 
     control_system = config.get("control_system", {}) or {}
 
-    # The floor under the postures below: a deployment that arms writes must
-    # have installed the hooks that gate them. Checked here rather than on the
-    # create_project path for the same reason the kill switch is — writes state
-    # is not settled there — and before anything posture-dependent is rendered.
+    # The floor under the render below: the hooks that gate a write must be
+    # installed. Checked here rather than on the create_project path for the
+    # same reason the kill switch is — the tier is not settled there.
     _lint_write_gates_are_selected(ctx, control_system)
 
-    writes_by_target = session_posture(control_system)
-    if not all(writes_by_target.values()):
-        from osprey.registry.mcp import (
-            _WRITES_CHECK,
-            FRAMEWORK_SERVERS,
-            is_mixed_matcher,
-        )
+    writes_tier = tier_writes(control_system)
+    never = writes_tier == "never"
+    # Read by `_lint_write_tools_are_gated`: on an `allowed` render a lifted
+    # shell is refused, not warned about (PR-12).
+    ctx["writes_tier"] = writes_tier
+    facility_perms = dict(ctx["facility_permissions"] or {})
+    # Kill-switch denies land in their OWN context key, never in
+    # facility_permissions['deny']: `remove_deny` is profile-authored and
+    # subtracts from profile-authored deny sources only, so a matcher there
+    # could be lifted. settings.json.j2 appends killswitch_deny last, unfiltered.
+    killswitch_deny = list(ctx.get("killswitch_deny") or [])
+    remove_ask = list(facility_perms.get("remove_ask", []) or [])
+    allow = list(facility_perms.get("allow", []) or [])
+    # Matchers the earlier (filtered) deny parts already render, skipped to
+    # keep the array duplicate-free. A matcher the profile denies AND removes
+    # is not in this set, so the kill switch re-adds it.
+    _remove_deny = list(facility_perms.get("remove_deny", []) or [])
+    already_denied = {
+        d
+        for d in list(ctx.get("deny_defaults") or []) + list(facility_perms.get("deny", []) or [])
+        if d not in _remove_deny
+    }
 
-        mixed = any(writes_by_target.values())
-        facility_perms = dict(ctx["facility_permissions"])
-        # Kill-switch denies land in their OWN context key, never in
-        # facility_permissions['deny']. `remove_deny` is profile-authored and
-        # subtracts from profile-authored deny sources only; if these matchers
-        # sat in the facility list, a profile could name one under remove_deny
-        # and lift a writes-off deny. settings.json.j2 appends killswitch_deny
-        # last and never filters it.
-        killswitch_deny = list(ctx.get("killswitch_deny") or [])
-        remove_ask = list(facility_perms.get("remove_ask", []))
-        allow = list(facility_perms.get("allow", []))
-        # Matchers the earlier (filtered) deny parts already render. Skipping
-        # them keeps the rendered array duplicate-free and byte-identical to the
-        # pre-split render for every profile that does not both deny and
-        # remove_deny the same entry. A matcher the profile denies AND removes
-        # is filtered out up there, so it is NOT in this set and the kill switch
-        # re-adds it below — which is the whole point of the split.
-        _remove_deny = list(facility_perms.get("remove_deny", []))
-        already_denied = {
-            d
-            for d in list(ctx.get("deny_defaults") or []) + list(facility_perms.get("deny", []))
-            if d not in _remove_deny
-        }
-        # Approval-gated tools an enabled agent hard-requires (e.g. the
-        # pyat-specialist's only compute path, mcp__python__execute) must stay
-        # reachable even with writes off, or the agent declares a tool absent
-        # from permissions and build validation fails. They are still pulled
-        # from `ask` below -- a static ask entry drives even a read-write
-        # execute to the SDK's can_use_tool prompt, bypassing the kill switch
-        # (see tests/cli/test_claude_regen.py::...covers_python_execute) -- and
-        # re-granted via `allow` instead: no approval-prompt path to bypass,
-        # while the PreToolUse writes-check hook still hard-denies write-access
-        # kernels and permits only read-only ones. Net: read-only compute works,
-        # control-system writes stay blocked.
-        required_ask = {
-            tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
-        }
-        # The matchers pulled from `ask` because the registry documents them
-        # read/write-mixed — the only ones the rescue below may promote to
-        # `allow`. Tracked separately from `remove_ask`, which on a mixed render
-        # also holds the pure-write matchers (and which a profile can seed with
-        # anything at all): a pure-write tool in `allow` is an unguarded write,
-        # so the rescue must never be able to reach one.
-        #
-        # Keyed matcher -> (server-instance prefix, hook-command set) rather
-        # than a bare set, because the rescue promotes whole policy units and
-        # needs both halves of that identity — see `_policy_unit_of`.
-        mixed_policy_units: dict[str, tuple[str, frozenset[str]]] = {}
-        # Cover extends clones too, not just the literal template names: the
-        # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
-        # exact-match template tool names and are clone-unaware — they are the
-        # belt layer only; this settings.json deny/remove_ask rendering is the
-        # enforced layer for clones.
-        for srv in ctx["servers"]:
-            if not srv["enabled"]:
-                continue
-            template = srv.get("extends_of") or srv["name"]
-            template_def = FRAMEWORK_SERVERS.get(template)
-            if template_def is None:
-                continue  # custom (non-framework) server — out of scope here
+    def _deny(matcher: str) -> None:
+        if matcher not in killswitch_deny and matcher not in already_denied:
+            killswitch_deny.append(matcher)
+
+    def _unask(matcher: str) -> None:
+        if matcher not in remove_ask:
+            remove_ask.append(matcher)
+
+    required_ask = {
+        tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
+    }
+    # Mixed matchers pulled from `ask`, keyed matcher -> (server-instance
+    # prefix, hook-command set): the only tools the re-grant may promote.
+    mixed_policy_units: dict[str, tuple[str, frozenset[str]]] = {}
+    # Every PreToolUse matcher this render wires writes-check onto: the only
+    # tools a `control_system.write_tools` entry may rely on for its per-call
+    # refusal once it leaves `ask`.
+    writes_check_matchers: list[str] = []
+
+    for srv in ctx["servers"]:
+        if not srv["enabled"]:
+            continue
+        template = srv.get("extends_of") or srv["name"]
+        template_def = FRAMEWORK_SERVERS.get(template)
+        if template_def is not None and not srv.get("is_custom"):
+            # Framework server or an `extends` clone of one: the write set is
+            # the template's writes-check rules, re-anchored to the clone. The
+            # runtime hooks exact-match template names, so this render is the
+            # enforced layer for clones.
             old_prefix, new_prefix = f"mcp__{template}__", f"mcp__{srv['name']}__"
             for rule in template_def.hooks_pre:
                 if _WRITES_CHECK not in rule.hooks:
@@ -1057,40 +1086,107 @@ def build_claude_code_context(
                 matcher = rule.matcher
                 if matcher.startswith(old_prefix):
                     matcher = new_prefix + matcher[len(old_prefix) :]
+                writes_check_matchers.append(matcher)
+                hook_names = {_hook_name_of_command(h.command) for h in rule.hooks}
                 if is_mixed_matcher(template, matcher):
-                    mixed_policy_units[matcher] = (
-                        new_prefix,
-                        frozenset(h.command for h in rule.hooks),
-                    )
-                    if matcher not in remove_ask:
-                        remove_ask.append(matcher)
-                elif mixed:
-                    if matcher not in remove_ask:
-                        remove_ask.append(matcher)
-                elif matcher not in killswitch_deny and matcher not in already_denied:
-                    killswitch_deny.append(matcher)
-        # Re-grant, via `allow`, any mixed read/write tool an enabled agent
-        # hard-requires that the kill-switch just pulled from `ask`. `allow`
-        # (not `ask`) keeps it off the approval-prompt path the writes-check
-        # kill switch guards, so the read-only agent keeps its compute without
-        # reopening a write-access bypass. Drawn from `mixed_policy_units` and
-        # not from `remove_ask`: a pure-write tool is denied on an all-off render
-        # and hook-gated on a mixed one, and must reach `allow` from neither.
-        #
-        # Promoted a whole policy unit at a time — `_policy_unit_of` says why a
-        # tool the agent never names still has to travel with the one it does.
-        for tool in sorted(required_ask):
-            if tool not in mixed_policy_units:
+                    if never or "approval" in hook_names:
+                        mixed_policy_units[matcher] = (
+                            new_prefix,
+                            frozenset(h.command for h in rule.hooks),
+                        )
+                        _unask(matcher)
+                elif never:
+                    _deny(matcher)
+                elif "approval" in hook_names:
+                    _unask(matcher)
+            continue
+        if not srv.get("is_custom"):
+            continue
+        # A facility server. On an `allowed` render its writes-check rules that
+        # also carry approval leave `ask`; a whole-server regex rule covers
+        # every ask entry of the server it matches.
+        asked = [f"mcp__{srv['name']}__{t}" for t in srv.get("permissions_ask") or []] + list(
+            srv.get("fixed_ask") or []
+        )
+        for rule in srv.get("hooks_pre") or []:
+            if not rule_carries_writes_check(rule["hooks"]):
                 continue
-            for matcher in _policy_unit_of(tool, mixed_policy_units):
-                if matcher not in allow:
-                    allow.append(matcher)
-        facility_perms["remove_ask"] = remove_ask
-        facility_perms["allow"] = allow
-        ctx["facility_permissions"] = facility_perms
-        ctx["killswitch_deny"] = killswitch_deny
+            writes_check_matchers.append(rule["matcher"])
+            if never:
+                continue
+            hook_names = {_hook_name_of_command(h["command"]) for h in rule["hooks"]}
+            if "approval" not in hook_names:
+                continue
+            for tool in asked:
+                if _hook_matcher_covers(rule["matcher"], tool):
+                    _unask(tool)
+
+    if never:
+        # The facility set from its one producer (C-FW), never inferred here.
+        for matcher in ctx["facility_write_tools"]:
+            _deny(_permission_matcher(matcher))
+        # `control_system.write_tools` entries keep their reads and are never
+        # denied. One leaves `ask` only when a wired writes-check rule matches
+        # it — that hook is then what refuses its writes per call. An entry no
+        # rule covers keeps its static `ask`: pulling it would leave the tool
+        # with no gate at all on the tier that promises no writes.
+        for tool in control_system.get("write_tools") or []:
+            if not isinstance(tool, str) or not tool:
+                continue
+            if any(_hook_matcher_covers(m, tool) for m in writes_check_matchers):
+                _unask(tool)
+
+    for tool in sorted(required_ask):
+        if tool not in mixed_policy_units:
+            continue
+        for matcher in _policy_unit_of(tool, mixed_policy_units):
+            if matcher not in allow:
+                allow.append(matcher)
+    facility_perms["remove_ask"] = remove_ask
+    facility_perms["allow"] = allow
+    ctx["facility_permissions"] = facility_perms
+    ctx["killswitch_deny"] = killswitch_deny
 
     return ctx
+
+
+#: A list-less facility server's whole-server hook matcher, ``mcp__<srv>__.*``.
+_WHOLE_SERVER_MATCHER = re.compile(r"^(?P<server>mcp__[A-Za-z0-9_-]+?)__\.\*$")
+
+
+def _permission_matcher(matcher: str) -> str:
+    """A facility write matcher spelled as Claude Code permission syntax.
+
+    ``facility_write_tools`` yields hook matchers, where a list-less server's
+    rule is the regex ``mcp__<srv>__.*``. A permission rule is an exact tool name
+    or a whole server, never a regex, so that one becomes ``mcp__<srv>``; an
+    exact ``mcp__<srv>__<tool>`` is returned unchanged.
+    """
+    match = _WHOLE_SERVER_MATCHER.match(matcher)
+    return match.group("server") if match else matcher
+
+
+def _whole_server_covers(matcher: str, tool: str) -> bool:
+    """Whether a whole-server hook matcher ``mcp__<srv>__.*`` covers ``tool``."""
+    match = _WHOLE_SERVER_MATCHER.match(matcher)
+    return match is not None and tool.startswith(match.group("server") + "__")
+
+
+def _hook_matcher_covers(matcher: str, tool: str) -> bool:
+    """Whether a PreToolUse hook ``matcher`` fires on ``tool``.
+
+    Claude Code reads a hook matcher as a regex over the whole tool name; an
+    exact name and the whole-server ``mcp__<srv>__.*`` are the common cases.
+    ``tool`` may itself be a whole-server ``mcp__<srv>__.*`` entry, which only
+    the identical matcher covers. A matcher that is not a valid regex covers
+    only the identical name.
+    """
+    if matcher == tool or _whole_server_covers(matcher, tool):
+        return True
+    try:
+        return re.fullmatch(matcher, tool) is not None
+    except re.error:
+        return False
 
 
 def _build_bluesky_plan_index(config: dict, project_dir: Path, ctx: dict) -> dict | None:
@@ -1512,32 +1608,53 @@ def _servers_with_selected_hooks(ctx: dict) -> list[dict]:
 
 
 def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
-    """Refuse a write-armed deployment whose write gates are not installed.
+    """Refuse a render whose write gates are not installed.
 
-    Every hook in :data:`WRITE_GATE_HOOKS` that an enabled server attaches to
-    its write tools must be in the profile's selection. Unselected, the script
-    is not installed and the entry that names it decides nothing — so the render
-    would promise a gate the deployment does not have.
+    On an ``allowed`` tier, every hook in :data:`WRITE_GATE_HOOKS` that an
+    enabled server attaches to its write tools must be in the profile's
+    selection. Unselected, the script is not installed and the entry that names
+    it decides nothing — so the render would promise a gate the deployment does
+    not have.
 
-    Silent when no target arms writes: a read-only deployment has no write to
-    gate, and its own posture is enforced by the kill switch's deny floor rather
-    than by these hooks.
+    On a ``never`` tier the static deny covers the write-only tools — the
+    framework write matchers and every facility write tool — but not the ones
+    refused per call: read/write-mixed tools and ``control_system.write_tools``
+    entries. Those are refused only by the writes-check hook, so a ``never``
+    render that has any of them must select it, or its writes would run
+    ungated.
 
     Args:
-        ctx: The render context, read for ``servers`` and ``selected_hooks``.
-        control_system: The rendered ``control_system:`` section, whose per-target
-            posture decides whether any write is armed at all.
+        ctx: The render context, read for ``servers``, ``selected_hooks``,
+            and ``mixed_read_write_tools``.
+        control_system: The rendered ``control_system:`` section, whose tier
+            (``control_system.writes``) decides which gates are required.
 
     Raises:
-        BuildProfileError: Naming each unselected gate and the server whose
-            tools it was meant to guard.
+        BuildProfileError: Naming each unselected gate and what it was meant
+            to guard.
     """
-    from osprey_connectors.types import any_target_writes_enabled
-
-    if not any_target_writes_enabled(control_system):
-        return
+    from osprey_connectors.types import tier_allows
 
     selection = set(ctx.get("selected_hooks") or [])
+
+    if not tier_allows(control_system):
+        if "writes-check" in selection:
+            return
+        guarded: list[str] = []
+        if control_system.get("write_tools"):
+            guarded.append("the `control_system.write_tools` entries")
+        if ctx.get("mixed_read_write_tools"):
+            guarded.append("the read/write tools " + ", ".join(ctx["mixed_read_write_tools"]))
+        if not guarded:
+            return
+        raise BuildProfileError(
+            "This deployment pins writes off (`control_system.writes: never`), and the "
+            "'writes-check' hook that refuses these tools' writes per call is not in the "
+            "profile's `hooks:` list:\n  "
+            + "\n  ".join(guarded)
+            + "\nAdd `writes-check` to `hooks:`."
+        )
+
     missing: list[tuple[str, str]] = []
     for server in ctx.get("servers") or []:
         if not server.get("enabled"):
@@ -1552,14 +1669,14 @@ def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
     if not missing:
         return
     raise BuildProfileError(
-        "This deployment arms writes, and these write gates are not installed:\n  "
+        "This deployment allows writes (`control_system.writes: allowed`), and these write "
+        "gates are not installed:\n  "
         + "\n  ".join(
             f"the {name!r} hook guards the {server!r} server's write tools but is not in "
             f"the profile's `hooks:` list"
             for name, server in sorted(missing)
         )
-        + "\nAdd them to `hooks:`, or disarm writes (`control_system.writes_enabled: false`, "
-        "and any per-connector-type key that overrides it)."
+        + "\nAdd them to `hooks:`, or pin writes off (`control_system.writes: never`)."
     )
 
 
@@ -1895,9 +2012,11 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
        anything a facility lists under ``permissions.remove_deny``;
     2. the profile-authored ``permissions.deny`` entries, minus ``remove_deny``
        as well — a profile may subtract what a profile added;
-    3. the ``killswitch_deny`` entries, appended last and NEVER filtered.
+    3. the ``killswitch_deny`` entries, appended and NEVER filtered;
+    4. the ``store_deny`` entries, appended last and NEVER filtered (an entry an
+       earlier part already renders is not rendered twice).
 
-    Part 3 is why the split exists: the writes-off kill switch writes its
+    Parts 3 and 4 are why the split exists: the ``never``-tier kill switch writes its
     matchers into their own context key, so no ``remove_deny`` a profile authors
     can lift a deny the kill switch imposed.
 
@@ -1911,7 +2030,7 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
 
     Args:
         ctx: The render context, read for ``deny_defaults``,
-            ``facility_permissions`` and ``killswitch_deny``.
+            ``facility_permissions``, ``killswitch_deny`` and ``store_deny``.
 
     Returns:
         The deny entries, in render order.
@@ -1921,6 +2040,9 @@ def _rendered_deny_list(ctx: dict) -> list[str]:
     deny = [d for d in (ctx.get("deny_defaults") or []) if d not in remove_deny]
     deny.extend(d for d in (facility.get("deny", []) or []) if d not in remove_deny)
     deny.extend(ctx.get("killswitch_deny") or [])
+    for d in ctx.get("store_deny") or []:
+        if d not in deny:
+            deny.append(d)
     return deny
 
 
@@ -2034,6 +2156,15 @@ def _matcher_covers(matcher: str | None, tool: str) -> bool:
     return tool in [part.strip() for part in matcher.split("|")]
 
 
+#: The built-ins that run shell commands. On a render whose tier is
+#: ``control_system.writes: allowed`` a shell is an arming path — it can flip
+#: the write switch, call a connector or fire a dispatcher job without passing
+#: any write gate — so :func:`_lint_write_tools_are_gated` refuses a
+#: ``remove_deny`` that lifts one there (PR-12). On a ``never`` render the lift
+#: keeps the ordinary declared-gate warning.
+ARMING_SHELL_TOOLS = ("Bash", "Monitor")
+
+
 def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
     """Refuse to build a profile that can write with no gate.
 
@@ -2083,6 +2214,14 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         fw_pre_rules: The framework PreToolUse rules just computed for this
             render, before they are written into ``ctx``.
 
+    **A lifted shell on an ``allowed`` tier is refused outright (PR-12).**
+    When ``ctx["writes_tier"]`` is ``allowed`` and ``remove_deny`` lifts a tool
+    in :data:`ARMING_SHELL_TOOLS`, the build fails whatever hook the profile
+    declares: on that tier a shell is an arming path. On a ``never`` render (or
+    a create-path context that carries no tier yet — the build re-renders
+    through :func:`build_claude_code_context`, which settles it) the lift keeps
+    the declared-gate warning above.
+
     It also carries one guard that is not about the built-ins at all: the
     container's setup-capability check reads the profile's deny and not this
     floor, so the two must not swap roles (see the check itself, below). It
@@ -2116,9 +2255,25 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
 
     deny = _rendered_deny_list(ctx)
     matchers = _pretooluse_matchers(ctx, fw_pre_rules)
+    remove_deny = (ctx.get("facility_permissions") or {}).get("remove_deny", []) or []
     for tool in WRITE_CAPABLE_BUILTINS:
         if tool in deny:
             continue
+        if (
+            tool in ARMING_SHELL_TOOLS
+            and tool in remove_deny
+            and ctx.get("writes_tier") == "allowed"
+        ):
+            render = ctx.get("project_name") or "this render"
+            raise BuildProfileError(
+                f"Render {render!r} has tier control_system.writes: allowed and its "
+                f"claude_code.permissions.remove_deny lifts {tool!r}. On an "
+                "'allowed' tier a shell is an arming path: it reaches the write "
+                "switch, the connectors and the dispatcher wire around every "
+                "write gate, and no PreToolUse hook the build can vouch for "
+                f"gates it. Drop {tool!r} from remove_deny, or lift it only on a "
+                "tier whose control_system.writes is 'never'."
+            )
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
         if covering:
             if all(src == _MATCHER_PROFILE for _, src in covering):

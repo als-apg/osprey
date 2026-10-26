@@ -251,16 +251,32 @@ def test_mcp_permissions_round_trip_hello_world(built_hello_world_project):
 
 
 def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
-    """``permissions.ask`` flattens the same way as ``permissions.allow``."""
+    """``permissions.ask`` flattens the same way as ``permissions.allow``.
+
+    The preset's tier is ``control_system.writes: allowed``, on which a write
+    tool leaves ``ask`` exactly when its rule carries writes-check AND an
+    approval hook (the approval hook raises the prompt, writes-check refuses a
+    write the switch forbids). ``channel_write`` is such a tool, so it is in
+    neither ``ask`` nor ``deny``; the approval-only framework entries stay.
+    """
     project = built_control_assistant_project
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     ask = set(settings["permissions"]["ask"])
 
-    # Framework-known ask entries: controls.channel_write, workspace.setup_patch,
-    # ariel.entry_create.
-    assert "mcp__controls__channel_write" in ask
+    # Framework-known ask entries: workspace.setup_patch, ariel.entry_create.
     assert "mcp__osprey_workspace__setup_patch" in ask
     assert "mcp__ariel__entry_create" in ask
+    # writes-check + approval: out of ask, and an `allowed` tier denies nothing.
+    assert "mcp__controls__channel_write" not in ask
+    assert "mcp__controls__channel_write" not in settings["permissions"]["deny"]
+    wired = {
+        hook["command"]
+        for rule in settings["hooks"]["PreToolUse"]
+        if rule.get("matcher") and re.fullmatch(rule["matcher"], "mcp__controls__channel_write")
+        for hook in rule["hooks"]
+    }
+    assert any("osprey_writes_check.py" in c for c in wired), wired
+    assert any("osprey_approval.py" in c for c in wired), wired
 
 
 def test_external_server_command_placeholder_resolves_to_interpreter(tmp_path):
@@ -767,6 +783,9 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         # Only the extras this render APPENDED to write_tools; the project
         # names none, and with every server off there is nothing to append to.
         "control_system_write_tools": [],
+        # The facility servers' declared write tools; with every server off
+        # there is none.
+        "facility_write_tools": [],
         "mixed_read_write_tools": [],
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.
@@ -1111,7 +1130,7 @@ def _killswitch_project(tmp_path, name: str, fields: dict) -> Path:
 
     The regen path is required here: ``create_project`` never runs the
     writes-off kill-switch block, so only a re-render reflects a
-    ``writes_enabled`` setting.
+    ``control_system.writes`` setting.
 
     The preset's own ``config:`` goes on first, because the connector blocks
     these postures are stated against are the preset's — the framework template
@@ -1149,7 +1168,7 @@ def test_killswitch_deny_survives_profile_remove_deny(tmp_path):
         tmp_path,
         "killswitch-remove-deny",
         {
-            "control_system.writes_enabled": False,
+            "control_system.writes": "never",
             "claude_code.permissions.remove_deny": ["mcp__controls__channel_write"],
         },
     )
@@ -1175,7 +1194,7 @@ def test_remove_deny_still_subtracts_profile_authored_deny(tmp_path):
         tmp_path,
         "remove-deny-subtracts",
         {
-            "control_system.writes_enabled": False,
+            "control_system.writes": "never",
             "claude_code.permissions.deny": ["mcp__nonframework__facility_authored"],
             "claude_code.permissions.remove_deny": [
                 "WebSearch",
@@ -1204,17 +1223,15 @@ def test_killswitch_deny_absent_when_writes_enabled(tmp_path):
         tmp_path,
         "killswitch-writes-on",
         {
-            "control_system.writes_enabled": True,
+            "control_system.writes": "allowed",
             "claude_code.permissions.remove_deny": ["mcp__controls__channel_write"],
         },
     )
     assert "mcp__controls__channel_write" not in _rendered_deny(project)
 
 
-@pytest.mark.parametrize("writes_enabled", [False, True], ids=["writes-off", "writes-on"])
-def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
-    tmp_path, writes_enabled
-):
+@pytest.mark.parametrize("writes", ["never", "allowed"], ids=["writes-off", "writes-on"])
+def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(tmp_path, writes):
     """The read-only session refuses ``Monitor`` and ``EnterWorktree``, and so
     does a session with writes on, exactly as for ``Bash`` and ``Edit``.
 
@@ -1224,8 +1241,8 @@ def test_the_write_floor_denies_monitor_and_enterworktree_in_either_posture(
     """
     project = _killswitch_project(
         tmp_path,
-        f"write-floor-{'on' if writes_enabled else 'off'}",
-        {"control_system.writes_enabled": writes_enabled},
+        f"write-floor-{'on' if writes == 'allowed' else 'off'}",
+        {"control_system.writes": writes},
     )
     deny = _rendered_deny(project)
     for tool in ("Bash", "Edit", "Monitor", "EnterWorktree"):
@@ -1244,7 +1261,7 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
         tmp_path,
         "killswitch-profile-denies",
         {
-            "control_system.writes_enabled": False,
+            "control_system.writes": "never",
             "claude_code.permissions.deny": ["mcp__controls__channel_write"],
         },
     )
@@ -1278,16 +1295,15 @@ def _rendered_permissions(project: Path) -> dict:
 
 
 def test_mixed_posture_renders_neither_a_deny_nor_an_ask_for_channel_write(tmp_path):
-    """Global writes off, the VA target armed: channel_write is in no list at all.
+    """Retired leaves disagreeing (flat off, VA armed): channel_write is in no list.
 
-    settings.json is rendered once, before a session picks a target, so neither
-    static answer is available: a deny would refuse the write the VA target is
-    armed for, and an ask would drive it to the SDK approval prompt on the live
-    target, where the writes-check hook's deny cannot suppress an ask entry.
-    The render leaves the tool unlisted and the two hooks — the writes-check
-    hook's per-target stage and the approval hook's defer — carry it per call.
+    The tier is target-blind: with no ``control_system.writes`` a literal
+    ``true`` in any retired leaf normalizes to ``allowed``, so this is an
+    ``allowed`` render. No static deny, and ``channel_write`` leaves ``ask``
+    because its rule carries writes-check AND approval — the session's switch,
+    via those two hooks, decides each call.
     """
-    project = _killswitch_project(
+    project = _retired_posture_project(
         tmp_path,
         "posture-mixed-va-armed",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
@@ -1299,12 +1315,12 @@ def test_mixed_posture_renders_neither_a_deny_nor_an_ask_for_channel_write(tmp_p
 
 
 def test_mixed_posture_from_a_disarmed_live_block_renders_the_same_way(tmp_path):
-    """Global writes on, the live machine's block disarmed — the same disagreement.
+    """Flat leaf on, the live machine's block disarmed — the same normalization.
 
-    Which key carries the disagreement is not something the permission layer can
-    act on differently, so this must reach the same render as the case above.
+    A literal ``true`` in the flat leaf is ``allowed`` whatever a connector
+    block says, so this must reach the same render as the case above.
     """
-    project = _killswitch_project(
+    project = _retired_posture_project(
         tmp_path,
         "posture-mixed-live-disarmed",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": True, _LIVE_WRITES: False},
@@ -1316,7 +1332,7 @@ def test_mixed_posture_from_a_disarmed_live_block_renders_the_same_way(tmp_path)
 
 
 def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
-    """python's execute is pulled from ask on a mixed render and never denied.
+    """python's execute is pulled from ask on a normalized ``allowed`` render, never denied.
 
     It reaches ``allow`` here only through the required-tool rescue, which the
     enabled ``pyat-specialist`` triggers: that agent declares ``execute`` as its
@@ -1326,7 +1342,7 @@ def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
     reopening the approval prompt, and the writes-check hook still refuses a
     write-access kernel on a target whose posture forbids one.
     """
-    project = _killswitch_project(
+    project = _retired_posture_project(
         tmp_path,
         "posture-mixed-execute",
         {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
@@ -1351,23 +1367,24 @@ _EXECUTE_FILE = "mcp__python__execute_file"
 #: ``remove_ask`` — that is exactly the fall-through this pair must not have.
 _NO_PYAT = {"claude_code.agents.pyat-specialist.enabled": False}
 
-#: Where each python exec tool must land, per (posture, pyat-specialist state).
+#: Where each python exec tool must land, per (tier, pyat-specialist state).
 #:
-#: * writes-off / mixed, pyat ENABLED — ``allow``. The render pulls both from
-#:   ``ask``, and the rescue puts the whole policy unit back: the agent's
-#:   declaration names ``execute`` alone (honestly — it never calls the file
-#:   form), but both share one writes-check + approval gate, so promoting only
-#:   the named one would leave ``execute_file`` in no list at all.
-#: * writes-off / mixed, pyat DISABLED — no list. Nothing rescues them, the
-#:   render steps aside, and the two runtime hooks carry the call.
-#: * all-write — ``ask``, the registry's static position, rescue or not.
+#: Both tiers pull the pair from ``ask``: on ``never`` because a mixed tool is
+#: refused per call by writes-check rather than denied, on ``allowed`` because
+#: its rule carries writes-check AND approval, so the approval hook raises the
+#: prompt and writes-check refuses a write the switch forbids.
+#:
+#: * pyat ENABLED — ``allow``. The rescue puts the whole policy unit back: the
+#:   agent's declaration names ``execute`` alone (honestly — it never calls the
+#:   file form), but both share one writes-check + approval gate, so promoting
+#:   only the named one would leave ``execute_file`` in no list at all.
+#: * pyat DISABLED — no list. Nothing rescues them, the render steps aside, and
+#:   the two runtime hooks carry the call.
 _EXPECTED_EXEC_LISTS = {
     ("writes-off", True): {"allow"},
     ("writes-off", False): set(),
-    ("mixed", True): {"allow"},
-    ("mixed", False): set(),
-    ("all-write", True): {"ask"},
-    ("all-write", False): {"ask"},
+    ("writes-on", True): {"allow"},
+    ("writes-on", False): set(),
 }
 
 
@@ -1380,23 +1397,8 @@ def _permission_lists_holding(perms: dict, tool: str) -> set[str]:
 @pytest.mark.parametrize(
     "posture,fields",
     [
-        (
-            "writes-off",
-            {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: False},
-        ),
-        (
-            "all-write",
-            {
-                _TYPE_KEY: _LIVE_TYPE,
-                "control_system.writes_enabled": True,
-                _LIVE_WRITES: True,
-                _VA_WRITES: True,
-            },
-        ),
-        (
-            "mixed",
-            {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
-        ),
+        ("writes-off", {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"}),
+        ("writes-on", {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "allowed"}),
     ],
 )
 def test_execute_file_lands_in_the_same_permission_list_as_execute(
@@ -1460,35 +1462,58 @@ def test_execute_file_lands_in_the_same_permission_list_as_execute(
 
 
 def test_all_write_posture_asks_for_both_python_exec_tools(tmp_path):
-    """With every target armed, both exec tools are approval-gated, not prompted.
+    """On an ``allowed`` tier both exec tools are approval-gated, not prompted.
 
     The parity test above would be satisfied by both tools being unlisted, which
-    is the very fall-through it guards against; this pins the positive half on
-    the posture where the render does take a static position.
+    is the very fall-through it guards against; this pins the positive half. An
+    ``allowed`` render pulls a write tool from ``ask`` only when its rule wires
+    BOTH writes-check and approval, so each exec tool must have left ``ask``
+    with both hooks on its own PreToolUse matcher — the approval hook is what
+    raises the prompt the static ``ask`` used to.
     """
     project = _killswitch_project(
         tmp_path,
         "execute-file-armed-ask",
-        {
-            _TYPE_KEY: _LIVE_TYPE,
-            "control_system.writes_enabled": True,
-            _LIVE_WRITES: True,
-            _VA_WRITES: True,
-        },
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "allowed"},
     )
-    ask = _rendered_permissions(project)["ask"]
-    assert _EXECUTE in ask
-    assert _EXECUTE_FILE in ask
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    for tool in (_EXECUTE, _EXECUTE_FILE):
+        assert tool not in settings["permissions"]["ask"]
+        assert tool not in settings["permissions"]["deny"]
+        wired = {
+            hook["command"]
+            for rule in settings["hooks"]["PreToolUse"]
+            if rule.get("matcher") and re.fullmatch(rule["matcher"], tool)
+            for hook in rule["hooks"]
+        }
+        assert any("osprey_writes_check.py" in c for c in wired), (tool, wired)
+        assert any("osprey_approval.py" in c for c in wired), (tool, wired)
+
+
+def _retired_posture_project(tmp_path, name: str, fields: dict) -> Path:
+    """A built project whose posture is spelled in the retired leaves alone.
+
+    The preset carries ``control_system.writes``, which alone decides when
+    present, so it is removed before *fields* go on: the render then reads the
+    posture the single parse point normalizes the retired leaves into.
+    """
+    from osprey.utils.config_writer import config_delete_field, config_update_fields
+
+    project = _killswitch_project(tmp_path, name, {})
+    assert config_delete_field(project / "config.yml", "control_system.writes")
+    config_update_fields(project / "config.yml", fields)
+    TemplateManager().regenerate_claude_code(project)
+    return project
 
 
 def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_path):
-    """Both targets disarmed, spelled out per connector: the hard deny is back.
+    """Every retired leaf disarmed, no tier key: the hard deny is back.
 
-    The render is keyed on the resolved per-target postures rather than on the
-    deployment-wide key, so this pins that a deployment which says the same
-    thing twice keeps the deny it already had.
+    With ``control_system.writes`` absent the retired leaves normalize to
+    ``never`` unless one is a literal ``true``, so a deployment that says
+    "off" in every old spelling keeps the deny it already had.
     """
-    project = _killswitch_project(
+    project = _retired_posture_project(
         tmp_path,
         "posture-both-disarmed",
         {
@@ -1502,12 +1527,15 @@ def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_p
 
 
 def test_both_targets_armed_per_connector_lifts_a_global_writes_off(tmp_path):
-    """Both targets armed per connector: nothing is taken away.
+    """Per-connector leaves armed under a flat ``false``, no tier key: ``allowed``.
 
-    The deployment-wide key is off here and neither target inherits it, which is
-    what makes this the proof that the render reads the resolved postures.
+    A literal ``true`` in any retired leaf normalizes to ``allowed`` even with
+    the flat key off, which is what makes this the proof that the render reads
+    the normalized tier and not the flat leaf. ``channel_write`` then renders
+    exactly as on an explicit ``allowed`` tier: not denied, and out of ``ask``
+    because its rule carries writes-check AND approval.
     """
-    project = _killswitch_project(
+    project = _retired_posture_project(
         tmp_path,
         "posture-both-armed",
         {
@@ -1519,18 +1547,22 @@ def test_both_targets_armed_per_connector_lifts_a_global_writes_off(tmp_path):
     )
     perms = _rendered_permissions(project)
     assert "mcp__controls__channel_write" not in perms["deny"]
-    assert "mcp__controls__channel_write" in perms["ask"]
+    explicit = _killswitch_project(tmp_path, "posture-explicit-allowed", {_TYPE_KEY: _LIVE_TYPE})
+    explicit_perms = _rendered_permissions(explicit)
+    assert (
+        _permission_lists_holding(perms, "mcp__controls__channel_write")
+        == _permission_lists_holding(explicit_perms, "mcp__controls__channel_write")
+        == set()
+    )
 
 
 def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_path):
-    """One reachable target, unarmed, with the deployment-wide key on.
+    """One reachable target, on a ``never`` tier: the kill switch fires.
 
     This project builds ``epics`` and has no virtual-accelerator block, so it
-    renders no switch and a session sits on the live machine alone — whose own
-    block says no. The deployment-wide ``true`` therefore arms nothing anyone
-    here can reach, and the kill switch must fire. Counting ``va`` anyway would
-    read it as armed (an absent block inherits the deployment-wide key), call
-    the render mixed, and drop the deny.
+    renders no switch and a session sits on the live machine alone. The tier is
+    the ceiling for every machine, so ``never`` must deny the write tool with no
+    second target in sight to make the render anything else.
     """
     from osprey.utils.config_writer import config_delete_field, config_update_fields
 
@@ -1546,7 +1578,7 @@ def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_p
     _apply_preset_config(manager, project, "control-assistant")
     config_update_fields(
         project / "config.yml",
-        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": True, _LIVE_WRITES: False},
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes": "never"},
     )
     assert config_delete_field(
         project / "config.yml", "control_system.connector.virtual_accelerator"
@@ -1902,9 +1934,7 @@ def test_dropping_approval_unwires_its_outcome_entries(tmp_path):
         "no-approval-outcomes",
         dropped=("approval",),
         config_fields={
-            "control_system.writes_enabled": False,
-            "control_system.connector.epics.writes_enabled": False,
-            "control_system.connector.virtual_accelerator.writes_enabled": False,
+            "control_system.writes": "never",
         },
     )
     settings = json.loads((project / ".claude" / "settings.json").read_text())
@@ -1941,7 +1971,7 @@ def test_build_refuses_an_unselected_write_gate(tmp_path):
             tmp_path,
             "unselected-approval",
             dropped=("approval",),
-            config_fields={"control_system.writes_enabled": True},
+            config_fields={"control_system.writes": "allowed"},
         )
     message = str(excinfo.value)
     assert "approval" in message and "controls" in message
@@ -1954,9 +1984,7 @@ def test_readonly_deployment_may_drop_the_write_gates(tmp_path):
         "readonly-no-approval",
         dropped=("approval",),
         config_fields={
-            "control_system.writes_enabled": False,
-            "control_system.connector.epics.writes_enabled": False,
-            "control_system.connector.virtual_accelerator.writes_enabled": False,
+            "control_system.writes": "never",
         },
     )
     settings = json.loads((project / ".claude" / "settings.json").read_text())
@@ -1976,9 +2004,12 @@ def test_deselecting_writes_check_keeps_the_runtime_write_tool_list(tmp_path):
         "no-writes-check",
         dropped=("writes-check",),
         config_fields={
-            "control_system.writes_enabled": False,
-            "control_system.connector.epics.writes_enabled": False,
-            "control_system.connector.virtual_accelerator.writes_enabled": False,
+            "control_system.writes": "never",
+            # A `never` render with read/write-mixed tools must select
+            # writes-check (BC-2), so the only mixed server is off: what is
+            # left is the pure-write tools the static deny covers, and the
+            # runtime list must still name them.
+            "claude_code.servers.python.enabled": False,
         },
     )
     hook_config = json.loads((project / ".claude" / "hooks" / "hook_config.json").read_text())

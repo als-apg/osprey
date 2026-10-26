@@ -7,12 +7,12 @@ the machine it only reads — and the kill switch renders every
 writes-check-gated tool into ``permissions.deny``, where a call is blocked
 before any hook or refusal of the tool's own ever runs.
 
-Write posture is per connector type, so a render reaches that all-off state
-only when no target may write. The render below gets there the way most
-deployments do: it pins ``control_system.writes_enabled: false`` and writes no
-per-type block, so both targets inherit the false. A deployment armed on one
-target and not the other renders no static deny at all, which is a weaker
-version of the same requirement — the pins here hold the strict case.
+The write posture is the login tier, ``control_system.writes``, and it is
+target-blind: a ``never`` tier is the ceiling for every machine a session here
+reaches, and it is the render that statically denies the write-only tools. The
+render below pins ``control_system.writes: never``. An ``allowed`` tier renders
+no static deny at all, which is a weaker version of the same requirement — the
+pins here hold the strict case.
 
 So this file pins three things that are easy to break by adding one hook to one
 list:
@@ -218,7 +218,7 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
-    config_update_fields(project_dir / "config.yml", {"control_system.writes_enabled": False})
+    config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})
     manager.regenerate_claude_code(project_dir)
 
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -242,16 +242,15 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
     assert MATCHER not in hook_config.get("write_tools", [])
     assert ROSTER_MATCHER not in hook_config.get("write_tools", [])
 
-    # And the rendered project really did have writes off on EVERY target, so
-    # the assertions above describe the all-off render and not a mixed one (a
-    # mixed render denies nothing statically, which would pass these pins for
-    # the wrong reason). Posture is per connector type, so that means the flat
-    # key is false and no connector block overrides it for a type.
+    # And the rendered project really is on a `never` tier, so the assertions
+    # above describe the static-deny render and not an `allowed` one (which
+    # denies nothing statically, and would pass these pins for the wrong
+    # reason). The tier key alone decides when present.
+    from osprey_connectors.types import tier_writes
+
     config = yaml.safe_load((project_dir / "config.yml").read_text())
-    assert config["control_system"]["writes_enabled"] is False
-    for block in (config["control_system"].get("connector") or {}).values():
-        if isinstance(block, dict):
-            assert block.get("writes_enabled") is not True
+    assert config["control_system"]["writes"] == "never"
+    assert tier_writes(config["control_system"]) == "never"
 
 
 # ---------------------------------------------------------------------------
@@ -468,35 +467,25 @@ def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> Non
 # that used to loop that constant now loops ``configured_targets``. So a
 # deployment that configures no ``live_standin`` block must enumerate, and
 # render, exactly as it did before the third name existed. The pins below hold
-# the settings.json half of that: the permissions Claude Code is launched with
-# are rendered once, from ``session_posture``, and a phantom ``standin`` slot
-# there is not a cosmetic extra key — it carries a write posture. The
-# deployment-wide ``writes_enabled`` reaches an unconfigured target through
-# ``target_writes_enabled``'s fallback, so a phantom slot on the config used
-# below would report ``standin: True`` beside two disarmed real targets, turn an
-# all-off render into a *mixed* one, and pull every writes-check-gated tool out
-# of ``permissions.deny`` — the kill switch, lifted by a machine nobody stood
-# up.
-#
-# That is exactly the config these renders use: the deployment-wide key is
-# ``true`` and both configured types disarm themselves. It is the shape in which
-# a phantom target changes the bytes, which is what makes the byte-identity pin
-# sensitive rather than decorative — and the third render proves that sensitivity
-# rather than asserting it.
+# the settings.json half of that. The permissions Claude Code is launched with
+# are keyed on the login tier (``control_system.writes``) alone, which is
+# target-blind: no target, configured or phantom, can lift the kill switch. So
+# a configured stand-in must change no byte of the render either, and the
+# render's sensitivity is proven on the one input it does read — the same
+# two-target config on a ``never`` tier renders differently.
 
 
 def _two_target_connector(default_connector: dict) -> dict:
     """VA baseline beside the facility's own ``epics`` block, no stand-in.
 
-    Both types disarm themselves so the render is all-off while the
-    deployment-wide key stays ``true`` — see the section note above.
+    The blocks carry no retired ``writes_enabled`` leaf: the tier decides.
     """
     connector = {
         "virtual_accelerator": copy.deepcopy(default_connector["virtual_accelerator"]),
         "epics": copy.deepcopy(default_connector["epics"]),
     }
-    connector["virtual_accelerator"]["writes_enabled"] = False
-    connector["epics"]["writes_enabled"] = False
+    for block in connector.values():
+        block.pop("writes_enabled", None)
     return connector
 
 
@@ -505,13 +494,10 @@ def _with_standin(connector: dict) -> dict:
 
     Copied from the ``virtual_accelerator`` block rather than written out: the
     stand-in is a VA standing in for the live machine, so its block is that
-    block, and copying it keeps this fixture true as the block gains keys. It
-    states no posture of its own, so it inherits the deployment-wide ``true`` —
-    which is what makes the third render differ from the two-target one.
+    block, and copying it keeps this fixture true as the block gains keys.
     """
     connector = copy.deepcopy(connector)
     connector["live_standin"] = copy.deepcopy(connector["virtual_accelerator"])
-    del connector["live_standin"]["writes_enabled"]
     return connector
 
 
@@ -555,6 +541,8 @@ def standin_settings_renders(tmp_path_factory) -> dict:
       the stand-in existed. This is the "before" side of SC-5.
     * ``three`` — the same config plus a ``live_standin`` block: the render a
       phantom ``standin`` slot on the two-target config would have produced.
+    * ``two_never`` — the two-target config on a ``never`` tier, the one input
+      the permission render reads.
     """
     from osprey.cli.templates.manager import TemplateManager
     from osprey_connectors import types as connector_types
@@ -570,11 +558,12 @@ def standin_settings_renders(tmp_path_factory) -> dict:
     base = yaml.safe_load((project_dir / "config.yml").read_text())
     default_connector = base["control_system"]["connector"]
 
-    def render(connector: dict) -> tuple[dict, str]:
+    def render(connector: dict, writes: str = "allowed") -> tuple[dict, str]:
         config = copy.deepcopy(base)
         section = config["control_system"]
         section["type"] = "virtual_accelerator"
-        section["writes_enabled"] = True
+        section.pop("writes_enabled", None)
+        section["writes"] = writes
         section["connector"] = connector
         (project_dir / "config.yml").write_text(yaml.dump(config))
         manager.regenerate_claude_code(project_dir)
@@ -608,6 +597,7 @@ def standin_settings_renders(tmp_path_factory) -> dict:
         monkeypatch.undo()
 
     three_section, three = render(three_connector)
+    _, two_never = render(two_connector, writes="never")
 
     return {
         "two_section": two_section,
@@ -615,6 +605,7 @@ def standin_settings_renders(tmp_path_factory) -> dict:
         "two": two,
         "two_pre_standin": two_pre_standin,
         "three": three,
+        "two_never": two_never,
     }
 
 
@@ -684,22 +675,39 @@ def test_a_configured_standin_does_reach_the_settings_render(
 ) -> None:
     """The other side of that pin: the comparison is sensitive, not vacuous.
 
-    Adding the ``live_standin`` block — and nothing else — makes the render
-    differ, because the stand-in inherits the deployment-wide
-    ``writes_enabled: true`` while both configured types disarm themselves, so
-    the deployment stops being all-off and becomes mixed. That difference is
-    precisely what a phantom ``standin`` slot would have produced on the
-    two-target config, so seeing it here is what makes the byte-identity above
-    worth asserting.
+    The permission render is keyed on the tier alone, so a configured
+    ``live_standin`` block — a real third target — changes no byte of it: no
+    target can lift the kill switch. What makes the byte-identity pins above
+    worth asserting is that the render does move with the input it reads: the
+    same two-target config on a ``never`` tier renders differently, and denies
+    the write tool the ``allowed`` render does not.
     """
-    from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA, session_posture
+    from osprey_connectors.types import (
+        TARGET_LIVE,
+        TARGET_STANDIN,
+        TARGET_VA,
+        configured_targets,
+        tier_writes,
+    )
 
     renders = standin_settings_renders
-    posture = session_posture(renders["three_section"])
 
-    assert posture[TARGET_STANDIN] is True
-    assert set(posture) == {TARGET_LIVE, TARGET_VA, TARGET_STANDIN}
-    assert renders["three"] != renders["two"], (
-        "a configured stand-in changed nothing in the render — the byte-identity "
-        "pin for the two-target case is then insensitive and proves nothing"
+    # The stand-in really is configured: the third render is a three-target one.
+    assert configured_targets(renders["three_section"]) == [
+        TARGET_LIVE,
+        TARGET_VA,
+        TARGET_STANDIN,
+    ]
+    assert tier_writes(renders["three_section"]) == "allowed"
+    assert renders["three"] == renders["two"], (
+        "a configured stand-in changed the permission render — a target, not the "
+        "tier, is deciding what Claude Code is launched with"
     )
+    assert renders["two_never"] != renders["two"], (
+        "the tier changed nothing in the render — the byte-identity pins are then "
+        "insensitive and prove nothing"
+    )
+    deny_never = json.loads(renders["two_never"])["permissions"]["deny"]
+    deny_allowed = json.loads(renders["two"])["permissions"]["deny"]
+    assert "mcp__controls__channel_write" in deny_never
+    assert "mcp__controls__channel_write" not in deny_allowed

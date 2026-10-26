@@ -243,6 +243,10 @@ class TestManifestPresetStamp:
         manager = TemplateManager()
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
+        # No manifest selects no hooks, and a `never` render with python's
+        # read/write-mixed tools on is refused without writes-check, so the one
+        # mixed server is off: what is under test is the missing preset alone.
+        config["claude_code"] = {"servers": {"python": {"enabled": False}}}
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, project_dir, config
         )
