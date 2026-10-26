@@ -1,4 +1,4 @@
-"""The telemetry access end to end: reader accounts, refusals, limits, and history scoping.
+"""The telemetry store's access end to end: reader accounts, refusals, limits, view scoping.
 
 Runs in the model-free lane against public images only; no test here names a
 provider or reaches a model.
@@ -6,18 +6,18 @@ provider or reaches a model.
 One deployment serves the whole module. Its profile declares ``bluesky`` in
 ``deployed_services`` and authenticates a two-person roster by password, so the
 render names the queueserver in the ledger's trust condition and in the
-own-scope policy, and a view user exists per person. Only the store and its
-gateway are started, from the rendered compose: the store through the same
-``_stage_telemetry_store`` call ``osprey up`` makes (which applies the schema
-and the accounts script), then the gateway. No web tier, no bluesky image.
+own-scope policy, and the store keeps its ``history`` account and a view user
+per person. Only the store and its gateway are started, from the rendered
+compose: the store through the same ``_stage_telemetry_store`` call
+``osprey up`` makes (which applies the schema and the accounts script), then
+the gateway. No web tier, no bluesky image.
 
-The history cases send what the page sends: ``EXECUTE AS <view user> <query>``
-by POST as the ``history`` account, with ``log_comment``, ``quota_key`` and
-``http_wait_end_of_query=1`` on the URL, and the view contract's own query
-files (``osprey.history.queries``). Rows reach the store the way they do in a
-deployment (OTLP posted to the gateway with a sender's login, ledger lines
-under ``var/audit/<identity>/``), except where a case needs a volume or a row
-size no sender produces: those rows are written as the store's admin.
+The history page reads the agent record, not this store; the view-user cases
+here prove the store's own accounts script, reaching a view user with
+``EXECUTE AS`` by POST as the store's ``history`` account. Rows reach the store
+the way they do in a deployment (OTLP posted to the gateway with a sender's
+login, ledger lines under ``var/audit/<identity>/``), except where a case
+needs a row no sender produces: those rows are written as the store's admin.
 
 The cases run in file order; the ones that re-stage the accounts restore the
 module's own config before they return.
@@ -50,7 +50,6 @@ import pytest
 import yaml
 
 from osprey.audit.envelope import POSTURE_SOURCE_APP, POSTURE_SOURCE_SPAWN, AuditEnvelope
-from osprey.audit.tool_call import build_record
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment import telemetry_credentials as creds
 from osprey.deployment.compose_generator import compose_base_cmd, compose_provider_env
@@ -71,7 +70,6 @@ from osprey.deployment.telemetry_store.stage import (
     live_accounts,
     stage_store,
 )
-from osprey.history import queries
 from tests.e2e._otlp_replay import rebase_otlp_times
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -104,28 +102,18 @@ READER_X = "x"
 READER_Y = "y"
 READER_X_DAYS = 3
 
+#: The reconstruct-session recipe the docs publish, run here as a reader; it
+#: pages ``RECIPE_PAGE_LIMIT`` rows at a time from a cursor that starts at
+#: ``RECIPE_FIRST_CURSOR``.
+RECIPE = Path(__file__).resolve().parents[2] / "src/osprey/history/queries/reconstruct_session.sql"
+RECIPE_PAGE_LIMIT = 500
+RECIPE_FIRST_CURSOR = datetime.datetime(2000, 1, 1, tzinfo=datetime.UTC)
+#: The event a prompt is recorded as.
+USER_PROMPT_EVENT = "user_prompt"
+
 VERB_TIMEOUT_S = 600
 ROW_TIMEOUT_S = 120.0
 HTTP_TIMEOUT_S = 60.0
-
-#: The probe day (``research/probe-clickhouse.md``): one UTC day the archive
-#: exported, 920,509 rows. The session-list load is 14 of those days.
-PROBE_DAY_ROWS = 920_509
-LOAD_DAYS = 14
-#: The probe day's event mix: one prompt per twenty events, each session's
-#: prompts interleaved among its other events, and sessions of these sizes in
-#: turn (rows per session). One block of them is 5,760 rows, so a probe day is
-#: about 800 sessions and the default window holds well over 1,000.
-PROMPT_EVERY = 20
-SESSION_SIZES = (40, 120, 400, 1_200, 4_000)
-LOAD_USERS = 7
-OTHER_EVENTS = ("api_request", "tool_result", "tool_decision", "assistant_response")
-
-#: The 2,000-event session: twenty results of 512 KiB among them.
-LONG_SESSION_TOOL_CALLS = 2_000
-LONG_SESSION_EVENTS = 1_000
-BIG_RESULTS = 20
-BIG_RESULT_BYTES = 512 * 1024
 
 #: Variables a developer shell or an earlier test may carry that would change
 #: what a spawned ``osprey`` verb resolves.
@@ -310,8 +298,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     _run([str(osprey), "build", "--skip-deps", "--skip-lifecycle"], cwd=repo)
     (repo / ".env").touch()
     config = yaml.safe_load((repo / "build" / "config.yml").read_text())
-    if not tc.history_page_deployed(config):
-        pytest.fail("the render does not deploy the history page; its view users would not exist")
+    if not tc.store_history_account_deployed(config):
+        pytest.fail("the render keeps no store history account; its view users would not exist")
     if trusted_on_behalf_of(config)[1] != ("queueserver",):
         pytest.fail(f"the render trusts no queueserver: {trusted_on_behalf_of(config)!r}")
 
@@ -493,15 +481,6 @@ def _view_count(stack: Stack, view: str, table: str, where: str) -> int:
     return int(rows[0]["n"])
 
 
-def _contract(
-    stack: Stack, view: str, name: str, values: Mapping[str, Any], **kw: Any
-) -> httpx.Response:
-    """A view-contract query, its values sent as the store's typed parameters."""
-    return _as_view(
-        stack, view, queries.load(name), params=queries.query_parameters(name, values), **kw
-    )
-
-
 def _refused_with(response: httpx.Response, code: int) -> None:
     assert response.status_code != 200, f"expected a refusal, got 200: {response.text[:300]}"
     assert f"Code: {code}" in response.text, response.text[:600]
@@ -601,30 +580,30 @@ def _tool_call(
     duration_ms: float = 120.0,
     result: Any = "ok",
 ) -> dict[str, Any]:
-    return build_record(
-        ts=_stamp(when),
-        actor=actor,
-        posture="sandbox",
-        posture_source=POSTURE_SOURCE_SPAWN,
-        session=terminal,
-        session_id=session_id,
-        tool_use_id=tool_use_id,
-        server="workspace",
-        subject=subject,
-        decision="allowed",
-        reason="e2e",
-        approval=None,
-        target=None,
-        generation=None,
-        arguments={"e2e": True},
-        arguments_ref=None,
-        result=result,
-        result_ref=None,
-        error=None,
-        is_error=False,
-        facts={},
-        duration_ms=duration_ms,
-    )
+    """A legacy ``tool_call`` ledger line, in the key order the gateway reads."""
+    return {
+        "ts": _stamp(when),
+        "surface": "tool_call",
+        "actor": actor,
+        "posture": "sandbox",
+        "posture_source": POSTURE_SOURCE_SPAWN,
+        "session": terminal,
+        "session_id": session_id,
+        "tool_use_id": tool_use_id,
+        "duration_ms": duration_ms,
+        "server": "workspace",
+        "subject": subject,
+        "decision": "allowed",
+        "reason": "e2e",
+        "approval": None,
+        "target": None,
+        "generation": None,
+        "arguments": {"e2e": True},
+        "result": result,
+        "error": None,
+        "is_error": False,
+        "facts": {},
+    }
 
 
 def _envelope(
@@ -756,203 +735,6 @@ def _case_logs(seed: Seed, user: str) -> str:
     return f"User = '{user}' AND LogAttributes['e2e.case'] = '{seed.case}'"
 
 
-def _all_views(stack: Stack) -> list[str]:
-    return accounts.configured_view_users(stack.config)
-
-
-# --------------------------------------------------------------------------- #
-# EXECUTE AS: who may, and how
-# --------------------------------------------------------------------------- #
-
-
-def test_execute_as_by_post_works_for_history_and_is_refused_for_readers_and_by_get(
-    stack: Stack,
-) -> None:
-    view = accounts.person_view_user(ALICE)
-    query = f"EXECUTE AS `{view}` SELECT currentUser() AS who FORMAT JSONEachRow"
-
-    by_post = _http(
-        stack,
-        accounts.HISTORY_USER,
-        stack.history_password(),
-        query,
-        params=_page_params(ALICE, view),
-    )
-    assert _rows(by_post) == [{"who": view}]
-
-    by_get = _http(
-        stack,
-        accounts.HISTORY_USER,
-        stack.history_password(),
-        query,
-        params=_page_params(ALICE, view),
-        method="GET",
-    )
-    assert by_get.status_code != 200, f"EXECUTE AS by GET answered 200: {by_get.text[:300]}"
-
-    for reader in (READER_X, READER_Y):
-        response = _http(stack, reader, stack.reader_password(reader), query)
-        _refused_with(response, 497)
-
-
-def test_every_view_user_is_readonly_under_the_page_limits(stack: Stack) -> None:
-    limits = tc.store_limits(stack.config)
-    expected = {
-        "readonly": "1",
-        "max_result_rows": str(limits["result_rows"]),
-        "max_result_bytes": str(2 * tc.gateway_max_log_size(stack.config)),
-        "max_rows_to_read": str(limits["rows_read"]),
-        "max_bytes_to_read": str(limits["bytes_read"]),
-        "result_overflow_mode": "throw",
-        "read_overflow_mode": "throw",
-        "max_execution_time": str(accounts.HISTORY_SECONDS),
-    }
-    select = ", ".join(f"toString(getSetting('{name}')) AS {name}" for name in expected)
-    views = _all_views(stack)
-    assert len(views) == 5, views
-    for view in views:
-        (row,) = _view_rows(stack, view, f"SELECT {select}")
-        assert row == expected, f"{view}: {row}"
-
-
-def test_an_over_cap_load_full_is_a_non_200_naming_the_error_never_a_partial_200(
-    stack: Stack,
-) -> None:
-    session = f"overcap-{uuid.uuid4().hex[:8]}"
-    cap = 2 * tc.gateway_max_log_size(stack.config)
-    piece = 512 * 1024
-    _sql(
-        "INSERT INTO telemetry.otel_logs (Timestamp, ServiceName, Body, ResourceAttributes, LogAttributes) "
-        "SELECT now64(9), 'e2e', "
-        # repeat() stops at 1,000,000 characters: join pieces of 512 KiB.
-        f"arrayStringConcat(arrayMap(i -> repeat('x', {piece}), range({cap // piece + 2}))), "
-        f"map('osprey.user', '{ALICE}'), map('session.id', '{session}', 'event.name', 'assistant_response')"
-    )
-    view = accounts.person_view_user(ALICE)
-    # The page's "load full" link carries a conversation row's key.
-    (row,) = _rows(
-        _contract(
-            stack,
-            view,
-            "conversation",
-            {"user": ALICE, "session": session, "after_ts": queries.FIRST_CURSOR, "after_hash": 0},
-        )
-    )
-    response = _contract(
-        stack,
-        view,
-        "load_full_log",
-        {"user": ALICE, "session": session, "ts": row["Timestamp"], "body_hash": row["body_hash"]},
-    )
-    assert response.status_code != 200, (
-        f"an over-cap row came back as 200 with {len(response.content)} bytes"
-    )
-    assert "TOO_MANY_ROWS_OR_BYTES" in response.text, response.text[:600]
-
-
-# --------------------------------------------------------------------------- #
-# Own scope
-# --------------------------------------------------------------------------- #
-
-
-def test_current_user_inside_the_own_policy_names_the_impersonated_user(
-    stack: Stack, seed: Seed
-) -> None:
-    for person in (ALICE, BOB):
-        view = accounts.person_view_user(person)
-        (row,) = _view_rows(stack, view, "SELECT currentUser() AS who")
-        assert row["who"] == view
-        # The own_otel_logs policy reads substring(currentUser(), 6): the
-        # person's own row passes it only because currentUser() is the view user.
-        assert (
-            _view_count(stack, view, "otel_logs", f"LogAttributes['e2e.case'] = '{seed.case}'") == 1
-        )
-        assert _view_count(stack, view, "otel_logs", _case_logs(seed, person)) == 1
-
-
-def test_view_alice_sees_no_bob_row_and_the_sidecars_row_for_alice(
-    stack: Stack, seed: Seed
-) -> None:
-    view = accounts.person_view_user(ALICE)
-    assert _view_count(stack, view, "otel_logs", f"User = '{BOB}'") == 0
-    assert _view_count(stack, view, "otel_traces", f"User = '{BOB}'") == 0
-    assert _view_count(stack, view, "audit_ledger", f"User = '{BOB}'") == 0
-    assert _view_count(stack, view, "audit_ledger", f"OnBehalfOf = '{BOB}'") == 0
-    sidecar = f"User = 'sidecar' AND OnBehalfOf = '{ALICE}' AND Body LIKE '%{seed.case}%'"
-    assert _scalar(f"SELECT count() FROM telemetry.audit_ledger WHERE {sidecar}") == 1
-    assert _view_count(stack, view, "audit_ledger", sidecar) == 1
-    assert (
-        _view_count(stack, view, "audit_ledger", f"User = '{ALICE}' AND Body LIKE '%{seed.case}%'")
-        == 1
-    )
-
-
-def test_view_all_sees_both_people(stack: Stack, seed: Seed) -> None:
-    view = accounts.VIEW_ALL_USER
-    for person in (ALICE, BOB):
-        assert _view_count(stack, view, "otel_logs", _case_logs(seed, person)) == 1
-        assert (
-            _view_count(
-                stack,
-                view,
-                "otel_traces",
-                f"User = '{person}' AND SpanAttributes['e2e.case'] = '{seed.case}'",
-            )
-            == 1
-        )
-        assert (
-            _view_count(
-                stack,
-                view,
-                "audit_ledger",
-                f"OnBehalfOf = '{person}' AND Body LIKE '%{seed.case}%'",
-            )
-            == 1
-        )
-
-
-def test_traces_are_scoped_by_user(stack: Stack, seed: Seed) -> None:
-    for person, other in ((ALICE, BOB), (BOB, ALICE)):
-        view = accounts.person_view_user(person)
-        rows = _view_rows(
-            stack,
-            view,
-            "SELECT User FROM telemetry.otel_traces "
-            f"WHERE SpanAttributes['e2e.case'] = '{seed.case}'",
-        )
-        assert [r["User"] for r in rows] == [person]
-        # The page's agent list, as the person.
-        agents = _rows(
-            _contract(
-                stack,
-                view,
-                "agents",
-                {"user": other, "session": f"e2e-{seed.case}-{other}"},
-                person=person,
-            )
-        )
-        assert agents == []
-
-
-def test_query_log_names_the_view_user_and_the_log_comment(stack: Stack) -> None:
-    view = accounts.person_view_user(ALICE)
-    marker = f"{ALICE}:{view}"
-    tag = f"probe-{uuid.uuid4().hex[:12]}"
-    _view_rows(stack, view, f"SELECT count() AS n, '{tag}' AS probe FROM telemetry.otel_logs")
-    _sql("SYSTEM FLUSH LOGS")
-    rows = _sql(
-        "SELECT user, initial_user, log_comment FROM system.query_log "
-        f"WHERE type = 'QueryFinish' AND query LIKE '%{tag}%' AND query NOT LIKE '%system.query_log%' "
-        "ORDER BY event_time_microseconds",
-        fmt="JSONEachRow",
-    )
-    logged = [json.loads(line) for line in rows.splitlines() if line.strip()]
-    assert logged, "the page's query left no query_log row"
-    assert {row["log_comment"] for row in logged} == {marker}
-    # One row for the authenticated outer query, one for the impersonated one.
-    assert sorted(row["user"] for row in logged) == sorted([accounts.HISTORY_USER, view]), logged
-
-
 # --------------------------------------------------------------------------- #
 # Reader views: tables and days_back, and narrowing
 # --------------------------------------------------------------------------- #
@@ -1032,153 +814,13 @@ def test_a_reader_named_own_leaves_view_alice_scoped(stack: Stack, seed: Seed) -
 
 
 # --------------------------------------------------------------------------- #
-# A cut accounts script
+# Statements naming one account
 # --------------------------------------------------------------------------- #
 
 
 def _naming(statements: list[accounts.Statement], name: str) -> list[str]:
     ident = f"`{name}`"
     return [s.sql for s in statements if ident in s.sql]
-
-
-def _bob_rows_visible(stack: Stack, view: str) -> int:
-    """Bob's rows *view* returns, or 0 when the store refuses the impersonation."""
-    total = 0
-    for table, where in (
-        ("otel_logs", f"User = '{BOB}'"),
-        ("otel_traces", f"User = '{BOB}'"),
-        ("audit_ledger", f"User = '{BOB}' OR OnBehalfOf = '{BOB}'"),
-    ):
-        response = _as_view(
-            stack, view, f"SELECT count() AS n FROM telemetry.{table} WHERE {where}"
-        )
-        if response.status_code == 200:
-            total += int(_rows(response)[0]["n"])
-    return total
-
-
-def test_the_accounts_script_cut_after_any_view_user_statement_never_shows_alice_a_bob_row(
-    stack: Stack, seed: Seed
-) -> None:
-    view = accounts.person_view_user(ALICE)
-    passwords = accounts.read_passwords(stack.repo, stack.config)
-
-    # The create path, from no view user: cut after each statement. The page's
-    # IMPERSONATE is granted at every cut, as if it had been held all along.
-    _sql(f"DROP USER IF EXISTS `{view}`")
-    created = _naming(
-        accounts.render_account_statements(stack.config, passwords, live_accounts(stack.execute)),
-        view,
-    )
-    assert len(created) >= 5, created
-    try:
-        for cut in range(1, len(created) + 1):
-            _sql(f"DROP USER IF EXISTS `{view}`")
-            apply_script(stack.execute, created[:cut])
-            if view in _sql("SELECT name FROM system.users").split():
-                _sql(f"GRANT IMPERSONATE ON `{view}` TO `{accounts.HISTORY_USER}`")
-            assert _bob_rows_visible(stack, view) == 0, f"cut after: {created[cut - 1]}"
-    finally:
-        stack.restage(stack.config)
-    assert _view_count(stack, view, "otel_logs", _case_logs(seed, ALICE)) == 1
-
-    # The withdraw path: alice leaves the roster; cut after each statement.
-    without_alice = copy.deepcopy(stack.config)
-    web = without_alice["modules"]["web_terminals"]
-    web["users"] = [u for u in web["users"] if u["name"] != ALICE]
-    withdrawn = _naming(
-        accounts.render_account_statements(without_alice, passwords, live_accounts(stack.execute)),
-        view,
-    )
-    assert withdrawn and withdrawn[-1].startswith("DROP USER"), withdrawn
-    try:
-        for cut in range(len(withdrawn)):
-            stack.restage(stack.config)
-            apply_script(stack.execute, withdrawn[:cut])
-            assert _bob_rows_visible(stack, view) == 0, f"cut before: {withdrawn[cut]}"
-    finally:
-        stack.restage(stack.config)
-    assert _view_count(stack, view, "otel_logs", _case_logs(seed, ALICE)) == 1
-
-
-# --------------------------------------------------------------------------- #
-# Preflight rows: the queueserver arm
-# --------------------------------------------------------------------------- #
-
-
-def test_a_preflight_row_on_alices_behalf_is_stored_and_read_only_on_the_preflight_arm(
-    stack: Stack,
-) -> None:
-    """Stored as written; alice's view reads it through the narrowed queueserver arm.
-
-    Whether the page then shows it (only when a queue-submit of alice's
-    precedes it within 60 s) is the page's matcher, proven with the page.
-    """
-    tag = uuid.uuid4().hex[:12]
-    now = datetime.datetime.now(datetime.UTC)
-    planted = f"planted-{tag}"
-    _ledger(
-        stack,
-        "queueserver",
-        "preflight",
-        _envelope(
-            when=now,
-            surface="preflight",
-            actor="queueserver",
-            subject=planted,
-            decision="allowed",
-            on_behalf_of=ALICE,
-            posture_source=POSTURE_SOURCE_SPAWN,
-        ),
-    )
-    # The same claim on any other surface is not on the arm.
-    _ledger(
-        stack,
-        "queueserver",
-        "queue",
-        _envelope(
-            when=now,
-            surface="queue",
-            actor="queueserver",
-            subject=f"other-{tag}",
-            decision="allowed",
-            on_behalf_of=ALICE,
-            posture_source=POSTURE_SOURCE_SPAWN,
-        ),
-    )
-    stored = f"SELECT count() FROM telemetry.audit_ledger WHERE User = 'queueserver' AND Body LIKE '%{tag}%'"
-    assert _wait_count(stored, 2) == 2
-    assert (
-        _scalar(
-            "SELECT count() FROM telemetry.audit_ledger WHERE User = 'queueserver' "
-            f"AND Surface = 'preflight' AND OnBehalfOf = '{ALICE}' AND Body LIKE '%{planted}%'"
-        )
-        == 1
-    )
-
-    window = {
-        "from": now - datetime.timedelta(minutes=5),
-        "to": now + datetime.timedelta(minutes=5),
-    }
-    own = _rows(
-        _contract(
-            stack,
-            accounts.person_view_user(ALICE),
-            "preflight",
-            {"queueservers": ["queueserver"], "user": ALICE, **window},
-        )
-    )
-    assert [r["Surface"] for r in own if planted in r["body"]] == ["preflight"]
-    assert (
-        _view_count(
-            stack, accounts.person_view_user(ALICE), "audit_ledger", f"Body LIKE '%other-{tag}%'"
-        )
-        == 0
-    )
-    assert (
-        _view_count(stack, accounts.person_view_user(BOB), "audit_ledger", f"Body LIKE '%{tag}%'")
-        == 0
-    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1202,10 +844,25 @@ def _log_records(capture: Mapping[str, Any]) -> list[tuple[dict[str, Any], dict[
     return found
 
 
+def _recipe_parameters(user: str, session: str, cursor: Mapping[str, Any]) -> dict[str, str]:
+    """The ``param_<name>`` pairs the recipe takes, as the store reads them."""
+    after_at = cursor["after_at"]
+    if isinstance(after_at, datetime.datetime):
+        after_at = after_at.astimezone(datetime.UTC).replace(tzinfo=None)
+        after_at = after_at.strftime("%Y-%m-%d %H:%M:%S.%f") + "000"
+    return {
+        "param_user": user,
+        "param_session": session,
+        "param_after_at": str(after_at),
+        "param_after_source": str(cursor["after_source"]),
+        "param_after_hash": str(cursor["after_hash"]),
+    }
+
+
 def _reader_recipe(stack: Stack, reader: str, user: str, session: str) -> list[dict[str, Any]]:
     """Every row of the reconstruct-session recipe, paged to the end, as *reader*."""
-    sql = queries.load(queries.RECIPE) + "\nFORMAT JSONEachRow"
-    cursor: dict[str, Any] = {"after_at": queries.FIRST_CURSOR, "after_source": "", "after_hash": 0}
+    sql = RECIPE.read_text(encoding="utf-8") + "\nFORMAT JSONEachRow"
+    cursor: dict[str, Any] = {"after_at": RECIPE_FIRST_CURSOR, "after_source": "", "after_hash": 0}
     found: list[dict[str, Any]] = []
     for _ in range(100):
         response = _http(
@@ -1214,16 +871,14 @@ def _reader_recipe(stack: Stack, reader: str, user: str, session: str) -> list[d
             stack.reader_password(reader),
             sql,
             params={
-                **queries.query_parameters(
-                    queries.RECIPE, {"user": user, "session": session, **cursor}
-                ),
+                **_recipe_parameters(user, session, cursor),
                 "http_wait_end_of_query": "1",
             },
         )
         assert response.status_code == 200, f"{response.status_code}: {response.text[:600]}"
         page = _rows(response)
         found += page
-        if len(page) < queries.PAGE_LIMIT:
+        if len(page) < RECIPE_PAGE_LIMIT:
             return found
         last = page[-1]
         cursor = {
@@ -1243,7 +898,7 @@ def test_the_replayed_cli_session_is_reconstructed_by_a_reader(stack: Stack) -> 
     assert len(sessions) == 1, sessions
     (session,) = sessions
     terminal = records[0][0]["terminal.session"]
-    prompts = [r for r in records if r[1].get("event.name") == queries.USER_PROMPT_EVENT]
+    prompts = [r for r in records if r[1].get("event.name") == USER_PROMPT_EVENT]
     tools = {
         attrs["tool_use_id"]: (
             attrs.get("tool_name", "tool"),
@@ -1327,16 +982,11 @@ def test_the_replayed_cli_session_is_reconstructed_by_a_reader(stack: Stack) -> 
     rows = _reader_recipe(stack, READER_Y, ALICE, session)
     kinds = [(r["source"], r["kind"]) for r in rows]
     assert sum(1 for s, _ in kinds if s == "event") == len(records), kinds
-    assert kinds.count(("event", queries.USER_PROMPT_EVENT)) == len(prompts)
+    assert kinds.count(("event", USER_PROMPT_EVENT)) == len(prompts)
     assert {r["tool_use_id"] for r in rows if r["source"] == "tool_call"} == set(tools)
     assert {r["tool_use_id"] for r in rows if r["source"] == "approval"} == set(tools)
     assert [r["kind"] for r in rows if r["source"] == "preflight"] == ["allowed"]
     assert [r["at"] for r in rows] == sorted(r["at"] for r in rows)
-
-
-# --------------------------------------------------------------------------- #
-# Volume: long sessions and a busy store
-# --------------------------------------------------------------------------- #
 
 
 def _insert_log_rows(select: str) -> None:
@@ -1344,148 +994,6 @@ def _insert_log_rows(select: str) -> None:
         "INSERT INTO telemetry.otel_logs "
         "(Timestamp, ServiceName, Body, ResourceAttributes, LogAttributes) " + select
     )
-
-
-def test_a_2000_event_session_with_twenty_512_kib_results_pages_to_the_end(stack: Stack) -> None:
-    session = f"long-{uuid.uuid4().hex[:8]}"
-    terminal = f"t-{session}"
-    start = "now64(9) - INTERVAL 2 HOUR"
-    big_every = LONG_SESSION_TOOL_CALLS // BIG_RESULTS
-    _sql(
-        "INSERT INTO telemetry.audit_ledger "
-        "(Timestamp, ServiceName, Body, ResourceAttributes, LogAttributes) "
-        f"SELECT {start} + toIntervalMillisecond(number * 100), 'e2e', "
-        'concat(\'{"ts":"x","surface":"tool_call","tool_use_id":"\', '
-        f"concat('toolu_{session}_', toString(number)), '\",\"result\":\"', "
-        f"if(number % {big_every} = 0, repeat('r', {BIG_RESULT_BYTES}), 'ok'), '\"}}'), "
-        f"map('osprey.user', '{ALICE}'), "
-        f"map('osprey.audit.surface', 'tool_call', 'osprey.audit.session_id', '{session}', "
-        f"'osprey.audit.session', '{terminal}', "
-        f"'osprey.audit.tool_use_id', concat('toolu_{session}_', toString(number)), "
-        "'osprey.audit.duration_ms', '40', 'osprey.audit.decision', 'allowed') "
-        f"FROM numbers({LONG_SESSION_TOOL_CALLS})"
-    )
-    _insert_log_rows(
-        f"SELECT {start} + toIntervalMillisecond(number * 200 + 50), 'e2e', concat('event-', toString(number)), "
-        f"map('osprey.user', '{ALICE}', 'terminal.session', '{terminal}'), "
-        f"map('session.id', '{session}', 'event.name', "
-        "if(number % 2 = 0, 'user_prompt', 'assistant_response'), "
-        "if(number % 2 = 0, 'prompt', 'response'), concat('text-', toString(number))) "
-        f"FROM numbers({LONG_SESSION_EVENTS})"
-    )
-
-    view = accounts.person_view_user(ALICE)
-    cursor: dict[str, Any] = {"after_ts": queries.FIRST_CURSOR, "after_hash": 0}
-    seen: list[dict[str, Any]] = []
-    pages = 0
-    while True:
-        response = _contract(stack, view, "tool_log", {"user": ALICE, "session": session, **cursor})
-        page = _rows(response)
-        pages += 1
-        seen += page
-        if len(page) < queries.PAGE_LIMIT:
-            break
-        cursor = {"after_ts": page[-1]["Timestamp"], "after_hash": page[-1]["body_hash"]}
-        assert pages < 20, "the tool log never reached its last page"
-    assert len({r["ToolUseId"] for r in seen}) == LONG_SESSION_TOOL_CALLS
-    big = [r for r in seen if int(r["body_length"]) > BIG_RESULT_BYTES]
-    assert len(big) == BIG_RESULTS
-    assert all(len(r["body"]) <= queries.PREVIEW_CHARS for r in seen)
-
-    rows = _reader_recipe(stack, READER_Y, ALICE, session)
-    assert len(rows) == LONG_SESSION_TOOL_CALLS + LONG_SESSION_EVENTS
-    assert len(rows) > tc.store_limits(stack.config)["result_rows"]
-
-
-def _seed_probe_days(now: datetime.datetime) -> int:
-    """14 probe days of agent events, one INSERT per day; returns the sessions written.
-
-    Each day ends half an hour before *now* and spans 22 hours, so the oldest
-    row stays a day inside the retention window.
-    """
-    block = sum(SESSION_SIZES)
-    bounds = [sum(SESSION_SIZES[: i + 1]) for i in range(len(SESSION_SIZES))]
-    which = (
-        "multiIf("
-        + ", ".join(f"o < {b}, {i}" for i, b in enumerate(bounds[:-1]))
-        + f", {len(bounds) - 1})"
-    )
-    starts = "[" + ", ".join(str(b - s) for b, s in zip(bounds, SESSION_SIZES, strict=True)) + "]"
-    others = "[" + ", ".join(f"'{e}'" for e in OTHER_EVENTS) + "]"
-    usable_ns = (86_400 - 2 * 3600) * 1_000_000_000
-    for day in range(LOAD_DAYS):
-        newest = now - datetime.timedelta(days=day, minutes=30)
-        _insert_log_rows(
-            f"SELECT toDateTime64('{newest:%Y-%m-%d %H:%M:%S}', 9, 'UTC') "
-            f"- toIntervalNanosecond(intDiv(n * {usable_ns}, {PROBE_DAY_ROWS})), 'e2e', 'load', "
-            f"map('osprey.user', concat('load', toString((intDiv(n, {block}) * {len(SESSION_SIZES)} + k) % {LOAD_USERS}))), "
-            f"map('session.id', concat('load-{day}-', toString(intDiv(n, {block})), '-', toString(k)), "
-            f"'event.name', if((o - {starts}[k + 1]) % {PROMPT_EVERY} = 0, 'user_prompt', "
-            f"{others}[(o % {len(OTHER_EVENTS)}) + 1])) "
-            f"FROM (SELECT number AS n, n % {block} AS o, {which} AS k FROM numbers({PROBE_DAY_ROWS}))"
-        )
-    return _scalar("SELECT uniqExact(User, SessionId) FROM telemetry.otel_logs WHERE Body = 'load'")
-
-
-def _read_rows(comment: str) -> int:
-    _sql("SYSTEM FLUSH LOGS")
-    return _scalar(
-        "SELECT max(read_rows) FROM system.query_log "
-        f"WHERE type = 'QueryFinish' AND log_comment = '{comment}'"
-    )
-
-
-def test_the_session_list_at_14_probe_days_reads_fewer_rows_than_the_cap(stack: Stack) -> None:
-    now = datetime.datetime.now(datetime.UTC).replace(microsecond=0)
-    written = _seed_probe_days(now)
-    assert written > 1_000
-    assert _scalar(
-        "SELECT count() FROM telemetry.otel_logs WHERE ServiceName = 'e2e' AND Body = 'load'"
-    ) == (PROBE_DAY_ROWS * LOAD_DAYS)
-    # Whole days elapsed, not calendar-day boundaries crossed: the oldest row
-    # is under 14 x 24 hours old at any time of day.
-    oldest_day = _scalar(
-        "SELECT intDiv(dateDiff('second', min(Timestamp), now64(9)), 86400) "
-        "FROM telemetry.otel_logs WHERE Body = 'load'"
-    )
-    assert oldest_day <= tc.retention_days(stack.config) - 1
-
-    cap = tc.store_limits(stack.config)["rows_read"]
-    view = accounts.VIEW_ALL_USER
-    to = now + datetime.timedelta(minutes=1)
-    window = {"from": to - datetime.timedelta(days=queries.SESSION_LIST_WINDOW_DAYS), "to": to}
-    cursor: dict[str, Any] = {"cursor_ts": to, "cursor_user": "", "cursor_session": ""}
-    run = uuid.uuid4().hex[:8]
-    listed = 0
-    page_no = 0
-    read: list[int] = []
-    while True:
-        page_no += 1
-        comment = f"load-{run}-{page_no}:{view}"
-        page = _rows(
-            _contract(
-                stack,
-                view,
-                "session_list",
-                {**window, **cursor},
-                person="load",
-                log_comment=comment,
-            )
-        )
-        listed += len(page)
-        read.append(_read_rows(comment))
-        if len(page) < queries.SESSION_LIST_LIMIT:
-            break
-        last = page[-1]
-        cursor = {
-            "cursor_ts": last["last_ts"],
-            "cursor_user": last["User"],
-            "cursor_session": last["SessionId"],
-        }
-        assert page_no < 100, "the session list never reached its last page"
-    assert listed > 1_000, f"only {listed} sessions in the default window"
-    assert read[0] < cap, f"page 1 read {read[0]} rows; the cap is {cap}"
-    assert read[-1] < cap, f"the last page read {read[-1]} rows; the cap is {cap}"
 
 
 # =========================================================================== #

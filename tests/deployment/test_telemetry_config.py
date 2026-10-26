@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import pytest
 
+from osprey.agent_record.config import history_page_deployed
 from osprey.deployment import telemetry_config as tc
 from osprey.deployment.host_ports import _SERVICE_LAYOUT_SLOTS, derive_reader_origin_bindings
 from osprey.port_layout import LAYOUT, SLOTS_BY_NAME, default_port
@@ -231,12 +232,16 @@ def test_the_stores_own_account_names_are_reserved(name: str, reserved: bool) ->
         ({"enabled": False, "auth": {"method": "password"}}, False),
     ],
 )
-def test_the_history_page_exists_with_a_store_and_a_sign_in(
+def test_the_stores_history_account_exists_with_a_store_and_a_sign_in(
     web_terminals: dict[str, Any], deployed: bool
 ) -> None:
     config = _config(modules={"web_terminals": web_terminals})
-    assert tc.history_page_deployed(config) is deployed
-    assert tc.history_page_deployed({"modules": {"web_terminals": web_terminals}}) is False
+    assert tc.store_history_account_deployed(config) is deployed
+    no_store = {"modules": {"web_terminals": web_terminals}}
+    assert tc.store_history_account_deployed(no_store) is False
+    # The page itself reads the agent record and needs only the sign-in.
+    assert history_page_deployed(config) is deployed
+    assert history_page_deployed(no_store) is deployed
 
 
 # ── Memory formulas ──────────────────────────────────────────────────────────
@@ -374,67 +379,8 @@ def test_a_rendered_port_that_is_not_one_is_refused(port: str) -> None:
         tc.runtime_gateway_url(PINNED, environ)
 
 
-# --- the query page ----------------------------------------------------------
-
-
-def test_the_default_store_image_has_a_query_page_hash() -> None:
-    """The image a deployment gets unasked is one whose page is served."""
-    tag = tc.DEFAULT_STORE_IMAGE.rsplit(":", 1)[1]
-    assert tag in tc.PLAY_SCRIPT_SHA256
-    assert tc.store_image_tag({}) == tag
-    assert tc.play_script_sha256({}) == tc.PLAY_SCRIPT_SHA256[tag]
-
-
-def test_the_hash_of_the_pinned_image_is_the_one_read_off_it() -> None:
-    """Pinned to the tag: bumping the default image has to bring its own entry."""
-    assert tc.DEFAULT_STORE_IMAGE == "clickhouse/clickhouse-server:26.8.18.2"
-    assert tc.PLAY_SCRIPT_SHA256 == {
-        "26.8.18.2": "85Yv/siUrCiWuCu6drIALnoviB3sLNDOC8OHSaT95/Y=",
-    }
-
-
-@pytest.mark.parametrize("digest", sorted(tc.PLAY_SCRIPT_SHA256.values()))
-def test_every_entry_is_a_base64_sha256(digest: str) -> None:
-    import base64
-
-    assert len(base64.b64decode(digest, validate=True)) == 32
-
-
-@pytest.mark.parametrize(
-    ("image", "tag"),
-    [
-        ("clickhouse/clickhouse-server:26.8.18.2", "26.8.18.2"),
-        ("registry.example.org:5000/mirror/clickhouse-server:26.8.18.2", "26.8.18.2"),
-        ("clickhouse/clickhouse-server:26.8.18.2@sha256:" + "a" * 64, "26.8.18.2"),
-        ("  clickhouse/clickhouse-server:26.8.18.2  ", "26.8.18.2"),
-        ("clickhouse/clickhouse-server", ""),
-        ("registry.example.org:5000/clickhouse-server", ""),
-        ("clickhouse/clickhouse-server@sha256:" + "a" * 64, ""),
-        ("clickhouse/clickhouse-server:latest", "latest"),
-    ],
-)
-def test_the_tag_is_read_off_any_spelling_of_an_image(image: str, tag: str) -> None:
-    config = {"services": {"telemetry_store": {"image": image}}}
-    assert tc.store_image_tag(config) == tag
-    known = tag in tc.PLAY_SCRIPT_SHA256
-    assert (tc.play_script_sha256(config) is not None) is known
-
-
 @pytest.mark.parametrize("image", ["", "  ", 26, ["clickhouse"]])
 def test_an_image_that_is_not_a_reference_is_refused_by_name(image: Any) -> None:
     config = {"services": {"telemetry_store": {"image": image}}}
     with pytest.raises(ValueError, match=r"services\.telemetry_store\.image"):
         tc.store_image(config)
-
-
-def test_a_reader_link_names_its_own_query_endpoint_and_never_a_key() -> None:
-    origin = "https://readers.example.org:8443"
-    bare = tc.reader_play_url(origin)
-    assert bare == (
-        "https://readers.example.org:8443/telemetry/play"
-        "?url=https%3A%2F%2Freaders.example.org%3A8443%2Ftelemetry%2F"
-    )
-    assert tc.reader_play_url(origin, "2nd-shift") == f"{bare}&user=2nd-shift"
-    assert "password" not in tc.reader_play_url(origin, "2nd-shift")
-    assert bare.startswith(f"{origin}{tc.READER_PLAY_PATH}?")
-    assert tc.READER_QUERY_PATH == "/telemetry/"

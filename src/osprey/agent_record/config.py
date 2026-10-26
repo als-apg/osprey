@@ -129,6 +129,25 @@ def uses_clickhouse(raw: Mapping[str, Any] | None) -> bool:
     return isinstance(block, Mapping) and block.get("backend") == BACKEND_CLICKHOUSE
 
 
+#: The web-terminal sign-in methods that scope a history page by person.
+HISTORY_AUTH_METHODS: tuple[str, ...] = ("password", "oidc")
+
+
+def history_page_deployed(config: Mapping[str, Any] | None) -> bool:
+    """Whether this deployment serves the across-users history page.
+
+    The page reads the agent record, which every deployment keeps, and needs a
+    sign-in to scope by: it exists exactly when the web terminals are enabled
+    and authenticate people (``auth.method`` of ``password`` or ``oidc``). A
+    deployment without that sign-in, hello-world among them, has no page.
+    """
+    modules = _mapping(_mapping(config).get("modules"))
+    web_terminals = _mapping(modules.get("web_terminals"))
+    if not web_terminals.get("enabled"):
+        return False
+    return _mapping(web_terminals.get("auth")).get("method") in HISTORY_AUTH_METHODS
+
+
 def parse_agent_record_block(
     raw: Mapping[str, Any], *, base: int | None = None
 ) -> AgentRecordConfig:

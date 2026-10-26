@@ -375,8 +375,10 @@ def test_a_deploying_profile_claims_the_record_port() -> None:
 
 
 def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded_entries
 ) -> None:
+    from osprey.agent_record import writer as record_writer
+    from osprey.agent_record.contract import SPOOL_DIR_ENV
     from osprey.audit import writer
     from osprey.cli import build_cmd
     from osprey.deployment import telemetry_config
@@ -395,8 +397,9 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     stamped = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
     assert stamped["deployment"]["host_identity"] == "builder"
 
-    # A host launch exports that name, and the audit writer files under it,
-    # even though the account running the launch is someone else.
+    # A host launch exports that name: an audit entry names it as the actor and
+    # the default spool directory is its own, even though the account running
+    # the launch is someone else.
     monkeypatch.setattr("getpass.getuser", lambda: "someone-else")
     for name in IDENTITY_ENV_LADDER:
         monkeypatch.delenv(name, raising=False)
@@ -405,6 +408,19 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     assert exported
     for name, value in environ.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
 
-    assert writer.ledger_path("terminal").parent == tmp_path / "var" / "audit" / "builder"
+    entry_id = writer.record(
+        surface="terminal",
+        posture="sandbox",
+        posture_source="process",
+        session=None,
+        subject="host-launch",
+        decision="allowed",
+        reason="allowed",
+    )
+    assert entry_id is not None
+    (entry,) = recorded_entries("audit")
+    assert entry.body["actor"] == "builder"
+
+    monkeypatch.delenv(SPOOL_DIR_ENV)
+    assert record_writer.spool_dir().name == "builder"

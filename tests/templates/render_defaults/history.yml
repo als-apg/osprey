@@ -1,14 +1,13 @@
 # The history page: the across-users view of the agent record, served on the
 # readers' origin under /history/. nginx asks the auth sidecar who the browser
-# is (`/verify-history`), then forwards the request here with the person, the
-# store view user and that user's tables as X-Osprey-History-* headers, and
-# with this service's gate secret. The page runs every query on the telemetry
-# store as `EXECUTE AS <view user>`, so the store's grants and row policies
-# decide what a person sees.
+# is (`/verify-history`), then forwards the request here with the person and
+# the record viewer (all, own:<person> or reader:<name>) as X-Osprey-History-*
+# headers, and with this service's gate secret. The page reads the agent record
+# with its `history` login, naming that viewer on every read, so the record
+# decides what a person sees.
 #
-# It is rendered exactly when the deployment runs the store and its web
-# terminals sign people in (password or oidc); it is never a
-# `deployed_services` entry.
+# It is rendered exactly when the deployment's web terminals sign people in
+# (password or oidc); it is never a `deployed_services` entry.
 #
 # It runs the PROJECT image (<project>:local) that `osprey up` builds from the
 # project root, with the image's own entrypoint, which drops privileges before
@@ -25,18 +24,16 @@ services:
     command: ["osprey", "history", "--host", "0.0.0.0", "--port", "8000"]
     security_opt: ["no-new-privileges:true"]
     labels:
-      # Recreates the container when its store account or its gate secret
+      # Recreates the container when its gate secret or its record login
       # changes: both files below are read once, at start.
       osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_HISTORY:-}"
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_HISTORY:-}"
     restart: unless-stopped
-    depends_on:
-      telemetry_store:
-        condition: service_started
-    # Two files at the repo root and nothing else: the store password of the
-    # `history` account, and the gate secret nginx presents on every request
-    # it forwards. `osprey build` creates both before this file is rendered.
+    # Two files at the repo root and nothing else: the agent record's
+    # `history` login, and the gate secret nginx presents on every request it
+    # forwards. `osprey build` creates both before this file is rendered.
     env_file:
-      - .env.telemetry-history
+      - .env.agent-record.login.history
       - .env.telemetry-history-gate
     environment:
       # The gate accepts the harvested OSPREY_TERMINAL_SECRET_HISTORY from the
@@ -48,11 +45,10 @@ services:
       OSPREY_TERMINAL_ROSTER_OWNERS: "HISTORY=history"
       # The readers' origin, which browsers reach this page on.
       OSPREY_TERMINAL_EXTERNAL_ORIGIN: ""
-      # The store's service name on the compose network.
-      OSPREY_HISTORY_STORE_URL: "http://telemetry_store:8123"
-      # Whose preflight rows the page reads: the rendered queueservers.
-      OSPREY_HISTORY_QUEUESERVERS: ""
-      # How far back the session list's "older" control steps: the store's
+      # WHERE the page reads the agent record: its compose service on the
+      # bridge network.
+      OSPREY_AGENT_RECORD_URL: http://agent-record:8000
+      # How far back the session list's "older" control steps: the
       # retention.
       OSPREY_HISTORY_MAX_DAYS: "14"
       # WHO this page's audit records are written as (the web gate records
@@ -75,8 +71,8 @@ services:
       - ./var/audit/history:/app/golden-project/var/audit/history
       - ./var/spool/history:/app/golden-project/var/spool/history
       - ./var/state/history:/app/golden-project/var/state/history
-    # Always on the compose network: the page dials the store by its service
-    # name, and nginx reaches it on the loopback port above.
+    # Always on the compose network: the page dials the agent record by its
+    # service name, and nginx reaches it on the loopback port above.
     networks:
       - osprey-network
     healthcheck:

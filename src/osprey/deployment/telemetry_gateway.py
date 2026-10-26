@@ -505,7 +505,7 @@ def configured_ledger_identities(config: Mapping[str, Any] | None) -> list[str]:
     identities.extend(dispatch_worker_audit_identities(conf))
     identities.extend(service_audit_identities(conf))
     identities.extend(lane_queueserver_audit_identities(conf))
-    if tc.history_page_deployed(conf):
+    if tc.store_history_account_deployed(conf):
         identities.append(tc.HISTORY_SERVICE)
     host = tc.host_identity(conf)
     if host is not None:

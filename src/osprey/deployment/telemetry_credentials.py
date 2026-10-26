@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from osprey.agent_record.config import history_page_deployed
 from osprey.deployment import telemetry_config as tc
 from osprey_connectors.safety_file import atomic_replace
 
@@ -142,7 +143,7 @@ _FIXED_OWNER_FILES: Mapping[str, tuple[str, ...]] = {
     tc.STORE_SERVICE: (ADMIN_FILE,),
     tc.GATEWAY_SERVICE: (INGEST_FILE, HTPASSWD_FILE),
     _ARCHIVE_SERVICE: (ARCHIVE_FILE,),
-    tc.HISTORY_SERVICE: (HISTORY_FILE, HISTORY_GATE_FILE),
+    tc.HISTORY_SERVICE: (HISTORY_GATE_FILE,),
     _PROXY_SERVICE: (HISTORY_GATE_FILE,),
 }
 
@@ -413,10 +414,13 @@ def _service_contents(config: Mapping[str, Any] | None) -> dict[str, Any]:
     }
     if tc.gateway_deployed(config):
         contents[INGEST_FILE] = lambda: _env_lines([(INGEST_PASSWORD_ENV, _token())])
-    if tc.history_page_deployed(config):
+    if tc.store_history_account_deployed(config):
         contents[HISTORY_FILE] = lambda: _env_lines([(HISTORY_PASSWORD_ENV, _token())])
-        contents[HISTORY_GATE_FILE] = lambda: _env_lines([(HISTORY_GATE_ENV, _token())])
     return contents
+
+
+def _gate_contents() -> str:
+    return _env_lines([(HISTORY_GATE_ENV, _token())])
 
 
 def expected_files(config: Mapping[str, Any] | None, *, reader_keys: bool = False) -> list[str]:
@@ -428,11 +432,13 @@ def expected_files(config: Mapping[str, Any] | None, *, reader_keys: bool = Fals
             mints.
 
     Returns:
-        Empty when the store is not deployed.
+        The history page's gate file while the page is deployed, and nothing
+        else when the store is not deployed.
     """
+    gate = [HISTORY_GATE_FILE] if history_page_deployed(config) else []
     if not tc.store_deployed(config):
-        return []
-    names = list(_service_contents(config))
+        return gate
+    names = [*_service_contents(config), *gate]
     senders = sender_identities(config)
     names.extend(sender_file(identity) for identity in senders)
     if tc.gateway_deployed(config):
@@ -481,9 +487,13 @@ def ensure_telemetry_credentials(
     A file that exists is never rewritten, so calling this again changes
     nothing — rotating one credential is deleting its file and calling this.
 
+    * The history page's gate secret while the page is deployed
+      (:func:`osprey.agent_record.config.history_page_deployed`), with or
+      without the store; removed otherwise.
     * The service accounts: admin and archive always; ingest with the gateway;
-      the history page's two only while the page is deployed, removed
-      otherwise.
+      the store's history account only while
+      :func:`~osprey.deployment.telemetry_config.store_history_account_deployed`
+      holds, removed otherwise.
     * One login per member of :func:`sender_identities`; a login whose
       identity left the set is removed.
     * With ``reader_keys``: one key per configured reader, and the key file of
@@ -491,9 +501,10 @@ def ensure_telemetry_credentials(
       for the operator, and out of the way, so adding the name back later
       mints a new key instead of reviving the one that was handed out.
 
-    A deployment without the store is left exactly as it is: nothing is
-    minted, and nothing is removed either, because a store volume that
-    outlives its config entry is only reachable with the admin file.
+    Past the gate secret, a deployment without the store is left exactly as
+    it is: nothing is minted, and nothing is removed either, because a store
+    volume that outlives its config entry is only reachable with the admin
+    file.
 
     Args:
         repo_root: The deployment repo root, where the files live.
@@ -510,17 +521,22 @@ def ensure_telemetry_credentials(
         ValueError: If a sender identity cannot be a login name.
     """
     report = CredentialReport()
+    root = Path(repo_root)
+    # The history page's gate secret follows the page, which reads the agent
+    # record and is served with or without the store.
+    if history_page_deployed(config):
+        if _create(root / HISTORY_GATE_FILE, _gate_contents()):
+            report.minted.append(HISTORY_GATE_FILE)
+    elif _remove(root / HISTORY_GATE_FILE):
+        report.purged.append(HISTORY_GATE_FILE)
     if not tc.store_deployed(config):
         return report
-    root = Path(repo_root)
 
     for name, content in _service_contents(config).items():
         if _create(root / name, content()):
             report.minted.append(name)
-    if not tc.history_page_deployed(config):
-        for name in (HISTORY_FILE, HISTORY_GATE_FILE):
-            if _remove(root / name):
-                report.purged.append(name)
+    if not tc.store_history_account_deployed(config) and _remove(root / HISTORY_FILE):
+        report.purged.append(HISTORY_FILE)
 
     senders = sender_identities(config)
     for identity in senders:
@@ -576,8 +592,6 @@ def credential_file_problems(
         regular file readable by its owner alone and every sender file holds
         its own login.
     """
-    if not tc.store_deployed(config):
-        return []
     root = Path(repo_root)
     try:
         names = expected_files(config, reader_keys=True)
@@ -630,7 +644,7 @@ _HOLDS: Mapping[str, str] = {
     INGEST_FILE: "the password the telemetry gateway stores records with",
     HTPASSWD_FILE: "the list of senders the telemetry gateway admits",
     ARCHIVE_FILE: "the password the archive reads the telemetry store with",
-    HISTORY_FILE: "the password the history page reads the telemetry store with",
+    HISTORY_FILE: "the password of the telemetry store's history account",
     HISTORY_GATE_FILE: "the secret the history page is gated on",
 }
 

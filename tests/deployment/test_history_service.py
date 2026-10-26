@@ -1,8 +1,8 @@
 """The history service: rendered, provisioned and linked exactly when the page is deployed.
 
 The page is derived, never a ``deployed_services`` entry: it exists when the
-deployment runs the telemetry store and its web terminals sign people in
-(:func:`~osprey.deployment.telemetry_config.history_page_deployed`). Every
+deployment's web terminals sign people in
+(:func:`~osprey.agent_record.config.history_page_deployed`). Every
 consumer keys on that one predicate — the audit directory and the gateway's
 receiver for it, the project-image build, the compose render, and the dispatch
 dashboard's link — so a password deployment gets all of them and an auth-none
@@ -65,10 +65,9 @@ def test_a_signed_in_deployment_with_the_store_has_the_history_identity(method: 
     "config",
     [
         _config("none"),
-        {**_config(), "deployed_services": ["telemetry_gateway"]},
         {**_config(), "modules": {"web_terminals": {"enabled": False}}},
     ],
-    ids=["auth-none", "no-store", "no-web-terminals"],
+    ids=["auth-none", "no-web-terminals"],
 )
 def test_no_history_identity_without_the_page(config: dict[str, Any]) -> None:
     assert tc.HISTORY_SERVICE not in service_audit_identities(config)
@@ -142,7 +141,8 @@ def test_the_render_context_names_the_readers_origin_and_the_page_url() -> None:
     assert context["osprey_history"]["port"] == default_port(
         "history", base=tc.resolve_port_base(_config())
     )
-    assert context["osprey_history"]["store_url"] == "http://telemetry_store:8123"
+    # The page reads the agent record, never the store.
+    assert "store_url" not in context["osprey_history"]
 
 
 def test_no_page_url_without_the_page() -> None:
@@ -174,7 +174,8 @@ def test_the_history_service_runs_the_project_image_on_loopback() -> None:
     assert service["command"][:2] == ["osprey", "history"]
     port = default_port("history", base=tc.resolve_port_base(_config()))
     assert service["ports"] == [f"127.0.0.1:{port}:{HISTORY_CONTAINER_PORT}"]
-    assert service["env_file"] == [".env.telemetry-history", ".env.telemetry-history-gate"]
+    assert service["env_file"] == [".env.agent-record.login.history", ".env.telemetry-history-gate"]
+    assert "depends_on" not in service
     environment = service["environment"]
     assert environment["OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS"] == "1"
     assert environment["OSPREY_TERMINAL_ROSTER_OWNERS"] == "HISTORY=history"
@@ -182,8 +183,10 @@ def test_the_history_service_runs_the_project_image_on_loopback() -> None:
     assert "OSPREY_TERMINAL_SECRET" not in environment
     assert environment["OSPREY_TERMINAL_EXTERNAL_ORIGIN"] == READER_ORIGIN
     assert environment["OSPREY_AUDIT_IDENTITY"] == tc.HISTORY_SERVICE
+    assert environment["OSPREY_AGENT_RECORD_URL"] == "http://agent-record:8000"
     assert service["labels"] == {
-        "osprey.telemetry.cred.digest": "${OSPREY_TELEMETRY_DIGEST_HISTORY:-}"
+        "osprey.telemetry.cred.digest": "${OSPREY_TELEMETRY_DIGEST_HISTORY:-}",
+        "osprey.agent-record.cred.digest": "${OSPREY_AGENT_RECORD_DIGEST_HISTORY:-}",
     }
     # Its audit, spool and state directories, each addressed by its identity.
     sources = [volume.split(":")[0] for volume in service["volumes"]]
@@ -207,3 +210,45 @@ def _dispatcher_env(config: dict[str, Any]) -> dict[str, Any]:
 def test_the_page_url_reaches_the_dispatcher_only_when_the_page_is_deployed() -> None:
     assert _dispatcher_env(_config())["OSPREY_HISTORY_URL"] == f"{READER_ORIGIN}/history/"
     assert "OSPREY_HISTORY_URL" not in _dispatcher_env(_config("none"))
+
+
+# ---------------------------------------------------------------------------
+# Without the old store: the page reads the agent record alone
+# ---------------------------------------------------------------------------
+
+
+def test_a_password_deployment_without_the_old_store_renders_and_serves_history() -> None:
+    from osprey.agent_record.config import history_page_deployed
+    from osprey.deployment.compose_generator import derived_compose_dirs
+    from osprey.deployment.web_terminals.render import render_web_terminals, serves_reader_origin
+
+    config = _config(
+        deployed_services=[],
+        registry={"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
+    )
+    assert not tc.store_deployed(config)
+
+    # The one predicate holds, and every consumer follows it.
+    assert history_page_deployed(config)
+    assert not tc.store_history_account_deployed(config)
+    assert "history" in derived_compose_dirs(config)
+    assert tc.HISTORY_SERVICE in service_audit_identities(config)
+    assert serves_reader_origin(config)
+    assert _inject_project_metadata(copy.deepcopy(config))["osprey_history_url"] == (
+        f"{READER_ORIGIN}/history/"
+    )
+
+    # The service reads the record with its login and waits on no store.
+    (service,) = _render("services/history/docker-compose.yml.j2", _full_context(config))[
+        "services"
+    ].values()
+    assert ".env.agent-record.login.history" in service["env_file"]
+    assert ".env.telemetry-history" not in service["env_file"]
+    assert "depends_on" not in service
+    assert not any("STORE" in name for name in service["environment"])
+
+    # nginx serves /history/ on the readers' origin, gated by the sidecar.
+    artifacts = render_web_terminals(config, facility_name="Demo Light Source")
+    nginx = artifacts["nginx/nginx.conf"]
+    assert "location /history/ {" in nginx
+    assert "location = /verify-history {" in nginx

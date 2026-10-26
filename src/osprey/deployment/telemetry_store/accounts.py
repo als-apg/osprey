@@ -29,7 +29,7 @@ SELECT that policy scopes. A table dropped from a reader's list is revoked,
 then its policy dropped, in the revoke phase.
 
 View users exist only while the history page is deployed
-(:func:`osprey.deployment.telemetry_config.history_page_deployed`). The page
+(:func:`osprey.deployment.telemetry_config.store_history_account_deployed`). The page
 reads every row as one of them, through ``EXECUTE AS``; none can sign in
 (``no_password``, ``HOST NONE``) and each holds its SELECT grants itself, never
 through a role (:func:`view_statements`):
@@ -282,7 +282,7 @@ def read_passwords(repo_root: Path | str, config: Mapping[str, Any] | None) -> P
         else None,
         archive=need(creds.ARCHIVE_FILE, creds.ARCHIVE_PASSWORD_ENV),
         history=need(creds.HISTORY_FILE, creds.HISTORY_PASSWORD_ENV)
-        if tc.history_page_deployed(config)
+        if tc.store_history_account_deployed(config)
         else None,
         readers={
             name: need(creds.reader_file(name), creds.READER_KEY)
@@ -341,7 +341,7 @@ def configured_view_users(config: Mapping[str, Any] | None) -> list[str]:
 
     None when the history page is not deployed, so every owned one is withdrawn.
     """
-    if not tc.history_page_deployed(config):
+    if not tc.store_history_account_deployed(config):
         return []
     return [
         *(person_view_user(person) for person in roster_persons(config)),
@@ -415,7 +415,7 @@ def _withdrawals(config: Mapping[str, Any] | None, live: LiveAccounts) -> list[S
         )
     for name in sorted(owned(live, VIEW_KIND) - set(configured_view_users(config))):
         statements.extend(Statement(Phase.DROP, sql) for sql in _withdraw_view_user(name, live))
-    if not tc.history_page_deployed(config) and HISTORY_USER in live.users:
+    if not tc.store_history_account_deployed(config) and HISTORY_USER in live.users:
         statements.append(Statement(Phase.DROP, f"DROP USER IF EXISTS {quote_ident(HISTORY_USER)}"))
     if not tc.gateway_deployed(config) and INGEST_USER in live.users:
         statements.append(Statement(Phase.DROP, f"DROP USER IF EXISTS {quote_ident(INGEST_USER)}"))
@@ -627,7 +627,7 @@ def view_statements(config: Mapping[str, Any] | None, live: LiveAccounts) -> lis
     own-scope policies come before any of them. Nothing when the history page
     is not deployed.
     """
-    if not tc.history_page_deployed(config):
+    if not tc.store_history_account_deployed(config):
         return []
     statements = [Statement(Phase.CREATE, sql) for sql in own_scope_policies(config)]
     for person in roster_persons(config):
@@ -767,7 +767,7 @@ def _core(config: Mapping[str, Any] | None, passwords: Passwords) -> list[str]:
         f"FOR INTERVAL 1 MINUTE MAX queries = {limits['per_minute']} "
         f"TO {quote_ident(READERS_ROLE)}",
     ]
-    if tc.history_page_deployed(config):
+    if tc.store_history_account_deployed(config):
         sql += _profile(VIEW_PROFILE, _view_limits(config, limits))
         sql += [
             f"CREATE QUOTA IF NOT EXISTS {quote_ident(VIEW_QUOTA)}",

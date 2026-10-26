@@ -39,7 +39,6 @@ import math
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import quote
 
 from osprey.deployment.qmd_service import dial_address, resolve_bind_address
 from osprey.port_layout import default_port, resolve_port_base
@@ -58,9 +57,6 @@ __all__ = [
     "HISTORY_CONCURRENCY",
     "HISTORY_SERVICE",
     "HISTORY_VALUES",
-    "PLAY_SCRIPT_SHA256",
-    "READER_PLAY_PATH",
-    "READER_QUERY_PATH",
     "RESERVED_ACCOUNT_NAMES",
     "RESERVED_ACCOUNT_PREFIX",
     "STORE_HTTP_CONTAINER_PORT",
@@ -76,15 +72,12 @@ __all__ = [
     "gateway_memory_floor",
     "gateway_port",
     "gateway_url",
-    "history_page_deployed",
     "history_port",
     "host_identity",
     "is_reserved_account_name",
     "metrics_port",
     "parse_memory",
-    "play_script_sha256",
     "reader_names",
-    "reader_play_url",
     "reader_port",
     "readers",
     "retention_days",
@@ -92,8 +85,8 @@ __all__ = [
     "service_block",
     "store_address",
     "store_deployed",
+    "store_history_account_deployed",
     "store_image",
-    "store_image_tag",
     "store_limits",
     "store_memory_bytes",
     "store_memory_demand",
@@ -106,7 +99,8 @@ __all__ = [
 #: network dials.
 STORE_SERVICE = "telemetry_store"
 GATEWAY_SERVICE = "telemetry_gateway"
-#: The history page. Derived (see :func:`history_page_deployed`), never a
+#: The history page. Derived (see
+#: :func:`osprey.agent_record.config.history_page_deployed`), never a
 #: ``deployed_services`` entry.
 HISTORY_SERVICE = "history"
 
@@ -129,25 +123,6 @@ DEFAULT_GATEWAY_IMAGE = (
 #: is unset, in the spelling compose takes.
 DEFAULT_STORE_MEMORY = "2g"
 
-#: The two paths the readers' origin answers for the store: the query endpoint
-#: and the store's own query page. Everything else under the prefix is refused.
-READER_QUERY_PATH = "/telemetry/"
-READER_PLAY_PATH = "/telemetry/play"
-
-#: The base64 SHA-256 of the one inline script of the store's query page
-#: (``/play``), by image tag. The readers' origin serves that page under a
-#: content security policy that lets exactly this script run and nothing else,
-#: so a result, an error page or any other same-origin response can never be
-#: scripted. The script is part of the image and changes with it: a tag absent
-#: here serves no query page at all.
-#:
-#: To add a tag: start the image, fetch ``http://127.0.0.1:8123/play``, take the
-#: bytes between ``<script type="text/javascript">`` and ``</script>`` exactly
-#: as served, and add ``base64(sha256(bytes))`` under the tag. The page must
-#: still hold one inline script and load none from elsewhere.
-PLAY_SCRIPT_SHA256: Mapping[str, str] = {
-    "26.8.18.2": "85Yv/siUrCiWuCu6drIALnoviB3sLNDOC8OHSaT95/Y=",
-}
 DEFAULT_RETENTION_DAYS = 14
 
 #: ``services.telemetry_store.limits.*`` and what each is when unset. Every one
@@ -265,12 +240,13 @@ def _web_terminals(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     return _mapping(_mapping(_mapping(config).get("modules")).get("web_terminals"))
 
 
-def history_page_deployed(config: Mapping[str, Any] | None) -> bool:
-    """Whether this deployment serves the across-users history page.
+def store_history_account_deployed(config: Mapping[str, Any] | None) -> bool:
+    """Whether the telemetry store keeps its ``history`` account.
 
-    The page needs a store to read and a sign-in to scope by, so it exists
+    The store's history account, its password file and its view users exist
     exactly when the store is deployed and the web terminals authenticate
-    people (``auth.method`` of ``password`` or ``oidc``).
+    people (``auth.method`` of ``password`` or ``oidc``). Whether the history
+    page itself is served is :func:`osprey.agent_record.config.history_page_deployed`.
     """
     web_terminals = _web_terminals(config)
     if not store_deployed(config) or not web_terminals.get("enabled"):
@@ -334,27 +310,6 @@ def store_image(config: Mapping[str, Any] | None) -> str:
             f"services.telemetry_store.image must be an image reference, got {value!r}"
         )
     return value.strip()
-
-
-def store_image_tag(config: Mapping[str, Any] | None) -> str:
-    """The tag of :func:`store_image`, or ``""`` when the reference names none.
-
-    A digest is not a tag: ``name:tag@sha256:...`` answers ``tag`` and
-    ``name@sha256:...`` answers nothing. A colon inside the registry part
-    (``host:5000/name``) is a port.
-    """
-    name = store_image(config).split("@", 1)[0]
-    last = name.rsplit("/", 1)[-1]
-    return last.split(":", 1)[1] if ":" in last else ""
-
-
-def play_script_sha256(config: Mapping[str, Any] | None) -> str | None:
-    """The :data:`PLAY_SCRIPT_SHA256` entry of the store image, or ``None``.
-
-    ``None`` means the image's query page is not one this code has read, so
-    nothing can vouch for its script and the page is not served.
-    """
-    return PLAY_SCRIPT_SHA256.get(store_image_tag(config))
 
 
 def store_port(config: Mapping[str, Any] | None) -> int:
@@ -427,27 +382,6 @@ def reader_names(config: Mapping[str, Any] | None) -> list[str]:
         for entry in readers(config)
         if isinstance(entry, Mapping) and isinstance(entry.get("name"), str)
     ]
-
-
-def reader_play_url(reader_origin: str, user: str | None = None) -> str:
-    """The query page on the readers' origin, already pointed at its endpoint.
-
-    The page asks the address in its ``url`` parameter, so every link to it
-    carries the origin's own query endpoint there. One spelling for the printed
-    link, the documented one and the redirect a bare bookmark is healed with.
-
-    Args:
-        reader_origin: The readers' origin, ``scheme://host[:port]``.
-        user: The reader the page opens for; left out when ``None``. Never a
-            key: the person types that into the page.
-
-    Returns:
-        ``<origin>/telemetry/play?url=<percent-encoded origin>/telemetry/``,
-        with ``&user=<name>`` appended for a named reader.
-    """
-    endpoint = quote(f"{reader_origin}{READER_QUERY_PATH}", safe="")
-    link = f"{reader_origin}{READER_PLAY_PATH}?url={endpoint}"
-    return link if user is None else f"{link}&user={quote(user, safe='')}"
 
 
 def is_reserved_account_name(name: str) -> bool:
