@@ -31,6 +31,7 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     control_target_tree_dir,
+    derived_compose_dirs,
     ensure_audit_dir,
     ensure_control_target_dir,
     ensure_shared_corpus_dir,
@@ -1399,6 +1400,24 @@ def _force_recreate_services(
     _report_step(f"recreated {', '.join(services)}")
 
 
+def _services_stack_has_services(config: dict, compose_files: list[str]) -> bool:
+    """Whether the backend-services compose files name at least one service.
+
+    A listed service (``deployed_services``) always has a rendered file. A
+    derived service (:func:`~osprey.deployment.compose_generator.derived_compose_dirs`)
+    is not listed, so it counts when its own ``<dir>/docker-compose.yml`` is
+    among *compose_files*. The top-level network-only file names none.
+
+    :param config: Raw deploy config.
+    :param compose_files: Compose files ``prepare_compose_files`` resolved.
+    :return: ``True`` when ``compose up`` on *compose_files* has a service to start.
+    """
+    if config.get("deployed_services"):
+        return True
+    derived = set(derived_compose_dirs(config))
+    return any(Path(path).parent.name in derived for path in compose_files)
+
+
 def deploy_up_web_terminals(
     config: dict,
     compose_files: list[str],
@@ -1419,8 +1438,8 @@ def deploy_up_web_terminals(
     ``-f`` list:
 
     1. The backend-services stack (``compose_files``, possibly just the
-       network-only top-level file when no service is actually deployed —
-       see the ``deployed_services`` guard below), exactly as the plain
+       network-only top-level file when no service is rendered — see the
+       services guard below), exactly as the plain
        non-web path would run it (``up`` (``--build`` under ``dev_mode``)
        ``-d``, no ``pull``).
     2. The web-terminal stack (``docker-compose.web.yml`` alone): ``up -d``,
@@ -1472,14 +1491,16 @@ def deploy_up_web_terminals(
     ``network_mode: host`` (see ``docker-compose.web.yml.j2``), so it never
     needed to join ``osprey-network`` from the services file anyway.
 
-    The services sub-invocation only runs when a real service is deployed
-    (``config["deployed_services"]`` non-empty): ``compose_files`` always
-    includes the top-level ``build/services/docker-compose.yml`` (a bare
-    network declaration, no ``services:`` key) even for a web-terminals-only
-    deploy, and ``compose up`` on a file with zero services fails outright
-    with ``no service selected`` — this is exactly why the *plain* non-web
-    path's own early-return guards on ``deployed_services`` before ever
-    reaching ``up``. It also never runs ``pull``: unlike the web stack's
+    The services sub-invocation runs whenever ``compose_files`` names a
+    service (see :func:`_services_stack_has_services`): a listed service
+    (``config["deployed_services"]`` non-empty) or a derived service whose
+    compose file the build rendered — agent-record is rendered for every
+    deployment, so a web-terminals-only deploy starts it before the terminals.
+    Only a stack of nothing but the top-level
+    ``build/services/docker-compose.yml`` (a bare network declaration, no
+    ``services:`` key) skips it, because ``compose up`` on a file with zero
+    services fails outright with ``no service selected``. It also never runs
+    ``pull``: unlike the web stack's
     images (always registry-hosted — ``nginx:*-alpine`` and
     ``<registry>/web-terminal:latest``), a deployed service like
     ``event_dispatcher`` may declare only a ``build:`` block with no
@@ -1514,8 +1535,8 @@ def deploy_up_web_terminals(
     :param config: Raw deploy config.
     :param compose_files: Compose files ``prepare_compose_files`` already
         resolved — always at least the top-level network-only file, even for
-        a web-terminals-only deploy (see the ``deployed_services`` guard
-        above for why that alone doesn't get an ``up`` invocation).
+        a web-terminals-only deploy (see the services guard above for why
+        that alone doesn't get an ``up`` invocation).
     :param dev_mode: Whether ``--dev`` was passed; appends ``--build`` to the
         services stack's ``up -d`` invocation when set, and is threaded into
         :func:`build_render_images` (local mode) for its own dev-wheel
@@ -1671,9 +1692,9 @@ def deploy_up_web_terminals(
     )
 
     # ---- backend services (own compose project directory: build/services/) --
-    # Skipped when no real service is deployed -- see docstring for why
+    # Skipped when the files name no service at all -- see docstring for why
     # `up` on the network-only top-level file alone would fail outright.
-    if config.get("deployed_services"):
+    if _services_stack_has_services(config, compose_files):
         services_base = compose_base_cmd(
             with_plain_progress(get_runtime_command(config), provider=provider),
             compose_files,
