@@ -95,7 +95,6 @@ deployed_services:
 execution:
   execution_method: subprocess
 file_paths:
-  api_calls_dir: api_calls
   registry_exports_dir: registry_exports
 hooks:
   debug: false

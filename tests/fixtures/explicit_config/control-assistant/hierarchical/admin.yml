@@ -206,7 +206,6 @@ execution:
 facility_knowledge:
   bundle_path: data/facility/knowledge
 file_paths:
-  api_calls_dir: api_calls
   registry_exports_dir: registry_exports
 health:
   auto:
@@ -280,8 +279,6 @@ services:
     username: ariel
   qmd:
     port: 10060
-  telemetry_gateway:
-    port: 10051
   virtual_accelerator:
     port: 5064
 simulation:
@@ -305,8 +302,6 @@ web:
     max_channels: 50000
   config_panel:
     enabled: true
-  feedback:
-    max_store_bytes: 268435456
   panels:
     ariel:
       enabled: true
