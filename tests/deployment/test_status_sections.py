@@ -33,6 +33,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
@@ -1215,24 +1216,45 @@ def _write_record(repo: Path, identity: str, *, target: str, switch: dict | None
     (directory / RECORD_FILENAME).write_text(json.dumps(payload), encoding="utf-8")
 
 
+#: The map every multi-user case stages unless it says otherwise.
+_MAP = {"alice": "allowed", "bob": "never"}
+
+
+def _stage_map(repo: Path, login_tiers, *, service: str = "bluesky") -> Path:
+    """Stage a shared container's ``config.yml`` carrying *login_tiers*, as a build does."""
+    path = repo / "build" / "services" / service / "config.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {"control_system": {"writes": "allowed", "login_tiers": login_tiers}}
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    return path
+
+
 def _render(repo: Path, name: str, writes: str) -> dict:
-    """A rendered tier project whose ``control_system.writes`` is *writes*."""
+    """A rendered tier project whose ``control_system.writes`` is *writes*.
+
+    Status must not read it: the staged map is the one answer (CC-3). The
+    cases below keep renders that disagree with the map to prove it.
+    """
     project = repo / "build" / f"demo-{name}"
     project.mkdir(parents=True, exist_ok=True)
     (project / "config.yml").write_text(f"control_system:\n  writes: {writes}\n", encoding="utf-8")
     return {"kind": "tier", "project": f"demo-{name}", "project_path": f"build/demo-{name}"}
 
 
-def _multi_user_config(repo: Path, **web_terminals) -> dict:
+def _multi_user_config(repo: Path, *, login_tiers=_MAP, **web_terminals) -> dict:
+    """A two-person roster; *login_tiers* is staged unless it is ``None``."""
     block = {
         "enabled": True,
         "users": [{"name": "alice", "tier": "operator"}, {"name": "bob", "tier": "viewer"}],
         "renders": {
-            "operator": _render(repo, "operator", "allowed"),
-            "viewer": _render(repo, "viewer", "never"),
+            # Inverted against the map: a reader of the renders gets every tier wrong.
+            "operator": _render(repo, "operator", "never"),
+            "viewer": _render(repo, "viewer", "allowed"),
         },
     }
     block.update(web_terminals)
+    if login_tiers is not None:
+        _stage_map(repo, login_tiers)
     return {"modules": {"web_terminals": block}}
 
 
@@ -1297,7 +1319,7 @@ def test_an_identity_not_in_the_roster_is_named_as_such(tmp_path):
 
     rows = status_display.writes_rows(config, tmp_path)
 
-    assert rows[-1] == ("mallory", "not in the roster", "live", "live")
+    assert rows[-1] == ("mallory", "not in the roster — cannot write", "live", "live")
     assert [row[0] for row in rows] == ["alice", "bob", "mallory"]
 
 
@@ -1338,13 +1360,100 @@ def test_an_sso_login_without_a_role_has_its_tier_decided_at_sign_in(tmp_path):
     assert rows["carol"] == ["by role at sign-in", "standin", "standin"]
 
 
-def test_a_render_that_cannot_be_read_answers_unknown_not_a_guess(tmp_path):
+def test_no_staged_map_answers_unknown_for_every_card_not_a_guess(tmp_path):
+    """A build that staged no shared container has no map to show; renders are not read."""
+    config = _multi_user_config(tmp_path, login_tiers=None)
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows == {"alice": ["unknown", "—", "off"], "bob": ["unknown", "—", "off"]}
+
+
+def test_the_map_is_read_from_the_dispatch_worker_copy_too(tmp_path):
+    config = _multi_user_config(tmp_path, login_tiers=None)
+    _stage_map(tmp_path, _MAP, service="dispatch_worker")
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "allowed"
+    assert rows["bob"][0] == "never"
+
+
+def test_the_rendered_map_wins_over_the_live_roster(tmp_path):
+    """CC-3: a roster edit shows after the next build, and status flags no drift."""
     config = _multi_user_config(tmp_path)
-    (tmp_path / "build" / "demo-operator" / "config.yml").unlink()
+    # alice was moved to the viewer tier in the profile, not yet rebuilt.
+    config["modules"]["web_terminals"]["users"][0]["tier"] = "viewer"
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"] == ["allowed", "—", "off"]
+    text = _writes_text(config, tmp_path)
+    assert "drift" not in text.lower()
+
+
+def test_a_card_the_map_does_not_name_answers_unknown(tmp_path):
+    config = _multi_user_config(tmp_path, login_tiers={"alice": "allowed"})
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["bob"] == ["unknown", "—", "off"]
+
+
+def test_a_mapped_login_outside_the_roster_lists_only_with_a_record_at_its_mapped_tier(tmp_path):
+    """The build account is mapped for its owned jobs; it is not "not in the roster"."""
+    config = _multi_user_config(
+        tmp_path, login_tiers={**_MAP, "builder": "allowed", "ghost": "never"}
+    )
+    _write_record(tmp_path, "builder", target="standin", switch={"standin": "on"})
+
+    rows = status_display.writes_rows(config, tmp_path)
+
+    assert [row[0] for row in rows] == ["alice", "bob", "builder"]
+    assert rows[-1] == ("builder", "allowed", "standin", "standin")
+
+
+@pytest.mark.parametrize(
+    "login_tiers",
+    [["alice"], {"alice": "allowed", "bob": "maybe"}, {"alice": True}, "allowed"],
+    ids=["list", "bad-value", "non-string-value", "scalar"],
+)
+def test_a_malformed_map_answers_unknown_for_every_card(tmp_path, login_tiers):
+    """One render's output: unreadable as a whole, as the write verdict reads it."""
+    config = _multi_user_config(tmp_path, login_tiers=login_tiers)
 
     rows = _rows_by_login(config, tmp_path)
 
     assert rows["alice"][0] == "unknown"
+    assert rows["bob"][0] == "unknown"
+
+
+def test_an_unparseable_staged_config_answers_unknown(tmp_path):
+    config = _multi_user_config(tmp_path)
+    (tmp_path / "build" / "services" / "bluesky" / "config.yml").write_text(
+        "control_system: [unclosed\n", encoding="utf-8"
+    )
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "unknown"
+
+
+def test_the_map_is_read_with_no_tree_bound_in_the_reading_process(tmp_path, monkeypatch):
+    """Status's own environment never turns a readable map into unknown."""
+    monkeypatch.setenv("OSPREY_CONTROL_CONTEXT_TREE", str(tmp_path / "elsewhere"))
+    config = _multi_user_config(tmp_path)
+
+    rows = _rows_by_login(config, tmp_path)
+
+    assert rows["alice"][0] == "allowed"
+
+
+def test_an_unrostered_identity_reads_cannot_write_in_the_printed_section(tmp_path):
+    config = _multi_user_config(tmp_path)
+    _write_record(tmp_path, "mallory", target="live", switch={"live": "on"})
+
+    assert "not in the roster — cannot write" in _writes_text(config, tmp_path)
 
 
 @pytest.mark.usefixtures("runtime")

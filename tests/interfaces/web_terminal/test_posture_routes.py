@@ -584,6 +584,48 @@ class TestTurnOnLocks:
         )
 
 
+class TestTheLoginsOwnTierLock:
+    """``locks.tier`` on a terminal: its own render's tier, never ``unknown`` (BC-1).
+
+    A terminal-served render carries no ``control_system.login_tiers`` and the
+    terminal binds no control-context tree, so the owner rung answers ``skip``
+    and the render's tier governs the card's own login.
+    """
+
+    def _locks(self, client):
+        resp = client.get("/api/terminal/posture")
+        assert resp.status_code == 200, resp.text
+        return resp.json()["locks"]
+
+    @pytest.mark.usefixtures("agent_data_root")
+    def test_the_terminal_render_carries_no_map_and_binds_no_tree(self):
+        assert posture_store.LOGIN_TIERS_KEY.rsplit(".", 1)[-1] not in ALLOWED
+        assert "OSPREY_CONTROL_CONTEXT_TREE" not in os.environ
+        assert posture_store.owner_tier_term(ALLOWED, acting_identity()) == "skip"
+
+    def test_an_allowed_render_locks_its_own_login_allowed(self, client):
+        assert self._locks(client)["tier"] == "allowed"
+
+    def test_a_never_render_locks_its_own_login_never(self, client, tmp_path):
+        client.app.state.config_path = write_config(
+            tmp_path, control_system_section(writes="never"), name="never.yml"
+        )
+        assert self._locks(client)["tier"] == "never"
+
+    @pytest.mark.usefixtures("agent_data_root")
+    @pytest.mark.parametrize("login", ["alice", "someone-else", ""])
+    def test_no_login_reads_unknown_on_a_map_free_terminal_render(self, login):
+        assert websocket_routes._login_tier(ALLOWED, login) == "allowed"
+
+    @pytest.mark.usefixtures("agent_data_root")
+    def test_a_section_carrying_the_map_reads_the_logins_entry(self):
+        """The shared-container shape, for contrast: the map decides, absent is unknown."""
+        section = {**ALLOWED, "login_tiers": {"alice": "allowed", "bob": "never"}}
+        assert websocket_routes._login_tier(section, "alice") == "allowed"
+        assert websocket_routes._login_tier(section, "bob") == "never"
+        assert websocket_routes._login_tier(section, "carol") == websocket_routes.TIER_UNKNOWN
+
+
 # -- the epoch --------------------------------------------------------------
 
 

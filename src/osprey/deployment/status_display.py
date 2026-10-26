@@ -1199,10 +1199,11 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 #: the person signs in, so no file on this host can say which tier it will be.
 TIER_BY_ROLE_AT_SIGN_IN = "by role at sign-in"
 
-#: The tier cell for a record whose identity is no person in the roster — a
-#: dispatch worker, a sidecar, a login since removed. The write verdict refuses
-#: such an owner in a shared tree, so whatever its record says is not in force.
-TIER_NOT_IN_ROSTER = "not in the roster"
+#: The tier cell for a record whose identity is neither a person in the roster
+#: nor a login the rendered map names — a sidecar, a login since removed. The
+#: write verdict refuses such an owner in a shared tree, so whatever its record
+#: says is not in force.
+TIER_NOT_IN_ROSTER = "not in the roster — cannot write"
 
 #: The writes cell for a record that exists and cannot be used. The verdict
 #: refuses every write it governs, so this is never shown as "off".
@@ -1213,63 +1214,88 @@ RECORD_UNREADABLE = "record unreadable — writes refused"
 INERT_UNDER_NEVER = "on — tier never, inert"
 
 
-def _login_tiers(config, repo_root):
-    """``{login: tier cell}`` for every person in the roster, and whether there is one.
+def _staged_login_tiers(repo_root):
+    """The ``control_system`` section that carries the rendered login→tier map, or ``None``.
 
-    The tier comes from the roster producers rather than a rendered
-    ``login_tiers`` map: each person's render (:func:`effective_tier`), and that
-    render's own ``control_system`` read through :func:`tier_writes`. A render
-    whose ``config.yml`` cannot be read answers ``unknown`` rather than a guess.
+    Read from the staged config of a tree-bound shared container
+    (``build/services/<svc>/config.yml``), the only place a build writes the
+    map; every copy carries the same one. ``None`` when no staged config
+    carries the leaf or none can be read.
+    """
+    from osprey.deployment.compose_generator import LOGIN_TIERS_SERVICES, SERVICES_DIR
+    from osprey.deployment.container_lifecycle import as_built_config_path
+    from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
+    from osprey_connectors import yaml_loader
+
+    services = as_built_config_path(repo_root).parent / SERVICES_DIR
+    for service in sorted(LOGIN_TIERS_SERVICES):
+        path = services / service / "config.yml"
+        try:
+            if not path.is_file():
+                continue
+            document = yaml_loader.safe_load(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("Could not read the staged config %s", path, exc_info=True)
+            continue
+        section = document.get("control_system") if isinstance(document, dict) else None
+        if isinstance(section, dict) and LOGIN_TIERS_KEY in section:
+            return section
+    return None
+
+
+def _mapped_tier(section, login):
+    """*login*'s entry in the staged map *section*: ``allowed``, ``never`` or ``unknown``.
+
+    Read as the write verdict reads it
+    (:func:`~osprey_connectors.posture_store.owner_tier_term`), so a malformed
+    map is unreadable as a whole; no staged map (*section* ``None``) is
+    ``unknown`` too.
+    """
+    from osprey_connectors.posture_store import owner_tier_term
+
+    if section is None:
+        return "unknown"
+    tier = owner_tier_term(section, login)
+    return tier if tier in ("allowed", "never") else "unknown"
+
+
+def _login_tiers(config, repo_root, section=None):
+    """``{login: tier cell}`` for every person in the roster, from the rendered map.
+
+    The map is the one the shared containers enforce (CC-3): status shows it,
+    never recomputes the roster, and flags no drift, so a roster edit shows
+    after the next build and deploy. :data:`TIER_BY_ROLE_AT_SIGN_IN` when
+    sign-in decides the card's tier, otherwise its entry
+    (:func:`_mapped_tier`); a card the map does not name, a malformed map, or
+    no staged map answers ``unknown`` rather than a guess. *section* is the
+    staged ``control_system`` (:func:`_staged_login_tiers`), read here when
+    not given.
+
     A deployment without web terminals has no roster: every login there runs
     the deployment's own config, so ``None`` is returned in place of a map and
     the caller reads the tier off *config* itself.
     """
-    from osprey.deployment.web_terminals.render import _authorization_context
-    from osprey.deployment.web_terminals.roster import (
-        authored_people,
-        effective_tier,
-        rendered_configs,
-        resolve_authorization_roles,
-    )
-    from osprey_connectors.types import tier_writes
+    from osprey.deployment.web_terminals.roster import authored_people, sign_in_decides_tier
 
     modules_cfg = config.get("modules", {})
     web_terminals = modules_cfg.get("web_terminals", {}) if isinstance(modules_cfg, dict) else {}
     if not (isinstance(web_terminals, dict) and web_terminals.get("enabled")):
         return None
-
-    try:
-        roles = resolve_authorization_roles(web_terminals)
-        claim = _authorization_context(web_terminals)["authorization_claim"]
-    except ValueError:
-        roles, claim = {}, None
-    auth = web_terminals.get("auth")
-    method = auth.get("method") if isinstance(auth, dict) else None
-    sso_assigns_roles = method == "oidc" and bool(claim)
-
-    try:
-        renders = rendered_configs(config, repo_root)
-    except Exception:
-        logger.debug("Could not read the rendered tier configs", exc_info=True)
-        renders = {}
+    if section is None:
+        section = _staged_login_tiers(repo_root)
 
     tiers = {}
     for entry in authored_people(web_terminals):
         if isinstance(entry, str):
-            name, raw = entry, {}
+            name = entry
         elif isinstance(entry, dict) and isinstance(entry.get("name"), str):
-            name, raw = entry["name"], entry
+            name = entry["name"]
         else:
             continue
-        if sso_assigns_roles and not raw.get("role"):
+        if sign_in_decides_tier(entry, web_terminals):
             tiers[name] = TIER_BY_ROLE_AT_SIGN_IN
-            continue
-        render = effective_tier(raw, roles, web_terminals.get("default_tier"), strict=False)
-        render_config = renders.get(render) if render else None
-        if not isinstance(render_config, dict):
-            tiers[name] = "unknown"
-            continue
-        tiers[name] = tier_writes(render_config.get("control_system"))
+        else:
+            tiers[name] = _mapped_tier(section, name)
     return tiers
 
 
@@ -1294,7 +1320,8 @@ def writes_rows(config, repo_root):
     """The Writes section's rows: ``(login, tier, target, writes on)``, all strings.
 
     One row per person in the roster (in roster order), then one per identity
-    that holds a record and is not in the roster (sorted). A deployment without
+    that holds a record and is not in the roster (sorted): at its tier in the
+    rendered map when the map names it, else :data:`TIER_NOT_IN_ROSTER`. A deployment without
     web terminals lists every identity that holds a record, each at the
     deployment's own tier. Never raises on a malformed record: a record that
     exists and cannot be used reads :data:`RECORD_UNREADABLE`, never ``off``.
@@ -1308,14 +1335,20 @@ def writes_rows(config, repo_root):
     except Exception:
         tree = None
 
-    login_tiers = _login_tiers(config, repo_root)
+    section = _staged_login_tiers(repo_root)
+    login_tiers = _login_tiers(config, repo_root, section)
     recorded = _recorded_identities(tree)
     if login_tiers is None:
         own_tier = tier_writes(config.get("control_system"))
         logins = [(name, own_tier) for name in recorded]
     else:
         logins = list(login_tiers.items())
-        logins += [(name, TIER_NOT_IN_ROSTER) for name in recorded if name not in login_tiers]
+        for name in recorded:
+            if name in login_tiers:
+                continue
+            # A mapped login outside the roster (the build account) writes at its tier.
+            tier = _mapped_tier(section, name)
+            logins.append((name, TIER_NOT_IN_ROSTER if tier == "unknown" else tier))
 
     rows = []
     for login, tier in logins:
