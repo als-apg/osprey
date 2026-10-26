@@ -111,7 +111,6 @@ def test_neutral_vars_are_delegated_to_core_config():
             WORKER_URL="http://work:10011/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/teams_dedup.json",
-            HISTORY_PATH="/data/teams_history.json",
         )
     )
     assert cfg.core.dispatcher_url == "http://disp:10010"
@@ -121,7 +120,6 @@ def test_neutral_vars_are_delegated_to_core_config():
     assert cfg.core.trigger == "teams-question"
     assert cfg.core.poll_interval == 0.5
     assert cfg.core.dedup_path == "/data/teams_dedup.json"
-    assert cfg.core.history_path == "/data/teams_history.json"
 
 
 # --- CoreConfig is composed, not subclassed ------------------------------

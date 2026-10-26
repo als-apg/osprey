@@ -45,8 +45,8 @@ def test_from_env_defaults_when_unset():
     assert cfg.bot_account == ""
     assert cfg.app_password == ""
     assert cfg.rooms == ()
-    # Same bridge volume as the core stores, and the same naming shape as
-    # dedup_path/history_path.
+    # Same bridge volume as the core dedup store, and the same naming shape as
+    # dedup_path.
     assert cfg.offsets_path == "/data/offsets.json"
     assert cfg.mentions is True
 
@@ -134,7 +134,6 @@ def test_neutral_vars_are_delegated_to_core_config():
             WORKER_URL="http://work:9190/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/nc_dedup.json",
-            HISTORY_PATH="/data/nc_history.json",
         )
     )
     assert cfg.core.dispatcher_url == "http://disp:10010"
@@ -144,7 +143,6 @@ def test_neutral_vars_are_delegated_to_core_config():
     assert cfg.core.trigger == "nextcloud-question"
     assert cfg.core.poll_interval == 0.5
     assert cfg.core.dedup_path == "/data/nc_dedup.json"
-    assert cfg.core.history_path == "/data/nc_history.json"
 
 
 def test_config_is_immutable():

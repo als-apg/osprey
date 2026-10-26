@@ -143,7 +143,6 @@ services:
       # test_nextcloud_bridge_state_paths_match_their_code_defaults binds the
       # two sides so neither can drift alone.
       DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
-      HISTORY_PATH: "${HISTORY_PATH:-/data/history.json}"
       # ── Agent record ────────────────────────────────────────────────────
       # Where the record's API answers from this container's network: the
       # compose service on the bridge network, its loopback publish from the
@@ -158,10 +157,10 @@ services:
       TZ: UTC
     volumes:
       # Bridge state, and the ONLY stateful thing this service owns: the dedup
-      # store (message_id -> run, the crash-safety ledger), the per-conversation
-      # history store, and the adapter's per-room poll offsets, whose
-      # DEDUP_PATH/HISTORY_PATH/OFFSETS_PATH defaults above all sit under /data,
-      # making it the single state root. Without a persisted volume every
+      # store (message_id -> run, the crash-safety ledger) and the adapter's
+      # per-room poll offsets, whose DEDUP_PATH/OFFSETS_PATH defaults above both
+      # sit under /data, making it the single state root. Conversation history
+      # lives in the agent record, not here. Without a persisted volume every
       # restart would lose the in-flight ledger (re-answering or dropping
       # questions) and reset the poll offsets (replaying or skipping room
       # history), so this volume is required, not an optimization. Named (not a

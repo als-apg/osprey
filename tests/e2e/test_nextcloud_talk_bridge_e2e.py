@@ -1017,7 +1017,6 @@ def _set_bridge_env(
         "WORKER_URL": dispatch["worker_url"],
         "OFFSETS_PATH": str(state_dir / "offsets.json"),
         "DEDUP_PATH": str(state_dir / "dedup.json"),
-        "HISTORY_PATH": str(state_dir / "history.json"),
         # poll_budget must stay >= worker_timeout or CoreConfig refuses to build.
         "POLL_BUDGET": str(WORKER_RUN_CAP_SEC),
         "DISPATCH_TIMEOUT_SEC": str(WORKER_RUN_CAP_SEC),

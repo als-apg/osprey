@@ -107,7 +107,6 @@ def test_neutral_vars_are_delegated_to_core_config():
             WORKER_URL="http://work:10011/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/gchat_dedup.json",
-            HISTORY_PATH="/data/gchat_history.json",
         )
     )
     assert cfg.core.dispatcher_url == "http://disp:10010"
@@ -117,7 +116,6 @@ def test_neutral_vars_are_delegated_to_core_config():
     assert cfg.core.trigger == "gchat-question"
     assert cfg.core.poll_interval == 0.5
     assert cfg.core.dedup_path == "/data/gchat_dedup.json"
-    assert cfg.core.history_path == "/data/gchat_history.json"
 
 
 @pytest.mark.parametrize(
@@ -128,7 +126,6 @@ def test_neutral_vars_are_delegated_to_core_config():
         ("GCHAT_DRAIN_INTERVAL", "drain_interval", 60.0),
         ("GCHAT_RETRY_MIN_AGE", "retry_min_age", 1200.0),
         ("GCHAT_DEDUP_PATH", "dedup_path", "/data/dedup.json"),
-        ("GCHAT_HISTORY_PATH", "history_path", "/data/history.json"),
         ("GCHAT_TRIGGER", "trigger", ""),
     ],
 )

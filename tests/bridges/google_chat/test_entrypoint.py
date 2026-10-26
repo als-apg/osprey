@@ -112,7 +112,6 @@ def cfg(tmp_path: Any) -> GoogleChatBridgeConfig:
             event_dispatcher_token="disp-token",
             dispatch_worker_token=WORKER_TOKEN,
             dedup_path=str(tmp_path / "dedup.json"),
-            history_path=str(tmp_path / "history.json"),
         ),
     )
 
