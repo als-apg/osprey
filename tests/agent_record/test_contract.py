@@ -515,9 +515,12 @@ def test_write_result_is_entry_id_or_none():
 
 
 def test_wait_mark_json_round_trip():
-    spool = c.WaitMark.from_json({"spool": [["alice", "e1"], ["bob", "e2"]]})
-    assert spool.spool == (("alice", "e1"), ("bob", "e2"))
-    assert c.WaitMark.from_json(json.dumps(spool.to_json())) == spool
+    drain = c.WaitMark.from_json({"drain": {"session_id": "s1"}})
+    assert drain.drain == c.Drain("s1") and drain.transcript is None
+    assert c.WaitMark.from_json(json.dumps(drain.to_json())) == drain
+    anywhere = c.WaitMark.from_json({"drain": {"session_id": None}})
+    assert anywhere.drain == c.Drain() and anywhere.to_json() == {"drain": {"session_id": None}}
+    assert c.WaitMark.from_json({"drain": {}}) == anywhere
     data = {"transcript": {"session_id": "s1", "files": {"-ws/s1.jsonl": [0, 100]}}}
     transcript = c.WaitMark.from_json(data)
     assert transcript.transcript.files == {"-ws/s1.jsonl": (0, 100)}
@@ -528,10 +531,13 @@ def test_wait_mark_json_round_trip():
     "data",
     [
         {},
-        {"spool": [], "transcript": {}},
-        {"spool": "alice"},
-        {"spool": [["a:b", "e1"]]},
-        {"spool": [["alice"]]},
+        {"drain": {}, "transcript": {}},
+        {"spool": [["alice", "e1"]]},  # the removed form
+        {"drain": None},
+        {"drain": "s1"},
+        {"drain": {"session_id": 7}},
+        {"drain": {"session_id": "a b"}},
+        {"drain": {"session_id": "s1", "identity": "bob"}},  # the caller never names one
         {"transcript": {"session_id": "s1", "files": {"/abs.jsonl": [0, 1]}}},
         {"transcript": {"session_id": "s1", "files": {"a.jsonl": [0]}}},
         {"transcript": {"files": {"a.jsonl": [0, 1]}}},
@@ -544,20 +550,17 @@ def test_bad_wait_marks_are_refused(data):
         c.WaitMark.from_json(data)
 
 
-def test_spool_mark_passes_when_every_line_is_committed_or_refused():
-    backend = FakeBackend()
-    mark = c.WaitMark(spool=(("alice", "e1"), ("bob", "e2")))
-    assert not mark.passed(backend, backend)
-    backend.append([_entry()])
-    assert not mark.passed(backend, backend)
-    backend.put_state(c.refused_state_name("bob", "e2"), c.refused_state_value("run", "kind"))
-    assert mark.passed(backend, backend)
+def test_a_wait_mark_names_exactly_one_form():
+    with pytest.raises(c.WaitMarkInvalid):
+        c.WaitMark()
+    with pytest.raises(c.WaitMarkInvalid):
+        c.WaitMark(drain=c.Drain(), transcript=c.TranscriptMark("s1", {}))
 
 
-def test_spool_mark_does_not_accept_another_identity_s_entry():
+def test_a_drain_mark_is_never_checked_against_state():
     backend = FakeBackend()
-    backend.append([_entry(key="sp:mallory:e1", identity="mallory")])
-    assert not c.WaitMark(spool=(("alice", "e1"),)).passed(backend, backend)
+    with pytest.raises(ValueError):
+        c.WaitMark(drain=c.Drain("s1")).passed(backend, transcript_identity="alice")
 
 
 def test_transcript_mark_passes_on_offset_or_a_fully_read_newer_generation():
@@ -565,25 +568,18 @@ def test_transcript_mark_passes_on_offset_or_a_fully_read_newer_generation():
     path = "-ws/s1.jsonl"
     mark = c.WaitMark(transcript=c.TranscriptMark("s1", {path: (1, 100)}))
     name = c.transcript_state_name("alice", path)
-    assert not mark.passed(backend, backend, transcript_identity="alice")
+    assert not mark.passed(backend, transcript_identity="alice")
     backend.put_state(name, c.TranscriptOffset(1, 99).to_state())
-    assert not mark.passed(backend, backend, transcript_identity="alice")
+    assert not mark.passed(backend, transcript_identity="alice")
     backend.put_state(name, c.TranscriptOffset(1, 100).to_state())
-    assert mark.passed(backend, backend, transcript_identity="alice")
-    assert not mark.passed(backend, backend, transcript_identity="bob")
+    assert mark.passed(backend, transcript_identity="alice")
+    assert not mark.passed(backend, transcript_identity="bob")
     backend.put_state(name, c.TranscriptOffset(2, 10).to_state())
-    assert not mark.passed(backend, backend, transcript_identity="alice")
+    assert not mark.passed(backend, transcript_identity="alice")
     backend.put_state(name, c.TranscriptOffset(2, 10, fully_read=True).to_state())
-    assert mark.passed(backend, backend, transcript_identity="alice")
+    assert mark.passed(backend, transcript_identity="alice")
     backend.put_state(name, c.TranscriptOffset(0, 5000, fully_read=True).to_state())
-    assert not mark.passed(backend, backend, transcript_identity="alice")
-
-
-def test_transcript_mark_needs_an_identity():
-    backend = FakeBackend()
-    mark = c.WaitMark(transcript=c.TranscriptMark("s1", {"a.jsonl": (0, 1)}))
-    with pytest.raises(ValueError):
-        mark.passed(backend, backend)
+    assert not mark.passed(backend, transcript_identity="alice")
 
 
 def test_backend_health_and_append_result_defaults():

@@ -228,14 +228,15 @@ def test_a_kind_outside_its_sources_allow_list_is_refused_and_consumed(backend, 
     fine = _line(c.KIND_FEEDBACK)
     _sealed(root / "alice", bridge, decision, fine)
     consumer = _consumer(backend, root)
+    pending = consumer.snapshot()
+    assert pending and not consumer.drained(pending)
     report = consumer.consume()
     assert report.refused == 2
     keys = _by_key(backend)
     assert set(keys) == {c.spool_key("alice", fine.entry_id)}
     for line in (bridge, decision):
         assert backend.get_state(c.refused_state_name("alice", line.entry_id)) is not None
-    mark = c.WaitMark(spool=tuple(("alice", ln.entry_id) for ln in (bridge, decision, fine)))
-    assert mark.passed(backend, backend)
+    assert consumer.drained(pending), "refused lines count as consumed"
     assert _segments(root / "alice") == []
 
 

@@ -13,8 +13,9 @@ arrival day, or earlier in the same batch — is not inserted and is counted as
 a duplicate. One process owns the record (the agent-record service), so the
 in-process lock is the whole serialization. Bodies are stored as their
 canonical JSON text, ``ts`` and ``inserted_at`` as ``DateTime64(6, 'UTC')``;
-an entry that arrives without ``inserted_at`` is stamped with the current
-time. The UTC date of ``inserted_at`` is the arrival day and the partition.
+an entry that arrives without ``inserted_at`` is stamped inside the lock,
+each insert strictly later than every stamp before it (``max(previous + 1 µs,
+now)``), so stamps follow commit order even when the clock steps back. The UTC date of ``inserted_at`` is the arrival day and the partition.
 
 **State** is a ``ReplacingMergeTree(version)`` read with ``FINAL``; each put
 carries a version above every earlier one from this process.
@@ -58,6 +59,7 @@ from osprey.agent_record.contract import (
     encode_state,
     entry_from_row,
     entry_row,
+    next_stamp,
     select_conditions,
     select_order,
 )
@@ -103,6 +105,11 @@ def _read_time(text: str) -> datetime:
     return datetime.fromisoformat(text).replace(tzinfo=UTC)
 
 
+def _now() -> datetime:
+    """The wall clock an insert stamps from."""
+    return datetime.now(UTC)
+
+
 class ClickHouseBackend:
     """:class:`~osprey.agent_record.contract.RecordBackend` on a ClickHouse store.
 
@@ -128,6 +135,7 @@ class ClickHouseBackend:
         self._owns_client = client is None
         self._client = client if client is not None else httpx.Client(timeout=_TIMEOUT_S)
         self._lock = threading.Lock()
+        self._stamped: datetime | None = None
         self._version = 0
         self._closed = False
 
@@ -186,7 +194,6 @@ class ClickHouseBackend:
 
     def append(self, entries: Sequence[Entry]) -> AppendResult:
         """Store *entries*, first write wins on ``(key, chunk.index)``."""
-        now = datetime.now(UTC)
         unique: dict[tuple[str, int], Entry] = {}
         for entry in entries:
             if not isinstance(entry, Entry):
@@ -200,6 +207,7 @@ class ClickHouseBackend:
                 stored = self._stored_pairs(batch)
                 fresh = [unique[pair] for pair in batch if pair not in stored]
                 if fresh:
+                    now = self._stamp(fresh)
                     data = "".join(json.dumps(self._row(e, now)) + "\n" for e in fresh)
                     self._post(
                         f"INSERT INTO {_ENTRIES} ({_SELECT_COLUMNS}) FORMAT JSONEachRow",
@@ -208,6 +216,22 @@ class ClickHouseBackend:
                     )
                 appended += len(fresh)
         return AppendResult(appended=appended, duplicates=len(entries) - appended)
+
+    def _stamp(self, entries: Sequence[Entry]) -> datetime:
+        """The ``inserted_at`` of one insert, after every stored one. Under the lock.
+
+        An entry that already carries ``inserted_at`` keeps it; the next stamp
+        is after it.
+        """
+        if self._stamped is None:
+            [row] = self._rows(
+                f"SELECT toString(maxOrNull(inserted_at)) AS newest FROM {_ENTRIES}",
+                "append's stamp",
+            )
+            newest = row.get("newest")
+            self._stamped = _read_time(newest) if newest else None
+        now, self._stamped = next_stamp(self._stamped, _now(), entries)
+        return now
 
     def _stored_pairs(self, pairs: Sequence[tuple[str, int]]) -> set[tuple[str, int]]:
         keys = {key for key, _ in pairs}

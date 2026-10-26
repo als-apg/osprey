@@ -104,6 +104,7 @@ __all__ = [
     "QUARANTINE_SUFFIX",
     "ConsumeReport",
     "RefusedLine",
+    "SegmentMark",
     "SourceHealth",
     "SpoolConsumer",
     "SpoolHealth",
@@ -119,6 +120,8 @@ BATCH_LINES = 500
 MAX_LINE_BYTES = SEGMENT_MAX_BYTES
 #: How many refused lines and writer errors health keeps per source.
 SHOWN_PER_SOURCE = 50
+#: How much of an open segment one backward read takes while looking for its last line.
+_TAIL_CHUNK = 64 * 1024
 #: How much of a writer's ``.errors`` file health reads, from its end.
 ERRORS_TAIL_BYTES = 64 * 1024
 
@@ -208,6 +211,21 @@ class _SourceState:
     refused: deque[RefusedLine] = field(default_factory=lambda: deque(maxlen=SHOWN_PER_SOURCE))
     refused_total: int = 0
     last_seen: datetime | None = None
+
+
+@dataclass(frozen=True)
+class SegmentMark:
+    """Where one segment ended when a drain was asked for: ``offset`` bytes at ``inode``.
+
+    ``offset`` is the end of the last complete line of an ``.open`` segment and
+    the size of a ``.sealed`` one: what one pass would commit.
+    """
+
+    identity: str
+    directory: Path
+    name: str
+    inode: int
+    offset: int
 
 
 @dataclass(frozen=True)
@@ -322,6 +340,67 @@ class SpoolConsumer:
         """Backlog, abandoned writers, writer errors and refusals per source, as of the last pass."""
         return self._health
 
+    def snapshot(self, visible: Callable[[str], bool] | None = None) -> tuple[SegmentMark, ...]:
+        """The end of every segment now in the directories whose identity is *visible*.
+
+        *visible* takes a directory's mapped source identity; ``None`` takes
+        every directory. Nothing is moved aside or read past what is needed:
+        this runs beside a pass, from any thread. A path that cannot be read
+        is left out (the pass reports it on :meth:`health`).
+        """
+        marks: list[SegmentMark] = []
+        for directory in self._listed_directories():
+            if visible is not None and not visible(directory.identity):
+                continue
+            for entry in self._scan(directory.path, []):
+                parsed = parse_segment_name(entry.name)
+                if parsed is None:
+                    continue
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    offset = (
+                        info.st_size
+                        if parsed.sealed
+                        else _last_line_end(Path(entry.path), info.st_size)
+                    )
+                except OSError:
+                    continue
+                if offset:
+                    marks.append(
+                        SegmentMark(
+                            directory.identity, directory.path, entry.name, info.st_ino, offset
+                        )
+                    )
+        return tuple(marks)
+
+    def drained(self, marks: Iterable[SegmentMark]) -> bool:
+        """Whether every segment of *marks* is committed up to its mark.
+
+        A segment committed under its ``.sealed`` name counts for the ``.open``
+        name it had, and a segment deleted since (every line committed) counts
+        as passed. Refused lines count as consumed: their offsets are committed.
+
+        Raises:
+            RecordBackendError: If the backend cannot be read.
+        """
+        for mark in marks:
+            names = [mark.name]
+            if mark.name.endswith(OPEN_SUFFIX):
+                names.append(mark.name[: -len(OPEN_SUFFIX)] + SEALED_SUFFIX)
+            committed = 0
+            for name in names:
+                value = self.backend.get_state(spool_state_name(mark.identity, name, mark.inode))
+                if value is not None:
+                    with contextlib.suppress(ValueError):
+                        committed = max(committed, SpoolCheckpoint.from_state(value).offset)
+            if committed >= mark.offset:
+                continue
+            if any(_same_inode(mark.directory / name, mark.inode) for name in names):
+                return False
+        return True
+
     # ------------------------------------------------------------------ walking
 
     def _directories(self, now: datetime, problems: list[str]) -> list[_Directory]:
@@ -343,6 +422,35 @@ class SpoolConsumer:
                 identity = spool_source_identity(self.config, entry.name)
             except ValueError as exc:
                 problems.append(f"{entry.path}: {exc}")
+                continue
+            found.append(_Directory(Path(entry.path), identity, False))
+        return found
+
+    def _listed_directories(self) -> list[_Directory]:
+        """The spool directories :meth:`_directories` would walk, with nothing set aside."""
+        found: list[_Directory] = []
+        for entry in self._scan(self.spool_root, []):
+            try:
+                is_dir = entry.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if not is_dir:
+                continue
+            if entry.name == OTLP_SPOOL_DIR:
+                for login in self._scan(Path(entry.path), []):
+                    try:
+                        if not login.is_dir(follow_symlinks=False):
+                            continue
+                        identity = login_source_identity(self.config, login.name)
+                    except (OSError, ValueError):
+                        continue
+                    found.append(_Directory(Path(login.path), identity, True))
+                continue
+            if entry.name.startswith("."):
+                continue
+            try:
+                identity = spool_source_identity(self.config, entry.name)
+            except ValueError:
                 continue
             found.append(_Directory(Path(entry.path), identity, False))
         return found
@@ -770,6 +878,33 @@ class SpoolConsumer:
                 known[session] = row.key
         self._accepts[identity] = known
         return known
+
+
+def _last_line_end(path: Path, size: int) -> int:
+    """The offset just past the last newline of the first *size* bytes of *path*; 0 when none."""
+    fd = os.open(path, _READ_FLAGS)
+    try:
+        end = size
+        while end > 0:
+            start = max(0, end - _TAIL_CHUNK)
+            data = os.pread(fd, end - start, start)
+            if not data:
+                return 0
+            at = data.rfind(b"\n")
+            if at >= 0:
+                return start + at + 1
+            end = start
+        return 0
+    finally:
+        os.close(fd)
+
+
+def _same_inode(path: Path, inode: int) -> bool:
+    """Whether *path* still names the file *inode*."""
+    try:
+        return os.lstat(path).st_ino == inode
+    except OSError:
+        return False
 
 
 def _salvage(raw: bytes) -> tuple[str, str]:

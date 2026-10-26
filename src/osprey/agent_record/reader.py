@@ -30,16 +30,22 @@ accountant: at most :data:`MAX_BYTES` of bodies and text, and at most
 loaded as well as while the answer is cut. Hitting any of those makes the
 answer not ``complete``.
 
-**Wait marks (D16).** A ``wait`` mark is polled with
-:meth:`WaitMark.passed` for at most :data:`WAIT_SECONDS`; if ingest has not
-passed it by then the answer is returned, with the entries that exist, and
-``complete: false``. ``run``, ``run_timeline`` and ``bridge_history`` also
-wait, within the same bound, for the transcript mark a run's terminal entry
-stores (:data:`RUN_WAIT_FIELD`), and a run with no terminal entry yet is never
-complete. Time spent waiting is not counted against :data:`READ_SECONDS`: the
-two budgets are separate. A spool mark naming an identity the scope cannot see
-is ignored (the answer cannot depend on that entry). A backend failure at any
-point answers ``unavailable``: a partial answer is never marked complete.
+**Wait marks (D16, P3-D1).** A ``wait`` mark is polled for at most
+:data:`WAIT_SECONDS`; if ingest has not passed it by then the answer is
+returned, with the entries that exist, and ``complete: false``. A drain mark
+is resolved by the :data:`Drainer` the service gives the reader: what the
+caller's scope had pending in the spool, ``.otlp/`` and (with a session) that
+session's transcript files when the read arrived. A transcript mark is checked
+against the committed offsets of the scope's transcript identities.
+``run``, ``run_timeline`` and ``bridge_history`` also drain each run's session
+at read time, within the same bound, under the identity that accepted it, and
+then read the run entries again. A run with no terminal entry yet is never
+complete, and a run that is asked for or named by a bridge turn but has
+neither an accept nor a terminal entry makes the answer incomplete. Time spent
+waiting is not counted against :data:`READ_SECONDS`: the two budgets are
+separate. A reader given no drainer has nothing to drain: a drain passes at
+once. A backend failure at any point answers ``unavailable``: a partial answer
+is never marked complete.
 
 **Timeline.** One ordered stream: thinking stays inline in time order; each
 ``tool_call`` is joined by ``tool_use_id`` to its ``decision`` and to its
@@ -49,6 +55,18 @@ whose call is not (yet) in the record is shown as its own group at its first
 entry's time. ``num_tool_calls`` and ``tool_count`` of a run are counted from
 its session's timeline, never stored (D22).
 
+**Timeline cursor (P3-D2).** ``timeline`` and ``agent_timeline`` page by their
+top-level nodes in ``(ts, inserted_at, key, chunk_index)`` order, through an
+opaque ``after`` cursor (:class:`TimelineCursor`). The first page fixes the
+snapshot ``as_of``: the newest ``inserted_at`` among the session's entries the
+scope sees. Every later page reads only entries arrived by ``as_of`` and starts
+strictly after the cursor's node, so no page repeats or skips a node of the
+snapshot. ``next`` is the cursor of the following page while more of the
+snapshot remains; ``newer`` says entries arrived after ``as_of``, which a
+re-read from the start shows. Backends stamp ``inserted_at`` in commit order,
+so an entry committed after a page was read always falls outside its snapshot.
+A cursor that does not decode is a :class:`ValueError`.
+
 **Preflight.** A queueserver ``preflight`` audit entry is matched to the
 nearest preceding queue-submit ``tool_call`` of the same person that started at
 most :data:`PREFLIGHT_MATCH_SECONDS` earlier. Under ``Own`` an unmatched
@@ -57,12 +75,14 @@ preflight entry is never shown; every other scope shows each one as stored.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from osprey.agent_record.attribution import Attribution, is_run_accept
 from osprey.agent_record.contract import (
@@ -82,8 +102,6 @@ from osprey.agent_record.contract import (
     RUN_ACCEPT,
     RUN_KEY_PREFIX,
     RUN_TERMINAL,
-    SOURCE_HOST,
-    SOURCE_TERMINAL,
     SURFACE_FIELD,
     UNSPLIT,
     All,
@@ -98,7 +116,6 @@ from osprey.agent_record.contract import (
     ScopeFilter,
     Source,
     WaitMark,
-    WaitMarkInvalid,
     accept_session,
     check_kind,
     is_token,
@@ -109,7 +126,6 @@ from osprey.agent_record.contract import (
 )
 from osprey.agent_record.identities import (
     PREFLIGHT_SURFACE,
-    identity_class,
     spool_source_identity,
     transcript_roots,
 )
@@ -122,10 +138,13 @@ __all__ = [
     "PREFLIGHT_MATCH_SECONDS",
     "QUEUE_SUBMIT_TOOLS",
     "READ_SECONDS",
-    "RUN_WAIT_FIELD",
     "SCAN_ROWS",
     "SESSION_ROWS",
+    "SOURCE_FIELD",
     "WAIT_SECONDS",
+    "TimelineCursor",
+    "DrainProgress",
+    "Drainer",
     "Limits",
     "PreflightMatch",
     "ReadAnswer",
@@ -156,9 +175,6 @@ WAIT_SECONDS = 10.0
 #: How often a waiting read polls its marks.
 WAIT_POLL_SECONDS = 0.25
 
-#: The terminal ``run`` entry's body field holding the session's transcript
-#: :class:`WaitMark` at completion, in its JSON form.
-RUN_WAIT_FIELD = "wait"
 #: The body field a ``run`` terminal entry states its outcome in.
 RUN_STATUS_FIELD = "status"
 #: The status a run with no terminal entry yet is reported with.
@@ -166,6 +182,8 @@ RUN_RUNNING = "running"
 #: The ``bridge_turn`` body fields the reader reads.
 BRIDGE_CONVERSATION_FIELD = "conversation"
 BRIDGE_QUESTION_FIELD = "question"
+#: The body field naming which writer produced an entry (``entries(source=...)``).
+SOURCE_FIELD = "source"
 #: The audit body field naming its surface.
 
 #: How long after a queue-submit tool call starts a preflight entry may still be
@@ -268,7 +286,9 @@ class ReadAnswer:
     too and ``data`` holds nothing. Otherwise ``complete`` says nothing the
     answer depends on is still missing (wait marks passed, no incomplete chunk
     set, no scan/byte/time limit hit), and ``more`` says another page exists.
-    ``reason`` names why an answer is incomplete or unavailable.
+    ``reason`` names why an answer is incomplete or unavailable. A timeline
+    page carries ``next``, the cursor of the following page (``None`` on the
+    last), and ``newer``, true when entries arrived after its snapshot.
     """
 
     available: bool
@@ -276,6 +296,8 @@ class ReadAnswer:
     data: Any = field(default=None, hash=False)
     more: bool = False
     reason: str = ""
+    next: str | None = None
+    newer: bool = False
 
     @classmethod
     def unavailable(cls, reason: str) -> ReadAnswer:
@@ -288,9 +310,87 @@ class ReadAnswer:
             "status": "ok",
             "complete": self.complete,
             "more": self.more,
+            "next": self.next,
+            "newer": self.newer,
             "reason": self.reason,
             "data": _jsonable(self.data),
         }
+
+
+#: A node's place in timeline order: ``(ts, inserted_at, key, chunk_index)``.
+Position = tuple[datetime, datetime, str, int]
+
+#: The ``inserted_at`` an entry without one sorts and snapshots as.
+_NEVER = datetime.min.replace(tzinfo=UTC)
+
+
+def _arrived(entry: Entry) -> datetime:
+    return entry.inserted_at.astimezone(UTC) if entry.inserted_at is not None else _NEVER
+
+
+def _position(item: RecordItem) -> Position:
+    e = item.entry
+    return (e.ts.astimezone(UTC), _arrived(e), e.key, e.chunk.index)
+
+
+@dataclass(frozen=True)
+class TimelineCursor:
+    """Where a timeline page starts: the snapshot ``as_of`` and the last node read.
+
+    ``as_of`` is ``None`` when the snapshot held no entry; ``position`` is
+    ``None`` for a cursor before the first node.
+    """
+
+    as_of: datetime | None
+    position: Position | None = None
+
+    def encode(self) -> str:
+        position = self.position
+        data = {
+            "as_of": _iso(self.as_of),
+            "at": None
+            if position is None
+            else [position[0].isoformat(), position[1].isoformat(), position[2], position[3]],
+        }
+        raw = json.dumps(data, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    @classmethod
+    def decode(cls, text: str) -> TimelineCursor:
+        """The cursor *text* encodes.
+
+        Raises:
+            ValueError: When *text* is not a cursor this reader issued.
+        """
+        try:
+            if not isinstance(text, str) or not text:
+                raise ValueError("empty")
+            raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+            data = json.loads(raw.decode("utf-8"))
+            if not isinstance(data, dict) or set(data) != {"as_of", "at"}:
+                raise ValueError("fields")
+            as_of = None if data["as_of"] is None else _cursor_time(data["as_of"])
+            at = data["at"]
+            position: Position | None = None
+            if at is not None:
+                if not isinstance(at, list) or len(at) != 4:
+                    raise ValueError("position")
+                ts, arrived, key, index = at
+                if not isinstance(key, str) or type(index) is not int:
+                    raise ValueError("position")
+                position = (_cursor_time(ts), _cursor_time(arrived), key, index)
+        except (ValueError, TypeError, binascii.Error, UnicodeDecodeError):
+            raise ValueError(f"after {text!r} is not a timeline cursor") from None
+        return cls(as_of, position)
+
+
+def _cursor_time(value: Any) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("time")
+    when = datetime.fromisoformat(value)
+    if when.tzinfo is None:
+        raise ValueError("time")
+    return when.astimezone(UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +486,13 @@ class TimelineNode:
             return self.item.ts
         return self.children[0].ts
 
+    @property
+    def position(self) -> Position:
+        """This node's place in timeline order; a group without a call is at its first child."""
+        if self.item is not None:
+            return _position(self.item)
+        return self.children[0].position
+
     def walk(self) -> Iterable[RecordItem]:
         """Every item of this node and its subtree."""
         for item in (self.item, self.decision, self.result):
@@ -455,14 +562,13 @@ def build_timeline(items: Sequence[RecordItem], *, agent_id: str = "") -> list[T
         return nodes
 
     top = build(agent_id)
-    if agent_id:
-        return top
-    for stream in list(streams):
-        if stream not in used:
-            children = build(stream)
-            if children:
-                top.append(TimelineNode(None, agent_id=stream, children=children))
-    top.sort(key=lambda node: node.ts)
+    if not agent_id:
+        for stream in list(streams):
+            if stream not in used:
+                children = build(stream)
+                if children:
+                    top.append(TimelineNode(None, agent_id=stream, children=children))
+    top.sort(key=lambda node: node.position)
     return top
 
 
@@ -566,6 +672,8 @@ class _Ctx:
         self.read_deadline = start + reader.limits.seconds
         self.size = 0
         self.view: _SourceView | None = None
+        self.next: str | None = None
+        self.newer = False
 
     def incomplete(self, reason: str) -> None:
         if reason not in self.reasons:
@@ -600,6 +708,25 @@ class _SourceView:
         return (own and run_id in self.runs) or run_ok or in_sessions
 
 
+class DrainProgress(Protocol):
+    """One drain the service resolved: what was pending when it was asked for."""
+
+    def passed(self) -> bool:
+        """Whether ingest has committed past it; raises ``RecordBackendError`` on failure."""
+        ...
+
+
+class Drainer(Protocol):
+    """Resolve a drain for *scope*: snapshot what its identities (plus *also*)
+    have pending and, with *session_id*, that session's transcript files, then
+    wake ingest. Only the service, which sees the spool and transcript roots,
+    can; the reader just polls the answer."""
+
+    def __call__(
+        self, scope: Scope, session_id: str | None, also: frozenset[str]
+    ) -> DrainProgress: ...
+
+
 #: The run facts that can be large; dropped from a run that does not fit.
 _LARGE_RUN_FACTS = ("accept", "terminal", "question", "answer")
 
@@ -624,8 +751,10 @@ class RecordReader:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         now: Callable[[], datetime] | None = None,
+        drain: Drainer | None = None,
     ) -> None:
         self.backend = backend
+        self.drain = drain
         self.config: dict[str, Any] = dict(config or {})
         self.limits = limits or Limits()
         self.wait_seconds = wait_seconds
@@ -657,9 +786,7 @@ class RecordReader:
             raise ValueError(f"{scope!r} is not a record scope")
         ctx = _Ctx(self, scope)
         try:
-            if wait is not None and not self._wait(
-                ctx, [(wait, self._transcript_identities(scope))]
-            ):
+            if wait is not None and not self._wait(ctx, [self._check(scope, wait)]):
                 ctx.incomplete(f"wait mark not passed within {self.wait_seconds:g} s")
             data, more = build(ctx)
         except RecordBackendError as exc:
@@ -670,6 +797,8 @@ class RecordReader:
             data=data,
             more=more,
             reason="; ".join(ctx.reasons),
+            next=ctx.next,
+            newer=ctx.newer,
         )
 
     def _transcript_identities(self, scope: Scope) -> list[str]:
@@ -683,36 +812,34 @@ class RecordReader:
         except (ValueError, KeyError, TypeError):
             return []
 
-    def _spool_visible(self, scope: Scope, identity: str) -> bool:
-        """Whether *scope* can see entries of spool identity *identity* at all."""
-        if isinstance(scope, Source):
-            return identity == scope.identity or self._map(identity) == self._map(scope.identity)
-        if isinstance(scope, Own):
-            if identity == scope.person:
-                return True
-            return identity_class(self.config, identity) not in (SOURCE_TERMINAL, SOURCE_HOST)
-        return True
+    def _drained(
+        self, scope: Scope, session_id: str | None, also: frozenset[str] = frozenset()
+    ) -> Callable[[], bool]:
+        """The check of one drain; a reader without a drainer has nothing to drain."""
+        if self.drain is None:
+            return lambda: True
+        return self.drain(scope, session_id, also).passed
 
-    def _passed(self, ctx: _Ctx, mark: WaitMark, identities: Sequence[str]) -> bool:
-        if mark.spool is not None:
-            pairs = tuple(p for p in mark.spool if self._spool_visible(ctx.scope, p[0]))
-            if not pairs:
-                return True
-            return WaitMark(spool=pairs).passed(self.backend, self.backend)
-        return any(
-            mark.passed(self.backend, self.backend, transcript_identity=identity)
-            for identity in identities
+    def _check(self, scope: Scope, mark: WaitMark) -> Callable[[], bool]:
+        """The check of the caller's *mark*: a drain, or a transcript mark."""
+        if mark.drain is not None:
+            return self._drained(scope, mark.drain.session_id)
+        identities = self._transcript_identities(scope)
+        return lambda: any(
+            mark.passed(self.backend, transcript_identity=identity) for identity in identities
         )
 
-    def _wait(self, ctx: _Ctx, marks: Sequence[tuple[WaitMark, Sequence[str]]]) -> bool:
-        """Poll *marks* until all have passed or the read's wait bound is spent.
+    def _wait(self, ctx: _Ctx, checks: Sequence[Callable[[], bool]]) -> bool:
+        """Poll *checks* until all have passed or the read's wait bound is spent.
 
         The read budget is pushed back by the time spent here.
         """
         started = self._clock()
+        pending = list(checks)
         try:
             while True:
-                if all(self._passed(ctx, mark, ids) for mark, ids in marks):
+                pending = [check for check in pending if not check()]
+                if not pending:
                     return True
                 remaining = ctx.wait_deadline - self._clock()
                 if remaining <= 0:
@@ -937,6 +1064,36 @@ class RecordReader:
             kept.append(value)
         return kept, len(items) > rows
 
+    def _timeline_page(
+        self,
+        ctx: _Ctx,
+        items: Sequence[RecordItem],
+        after: TimelineCursor | None,
+        limit: int | None,
+        agent_id: str = "",
+    ) -> tuple[list[TimelineNode], bool]:
+        """One page of the timeline of *items* under the snapshot cursor *after*.
+
+        Sets the page's ``next`` and ``newer`` on *ctx*.
+        """
+        if after is None:
+            as_of = max((_arrived(i.entry) for i in items), default=None)
+        else:
+            as_of = after.as_of
+        snapshot = [i for i in items if as_of is not None and _arrived(i.entry) <= as_of]
+        ctx.newer = len(snapshot) < len(items)
+        nodes = build_timeline(snapshot, agent_id=agent_id)
+        start = after.position if after is not None else None
+        if start is not None:
+            nodes = [n for n in nodes if n.position > start]
+        rows = self._rows(limit, self.limits.rows)
+        kept, _ = self._page(ctx, nodes, rows)
+        if len(kept) == len(nodes) or (not kept and rows > 0):
+            return kept, False
+        last = kept[-1].position if kept else start
+        ctx.next = TimelineCursor(as_of, last).encode()
+        return kept, True
+
     # -- runs ---------------------------------------------------------------
 
     def _runs(
@@ -949,9 +1106,11 @@ class RecordReader:
         ``None`` for a run the caller's scope sees no entry of.
 
         A fixed number of selects serves any number of runs: one for their run
-        entries, one for their sessions, one for their bridge turns (skipped
-        when *turns*, already in scope, are given), and one wait over every
-        terminal's transcript mark.
+        entries (a second after a drain that had to wait), one for their
+        sessions and one for their bridge turns (skipped when *turns*, already
+        in scope, are given). Each run's session is drained under the identity
+        that accepted it, every drain in one wait; runs with no accept entry
+        yet drain the caller's own scope.
         """
         ids = sorted(set(run_ids))
         for run_id in ids:
@@ -960,34 +1119,33 @@ class RecordReader:
         if not ids:
             return {}
         keys = frozenset(run_key(r, phase) for r in ids for phase in (RUN_ACCEPT, RUN_TERMINAL))
-        by_key = {
-            i.key: i
-            for i in self._collect(ctx, ScopeFilter(kinds=frozenset({KIND_RUN})), Query(keys=keys))
-        }
+        run_filter = ScopeFilter(kinds=frozenset({KIND_RUN}))
+        by_key = {i.key: i for i in self._collect(ctx, run_filter, Query(keys=keys))}
+        drains = self._run_drains(ctx, ids, by_key)
+        if drains:
+            first = [(run_ids_, check) for run_ids_, check in drains if not check()]
+            if first:
+                if not self._wait(ctx, [check for _, check in first]):
+                    for run_ids_, _ in first:
+                        for run_id in run_ids_:
+                            ctx.incomplete(
+                                f"run {run_id}'s ingest did not drain within "
+                                f"{self.wait_seconds:g} s"
+                            )
+                # What the drain committed is read, not what was there before it.
+                by_key = {i.key: i for i in self._collect(ctx, run_filter, Query(keys=keys))}
         found: dict[str, tuple[RecordItem | None, RecordItem | None]] = {}
-        marks: list[tuple[str, WaitMark, list[str]]] = []
         for run_id in ids:
             accept = by_key.get(run_key(run_id, RUN_ACCEPT))
             terminal = by_key.get(run_key(run_id, RUN_TERMINAL))
             if accept is None and terminal is None:
+                ctx.incomplete(f"run {run_id} has no accept or terminal entry yet")
                 continue
             found[run_id] = (accept, terminal)
             if terminal is None:
                 ctx.incomplete(f"run {run_id} has no terminal entry yet")
             elif terminal.incomplete:
                 ctx.incomplete(f"run {run_id}'s terminal entry is incomplete")
-            elif terminal.entry.body.get(RUN_WAIT_FIELD) is not None:
-                try:
-                    mark = WaitMark.from_json(terminal.entry.body[RUN_WAIT_FIELD])
-                except WaitMarkInvalid as exc:
-                    ctx.incomplete(f"run {run_id}'s wait mark is unreadable: {exc}")
-                else:
-                    identities = [self._map(accept.entry.identity)] if accept is not None else []
-                    marks.append((run_id, mark, identities))
-        if marks and not self._wait(ctx, [(m, ids_) for _, m, ids_ in marks]):
-            for run_id, mark, identities in marks:
-                if not self._passed(ctx, mark, identities):
-                    ctx.incomplete(f"run {run_id}'s transcript is not ingested yet")
         sessions = {
             run_id: accept_session(accept.entry)
             for run_id, (accept, _) in found.items()
@@ -1035,6 +1193,27 @@ class RecordReader:
                 "timeline": nodes,
             }
         return facts
+
+    def _run_drains(
+        self, ctx: _Ctx, ids: Sequence[str], by_key: Mapping[str, RecordItem]
+    ) -> list[tuple[list[str], Callable[[], bool]]]:
+        """One drain per run session (and one for the runs with no accept yet),
+        each with the runs it serves; none without a drainer."""
+        if self.drain is None:
+            return []
+        by_session: dict[tuple[str | None, str], list[str]] = {}
+        for run_id in ids:
+            accept = by_key.get(run_key(run_id, RUN_ACCEPT))
+            session = accept_session(accept.entry) if accept is not None else ""
+            if accept is not None and session:
+                by_session.setdefault((session, accept.entry.identity), []).append(run_id)
+            else:
+                by_session.setdefault((None, ""), []).append(run_id)
+        drains = []
+        for (session, identity), run_ids in sorted(by_session.items(), key=lambda kv: str(kv[0])):
+            also = frozenset({identity}) if identity else frozenset()
+            drains.append((run_ids, self._drained(ctx.scope, session, also)))
+        return drains
 
     def _run_summary(self, ctx: _Ctx, facts: dict[str, Any] | None) -> dict[str, Any] | None:
         """*facts* without the timeline, counted toward the answer; a run that does
@@ -1140,20 +1319,20 @@ class RecordReader:
         scope: Scope,
         session_id: str,
         *,
-        since: datetime | None = None,
+        after: str | None = None,
         limit: int | None = None,
         wait: WaitMark | None = None,
     ) -> ReadAnswer:
         """One session as one ordered stream (see the module docstring), paged by
-        its top-level nodes so a call and what joins to it stay on one page."""
+        its top-level nodes so a call and what joins to it stay on one page;
+        *after* is the ``next`` cursor of the page before."""
         if not is_token(session_id):
             raise ValueError(f"session id {session_id!r} is not a token")
+        cursor = None if after is None else TimelineCursor.decode(after)
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
-            items = self._collect(
-                ctx, ScopeFilter(session_ids=frozenset({session_id})), Query(since=since)
-            )
-            return self._page(ctx, build_timeline(items), self._rows(limit, self.limits.rows))
+            items = self._collect(ctx, ScopeFilter(session_ids=frozenset({session_id})))
+            return self._timeline_page(ctx, items, cursor, limit)
 
         return self._answer(scope, wait, build)
 
@@ -1163,20 +1342,19 @@ class RecordReader:
         session_id: str,
         agent_id: str,
         *,
-        since: datetime | None = None,
+        after: str | None = None,
         limit: int | None = None,
         wait: WaitMark | None = None,
     ) -> ReadAnswer:
-        """One subagent's own stream within *session_id*, its nested subagents included."""
+        """One subagent's own stream within *session_id*, its nested subagents
+        included, paged like :meth:`timeline`."""
         if not is_token(session_id) or not is_token(agent_id):
             raise ValueError(f"session {session_id!r} and agent {agent_id!r} must be tokens")
+        cursor = None if after is None else TimelineCursor.decode(after)
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
-            items = self._collect(
-                ctx, ScopeFilter(session_ids=frozenset({session_id})), Query(since=since)
-            )
-            nodes = build_timeline(items, agent_id=agent_id)
-            return self._page(ctx, nodes, self._rows(limit, self.limits.rows))
+            items = self._collect(ctx, ScopeFilter(session_ids=frozenset({session_id})))
+            return self._timeline_page(ctx, items, cursor, limit, agent_id)
 
         return self._answer(scope, wait, build)
 
@@ -1228,9 +1406,14 @@ class RecordReader:
         since: datetime | None = None,
         limit: int | None = None,
         surface: str | None = None,
+        written_by: str | None = None,
         wait: WaitMark | None = None,
     ) -> ReadAnswer:
-        """The newest audit entries, optionally of one surface."""
+        """The newest audit entries, optionally of one surface.
+
+        *written_by* keeps only the entries whose trusted ``identity`` is that
+        identity; attribution and on-behalf rows never widen it.
+        """
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
             items = self._collect(
@@ -1240,6 +1423,8 @@ class RecordReader:
             )
             if surface is not None:
                 items = [i for i in items if i.entry.body.get(SURFACE_FIELD) == surface]
+            if written_by is not None:
+                items = [i for i in items if i.entry.identity == written_by]
             return self._page(ctx, items, self._rows(limit, self.limits.rows))
 
         return self._answer(scope, wait, build)
@@ -1290,9 +1475,14 @@ class RecordReader:
         since: datetime | None = None,
         limit: int | None = None,
         *,
+        source: str | None = None,
         wait: WaitMark | None = None,
     ) -> ReadAnswer:
-        """The newest entries of one *kind* (feedback lists, hook debug)."""
+        """The newest entries of one *kind* (feedback lists, hook debug).
+
+        *source* keeps only the entries whose body names that ``source``; the
+        match is made before *limit* counts.
+        """
         check_kind(kind)
 
         def build(ctx: _Ctx) -> tuple[Any, bool]:
@@ -1301,6 +1491,13 @@ class RecordReader:
                 ScopeFilter(kinds=frozenset({kind})),
                 Query(since=since, order=ORDER_NEWEST_FIRST),
             )
+            if source is not None:
+                items = [i for i in items if _body_source(i) == source]
             return self._page(ctx, items, self._rows(limit, self.limits.rows))
 
         return self._answer(scope, wait, build)
+
+
+def _body_source(item: RecordItem) -> Any:
+    body = item.entry.body
+    return body.get(SOURCE_FIELD) if isinstance(body, Mapping) else None

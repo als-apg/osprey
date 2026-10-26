@@ -12,18 +12,27 @@ runs. It hosts:
 ``GET /v1/read/<method>``
     The read API, one route per :class:`~osprey.agent_record.reader.RecordReader`
     method, named exactly as the method (:data:`READ_METHODS`). Arguments are
-    query parameters: ``since`` (ISO-8601), ``limit`` (int), ``wait`` (a
-    :class:`~osprey.agent_record.contract.WaitMark` as JSON) and the method's
+    query parameters: ``since`` (ISO-8601; not on the timelines), ``after``
+    (the ``next`` cursor of a timeline page), ``limit`` (int), ``wait`` (a
+    :class:`~osprey.agent_record.contract.WaitMark` as JSON, normally the
+    drain ``{"drain": {"session_id": <str> | null}}``) and the method's
     own (``session_id``, ``agent_id``, ``key``, ``run_id``, ``kind``,
-    ``surface``, ``conversation``). A ``Source`` credential may narrow its view
-    with ``narrow_session`` or with one or more ``narrow_run``; no credential
-    can widen it. The body is :meth:`ReadAnswer.to_json`: 200 when the backend
-    answered, 503 with ``status: unavailable`` when it did not. An argument
-    that is not valid, or one the method does not take, answers 400.
+    ``surface``, ``conversation``, ``source``, and ``written_by=self``, which
+    keeps the audit entries the caller's own source identity wrote). A
+    ``Source`` credential may narrow its view with ``narrow_session`` or with
+    one or more ``narrow_run``; no credential can widen it. The body is :meth:`ReadAnswer.to_json` (a timeline page's
+    ``next`` and ``newer`` included): 200 when the backend answered, 503 with
+    ``status: unavailable`` when it did not. An argument that is not valid
+    (a malformed ``after`` cursor too), or one the method does not take,
+    answers 400.
 
 ``GET /health``
     Unauthenticated: 200 ``{"status": "ok"}``, or 503 ``{"status":
-    "unconfigured"}`` while the service env is missing.
+    "unconfigured"}`` while the service env is missing. A host-local service
+    (one given a lease directory) adds ``ready``: false until its first full
+    spool pass and transcript scan have committed, true after; if that first
+    pass fails it answers 503 ``{"status": "error", "ready": false}`` and is
+    never ready.
 
 ``GET /health/sources``
     For any authenticated login: per spool source its backlog, the age of
@@ -50,6 +59,15 @@ of ``all``, ``own:<person>`` or ``reader:<name>``; a reader's kinds and days
 back come from this deployment's ``agent_record.readers``, never from the
 header, and a reader the config does not name is refused.
 
+**The drain** (P3-D1) is resolved here, never by the caller, from the scope
+the login resolves to: ``Own``/``Source`` drain their own identity's spool
+directories (every ``dispatch-worker-N`` one in the shared mode) and its
+``.otlp/<login>/`` directories, ``All`` and ``Reader`` drain every directory;
+with a ``session_id`` the drain also covers that session's transcript files
+under every root of those identities. The service snapshots where each ends,
+wakes the spool consumer and the tailer, and the reader waits, within its
+bound, until both have committed past the snapshot.
+
 **The lifespan** opens the configured backend (``embedded`` here,
 ``clickhouse`` imported only when configured) unless one was injected, and
 runs three tasks: the transcript tailer, the spool consumer (a pass every
@@ -57,6 +75,17 @@ runs three tasks: the transcript tailer, the spool consumer (a pass every
 daily scheduler (:mod:`osprey.agent_record.scheduler`). Shutdown cancels the
 tasks and closes the backend the lifespan opened; an injected backend is the
 caller's to close.
+
+**The host-local service** is the same app given a lease directory (``osprey
+agent-record serve --lease-dir``, which only :mod:`osprey.agent_record.host`
+passes). It runs one spool pass and one transcript scan before the three
+tasks start and reports ``ready`` once both committed, and it watches the
+lease directory: once no lease there names a live process, it takes the
+host's ensure lock without waiting, checks again, and only then stops itself
+(by default a SIGTERM to its own process, which runs the normal shutdown),
+keeping that lock until it exits so no ensure reuses a record about to go.
+Shutdown waits for a first pass still running in its thread before the
+backend is closed.
 
 **Where things are**, from the environment the deployment renders, each with
 a default under the deployment repo root (``project_root`` of the config):
@@ -67,6 +96,12 @@ a default under the deployment repo root (``project_root`` of the config):
 - :data:`TRANSCRIPTS_DIR_ENV`: the directory holding one transcript root per
   :func:`~osprey.agent_record.identities.transcript_roots` name, each mounted
   at ``<dir>/<root name>``; default :data:`DEFAULT_TRANSCRIPTS_DIR`.
+- :data:`HOST_PROJECTS_ENV`: on the host, the host build's own Claude Code
+  project directory (``<claude config dir>/projects/<encoded build dir>``).
+  It is read as the ``host`` root with the relpath prefix
+  ``<encoded build dir>/``, exactly the path the stack's mount gives the same
+  files, so their state names agree and no sibling project is read. With it
+  set, a root missing under the transcripts directory is skipped.
 - :data:`CLICKHOUSE_URL_ENV` plus the account's
   :data:`~osprey.agent_record.credentials.CLICKHOUSE_USER_ENV` and
   :data:`~osprey.agent_record.credentials.CLICKHOUSE_PASSWORD_ENV`, read only
@@ -109,6 +144,7 @@ from osprey.agent_record.contract import (
     BackendHealth,
     Narrow,
     Own,
+    Reader,
     RecordBackend,
     RecordBackendError,
     Scope,
@@ -123,8 +159,8 @@ from osprey.agent_record.ingest.otlp import (
     OtlpReceiver,
     not_exported,
 )
-from osprey.agent_record.ingest.spool import SpoolConsumer, SpoolHealth
-from osprey.agent_record.ingest.tailer import POLL_INTERVAL_S, TranscriptTailer
+from osprey.agent_record.ingest.spool import SegmentMark, SpoolConsumer, SpoolHealth
+from osprey.agent_record.ingest.tailer import POLL_INTERVAL_S, FileMark, TranscriptTailer
 from osprey.agent_record.reader import ReadAnswer, RecordReader
 from osprey.utils.bearer import credential_bytes
 
@@ -134,12 +170,16 @@ __all__ = [
     "CLICKHOUSE_URL_ENV",
     "DEFAULT_TRANSCRIPTS_DIR",
     "EMBEDDED_FILENAME",
+    "HOST_PROJECTS_ENV",
+    "IngestDrainer",
     "READ_METHODS",
     "RECORD_DIR_ENV",
     "SPOOL_INTERVAL_S",
     "SPOOL_ROOT_ENV",
     "TRANSCRIPTS_DIR_ENV",
+    "WRITTEN_BY_SELF",
     "create_app",
+    "drain_visible",
     "open_backend",
     "viewer_scope",
 ]
@@ -152,6 +192,8 @@ RECORD_DIR_ENV = "OSPREY_AGENT_RECORD_DIR"
 TRANSCRIPTS_DIR_ENV = "OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR"
 #: The ClickHouse HTTP endpoint, with ``backend: clickhouse``.
 CLICKHOUSE_URL_ENV = "OSPREY_AGENT_RECORD_CLICKHOUSE_URL"
+#: On the host, the host build's Claude Code project directory read as the ``host`` root.
+HOST_PROJECTS_ENV = "OSPREY_AGENT_RECORD_HOST_PROJECTS"
 
 #: Where the transcript roots are mounted in the agent-record container.
 DEFAULT_TRANSCRIPTS_DIR = "/data/transcripts"
@@ -160,11 +202,16 @@ EMBEDDED_FILENAME = "record.duckdb"
 
 #: Seconds between two spool passes when no OTLP batch arrives meanwhile.
 SPOOL_INTERVAL_S = 2.0
+#: Seconds between two looks at the lease directory of a host-local service.
+LEASE_POLL_S = 1.0
 
 #: The viewer forms the history front states.
 VIEWER_ALL = "all"
 VIEWER_OWN_PREFIX = "own:"
 VIEWER_READER_PREFIX = "reader:"
+
+#: The one ``written_by`` value: the caller's own source identity.
+WRITTEN_BY_SELF = "self"
 
 #: Query parameters every read method takes.
 _COMMON_PARAMS = frozenset({"wait", "narrow_session", "narrow_run"})
@@ -180,14 +227,14 @@ class _Method:
 READ_METHODS: Mapping[str, _Method] = {
     "list_sessions": _Method(optional=("since", "limit")),
     "session_users": _Method(optional=("since",)),
-    "timeline": _Method(("session_id",), ("since", "limit")),
-    "agent_timeline": _Method(("session_id", "agent_id"), ("since", "limit")),
+    "timeline": _Method(("session_id",), ("after", "limit")),
+    "agent_timeline": _Method(("session_id", "agent_id"), ("after", "limit")),
     "full_entry": _Method(("key",)),
     "run": _Method(("run_id",)),
     "run_timeline": _Method(("run_id",)),
-    "recent_audit": _Method(optional=("since", "limit", "surface")),
+    "recent_audit": _Method(optional=("since", "limit", "surface", "written_by")),
     "bridge_history": _Method(optional=("conversation", "since", "limit")),
-    "entries": _Method(("kind",), ("since", "limit")),
+    "entries": _Method(("kind",), ("since", "limit", "source")),
 }
 
 
@@ -217,6 +264,7 @@ class _Settings:
     secrets: tuple[str, ...]
     unconfigured: str = ""
     grants: Mapping[str, ids.CredentialGrant] = field(default_factory=dict)
+    host_projects: Path | None = None
 
 
 def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
@@ -257,7 +305,63 @@ def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
         secrets=secrets,
         unconfigured=problem,
         grants=ids.credential_table(config),
+        host_projects=Path(env[HOST_PROJECTS_ENV]) if env.get(HOST_PROJECTS_ENV) else None,
     )
+
+
+def _transcript_roots(
+    config: Mapping[str, Any], settings: _Settings
+) -> tuple[dict[str, Path], dict[str, str]]:
+    """The tailer's roots and their relpath prefixes.
+
+    Each root of :func:`~osprey.agent_record.identities.transcript_roots` is
+    ``<transcripts dir>/<name>``. With :data:`HOST_PROJECTS_ENV` set the
+    ``host`` root is that one project directory, prefixed with its own name,
+    and any other root that does not exist here is left out.
+    """
+    roots: dict[str, Path] = {}
+    prefixes: dict[str, str] = {}
+    host_projects = settings.host_projects
+    for name in ids.transcript_roots(config):
+        if host_projects is not None and name == ids.HOST_TRANSCRIPT_ROOT:
+            roots[name] = host_projects
+            prefixes[name] = f"{host_projects.name}/"
+            continue
+        path = settings.transcripts_dir / name
+        if host_projects is not None and not path.is_dir():
+            continue
+        roots[name] = path
+    return roots, prefixes
+
+
+def _stop_self() -> None:
+    import signal
+
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+async def _watch_leases(lease_dir: Path, stop: Callable[[], None]) -> None:
+    """Call *stop* once no lease in *lease_dir* names a live process.
+
+    The decision is taken under the host's ensure lock (:func:`claim_idle_stop`):
+    a round whose lock is busy, because an ensure or a release is deciding
+    right now, is skipped.
+    """
+    from osprey.agent_record.host import any_live_lease, claim_idle_stop
+
+    while True:
+        try:
+            idle = not await asyncio.to_thread(any_live_lease, lease_dir) and (
+                await asyncio.to_thread(claim_idle_stop, lease_dir)
+            )
+        except Exception:  # an unreadable look is not an empty directory
+            logger.exception("lease directory %s could not be read", lease_dir)
+            idle = False
+        if idle:
+            logger.info("no live lease in %s; stopping", lease_dir)
+            stop()
+            return
+        await asyncio.sleep(LEASE_POLL_S)
 
 
 def open_backend(
@@ -454,6 +558,23 @@ def _read_arguments(method: _Method, request: Request) -> dict[str, Any]:
     return kwargs
 
 
+def _written_by(config: Mapping[str, Any], grant: ids.CredentialGrant, value: str) -> str:
+    """The identity ``written_by=self`` stands for: the caller's own source identity.
+
+    Raises:
+        _Refused: 400 for a value other than ``self``, or a login that is no
+            record source (the history front and the readers).
+    """
+    if value != WRITTEN_BY_SELF:
+        raise _Refused(400, f"written_by {value!r} is not {WRITTEN_BY_SELF!r}")
+    if grant.may_assert_viewer:
+        raise _Refused(400, f"login {grant.login!r} writes nothing to filter on")
+    try:
+        return ids.login_source_identity(config, grant.login)
+    except ValueError as exc:
+        raise _Refused(400, str(exc)) from None
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -524,6 +645,73 @@ def _transcripts_json(tailer: TranscriptTailer | None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# The drain
+# ---------------------------------------------------------------------------
+
+
+def drain_visible(
+    config: Mapping[str, Any], scope: Scope, also: frozenset[str] = frozenset()
+) -> Callable[[str], bool] | None:
+    """Which source identities a drain for *scope* covers; ``None``: every one.
+
+    ``Own`` covers the person's identity and ``Source`` its own (mapped, so a
+    dispatch worker covers every worker directory in the shared mode); ``All``
+    and ``Reader`` see every identity's entries and cover every directory.
+    *also* adds identities (the reader's run drains add the identity that
+    accepted the run, whose session the scope already sees).
+    """
+    if isinstance(scope, (All, Reader)):
+        return None
+    base = scope.person if isinstance(scope, Own) else scope.identity  # type: ignore[union-attr]
+    targets = set()
+    for identity in {base, *also}:
+        try:
+            targets.add(ids.spool_source_identity(config, identity))
+        except ValueError:
+            continue
+    return targets.__contains__
+
+
+@dataclass(frozen=True)
+class _DrainProgress:
+    consumer: SpoolConsumer
+    tailer: TranscriptTailer
+    segments: tuple[SegmentMark, ...]
+    files: tuple[FileMark, ...]
+
+    def passed(self) -> bool:
+        return self.consumer.drained(self.segments) and self.tailer.drained(self.files)
+
+
+@dataclass(frozen=True)
+class IngestDrainer:
+    """The :class:`~osprey.agent_record.reader.Drainer` over this service's ingest.
+
+    A call snapshots what the scope's identities have pending in *consumer*'s
+    spool root and, with a session, in *tailer*'s roots, then (when anything
+    is pending) calls *wake_consumer* and wakes the tailer; both must be safe
+    to call from any thread.
+    """
+
+    config: Mapping[str, Any]
+    consumer: SpoolConsumer
+    tailer: TranscriptTailer
+    wake_consumer: Callable[[], None]
+
+    def __call__(
+        self, scope: Scope, session_id: str | None, also: frozenset[str]
+    ) -> _DrainProgress:
+        visible = drain_visible(self.config, scope, also)
+        segments = self.consumer.snapshot(visible)
+        files = self.tailer.snapshot(session_id, visible) if session_id else ()
+        progress = _DrainProgress(self.consumer, self.tailer, segments, files)
+        if segments or files:
+            self.wake_consumer()
+            self.tailer.wake()
+        return progress
+
+
 @dataclass
 class _Runtime:
     backend: RecordBackend
@@ -564,6 +752,8 @@ def create_app(
     config: Mapping[str, Any] | None = None,
     backend: RecordBackend | None = None,
     env: Mapping[str, str] | None = None,
+    lease_dir: Path | None = None,
+    stop: Callable[[], None] | None = None,
 ) -> FastAPI:
     """Create the agent-record FastAPI application.
 
@@ -574,6 +764,11 @@ def create_app(
             open at shutdown: whoever made it closes it.
         env: The environment to read the service settings from; the process
             environment when ``None``.
+        lease_dir: Run as the host-local service: report ``ready`` only after
+            the first full ingest pass, and stop once no lease in this
+            directory names a live process.
+        stop: What stopping means under *lease_dir*; a SIGTERM to this
+            process when ``None``.
 
     Returns:
         The app. It is built whatever the service env holds; while the
@@ -605,36 +800,77 @@ def create_app(
         record = open_backend(settings.record, settings.record_dir, environ) if opened else backend
         assert record is not None
         retention_days = settings.record.retention_days
-        roots = {name: settings.transcripts_dir / name for name in ids.transcript_roots(config)}
+        roots, prefixes = _transcript_roots(config, settings)
+        consumer = SpoolConsumer(
+            record, settings.spool_root, config=config, secrets=settings.secrets
+        )
+        tailer = TranscriptTailer(
+            record,
+            roots,
+            config,
+            secret_set=settings.secrets,
+            retention_days=retention_days,
+            prefixes=prefixes,
+        )
+        wake = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        def wake_consumer() -> None:
+            with contextlib.suppress(RuntimeError):  # the loop closed meanwhile
+                loop.call_soon_threadsafe(wake.set)
+
         runtime = _Runtime(
             backend=record,
-            reader=RecordReader(record, config),
-            consumer=SpoolConsumer(
-                record, settings.spool_root, config=config, secrets=settings.secrets
+            reader=RecordReader(
+                record, config, drain=IngestDrainer(config, consumer, tailer, wake_consumer)
             ),
-            tailer=TranscriptTailer(
-                record,
-                roots,
-                config,
-                secret_set=settings.secrets,
-                retention_days=retention_days,
-            ),
+            consumer=consumer,
+            tailer=tailer,
             receiver=OtlpReceiver(settings.spool_root, config, retention_days=retention_days),
-            wake=asyncio.Event(),
+            wake=wake,
         )
         app.state.runtime = runtime
-        tasks = [
-            asyncio.create_task(runtime.tailer.run(interval=POLL_INTERVAL_S)),
-            asyncio.create_task(_consume_forever(runtime)),
-            asyncio.create_task(scheduler.run(record)),
-        ]
+
+        tasks: list[asyncio.Task[Any]] = []
+
+        def start_ingest() -> None:
+            tasks.append(asyncio.create_task(runtime.tailer.run(interval=POLL_INTERVAL_S)))
+            tasks.append(asyncio.create_task(_consume_forever(runtime)))
+            tasks.append(asyncio.create_task(scheduler.run(record)))
+
+        def first_pass() -> None:
+            runtime.consumer.consume()
+            runtime.tailer.poll_once()
+
+        # The first pass runs in an executor thread a task cancel cannot stop;
+        # shutdown waits on it before the backend closes under it.
+        first: list[asyncio.Future[None]] = []
+
+        async def first_pass_then_ingest() -> None:
+            first.append(loop.run_in_executor(None, first_pass))
+            try:
+                await asyncio.shield(first[0])
+            except Exception:  # never ready: whoever waits on it refuses, naming the log
+                logger.exception("the first ingest pass failed; agent-record is not ready")
+                app.state.first_pass_failed = True
+            else:
+                app.state.ready = True
+            start_ingest()
+
+        if lease_dir is None:
+            start_ingest()
+        else:
+            tasks.append(asyncio.create_task(first_pass_then_ingest()))
+            tasks.append(asyncio.create_task(_watch_leases(lease_dir, stop or _stop_self)))
         try:
             yield
         finally:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*first, return_exceptions=True)
             app.state.runtime = None
+            app.state.ready = False
             if opened:
                 close = getattr(record, "close", None)
                 if close is not None:
@@ -650,6 +886,8 @@ def create_app(
     )
     app.state.settings = settings
     app.state.runtime = None
+    app.state.ready = False
+    app.state.first_pass_failed = False
 
     def runtime_of(request: Request) -> _Runtime:
         runtime = request.app.state.runtime
@@ -663,6 +901,10 @@ def create_app(
             return JSONResponse(
                 {"status": "unconfigured", "reason": settings.unconfigured}, status_code=503
             )
+        if lease_dir is not None:
+            if app.state.first_pass_failed:
+                return JSONResponse({"status": "error", "ready": False}, status_code=503)
+            return JSONResponse({"status": "ok", "ready": bool(app.state.ready)})
         return JSONResponse({"status": "ok"})
 
     @app.get("/health/sources")
@@ -708,6 +950,8 @@ def create_app(
                 kwargs = _read_arguments(method, request)
             except ValueError as exc:
                 raise _Refused(400, str(exc)) from None
+            if "written_by" in kwargs:
+                kwargs["written_by"] = _written_by(config, grant, kwargs["written_by"])
             runtime = runtime_of(request)
         except _Refused as exc:
             return _refusal(exc)

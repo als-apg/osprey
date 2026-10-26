@@ -39,16 +39,23 @@ Invariants:
   stops the others, and a failed poll never stops :meth:`TranscriptTailer.run`.
 - A committed offset that no longer follows a newline means the file was
   rewritten in place; that also bumps the generation.
+- A root may carry a relpath prefix, the part of the path relative to
+  ``projects/`` that lies above the directory read (the host's root is its
+  one ``projects/<encoded build dir>/`` directory, read as
+  ``<encoded build dir>/``), so its state names are the ones the same files
+  get when the whole parent is mounted as the root. A prefixed root that does
+  not exist yet holds no file, never an error.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import os
 import stat
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -63,13 +70,14 @@ from osprey.agent_record.contract import (
     scrub,
     transcript_state_name,
 )
-from osprey.agent_record.ingest.transcripts import parse_line
+from osprey.agent_record.ingest.transcripts import parse_line, split_relpath
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "MAX_POLL_INTERVAL_S",
     "POLL_INTERVAL_S",
+    "FileMark",
     "PollReport",
     "SourceHealth",
     "TranscriptTailer",
@@ -136,6 +144,21 @@ class PollReport:
     errors: Mapping[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class FileMark:
+    """Where one transcript file ended when a drain was asked for.
+
+    ``generation`` is the one the tailer will read the file in (bumped, as a
+    poll would bump it, for a replaced, shrunk or rewritten file) and
+    ``offset`` the end of its last complete line.
+    """
+
+    identity: str
+    relpath: str
+    generation: int
+    offset: int
+
+
 @dataclass
 class _Tally:
     appended: int = 0
@@ -149,12 +172,20 @@ class TranscriptTailer:
 
     Args:
         backend: The record backend; also the state store for offsets.
-        roots: Transcript root name to the directory that plays ``projects/``.
+        roots: Transcript root name to the directory that plays ``projects/``
+            (or, with a prefix, the directory at that prefix below it).
         config: The rendered deployment config, used to map root names to
             source identities.
         secret_set: Values scrubbed from every entry body before append.
         retention_days: The retention floor used while the record holds no
             arrival day.
+        prefixes: Root name to the relpath prefix of what it holds, one or
+            more path segments each ending in ``/``; a root not named here
+            has none.
+
+    Raises:
+        ValueError: If *retention_days* is not a positive int, or a prefix is
+            not a relative path ending in ``/``.
     """
 
     def __init__(
@@ -165,9 +196,16 @@ class TranscriptTailer:
         *,
         secret_set: Iterable[str] = (),
         retention_days: int = 14,
+        prefixes: Mapping[str, str] | None = None,
     ) -> None:
         if not isinstance(retention_days, int) or retention_days < 1:
             raise ValueError(f"retention_days {retention_days!r} must be a positive int")
+        self._prefixes: dict[str, str] = {}
+        for name, prefix in (prefixes or {}).items():
+            if not isinstance(prefix, str) or not prefix.endswith("/"):
+                raise ValueError(f"root {name!r} prefix {prefix!r} must end with '/'")
+            check_projects_relpath(prefix[:-1])
+            self._prefixes[name] = prefix
         from osprey.agent_record.identities import transcript_source_identity
 
         self.backend = backend
@@ -176,6 +214,8 @@ class TranscriptTailer:
         self._roots: dict[str, Path] = {name: Path(path) for name, path in roots.items()}
         self.health: dict[str, SourceHealth] = {}
         self._floor: datetime | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._wake: asyncio.Event | None = None
         for name in self._roots:
             try:
                 identity: str | None = transcript_source_identity(config, name)
@@ -187,18 +227,113 @@ class TranscriptTailer:
     # -- polling -----------------------------------------------------------
 
     async def run(self, *, interval: float = POLL_INTERVAL_S) -> None:
-        """Poll forever, waiting *interval* seconds (at most five) between polls."""
+        """Poll forever, waiting *interval* seconds (at most five) between polls,
+        or less when :meth:`wake` asks for the next poll sooner."""
         if not 0 < interval <= MAX_POLL_INTERVAL_S:
             raise ValueError(f"interval {interval!r} must be in (0, {MAX_POLL_INTERVAL_S}] s")
-        while True:
+        wake = asyncio.Event()
+        self._loop, self._wake = asyncio.get_running_loop(), wake
+        try:
+            while True:
+                try:
+                    await asyncio.to_thread(self.poll_once)
+                except Exception as exc:  # one failed poll never ends the loop
+                    logger.exception("transcript poll failed")
+                    for source in self.health.values():
+                        if source.identity is not None:
+                            source.error = f"poll failed: {type(exc).__name__}: {exc}"
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(wake.wait(), timeout=interval)
+                wake.clear()
+        finally:
+            self._loop = self._wake = None
+
+    def wake(self) -> None:
+        """Start the next poll of :meth:`run` now; callable from any thread.
+
+        Does nothing while :meth:`run` is not running.
+        """
+        loop, event = self._loop, self._wake
+        if loop is None or event is None:
+            return
+        with contextlib.suppress(RuntimeError):  # the loop closed meanwhile
+            loop.call_soon_threadsafe(event.set)
+
+    # -- drains --------------------------------------------------------------
+
+    def snapshot(
+        self, session_id: str, visible: Callable[[str], bool] | None = None
+    ) -> tuple[FileMark, ...]:
+        """Where each transcript file of *session_id* (its subagents' included) ends now,
+        under every root whose identity is *visible* (``None``: every root).
+
+        Each file's generation is the one a poll would read it in, so the mark
+        is passed only by reading what is in the file now. Unreadable paths
+        are left out: a poll reports them on :attr:`health`.
+
+        Raises:
+            RecordBackendError: If the committed positions cannot be read.
+        """
+        marks: list[FileMark] = []
+        for name, root in self._roots.items():
+            identity = self.health[name].identity
+            if identity is None or (visible is not None and not visible(identity)):
+                continue
             try:
-                await asyncio.to_thread(self.poll_once)
-            except Exception as exc:  # one failed poll never ends the loop
-                logger.exception("transcript poll failed")
-                for source in self.health.values():
-                    if source.identity is not None:
-                        source.error = f"poll failed: {type(exc).__name__}: {exc}"
-            await asyncio.sleep(interval)
+                root_fd = os.open(root, _DIR_FLAGS)
+            except OSError:
+                continue
+            prefix = self._prefixes.get(name, "")
+            try:
+                for dir_fd, file_name, relpath in _walk(root_fd, prefix, prefix.count("/"), {}):
+                    try:
+                        if split_relpath(relpath).session_id != session_id:
+                            continue
+                        mark = self._file_mark(identity, dir_fd, file_name, relpath)
+                    except (OSError, ValueError):
+                        continue
+                    if mark is not None:
+                        marks.append(mark)
+            except OSError:
+                continue
+            finally:
+                os.close(root_fd)
+        return tuple(marks)
+
+    def _file_mark(self, identity: str, dir_fd: int, name: str, relpath: str) -> FileMark | None:
+        fd = os.open(name, _FILE_FLAGS, dir_fd=dir_fd)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode):
+                return None
+            stored = self.backend.get_state(transcript_state_name(identity, relpath))
+            position = _position(stored, st.st_ino, st.st_size)
+            if position.offset > 0 and os.pread(fd, 1, position.offset - 1) != b"\n":
+                position = TranscriptOffset(position.generation + 1, 0)
+            end = _last_line_end(fd, position.offset, st.st_size)
+        finally:
+            os.close(fd)
+        if stored is None and end == 0:
+            return None  # nothing complete to read yet
+        return FileMark(identity, relpath, position.generation, end)
+
+    def drained(self, marks: Iterable[FileMark]) -> bool:
+        """Whether the tailer has committed every file of *marks* past its mark.
+
+        Raises:
+            RecordBackendError: If the committed positions cannot be read.
+        """
+        for mark in marks:
+            value = self.backend.get_state(transcript_state_name(mark.identity, mark.relpath))
+            if value is None:
+                return False
+            try:
+                committed = TranscriptOffset.from_state(value)
+            except ValueError:
+                return False
+            if not committed.passes(mark.generation, mark.offset):
+                return False
+        return True
 
     def poll_once(self, now: datetime | None = None) -> PollReport:
         """Read every root once and commit what was appended."""
@@ -213,7 +348,7 @@ class TranscriptTailer:
                 errors[name] = source.error or "no source identity"
                 continue
             tally = _Tally()
-            self._poll_root(source, root, floor, when, tally)
+            self._poll_root(source, root, self._prefixes.get(name, ""), floor, when, tally)
             total.appended += tally.appended
             total.duplicates += tally.duplicates
             total.skipped += tally.skipped
@@ -246,17 +381,29 @@ class TranscriptTailer:
         return floor
 
     def _poll_root(
-        self, source: SourceHealth, root: Path, floor: datetime, now: datetime, tally: _Tally
+        self,
+        source: SourceHealth,
+        root: Path,
+        prefix: str,
+        floor: datetime,
+        now: datetime,
+        tally: _Tally,
     ) -> None:
         try:
             root_fd = os.open(root, _DIR_FLAGS)
+        except FileNotFoundError as exc:
+            if prefix:  # not created yet: no session has run there
+                source.error, source.file_errors, source.files = None, {}, 0
+            else:
+                source.error = f"transcript root {root} cannot be read: {exc.strerror or exc}"
+            return
         except OSError as exc:
             source.error = f"transcript root {root} cannot be read: {exc.strerror or exc}"
             return
         file_errors: dict[str, str] = {}
         files = 0
         try:
-            for dir_fd, name, relpath in _walk(root_fd, "", 0, file_errors):
+            for dir_fd, name, relpath in _walk(root_fd, prefix, prefix.count("/"), file_errors):
                 files += 1
                 try:
                     self._tail_file(source, dir_fd, name, relpath, floor, now, tally)
@@ -383,6 +530,21 @@ def _complete_lines(fd: int, offset: int, size: int) -> bytes:
         if end >= 0:
             return buf[: end + 1]
     return b""
+
+
+def _last_line_end(fd: int, start: int, size: int) -> int:
+    """The offset just past the last newline of *fd* in ``[start, size)``; *start* when none."""
+    end = size
+    while end > start:
+        lo = max(start, end - _READ_CHUNK)
+        data = os.pread(fd, end - lo, lo)
+        if not data:
+            break
+        at = data.rfind(b"\n")
+        if at >= 0:
+            return lo + at + 1
+        end = lo
+    return start
 
 
 def _state(generation: int, offset: int, fully_read: bool, st: os.stat_result) -> dict[str, Any]:

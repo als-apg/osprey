@@ -21,6 +21,7 @@ from osprey.agent_record import contract as c
 from osprey.agent_record import reader as rd
 from osprey.agent_record.ingest.spool import SpoolConsumer
 from osprey.agent_record.ingest.tailer import TranscriptTailer
+from osprey.agent_record.service import IngestDrainer
 from tests.agent_record.test_identities import _config
 
 T0 = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
@@ -110,10 +111,8 @@ def accept(
     )
 
 
-def terminal(identity: str, run_id: str, t: float, mark: dict | None = None) -> c.Entry:
+def terminal(identity: str, run_id: str, t: float) -> c.Entry:
     body: dict = {"phase": c.RUN_TERMINAL, "status": "done"}
-    if mark is not None:
-        body[rd.RUN_WAIT_FIELD] = mark
     return entry(identity, c.run_key(run_id, c.RUN_TERMINAL), c.KIND_RUN, t, body, run_id=run_id)
 
 
@@ -144,7 +143,13 @@ class Clock:
         self.t += seconds
 
 
-def reader(backend, *, now: datetime | None = None, clock: Clock | None = None) -> rd.RecordReader:
+def reader(
+    backend,
+    *,
+    now: datetime | None = None,
+    clock: Clock | None = None,
+    drain: rd.Drainer | None = None,
+) -> rd.RecordReader:
     clock = clock or Clock()
     return rd.RecordReader(
         backend,
@@ -152,7 +157,16 @@ def reader(backend, *, now: datetime | None = None, clock: Clock | None = None) 
         clock=clock,
         sleep=clock.sleep,
         now=(lambda: now) if now is not None else None,
+        drain=drain,
     )
+
+
+def drainer(backend, spool_root: Path, mounts: Path) -> IngestDrainer:
+    """The service's drainer over *spool_root* and every transcript root under *mounts*;
+    it wakes nothing (a case runs ingest itself)."""
+    consumer = SpoolConsumer(backend, spool_root, config=CONFIG)
+    tailer = TranscriptTailer(backend, {name: mounts / name for name in ROOTS.values()}, CONFIG)
+    return IngestDrainer(CONFIG, consumer, tailer, lambda: None)
 
 
 def rows(backend) -> list[c.Entry]:

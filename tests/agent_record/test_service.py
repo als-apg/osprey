@@ -265,6 +265,13 @@ async def test_bad_read_arguments_answer_400_and_unknown_methods_404(config, env
             ("/v1/read/recent_audit", {"wait": json.dumps({"nope": 1})}),
             ("/v1/read/recent_audit", {"bogus": "1"}),
             ("/v1/read/entries", {"kind": "no-such-kind"}),
+            ("/v1/read/timeline", {"session_id": "s-alice", "after": "not-a-cursor"}),
+            ("/v1/read/timeline", {"session_id": "s-alice", "after": "e30"}),
+            ("/v1/read/timeline", {"session_id": "s-alice", "since": "2026-10-23T12:00:00"}),
+            (
+                "/v1/read/agent_timeline",
+                {"session_id": "s-alice", "agent_id": "ag1", "after": "%%%"},
+            ),
         ]:
             response = await client.get(path, params=params, headers=op)
             assert response.status_code == 400, (path, params, response.text)
@@ -287,6 +294,24 @@ async def test_every_reader_method_has_a_route(config, env, backend):
             response = await client.get(f"/v1/read/{name}", params=params, headers=op)
             assert response.status_code == 200, (name, response.text)
             assert response.json()["status"] == "ok"
+
+
+async def test_a_timeline_pages_over_http_through_its_next_cursor(config, env, backend):
+    entries = [_entry("alice", f"p{n}", session_id="s-paged") for n in range(5)]
+    backend.append(entries)
+    async with _serving(service.create_app(config=config, backend=backend, env=env)) as client:
+        seen: list[str] = []
+        params = {"session_id": "s-paged", "limit": "2"}
+        for _ in range(10):
+            response = await client.get("/v1/read/timeline", params=params, headers=_auth("alice"))
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert body["newer"] is False and body["more"] == (body["next"] is not None)
+            seen.extend(item["key"] for item in body["data"])
+            if body["next"] is None:
+                break
+            params = {"session_id": "s-paged", "limit": "2", "after": body["next"]}
+        assert seen == sorted(e.key for e in entries)
 
 
 # --- OTLP ---------------------------------------------------------------------------

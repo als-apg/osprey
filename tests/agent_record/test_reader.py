@@ -8,9 +8,10 @@ their Agent call and each call joined to its decision and result,
 each scope (``Own``, ``All``, ``Reader`` kinds and days back, ``Source`` with
 the runs its own entries name and both ``narrow`` forms); the copied preflight
 matching (60 s window, same person) and the own-view filter; the row, scan,
-byte and time limits; a wait mark not yet passed (spool and transcript, the
-latter also stored in a run's terminal entry) answering ``complete: false``
-within the 10 s bound; and a backend that raises answering ``unavailable``,
+byte and time limits; a wait mark not yet passed (a drain, a transcript mark,
+and the drain of each run's session at read time) answering ``complete: false``
+within the 10 s bound; a run asked for or named by a bridge turn with no run
+entry yet answering incomplete; and a backend that raises answering ``unavailable``,
 never a partial answer marked complete.
 """
 
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,10 +90,8 @@ def _accept(identity: str, run_id: str, session: str, requester: str | None, t: 
     )
 
 
-def _terminal(identity: str, run_id: str, t: float, mark: dict | None):
+def _terminal(identity: str, run_id: str, t: float):
     body: dict = {"phase": c.RUN_TERMINAL, "status": "done", "cost": 0.1}
-    if mark is not None:
-        body[rd.RUN_WAIT_FIELD] = mark
     return _e(identity, c.run_key(run_id, c.RUN_TERMINAL), c.KIND_RUN, t, body, run_id=run_id)
 
 
@@ -202,7 +202,7 @@ def _seed() -> list[c.Entry]:
         _cc(W1, S3, 2, c.KIND_TOOL_CALL, 102, {"id": "tu-9", "name": "Bash"}, tool_use_id="tu-9"),
         _cc(W1, S3, 3, c.KIND_TOOL_RESULT, 103, {"content": "ok"}, tool_use_id="tu-9"),
         _cc(W1, S3, 4, c.KIND_ANSWER, 104, {"text": "final answer"}),
-        _terminal(W1, R1, 105, {"transcript": {"session_id": S3, "files": {S3_FILE: [0, 100]}}}),
+        _terminal(W1, R1, 105),
         _e(
             BRIDGE,
             f"sp:{BRIDGE}:t1",
@@ -229,6 +229,27 @@ class _Clock:
         self.t += seconds
 
 
+class _Drains:
+    """A drainer that records each drain it is asked for; one passes once *ready* says so."""
+
+    def __init__(self, ready=lambda call: False) -> None:
+        self.calls: list[tuple] = []
+        self.ready = ready
+
+    def __call__(self, scope, session_id, also):
+        call = (scope, session_id, also)
+        self.calls.append(call)
+        return SimpleNamespace(passed=lambda: self.ready(call))
+
+
+def _draining(backend, config, drain, clock=None) -> tuple[rd.RecordReader, _Clock]:
+    clock = clock or _Clock()
+    reader = rd.RecordReader(
+        backend, config, clock=clock, sleep=clock.sleep, now=lambda: NOW, drain=drain
+    )
+    return reader, clock
+
+
 @pytest.fixture
 def config() -> dict:
     return _config(workers=2, bridges=("teams_bridge",), lanes=True)
@@ -238,7 +259,6 @@ def config() -> dict:
 def backend(tmp_path: Path):
     with EmbeddedBackend(tmp_path / "record.duckdb") as b:
         b.append(_seed())
-        b.put_state(c.transcript_state_name(W1, S3_FILE), c.TranscriptOffset(0, 100).to_state())
         yield b
 
 
@@ -417,6 +437,39 @@ def test_entries_newest_first_with_since_and_limit(reader):
         reader.entries(c.All(), "telemetry")
 
 
+def test_entries_source_matches_the_body_before_the_limit(reader, backend):
+    backend.append(
+        [
+            _e("alice", "sp:alice:dbg1", c.KIND_DEBUG, 60, {"source": "hook", "n": 1}),
+            _e("alice", "sp:alice:dbg2", c.KIND_DEBUG, 61, {"source": "sdk", "n": 2}),
+            _e("alice", "sp:alice:dbg3", c.KIND_DEBUG, 62, {"source": "hook", "n": 3}),
+            _e("alice", "sp:alice:dbg4", c.KIND_DEBUG, 63, {"n": 4}),
+        ]
+    )
+    hook = reader.entries(c.Own("alice"), c.KIND_DEBUG, source="hook")
+    assert _keys(hook.data) == ["sp:alice:dbg3", "sp:alice:dbg1"] and not hook.more
+    newest = reader.entries(c.Own("alice"), c.KIND_DEBUG, source="hook", limit=1)
+    assert _keys(newest.data) == ["sp:alice:dbg3"] and newest.more
+    # The newest debug entry is not a hook's, so a limit counted before the match
+    # would have answered it.
+    first = reader.entries(c.Own("alice"), c.KIND_DEBUG, source="sdk", limit=1)
+    assert _keys(first.data) == ["sp:alice:dbg2"] and not first.more
+    every = reader.entries(c.Own("alice"), c.KIND_DEBUG)
+    assert len(every.data) == 4
+    assert reader.entries(c.Own("alice"), c.KIND_DEBUG, source="nobody").data == []
+
+
+def test_recent_audit_written_by_keeps_only_that_identity(reader, backend):
+    backend.append([_e("alice", "sp:alice:aud1", c.KIND_AUDIT, 70, {"surface": "tool"})])
+    shown = reader.recent_audit(c.Own("alice"))
+    assert {f"sp:{QS}:pf1", "sp:alice:aud1"} <= set(_keys(shown.data))
+    own = reader.recent_audit(c.Own("alice"), written_by="alice")
+    # The queueserver's preflight on alice's behalf is in her view but not hers.
+    assert _keys(own.data) == ["sp:alice:aud1"]
+    assert reader.recent_audit(c.All(), written_by=QS, surface="preflight").data
+    assert reader.recent_audit(c.Own("alice"), written_by="bob").data == []
+
+
 def test_own_view_hides_unmatched_preflight_other_views_show_all(reader):
     own = reader.recent_audit(c.Own("alice"), surface="preflight")
     assert _keys(own.data) == [f"sp:{QS}:pf1"]
@@ -479,13 +532,73 @@ def test_run_timeline_resolves_the_session(reader):
     assert answer.data[2].result.body == {"content": "ok"}
 
 
-def test_a_run_whose_transcript_mark_has_not_passed_is_not_complete(backend, reader, clock):
-    backend.put_state(c.transcript_state_name(W1, S3_FILE), c.TranscriptOffset(0, 40).to_state())
+def test_a_run_whose_session_has_not_drained_is_not_complete(backend, config):
+    drains = _Drains()
+    reader, clock = _draining(backend, config, drains)
     for answer in (reader.run(c.All(), R1), reader.run_timeline(c.All(), R1)):
         assert answer.available and not answer.complete
-        assert "transcript" in answer.reason
+        assert "did not drain" in answer.reason
     assert clock.sleeps and sum(clock.sleeps) <= 2 * rd.WAIT_SECONDS
     assert max(clock.sleeps) <= rd.WAIT_POLL_SECONDS
+    # The session is drained under the identity that accepted the run.
+    assert (c.All(), S3, frozenset({W1})) in drains.calls
+
+
+def test_a_run_drain_that_passes_rereads_the_run_entries(backend, config):
+    later = "run-later"
+    backend.append([_accept(W1, later, "sess-later", "bob", 300)])
+
+    polls = []
+
+    def ready(_call):
+        # Pending at the first check; ingest commits the terminal while the read waits.
+        polls.append(1)
+        if len(polls) == 2:
+            backend.append([_terminal(W1, later, 301)])
+        return len(polls) >= 2
+
+    reader, _ = _draining(backend, config, _Drains(ready))
+    answer = reader.run(c.All(), later)
+    assert answer.data["status"] == "done", "the terminal the drain committed is read"
+    assert answer.complete, answer.reason
+
+
+def test_a_run_with_no_run_entry_yet_is_not_complete(reader):
+    answer = reader.run(c.All(), "run-unknown")
+    assert answer.available and not answer.complete and answer.data is None
+    assert "no accept or terminal" in answer.reason
+    assert not reader.run_timeline(c.All(), "run-unknown").complete
+
+
+def test_a_bridge_turn_whose_run_entries_are_not_consumed_is_incomplete_then_complete(
+    backend, reader
+):
+    run_id = "run-pending"
+    backend.append(
+        [
+            _e(
+                BRIDGE,
+                f"sp:{BRIDGE}:t-pending",
+                c.KIND_BRIDGE_TURN,
+                400,
+                {"conversation": "c2", "run_id": run_id, "question": "later?"},
+                run_id=run_id,
+            )
+        ]
+    )
+    first = reader.bridge_history(c.Source(BRIDGE), conversation="c2")
+    assert first.available and not first.complete
+    assert f"run {run_id} has no accept or terminal" in first.reason
+    backend.append(
+        [
+            _accept(W1, run_id, "sess-pending", "bob", 401),
+            _cc(W1, "sess-pending", 1, c.KIND_ANSWER, 402, {"text": "now"}),
+            _terminal(W1, run_id, 403),
+        ]
+    )
+    then = reader.bridge_history(c.Source(BRIDGE), conversation="c2")
+    assert then.complete, then.reason
+    assert then.data[0]["run"]["answer"] == "now"
 
 
 def test_a_running_run_is_not_complete(reader):
@@ -504,10 +617,12 @@ def test_bridge_history_under_its_source_scope(reader):
     assert reader.bridge_history(c.Source(BRIDGE), conversation="other").data == []
 
 
-def test_bridge_history_waits_for_the_runs_transcript(backend, reader):
-    backend.put_state(c.transcript_state_name(W1, S3_FILE), c.TranscriptOffset(0, 1).to_state())
+def test_bridge_history_drains_each_runs_session(backend, config):
+    drains = _Drains()
+    reader, _ = _draining(backend, config, drains)
     answer = reader.bridge_history(c.Source(BRIDGE))
     assert answer.available and not answer.complete
+    assert (c.Source(BRIDGE), S3, frozenset({W1})) in drains.calls
 
 
 # --- Source scope -----------------------------------------------------------------------------
@@ -545,42 +660,54 @@ def test_source_narrow_to_run_ids(reader):
 # --- wait marks ---------------------------------------------------------------------------------
 
 
-def test_a_spool_mark_not_yet_passed_answers_incomplete_within_the_bound(reader, clock):
-    mark = c.WaitMark(spool=(("alice", "fb-later"),))
-    answer = reader.entries(c.Own("alice"), c.KIND_FEEDBACK, wait=mark)
+def test_a_drain_not_yet_passed_answers_incomplete_within_the_bound(backend, config):
+    drains = _Drains()
+    reader, clock = _draining(backend, config, drains)
+    answer = reader.entries(c.Own("alice"), c.KIND_FEEDBACK, wait=c.WaitMark(drain=c.Drain()))
     assert answer.available and not answer.complete
     assert "wait mark" in answer.reason
     assert len(answer.data) == 3
     assert rd.WAIT_SECONDS - rd.WAIT_POLL_SECONDS <= sum(clock.sleeps) <= rd.WAIT_SECONDS
+    # The service resolves the drain from the caller's scope; the caller names only a session.
+    assert drains.calls == [(c.Own("alice"), None, frozenset())]
 
 
-def test_a_passed_spool_mark_answers_complete(backend, reader, clock):
-    assert reader.entries(
-        c.Own("alice"), c.KIND_FEEDBACK, wait=c.WaitMark(spool=(("alice", "fb1"),))
-    ).complete
-    backend.put_state(c.refused_state_name("alice", "gone"), c.refused_state_value("x", "refused"))
-    assert reader.recent_audit(c.All(), wait=c.WaitMark(spool=(("alice", "gone"),))).complete
+def test_a_passed_drain_answers_complete_without_waiting(backend, config):
+    drains = _Drains(lambda call: True)
+    reader, clock = _draining(backend, config, drains)
+    wait = c.WaitMark(drain=c.Drain(S1))
+    assert reader.timeline(c.Own("alice"), S1, wait=wait).complete
+    assert drains.calls == [(c.Own("alice"), S1, frozenset())]
     assert clock.sleeps == []
 
 
-def test_a_transcript_mark_is_checked_against_the_scopes_identity(reader):
+def test_a_reader_without_a_drainer_has_nothing_to_drain(reader, clock):
+    answer = reader.entries(c.All(), c.KIND_FEEDBACK, wait=c.WaitMark(drain=c.Drain()))
+    assert answer.complete and clock.sleeps == []
+
+
+def test_a_transcript_mark_is_checked_against_the_scopes_identity(backend, reader):
+    backend.put_state(c.transcript_state_name(W1, S3_FILE), c.TranscriptOffset(0, 100).to_state())
     mark = c.WaitMark(transcript=c.TranscriptMark(S3, {S3_FILE: (0, 100)}))
     assert reader.timeline(c.Source(W1), S3, wait=mark).complete
     assert not reader.timeline(c.Own("bob"), S3, wait=mark).complete
     assert reader.timeline(c.All(), S3, wait=mark).complete
 
 
-def test_a_mark_that_passes_while_waiting_answers_complete(backend, config):
+def test_a_drain_that_passes_while_waiting_answers_complete(backend, config):
     clock = _Clock()
 
     def sleep(seconds):
         clock.sleep(seconds)
         backend.append([_e("alice", "sp:alice:fb-later", c.KIND_FEEDBACK, 60, {"text": "x"})])
 
-    reader = rd.RecordReader(backend, config, clock=clock, sleep=sleep, now=lambda: NOW)
-    answer = reader.entries(
-        c.All(), c.KIND_FEEDBACK, wait=c.WaitMark(spool=(("alice", "fb-later"),))
+    def landed(_call):
+        return "sp:alice:fb-later" in _keys(reader.entries(c.All(), c.KIND_FEEDBACK).data)
+
+    reader = rd.RecordReader(
+        backend, config, clock=clock, sleep=sleep, now=lambda: NOW, drain=_Drains(landed)
     )
+    answer = reader.entries(c.All(), c.KIND_FEEDBACK, wait=c.WaitMark(drain=c.Drain()))
     assert answer.complete and len(clock.sleeps) == 1
     assert "sp:alice:fb-later" in _keys(answer.data)
 
@@ -688,9 +815,12 @@ def test_a_backend_failing_mid_read_never_yields_a_partial_complete_answer(backe
     assert not answer.available and answer.data is None
 
 
-def test_a_wait_mark_on_a_failing_backend_is_unavailable(config):
-    reader = rd.RecordReader(_Down(), config)
-    answer = reader.entries(c.All(), c.KIND_FEEDBACK, wait=c.WaitMark(spool=(("alice", "e"),)))
+def test_a_drain_on_a_failing_backend_is_unavailable(config):
+    def down(_call):
+        raise c.RecordBackendUnavailable("down")
+
+    reader = rd.RecordReader(_Down(), config, drain=_Drains(down))
+    answer = reader.entries(c.All(), c.KIND_FEEDBACK, wait=c.WaitMark(drain=c.Drain()))
     assert not answer.available
 
 
@@ -739,8 +869,8 @@ def _ticking(backend, config, **kwargs) -> tuple[rd.RecordReader, _TickingClock]
 
 
 def test_an_unpassed_wait_mark_still_answers_the_entries_that_exist(backend, config):
-    reader, clock = _ticking(backend, config)
-    mark = c.WaitMark(spool=(("alice", "fb-later"),))
+    reader, clock = _ticking(backend, config, drain=_Drains())
+    mark = c.WaitMark(drain=c.Drain())
     answer = reader.entries(c.Own("alice"), c.KIND_FEEDBACK, wait=mark)
     assert answer.available and not answer.complete
     assert "wait mark" in answer.reason and "time limit" not in answer.reason
@@ -750,15 +880,14 @@ def test_an_unpassed_wait_mark_still_answers_the_entries_that_exist(backend, con
     assert len(timeline.data) == 6 and "time limit" not in timeline.reason
 
 
-def test_a_runs_transcript_wait_does_not_use_up_the_read_budget(backend, config):
-    backend.put_state(c.transcript_state_name(W1, S3_FILE), c.TranscriptOffset(0, 40).to_state())
-    reader, _ = _ticking(backend, config)
+def test_a_runs_drain_does_not_use_up_the_read_budget(backend, config):
+    reader, _ = _ticking(backend, config, drain=_Drains())
     run = reader.run(c.All(), R1)
-    assert not run.complete and "transcript" in run.reason and "time limit" not in run.reason
+    assert not run.complete and "did not drain" in run.reason and "time limit" not in run.reason
     assert run.data["answer"] == "final answer" and run.data["num_tool_calls"] == 1
     timeline = reader.run_timeline(c.All(), R1)
     assert len(timeline.data) == 4 and "time limit" not in timeline.reason
-    history = reader.bridge_history(c.Source(BRIDGE), wait=c.WaitMark(spool=((BRIDGE, "t9"),)))
+    history = reader.bridge_history(c.Source(BRIDGE), wait=c.WaitMark(drain=c.Drain()))
     assert history.data and history.data[0]["run"]["answer"] == "final answer"
     assert "time limit" not in history.reason
 
@@ -863,18 +992,6 @@ def test_bridge_history_queries_do_not_grow_with_its_turns(backend, config, cloc
     assert len(answer.data) == 21
     assert counting.selects == one
     assert reader.bridge_history(c.All(), limit=3).more
-
-
-# --- wait marks the scope cannot see ----------------------------------------------------------
-
-
-def test_a_spool_mark_naming_an_identity_the_scope_cannot_see_is_ignored(reader, clock):
-    mark = c.WaitMark(spool=(("alice", "fb-later"),))
-    assert reader.entries(c.Own("bob"), c.KIND_FEEDBACK, wait=mark).complete
-    assert reader.bridge_history(c.Source(BRIDGE), wait=mark).complete
-    assert clock.sleeps == []
-    service = c.WaitMark(spool=((QS, "pf-later"),))
-    assert not reader.recent_audit(c.Own("alice"), wait=service).complete
 
 
 # --- an incomplete chunk set keeps its person -------------------------------------------------

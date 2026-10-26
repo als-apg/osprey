@@ -16,7 +16,9 @@ any arrival day, or earlier in the same batch — is not stored and is counted
 as a duplicate. Bodies are stored as their canonical JSON text
 (:func:`~osprey.agent_record.contract.serialize_body`), so chunk reassembly is
 byte-identical. ``ts`` and ``inserted_at`` are ``TIMESTAMPTZ``; an entry that
-arrives without ``inserted_at`` is stamped with the current time. The UTC date
+arrives without ``inserted_at`` is stamped inside the append lock, strictly
+later than every stamp before it (``max(previous + 1 µs, now)``), so stamps
+follow commit order even when the clock steps back. The UTC date
 of ``inserted_at`` is the arrival day, the unit of retention and export.
 
 **State** lives in a separate ``state`` table keyed by name, last write wins.
@@ -34,7 +36,7 @@ on failure, except :meth:`EmbeddedBackend.health`, which reports a failure as
 from __future__ import annotations
 
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -57,6 +59,7 @@ from osprey.agent_record.contract import (
     encode_state,
     entry_from_row,
     entry_row,
+    next_stamp,
     select_conditions,
     select_order,
 )
@@ -65,6 +68,11 @@ BACKEND_NAME = "embedded"
 
 #: Rows per INSERT statement; bounds the parameter count of one statement.
 _INSERT_BATCH = 500
+
+
+def _now() -> datetime:
+    """The wall clock an append stamps from."""
+    return datetime.now(UTC)
 
 
 _SCHEMA = (
@@ -139,6 +147,7 @@ class EmbeddedBackend:
         self.path = Path(path)
         self._key = self.path.resolve()
         self._lock = threading.Lock()
+        self._stamped: datetime | None = None
         self._con: duckdb.DuckDBPyConnection | None = None
         with _OPEN_PATHS_LOCK:
             if self._key in _OPEN_PATHS:
@@ -206,18 +215,17 @@ class EmbeddedBackend:
 
     def append(self, entries: Sequence[Entry]) -> AppendResult:
         """Store *entries*, first write wins on ``(key, chunk.index)``."""
-        now = datetime.now(UTC)
-        unique: dict[tuple[str, int], list[Any]] = {}
+        unique: dict[tuple[str, int], Entry] = {}
         for entry in entries:
             if not isinstance(entry, Entry):
                 raise RecordBackendError(f"append takes Entry objects, not {type(entry).__name__}")
-            if entry.unique_key not in unique:
-                unique[entry.unique_key] = self._row(entry, now)
-        rows = list(unique.values())
+            unique.setdefault(entry.unique_key, entry)
         appended = 0
         with self._lock:
             con = self._connection()
             try:
+                now = self._stamp(con, unique.values())
+                rows = [self._row(entry, now) for entry in unique.values()]
                 con.execute("BEGIN TRANSACTION")
                 try:
                     for start in range(0, len(rows), _INSERT_BATCH):
@@ -237,6 +245,18 @@ class EmbeddedBackend:
             except duckdb.Error as exc:
                 raise RecordBackendError(f"append to {self.path} failed: {exc}") from exc
         return AppendResult(appended=appended, duplicates=len(entries) - appended)
+
+    def _stamp(self, con: duckdb.DuckDBPyConnection, entries: Iterable[Entry]) -> datetime:
+        """The ``inserted_at`` of this append, after every stored one. Under the lock.
+
+        An entry that already carries ``inserted_at`` keeps it; the next stamp
+        is after it.
+        """
+        if self._stamped is None:
+            [newest] = con.execute("SELECT max(inserted_at) FROM entries").fetchone() or [None]
+            self._stamped = newest.astimezone(UTC) if newest is not None else None
+        now, self._stamped = next_stamp(self._stamped, _now(), entries)
+        return now
 
     @staticmethod
     def _row(entry: Entry, now: datetime) -> list[Any]:

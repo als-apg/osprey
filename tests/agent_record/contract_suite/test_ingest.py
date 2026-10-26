@@ -52,10 +52,8 @@ def _accept(run_id: str, session: str, requester: str | None, when: datetime) ->
     return k.spool_line(c.KIND_RUN, body, when=when, run_id=run_id, session_id=session)
 
 
-def _terminal(run_id: str, session: str, when: datetime, mark: dict | None = None):
+def _terminal(run_id: str, session: str, when: datetime):
     body: dict = {"phase": c.RUN_TERMINAL, "status": "done"}
-    if mark is not None:
-        body[rd.RUN_WAIT_FIELD] = mark
     return k.spool_line(c.KIND_RUN, body, when=when, run_id=run_id, session_id=session)
 
 
@@ -259,41 +257,51 @@ def test_a_secret_in_a_body_is_absent_from_rows_export_and_reads(
         assert SECRET not in json.dumps(answer.to_json(), default=str)
 
 
-# --- transcript marks ---------------------------------------------------------------------
+# --- drains at read time ------------------------------------------------------------------
 
 
-def test_run_and_bridge_history_wait_for_the_runs_transcript_mark(
+def test_run_and_bridge_history_drain_the_runs_session_at_read_time(
     backend, spool_root, mounts, base
 ):
     prompt = k.user_line(SESSION, "<payload>", uuid="u-1", when=base + timedelta(seconds=1))
     answer = k.text_line(SESSION, "final answer", uuid="a-1", when=base + timedelta(seconds=2))
-    mark = c.WaitMark(
-        transcript=c.TranscriptMark(SESSION, {k.relpath(SESSION): (0, len(prompt + answer))})
-    )
     k.spool(
         spool_root,
         k.W1,
         _accept(R1, SESSION, k.BOB, base),
-        _terminal(R1, SESSION, base + timedelta(seconds=3), mark.to_json()),
+        _terminal(R1, SESSION, base + timedelta(seconds=3)),
     )
     k.spool(spool_root, k.BRIDGE, _turn(R1, base, conversation="c1", question="status?"))
     k.consume(backend, spool_root)
-    # Only the prompt has reached the transcript so far.
     k.write_transcript(mounts, k.W1, SESSION, prompt)
     k.tail(backend, mounts)
+    # The answer reaches the transcript just before the reads; the tailer has not run.
+    k.write_transcript(mounts, k.W1, SESSION, answer)
 
     clock = k.Clock()
-    reader = k.reader(backend, clock=clock)
+    reader = k.reader(backend, clock=clock, drain=k.drainer(backend, spool_root, mounts))
     for result in (reader.run(c.All(), R1), reader.run_timeline(c.All(), R1)):
         assert result.available and not result.complete
-        assert "transcript" in result.reason
+        assert "did not drain" in result.reason
     history = reader.bridge_history(c.Source(k.BRIDGE), conversation="c1")
     assert history.available and not history.complete
     assert clock.sleeps and max(clock.sleeps) <= rd.WAIT_POLL_SECONDS
     assert sum(clock.sleeps) <= 3 * rd.WAIT_SECONDS
 
-    k.write_transcript(mounts, k.W1, SESSION, answer)
-    k.tail(backend, mounts)
+    # The tailer, woken by the drain, commits the answer while the read waits.
+    woken = k.Clock()
+
+    def tail_once(seconds: float) -> None:
+        woken.sleep(seconds)
+        k.tail(backend, mounts)
+
+    reader = rd.RecordReader(
+        backend,
+        k.CONFIG,
+        clock=woken,
+        sleep=tail_once,
+        drain=k.drainer(backend, spool_root, mounts),
+    )
     run = reader.run(c.Own(k.BOB), R1)
     assert run.complete, run.reason
     assert run.data["answer"] == "final answer" and run.data["requester"] == k.BOB

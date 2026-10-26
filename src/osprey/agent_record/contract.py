@@ -51,7 +51,7 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
@@ -836,6 +836,25 @@ class AppendResult:
     duplicates: int = 0
 
 
+#: The least step between two appends' ``inserted_at`` stamps.
+STAMP_TICK = timedelta(microseconds=1)
+
+
+def next_stamp(
+    newest: datetime | None, now: datetime, entries: Iterable[Entry]
+) -> tuple[datetime, datetime]:
+    """The ``inserted_at`` of an append made at *now*, and the newest stamp after it.
+
+    *newest* is the newest stamp the backend already holds (``None`` when it
+    holds none). The append is stamped strictly after it even when the clock
+    steps back, so stamps follow commit order. An entry that already carries
+    ``inserted_at`` keeps it, and the next append is stamped after that too.
+    """
+    stamp = now if newest is None else max(now, newest + STAMP_TICK)
+    given = [e.inserted_at.astimezone(UTC) for e in entries if e.inserted_at is not None]
+    return stamp, max([stamp, *given])
+
+
 @dataclass(frozen=True)
 class BackendHealth:
     """One backend's own view of itself."""
@@ -1124,6 +1143,41 @@ def refused_state_value(kind: str, reason: str) -> dict[str, str]:
 
 #: The spool root under the project, and the env var that overrides it.
 SPOOL_DIR_ENV = "OSPREY_SPOOL_DIR"
+#: The record off switch. Set to :data:`RECORD_OFF_VALUE`, every writer of the
+#: record (the spool writer, the hook emitter, the API-call log) writes nothing
+#: and touches no disk. Any other value leaves the writers on.
+RECORD_OFF_ENV = "OSPREY_AGENT_RECORD_OFF"
+RECORD_OFF_VALUE = "1"
+#: The variable that switches Claude Code's OTLP export on.
+TELEMETRY_SWITCH_ENV = "CLAUDE_CODE_ENABLE_TELEMETRY"
+
+
+def reaches_a_record(key: str) -> bool:
+    """Whether the environment variable *key* would carry a run into a record.
+
+    The spool directory takes the run's spool lines; ``OTEL_*`` and the
+    telemetry switch send its OTLP batches to a collector.
+    """
+    return key.startswith("OTEL_") or key in (SPOOL_DIR_ENV, TELEMETRY_SWITCH_ENV)
+
+
+def unrecorded_env(env: Mapping[str, str]) -> dict[str, str]:
+    """*env* as the child of a run that records nothing receives it.
+
+    For tooling runs (a reviewer, a benchmark), which are not the agent's
+    work. Every variable that :func:`reaches_a_record` is dropped and the
+    record off switch is set. A launch env is built from the project's config,
+    telemetry block included, and the SDK overlays it on the parent's (a stdio
+    MCP server takes it as its whole env), so scrubbing the parent alone would
+    not keep the run out of the record.
+
+    Returns:
+        A new dict; *env* is not changed.
+    """
+    kept = {key: value for key, value in env.items() if not reaches_a_record(key)}
+    return kept | {RECORD_OFF_ENV: RECORD_OFF_VALUE}
+
+
 #: The receiver-owned directory under the spool root: ``.otlp/<login>/``.
 OTLP_SPOOL_DIR = ".otlp"
 #: A writer's failure log inside its own spool directory.
@@ -1343,7 +1397,7 @@ WriteResult = str | None
 
 
 # ---------------------------------------------------------------------------
-# Wait marks (D16)
+# Wait marks (D16, P3-D1)
 # ---------------------------------------------------------------------------
 
 
@@ -1380,29 +1434,37 @@ class TranscriptMark:
 
 
 @dataclass(frozen=True)
-class WaitMark:
-    """``{"spool": [[identity, entry_id], ...]}`` or ``{"transcript": {...}}``.
+class Drain:
+    """Wait until ingest has committed what the caller's scope had pending.
 
-    Exactly one of :attr:`spool` and :attr:`transcript` is set.
+    The service, never the caller, resolves what that is: when the read
+    arrives it snapshots the end of every spool segment and ``.otlp/`` batch
+    of the identities the caller's scope sees and, with :attr:`session_id`,
+    the size of that session's transcript files under the roots of those
+    identities. The read waits until the consumer and the tailer have
+    committed past the snapshot.
     """
 
-    spool: tuple[tuple[str, str], ...] | None = None
+    session_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.session_id is not None and not is_token(self.session_id):
+            raise WaitMarkInvalid(f"drain session_id {self.session_id!r} is not a token")
+
+
+@dataclass(frozen=True)
+class WaitMark:
+    """``{"drain": {"session_id": <str> | null}}`` or ``{"transcript": {...}}``.
+
+    Exactly one of :attr:`drain` and :attr:`transcript` is set.
+    """
+
+    drain: Drain | None = None
     transcript: TranscriptMark | None = None
 
     def __post_init__(self) -> None:
-        if (self.spool is None) == (self.transcript is None):
-            raise WaitMarkInvalid("a wait mark names exactly one of spool or transcript")
-        if self.spool is not None:
-            pairs = []
-            for pair in self.spool:
-                try:
-                    identity, entry_id = pair
-                    check_identity(identity)
-                    _check_token(entry_id, "entry_id")
-                except (TypeError, ValueError) as exc:
-                    raise WaitMarkInvalid(f"spool mark entry {pair!r}: {exc}") from None
-                pairs.append((identity, entry_id))
-            object.__setattr__(self, "spool", tuple(pairs))
+        if (self.drain is None) == (self.transcript is None):
+            raise WaitMarkInvalid("a wait mark names exactly one of drain or transcript")
 
     @classmethod
     def from_json(cls, data: Any) -> WaitMark:
@@ -1413,12 +1475,15 @@ class WaitMark:
             except ValueError as exc:
                 raise WaitMarkInvalid(f"wait mark is not JSON: {exc}") from None
         if not isinstance(data, Mapping) or len(data) != 1:
-            raise WaitMarkInvalid("a wait mark is an object with one of spool or transcript")
-        if "spool" in data:
-            spool = data["spool"]
-            if not isinstance(spool, list):
-                raise WaitMarkInvalid("a spool mark is a list of [identity, entry_id]")
-            return cls(spool=tuple(tuple(p) if isinstance(p, list) else p for p in spool))
+            raise WaitMarkInvalid("a wait mark is an object with one of drain or transcript")
+        if "drain" in data:
+            d = data["drain"]
+            if not isinstance(d, Mapping) or set(d) - {"session_id"}:
+                raise WaitMarkInvalid("a drain mark is an object with only a session_id")
+            session_id = d.get("session_id")
+            if session_id is not None and not isinstance(session_id, str):
+                raise WaitMarkInvalid("a drain mark's session_id is a string or null")
+            return cls(drain=Drain(session_id))
         if "transcript" in data:
             t = data["transcript"]
             if not isinstance(t, Mapping) or not isinstance(t.get("files"), Mapping):
@@ -1428,12 +1493,12 @@ class WaitMark:
                 for path, pos in t["files"].items()
             }
             return cls(transcript=TranscriptMark(t.get("session_id"), files))
-        raise WaitMarkInvalid("a wait mark names spool or transcript")
+        raise WaitMarkInvalid("a wait mark names drain or transcript")
 
     def to_json(self) -> dict[str, Any]:
         """The JSON form :meth:`from_json` reads back."""
-        if self.spool is not None:
-            return {"spool": [[i, e] for i, e in self.spool]}
+        if self.drain is not None:
+            return {"drain": {"session_id": self.drain.session_id}}
         assert self.transcript is not None
         return {
             "transcript": {
@@ -1442,33 +1507,21 @@ class WaitMark:
             }
         }
 
-    def passed(
-        self,
-        state: StateStore,
-        backend: RecordBackend,
-        *,
-        transcript_identity: str | None = None,
-    ) -> bool:
-        """Whether ingest has passed this mark.
+    def passed(self, state: StateStore, *, transcript_identity: str) -> bool:
+        """Whether the tailer has passed this transcript mark.
 
-        A spool mark passes when every named line is committed (an entry under
-        its ``sp:`` key exists in *backend*) or refused (a
-        :func:`refused_state_name` record exists in *state*). A transcript
-        mark passes when, for each file, the committed offset of
+        It passes when, for each file, the committed offset of
         *transcript_identity*'s copy is at least the mark in the same
         generation, or the file has since moved to a newer generation and that
         generation was fully read.
 
         Raises:
-            ValueError: If a transcript mark is checked without
-                *transcript_identity*.
-            RecordBackendError: If the backend fails.
+            ValueError: If this is a drain mark: only the service, which sees
+                the spool and the transcript roots, resolves one.
+            RecordBackendError: If the state store fails.
         """
-        if self.spool is not None:
-            return self._spool_passed(state, backend)
-        if transcript_identity is None:
-            raise ValueError("a transcript mark is checked against one source identity")
-        assert self.transcript is not None
+        if self.transcript is None:
+            raise ValueError("a drain mark is resolved by the service, not checked against state")
         for path, mark in self.transcript.files.items():
             value = state.get_state(transcript_state_name(transcript_identity, path))
             if value is None:
@@ -1480,17 +1533,3 @@ class WaitMark:
             if not committed.passes(*mark):
                 return False
         return True
-
-    def _spool_passed(self, state: StateStore, backend: RecordBackend) -> bool:
-        assert self.spool is not None
-        pending = []
-        for identity, entry_id in self.spool:
-            if state.get_state(refused_state_name(identity, entry_id)) is None:
-                pending.append(spool_key(identity, entry_id))
-        if not pending:
-            return True
-        found = backend.select(
-            ScopeFilter(identities=frozenset(i for i, _ in self.spool)),
-            Query(keys=frozenset(pending)),
-        )
-        return set(pending) <= {e.key for e in found}

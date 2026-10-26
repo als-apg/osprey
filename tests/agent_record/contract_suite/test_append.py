@@ -109,3 +109,24 @@ def test_a_resumed_session_loses_no_fact(backend, tmp_path):
     assert sorted(texts) == ["done", "done again", "start", "start"]
     timeline = k.reader(backend).timeline(c.Own(k.ALICE), session)
     assert timeline.complete and len(timeline.data) == 6
+
+
+def test_appends_are_stamped_in_commit_order_when_the_clock_steps_back(backend, monkeypatch):
+    from osprey.agent_record.backends import clickhouse, embedded
+
+    times = iter([k.at(0), k.at(100), k.at(50), k.at(10)])
+    clock = lambda: next(times)  # noqa: E731
+    monkeypatch.setattr(embedded, "_now", clock)
+    monkeypatch.setattr(clickhouse, "_now", clock)
+    backend.append([k.entry(k.ALICE, "sp:alice:given", c.KIND_FEEDBACK, 1, {}, arrived=1)])
+    for n in range(3):
+        fresh = c.Entry(
+            key=f"sp:alice:s{n}", kind=c.KIND_FEEDBACK, ts=k.at(1), identity=k.ALICE, body={}
+        )
+        backend.append([fresh])
+    stamps = {e.key: e.inserted_at for e in k.rows(backend)}
+    tick = timedelta(microseconds=1)
+    assert stamps["sp:alice:given"] == k.at(1)
+    assert stamps["sp:alice:s0"] == k.at(100)
+    assert stamps["sp:alice:s1"] == k.at(100) + tick
+    assert stamps["sp:alice:s2"] == k.at(100) + 2 * tick

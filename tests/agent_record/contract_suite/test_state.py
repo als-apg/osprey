@@ -1,6 +1,6 @@
 """State, wait marks, retention and export on every backend: state is last
-write wins and never an entry; a ``WaitMark`` passes exactly when ingest has
-passed it; arrival-day delete drops whole days and keeps state; the Parquet
+write wins and never an entry; a drain passes exactly when ingest has
+committed past it, and a transcript ``WaitMark`` when the tailer has; arrival-day delete drops whole days and keeps state; the Parquet
 export holds each ``(key, chunk.index)`` of its day once.
 """
 
@@ -32,46 +32,49 @@ def test_state_is_last_write_wins_and_never_an_entry(backend, settle, tmp_path):
     assert backend.get_state("cursor") == {"offset": 2, "note": "später"}
 
 
-def test_a_spool_mark_passes_once_its_line_is_committed_or_refused(backend, settle):
-    mark = c.WaitMark(spool=((k.ALICE, "e1"), (k.ALICE, "e2")))
-    assert not mark.passed(backend, backend)
-    backend.append([k.entry(k.ALICE, c.spool_key(k.ALICE, "e1"), c.KIND_FEEDBACK, 1)])
+def test_a_drain_passes_once_its_lines_are_committed_or_refused(backend, settle, tmp_path):
+    root = tmp_path / "spool"
+    fine = k.spool_line(c.KIND_FEEDBACK, when=k.T0)
+    refused = k.spool_line(c.KIND_RUN, {"phase": c.RUN_ACCEPT}, when=k.T0, run_id="r1")
+    k.spool(root, k.ALICE, fine, refused)
+    k.spool(root, k.BOB, k.spool_line(c.KIND_FEEDBACK, when=k.T0))
+    drain = k.drainer(backend, root, tmp_path / "mounts")
+    pending = drain(c.Own(k.ALICE), None, frozenset())
+    assert not pending.passed()
+    k.consume(backend, root)
     settle()
-    assert not mark.passed(backend, backend)
-    backend.put_state(c.refused_state_name(k.ALICE, "e2"), c.refused_state_value("audit", "no"))
-    assert mark.passed(backend, backend)
-    # Another identity's line with the same entry id does not pass it.
-    other = c.WaitMark(spool=((k.BOB, "e1"),))
-    assert not other.passed(backend, backend)
+    assert pending.passed()
+    assert backend.get_state(c.refused_state_name(k.ALICE, refused.entry_id)) is not None
 
 
 def test_a_transcript_mark_passes_at_its_offset_or_a_fully_read_later_generation(backend):
     mark = c.WaitMark(transcript=c.TranscriptMark("sess-1", {FILE: (1, 100)}))
     state = c.transcript_state_name(k.W1, FILE)
-    assert not mark.passed(backend, backend, transcript_identity=k.W1)
+    assert not mark.passed(backend, transcript_identity=k.W1)
     backend.put_state(state, c.TranscriptOffset(1, 99).to_state())
-    assert not mark.passed(backend, backend, transcript_identity=k.W1)
+    assert not mark.passed(backend, transcript_identity=k.W1)
     backend.put_state(state, c.TranscriptOffset(1, 100).to_state())
-    assert mark.passed(backend, backend, transcript_identity=k.W1)
-    assert not mark.passed(backend, backend, transcript_identity=k.W2)
+    assert mark.passed(backend, transcript_identity=k.W1)
+    assert not mark.passed(backend, transcript_identity=k.W2)
     backend.put_state(state, c.TranscriptOffset(2, 10).to_state())
-    assert not mark.passed(backend, backend, transcript_identity=k.W1)
+    assert not mark.passed(backend, transcript_identity=k.W1)
     backend.put_state(state, c.TranscriptOffset(2, 10, fully_read=True).to_state())
-    assert mark.passed(backend, backend, transcript_identity=k.W1)
+    assert mark.passed(backend, transcript_identity=k.W1)
 
 
-def test_the_reader_answers_a_wait_mark_passed_and_not_passed(backend, settle):
+def test_the_reader_answers_a_drain_passed_and_not_passed(backend, settle, tmp_path):
+    root = tmp_path / "spool"
     backend.append([k.entry(k.ALICE, "sp:alice:e1", c.KIND_FEEDBACK, 1, {"text": "x"})])
     settle()
     clock = k.Clock()
-    reader = k.reader(backend, now=k.NOW, clock=clock)
-    passed = reader.entries(
-        c.Own(k.ALICE), c.KIND_FEEDBACK, wait=c.WaitMark(spool=((k.ALICE, "e1"),))
+    reader = k.reader(
+        backend, now=k.NOW, clock=clock, drain=k.drainer(backend, root, tmp_path / "mounts")
     )
+    wait = c.WaitMark(drain=c.Drain())
+    passed = reader.entries(c.Own(k.ALICE), c.KIND_FEEDBACK, wait=wait)
     assert passed.complete and clock.sleeps == []
-    pending = reader.entries(
-        c.Own(k.ALICE), c.KIND_FEEDBACK, wait=c.WaitMark(spool=((k.ALICE, "e9"),))
-    )
+    k.spool(root, k.ALICE, k.spool_line(c.KIND_FEEDBACK, when=k.T0))
+    pending = reader.entries(c.Own(k.ALICE), c.KIND_FEEDBACK, wait=wait)
     assert pending.available and not pending.complete and "wait mark" in pending.reason
     assert [i.key for i in pending.data] == ["sp:alice:e1"]
 
