@@ -312,7 +312,11 @@ class TestMemberWheelsSatisfyTheFramework:
         self._add_members(editable_checkout)
         cache = tmp_path / "cache"
         cache.mkdir()
-        versions = {"osprey-connectors": connectors_version, "pyaml-cs-osprey": "2026.9.0b3.post7"}
+        versions = {
+            "osprey-connectors": connectors_version,
+            "osprey-optimizer": "2026.9.0b3.post7",
+            "pyaml-cs-osprey": "2026.9.0b3.post7",
+        }
 
         def _fake_build(root):
             if root == editable_checkout:
