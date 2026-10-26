@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -305,6 +306,7 @@ class TestPackaging:
     def test_catalog_is_not_excluded_from_the_wheel(self):
         """Hatchling packages everything under src/osprey bar the exclude list."""
         text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        assert 'packages = ["src/osprey"]' in text
+        wheel = tomllib.loads(text)["tool"]["hatch"]["build"]["targets"]["wheel"]
+        assert "src/osprey" in wheel["packages"], wheel["packages"]
         excluded = text.split("exclude = [", 1)[1].split("]", 1)[0]
         assert "profiles" not in excluded

@@ -61,9 +61,7 @@ export function mountExplore(container) {
 
   const hasSchema = (pt === 'hierarchical' || pt === 'middle_layer');
 
-  const subtitle = pt === 'graph'
-    ? 'Channels are resolved from the facility graph'
-    : 'Browse the channel database structure';
+  const subtitle = 'Browse the channel database structure';
 
   const descToggle = hasSchema
     ? `<label class="miller-toggle" style="margin-top: var(--cf-space-1)">
@@ -71,14 +69,23 @@ export function mountExplore(container) {
        </label>`
     : '';
 
-  // Graph mode names its own provenance inside the panel (the graph store, not
-  // a database file), so the db-source badge is left to the file-backed modes.
+  // Graph mode is a full-height finder with its own toolbar: the page header
+  // (or the hub's tile bar) already names the panel, and the corpus strip
+  // names the store, so it draws no section header of its own.
+  if (pt === 'graph') {
+    container.innerHTML = '<div id="explore-content" class="explore-content-graph"></div>';
+    const graphContent = document.getElementById('explore-content');
+    currentRenderer = 'graph';
+    if (graphContent) void mountGraph(graphContent);
+    return;
+  }
+
   container.innerHTML = `
     <div class="section-header">
       <div>
         <div class="section-title">Explore Channels</div>
         <div class="section-subtitle">${subtitle}</div>
-        ${pt === 'graph' ? '' : _dbSourceBadge()}
+        ${_dbSourceBadge()}
         ${descToggle}
       </div>
     </div>
@@ -113,9 +120,6 @@ export function mountExplore(container) {
   } else if (pt === 'in_context') {
     currentRenderer = 'in_context';
     mountInContext(content);
-  } else if (pt === 'graph') {
-    currentRenderer = 'graph';
-    void mountGraph(content);
   } else {
     currentRenderer = 'unknown';
     mountUnknown(content, pt);

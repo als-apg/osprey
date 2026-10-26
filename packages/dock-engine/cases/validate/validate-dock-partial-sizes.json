@@ -1,0 +1,26 @@
+{
+  "name": "validate-dock-partial-sizes",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b"
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c"
+      }
+    ]
+  },
+  "valid": true
+}

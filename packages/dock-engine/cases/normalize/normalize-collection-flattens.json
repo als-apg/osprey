@@ -1,0 +1,46 @@
+{
+  "name": "normalize-collection-flattens",
+  "rule": "C-LAYOUT",
+  "form": "collection",
+  "input": {
+    "split": "column",
+    "items": [
+      {
+        "tabs": ["terminal"],
+        "size": 2
+      },
+      {
+        "split": "column",
+        "items": [
+          {
+            "tabs": ["p1"]
+          },
+          {
+            "tabs": ["p2"],
+            "showing": "p2"
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "split": "column",
+    "items": [
+      {
+        "tabs": ["terminal"],
+        "showing": "terminal",
+        "size": 0.6667
+      },
+      {
+        "tabs": ["p1"],
+        "showing": "p1",
+        "size": 0.1667
+      },
+      {
+        "tabs": ["p2"],
+        "showing": "p2",
+        "size": 0.1667
+      }
+    ]
+  }
+}

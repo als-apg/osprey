@@ -1,0 +1,22 @@
+{
+  "name": "validate-dock-unknown-from",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a"
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "from": "t9"
+      }
+    ]
+  },
+  "reason": "unknown_from",
+  "where": "layout.items[1].from"
+}

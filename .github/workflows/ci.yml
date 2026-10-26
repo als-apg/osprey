@@ -373,7 +373,7 @@ jobs:
       # budget in qmd-sidecar-e2e's "Run the wall-clock budgets serially".
       run: |
         if [ "${{ matrix.python-version }}" = "3.12" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml --cov-report=term"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov=packages/dock-engine/src/dock_engine --cov-report=xml --cov-report=term"
         else
           COV_ARGS=""
         fi
@@ -920,6 +920,24 @@ jobs:
         uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
         /tmp/lean-check/bin/python -I scripts/ci/connectors_lean_import_walk.py
 
+    # The framework wheel ships `dock_engine` from packages/dock-engine (the root
+    # pyproject's wheel target); there is no dock-engine wheel of its own. The
+    # case corpus and the manifest sit outside the import root and reach the
+    # wheel by force-include, so the check reads the wheel's file list for the
+    # module and for both.
+    - name: Check the framework wheel carries dock_engine and its package data
+      run: |
+        python3 - dist/osprey_framework-*.whl <<'EOF'
+        import sys, zipfile
+        (wheel,) = sys.argv[1:]
+        names = zipfile.ZipFile(wheel).namelist()
+        assert 'dock_engine/__init__.py' in names, f'{wheel} carries no dock_engine package'
+        cases = [n for n in names if n.startswith('dock_engine/cases/validate/') and n.endswith('.json')]
+        assert cases, f'{wheel} carries no dock_engine/cases/validate/ case'
+        assert 'dock_engine/manifest.json' in names, f'{wheel} carries no dock_engine/manifest.json'
+        print(f'DOCK ENGINE IN FRAMEWORK WHEEL OK ({len(cases)} validate cases)')
+        EOF
+
     # A step of its own, after the lean check rather than inside it: the pyAML
     # control-system wheel imports the framework (osprey.runtime)
     # by design, so the no-framework assertion above must keep reading a venv
@@ -943,6 +961,12 @@ jobs:
         for name in modules:
             importlib.import_module(name)
         print(f'PYAML WHEEL OK ({len(modules)} modules)')
+        # The framework wheel in this venv bundles dock_engine; read its package
+        # data the way an installed consumer does, not just the wheel's file list.
+        import dock_engine
+        assert dock_engine.cases_dir().is_dir(), dock_engine.cases_dir()
+        assert len(dock_engine.rules_digest()) == 64
+        print(f'DOCK ENGINE IMPORT OK ({dock_engine.__version__})')
         "
 
   static-checks:
@@ -1220,6 +1244,7 @@ jobs:
           tests/interfaces/web_terminal/test_osprey_drawer.py \
           tests/interfaces/web_terminal/test_scaffold_detail.py \
           tests/interfaces/web_terminal/test_session_page.py \
+          tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/lattice_dashboard/test_retheme_browser.py \
@@ -1297,6 +1322,15 @@ jobs:
 
     - name: Run JS tests (vitest)
       run: npm run test:js
+
+    # The dock engine's committed bundle, declarations and manifest are build
+    # outputs of its TypeScript; --check rebuilds them in memory and fails when
+    # a committed file differs, so a source edit cannot land without its build.
+    - name: Check the dock-engine bundle is current
+      run: node packages/dock-engine/scripts/build.mjs --check
+
+    - name: Run dock-engine tests (vitest)
+      run: npm run test:dock-engine
 
   plugin-smoke:
     name: Plugin marketplace smoke (install the osprey plugin)

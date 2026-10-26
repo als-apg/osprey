@@ -698,7 +698,7 @@ def _wait_for_resumed_session(page, mode: str | None, *, variant: str) -> None:
         if mode == "simple":
             page.wait_for_function(
                 "(p) => Array.from(document.querySelectorAll("
-                "'.op-messages .op-entry.operator .op-entry-body'))"
+                "'.op-messages .op-entry.operator > .op-bubble'))"
                 ".some((b) => (b.textContent || '').trim() === p)",
                 arg=DEMO_OPENING_PROMPT,
                 timeout=_NAV_TIMEOUT_MS,

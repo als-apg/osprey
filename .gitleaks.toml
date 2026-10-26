@@ -1,0 +1,13 @@
+# gitleaks configuration: the default rules, plus allowlists for known false positives.
+
+[extend]
+useDefault = true
+
+# The dock-engine manifest maps each case file to its sha256 digest. Case names such as
+# close-unknown-key.json make generic-api-key read the digest as a key; only a bare
+# 64-hex digest in that generated file is exempt.
+[[allowlists]]
+description = "dock-engine case digests in dist/manifest.json"
+condition = "AND"
+paths = ['''^packages/dock-engine/dist/manifest\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']

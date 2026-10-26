@@ -1,0 +1,46 @@
+{
+  "name": "open-pick-target-edge-beside-terminal",
+  "rule": "rule-7",
+  "before": {
+    "tile": "t1",
+    "tabs": ["terminal", "p1"],
+    "showing": "terminal"
+  },
+  "op": {
+    "fn": "openItem",
+    "key": "p2",
+    "context": {
+      "focusedTile": "t1",
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      },
+      "pickTarget": {
+        "tile": "t1",
+        "edge": "right"
+      }
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["terminal", "p1"],
+        "showing": "terminal",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["p2"],
+        "showing": "p2",
+        "size": 0.5,
+        "from": "t1"
+      }
+    ]
+  },
+  "focus": "t2"
+}

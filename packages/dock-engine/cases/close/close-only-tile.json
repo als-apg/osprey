@@ -1,0 +1,22 @@
+{
+  "name": "close-only-tile",
+  "rule": "rule-8",
+  "before": {
+    "tile": "t1",
+    "tabs": ["a", "e"],
+    "showing": "e"
+  },
+  "op": {
+    "fn": "closeTile",
+    "tile": "t1"
+  },
+  "after": null,
+  "record": {
+    "kind": "tile",
+    "tile": "t1",
+    "tabs": ["a", "e"],
+    "showing": "e",
+    "neighbour": null,
+    "side": null
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "validate-dock-showing-not-in-tabs",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tile": "t1",
+    "tabs": ["a"],
+    "showing": "b"
+  },
+  "reason": "showing_not_in_tabs",
+  "where": "layout.showing"
+}

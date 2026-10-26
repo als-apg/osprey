@@ -1,0 +1,59 @@
+{
+  "name": "hit-band-30-percent-of-800-is-edge",
+  "rule": "rule-9",
+  "layout": {
+    "tile": "t1",
+    "tabs": ["a", "b"],
+    "showing": "a"
+  },
+  "dockRect": {
+    "x": 0,
+    "y": 32,
+    "width": 800,
+    "height": 600
+  },
+  "tabRects": {
+    "t1": {
+      "barRect": {
+        "x": 0,
+        "y": 0,
+        "width": 800,
+        "height": 32
+      },
+      "tabRects": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 32
+        },
+        {
+          "x": 120,
+          "y": 0,
+          "width": 120,
+          "height": 32
+        }
+      ]
+    }
+  },
+  "point": {
+    "x": 240,
+    "y": 332
+  },
+  "source": {
+    "new": "c"
+  },
+  "target": {
+    "tile": "t1",
+    "edge": "left"
+  },
+  "resultRect": {
+    "rect": {
+      "x": 0,
+      "y": 32,
+      "width": 400,
+      "height": 600
+    },
+    "marker": null
+  }
+}
