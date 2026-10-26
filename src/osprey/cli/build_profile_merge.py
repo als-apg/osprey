@@ -10,16 +10,25 @@ here leaves :mod:`osprey.cli.build_profile_presets` a leaf.
 
 from __future__ import annotations
 
+import copy
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.types import (
+    configured_targets,
+    resolve_target,
+    session_posture,
+    target_writes_enabled,
+    tier_writes,
+)
 from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
-from .build_profile_document import _read_profile_document
+from . import build_profile_document as _document
+from .build_profile_document import _read_profile_document, retired_write_origin
 from .build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
@@ -776,8 +785,8 @@ _APP_RENDER_KEYS: tuple[str, ...] = ("extra_mounts", "seed_base", "image")
 
 _CLAUDE_CODE_SECTION = "claude_code"
 _CONTROL_SYSTEM_SECTION = "control_system"
-_CONNECTOR_TABLE_KEY = "connector"
-_WRITES_ENABLED_LEAF = "writes_enabled"
+#: The one posture an app render holds, whatever its host or its file says.
+_APP_WRITES = "never"
 
 
 def _flatten_section(config: dict[str, Any], section: str) -> dict[str, Any]:
@@ -849,8 +858,18 @@ def _is_server_switch(path: tuple[str, ...]) -> bool:
 
 
 def _is_write_switch(path: tuple[str, ...]) -> bool:
-    """Whether a leaf path is a ``control_system.*writes_enabled`` switch."""
-    return path[0] == _CONTROL_SYSTEM_SECTION and path[-1] == _WRITES_ENABLED_LEAF
+    """Whether a leaf path is a write-posture switch.
+
+    The tier key ``control_system.writes`` in any spelling, and every retired
+    ``control_system.*writes_enabled`` leaf (the flat one and each connector
+    type's) — an app render holds none of them but its own pin.
+    """
+    if not path or path[0] != _CONTROL_SYSTEM_SECTION:
+        return False
+    return (
+        path == (_CONTROL_SYSTEM_SECTION, _document.WRITES_KEY_LEAF)
+        or path[-1] == _document.RETIRED_WRITES_LEAF
+    )
 
 
 def _is_deny_lift(path: tuple[str, ...]) -> bool:
@@ -890,73 +909,25 @@ def _is_edit_door_switch(path: tuple[str, ...]) -> bool:
 
 
 def _drop_write_switches(config: dict[str, Any]) -> dict[str, Any]:
-    """A copy of a config block without any ``control_system.*writes_enabled`` leaf."""
+    """A copy of a config block without any write-posture switch (:func:`_is_write_switch`)."""
     return _drop_config_leaves(config, _is_write_switch)
 
 
-def _connector_block_types(config: dict[str, Any]) -> set[str]:
-    """The first segment of every ``control_system.connector.<type>`` leaf ``config`` spells."""
-    found: set[str] = set()
+def _pin_write_switches(config: dict[str, Any]) -> dict[str, Any]:
+    """``config`` with every write switch removed and ``control_system.writes: never`` pinned.
 
-    def walk(node: dict[str, Any], prefix: tuple[str, ...]) -> None:
-        for key, value in node.items():
-            path = prefix + tuple(str(key).split("."))
-            if isinstance(value, dict) and value:
-                walk(value, path)
-            elif (
-                len(path) >= 3
-                and path[0] == _CONTROL_SYSTEM_SECTION
-                and path[1] == _CONNECTOR_TABLE_KEY
-            ):
-                found.add(path[2])
-
-    walk(config, ())
-    return found
-
-
-def _connector_table_keys(config: dict[str, Any]) -> set[str]:
-    """The type keys of a ``control_system.connector`` mapping ``config`` spells whole."""
-    table = config.get(f"{_CONTROL_SYSTEM_SECTION}.{_CONNECTOR_TABLE_KEY}")
-    if not isinstance(table, dict):
-        section = config.get(_CONTROL_SYSTEM_SECTION)
-        table = section.get(_CONNECTOR_TABLE_KEY) if isinstance(section, dict) else None
-    return {str(key) for key in table} if isinstance(table, dict) else set()
-
-
-def _pin_write_switches(config: dict[str, Any], *sources: dict[str, Any]) -> dict[str, Any]:
-    """``config`` with every write switch removed and pinned ``false`` again.
-
-    The deployment-wide switch is pinned, and so is the per-type switch of
-    every single-segment connector type ``sources`` (the configs ``config``
-    was composed from) have a block for — a block that held nothing but its
-    write switch included, so it stays the configured machine it was. No
-    other block is created: a reader that finds a non-empty
-    ``control_system.connector.<type>`` block treats that machine as
-    configured, so a pin on a type no source has a block for would change
-    which targets the render has. An absent per-type switch inherits the
-    deployment-wide ``false``, which is why such a type needs no pin — and why
-    a custom connector whose type is a dotted module path gets none either,
-    since spelling it as a dotted key would address a different, nested path.
+    Every spelling of the tier key and every retired ``writes_enabled`` leaf is
+    dropped, and the tier key is set again, dotted, to ``never``. No retired
+    leaf is pinned: the tier key alone states the posture, and a per-type pin
+    would keep a retired key alive in every app render. Dropping a leaf prunes
+    a connector block it was the only key of; a host's resolved profile holds
+    no such block, because the normalizer has already removed its retired
+    leaves (and judged the emptied block).
     """
-    from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
+    from osprey_connectors.types import WRITES_KEY
 
     pinned = _drop_write_switches(config)
-    layers = (pinned, *sources)
-    present = set().union(*(_connector_block_types(layer) for layer in layers))
-    dotted_types = {key for layer in layers for key in _connector_table_keys(layer) if "." in key}
-    for connector_type in sorted(present):
-        if any(key.split(".")[0] == connector_type for key in dotted_types):
-            continue
-        key = ".".join(
-            (
-                _CONTROL_SYSTEM_SECTION,
-                _CONNECTOR_TABLE_KEY,
-                connector_type,
-                TYPE_WRITES_ENABLED_LEAF,
-            )
-        )
-        pinned[key] = False
-    pinned[WRITES_ENABLED_KEY] = False
+    pinned[WRITES_KEY] = _APP_WRITES
     return pinned
 
 
@@ -987,14 +958,43 @@ def _pin_edit_doors(config: dict[str, Any]) -> dict[str, Any]:
     return pinned
 
 
+def _judge_app_posture(app_config: dict[str, Any], app_rel: str) -> None:
+    """Refuse an app that spells ``control_system.writes: allowed``; warn about one that arms.
+
+    An app is always ``never``. The tier key spelled ``allowed`` in an app is
+    refused (the parse refuses it too; this is the composer's own door, for a
+    caller that hands it an unparsed document). An app on the retired
+    ``writes_enabled`` leaves that arm is pinned ``never`` as it always was,
+    and warned about once: the normalizer has already rewritten a parsed one,
+    so this fires only for an app it did not see.
+    """
+    from osprey_connectors.types import WRITES_KEY
+
+    from .build_profile_document import retired_write_answer
+
+    if any(value == "allowed" for value in _document._tier_key_values(app_config)):
+        raise BuildProfileError(
+            f"{app_rel}: an app cannot spell `{WRITES_KEY}: allowed` — an app is always "
+            f"`{WRITES_KEY}: {_APP_WRITES}`; give write access through a tier."
+        )
+    if retired_write_answer(app_config) == "allowed":
+        _warn_once(
+            app_rel,
+            "app-arms",
+            f"{app_rel}: the retired `writes_enabled` keys arm writes, but an app is always "
+            f"`{WRITES_KEY}: {_APP_WRITES}`, so this app renders `{_APP_WRITES}`. Delete the "
+            "retired keys",
+        )
+
+
 def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) -> dict[str, Any]:
     """Compose an app render from its host deployment and its complete app file.
 
     The app file owns what the agent is: the keys in :data:`_APP_OWNED_KEYS`
     and :data:`_APP_RENDER_KEYS` come from it alone. Its ``config:`` sits over
     the host's facts — the host's config minus every ``claude_code.servers``
-    switch (the app states its own server set) and minus every
-    ``control_system.*writes_enabled`` switch; ``claude_code.permissions`` is
+    switch (the app states its own server set) and minus every write-posture
+    switch (:func:`_is_write_switch`); ``claude_code.permissions`` is
     kept, so the host's floor denies union with the app's own — all but the
     host's ``remove_deny`` lifts, which grant the host's own render. The app's
     ``mcp_servers`` declarations are added to the host's. Every other
@@ -1003,7 +1003,8 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     read from the package: the app file is a materialized, explicit copy.
 
     Whatever either side says, the render cannot write or edit the deployment:
-    every write switch is pinned ``false``, every door in
+    ``control_system.writes`` is pinned ``never`` and no retired
+    ``writes_enabled`` leaf is kept, every door in
     :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS` is set
     closed (the setup tool denied, the Config panel and gallery writes off),
     ``writes-check`` is selected, and
@@ -1019,7 +1020,8 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
         The composed render, before the attachment facts are set.
 
     Raises:
-        BuildProfileError: If the composed render could still write.
+        BuildProfileError: If the app file spells ``control_system.writes:
+            allowed``, or if the composed render could still write.
     """
     render = {
         key: value
@@ -1054,12 +1056,35 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
         _flatten_section(host_facts, _CLAUDE_CODE_SECTION),
         _flatten_section(app_config, _CLAUDE_CODE_SECTION),
     )
-    # The host's raw config counts a block that held only its write switch (it
-    # stays the configured machine it was); the app's own write switches are
-    # pins, never blocks, so they are dropped before block presence is read.
-    render["config"] = _pin_edit_doors(
-        _pin_write_switches(config, host_config, _drop_write_switches(app_config))
-    )
+    _judge_app_posture(app_config, app_rel)
+    render["config"] = config
+    return seal_app_render(render, app_rel)
+
+
+def seal_app_render(render: dict[str, Any], app_rel: str) -> dict[str, Any]:
+    """Pin an app render shut and check it: the composer's last step, and the edit's.
+
+    ``control_system.writes`` is pinned ``never`` with every retired leaf
+    dropped, every deployment-edit door is closed, ``writes-check`` is
+    selected, and :func:`~osprey.deployment.web_terminals.lint.lint_app_render`
+    checks the result. A ``--set`` edit lands after the composer, so the build
+    seals an edited app render again: an app is ``never`` whatever the
+    command line says.
+
+    Args:
+        render: The app render, composed or edited.
+        app_rel: The app file's repo-relative label, for messages.
+
+    Returns:
+        ``render`` with its ``config`` and ``hooks`` pinned.
+
+    Raises:
+        BuildProfileError: If the pinned render could still write or edit the
+            deployment.
+    """
+    config = render.get("config")
+    config = dict(config) if isinstance(config, dict) else {}
+    render["config"] = _pin_edit_doors(_pin_write_switches(config))
 
     hooks = render.get("hooks")
     hooks = list(hooks) if isinstance(hooks, list) else []
@@ -1075,6 +1100,229 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     return render
 
 
+# ── Today's write posture beside the tier's ─────────────────────────────────
+#
+# The retired posture leaves are rewritten to ``control_system.writes`` per
+# document (C-NORM), which is PR-3's per-layer rule. Today's reading was per
+# machine instead: ``session_posture`` of the merged section, where a per-type
+# ``false`` overrides a flat ``true`` and a leaf on a type no configured target
+# reaches arms nothing. The two can differ on a merged render, and an operator
+# is told where they do (R2 CF-1 / BE-3, CC-2), once per render (BE-22).
+
+_ALLOWED = "allowed"
+_NEVER = "never"
+_REVALIDATE = "run `osprey init --revalidate`"
+_POSTURE_CHANGE = "posture-change"
+_WIDENING = "widening"
+_EMPTIED_BLOCK = "emptied-block"
+
+
+def _set_path(node: dict[str, Any], path: Sequence[str], value: Any) -> None:
+    """Set ``value`` at ``path`` beneath ``node``, creating mappings on the way."""
+    for part in path[:-1]:
+        if not isinstance(node.get(part), dict):
+            node[part] = {}
+        node = node[part]
+    node[path[-1]] = value
+
+
+def _retired_leaf_paths(origin: dict[str, Any]) -> dict[tuple[str, ...], Any]:
+    """Each leaf of a :func:`retired_write_origin` fragment, by its literal path.
+
+    The paths start at ``control_system``; a connector type is one segment,
+    dots and all, as a mapping spells it.
+    """
+    leaves: dict[tuple[str, ...], Any] = {}
+    if _document.RETIRED_WRITES_LEAF in origin:
+        leaves[(_CONTROL_SYSTEM_SECTION, _document.RETIRED_WRITES_LEAF)] = origin[
+            _document.RETIRED_WRITES_LEAF
+        ]
+    connector = origin.get("connector")
+    if isinstance(connector, dict):
+        for name, block in connector.items():
+            if isinstance(block, dict) and _document.RETIRED_WRITES_LEAF in block:
+                path = (
+                    _CONTROL_SYSTEM_SECTION,
+                    "connector",
+                    str(name),
+                    _document.RETIRED_WRITES_LEAF,
+                )
+                leaves[path] = block[_document.RETIRED_WRITES_LEAF]
+    return leaves
+
+
+def _rendered_control_system(
+    config: Any, retired: dict[tuple[str, ...], Any] | None = None
+) -> dict[str, Any]:
+    """The ``control_system`` section the render writes from a merged ``config:`` mapping.
+
+    Each key applied in order, split on its dots, as ``config_update_fields``
+    applies it: a mapping value is assigned whole, and keys inside it are
+    written literally. In memory, and only the control-system keys.
+
+    *retired* (leaf paths from :func:`_retired_leaf_paths`) reads the render
+    as it was before the normalizer removed those leaves: they are written
+    AHEAD of the config, so a later mapping assigned over a leaf's block
+    replaces it as it replaces the block's other keys. A mapping that still
+    holds the leaf's block is where the leaf was spelled (the normalizer
+    leaves the block in place), so the leaf is put back into it.
+    """
+    tree: dict[str, Any] = {}
+    if not isinstance(config, dict):
+        return {}
+    for path, leaf in (retired or {}).items():
+        _set_path(tree, path, copy.deepcopy(leaf))
+    for key, value in config.items():
+        if not isinstance(key, str):
+            continue
+        if key != _CONTROL_SYSTEM_SECTION and not key.startswith(f"{_CONTROL_SYSTEM_SECTION}."):
+            continue
+        parts = key.split(".")
+        node: Any = tree
+        for part in parts[:-1]:
+            if part not in node:
+                node[part] = {}
+            node = node[part]
+            if not isinstance(node, dict):
+                break
+        else:
+            assigned = copy.deepcopy(value)
+            node[parts[-1]] = assigned
+            if isinstance(assigned, dict):
+                _reseat_retired(assigned, tuple(parts), retired or {})
+    section = tree.get(_CONTROL_SYSTEM_SECTION)
+    return section if isinstance(section, dict) else {}
+
+
+def _reseat_retired(
+    assigned: dict[str, Any], at: tuple[str, ...], retired: dict[tuple[str, ...], Any]
+) -> None:
+    """Put each retired leaf below *at* back into *assigned* when its block is there."""
+    for path, leaf in retired.items():
+        if len(path) <= len(at) or path[: len(at)] != at:
+            continue
+        block: Any = assigned
+        for part in path[len(at) : -1]:
+            block = block.get(part) if isinstance(block, dict) else None
+        if isinstance(block, dict):
+            block[path[-1]] = copy.deepcopy(leaf)
+
+
+def _machine(section: dict[str, Any], target: str) -> str:
+    try:
+        return f"`{target}` (`{resolve_target(section, target)}`)"
+    except ValueError:
+        return f"`{target}`"
+
+
+def _warn_once(dedupe: str, check: str, message: str) -> None:
+    key = (dedupe, check)
+    if key in _document._WARNED_RETIRED_KEYS:
+        return
+    _document._WARNED_RETIRED_KEYS.add(key)
+    _LOGGER.warning("%s; %s", message, _REVALIDATE)
+
+
+def judge_retired_posture(
+    config: Any,
+    origin_paths: Sequence[Path],
+    label: str,
+    dedupe: str,
+    *,
+    warn: bool = True,
+) -> None:
+    """Compare today's write posture of a merged render with its tier, and say where they differ.
+
+    Today's reading is ``session_posture`` of the rendered ``control_system``
+    section with the retired leaves the normalizer removed along the chain
+    (:func:`~.build_profile_document.retired_write_origin` of each of
+    *origin_paths*, later over earlier) put back as the render applies them
+    (:func:`_rendered_control_system`), so a block a later layer's mapping
+    replaced keeps no leaf of it: ``allowed`` when it arms
+    at least one configured target, else ``never``. The new reading is
+    ``tier_writes`` of the rendered section. A render with no retired origin
+    on its chain is skipped.
+
+    * A machine configured today only because a retired leaf was its block's
+      one key is no longer configured once the leaf is gone: refused when
+      today's reading armed it, warned about when it did not (a shipped
+      previous-release tier spells an unarmed ``epics`` leaf on deployments
+      that configure no EPICS machine, and those keep building for the
+      release window).
+    * A difference warns "was <today>, now <tier>".
+    * An unchanged ``allowed`` whose configured machines today's reading only
+      partly armed warns, naming the machines that become armable.
+
+    Each warning is logged once per *dedupe* key, and never with *warn* off.
+
+    Args:
+        config: The merged render's ``config:`` mapping.
+        origin_paths: The chain's files, base first, the layer last.
+        label: How to name the render in messages.
+        dedupe: The render's resolved path, keying the once-only warnings.
+        warn: Whether to log the warnings (the refusal is raised either way).
+
+    Raises:
+        BuildProfileError: When a retired leaf that armed a configured machine
+            was the only key of its connector block.
+    """
+    origins = [o for o in (retired_write_origin(p) for p in origin_paths) if o]
+    if not origins:
+        return
+    section = _rendered_control_system(config)
+    tier = tier_writes(section)
+    retired: dict[tuple[str, ...], Any] = {}
+    for origin in origins:
+        retired.update(_retired_leaf_paths(origin))
+    today_section = {
+        k: v
+        for k, v in _rendered_control_system(config, retired).items()
+        if k != _document.WRITES_KEY_LEAF
+    }
+
+    configured_now = configured_targets(section)
+    lost = [t for t in configured_targets(today_section) if t not in configured_now]
+    for machine in lost:
+        connector_type = resolve_target(today_section, machine)
+        emptied = (
+            f"{label}: the `{_CONTROL_SYSTEM_SECTION}.connector.{connector_type}` block holds only "
+            f"the retired `{_document.RETIRED_WRITES_LEAF}` leaf, so without it the "
+            f"{_machine(today_section, machine)} machine is no longer configured. Add a "
+            "connection key to the block, or delete the block"
+        )
+        if target_writes_enabled(today_section, machine):
+            raise BuildProfileError(f"{emptied}.")
+        if warn:
+            _warn_once(dedupe, f"{_EMPTIED_BLOCK}:{connector_type}", emptied)
+    if not warn:
+        return
+
+    armed = [target for target, on in session_posture(today_section).items() if on]
+    today = _ALLOWED if armed else _NEVER
+    if today != tier:
+        _warn_once(
+            dedupe,
+            _POSTURE_CHANGE,
+            f"{label}: write posture was {today}, now {tier}. The retired `writes_enabled` "
+            f"keys read per machine (armed today: "
+            f"{', '.join(_machine(today_section, t) for t in armed) or 'none'}); "
+            f"`{_CONTROL_SYSTEM_SECTION}.writes` reads `{tier}` for every machine. State "
+            f"`{_CONTROL_SYSTEM_SECTION}.writes` explicitly",
+        )
+        return
+    if tier == _ALLOWED:
+        armable = [t for t in configured_now if t not in armed]
+        if armable:
+            _warn_once(
+                dedupe,
+                _WIDENING,
+                f"{label}: `{_CONTROL_SYSTEM_SECTION}.writes: {_ALLOWED}` lets a session write to "
+                f"every configured machine; today only "
+                f"{', '.join(_machine(today_section, t) for t in armed)} was armed, so "
+                f"{', '.join(_machine(today_section, t) for t in armable)} become armable",
+            )
+
+
 def render_document(
     kind: ProfileKind,
     host_resolved: dict[str, Any],
@@ -1084,6 +1332,9 @@ def render_document(
     legacy: bool = False,
     artifacts: set[str] | None = None,
     shadow_candidates: set[str] | None = None,
+    host_chain: Sequence[Path] = (),
+    layer_path: Path | None = None,
+    warn: bool = True,
 ) -> dict[str, Any]:
     """The profile document one layer renders from, decided by its kind.
 
@@ -1107,24 +1358,41 @@ def render_document(
         legacy: Whether the layer sits in the retired layer directory.
         artifacts: Passed to :func:`merge_layer_delta` for a legacy layer.
         shadow_candidates: Passed to :func:`merge_layer_delta` for a legacy layer.
+        host_chain: The host's ``extends`` chain as resolved paths, base first.
+            With *layer_path*, where the retired posture leaves each document
+            spelled are looked up (:func:`judge_retired_posture`); a caller
+            holding no files passes neither, and the check is skipped.
+        layer_path: The layer's file.
+        warn: Whether :func:`judge_retired_posture` logs its warnings.
 
     Returns:
         The rendered document, before the attachment facts are set.
 
     Raises:
         BuildProfileError: If an app's composed render could still write or
-            edit the deployment.
+            edit the deployment, or if an armed machine's connector block held
+            only a retired posture leaf.
     """
+    if kind is ProfileKind.APP and not legacy:
+        return compose_app_render(host_resolved, layer, layer_rel)
     if legacy:
-        return merge_layer_delta(
+        rendered = merge_layer_delta(
             host_resolved,
             _strip_attachment(layer),
             artifacts=artifacts,
             shadow_candidates=shadow_candidates,
         )
-    if kind is ProfileKind.APP:
-        return compose_app_render(host_resolved, layer, layer_rel)
-    return _deep_merge(host_resolved, layer)
+    else:
+        rendered = _deep_merge(host_resolved, layer)
+    origin_paths = [*host_chain, *([layer_path] if layer_path is not None else [])]
+    judge_retired_posture(
+        rendered.get("config"),
+        origin_paths,
+        layer_rel,
+        str(Path(layer_path).resolve()) if layer_path is not None else layer_rel,
+        warn=warn,
+    )
+    return rendered
 
 
 @dataclass(frozen=True)
@@ -1150,6 +1418,9 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
+        app_rel: The app file's repo-relative label when the document was
+            composed as an app render (:func:`compose_app_render`), else
+            ``None``.
     """
 
     raw: dict[str, Any]
@@ -1157,6 +1428,7 @@ class ResolvedProfileDocument:
     is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
+    app_rel: str | None = None
 
 
 def resolve_profile_document(
@@ -1183,7 +1455,8 @@ def resolve_profile_document(
             document a build already loaded — without it every build reports
             each one twice, and a warning that repeats is one people learn to
             skip. The loader is the user-facing surface, so it keeps the
-            warnings.
+            warnings. The same flag gates the write-posture warnings of
+            :func:`judge_retired_posture`.
 
     Returns:
         The resolved document and its anchor.
@@ -1203,7 +1476,9 @@ def resolve_profile_document(
     shadowed: set[str] = set()
     lineage: list[str] = []
 
-    def finish(resolved: dict[str, Any], as_delta: bool) -> ResolvedProfileDocument:
+    def finish(
+        resolved: dict[str, Any], as_delta: bool, app_rel: str | None = None
+    ) -> ResolvedProfileDocument:
         """Report the exclusion diagnostics, then package the result.
 
         Both branches end the same way, and they must: the diagnostics read the
@@ -1219,19 +1494,27 @@ def resolve_profile_document(
             as_delta,
             frozenset(artifacts),
             lineage[0] if lineage else None,
+            app_rel,
         )
 
     if not is_layer:
-        return finish(
-            _resolve_extends(
-                normalized,
-                profile_path,
-                artifacts=artifacts,
-                shadow_candidates=shadowed,
-                preset_lineage=lineage,
-            ),
-            False,
+        chain: list[Path] = []
+        resolved = _resolve_extends(
+            normalized,
+            profile_path,
+            chain,
+            artifacts=artifacts,
+            shadow_candidates=shadowed,
+            preset_lineage=lineage,
         )
+        judge_retired_posture(
+            resolved.get("config"),
+            chain[::-1],
+            str(profile_path),
+            str(Path(profile_path).resolve()),
+            warn=warn,
+        )
+        return finish(resolved, False)
 
     layer_dir = Path(profile_path).resolve().parent.name
     layer_rel = f"{layer_dir}/{Path(profile_path).name}"
@@ -1267,9 +1550,11 @@ def resolve_profile_document(
     root_raw = _read_profile_document(root_path)
     if not isinstance(root_raw, dict):
         raise BuildProfileError(f"Profile root must be a YAML mapping: {root_path}")
+    host_chain: list[Path] = []
     root_resolved = _resolve_extends(
         dict(root_raw),
         root_path,
+        host_chain,
         artifacts=artifacts,
         shadow_candidates=shadowed,
         preset_lineage=lineage,
@@ -1287,6 +1572,9 @@ def resolve_profile_document(
             legacy=retired_tier,
             artifacts=artifacts,
             shadow_candidates=shadowed,
+            host_chain=host_chain[::-1],
+            layer_path=Path(profile_path),
+            warn=warn,
         )
     )
     from .build_profile_load import render_served_models_error
@@ -1294,7 +1582,8 @@ def resolve_profile_document(
     served_error = render_served_models_error(normalized, merged, layer_rel)
     if served_error is not None:
         raise served_error
-    return finish(merged, True)
+    is_app = kind is ProfileKind.APP and not retired_tier
+    return finish(merged, True, layer_rel if is_app else None)
 
 
 # ---------------------------------------------------------------------------

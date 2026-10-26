@@ -113,9 +113,11 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TYPE_WRITES_ENABLED_LEAF,
     WRITES_ENABLED_KEY,
+    WRITES_KEY,
+    baseline_target,
     configured_targets,
     resolve_target,
-    type_writes_enabled,
+    speaks_channel_access,
 )
 from osprey_connectors.workspace import APPS_DIRNAME, LAYER_DIR_KINDS
 
@@ -2218,19 +2220,23 @@ def _connector_writes_type(path: str) -> str | None:
 _WRITES_CHECK_HOOK = "writes-check"
 
 
+#: The one write posture an app render may hold.
+_APP_WRITES = "never"
+
+
 def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
     """Check that one composed app render can neither write nor edit the deployment.
 
     An app render runs beside a deployment, never as its writer: its
-    ``control_system.writes_enabled`` is pinned ``false``, every connector
-    type's ``writes_enabled`` that appears anywhere in its config is
-    ``false``, ``writes-check`` is among its hooks, and every door in
-    :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS` is
-    closed — the setup tool denied (it rewrites the render's own config,
-    write switches included), the Config panel and gallery writes off. Every
+    ``control_system.writes`` is pinned ``never``, no retired
+    ``writes_enabled`` leaf (the flat one or a connector type's) holds
+    anything but ``false``, ``writes-check`` is among its hooks, and every
+    door in :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS`
+    is closed — the setup tool denied (it rewrites the render's own config,
+    the tier key included), the Config panel and gallery writes off. Every
     spelling of a write switch or a door switch counts — dotted, partly
     nested, nested, or under a custom connector's dotted type — each one is
-    checked, at least one must be present, and only a literal ``False``
+    checked; the tier key must be present, and only the literal ``never``
     passes.
 
     Args:
@@ -2251,11 +2257,20 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
     spelled: list[tuple[str, Any]] = []
     _collect_every_leaf(config, (), spelled)
     problems: list[str] = []
-    global_switch = [value for path, value in spelled if path == WRITES_ENABLED_KEY]
-    if not global_switch or any(value is not False for value in global_switch):
-        problems.append(f"{WRITES_ENABLED_KEY} is not pinned to false")
+    # A scalar written where the section belongs (`control_system: x`) is one
+    # more spelling, and never a pinned one.
+    tier_key = [
+        (path, value)
+        for path, value in spelled
+        if path == WRITES_KEY
+        or (path == WRITES_KEY.split(".")[0] and not isinstance(value, Mapping))
+    ]
+    if not any(path == WRITES_KEY for path, _ in tier_key) or any(
+        path != WRITES_KEY or value != _APP_WRITES for path, value in tier_key
+    ):
+        problems.append(f"{WRITES_KEY} is not pinned to {_APP_WRITES}")
     for path, value in spelled:
-        if path == WRITES_ENABLED_KEY or _connector_writes_type(path) is None:
+        if path != WRITES_ENABLED_KEY and _connector_writes_type(path) is None:
             continue
         if value is not False:
             problems.append(f"{path} is {value!r}")
@@ -2290,12 +2305,29 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
             "An app render must not be able to write or edit the deployment, and this "
             "one can: "
             + "; ".join(problems)
-            + ". An app is composed with every writes_enabled switch pinned to "
-            "false, every deployment-editing door closed and 'writes-check' selected; "
-            "rebuild with `osprey build` rather than editing the render, and give "
-            "write or editing access through a tier.",
+            + f". An app is composed with {WRITES_KEY} pinned to {_APP_WRITES}, no "
+            "retired writes_enabled key, every deployment-editing door closed and "
+            "'writes-check' selected; rebuild with `osprey build` rather than editing the "
+            "render, and give write or editing access through a tier.",
         )
     ]
+
+
+def _layer_writes(layer: Any) -> str | None:
+    """The ``control_system.writes`` one config layer states, read as the build reads it.
+
+    The tier key's value when the layer spells it (any spelling, later wins);
+    else what the layer's retired ``writes_enabled`` leaves amount to — the
+    rewrite the normalizer applies to every parsed document, applied here too
+    because a layer this module reads may be a raw mapping; else ``None``, a
+    layer that says nothing about the posture.
+    """
+    from osprey.cli.build_profile_document import retired_write_answer
+
+    leaves = _config_leaves(layer)
+    if WRITES_KEY in leaves:
+        return cast(str | None, leaves[WRITES_KEY])
+    return retired_write_answer(as_dict(layer))
 
 
 def _check_readonly_tier_inherits_writes(
@@ -2305,30 +2337,24 @@ def _check_readonly_tier_inherits_writes(
     rendered_project: bool,
     profile_root: Path | None,
 ) -> list[Finding]:
-    """A render that writes down a read-only posture must not inherit an armed connector.
+    """A render whose own layer says ``control_system.writes: never`` must not render ``allowed``.
 
-    Write posture is per connector type: ``control_system.writes_enabled`` is
-    only what a type inherits when its own
-    ``control_system.connector.<type>.writes_enabled`` block says nothing, and a
-    block that says ``true`` never falls back to it. So a tier layer whose
-    author typed ``control_system.writes_enabled: false`` — the one line that
-    makes a tier read as read-only, and the line an operator scans for — can
-    still be handed an armed connector by the document underneath it: the
-    profile a delta is merged over, or the preset a preset extends. Nothing
-    downstream is wrong when that happens. The render is armed, every surface
-    agrees it is armed, and only the author thinks otherwise.
+    ``control_system.writes`` is one deployment-wide key, so a tier layer that
+    writes ``never`` — the line an operator scans for — overrides whatever the
+    document underneath it says, and the retired per-type leaves that could
+    arm a machine behind the flat key are rewritten to the tier key per
+    document before any merge. The read-only-looking tier that inherited an
+    armed connector block is therefore closed by construction. This check
+    stays as the guard on that claim: it reads the posture the author wrote in
+    the AUTHORED layer and the posture the chain resolves to — each layer read
+    as the build reads it (:func:`_layer_writes`), a later layer winning — and
+    reports the render where the two disagree, which only a spelling the merge
+    does not fold the way the author expected can produce.
 
-    **This is the one check that must be keyed on the AUTHORED file rather than
-    the merged one**, which is why the layers carry both. In the merge, an
-    inherited ``true`` and a deliberate one are the same key with the same
-    value — the shipped ``control-assistant-readwrite`` tier is exactly the
-    deliberate case, and it pins the global key false beside the one block it
-    arms on purpose. What separates the two is which file the ``true`` is
-    written in, and that fact only exists before the layers are folded.
-
+    Keyed on the authored file as well as the merged one, which is why the
+    layers carry both: the chain alone cannot say what the author meant.
     Profile altitude only. A rendered ``config.yml`` is one composed document
-    with no authored layer left in it, so there is no question to ask there:
-    every key in it reads as written down.
+    with no authored layer left in it, so there is no question to ask there.
     """
     if rendered_project:
         return []
@@ -2343,21 +2369,13 @@ def _check_readonly_tier_inherits_writes(
         if isinstance(layers, _UnreadableRender):
             continue  # reported by `_check_unreadable_tier_privileges`
 
-        authored = _config_leaves(layers.authored)
-        # Not `is False`: the resolver arms a type on a literal `true` and on
-        # nothing else, so every other value this layer could carry — `false`,
-        # `"no"`, `0` — is a layer whose author wrote down a read-only posture
-        # and would read the inherited block the same way.
-        if WRITES_ENABLED_KEY not in authored or authored[WRITES_ENABLED_KEY] is True:
+        # Not `== "never"`: only the literal `allowed` arms, so every other value
+        # the layer could carry is a layer whose author wrote down a read-only
+        # posture (an invalid one is refused at parse).
+        authored = _layer_writes(layers.authored)
+        if authored is None or authored == "allowed":
             continue
-
-        resolved = _config_leaves(*layers.layers)
-        inherited = sorted(
-            path
-            for path, value in resolved.items()
-            if value is True and _connector_writes_type(path) is not None and path not in authored
-        )
-        if not inherited:
+        if not _layers_allow_writes(*layers.layers):
             continue
 
         layer_word = "delta" if layers.is_delta else "preset"
@@ -2372,13 +2390,11 @@ def _check_readonly_tier_inherits_writes(
                 code="web_terminals.tier_inherits_armed_connector",
                 message=(
                     f"modules.web_terminals tier {render_name!r} sets "
-                    f"{WRITES_ENABLED_KEY}: false in {layers.source!r}, but inherits "
-                    f"{privilege_phrase(inherited)}: true from {inherited_from} — a key "
-                    f"this {layer_word} does not set itself. A per-type key never falls "
-                    f"back to the flat one, so this tier would be served as a "
-                    f"read-only tier while writes stay armed for it. Set "
-                    f"{privilege_phrase(inherited)}: false in {layers.source!r} too, or "
-                    f"take the inherited true out of {inherited_from}"
+                    f"{WRITES_KEY}: {authored} in {layers.source!r}, but its render "
+                    f"resolves {WRITES_KEY}: allowed from {inherited_from}, so this tier "
+                    f"would be served as a read-only tier while writes stay armed for it. "
+                    f"Spell {WRITES_KEY} the same way (one dotted key) in this {layer_word} "
+                    f"and in {inherited_from}"
                 ),
             )
         )
@@ -2395,25 +2411,57 @@ def _fold_layers(*layers: Any) -> dict[str, Any]:
     return _nest_dotted(_config_leaves(*layers))
 
 
-def _live_writes_type(section: Any) -> str | None:
-    """The connector type a ``control_system`` section arms writes on for ``live``.
+def _layers_allow_writes(*layers: Any) -> bool:
+    """Whether a render's config layers resolve ``control_system.writes`` to ``allowed``.
 
-    ``None`` unless all of it holds: ``live`` is one of the section's
-    :func:`~osprey_connectors.types.configured_targets`, it resolves to a real
-    connector type, and that type's own posture is armed. A ``live`` that does
-    not resolve — a mock or other simulated deployment that never named its
-    real machine — is not live here, and deliberately does NOT fall back to the
-    deployment-wide ``control_system.writes_enabled`` the way
-    :func:`~osprey_connectors.types.target_writes_enabled` does: a simulator
-    armed for writes has no control system to attribute them on.
+    Each layer read as the build reads it (:func:`_layer_writes`), a later
+    layer winning, silence ``never``; only the literal ``allowed`` arms.
     """
-    if TARGET_LIVE not in configured_targets(section):
+    resolved: str | None = None
+    for layer in layers:
+        stated = _layer_writes(layer)
+        if stated is not None:
+            resolved = stated
+    return resolved == "allowed"
+
+
+def _live_writes_type(section: Any, *, tier_allows_writes: bool) -> str | None:
+    """The connector type a render writes to for ``live``, when its tier allows writes.
+
+    ``None`` unless all of it holds: the render's login tier allows writes
+    (*tier_allows_writes*), ``live`` is one of the section's
+    :func:`~osprey_connectors.types.configured_targets`, and it resolves to a
+    real connector type, and a session can be on it. The tier is target-blind,
+    so a tier that allows writes allows them on every machine a session can
+    reach; what this adds is the machine. A ``live`` that does not resolve — a
+    mock or other simulated deployment that never named its real machine — is
+    not live here: a simulator has no control system to attribute writes on.
+
+    A session is on ``live`` either because it is the deployment's baseline, or
+    because the target switch moved it there. The switch only moves a session
+    to a Channel Access block that names its ``gateways`` and a
+    ``probe_channel`` (the config-only half of the switch's eligibility check),
+    so a ``live`` block left unauthored — the shipped preset's ``epics:`` block
+    holds only a timeout — is a machine nobody's writes reach. The operator's
+    acknowledgment is not required here: it is the last step before the first
+    switch, and the card should be named before that.
+    """
+    if not tier_allows_writes or TARGET_LIVE not in configured_targets(section):
         return None
     try:
         live_type = resolve_target(section, TARGET_LIVE)
     except ValueError:
         return None
-    return live_type if type_writes_enabled(section, live_type) else None
+    if baseline_target(section) == TARGET_LIVE:
+        return live_type
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = connector.get(live_type) if isinstance(connector, dict) else None
+    if not isinstance(block, dict) or not speaks_channel_access(section, live_type):
+        return None
+    probe = block.get("probe_channel")
+    if not block.get("gateways") or probe is None or not str(probe).strip():
+        return None
+    return live_type
 
 
 def _check_live_writer_without_control_identity(
@@ -2428,7 +2476,7 @@ def _check_live_writer_without_control_identity(
     """An owner-only card that writes to the real machine should say who is writing.
 
     A WARN, per roster entry: behind a login wall, an owner-only card whose
-    render arms writes on the ``live`` target, and which carries no
+    render's tier allows writes and which reaches the ``live`` target, and which carries no
     ``control_identity``. Its writes then reach the control system under the
     container's shared account, so the machine's own records cannot tell which
     person made them — the one attribution ``control_identity`` exists to give.
@@ -2453,7 +2501,10 @@ def _check_live_writer_without_control_identity(
     )
     live_writers: dict[str, str] = {}
     for render_name, layers in documents.items():
-        live_type = _live_writes_type(as_dict(_fold_layers(*layers).get("control_system")))
+        live_type = _live_writes_type(
+            as_dict(_fold_layers(*layers).get("control_system")),
+            tier_allows_writes=_layers_allow_writes(*layers),
+        )
         if live_type is not None:
             live_writers[render_name] = live_type
     if not live_writers:
@@ -2474,7 +2525,7 @@ def _check_live_writer_without_control_identity(
                 code="web_terminals.live_writer_without_control_identity",
                 message=(
                     f"modules.web_terminals user {name!r} resolves to render "
-                    f"{render!r}, which arms writes on the live machine "
+                    f"{render!r}, whose {WRITES_KEY}: allowed reaches the live machine "
                     f"({live_writers[render]!r}), but sets no control_identity; its "
                     f"writes reach the control system under the container's shared "
                     f"account, so the machine cannot tell who made them. Set "
