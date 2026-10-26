@@ -40,6 +40,15 @@ like this::
 ``execution.environment.*`` can never surface as a delta: the freeze strips that
 whole mapping (it resolves to an interpreter path).
 
+The staged login map is not a delta either. ``control_system.login_tiers`` is
+staged into the shared containers' ``build/services/*`` copies only, never into
+a root, tier or app render, so the completeness check compares those copies
+with it removed and the map is frozen on its own at
+``<cell>/staged/login_tiers.yml``. :func:`test_staged_login_map_equals_frozen_map`
+compares it exactly: same presence, same logins, same tier per login. Both
+sides build as the pinned account (``freeze.FROZEN_BUILD_ACCOUNT``), which is
+how the build account's own entry can be compared at all.
+
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
 the build, so the rendered value states a fact about the building host: it is
@@ -86,11 +95,14 @@ import yaml
 
 from tests.fixtures.explicit_config.freeze import (
     FIXTURE_ROOT,
+    LOGIN_TIERS_FILE,
     PROJECT_NAME,
+    STAGED_DIR,
     UNSET_MODE_DIR,
     _cli_env,
     _failure_reason,
     _run_cli,
+    collect_login_tiers,
     collect_rendered_configs,
     mask_document,
     verify_capture_is_complete,
@@ -286,10 +298,13 @@ class Rendered(NamedTuple):
         documents: Masked documents, keyed by render name (``root`` + renders).
         build_configs_checked: Build-relative paths of every ``config.yml`` in
             the build tree, each proved equal to one of *documents*.
+        login_tiers: The login map staged into the shared containers, or
+            ``None`` when the build stages none.
     """
 
     documents: dict[str, dict[str, Any]]
     build_configs_checked: list[str]
+    login_tiers: dict[str, Any] | None
 
 
 class Refused(NamedTuple):
@@ -385,7 +400,9 @@ class CellRenderer:
 
         captured = collect_rendered_configs(project)
         masked = {name: mask_document(document or {}) for name, document in captured.items()}
-        return Rendered(masked, verify_capture_is_complete(project, masked))
+        return Rendered(
+            masked, verify_capture_is_complete(project, masked), collect_login_tiers(project)
+        )
 
 
 @pytest.fixture(scope="module")
@@ -394,6 +411,21 @@ def rendered_cells(
 ) -> CellRenderer:
     """One renderer for the whole module, so no cell is built twice."""
     return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"), offline_build_env)
+
+
+def _fixture_login_tiers(cell: Cell) -> dict[str, Any] | None:
+    """The frozen staged login map of *cell*, or ``None`` when it froze none.
+
+    Args:
+        cell: A cell the freeze recorded as frozen.
+
+    Returns:
+        The parsed ``<cell>/staged/login_tiers.yml``.
+    """
+    path = FIXTURE_ROOT / cell.directory / STAGED_DIR / LOGIN_TIERS_FILE
+    if not path.is_file():
+        return None
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
 def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:
@@ -634,6 +666,60 @@ def test_every_pending_delta_names_a_task() -> None:
                 assert delta.pending.strip(), f"{cell} {delta.key}: empty pending marker"
 
 
+def _write_build_config(build: Path, relative: str, document: Mapping[str, Any]) -> None:
+    path = build / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(dict(document)), encoding="utf-8")
+
+
+def test_a_service_copy_is_compared_without_its_login_map(tmp_path: Path) -> None:
+    """Only ``build/services/*`` copies may carry the map; it is frozen apart from them."""
+    root = {"project_name": PROJECT_NAME, "control_system": {"writes": "allowed"}}
+    staged = {**root, "control_system": {"writes": "allowed", "login_tiers": {"a": "never"}}}
+    build = tmp_path / "build"
+    _write_build_config(build, "config.yml", root)
+    _write_build_config(build, "services/bluesky/config.yml", staged)
+    _write_build_config(build, "services/dispatch_worker/config.yml", staged)
+
+    assert verify_capture_is_complete(tmp_path, {"root": root}) == [
+        "config.yml",
+        "services/bluesky/config.yml",
+        "services/dispatch_worker/config.yml",
+    ]
+    assert collect_login_tiers(tmp_path) == {"a": "never"}
+
+    # The map anywhere but a service copy is a document of its own.
+    _write_build_config(build, ".image/x/build/config.yml", staged)
+    with pytest.raises(RuntimeError, match="match no captured render"):
+        verify_capture_is_complete(tmp_path, {"root": root})
+
+
+def test_staged_copies_that_disagree_on_the_login_map_refuse(tmp_path: Path) -> None:
+    """One cell stages one map; two different ones cannot be frozen as one."""
+    build = tmp_path / "build"
+    _write_build_config(
+        build, "services/bluesky/config.yml", {"control_system": {"login_tiers": {"a": "never"}}}
+    )
+    _write_build_config(
+        build,
+        "services/dispatch_worker/config.yml",
+        {"control_system": {"login_tiers": {"a": "allowed"}}},
+    )
+    with pytest.raises(RuntimeError, match="different login maps"):
+        collect_login_tiers(tmp_path)
+
+    assert collect_login_tiers(tmp_path / "nothing-built") is None
+
+
+def test_the_build_account_is_pinned_for_both_sides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The freeze and this module build as the same account, whoever runs them."""
+    monkeypatch.setenv("OSPREY_TERMINAL_USER", "someone")
+    monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "someone-else")
+    env = _cli_env([])
+    assert "OSPREY_TERMINAL_USER" not in env
+    assert env["OSPREY_AUDIT_IDENTITY"] == META["build_account"]
+
+
 def test_a_list_difference_names_what_it_gained_and_lost() -> None:
     """The failure line summarizes a list instead of printing both of them."""
     line = _describe("root", "api.providers", ["a", "b"], ["a", "c"])
@@ -739,6 +825,21 @@ def test_live_render_is_as_complete_as_the_baseline(
         f"{len(rendered.build_configs_checked)} config.yml documents, the baseline "
         f"{expected['build_configs_checked']} plus {len(gains)} declared. Live paths: "
         f"{sorted(rendered.build_configs_checked)}"
+    )
+
+
+@pytest.mark.parametrize("cell", FROZEN_CELLS, ids=FROZEN_IDS)
+def test_staged_login_map_equals_frozen_map(cell: Cell, rendered_cells: CellRenderer) -> None:
+    """The login map the build stages equals the frozen one exactly, presence included."""
+    rendered = rendered_cells.render(cell)
+    frozen = _fixture_login_tiers(cell)
+    expected_presence = META["completeness"][cell.directory]["login_tiers"]
+    assert (frozen is not None) == expected_presence, (
+        f"{cell.directory}: meta.json says login_tiers={expected_presence}, the fixture "
+        f"{'has' if frozen is not None else 'has no'} {STAGED_DIR}/{LOGIN_TIERS_FILE}"
+    )
+    assert rendered.login_tiers == frozen, (
+        f"{cell.directory}: the staged login map moved. frozen={frozen} live={rendered.login_tiers}"
     )
 
 
