@@ -185,3 +185,21 @@ def test_a_write_timeout_kill_is_a_timeout_not_a_refusal():
     interface = ConnectorInterface("live", bridge=_Bridge())
     with pytest.raises(OptimizerTimeoutError):
         interface.set_values({"KNOB:POS:SP": 0.5})
+
+
+def test_a_write_leaves_confirmation_to_the_limits_database():
+    calls = []
+
+    class _Connector:
+        async def write_channel_checked(self, *args, **kwargs):
+            calls.append((args, kwargs))
+
+    class _Bridge:
+        def connector(self, *args):
+            return _Connector()
+
+        def run(self, coro):
+            return asyncio.run(coro)
+
+    ConnectorInterface("live", bridge=_Bridge()).set_values({"KNOB:POS:SP": 0.5})
+    assert calls == [(("KNOB:POS:SP", 0.5), {})]

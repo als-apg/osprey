@@ -4,9 +4,9 @@ Every channel access the optimizer makes goes through
 :class:`osprey_connectors.ipc.ConnectorHostPool`: one connector-host child
 per ``(control target, execution mode)``, each bound to its own Channel Access
 routing. So the API process can serve several targets, and a job worker serves
-the one its job names. Every write is ``write_channel_checked(confirm=True)``,
-which re-checks the target's write posture and the channel limits (``max_step``
-included) per put, and never retries.
+the one its job names. Every write is ``write_channel_checked``, which
+re-checks the target's write posture and the channel limits (``max_step``
+included) per put, confirms it as the limits database says, and never retries.
 
 The engine is synchronous and the pool is async and bound to one event loop, so
 each process runs one :class:`_PoolBridge`: a daemon thread with that loop and
@@ -237,9 +237,7 @@ class ConnectorInterface:
         outputs: PVValues = {}
         for channel, value in channel_inputs.items():
             try:
-                self._bridge.run(
-                    self._connector.write_channel_checked(channel, value, confirm=True)
-                )
+                self._bridge.run(self._connector.write_channel_checked(channel, value))
             except ChannelWriteBlockedError as exc:
                 raise WriteRefusedError(
                     f"Write to {channel} refused [{exc.reason}]: {exc}", reason=exc.reason
