@@ -334,7 +334,6 @@ _ALLOWED: dict[str, str] = {
     "src/osprey/deployment/telemetry_store/accounts.py": "telemetry store rows, not the roster",
     "src/osprey/cli/users_cmd.py": "edits the authored roster in place (people only)",
     "src/osprey/health/core/web_terminals.py": "not yet routed through roster_entries",
-    "src/osprey/cli/feedback_cmd.py": "not yet routed through roster_entries",
     "src/osprey/cli/profile_card.py": "not yet routed through roster_entries",
     "src/osprey/cli/build_profile_model.py": "not yet routed through roster_entries",
     "src/osprey/deployment/status_display.py": "not yet routed through roster_entries",
