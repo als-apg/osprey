@@ -1,0 +1,69 @@
+{
+  "name": "t3-tile-onto-border",
+  "rule": "T3",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "planDrop",
+    "source": {
+      "tile": "t1"
+    },
+    "target": {
+      "border": {
+        "tile": "t2",
+        "side": "right"
+      }
+    },
+    "dock": {
+      "px": {
+        "width": 1000,
+        "height": 600
+      },
+      "minPx": 40
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.4
+      },
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.3333
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2667
+      }
+    ]
+  }
+}

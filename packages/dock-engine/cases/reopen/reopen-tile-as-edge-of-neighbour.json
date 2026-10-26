@@ -1,0 +1,66 @@
+{
+  "name": "reopen-tile-as-edge-of-neighbour",
+  "rule": "rule-8",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.8
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "reopen",
+    "record": {
+      "kind": "tile",
+      "tile": "t2",
+      "tabs": ["b"],
+      "showing": "b",
+      "neighbour": "t1",
+      "side": "right"
+    },
+    "context": {
+      "focusedTile": "t3",
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      }
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.4
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.4,
+        "from": "t1"
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  }
+}

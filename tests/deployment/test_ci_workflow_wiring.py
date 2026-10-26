@@ -8499,6 +8499,12 @@ GATE_CI_STEPS = (
     GateCiStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "npm run typecheck"),
     GateCiStep(FRONTEND_JS_JOB, "Lint (eslint)", "npm run lint"),
     GateCiStep(
+        FRONTEND_JS_JOB,
+        "Check the dock-engine bundle is current",
+        "node packages/dock-engine/scripts/build.mjs --check",
+    ),
+    GateCiStep(FRONTEND_JS_JOB, "Run dock-engine tests (vitest)", "npm run test:dock-engine"),
+    GateCiStep(
         DOCS_JOB,
         "Build documentation",
         'uv run{extra} make html SPHINXOPTS="-W --keep-going"',
@@ -10602,6 +10608,16 @@ PYAML_WHEEL_GLOBS = (
     "dist/osprey_connectors-*.whl",
     "dist/pyaml_cs_osprey-*.whl",
 )
+DOCK_ENGINE_COVERAGE_FLAG = "--cov=packages/dock-engine/src/dock_engine"
+DOCK_ENGINE_WHEEL_STEP = "Check the framework wheel carries dock_engine and its package data"
+#: What the framework wheel must carry for ``dock_engine``: the module itself
+#: (bundled from packages/dock-engine, not a wheel of its own) and the package
+#: data ``dock_engine._data`` reads through ``importlib.resources``.
+DOCK_ENGINE_WHEEL_DATA = (
+    "dock_engine/__init__.py",
+    "dock_engine/cases/validate/",
+    "dock_engine/manifest.json",
+)
 RELEASE_VERIFY_JOB = "verify-pypi-resolvable"
 RELEASE_SIBLING_DIR = "/tmp/sibling"
 
@@ -10631,6 +10647,24 @@ def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() 
     step["run"] = step["run"].replace(f" {PYAML_COVERAGE_FLAG}", "")
     with pytest.raises(AssertionError, match="does not measure the pyAML member"):
         test_the_coverage_cell_measures_the_pyaml_member(mutated)
+
+
+def test_the_coverage_cell_measures_the_dock_engine_member(workflow: dict[str, Any]) -> None:
+    """The dock-engine member's tests run in the unit lane, so its tree is on
+    the coverage command line beside the other members'."""
+    flags = _coverage_cell_flags(workflow)
+    assert DOCK_ENGINE_COVERAGE_FLAG in flags, (
+        f"the coverage cell does not measure the dock-engine member; COV_ARGS names {flags}"
+    )
+
+
+def test_the_coverage_cell_measures_the_dock_engine_member__mutation_drops_the_flag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    assert DOCK_ENGINE_COVERAGE_FLAG in step["run"], "the flag moved; this mutation is stale"
+    step["run"] = step["run"].replace(f" {DOCK_ENGINE_COVERAGE_FLAG}", "")
+    with pytest.raises(AssertionError, match="does not measure the dock-engine member"):
+        test_the_coverage_cell_measures_the_dock_engine_member(mutated)
 
 
 def _package_step_index(wf: dict[str, Any], step_name: str) -> int:
@@ -10703,6 +10737,63 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_upl
         test_the_package_job_import_walks_the_pyaml_wheel(mutated)
 
 
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
+    workflow: dict[str, Any],
+) -> None:
+    """``dock_engine`` ships inside the framework wheel, not as a wheel of its own,
+    so the package job reads the framework wheel's file list for the module and
+    the package data ``dock_engine._data`` needs. No dock-engine wheel is built
+    anywhere in the job."""
+    steps = _jobs(workflow)[PACKAGE_JOB]["steps"]
+    check = _package_step_index(workflow, DOCK_ENGINE_WHEEL_STEP)
+    script = steps[check]["run"]
+    assert "dist/osprey_framework-*.whl" in script, "the check does not read the framework wheel"
+    for member in DOCK_ENGINE_WHEEL_DATA:
+        assert member in script, f"the dock-engine check does not look for {member}"
+    job_text = "\n".join(step.get("run", "") for step in steps)
+    assert "osprey-dock-engine" not in job_text and "osprey_dock_engine" not in job_text, (
+        "the package job builds or installs a dock-engine wheel; the engine ships inside "
+        "the framework wheel and has no distribution of its own"
+    )
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_drops_the_step() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[PACKAGE_JOB]["steps"]
+    steps.pop(_package_step_index(mutated, DOCK_ENGINE_WHEEL_STEP))
+    with pytest.raises(AssertionError, match="no step named"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(mutated)
+
+
+@pytest.mark.parametrize("member", DOCK_ENGINE_WHEEL_DATA)
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_skips_data(
+    member: str,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _jobs(mutated)[PACKAGE_JOB]["steps"][
+        _package_step_index(mutated, DOCK_ENGINE_WHEEL_STEP)
+    ]
+    assert member in step["run"], f"the check no longer names {member}; mutation is stale"
+    step["run"] = step["run"].replace(member, "")
+    with pytest.raises(AssertionError, match=f"does not look for {re.escape(member)}"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(mutated)
+
+
+def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_builds_a_wheel() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    step = _jobs(mutated)[PACKAGE_JOB]["steps"][_package_step_index(mutated, PYAML_WHEEL_STEP)]
+    step["run"] = step["run"].replace(
+        "uv build --package pyaml-cs-osprey",
+        "uv build --package osprey-dock-engine\n        uv build --package pyaml-cs-osprey",
+    )
+    with pytest.raises(AssertionError, match="no distribution of its own"):
+        test_the_package_job_checks_the_framework_wheel_for_dock_engine(mutated)
+
+
 def _release_staging_script(release: dict[str, Any]) -> str:
     """The sibling-staging lines of the release gate, up to the install itself."""
     steps = release["jobs"][RELEASE_VERIFY_JOB]["steps"]
@@ -10751,7 +10842,7 @@ def _with_staging(release: dict[str, Any], staging: str) -> dict[str, Any]:
 
 
 def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: Path) -> None:
-    """The framework depends on every member, so a sibling left out of the
+    """The framework depends on members, so a sibling left out of the
     find-links fails the gate on the tag that first ships it; the framework's
     own wheel or any sdist staged there would let an unpublished pin resolve."""
     _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)

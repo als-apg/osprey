@@ -1,0 +1,56 @@
+{
+  "name": "normalize-flattens-same-direction",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "split": "row",
+        "size": 0.5,
+        "items": [
+          {
+            "tile": "t2",
+            "tabs": ["b"],
+            "showing": "b",
+            "size": 0.5
+          },
+          {
+            "tile": "t3",
+            "tabs": ["c"],
+            "showing": "c",
+            "size": 0.5
+          }
+        ]
+      }
+    ]
+  },
+  "output": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.25
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.25
+      }
+    ]
+  }
+}

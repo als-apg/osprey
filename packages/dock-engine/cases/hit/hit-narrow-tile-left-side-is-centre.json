@@ -1,0 +1,107 @@
+{
+  "name": "hit-narrow-tile-left-side-is-centre",
+  "rule": "min-size",
+  "layout": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.2625
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.475
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2625
+      }
+    ]
+  },
+  "dockRect": {
+    "x": 0,
+    "y": 0,
+    "width": 160,
+    "height": 600
+  },
+  "tabRects": {
+    "t1": {
+      "barRect": {
+        "x": 0,
+        "y": 0,
+        "width": 42,
+        "height": 30
+      },
+      "tabRects": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 42,
+          "height": 30
+        }
+      ]
+    },
+    "t2": {
+      "barRect": {
+        "x": 42,
+        "y": 0,
+        "width": 76,
+        "height": 30
+      },
+      "tabRects": [
+        {
+          "x": 42,
+          "y": 0,
+          "width": 76,
+          "height": 30
+        }
+      ]
+    },
+    "t3": {
+      "barRect": {
+        "x": 118,
+        "y": 0,
+        "width": 42,
+        "height": 30
+      },
+      "tabRects": [
+        {
+          "x": 118,
+          "y": 0,
+          "width": 42,
+          "height": 30
+        }
+      ]
+    }
+  },
+  "point": {
+    "x": 60,
+    "y": 300
+  },
+  "source": {
+    "new": "d"
+  },
+  "target": {
+    "tile": "t2",
+    "zone": "centre"
+  },
+  "resultRect": {
+    "rect": {
+      "x": 42,
+      "y": 0,
+      "width": 76,
+      "height": 600
+    },
+    "marker": {
+      "x": 118,
+      "y": 0,
+      "height": 30
+    }
+  }
+}

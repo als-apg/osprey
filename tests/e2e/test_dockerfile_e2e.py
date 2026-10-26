@@ -752,9 +752,10 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
     """Build a local osprey wheel pinned to ``version`` containing a sentinel module.
 
     Copies the minimal build inputs (``pyproject.toml``, ``README.md``,
-    ``src/osprey``) to a scratch tree, injects ``osprey/_e2e_sentinel.py``, and
-    runs ``python -m build --wheel``. Returns the built wheel path (inside
-    ``work_dir``).
+    ``src/osprey`` and the dock engine's module and package data from
+    ``packages/dock-engine``, which the wheel target bundles) to a scratch tree,
+    injects ``osprey/_e2e_sentinel.py``, and runs ``python -m build --wheel``.
+    Returns the built wheel path (inside ``work_dir``).
 
     The scratch tree has no ``.git``, and the version is derived from git rather
     than from a literal, so the build is pinned with
@@ -774,6 +775,20 @@ def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
     )
     for name in ("pyproject.toml", "README.md"):
         shutil.copy2(source_root / name, wheel_src / name)
+    # The wheel target's second package root and its two force-includes (see the
+    # root pyproject.toml); hatchling refuses to build without them.
+    engine = Path("packages") / "dock-engine"
+    shutil.copytree(
+        source_root / engine / "src" / "dock_engine",
+        wheel_src / engine / "src" / "dock_engine",
+        ignore=shutil.ignore_patterns("__pycache__", "*.py[cod]"),
+    )
+    shutil.copytree(source_root / engine / "cases", wheel_src / engine / "cases")
+    (wheel_src / engine / "dist").mkdir()
+    shutil.copy2(
+        source_root / engine / "dist" / "manifest.json",
+        wheel_src / engine / "dist" / "manifest.json",
+    )
 
     (wheel_src / "src" / "osprey" / "_e2e_sentinel.py").write_text(
         f'SENTINEL = "{SENTINEL_MARKER}"\n'

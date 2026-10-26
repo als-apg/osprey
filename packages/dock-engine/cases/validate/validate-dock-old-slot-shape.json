@@ -1,0 +1,17 @@
+{
+  "name": "validate-dock-old-slot-shape",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "slot": 0
+      },
+      {
+        "slot": 1
+      }
+    ]
+  },
+  "reason": "old_slot_shape",
+  "where": "layout.items[0]"
+}

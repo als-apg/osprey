@@ -1,0 +1,14 @@
+{
+  "name": "validate-collection-tile-id-refused",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tile": "t1",
+    "tabs": [0]
+  },
+  "options": {
+    "form": "collection",
+    "members": 1
+  },
+  "reason": "unknown_field",
+  "where": "layout.tile"
+}

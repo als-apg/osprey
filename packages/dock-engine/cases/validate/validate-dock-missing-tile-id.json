@@ -1,0 +1,10 @@
+{
+  "name": "validate-dock-missing-tile-id",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tabs": ["a"],
+    "showing": "a"
+  },
+  "reason": "bad_tile_id",
+  "where": "layout.tile"
+}

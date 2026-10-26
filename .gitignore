@@ -211,6 +211,7 @@ node_modules/
 src/osprey/_version.py
 packages/osprey-connectors/src/osprey_connectors/_version.py
 packages/pyaml-cs-osprey/src/pyaml_cs_osprey/_version.py
+packages/dock-engine/src/dock_engine/_version.py
 
 # feature-scaffolding logs (not committed)
 .claude/.logs/

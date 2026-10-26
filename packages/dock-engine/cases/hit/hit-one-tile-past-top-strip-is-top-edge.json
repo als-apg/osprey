@@ -1,0 +1,59 @@
+{
+  "name": "hit-one-tile-past-top-strip-is-top-edge",
+  "rule": "hit-precedence",
+  "layout": {
+    "tile": "t1",
+    "tabs": ["a", "b"],
+    "showing": "a"
+  },
+  "dockRect": {
+    "x": 0,
+    "y": 40,
+    "width": 1000,
+    "height": 560
+  },
+  "tabRects": {
+    "t1": {
+      "barRect": {
+        "x": 0,
+        "y": 0,
+        "width": 1000,
+        "height": 32
+      },
+      "tabRects": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 120,
+          "height": 32
+        },
+        {
+          "x": 120,
+          "y": 0,
+          "width": 120,
+          "height": 32
+        }
+      ]
+    }
+  },
+  "point": {
+    "x": 500,
+    "y": 88
+  },
+  "source": {
+    "new": "c"
+  },
+  "target": {
+    "tile": "t1",
+    "edge": "top"
+  },
+  "resultRect": {
+    "rect": {
+      "x": 0,
+      "y": 40,
+      "width": 1000,
+      "height": 280
+    },
+    "marker": null
+  }
+}
