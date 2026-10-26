@@ -1,7 +1,7 @@
 """``claude_code.telemetry`` is a closed block inside the otherwise open ``config:``.
 
-Its readers are Python, so the closed set lives beside them as
-:data:`~osprey.build.claude_code_telemetry.TELEMETRY_KEYS`, and the profile
+The closed set lives beside the profile parser as
+:data:`~osprey.cli.build_profile_load.TELEMETRY_KEYS`, and the profile
 parser refuses any other key over every spelling of the block — the nested
 mapping, a partly nested one and dotted keys — in the ordinary unknown-key
 wording. An old shape (``claude_code.telemetry.openobserve.*``) meets the same
@@ -16,14 +16,10 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.build.claude_code_telemetry import (
-    TELEMETRY_AUTH_KEYS,
-    TELEMETRY_KEYS,
-    TelemetryConfigError,
-    telemetry_backend,
-)
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.build_profile_load import (
+    TELEMETRY_AUTH_KEYS,
+    TELEMETRY_KEYS,
     _parse_profile,
     manifest_rows,
     reject_unknown_closed_config_keys,
@@ -143,16 +139,3 @@ def test_every_preset_and_frozen_fixture_parses_under_the_closed_blocks() -> Non
     for path in fixtures:
         rendered = yaml.safe_load(path.read_text(encoding="utf-8"))
         reject_unknown_closed_config_keys(rendered)
-
-
-def test_the_backend_refusal_names_gateway_and_generic_and_no_service() -> None:
-    with pytest.raises(TelemetryConfigError) as caught:
-        telemetry_backend({"backend": "openobserve"})
-
-    message = str(caught.value)
-    assert "'gateway'" in message
-    assert "'generic'" in message
-    # The remedy never sends the operator to deploy a service.
-    assert "deployed_services" not in message
-    assert "services." not in message
-    assert "deploy " not in message

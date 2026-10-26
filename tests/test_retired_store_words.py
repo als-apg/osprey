@@ -38,9 +38,6 @@ ALLOWED: dict[str, str] = {
         "none of them can come back"
     ),
     "tests/test_retired_store_words.py": "holds the pattern and both lists",
-    "tests/cli/test_telemetry_gateway_emit.py": (
-        "proves the old backend value is refused by the ordinary backend check"
-    ),
     "tests/cli/test_telemetry_profile_keys.py": (
         "proves an old claude_code.telemetry.openobserve key is refused by the "
         "ordinary unknown-key check"

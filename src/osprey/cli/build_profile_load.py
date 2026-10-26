@@ -23,7 +23,6 @@ from typing import Any
 
 from osprey.agent_record.config import parse_agent_record_block
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
-from osprey.build.claude_code_telemetry import TELEMETRY_AUTH_KEYS, TELEMETRY_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.facility.errors import FacilityBuildError
@@ -668,6 +667,33 @@ def _reject_unknown_manifest_keys(
             _reject_unknown_manifest_keys(value, child, label=f"{label or path}.{key}")
 
 
+#: Every key a profile may spell in ``claude_code.telemetry``. No exporter
+#: reads any of them — Claude Code's OTLP logs always go to the agent record —
+#: but a key outside this set is still refused rather than carried silently.
+#: ``resource_attributes`` is an open mapping below it; ``auth`` is closed to
+#: :data:`TELEMETRY_AUTH_KEYS`.
+TELEMETRY_KEYS: frozenset[str] = frozenset(
+    {
+        "enabled",
+        "backend",
+        "protocol",
+        "endpoint",
+        "auth",
+        "signals",
+        "resource_attributes",
+        "log_user_prompts",
+        "log_assistant_responses",
+        "log_tool_details",
+        "log_raw_api_bodies",
+        "log_tool_content",
+        "content_max_length",
+    }
+)
+
+#: Every key ``claude_code.telemetry.auth`` may carry.
+TELEMETRY_AUTH_KEYS: frozenset[str] = frozenset({"token_env"})
+
+
 def reject_unknown_closed_config_keys(config: Any) -> None:
     """Refuse a key no reader takes in one of the closed blocks inside ``config:``.
 
@@ -675,9 +701,9 @@ def reject_unknown_closed_config_keys(config: Any) -> None:
     space belongs to every reader in the tree — except for the blocks whose
     readers are known exactly:
 
-    * ``claude_code.telemetry``, closed to
-      :data:`~osprey.build.claude_code_telemetry.TELEMETRY_KEYS`, its ``auth``
-      member to ``TELEMETRY_AUTH_KEYS``; ``resource_attributes`` stays open;
+    * ``claude_code.telemetry``, closed to :data:`TELEMETRY_KEYS`, its
+      ``auth`` member to :data:`TELEMETRY_AUTH_KEYS`; ``resource_attributes``
+      stays open;
     * ``services.<name>`` for every bundled service
       (:func:`bundled_service_names`), closed to the manifest's rows under its
       family (:func:`service_family`) plus the generic service axes. A custom

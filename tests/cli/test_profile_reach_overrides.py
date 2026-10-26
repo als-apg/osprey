@@ -93,7 +93,6 @@ def test_every_live_consumer_is_told_its_hosts_fact():
         "services.postgresql.port_host": 15432,
         "services.postgresql.username": "ariel",
         "services.postgresql.database_name": "ariel",
-        "services.telemetry_gateway.port": 18151,
         "services.bluesky.port": 18090,
         "web.panels.bluesky.url": "${BLUESKY_WEB_URL:-http://localhost:18095}",
         "web.panels.bluesky.path": "/bluesky/",
@@ -230,9 +229,10 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "event-dispatcher",
             "mongodb",
             "telemetry_store",
+            "telemetry_gateway",
             "history",
         ):
-            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a store only host-side services query, a page only nginx dials
+            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a store and a gateway only host-side services dial, a page only nginx dials
         assert key in projected, (
             f"{compose_name}: {key} is a published port no attached render is told"
         )

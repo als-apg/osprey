@@ -792,30 +792,3 @@ def _pin_policy(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
         "osprey.agent_runner.provider_env.read_managed_policy_env",
         lambda paths=None: policy,
     )
-
-
-_GATEWAY_CONFIG = (
-    "claude_code:\n  provider: anthropic\n  telemetry:\n    enabled: true\n    backend: gateway\n"
-)
-
-
-class TestTelemetryLoginMissing:
-    """Chat whose gateway login cannot be found is refused, never degraded.
-
-    The gateway refuses an unauthenticated sender, so a session started without
-    the login would drop every record behind a healthy-looking session.
-    """
-
-    def test_a_missing_login_refuses_the_session(
-        self, runner, launches, lifecycle_repo, monkeypatch: pytest.MonkeyPatch
-    ):
-        from osprey.build.claude_code_telemetry import TelemetryConfigError
-
-        monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-        stub_build(lifecycle_repo, config=_GATEWAY_CONFIG)
-
-        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
-
-        assert result.exit_code != 0
-        assert isinstance(result.exception, TelemetryConfigError)
-        assert launches == []

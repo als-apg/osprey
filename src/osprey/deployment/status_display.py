@@ -1032,7 +1032,6 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
         dropped_alias_key_facts,
         load_provider_spec,
     )
-    from osprey.build.claude_code_telemetry import ObservabilityCredentialError
     from osprey.cli.validate_claude_artifacts import agent_file_models
     from osprey.models.display import display_model_name
     from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
@@ -1059,30 +1058,6 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # ``_auth_availability`` below, which looks for the credential in
             # the same env chain this expansion reads.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
-        except ObservabilityCredentialError:
-            # Ahead of the broad handler on purpose, and load-bearing: resolving
-            # the provider also resolves the telemetry block, so a missing
-            # observability credential arrives here as a failure to read the
-            # provider. Reported as one, an operator goes and checks a provider
-            # that was never wrong. Behind the ``except Exception`` below this
-            # branch would never run while still reading as if it did.
-            #
-            # Names only — the exception text can carry the credential field's
-            # value, and a status report is printed to a shared terminal and
-            # pasted into tickets. The remedy is the name of the setting and
-            # the file it belongs in.
-            spec = None
-            troubles.append(
-                (
-                    "telemetry: the observability backend's credentials are missing or "
-                    "unresolved, so the provider could not be resolved",
-                    "Run `osprey build` to write each sender's gateway login "
-                    "(.env.telemetry-sender.<identity>), or set the variable "
-                    "claude_code.telemetry.auth.token_env names in "
-                    f"{repo_root / '.env'}, then rerun. The provider configuration "
-                    "itself is not the problem.",
-                )
-            )
         except Exception as exc:
             spec = None
             troubles.append(

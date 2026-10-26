@@ -378,12 +378,12 @@ def test_e2e_force_inert_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The gateway login an agent spawn needs
+# The record login an agent spawn exports under
 # ---------------------------------------------------------------------------
 
 
 def _gateway_config(project_dir: Path) -> None:
-    """Write a config whose telemetry block sends to the deployment's gateway."""
+    """Write a config whose telemetry block names the deployment's gateway."""
     (project_dir / "config.yml").write_text(
         "claude_code:\n"
         "  provider: anthropic\n"
@@ -394,37 +394,38 @@ def _gateway_config(project_dir: Path) -> None:
     )
 
 
-class TestTelemetryLoginAtSpawn:
-    """An agent spawned without its gateway login is refused, never degraded.
+class TestRecordLoginAtSpawn:
+    """An agent spawn exports to the agent record under its login, or not at all.
 
-    The gateway refuses an unauthenticated sender, so a run started without the
-    login would drop every record behind a healthy-looking session.
+    A spawn without a record login is never refused: it runs and exports
+    nothing. The profile's telemetry block chooses neither outcome.
     """
 
     @pytest.fixture(autouse=True)
     def _host_launch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
-        monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
+        monkeypatch.delenv("OSPREY_AGENT_RECORD_LOGIN", raising=False)
+        monkeypatch.delenv("OSPREY_AGENT_RECORD_OFF", raising=False)
+        monkeypatch.setenv("OSPREY_AGENT_RECORD_URL", "http://127.0.0.1:10061")
 
-    def test_a_missing_login_raises(self, tmp_path: Path) -> None:
-        from osprey.build.claude_code_telemetry import ObservabilityCredentialError
-
+    def test_a_missing_login_exports_nothing(self, tmp_path: Path) -> None:
         _gateway_config(tmp_path)
 
-        with pytest.raises(ObservabilityCredentialError) as caught:
-            provider_env_for_project(tmp_path)
+        env = provider_env_for_project(tmp_path)
 
-        assert caught.value.unresolved_vars == ("OSPREY_TELEMETRY_LOGIN",)
+        assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "0"
+        assert env["OTEL_LOGS_EXPORTER"] == "none"
+        assert "OTEL_EXPORTER_OTLP_HEADERS" not in env
 
-    def test_a_login_keeps_telemetry_on(
+    def test_a_login_exports_to_the_record(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _gateway_config(tmp_path)
-        monkeypatch.setenv("OSPREY_TELEMETRY_LOGIN", "operator:s3cret")
+        monkeypatch.setenv("OSPREY_AGENT_RECORD_LOGIN", "operator:s3cret")
 
         env = provider_env_for_project(tmp_path)
 
         assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+        assert env["OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"] == "http://127.0.0.1:10061/v1/logs"
         assert "Authorization=Basic " in env["OTEL_EXPORTER_OTLP_HEADERS"]
 
 

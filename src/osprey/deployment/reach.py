@@ -417,13 +417,6 @@ def _ariel_on(config: Mapping[str, Any]) -> bool:
     return config_needs_ariel_password(config)
 
 
-def _telemetry_on(config: Mapping[str, Any]) -> bool:
-    from osprey.build.claude_code_telemetry import GATEWAY_BACKEND
-
-    telemetry = as_dict(as_dict(as_dict(config).get("claude_code")).get("telemetry"))
-    return bool(telemetry.get("enabled")) and telemetry.get("backend") == GATEWAY_BACKEND
-
-
 def _bluesky_server_on(config: Mapping[str, Any]) -> bool:
     # One predicate with the launch-token entitlement, so a projection and the
     # credential that goes with it can never disagree about the same config.
@@ -692,13 +685,6 @@ def _postgres_dial(config: Mapping[str, Any]) -> Dial | None:
     # derived DSN never reaches this fallback — `resolve_ariel_dsn` has already
     # written the layout port at the base handed to it above.
     return _host_port(dsn, POSTGRES_PROTOCOL_PORT)
-
-
-def _telemetry_dial(config: Mapping[str, Any]) -> Dial | None:
-    from osprey.build.claude_code_telemetry import resolve_runtime_telemetry_endpoint
-
-    endpoint = resolve_runtime_telemetry_endpoint(config)
-    return None if endpoint is None else _host_port(endpoint, 80)
 
 
 def _bridge_dial(config: Mapping[str, Any]) -> Dial | None:
@@ -974,23 +960,11 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     ),
     "telemetry_gateway": ReachContract(
         service="telemetry_gateway",
-        consumers=(
-            Consumer(
-                name="agent telemetry (OTLP exporter)",
-                switch_key="claude_code.telemetry.enabled",
-                is_on=_telemetry_on,
-                # The gateway address always derives (host from where the
-                # launch runs, port from the block or the port base); the
-                # projection keeps the port the host's.
-                resolves=_always,
-                dial=_telemetry_dial,
-            ),
+        no_client_reach=True,
+        note=(
+            "the agent exports its OTLP logs to agent-record; nothing in a render "
+            "container dials the gateway"
         ),
-        projected=(ProjectedKey("services.telemetry_gateway.port", gate=_telemetry_on),),
-        # Each sender authenticates with the login in its own
-        # `.env.telemetry-sender.<identity>` env_file, never a granted
-        # compose-environment credential.
-        note="the exporter posts to the gateway's published port",
     ),
     "telemetry_store": ReachContract(
         service="telemetry_store",
