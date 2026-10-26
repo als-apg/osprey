@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -3609,7 +3609,7 @@ def staged_archiver(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X"]),
+        lambda config, project_dir: nullcontext(SimpleNamespace(addresses=["SR:BPM1:X"])),
     )
     monkeypatch.setattr(
         container_lifecycle,
@@ -4015,10 +4015,9 @@ def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tm
     write_texture_view(tmp_path / "build", {"SR:BPM1:X": {"nominal": 0.5}})
     (tmp_path / "build" / "config.yml").write_text("{}\n")
 
-    archive = container_lifecycle._archiver_seed_inputs({}, tmp_path)
-
-    assert archive.addresses == ["SR:BPM1:X"]
-    assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
+    with container_lifecycle._archiver_seed_inputs({}, tmp_path) as archive:
+        assert archive.addresses == ["SR:BPM1:X"]
+        assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
 
 
 def test_seed_inputs_refuse_a_render_without_a_simulator_view(tmp_path):

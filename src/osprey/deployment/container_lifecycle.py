@@ -4643,7 +4643,8 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     the shared active set exactly as the sandbox does.
 
     :returns: The archive composite
-        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`).
+        (:class:`~osprey_connectors.simulation.archive.ArchiveComposite`); the
+        caller closes it.
     :raises RuntimeError: The render carries no simulator view.
     :raises ViewSchemaError: The render's view is from an older build.
     """
@@ -4972,84 +4973,84 @@ def _stage_archiver_store(
     # builds the archive composite, one solve per physics model, and charging
     # that time against the store's start-up allowance would make a slow solve
     # look like an unreachable server.
-    archive = _archiver_seed_inputs(config, project_dir)
-    fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
+    with _archiver_seed_inputs(config, project_dir) as archive:
+        fingerprint = seed_fingerprint(knobs, archive.addresses, compression=compression)
 
-    store_hint = f"{store['username']}@{store['host']}:{store['port']}"
-    with archiver_collection(store) as collection:
-        _wait_for_archiver_store(
-            collection, time.monotonic() + _ARCHIVER_HEALTH_TIMEOUT_S, store_hint
-        )
-        comparison = compare_fingerprint(collection, fingerprint)
+        store_hint = f"{store['username']}@{store['host']}:{store['port']}"
+        with archiver_collection(store) as collection:
+            _wait_for_archiver_store(
+                collection, time.monotonic() + _ARCHIVER_HEALTH_TIMEOUT_S, store_hint
+            )
+            comparison = compare_fingerprint(collection, fingerprint)
 
-        if comparison.state is SeedState.MATCH:
-            _report_step("archive already seeded, skipping the base seed")
-            if scenarios_activated:
-                # Rare enough (once per deployment) that holding this idle
-                # client across the rewrite costs nothing worth restructuring for.
-                _reapply_active_scenarios(config, project_dir)
-            return
-
-        if comparison.state is SeedState.MISMATCH:
-            _report_knob_diff(comparison)
-            if keep_base:
-                logger.warning(
-                    "Keeping the existing base (--keep-archiver-base). The stored history "
-                    "still describes the OLD knobs, so archiver reads will not match what "
-                    "this profile declares."
-                )
+            if comparison.state is SeedState.MATCH:
+                _report_step("archive already seeded, skipping the base seed")
+                if scenarios_activated:
+                    # Rare enough (once per deployment) that holding this idle
+                    # client across the rewrite costs nothing worth restructuring for.
+                    _reapply_active_scenarios(config, project_dir)
                 return
-            _report_fact(
-                "Rebuilding the base series. Recorded history is discarded with it. The "
-                "recorder's samples share the collection being dropped. Pass "
-                "--keep-archiver-base to skip this."
-            )
 
-        if _ARCHIVER_RECORDER_DEPLOY_NAME in (config.get("deployed_services") or []):
-            stop_cmd = base_cmd + ["stop", _ARCHIVER_RECORDER_SERVICE]
-            logger.debug(f"Running command:\n    {' '.join(stop_cmd)}")
-            quiesce = run_captured(
-                stop_cmd,
-                env=run_env,
-                spool_name="archiver-recorder-stop",
-                repo_root=project_dir,
-                check=False,
-            )
-            _report_step("archiver recorder quiesced")
-            # Not fatal — the rebuild is still the right thing to do — but a
-            # recorder that would not stop is writing into the collection about
-            # to be dropped, so the breach of the quiesce invariant has to be
-            # visible rather than swallowed by a return code nobody reads.
-            if quiesce.returncode != 0:
-                logger.warning(
-                    f"Could not stop `{_ARCHIVER_RECORDER_SERVICE}` (exit "
-                    f"{quiesce.returncode}). If it is still running it may write "
-                    "samples into the collection being rebuilt; check "
-                    "`osprey status` if the reseeded archive looks wrong."
+            if comparison.state is SeedState.MISMATCH:
+                _report_knob_diff(comparison)
+                if keep_base:
+                    logger.warning(
+                        "Keeping the existing base (--keep-archiver-base). The stored history "
+                        "still describes the OLD knobs, so archiver reads will not match what "
+                        "this profile declares."
+                    )
+                    return
+                _report_fact(
+                    "Rebuilding the base series. Recorded history is discarded with it. The "
+                    "recorder's samples share the collection being dropped. Pass "
+                    "--keep-archiver-base to skip this."
                 )
 
-        # Both collections, still inside the quiesce: the recorder writes traces
-        # into the waveform sibling as well, and a base rebuilt beside a stale
-        # waveform history would serve two worlds.
-        collection.drop()
-        waveform_store = {**store, "collection": waveform_collection(store["collection"])}
-        with archiver_collection(waveform_store) as waveforms:
-            waveforms.drop()
-        # Before the work, not after it: this is the only warning an operator
-        # gets that the next thing to happen is measured in minutes.
-        _report_step(
-            f"seeding the archive base: {len(archive.addresses):,} channels over "
-            f"{knobs.retention_days} days (minutes on a first deploy)"
-        )
-        report = seed_base(
-            collection,
-            archive,
-            knobs,
-            t0=datetime.now(UTC),
-            compression=compression,
-            progress=_seed_progress_reporter(),
-        )
-        _report_step(f"archive base: {report.describe()}")
+            if _ARCHIVER_RECORDER_DEPLOY_NAME in (config.get("deployed_services") or []):
+                stop_cmd = base_cmd + ["stop", _ARCHIVER_RECORDER_SERVICE]
+                logger.debug(f"Running command:\n    {' '.join(stop_cmd)}")
+                quiesce = run_captured(
+                    stop_cmd,
+                    env=run_env,
+                    spool_name="archiver-recorder-stop",
+                    repo_root=project_dir,
+                    check=False,
+                )
+                _report_step("archiver recorder quiesced")
+                # Not fatal — the rebuild is still the right thing to do — but a
+                # recorder that would not stop is writing into the collection about
+                # to be dropped, so the breach of the quiesce invariant has to be
+                # visible rather than swallowed by a return code nobody reads.
+                if quiesce.returncode != 0:
+                    logger.warning(
+                        f"Could not stop `{_ARCHIVER_RECORDER_SERVICE}` (exit "
+                        f"{quiesce.returncode}). If it is still running it may write "
+                        "samples into the collection being rebuilt; check "
+                        "`osprey status` if the reseeded archive looks wrong."
+                    )
+
+            # Both collections, still inside the quiesce: the recorder writes traces
+            # into the waveform sibling as well, and a base rebuilt beside a stale
+            # waveform history would serve two worlds.
+            collection.drop()
+            waveform_store = {**store, "collection": waveform_collection(store["collection"])}
+            with archiver_collection(waveform_store) as waveforms:
+                waveforms.drop()
+            # Before the work, not after it: this is the only warning an operator
+            # gets that the next thing to happen is measured in minutes.
+            _report_step(
+                f"seeding the archive base: {len(archive.addresses):,} channels over "
+                f"{knobs.retention_days} days (minutes on a first deploy)"
+            )
+            report = seed_base(
+                collection,
+                archive,
+                knobs,
+                t0=datetime.now(UTC),
+                compression=compression,
+                progress=_seed_progress_reporter(),
+            )
+            _report_step(f"archive base: {report.describe()}")
 
     # Outside the store connection: re-applying opens its own, and holding this
     # one across it would keep an idle client alive for the whole rewrite.
