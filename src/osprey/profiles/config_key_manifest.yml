@@ -1084,17 +1084,38 @@ keys:
       start there. A section that states no type is the simulator served in
       process, which dials nothing.
   control_system.writes_enabled:
-    evidence: '"control_system\.writes_enabled"'
+    rendered: false
+    evidence: 'RETIRED_WRITES_LEAF = "writes_enabled"'
     note: >-
-      Deployment-wide write posture. The reader is the per-connector-type
-      resolver `type_writes_enabled` in `osprey_connectors.types`: with no
-      `control_system.connector.<type>.writes_enabled` key present, its inherit
-      branch falls back to this global key, so every call site reaches this key
-      through the resolver rather than reading it directly. The anchor is the
-      dotted spelling itself, which that module names as the constant
-      `WRITES_ENABLED_KEY` and every refusal quotes back to the operator.
-      Escaped, so the vacuity cap does not apply.
+      Retired spelling of the write posture, replaced by `control_system.writes`.
+      No preset, tier or app ships it. A profile that still states it is read
+      once, at the single parse point in `build_profile_document`, which turns
+      a literal `true` into `allowed` and anything else into `never`, writes
+      `control_system.writes` in its place and refuses a document that states
+      both spellings. The anchor is that module's constant for the retired
+      leaf, the one name the parse point and the merge both read it by.
     default: false
+  control_system.writes:
+    evidence: 'WRITES_KEY_LEAF = "writes"'
+    note: >-
+      The tier's write ceiling, `allowed` or `never`. The build writes it where
+      a retired posture key stood, at the single parse point in
+      `build_profile_document`, and the verdict reads it as the tier half of
+      `write_verdict`.
+    default: never
+  control_system.login_tiers:
+    rendered: false
+    data-map: true
+    evidence: 'LOGIN_TIERS_KEY = "login_tiers"'
+    note: >-
+      The login→tier map a shared container reads for the owner of a job:
+      `{login: allowed | never}`. The build derives it from the roster and each
+      person's render (`build_login_tiers`) and stages it only into the shared
+      containers' configs — the Bluesky queue's and the dispatch worker's — so
+      the root render, every terminal-served render and every image render
+      carry none, and no preset spells it. A profile that spells it is refused.
+    default: derived
+    default_note: computed by the build from modules.web_terminals and the renders; never spelled
   control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and limits checking is off"}
   control_system.limits_checking.enabled:
     evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
@@ -1162,6 +1183,10 @@ keys:
       deployment's `permissions.deny`. That subtraction is needed because tools
       named here are refused per call and never enter `permissions.deny`, which
       is also why a mixed-posture render can gate them at all.
+      Deprecated (PR-5a): a server declares which of its tools write with
+      `mcp_servers.<server>.writes`, so a non-empty list here draws a build
+      warning naming that key, and is refused once the retired spellings
+      sunset. Its gating is unchanged until then.
     default: []
   control_system.target_display_names:
     rendered: false
@@ -1315,15 +1340,14 @@ keys:
     default: n/a
   control_system.connector.live_standin.writes_enabled:
     rendered: false
-    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
-      The one leaf of the derived block a profile is free to write. Anchored on
-      the per-type resolver's read in `osprey_connectors.types`
-      (`type_writes_enabled`), which is the single reader of every
-      `control_system.connector.<type>.writes_enabled` leaf — the same site
-      `control_system.writes_enabled` above names as its inherit fallback.
+      Retired, like every `control_system.connector.<type>.writes_enabled`
+      leaf: a profile that still states it on the derived block is normalized
+      into `control_system.writes` at the single parse point in
+      `build_profile_document`, whose per-type scan is the anchor.
     default: derived
-    default_note: falls through to control_system.writes_enabled
+    default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.epics.probe_channel:
     rendered: false
     evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
@@ -1359,54 +1383,47 @@ keys:
       reason: which attribute answers is a facility fact.
     default: ''
   control_system.connector.virtual_accelerator.writes_enabled:
-    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    rendered: false
+    evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
-      Per-connector-type override of `control_system.writes_enabled`. The root
-      presets that carry a virtual_accelerator block write it commented; every
-      bundled app pins it false, and the app composer pins it false on every
-      app render whatever the app file says, which is what renders it. The
-      bundled tiers write it too — true in `readwrite` and `admin`, false in
-      `readonly` — so an audit of a built deployment will find it.
-      Tri-state: absent inherits the global key, literally `true` arms writes
-      for this type, and any other value leaves them unarmed without
-      inheriting. The reader is `type_writes_enabled` in
-      `osprey_connectors.types`, and the evidence is the line in it that takes
-      the leaf out of the resolved connector block -- the one expression that
-      cannot outlive the reader. The epics entry below cites the same site on
-      purpose: one type-keyed resolver serves every connector type, a custom
-      connector's dotted module path included.
+      Retired per-connector-type spelling of the write posture, replaced by
+      the target-blind `control_system.writes`. No preset, tier or app ships
+      it: the tiers state `control_system.writes`, and an app render is pinned
+      `never` by the composer. A profile that still states it is read once, at
+      the single parse point in `build_profile_document`, which folds every
+      retired leaf into one `control_system.writes` answer (`allowed` only when
+      one of them is a literal `true`) and drops them. The evidence is the
+      line in that scan which recognises the per-type leaf. The epics entry
+      below cites the same site on purpose: one scan serves every connector
+      type, a custom connector's dotted module path included.
     default: derived
-    default_note: falls through to control_system.writes_enabled
+    default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.epics.writes_enabled:
-    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    rendered: false
+    evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
-      Same key, same tri-state semantics and the same single reader for the
-      epics block, likewise written commented in `control-assistant`; every
-      bundled app pins it false, and the app composer pins it on every app
-      render, which is what renders it. Arming writes against a live machine is
-      a facility decision that cannot ship pre-made, so no shipped preset, tier
-      or app ever sets this one true; the bundled tiers write it false.
+      The same retired leaf reached through the epics block, read by the same
+      single parse point and normalized into `control_system.writes` the same
+      way. No shipped preset, tier or app states it.
     default: derived
-    default_note: falls through to control_system.writes_enabled
+    default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.doocs.writes_enabled:
     rendered: false
-    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
-      The same leaf reached through the doocs block — one type-keyed resolver
-      answers for every connector type, so the reader cited here is the reader
-      cited above. Commented in `control-assistant`: arming writes against a
-      DOOCS machine is a facility decision, so no shipped preset states it.
+      The same retired leaf reached through the doocs block — one parse-point
+      scan recognises it for every connector type, so the site cited here is
+      the site cited above. No shipped preset states it.
     default: derived
-    default_note: falls through to control_system.writes_enabled
+    default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.tango.writes_enabled:
     rendered: false
-    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    evidence: 'path\[3\] == RETIRED_WRITES_LEAF'
     note: >-
-      The same leaf reached through the tango block, with the same tri-state
-      reading and the same single reader. Commented in `control-assistant` for
-      the same reason the doocs one is.
+      The same retired leaf reached through the tango block, normalized at the
+      same parse point. No shipped preset states it.
     default: derived
-    default_note: falls through to control_system.writes_enabled
+    default_note: retired; an absent leaf contributes nothing, and the parse point answers control_system.writes from the leaves that are stated
   control_system.connector.virtual_accelerator.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
@@ -1968,6 +1985,42 @@ keys:
   claude_code.servers.graph.enabled: {covered-by: claude_code.servers.graph, default: derived, default_note: the graph server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.phoebus: {covered-by: claude_code.servers, rendered: false, default: n/a}
   claude_code.servers.phoebus.enabled: {covered-by: claude_code.servers.phoebus, rendered: false, default: derived, default_note: the phoebus server's FRAMEWORK_SERVERS default_enabled}
+  claude_code.servers.<server>.hooks:
+    evidence: 'spec\.get\("hooks", \{\}\)\.get\("pre_tool_use"'
+    rendered: false
+    note: >-
+      Persisted by the build from the profile's `mcp_servers.<server>.hooks`
+      (build_persistence._persist_mcp_servers), never authored in `config:` —
+      the loader refuses a server defined under both keys. Read back by
+      registry.mcp._custom_server_from_spec.
+    default: {}
+  claude_code.servers.<server>.writes:
+    evidence: 'spec\["writes"\] = list\(server\.writes\)'
+    rendered: false
+    note: >-
+      Persisted by the build from the profile's `mcp_servers.<server>.writes`,
+      never authored in `config:`. Written whenever the profile declares a
+      list, an empty one included.
+    default: no-fallback
+    default_note: an absent list means the server declares no write tools, which is not an empty declaration; the registry keeps its whole-server rule
+  mcp_servers.<server>.hooks:
+    evidence: 'sdef\.get\("hooks"\)'
+    rendered: false
+    note: >-
+      A profile block, not a `config:` key: hook presets per facility server,
+      `{pre_tool_use: [<preset>, ...]}`. Validated by the loader, persisted to
+      `claude_code.servers.<server>.hooks`.
+    default: {}
+  mcp_servers.<server>.writes:
+    evidence: 'sdef\.get\("writes"\)'
+    rendered: false
+    note: >-
+      A profile block, not a `config:` key: the server's write tools as bare
+      names. Malformed lists (non-list, non-string, wildcard or regex,
+      duplicate, mcp__-prefixed) are build errors naming the server; the build
+      never queries the server. Persisted to `claude_code.servers.<server>.writes`.
+    default: no-fallback
+    default_note: an absent list means the server declares no write tools, which is not an empty declaration; the registry keeps its whole-server rule
   claude_code.permissions:
     evidence: 'claude_code_config\.get\("permissions", \{\}\)'
     note: >-
@@ -2720,7 +2773,7 @@ keys:
     note: >-
       read offers the perceive, snapshot, open-panel and lookup tools only, and
       the server refuses a drive. read_write also offers phoebus_drive, still
-      behind the approval prompt and control_system.writes_enabled. Any other
+      behind the approval prompt and control_system.writes. Any other
       value is refused by name at build and by the server. No preset carries it.
     default: read
   phoebus.snapshot_dir:
@@ -3986,7 +4039,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 393
+  expected_union_size: 391
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

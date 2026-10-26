@@ -1281,7 +1281,8 @@ def test_an_app_renders_as_the_host_with_the_app_over_it():
     # A host fact survives; the app's switch wins; the write boundary is pinned.
     assert cfg["approval"]["enabled"] is True
     assert cfg["claude_code"]["servers"]["python"]["enabled"] is False
-    assert cfg["control_system"]["writes_enabled"] is False
+    assert cfg["control_system"]["writes"] == "never"
+    assert "writes_enabled" not in cfg["control_system"]
 
 
 def test_parity_expects_the_root_presets_alone():
