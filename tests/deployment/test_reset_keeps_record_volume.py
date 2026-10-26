@@ -7,19 +7,30 @@ record is ``var/agent_record/``; on the ClickHouse backend it is also the store'
 data volume. ``var/spool/`` goes with it on both, so the verb does the same to
 the record whichever backend keeps it.
 
+Two things survive every reset, ``--purge-audit`` included: ``var/state/`` (the
+locks, leases and markers of each identity) and ``var/archive/`` (the record's
+append-only archive, with the artifact and Bluesky copies in it). And every
+reset, plain or purging, dry or real, refuses while a host session holds the
+host-local record, naming the sessions that hold it.
+
 No test here reaches a container runtime: the runtime is the recording fake of
-``tests/deployment/test_reset_scoping.py``.
+``tests/deployment/test_reset_scoping.py``. The leases are real lease files
+naming this test process, so liveness is judged by the code that judges it in
+production.
 """
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 import pytest
 
+from osprey.agent_record import host
 from osprey.deployment import reset as reset_mod
 from osprey.deployment.compose_generator import AGENT_RECORD_CLICKHOUSE_VOLUME
-from osprey.deployment.reset import plan_reset
+from osprey.deployment.reset import HostRecordRunningError, plan_reset, reset_for_reinit
 from tests.deployment.test_reset_scoping import (
     PROJECT,
     FakeRuntime,
@@ -63,6 +74,9 @@ def _repo(tmp_path: Path, backend: str) -> Path:
         ("var/audit/2026-10-24.jsonl", '{"ok":true}\n'),
         ("var/agent_record/record.duckdb", "record"),
         ("var/spool/terminal-alice/0001.jsonl", '{"entry":1}\n'),
+        ("var/state/alice/revocations.json", "[]"),
+        ("var/archive/artifacts/plot-1.png", "png"),
+        ("var/archive/bluesky/run-7.jsonl", '{"run":7}\n'),
     ):
         path = root / relpath
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,3 +168,153 @@ def test_only_the_exact_record_volume_name_is_kept(
 
     assert [v.name for v in plan.kept_volumes] == [RECORD_VOLUME]
     assert [v.name for v in plan.volumes] == [lookalike]
+
+
+# ---------------------------------------------------------------------------
+# What no reset touches
+# ---------------------------------------------------------------------------
+
+#: Files the fixture repo holds under the two directories every reset keeps.
+SURVIVORS = (
+    "var/state/alice/revocations.json",
+    "var/archive/artifacts/plot-1.png",
+    "var/archive/bluesky/run-7.jsonl",
+)
+
+
+@pytest.mark.parametrize("purge_audit", [False, True], ids=["plain", "purge-audit"])
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_state_and_archive_survive_every_reset(
+    tmp_path: Path, backend: str, purge_audit: bool
+) -> None:
+    repo = _repo(tmp_path, backend)
+    fake = _runtime(backend)
+
+    plan = plan_reset(repo, probe=make_probe(fake), purge_audit=purge_audit)
+    removed, kept = _sections(plan.render())
+
+    assert "var/state" not in removed
+    assert "var/archive" not in removed
+    assert "var/state/" in kept
+    assert "var/archive/" in kept
+    assert not any(
+        path == repo / "var" / name or (repo / "var" / name) in path.parents
+        for path in plan.paths
+        for name in ("state", "archive")
+    )
+
+    run_reset(repo, fake, purge_audit=purge_audit)
+
+    for relpath in SURVIVORS:
+        assert (repo / relpath).is_file(), relpath
+
+
+# ---------------------------------------------------------------------------
+# The refusal while a host session holds the host-local record
+# ---------------------------------------------------------------------------
+
+
+def _write_lease(repo: Path, *, start: str | None = None) -> Path:
+    """A lease file for this test process, as a host launcher writes it."""
+    pid = os.getpid()
+    if start is None:
+        start = host._process_start(pid)
+        assert start, "ps cannot read this process's start time"
+    lease_dir = repo / "var" / "state" / "operator" / host.LEASE_DIR_NAME
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    path = lease_dir / f"{pid}-test.lease"
+    path.write_text(json.dumps({"pid": pid, "start": start}), encoding="utf-8")
+    return path
+
+
+def _snapshot(repo: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(repo)): p.read_bytes() for p in sorted(repo.rglob("*")) if p.is_file()
+    }
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["real", "dry-run"])
+@pytest.mark.parametrize("purge_audit", [False, True], ids=["plain", "purge-audit"])
+def test_a_live_lease_refuses_every_reset_and_names_the_session(
+    tmp_path: Path, no_down: list[Path], purge_audit: bool, dry_run: bool
+) -> None:
+    repo = _repo(tmp_path, "embedded")
+    _write_lease(repo)
+    fake = _runtime("clickhouse")
+    before = _snapshot(repo)
+
+    with pytest.raises(HostRecordRunningError) as caught:
+        run_reset(repo, fake, purge_audit=purge_audit, dry_run=dry_run)
+
+    error = caught.value
+    assert [holder.pid for holder in error.holders] == [os.getpid()]
+    assert f"pid {os.getpid()}" in str(error)
+    # The session is named by its command line, which for this process is the
+    # interpreter running the tests.
+    assert "python" in error.holders[0].command.lower()
+    assert "Nothing was stopped, removed, or written." in str(error)
+    assert no_down == []
+    assert fake.removed_names() == []
+    assert _snapshot(repo) == before
+
+
+def test_init_reset_refuses_on_a_live_lease_too(tmp_path: Path, no_down: list[Path]) -> None:
+    repo = _repo(tmp_path, "embedded")
+    _write_lease(repo)
+    fake = _runtime("embedded")
+
+    with pytest.raises(HostRecordRunningError):
+        reset_for_reinit(repo, probe=make_probe(fake))
+
+    assert no_down == []
+    assert fake.removed_names() == []
+
+
+def test_a_running_record_process_with_no_lease_refuses(
+    tmp_path: Path, no_down: list[Path]
+) -> None:
+    """The process can outlive its last lease briefly; a reset still waits for it."""
+    repo = _repo(tmp_path, "embedded")
+    state_dir = repo / "var" / "state" / "operator"
+    state_dir.mkdir(parents=True)
+    (state_dir / host.PROCESS_FILE_NAME).write_text(
+        json.dumps({"pid": os.getpid(), "start": host._process_start(os.getpid())}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HostRecordRunningError) as caught:
+        run_reset(repo, _runtime("embedded"))
+
+    assert caught.value.holders == ()
+    assert f"pid {os.getpid()}" in str(caught.value)
+    assert no_down == []
+
+
+def test_a_stale_lease_does_not_refuse(tmp_path: Path, no_down: list[Path]) -> None:
+    """A lease whose process is gone (same pid, other start time) holds nothing."""
+    repo = _repo(tmp_path, "embedded")
+    lease = _write_lease(repo, start="Mon Jan  1 00:00:00 2001")
+    fake = _runtime("embedded")
+
+    run_reset(repo, fake)
+
+    assert len(no_down) == 1
+    assert fake.removed_names() == [OTHER_VOLUME]
+    # The lease directory is under var/state, which a reset never touches.
+    assert lease.is_file()
+
+
+def test_a_lease_taken_after_the_plan_stops_the_execution(
+    tmp_path: Path, no_down: list[Path]
+) -> None:
+    """The plan is checked again just before the first removal."""
+    repo = _repo(tmp_path, "embedded")
+    fake = _runtime("embedded")
+    plan = plan_reset(repo, probe=make_probe(fake))
+    _write_lease(repo)
+
+    with pytest.raises(HostRecordRunningError):
+        reset_mod.execute_reset(plan, probe=make_probe(fake))
+
+    assert no_down == []
+    assert fake.removed_names() == []

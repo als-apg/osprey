@@ -18,7 +18,10 @@ record survives on the same principle, on either backend: ``var/agent_record/``
 and the spool feeding it, ``var/spool/``, and the record store's data volume
 (:data:`~osprey.deployment.compose_generator.AGENT_RECORD_CLICKHOUSE_VOLUME`)
 when the record lives in ClickHouse. ``--purge-audit`` destroys all of them
-under the same typed gate. And ``.env`` keeps
+under the same typed gate, and nothing more: ``var/state/`` (each identity's
+locks, leases and markers) and ``var/archive/`` (the record's append-only
+archive, with the artifact and Bluesky copies in it) survive every reset,
+plain or purging. And ``.env`` keeps
 every value that was not minted by a deploy: the provider keys an operator
 supplied are theirs, not this deployment's, and a reset that silently took them
 would make a re-deploy impossible for reasons the operator could not see. The
@@ -27,6 +30,16 @@ principle — they are write-once, so what is in them is what an operator or one
 earlier deploy put there — and they are disclosed for the opposite reason: a
 reset that quietly left every account able to log in is as much a surprise as
 one that quietly locked them all out.
+
+**A reset refuses while the host-local record runs.** When no stack is up, a
+host ``osprey web``, ``chat`` or ``query`` runs the agent record as a local
+process that holds ``var/agent_record/`` open, and each session holding it
+keeps a lease under ``var/state/<host identity>/``. Wiping the files under a
+process that owns them, or stopping it under sessions still writing to it,
+loses exactly the data a reset promises to keep, so the plan refuses
+(:class:`HostRecordRunningError`) and names each session holding a lease. It
+refuses before anything is listed or removed, on ``--dry-run`` and on
+``init --reset`` alike, and once more just before the removals begin.
 
 SCOPING BOUNDARY — the safety core of this module
 =================================================
@@ -149,7 +162,13 @@ from osprey.deployment.web_terminals.env_production import (
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
 from osprey_connectors.dotenv import parse_dotenv_text
 from osprey_connectors.logger import get_logger
-from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH, STATE_DIR_NAME
+from osprey_connectors.workspace import (
+    ARCHIVE_DIR_RELPATH,
+    RECORD_DIR_RELPATH,
+    SPOOL_DIR_RELPATH,
+    STATE_DIR_NAME,
+    STATE_DIR_RELPATH,
+)
 
 logger = get_logger("deployment.reset")
 
@@ -723,6 +742,19 @@ class ResetPlan:
                 "is rebuilt from them on every `osprey build` and `osprey up`. Delete a login "
                 "and the next `osprey up` creates it again with a new secret."
             )
+        # Kept by every reset, --purge-audit included: what a session leases
+        # and locks is live state, not this deployment's data to discard, and
+        # the archive is append-only by contract.
+        if (self.repo_root / STATE_DIR_RELPATH).is_dir():
+            kept.append(
+                f"    {STATE_DIR_RELPATH}/  each identity's locks, leases and markers, "
+                "--purge-audit or not."
+            )
+        if (self.repo_root / ARCHIVE_DIR_RELPATH).is_dir():
+            kept.append(
+                f"    {ARCHIVE_DIR_RELPATH}/  the agent record's append-only archive, with the "
+                "artifact and Bluesky copies in it, --purge-audit or not."
+            )
         kept.append(
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
@@ -854,6 +886,95 @@ def _relative_to(path: Path, repo_root: Path) -> str:
         return f"{path.relative_to(repo_root)}/"
     except ValueError:
         return str(path)
+
+
+# ---------------------------------------------------------------------------
+# The host-local record
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RecordHolder:
+    """A host session holding the host-local record: its pid and its command line."""
+
+    pid: int
+    command: str
+
+
+class HostRecordRunningError(RuntimeError):
+    """The host-local agent record is running — nothing was touched.
+
+    ``str(e)`` is the whole refusal: a headline, the sessions holding the
+    record one per line, and what to do. :attr:`holders` names those sessions
+    for a caller that renders the parts itself.
+    """
+
+    SUMMARY = "Reset refused: the host-local agent record is running"
+    REMEDY = (
+        "end those sessions (exit `osprey chat`, run `osprey web stop`), then run the reset again"
+    )
+
+    def __init__(self, holders: Sequence[RecordHolder], process_pid: int | None) -> None:
+        self.holders = tuple(holders)
+        self.process_pid = process_pid
+        super().__init__("\n".join([self.SUMMARY, self.cause, self.REMEDY]))
+
+    @property
+    def cause(self) -> str:
+        """Why: which sessions hold the record, or the process that runs it unheld."""
+        if self.holders:
+            lines = ["These sessions are using it:"]
+            lines.extend(f"  pid {h.pid}  {h.command}" for h in self.holders)
+        else:
+            lines = [
+                f"Its process (pid {self.process_pid}) is still running, though no session "
+                "holds it; it stops on its own once it is idle."
+            ]
+        lines.append("Nothing was stopped, removed, or written.")
+        return "\n".join(lines)
+
+
+def _command_of(pid: int) -> str:
+    """The command line of live process *pid*, or a placeholder when ``ps`` cannot say."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    return out or "(command unknown)"
+
+
+def running_host_record_refusal(repo_root: Path) -> HostRecordRunningError | None:
+    """The refusal a reset of *repo_root* owes while a host-local record runs, else ``None``.
+
+    Read from the directory rather than from the build: every identity's state
+    directory under ``var/state/`` is checked for live leases and for a live
+    record process, so a repo whose build is gone or unreadable is judged the
+    same as one with a build. Read-only.
+    """
+    from osprey.agent_record import host
+
+    state_root = Path(repo_root) / STATE_DIR_RELPATH
+    try:
+        state_dirs = sorted(p for p in state_root.iterdir() if p.is_dir())
+    except OSError:
+        return None
+    holders: list[RecordHolder] = []
+    process_pid: int | None = None
+    for state_dir in state_dirs:
+        for lease in host.live_leases(state_dir / host.LEASE_DIR_NAME):
+            holders.append(RecordHolder(lease.pid, _command_of(lease.pid)))
+        running = host._running_process(state_dir)
+        if running is not None and process_pid is None:
+            process_pid = running[0]
+    if not holders and process_pid is None:
+        return None
+    return HostRecordRunningError(holders, process_pid)
 
 
 # ---------------------------------------------------------------------------
@@ -1212,6 +1333,8 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         The plan, ready to render and to execute.
 
     Raises:
+        HostRecordRunningError: When a host session holds the host-local
+            agent record, or its process still runs.
         ForeignCheckoutError: When a container carrying this project's name
             carries a different checkout's identity.
     """
@@ -1222,6 +1345,10 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     # symlinked path (macOS /var -> /private/var) it would print an absolute
     # path where it means "inside your repo".
     repo_root = Path(repo_root).resolve()
+    # First, before the runtime is asked anything: the refusal does not depend
+    # on what the runtime holds, and a dry run must refuse exactly as a real one.
+    if (refusal := running_host_record_refusal(repo_root)) is not None:
+        raise refusal
     config = load_as_built_config(repo_root)
     project, source = resolve_reset_project_name(repo_root, config)
     identity = repo_identity(repo_root)
@@ -1334,8 +1461,12 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
        secrets exactly as they were.
 
     Raises:
+        HostRecordRunningError: When a host session took the host-local record
+            between the plan and now. Nothing has been removed.
         RuntimeError: When the ``down`` fails. Nothing has been removed.
     """
+    if (refusal := running_host_record_refusal(plan.repo_root)) is not None:
+        raise refusal
     down_deployment(plan.repo_root)
 
     for resource in plan.containers:
@@ -1447,6 +1578,8 @@ def reset_deployment(
         non-zero endings.
 
     Raises:
+        HostRecordRunningError: A host session holds the host-local agent
+            record. Nothing is removed.
         ForeignCheckoutError: Same-name resources belong to another checkout.
         RuntimeError: The container runtime is unreachable, or the ``down``
             failed. Nothing is removed on either path.
@@ -1532,6 +1665,8 @@ def reset_for_reinit(repo_root: Path | str, *, probe: RuntimeProbe | None = None
         ``NOTHING_TO_DO``, ``COMPLETED``, or ``COMPLETED_WITH_FAILURES``.
 
     Raises:
+        HostRecordRunningError: A host session holds the host-local agent
+            record. Nothing is removed.
         ForeignCheckoutError: Same-name resources belong to another checkout.
         RuntimeError: The container runtime is unreachable, or the ``down``
             failed. Nothing is removed on either path.
@@ -1591,7 +1726,7 @@ def _condensed_outcome_lines(plan: ResetPlan) -> list[str]:
     if stripped:
         lines.append(f"stripped {stripped} from {COMPOSE_ENV_FILENAME}")
     lines.append(
-        f"kept the audit log, {COMPOSE_ENV_FILENAME} provider keys "
+        f"kept the audit log, the agent record, {COMPOSE_ENV_FILENAME} provider keys "
         f"({len(plan.env_kept_keys)} entr{'y' if len(plan.env_kept_keys) == 1 else 'ies'}) "
         "and the files you edit"
     )

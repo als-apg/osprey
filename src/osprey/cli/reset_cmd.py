@@ -1,7 +1,7 @@
 """``osprey reset`` — the factory reset, and the only verb that destroys data.
 
 The command layer is deliberately thin: it resolves the repo, hands the work to
-:mod:`osprey.deployment.reset`, and turns that module's two refusals into
+:mod:`osprey.deployment.reset`, and turns that module's refusals into
 operator-facing exits. Everything that decides what gets removed — the identity
 scoping, the plan, the typed gate — lives in the deployment layer, where it can
 be tested without a container runtime and where the plan an operator reads and
@@ -37,7 +37,11 @@ from .repo_resolver import find_repo_root, repo_option
     "--purge-audit",
     "purge_audit",
     is_flag=True,
-    help="Destroy var/audit/ as well. It is kept by default.",
+    help=(
+        "Also destroy the audit log and the agent record: var/audit/, var/agent_record/, "
+        "var/spool/ and the record's ClickHouse volume (<project>_agent_record_clickhouse_data). "
+        "All four are kept by default; var/state/ and var/archive/ are kept either way."
+    ),
 )
 def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool) -> None:
     """Wipe this deployment back to a fresh state.
@@ -48,13 +52,22 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     under var/agent_data/, strips the tokens `osprey up` minted out of .env, and
     deletes build/.
 
-    Two things survive, and the plan says so before you confirm:
+    What survives, the plan lists before you confirm:
 
     \b
-      var/audit/   the safety audit log — what the agent was asked to do and
-                   what it did. Pass --purge-audit to destroy it too.
-      .env         everything in it that a deploy did not mint, which is your
-                   provider keys.
+      var/audit/         the safety audit log — what the agent was asked to
+                         do and what it did.
+      var/agent_record/  the agent record, with var/spool/ feeding it and,
+                         on the ClickHouse backend, the record's data volume.
+                         --purge-audit destroys these and var/audit/ too.
+      var/state/         each identity's locks, leases and markers.
+      var/archive/       the record's archive, with the artifact and Bluesky
+                         copies in it. Kept even under --purge-audit.
+      .env               everything in it that a deploy did not mint, which
+                         is your provider keys.
+
+    Reset refuses, touching nothing, while a host `osprey web`, `chat` or
+    `query` is running the agent record locally, and names those sessions.
 
     The source zone is never touched: profile.yml, data/, tiers/, triggers.yml
     and .git are exactly what they were. After a reset, `osprey build && osprey
@@ -67,7 +80,7 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     containers under this project name came from a different checkout, and
     names it. A container with no such record counts as this deployment's.
     Volumes belong to the project by name, so every volume under this project
-    name is removed. Moving this directory makes its own older containers read
+    name is removed, except the record's data volume a plain reset keeps. Moving this directory makes its own older containers read
     as foreign; the refusal says so and still will not remove them.
 
     Exit status, so `osprey reset && ...` means what it looks like:
@@ -99,6 +112,7 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
         EXIT_CODES,
         PARTIAL_RESET_EXIT_CODE,
         ForeignCheckoutError,
+        HostRecordRunningError,
         reset_deployment,
     )
 
@@ -151,6 +165,11 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
             # Exit rather than ClickException: the block above is already the
             # whole explanation, and ClickException would restate a summary of
             # it under an "Error:" prefix. Same exit code either way.
+            raise click.exceptions.Exit(1) from None
+        except HostRecordRunningError as e:
+            # Refused before the first removal, on stderr in the one refusal
+            # shape; exit 1, the code that says nothing was touched.
+            output.fail(e.SUMMARY, e.cause, e.REMEDY)
             raise click.exceptions.Exit(1) from None
         except KeyboardInterrupt:
             # An interrupt AT THE PROMPT is handled inside reset_deployment, which
