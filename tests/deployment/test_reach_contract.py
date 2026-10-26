@@ -894,9 +894,6 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
     not only the bluesky one the hole was found in."""
     cases = {
         "postgresql": {"ariel": {"search_modules": {}}},
-        "telemetry_gateway": {
-            "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}}
-        },
         # Switched on by the connector block a VA is configured from, and
         # naming no gateway address of its own — the shape that has to be
         # refused, since the fill would send the client to loopback.
@@ -985,7 +982,7 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
       facts are derived from the ``va_archiver:`` block on their own build
       path, which refuses an attached profile that names no host itself.
     * ``no_client_reach`` (the recorder, the dispatch worker, the chat
-      bridges): nothing inside a render container dials them; each is a
+      bridges, the telemetry gateway): nothing inside a render container dials them; each is a
       host-side writer or a worker that dials the render, never the reverse.
     """
     silent = [
@@ -993,7 +990,12 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
         for contract in REACH_CONTRACTS.values()
         if contract.derived_by or contract.no_client_reach
     ]
-    assert {c.service for c in silent} >= {"mongodb", "archiver_recorder", "dispatch_worker"}
+    assert {c.service for c in silent} >= {
+        "mongodb",
+        "archiver_recorder",
+        "dispatch_worker",
+        "telemetry_gateway",
+    }
     for contract in silent:
         assert contract.consumers == (), contract.service
 
@@ -1005,6 +1007,13 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
         "deployed_services": ["postgresql"],
     }
     assert reach_errors(config) == []
+
+    # Nor is a render whose profile still names the gateway as its exporter.
+    gateway_named = {
+        "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}},
+        "deployed_services": ["qmd"],
+    }
+    assert reach_errors(gateway_named) == []
 
 
 def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):

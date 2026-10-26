@@ -149,8 +149,6 @@ def test_each_credential_file_is_named_only_on_its_owner(
         }
     )
     owned = {service: set(files) for service, files in owners.items()}
-    for user in ("alice", "bob"):
-        owned[f"web-{user}"] = {creds.sender_file(user)}
 
     named_somewhere = set()
     offenders = []
@@ -162,13 +160,15 @@ def test_each_credential_file_is_named_only_on_its_owner(
             if filename not in owned.get(name, set()):
                 offenders.append(f"{golden}: {name} is handed {filename}")
     assert not offenders, "\n".join(offenders)
-    # The check is live: the senders rendered today are handed their files.
-    assert {
-        creds.sender_file("dispatch-worker-1"),
-        creds.sender_file("dispatch-worker-2"),
-        creds.sender_file("alice"),
-        creds.sender_file("bob"),
-    } <= named_somewhere
+    # The check is live: the gateway's own credential files are named.
+    assert named_somewhere
+    # No agent sends to the gateway: its OTLP logs go to agent-record under the
+    # agent's record login, so no container is handed a gateway sender login.
+    senders = {
+        creds.sender_file(sender)
+        for sender in ("dispatch-worker-1", "dispatch-worker-2", "alice", "bob")
+    }
+    assert not senders & named_somewhere
 
 
 def test_each_owner_carries_its_own_digest_label(service_documents: dict[str, dict]) -> None:

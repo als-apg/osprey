@@ -442,7 +442,10 @@ def test_the_templates_reference_telemetry_digests_at_all() -> None:
     names = _telemetry_digest_names_the_templates_reference()
 
     assert "OSPREY_TELEMETRY_DIGEST_ARCHIVE" in names
-    assert "OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_1" in names
+    assert "OSPREY_TELEMETRY_DIGEST_TELEMETRY_GATEWAY" in names
+    # A dispatch worker holds no telemetry credential: its OTLP logs go to
+    # agent-record under its record login.
+    assert not any(name.startswith("OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER") for name in names)
 
 
 @pytest.mark.parametrize("positional", [1, 2])

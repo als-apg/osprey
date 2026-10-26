@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 from osprey.deployment.errors import CapturedProcessError
 from osprey.deployment.web_terminals import render_images
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
@@ -791,8 +790,8 @@ def test_a_render_placeholder_resolves_from_the_repo_env(tmp_path, calls, monkey
 def _telemetry_render(repo: Path, telemetry_lines: str) -> Path:
     """A complete render whose model is fine and whose telemetry block varies.
 
-    The model is deliberately servable in every one of these: the point is what
-    the refusal says when the ONLY thing wrong is an observability credential.
+    The model is deliberately servable in every one of these, so the telemetry
+    block is the only thing that could draw a refusal.
     """
     project_path = _render(repo)
     (project_path / "config.yml").write_text(
@@ -807,48 +806,24 @@ def _telemetry_render(repo: Path, telemetry_lines: str) -> Path:
     return project_path
 
 
-def test_unresolved_observability_credential_is_not_a_model_problem(tmp_path, calls, monkeypatch):
-    """A collector token nothing on the host resolves is reported as a
-    credential, with the file it belongs in.
-
-    Both failures come out of the same resolve and the credential one is a
-    ValueError too, so the general frame would otherwise tell an operator whose
-    collector token is unset to go and fix their model — an edit to a profile
-    that was never wrong, leaving the actual gap in place.
-    """
-    monkeypatch.delenv("OBSERVABILITY_TOKEN", raising=False)
-    repo = _repo(tmp_path, "ops")
-    project_path = _telemetry_render(
-        repo,
+@pytest.mark.parametrize(
+    "telemetry_lines",
+    [
         "    endpoint: https://collector.example.org:4318\n"
         "    auth:\n"
         "      token_env: OBSERVABILITY_TOKEN\n",
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        render_images.verify_renders(_render_config(repo), _RENDER_USERS, repo_root=repo)
-
-    message = str(excinfo.value)
-    assert "observability credentials this deployment cannot resolve" in message
-    assert str(project_path) in message
-    # The variable to set, and the one file that will be read for it -- a name,
-    # never a value, since an unset variable has none to print.
-    assert "OBSERVABILITY_TOKEN" in message
-    assert f'echo "OBSERVABILITY_TOKEN=<value>" >> {repo / ".env"}' in message
-    # And emphatically not the other remedy.
-    assert "Fix the model in this deployment's profile" not in message
-    assert isinstance(excinfo.value.__cause__, ObservabilityCredentialError)
-    assert calls == []
-
-
-def test_a_gateway_render_without_a_login_on_this_host_is_accepted(tmp_path, calls, monkeypatch):
-    """The render's gateway login reaches its container through that
-    container's own ``env_file``, never this host's environment, so its
-    absence here says nothing about the launch."""
+        "    backend: gateway\n",
+    ],
+    ids=["collector-token", "gateway"],
+)
+def test_a_telemetry_block_is_never_a_launch_problem(tmp_path, calls, monkeypatch, telemetry_lines):
+    """No exporter reads ``claude_code.telemetry``, so a variable it names that
+    this host leaves unset says nothing about the launch."""
+    monkeypatch.delenv("OBSERVABILITY_TOKEN", raising=False)
     monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
     monkeypatch.delenv("OSPREY_OTEL_GATEWAY_HOST", raising=False)
     repo = _repo(tmp_path, "ops")
-    _telemetry_render(repo, "    backend: gateway\n")
+    _telemetry_render(repo, telemetry_lines)
 
     render_images.verify_renders(_render_config(repo), _RENDER_USERS, repo_root=repo)
 

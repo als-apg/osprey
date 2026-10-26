@@ -151,9 +151,6 @@ def _three_problem_config(root: Path) -> dict:
         "deployed_services": [],
         "facility": {"prefix": "test"},
         "registry": {"url": "registry.example.org/test"},
-        # Master switch on: an inert block is asked for no credential at all, so
-        # leaving it out would make the telemetry problem below disappear.
-        "claude_code": {"telemetry": {"enabled": True, "endpoint": "${OBS_ENDPOINT}"}},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -191,9 +188,10 @@ def _three_problem_config(root: Path) -> dict:
 def test_three_unmet_preconditions_are_reported_in_one_refusal(tmp_path):
     """The whole point of the pass. Serially, this deployment costs three
     deploy attempts to diagnose; here it costs one."""
-    # A chain that is present but does not carry the telemetry endpoint the
-    # config demands -- the third problem.
+    # A chain that is present but does not carry the variable the profile
+    # requires -- the third problem.
     (tmp_path / ".env").write_text("FOO=bar\n", encoding="utf-8")
+    _required(tmp_path, "OBS_ENDPOINT")
 
     with pytest.raises(UnmetPreconditionsError) as excinfo:
         container_lifecycle._collect_unmet_preconditions(
@@ -744,9 +742,7 @@ def _mint_dependent_config() -> dict:
     return {
         "deployed_services": ["osprey-mcp"],
         "facility": {"prefix": "test"},
-        # Master switch on: an inert block is asked for no credential at all, so
-        # leaving it out would make the telemetry problem below disappear.
-        "claude_code": {"telemetry": {"enabled": True, "endpoint": "${OBS_ENDPOINT}"}},
+        "claude_code": {},
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -775,6 +771,7 @@ def test_a_fresh_repo_with_no_env_file_is_not_refused_over_what_the_mint_writes(
     that second outcome on the first repo too, and refuse every fresh deploy.
     """
     (tmp_path / ".env.shared").write_text("SHARED_DEFAULT=1\n", encoding="utf-8")
+    _required(tmp_path, "OBS_ENDPOINT")
     monkeypatch.setattr(
         container_lifecycle,
         "_ensure_service_tokens",
@@ -793,6 +790,7 @@ def test_the_same_repo_is_refused_when_nothing_provides_the_variable(
     writing nothing, the identical start refuses. So the first test is passing
     because of WHERE the pass sits, not because the probe is inert."""
     (tmp_path / ".env.shared").write_text("SHARED_DEFAULT=1\n", encoding="utf-8")
+    _required(tmp_path, "OBS_ENDPOINT")
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
 
     with pytest.raises(UnmetPreconditionsError, match="OBS_ENDPOINT"):

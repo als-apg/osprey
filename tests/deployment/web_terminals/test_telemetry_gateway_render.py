@@ -2,9 +2,8 @@
 
 Terminals run under ``network_mode: host``, so each is told where the gateway
 PUBLISHES — the interface ``deployment.bind_address`` names (loopback for a
-wildcard), on the published port — and is handed its own login file by
-``env_file``. Containers that send no OTLP (nginx) get neither, and the shared
-``.env.users`` carrier never names a login.
+wildcard), on the published port. Containers that send no OTLP (nginx) are told
+nothing, and no container is handed a gateway login file.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ import copy
 import pytest
 import yaml
 
-from osprey.build.claude_code_telemetry import TELEMETRY_LOGIN_ENV, _resolve_telemetry_endpoint
 from osprey.deployment.telemetry_config import (
     GATEWAY_HOST_ENV,
     GATEWAY_PORT_ENV,
@@ -83,25 +81,21 @@ def test_a_terminal_dials_the_gateway_where_it_publishes(deployment, expected_ho
         env = _environment(service)
         assert env[GATEWAY_HOST_ENV] == expected_host, name
         assert env[GATEWAY_PORT_ENV] == str(gateway_port(config)), name
-        # The emitter inside resolves exactly that address.
-        endpoint = _resolve_telemetry_endpoint(
-            {"enabled": True, "backend": "gateway"},
-            gateway_url=runtime_gateway_url(config, env),
-        )
-        assert endpoint == f"http://{expected_host}:{gateway_port(config)}", name
+        # A reader inside resolves exactly that address.
+        assert runtime_gateway_url(config, env) == (
+            f"http://{expected_host}:{gateway_port(config)}"
+        ), name
 
 
-def test_each_terminal_is_handed_its_own_login_file():
+def test_no_container_is_handed_a_gateway_login_file():
+    """No terminal sends to the gateway with a login of its own."""
     compose, _ = _compose()
-    for name, service in _terminals(compose).items():
-        files = _env_files(service)
-        logins = [f for f in files if f.startswith(SENDER_FILE_PREFIX)]
-        assert len(logins) == 1, (name, files)
-        assert ".env.users" in files, name
+    for name, service in compose["services"].items():
+        assert not [f for f in _env_files(service) if f.startswith(SENDER_FILE_PREFIX)], name
 
 
-def test_no_endpoint_or_login_reaches_a_container_that_sends_nothing():
-    """nginx emits no OTLP: no gateway address, no login file, no login."""
+def test_no_endpoint_reaches_a_container_that_sends_nothing():
+    """nginx emits no OTLP: no gateway address."""
     compose, _ = _compose()
     others = {n: s for n, s in compose["services"].items() if not n.startswith("web-")}
     assert others, "the render produced no non-terminal service"
@@ -109,15 +103,6 @@ def test_no_endpoint_or_login_reaches_a_container_that_sends_nothing():
         env = _environment(service)
         assert GATEWAY_HOST_ENV not in env, name
         assert GATEWAY_PORT_ENV not in env, name
-        assert TELEMETRY_LOGIN_ENV not in env, name
-        assert not [f for f in _env_files(service) if f.startswith(SENDER_FILE_PREFIX)], name
-
-
-def test_the_login_is_never_interpolated_into_a_container():
-    """The login reaches a terminal by its own file only, never ``${VAR}``."""
-    compose, _ = _compose()
-    for name, service in compose["services"].items():
-        assert TELEMETRY_LOGIN_ENV not in _environment(service), name
 
 
 def test_without_a_gateway_nothing_is_stated():

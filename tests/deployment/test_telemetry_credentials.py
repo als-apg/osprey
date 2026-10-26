@@ -229,6 +229,30 @@ def test_history_files_are_removed_when_the_page_goes(tmp_path: Path) -> None:
     assert not HISTORY_FILES & _files(tmp_path)
 
 
+def test_without_the_store_the_page_still_gets_its_gate_secret(tmp_path: Path) -> None:
+    config = _config(roster=True, auth="password", store=False, gateway=False)
+
+    report = creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
+
+    # The page reads the agent record: its gate secret is minted, and the
+    # store's own history account file is not.
+    assert report.minted == [creds.HISTORY_GATE_FILE]
+    assert _files(tmp_path) == {creds.HISTORY_GATE_FILE}
+    assert creds.expected_files(config) == [creds.HISTORY_GATE_FILE]
+
+
+def test_without_the_store_the_gate_secret_goes_with_the_sign_in(tmp_path: Path) -> None:
+    signed_in = _config(roster=True, auth="password", store=False, gateway=False)
+    creds.ensure_telemetry_credentials(tmp_path, signed_in, reader_keys=False)
+
+    signed_out = _config(roster=True, auth="none", store=False, gateway=False)
+    report = creds.ensure_telemetry_credentials(tmp_path, signed_out, reader_keys=False)
+
+    assert report.purged == [creds.HISTORY_GATE_FILE]
+    assert not _files(tmp_path)
+    assert creds.expected_files(signed_out) == []
+
+
 # --- the sender list ---------------------------------------------------------
 
 
@@ -332,9 +356,11 @@ def test_each_file_moves_the_digest_of_its_owners_and_of_nothing_else(tmp_path: 
     assert set(before) == {creds.digest_env_name(service) for service in owners}
 
     every_file = {name for files in owners.values() for name in files}
+    # The store's history account file is read by the accounts script on the
+    # host, never by a container: the page reads the agent record.
     assert every_file == _files(tmp_path) - {
         creds.sender_file(name) for name in ("alice", "bob", "builder")
-    }
+    } - {creds.HISTORY_FILE}
     for name in sorted(every_file):
         path = tmp_path / name
         original = path.read_bytes()
@@ -356,7 +382,7 @@ def test_the_owners_are_the_ones_the_design_names() -> None:
         "telemetry_store": (creds.ADMIN_FILE,),
         "telemetry_gateway": (creds.INGEST_FILE, creds.HTPASSWD_FILE),
         "archive": (creds.ARCHIVE_FILE,),
-        "history": (creds.HISTORY_FILE, creds.HISTORY_GATE_FILE),
+        "history": (creds.HISTORY_GATE_FILE,),
         "nginx": (creds.HISTORY_GATE_FILE,),
         "dispatch-worker-1": (creds.sender_file("dispatch-worker-1"),),
     }
@@ -370,58 +396,31 @@ def test_a_missing_file_digests_as_empty_content(tmp_path: Path) -> None:
     assert creds.files_digest(tmp_path, [creds.ADMIN_FILE]) == empty
 
 
-def _web_services(config: dict, root: Path | None) -> dict:
-    digests = creds.sender_digests(root, config) if root is not None else None
-    rendered = render_web_terminals(config, telemetry_cred_digests=digests)
+def _web_services(config: dict) -> dict:
+    rendered = render_web_terminals(config)
     return yaml.safe_load(rendered["docker-compose.web.yml"])["services"]
 
 
-def test_each_terminal_is_handed_its_own_login_file_and_label(tmp_path: Path) -> None:
-    config = _config(roster=True)
+@pytest.mark.parametrize("gateway", [True, False], ids=["gateway", "no-gateway"])
+def test_a_terminal_is_handed_no_telemetry_login_beside_its_record_login(
+    tmp_path: Path, gateway: bool
+) -> None:
+    """A terminal's exporter sends with its record login, so no sender login rides beside it."""
+    config = _config(roster=True, gateway=gateway)
     creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
 
-    services = _web_services(config, tmp_path)
+    services = _web_services(config)
 
     for user in ("alice", "bob"):
         service = services[f"web-{user}"]
-        assert service["env_file"] == [".env.users", creds.sender_file(user)]
-        assert service["labels"][creds.DIGEST_LABEL] == creds.files_digest(
-            tmp_path, [creds.sender_file(user)]
-        )
+        assert service["env_file"] == [".env.users", f".env.agent-record.login.{user}"]
+        assert creds.DIGEST_LABEL not in service["labels"]
     carriers = [
         name
         for name, service in services.items()
         if any("telemetry" in str(entry) for entry in _as_list(service.get("env_file")))
     ]
-    assert carriers == ["web-alice", "web-bob"]
-
-
-def test_one_terminals_login_moves_only_that_terminals_label(tmp_path: Path) -> None:
-    config = _config(roster=True)
-    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
-    before = _web_services(config, tmp_path)
-
-    (tmp_path / creds.sender_file("alice")).unlink()
-    creds.ensure_telemetry_credentials(tmp_path, config, reader_keys=False)
-    after = _web_services(config, tmp_path)
-
-    changed = [name for name in before if before[name] != after[name]]
-    assert changed == ["web-alice"]
-
-
-def test_the_login_file_is_listed_whether_or_not_it_exists() -> None:
-    """`status`, `down` and `logs` resolve the document on any built repo."""
-    services = _web_services(_config(roster=True), None)
-
-    assert services["web-alice"]["env_file"] == [".env.users", creds.sender_file("alice")]
-    assert creds.DIGEST_LABEL not in services["web-alice"]["labels"]
-
-
-def test_without_a_gateway_a_terminal_renders_as_before() -> None:
-    services = _web_services(_config(roster=True, gateway=False), None)
-
-    assert services["web-alice"]["env_file"] == ".env.users"
-    assert creds.DIGEST_LABEL not in services["web-alice"]["labels"]
+    assert carriers == []
 
 
 def _as_list(value: object) -> list:
@@ -610,8 +609,10 @@ def test_a_start_names_files_and_never_a_value(tmp_path: Path, monkeypatch) -> N
 
     text = "\n".join(said)
     assert f"reader ops: key minted → {creds.reader_file('ops')}" in said
-    assert any(line.startswith("reader ops: signs in at http://127.0.0.1:") for line in said)
-    assert "/play?user=ops" in text
+    # A store reader has no page to open: no history page is served here, and
+    # the store's own query page is never handed out.
+    assert not any(line.startswith("reader ops: signs in at") for line in said)
+    assert "/play" not in text
     secrets_minted = _secrets_in(tmp_path)
     assert len(secrets_minted) >= 5
     for value in secrets_minted:

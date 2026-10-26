@@ -742,7 +742,26 @@ def test_shared_chain_is_listed_in_ascending_precedence() -> None:
     scenario = _scenario("env-shared-chain")
     document = yaml.safe_load(_golden_text(scenario, "dispatch_worker"))
 
-    assert document["services"]["dispatch-worker-1"]["env_file"] == list(scenario.expected_chain)
+    assert document["services"]["dispatch-worker-1"]["env_file"] == [
+        *scenario.expected_chain,
+        ".env.agent-record.login.dispatch-worker-1",
+    ]
+
+
+def test_a_worker_beside_the_gateway_carries_only_its_record_login() -> None:
+    """A deployed telemetry gateway hands a worker no login of its own.
+
+    The worker lists its agent-record login and no gateway login file, and
+    carries no gateway login digest label.
+    """
+    scenario = _scenario("pair-on-host")
+    assert "telemetry_gateway" in scenario.deployed
+    document = yaml.safe_load(_golden_text(scenario, "dispatch_worker"))
+
+    service = document["services"]["dispatch-worker-1"]
+    assert ".env.agent-record.login.dispatch-worker-1" in service["env_file"]
+    assert not [f for f in service["env_file"] if ".env.telemetry-sender." in f]
+    assert "osprey.telemetry.cred.digest" not in service["labels"]
 
 
 @pytest.mark.parametrize("case", CASES, ids=_case_id)
@@ -751,10 +770,9 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
 
     ``env_file:`` naming a path that is not there fails ``compose up`` outright,
     so membership is fixed at render time from the files the repo actually had.
-    The bridges do not render a chain; only the worker does. Where the gateway
-    is deployed each worker also lists its own telemetry login file, which
-    ``osprey build`` writes for every sender — the login reaches the container
-    by its own ``env_file``, never by interpolation.
+    The bridges do not render a chain; only the worker does. Every worker lists
+    its agent-record login last, whatever the shape: the record is always
+    deployed. No worker lists a telemetry gateway login, gateway or not.
     """
     scenario, key = case
     if key != "dispatch_worker":
@@ -762,8 +780,7 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
     document = yaml.safe_load(_golden_text(scenario, key))
     for name, service in document["services"].items():
         expected = list(scenario.expected_chain)
-        if "telemetry_gateway" in scenario.deployed:
-            expected.append(f".env.telemetry-sender.{name}")
+        expected.append(f".env.agent-record.login.{name}")
         assert service["env_file"] == expected, (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )
