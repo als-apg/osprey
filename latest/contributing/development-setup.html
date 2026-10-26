@@ -513,6 +513,10 @@ here”. The <code class="docutils literal notranslate"><span class="pre">/ospre
 <li><p><strong>Type hints</strong>: Gradual typing enforced with mypy</p></li>
 <li><p><strong>Docstrings</strong>: Google style</p></li>
 <li><p><strong>Classes</strong>: PascalCase, <strong>Functions</strong>: snake_case, <strong>Constants</strong>: UPPER_SNAKE_CASE</p></li>
+<li><p><strong>Hygiene</strong>: Ruff also judges debug prints in shipped code, debugger calls,
+commented-out code, quoted credentials outside tests and work markers without
+a link; a deliberate exception is a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">noqa:</span> <span class="pre">CODE</span> <span class="pre">--</span> <span class="pre">reason</span></code> on its line,
+or a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">ruff:</span> <span class="pre">noqa:</span> <span class="pre">CODE</span> <span class="pre">--</span> <span class="pre">reason</span></code> at the top of a program module</p></li>
 </ul>
 <p><strong>Import organization:</strong> standard library, then third-party, then local (<code class="docutils literal notranslate"><span class="pre">from</span> <span class="pre">osprey...</span></code>).</p>
 </section>
@@ -527,10 +531,13 @@ uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span
 
 <span class="c1"># Type checking</span>
 uv<span class="w"> </span>run<span class="w"> </span>mypy
+
+<span class="c1"># All of the above as checks, with the fast tests</span>
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>quick
 </pre></div>
 </div>
 <p>The type check must report zero errors. <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">mypy</span></code> prints the full report over the
-declared trees. CI and <code class="docutils literal notranslate"><span class="pre">scripts/ci_check.sh</span></code> run the same check through
+declared trees. CI and both tiers of <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code> run the same check through
 <code class="docutils literal notranslate"><span class="pre">scripts/mypy_gate.py</span></code>, which fails on any error and refuses a run made without the stub
 packages the <code class="docutils literal notranslate"><span class="pre">dev</span></code> extra declares (fix: <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span> <span class="pre">--extra</span> <span class="pre">dev</span></code>). There is no list of
 tolerated errors: an error is fixed where it is reported.</p>
@@ -735,7 +742,7 @@ under the type-checker, Vitest, and the real browser.</p></li>
 <li><p>Vitest unit, factory-with-injected-callbacks pattern:
 <code class="docutils literal notranslate"><span class="pre">tests/interfaces/artifacts/preview.test.mjs</span></code>,
 <code class="docutils literal notranslate"><span class="pre">tests/interfaces/lattice_dashboard/render.test.mjs</span></code>,
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/scaffold-detail.test.mjs</span></code>.</p></li>
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/scaffold/detail.test.mjs</span></code>.</p></li>
 <li><p>Interaction pin, proving a multi-module split still wires up end to end:
 <code class="docutils literal notranslate"><span class="pre">tests/interfaces/artifacts/test_gallery_interactions.py</span></code>,
 <code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_scaffold_detail.py</span></code>,

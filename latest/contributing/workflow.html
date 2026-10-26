@@ -461,7 +461,7 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 <li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> is always the integration target. CI gates every PR; protected status checks must pass before merge.</p></li>
 <li><p>Releases are cut by maintainers tagging a commit on <code class="docutils literal notranslate"><span class="pre">main</span></code>; the PyPI publish workflow runs on <code class="docutils literal notranslate"><span class="pre">v*.*.*</span></code> tags.</p></li>
 <li><p>The <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> workspace package has its <strong>own</strong> CalVer stream, on its own <code class="docutils literal notranslate"><span class="pre">osprey-connectors-vYYYY.M.P</span></code> tags (<code class="docutils literal notranslate"><span class="pre">bN</span></code> / <code class="docutils literal notranslate"><span class="pre">rcN</span></code> for pre-releases), cut when the package changes. Each release must stay backward-compatible with every supported framework release, so the framework declares only a floor on it, never a pin. (The <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v0.1.0</span></code> tag predates the scheme and is retired; the describe glob skips it.) A fork or mirror must sync the <code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags as well as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones: without them the package builds as <code class="docutils literal notranslate"><span class="pre">0.0.postN</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> refuses it. Connectors releases are stable by default: a beta framework installs with pre-releases admitted and would absorb a connectors beta. A connectors tag runs its own publish workflow, <code class="docutils literal notranslate"><span class="pre">release-connectors.yml</span></code>, and nothing else: the framework’s <code class="docutils literal notranslate"><span class="pre">v*.*.*</span></code> release never builds the package, and resolves its <code class="docutils literal notranslate"><span class="pre">osprey-connectors&gt;=</span></code> floor from PyPI, so a floor bump lands only after the connectors release it names is published.</p></li>
-<li><p>A change to what ships in the connectors wheel (<code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/</span></code> <code class="docutils literal notranslate"><span class="pre">src/</span></code>, <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> or <code class="docutils literal notranslate"><span class="pre">README.md</span></code>) carries its changelog fragment in <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/changelog.d/</span></code>, which feeds that package’s own <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code>; every other shipped change carries one in the root <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code>.</p></li>
+<li><p>A change to what ships in the connectors wheel carries its changelog fragment in <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/changelog.d/</span></code>, which feeds that package’s own <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code>; every other shipped change carries one in the root <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code>. The README in each of those directories says which files need a fragment, and the changelog check names them in every verdict.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">packages/dock-engine</span></code> is not a workspace member and publishes nowhere: the framework wheel ships its Python module <code class="docutils literal notranslate"><span class="pre">dock_engine</span></code>, CANOPY installs the directory from git, and <code class="docutils literal notranslate"><span class="pre">&#64;als-apg/dock-engine</span></code> is a git dependency. <code class="docutils literal notranslate"><span class="pre">package.json</span></code> stays at <code class="docutils literal notranslate"><span class="pre">0.0.0-dev</span></code>. See <a class="reference internal" href="../reference/contracts/dock-engine.html"><span class="doc">Dock Engine Contract</span></a>.</p></li>
 <li><p>Hotfixes follow the same path: branch from the tag (or <code class="docutils literal notranslate"><span class="pre">main</span></code>), PR back, tag again as <code class="docutils literal notranslate"><span class="pre">vYYYY.M.P+1</span></code>. No special hotfix branches.</p></li>
 <li><p>Documentation publishes on the same tags: the site root is always the newest release; every push to <code class="docutils literal notranslate"><span class="pre">main</span></code> rebuilds <code class="docutils literal notranslate"><span class="pre">/latest/</span></code>, shown with a development banner.</p></li>
@@ -484,19 +484,31 @@ short-lived topic branches that PR back into it. Releases are CalVer tags
 </pre></div>
 </div>
 <p><strong>2. Make changes</strong> – follow the code standards below, add tests, update docs.</p>
-<p><strong>3. Test locally.</strong> <code class="docutils literal notranslate"><span class="pre">scripts/gate.sh</span></code> is the one local spelling of the merge gate. Run
-<code class="docutils literal notranslate"><span class="pre">./scripts/gate.sh</span> <span class="pre">full</span></code> before you open a PR, and <code class="docutils literal notranslate"><span class="pre">./scripts/gate.sh</span> <span class="pre">fast</span> <span class="pre">&lt;test</span> <span class="pre">paths&gt;</span></code>
-over the tests you touched while you work. The helper scripts serve the loops around it:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Tier 1: Quick check (&lt; 30s) -- before every commit</span>
-./scripts/quick_check.sh
+<p><strong>3. Test locally</strong> with the check command, <code class="docutils literal notranslate"><span class="pre">scripts/check.py</span></code>, the one
+declaration of the merge gate:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># The quick tier -- before every commit (--fix lets ruff and prettier rewrite</span>
+<span class="c1"># files first)</span>
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>quick
 
-<span class="c1"># Tier 2: Full CI check (2-3 min) -- before pushing</span>
-./scripts/ci_check.sh
+<span class="c1"># The full tier -- before pushing or opening a PR</span>
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>full
 
-<span class="c1"># Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)</span>
-./scripts/premerge_check.sh<span class="w"> </span>main
+<span class="c1"># The quick tier scoped to your diff (name your PR target; add --worktree</span>
+<span class="c1"># to judge uncommitted changes too)</span>
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/check.py<span class="w"> </span>quick<span class="w"> </span>--changed<span class="w"> </span>origin/main
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/check.py</span> <span class="pre">list</span></code> prints what each tier runs. The scoped
+run also names the CI lanes your diff touches. <code class="docutils literal notranslate"><span class="pre">--base</span> <span class="pre">BASE</span></code> arms the checks
+that judge a range without scoping the tier, so <code class="docutils literal notranslate"><span class="pre">full</span> <span class="pre">--base</span> <span class="pre">origin/main</span></code>
+judges the whole tree and the range in one verdict.</p>
+<p>JavaScript (<code class="docutils literal notranslate"><span class="pre">*.js</span></code> and <code class="docutils literal notranslate"><span class="pre">*.mjs</span></code>) is formatted by Prettier, exact-pinned in
+<code class="docutils literal notranslate"><span class="pre">package.json</span></code> and configured by <code class="docutils literal notranslate"><span class="pre">.prettierrc.json</span></code>: <code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">format</span></code>
+rewrites the tree, and the <code class="docutils literal notranslate"><span class="pre">prettier</span></code> check (<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">format:check</span></code>) fails
+any file it would rewrite. Markdown, YAML, JSON, CSS and HTML are not formatted.
+Type a value at its declaration, as a typed local or a typed constant, never
+with a cast mid-expression: the formatter moves the parentheses such a cast
+depends on, and the cast then types a different expression.</p>
 <p><strong>4. Commit changes</strong> using conventional commit format:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>add<span class="w"> </span>.
 git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat(scope): short description</span>
@@ -516,10 +528,12 @@ git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </sp
 <li><p><code class="docutils literal notranslate"><span class="pre">test:</span></code> – Tests</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">chore:</span></code> – Dependencies, build</p></li>
 </ul>
-<p>Every pull request that touches <code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code> needs a changelog
-fragment: a small file in <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> named <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.&lt;type&gt;.md</span></code> (use the
-issue number as the name when there is one). The <code class="docutils literal notranslate"><span class="pre">lint</span></code> CI job checks for one,
-and <code class="docutils literal notranslate"><span class="pre">./scripts/premerge_check.sh</span> <span class="pre">main</span></code> checks the same thing locally. Fragments
+<p>Every pull request that touches a directory the changelog gate covers needs a
+changelog fragment: a small file in <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> named <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.&lt;type&gt;.md</span></code>
+(use the issue number as the name when there is one).
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/changelog_fragments.py</span> <span class="pre">check</span> <span class="pre">--base</span> <span class="pre">origin/main</span></code> names the
+directories the gate covers in every verdict. The <code class="docutils literal notranslate"><span class="pre">lint</span></code> CI job checks for a fragment,
+and <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/check.py</span> <span class="pre">quick</span> <span class="pre">--changed</span> <span class="pre">origin/main</span></code> checks the same thing locally. Fragments
 are folded into <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> when a release is cut — never add entries to
 <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> by hand. See <code class="docutils literal notranslate"><span class="pre">changelog.d/README.md</span></code> for the type list.</p>
 </section>
@@ -528,7 +542,7 @@ are folded into <code class="docutils literal notranslate"><span class="pre">CHA
 <ol class="arabic simple">
 <li><p>Push your branch: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/your-feature-name</span></code></p></li>
 <li><p>Open a PR on GitHub with a description, related issues, and testing performed.</p></li>
-<li><p>PR requirements: pass all required CI checks, include a changelog fragment in <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> for any change under <code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code>, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (branch protection requires zero approving reviews); fork-mode contributions wait for a maintainer to merge.</p></li>
+<li><p>PR requirements: pass all required CI checks, include a changelog fragment in <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> when the changelog gate asks for one, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (branch protection requires zero approving reviews); fork-mode contributions wait for a maintainer to merge.</p></li>
 <li><p>During review: respond to feedback promptly, make requested changes, ask questions if unclear.</p></li>
 </ol>
 </section>

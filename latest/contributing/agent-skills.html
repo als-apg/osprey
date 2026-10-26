@@ -545,8 +545,8 @@ commits, push, PR, CI iteration. Detects whether you have push access
 or work from a fork.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code></p></td>
-<td><p>Runs the three-tier check scripts — quick, ci, premerge — at the
-gate that matches what you are about to do.</p></td>
+<td><p>Runs the check command’s tiers — quick, full, quick scoped to the
+diff — at the gate that matches what you are about to do.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code></p></td>
 <td><p>Walks a maintainer through a CalVer release: the release-notes PR, the
