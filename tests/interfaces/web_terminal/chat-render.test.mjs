@@ -653,6 +653,165 @@ describe('createChatRenderer', () => {
     expect(bodies[0].textContent).toBe('Let me plan this first.');
   });
 
+  describe('thinking summary', () => {
+    // Each turn that reasoned shows one collapsed summary row above its
+    // answer; the reasoning opens on click. An `omitted` or redacted block
+    // carries no text and draws nothing.
+
+    /** @param {Element} el */
+    const summaryOf = (el) => ({
+      label: el.querySelector('.op-thinking-label')?.textContent,
+      expanded: el.querySelector('.op-thinking-head')?.getAttribute('aria-expanded'),
+      bodyHidden: /** @type {HTMLElement} */ (el.querySelector('.op-thinking-body')).hidden,
+      body: el.querySelector('.op-thinking-body')?.textContent,
+    });
+
+    test('a replayed turn shows its thinking collapsed, above the answer', () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        { role: 'user', content: 'why did BPM 3 drift?' },
+        {
+          role: 'assistant',
+          content: 'BPM 3 alone drifted.',
+          events: [
+            { type: 'thinking', content: 'compare the neighbours first' },
+            { type: 'text', content: 'BPM 3 alone drifted.' },
+            { type: 'result', is_error: false, duration_ms: 1200 },
+          ],
+        },
+      ]);
+      const entry = qs(container, '.op-entry.assistant');
+      const rows = entry.querySelectorAll('.op-thinking');
+      expect(rows.length).toBe(1);
+      const summary = summaryOf(rows[0]);
+      expect(summary.expanded).toBe('false');
+      expect(summary.bodyHidden).toBe(true);
+      expect(summary.body).toBe('compare the neighbours first');
+      expect(rows[0].classList.contains('live')).toBe(false);
+      // The summary sits above the answer it led to.
+      const order = [...entry.children].map((c) => c.className);
+      expect(order.findIndex((c) => c.includes('op-thinking'))).toBeLessThan(
+        order.findIndex((c) => c.includes('op-entry-body'))
+      );
+    });
+
+    test('the summary opens on click and shows the reasoning', () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        {
+          role: 'assistant',
+          content: 'done',
+          events: [
+            { type: 'thinking', content: 'step one' },
+            { type: 'text', content: 'done' },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+      const row = qs(container, '.op-thinking');
+      /** @type {HTMLButtonElement} */ (row.querySelector('.op-thinking-head')).click();
+      expect(summaryOf(row).bodyHidden).toBe(false);
+      expect(summaryOf(row).expanded).toBe('true');
+    });
+
+    test('each replayed turn that has thinking gets its own summary', () => {
+      const r = createChatRenderer(container);
+      const agent = (/** @type {string} */ thought, /** @type {string} */ text) => ({
+        role: 'assistant',
+        content: text,
+        events: [
+          { type: 'thinking', content: thought },
+          { type: 'text', content: text },
+          { type: 'result', is_error: false },
+        ],
+      });
+      r.replay([
+        { role: 'user', content: 'one' },
+        agent('first thought', 'first'),
+        { role: 'user', content: 'two' },
+        agent('second thought', 'second'),
+        { role: 'user', content: 'three' },
+        { role: 'assistant', content: 'no reasoning here', events: [
+          { type: 'text', content: 'no reasoning here' },
+          { type: 'result', is_error: false },
+        ] },
+      ]);
+      const entries = container.querySelectorAll('.op-entry.assistant');
+      expect(entries.length).toBe(3);
+      expect(entries[0].querySelector('.op-thinking-body')?.textContent).toBe('first thought');
+      expect(entries[1].querySelector('.op-thinking-body')?.textContent).toBe('second thought');
+      expect(entries[2].querySelector('.op-thinking')).toBeNull();
+    });
+
+    test.each([
+      ['omitted (empty text)', { type: 'thinking', content: '' }],
+      ['whitespace only', { type: 'thinking', content: '  \n' }],
+      ['no content field', { type: 'thinking' }],
+    ])('a replayed %s thinking block draws nothing', (_label, thinking) => {
+      const r = createChatRenderer(container);
+      r.replay([
+        {
+          role: 'assistant',
+          content: 'the answer',
+          events: [thinking, { type: 'text', content: 'the answer' }, { type: 'result', is_error: false }],
+        },
+      ]);
+      expect(container.querySelector('.op-thinking')).toBeNull();
+      expect(qs(container, '.op-entry.assistant .op-entry-body').textContent).toBe('the answer');
+    });
+
+    test('a live turn shows a collapsed summary once it finishes', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({ type: 'thinking', content: 'weigh the options' });
+      r.handleEvent({ type: 'text', content: 'option B' });
+      r.handleEvent({ type: 'result', is_error: false });
+      const row = qs(container, '.op-thinking');
+      expect(row.classList.contains('live')).toBe(false);
+      expect(summaryOf(row).bodyHidden).toBe(true);
+      expect(summaryOf(row).body).toBe('weigh the options');
+    });
+
+    test('a live omitted block shows the activity line but draws no summary', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({ type: 'thinking', content: '' });
+      expect(qs(container, '.op-loader-label').textContent).toBe('Thinking…');
+      r.handleEvent({ type: 'text', content: 'answer' });
+      r.handleEvent({ type: 'result', is_error: false });
+      expect(container.querySelector('.op-thinking')).toBeNull();
+    });
+
+    test('streamed thinking pieces fold into one summary, and an empty final block keeps them', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({ type: 'delta', kind: 'thinking', content: 'part one, ' });
+      r.handleEvent({ type: 'delta', kind: 'thinking', content: 'part two' });
+      r.handleEvent({ type: 'thinking', content: '' });
+      r.handleEvent({ type: 'text', content: 'answer' });
+      r.handleEvent({ type: 'result', is_error: false });
+      const rows = container.querySelectorAll('.op-thinking');
+      expect(rows.length).toBe(1);
+      expect(summaryOf(rows[0]).body).toBe('part one, part two');
+    });
+
+    test("a subagent's thinking stays out of the main turn", () => {
+      const r = createChatRenderer(container);
+      r.replay([
+        {
+          role: 'assistant',
+          content: 'ok',
+          events: [
+            { type: 'thinking', content: 'inner', parent_tool_use_id: 'agent-1' },
+            { type: 'text', content: 'ok' },
+            { type: 'result', is_error: false },
+          ],
+        },
+      ]);
+      expect(container.querySelector('.op-thinking')).toBeNull();
+    });
+  });
+
   describe('approval cards under their tool rows', () => {
     /** A tool call, as the chat stream carries it. */
     const call = (/** @type {string} */ id, /** @type {Record<string, unknown>} */ extra = {}) => ({

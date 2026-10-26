@@ -340,7 +340,8 @@ def _seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     Args:
         project_dir: The project the server serves.
         transcript_id: The Claude session id the file is named for.
-        turns: ``(role, text)`` pairs, oldest first.
+        turns: ``(role, text)`` pairs, oldest first. An assistant turn's text
+            may instead be its list of content blocks (thinking, text, ...).
 
     Returns:
         The path written.
@@ -349,7 +350,10 @@ def _seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     lines = []
     for index, (role, text) in enumerate(turns):
-        content = text if role == "user" else [{"type": "text", "text": text}]
+        if role == "user" or isinstance(text, list):
+            content = text
+        else:
+            content = [{"type": "text", "text": text}]
         lines.append(
             json.dumps(
                 {
@@ -363,6 +367,26 @@ def _seed_transcript(project_dir: Path, transcript_id: str, turns) -> Path:
     path: Path = directory / f"{transcript_id}.jsonl"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def _seed_record_from(monkeypatch, transcript: Path) -> None:
+    """Make the session routes' agent record serve *transcript*'s conversation.
+
+    The record is a fake answering the session the transcript is named for with
+    the nodes the record's own parser and timeline builder make of that file,
+    and nothing for any other session.
+    """
+    from osprey.agent_record.client import ClientAnswer
+    from osprey.interfaces.web_terminal.routes import session as session_routes
+    from tests.agent_record.fakes import FakeRecordClient
+
+    def timeline(**kwargs) -> ClientAnswer:
+        named = transcript if kwargs.get("session_id") == transcript.stem else None
+        nodes = session_routes._transcript_nodes(named) if named and named.is_file() else []
+        return ClientAnswer(data=nodes, complete=True)
+
+    record = FakeRecordClient({"timeline": timeline})
+    monkeypatch.setattr(session_routes, "record_client", lambda: record)
 
 
 def _record_pty_spawns(app) -> None:
@@ -1093,7 +1117,9 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
 # ---------------------------------------------------------------------------
 
 
-def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_browser):
+def test_handoff_expert_to_simple_and_back_keeps_one_session(
+    tmp_path, chromium_browser, monkeypatch
+):
     """Both views are windows onto one session key and one conversation.
 
     The Expert view starts a child under the key; the flip to Simple shows the
@@ -1115,11 +1141,15 @@ def test_handoff_expert_to_simple_and_back_keeps_one_session(tmp_path, chromium_
 
         # The conversation that view then had. Seeded, not generated: a real
         # transcript is written by a real Claude child (see _seed_transcript).
-        _seed_transcript(
+        transcript = _seed_transcript(
             tmp_path / "project",
             key,
             [("user", "what is the beam current"), ("assistant", "the earlier answer")],
         )
+        # The Simple view replays the conversation from the agent record, so the
+        # record is seeded too: it serves the nodes its own transcript parser and
+        # timeline builder make of that file, as the ingested record would.
+        _seed_record_from(monkeypatch, transcript)
 
         _click_segment(page, "simple")
 
@@ -1420,4 +1450,92 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
         )
         # The hub itself never navigated away.
         assert page.url.startswith(base_url), page.url
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Thinking: each turn that reasoned shows one collapsed summary
+# ---------------------------------------------------------------------------
+
+
+def _expect_collapsed_thinking(entry, reasoning: str) -> None:
+    """*entry* carries one finished, collapsed thinking row that opens on *reasoning*."""
+    row = entry.locator(".op-thinking")
+    expect(row).to_have_count(1, timeout=10_000)
+    expect(row).not_to_have_class(re.compile(r"\blive\b"))
+    head = row.locator(".op-thinking-head")
+    expect(head).to_have_attribute("aria-expanded", "false")
+    expect(row.locator(".op-thinking-body")).to_be_hidden()
+    head.click()
+    expect(row.locator(".op-thinking-body")).to_be_visible()
+    expect(row.locator(".op-thinking-body")).to_have_text(reasoning)
+
+
+def test_live_turn_shows_a_collapsed_thinking_summary(tmp_path, chromium_browser):
+    """A turn that reasoned ends with its reasoning folded into one row above the answer."""
+    with _live_chat_server(tmp_path) as (base_url, _app):
+        _PLANS["think first"] = [
+            ("thinking", "the orbit moved because BPM 3 drifted"),
+            ("text", "BPM 3 drifted"),
+            ("result",),
+        ]
+        page = _open_chat_page(chromium_browser, base_url)
+        _send(page, "think first")
+
+        entry = page.locator(f"{_OP} .op-entry.assistant")
+        expect(entry.locator(".osprey-md-rendered")).to_contain_text(
+            "BPM 3 drifted", timeout=10_000
+        )
+        _expect_collapsed_thinking(entry, "the orbit moved because BPM 3 drifted")
+
+        page.close()
+
+
+def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser, monkeypatch):
+    """Simple view opened on a session replays each turn's thinking from the record, folded.
+
+    The record serves the turns the session's transcript holds. The first agent
+    turn reasoned and shows its summary; the second's block was ``omitted``
+    (written with no text) and shows nothing. No tool input or result is drawn
+    for a turn that made no call.
+    """
+    with _live_chat_server(tmp_path) as (base_url, _app):
+        page = _open_chat_page(chromium_browser, base_url)
+        key = _wait_for_pointer(page)
+
+        transcript = _seed_transcript(
+            tmp_path / "project",
+            key,
+            [
+                ("user", "why did the orbit move"),
+                (
+                    "assistant",
+                    [
+                        {"type": "thinking", "thinking": "compare BPM 3 with its neighbours"},
+                        {"type": "text", "text": "BPM 3 alone drifted"},
+                    ],
+                ),
+                ("user", "and now"),
+                (
+                    "assistant",
+                    [
+                        {"type": "thinking", "thinking": ""},
+                        {"type": "text", "text": "it is back in place"},
+                    ],
+                ),
+            ],
+        )
+        _seed_record_from(monkeypatch, transcript)
+
+        # A reload binds the console to the same key and replays its conversation.
+        page.reload()
+        entries = page.locator(f"{_OP} .op-entry.assistant")
+        expect(entries).to_have_count(2, timeout=20_000)
+        expect(entries.nth(0)).to_contain_text("BPM 3 alone drifted")
+        expect(entries.nth(1)).to_contain_text("it is back in place")
+
+        _expect_collapsed_thinking(entries.nth(0), "compare BPM 3 with its neighbours")
+        expect(entries.nth(1).locator(".op-thinking")).to_have_count(0)
+        expect(page.locator(f"{_OP} .op-tools")).to_have_count(0)
+
         page.close()

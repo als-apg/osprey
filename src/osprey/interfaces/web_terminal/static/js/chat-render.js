@@ -269,6 +269,9 @@ export function createChatRenderer(container, options = {}) {
   function closeThinking(t) {
     if (t.thinking) {
       t.thinking.finish();
+      // Reasoning that arrived without words (an omitted or redacted block)
+      // leaves no summary behind.
+      if (t.thinking.el.classList.contains('empty')) t.thinking.el.remove();
       t.thinking = null;
       t.thinkingStreamed = false;
     }
@@ -332,11 +335,13 @@ export function createChatRenderer(container, options = {}) {
 
   /**
    * Reasoning: streamed pieces add up in the block, and the whole block, when
-   * it lands, replaces them.
+   * it lands, replaces them. A block with no words (an omitted or redacted one)
+   * opens nothing: the activity line already says the agent is thinking.
    * @param {string} chunk
    * @param {boolean} [piece] - a streamed piece rather than the whole block
    */
   function appendThinking(chunk, piece = false) {
+    if (!chunk.trim() && !turn?.thinking) return;
     const t = ensureTurn();
     closeText(t);
     closeGroup(t);

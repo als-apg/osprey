@@ -87,6 +87,12 @@ _STRIP_CASES = [
         {"type": "thinking", "content": "internal reasoning"},
     ),
     (
+        # An omitted block reaches the chat as written; the renderer draws nothing for it.
+        "omitted_thinking_passes_through_empty",
+        {"type": "thinking", "content": "", "parent_tool_use_id": None},
+        {"type": "thinking", "content": "", "parent_tool_use_id": None},
+    ),
+    (
         "tool_use_keeps_its_input",
         {
             "type": "tool_use",
