@@ -287,6 +287,36 @@ _DEMO_PAYLOAD = {
 #: fired jobs' writes are judged against.
 FIRING_USER = READWRITE_USER
 
+
+# The preset's multi-user web tier deploys as shipped; only its host-global
+# identifiers are remapped to e2e-unique values (see COEXISTENCE in the module
+# docstring): the one port base every published port of the stack derives
+# from. A dotted LEAF key on purpose -- an edit states only its own leaf and
+# leaves its subtree's siblings intact (same convention as
+# tests/e2e/_orm_stack.py). The render catalog's own `project` /
+# `project_path` are deliberately NOT stated: `osprey init` writes them from
+# the repo's name, and the build renders each render exactly there.
+# Module-level so tests/cli/test_e2e_preset_login_tiers.py renders exactly
+# this set-list.
+#: ``osprey init <repo>`` arguments this module's stack is built from.
+INIT_PRESET_ARGS = [
+    "--preset",
+    "control-assistant",
+    "--no-git",
+    *set_pairs({"config": {PORT_BASE_CONFIG_KEY: PORT_BASE}}),
+    "--set",
+    "provider=als-apg",
+    "--set",
+    "model=claude-haiku-5-5",
+    # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
+    "--set",
+    f"virtual_accelerator.port={VA_CA_PORT}",
+    "--set",
+    f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
+    "--set",
+    f"dispatch.tier={WORKER_TIER}",
+]
+
 #: The ``.mcp.json`` key of the dispatcher wire — the framework server entry a
 #: render's render carries exactly when that render selects the EVENTS panel.
 DISPATCHER_MCP_SERVER = "event_dispatcher"
@@ -559,45 +589,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
     repo = base / PROJECT_NAME
 
-    # The preset's multi-user web tier deploys as shipped; only its
-    # host-global identifiers are remapped to e2e-unique values (see
-    # COEXISTENCE in the module docstring): the one port base every published
-    # port of the stack derives from. A dotted LEAF key on purpose -- an edit
-    # states only its own leaf and leaves its
-    # subtree's siblings intact (same convention as tests/e2e/_orm_stack.py).
-    # The render catalog's own `project` / `project_path` are deliberately
-    # NOT stated: `osprey init` writes them from the repo's name, and the
-    # build renders each render exactly there.
-    edits = {
-        "config": {
-            PORT_BASE_CONFIG_KEY: PORT_BASE,
-        }
-    }
-
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset, `build` renders build/ from it — including one
     # render project per ``tiers/`` file.
     init = _run(
-        [
-            str(osprey_bin),
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            *set_pairs(edits),
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-            # The Channel Access port PORT_BASE cannot move (see VA_CA_PORT).
-            "--set",
-            f"virtual_accelerator.port={VA_CA_PORT}",
-            "--set",
-            f"virtual_accelerator.pva_port={_orm_stack.VA_PVA_PORT}",
-            "--set",
-            f"dispatch.tier={WORKER_TIER}",
-        ],
+        [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )

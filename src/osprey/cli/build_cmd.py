@@ -3148,7 +3148,7 @@ def _render_container_projects(
     same things the deployment's does.
 
     A tier's or app's needs are in fact sharper. Its render is the ONLY place
-    its ``config:`` exists (``control_system.writes_enabled`` among it), and an
+    its ``config:`` exists (``control_system.writes`` among it), and an
     image built from the deployment's render would come up with the
     deployment's config and none of its own, which is the difference between a
     read-only terminal and one that writes to hardware. Its ``.mcp.json`` names
@@ -3192,6 +3192,54 @@ def _render_container_projects(
             )
         )
     return contexts
+
+
+def _stage_tiered_dispatch_config(zones: _RenderZones, config: dict[str, Any]) -> Path | None:
+    """Stage a tiered dispatch worker's ``config.yml``: its tier's render plus the login→tier map.
+
+    The worker at a tier runs that tier's image, and the root flatten
+    (:func:`~osprey.deployment.compose_generator._stages_runtime_config`) would
+    hand it the root's posture. So its staged config is the tier's
+    container-rooted render, ``.image/<project>-<tier>/build/config.yml`` — which
+    exists only once :func:`_render_container_projects` has run — with
+    ``control_system.login_tiers`` added and nothing else changed. The compose
+    file mounts it over the image's baked copy
+    (``osprey_worker_stages_config``); a redeploy keeps it as it is.
+
+    Args:
+        zones: The render's paths; everything is read and written in the
+            staged tree.
+        config: The deploy config the compose render loaded.
+
+    Returns:
+        The staged file, or ``None`` when no worker runs at a tier.
+
+    Raises:
+        BuildProfileError: The tier's container render has no ``config.yml``.
+    """
+    from osprey.deployment.compose_generator import staged_login_tiers, with_login_tiers
+    from osprey.deployment.web_terminals.render_images import resolve_dispatch_tier
+    from osprey_connectors import yaml_loader
+
+    if "dispatch_worker" not in [str(name) for name in config.get("deployed_services") or []]:
+        return None
+    tier = resolve_dispatch_tier(config, strict=True)
+    if tier is None:
+        return None
+    source = zones.stage / IMAGE_DIR_NAME / str(tier["project"]) / BUILD_DIR_NAME / "config.yml"
+    if not source.is_file():
+        raise BuildProfileError(
+            f"The dispatch worker runs at tier {tier['render']!r}, but its container render "
+            f"has no config.yml at {source.relative_to(zones.stage)}; the worker's staged "
+            f"config cannot be written."
+        )
+    document = yaml_loader.safe_load(source.read_text(encoding="utf-8")) or {}
+    staged = with_login_tiers(document, staged_login_tiers(config, str(zones.stage)))
+    target = zones.stage / "services" / "dispatch_worker" / "config.yml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as f:
+        yaml_loader.safe_dump(staged, f, default_flow_style=False, sort_keys=False)
+    return target
 
 
 def _build_repo(
@@ -3617,6 +3665,10 @@ def _build_repo(
             )
             if image_renders:
                 phase.step(f"{len(image_renders)} image build context(s)")
+                # After the image contexts: a tiered worker's staged config is
+                # its tier's container render, which exists only now.
+                if config is not None:
+                    _stage_tiered_dispatch_config(zones, config)
 
         # Both remaining phases run against the staged tree, before the swap:
         # a profile whose own validation fails must not be able to replace a

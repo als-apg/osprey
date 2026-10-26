@@ -129,6 +129,36 @@ WORKER_TIER = "readwrite"
 WORKER_PROJECT, _ = render_project(PROJECT_NAME, WORKER_TIER)
 WORKER_AGENT_DATA = f"/app/{WORKER_PROJECT}/var/agent_data"
 
+# The single-user shape, stated as one leaf: no roster, so no nginx, no
+# per-user container, and no identity but the build account's own. Dotted LEAF
+# keys on purpose — each edit states only its own leaf and leaves its
+# subtree's siblings intact. Module-level so
+# tests/cli/test_e2e_preset_login_tiers.py renders exactly this set-list.
+#: ``osprey init <repo>`` arguments this module's stack is built from.
+INIT_PRESET_ARGS = [
+    "--preset",
+    "control-assistant",
+    "--no-git",
+    *set_pairs(
+        {
+            "config": {
+                "modules.web_terminals.enabled": False,
+                PORT_BASE_CONFIG_KEY: PORT_BASE,
+            }
+        }
+    ),
+    "--set",
+    "provider=als-apg",
+    "--set",
+    "model=claude-haiku-5-5",
+    "--set",
+    f"virtual_accelerator.port={VA_CA_PORT}",
+    "--set",
+    f"virtual_accelerator.pva_port={VA_PVA_PORT}",
+    "--set",
+    f"dispatch.tier={WORKER_TIER}",
+]
+
 DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 DISPATCHER_MCP_URL = f"{DISPATCHER_URL}{DISPATCHER_MCP_PATH}"
 TOKEN = "dev-token"  # matches the .env tokens the fixture writes
@@ -323,37 +353,8 @@ def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path
     base = tmp_path_factory.mktemp("single_user_narrowing_build")
     repo = base / PROJECT_NAME
 
-    # The single-user shape, stated as one leaf: no roster, so no nginx, no
-    # per-user container, and no identity but the build account's own. Dotted
-    # LEAF keys on purpose — each edit states only its own leaf and leaves its
-    # subtree's siblings intact.
-    edits = {
-        "config": {
-            "modules.web_terminals.enabled": False,
-            PORT_BASE_CONFIG_KEY: PORT_BASE,
-        }
-    }
-
     init = _run(
-        [
-            str(osprey_bin),
-            "init",
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            *set_pairs(edits),
-            "--set",
-            "provider=als-apg",
-            "--set",
-            "model=claude-haiku-5-5",
-            "--set",
-            f"virtual_accelerator.port={VA_CA_PORT}",
-            "--set",
-            f"virtual_accelerator.pva_port={VA_PVA_PORT}",
-            "--set",
-            f"dispatch.tier={WORKER_TIER}",
-        ],
+        [str(osprey_bin), "init", str(repo), *INIT_PRESET_ARGS],
         cwd=base,
         timeout=300,
     )
