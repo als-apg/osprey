@@ -824,26 +824,12 @@ _EXECUTE_TOOLS = ["execute", "execute_file"]
 _GATES_MOD = "osprey.mcp_server.python_executor.tools._execution_gates"
 
 
-@contextlib.contextmanager
-def _audit_to(root):
-    """Point the audit zone at *root* instead of the real state zone."""
-    from osprey.audit import writer
-
-    with patch.object(writer, "audit_dir", lambda: root / "var" / "audit"):
-        yield
-
-
-def _audit_records(root):
-    """Every executor refusal recorded under *root*, or ``[]`` when none were."""
-    import json
-
+def _audit_records(recorded_entries):
+    """Every ``executor`` audit entry in the record, oldest first."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_EXECUTOR]
 
 
 def _execute_patterns(has_writes: bool) -> dict:
@@ -1000,7 +986,7 @@ async def test_execute_readonly_gate_refusal_alerts_the_operator(tool_name, tmp_
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path) as (notify, exec_code):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="safety_error"):
                 await call(execution_mode="readonly")
 
@@ -1013,17 +999,19 @@ async def test_execute_readonly_gate_refusal_alerts_the_operator(tool_name, tmp_
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_readonly_gate_refusal_is_audited(tool_name, tmp_path, monkeypatch):
+async def test_execute_readonly_gate_refusal_is_audited(
+    tool_name, tmp_path, monkeypatch, recorded_entries
+):
     """...and leaves a durable record naming the source that was refused."""
     monkeypatch.chdir(tmp_path)
     mod, call = _execute_tool_call(tool_name, tmp_path)
 
     with _execute_env(mod, tmp_path) as (_, exec_code):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async"), _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async"):
             with assert_raises_error(error_type="safety_error"):
                 await call(execution_mode="readonly")
 
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "pattern_detection"
     assert record["subject"] == tool_name
     assert f"tool={tool_name}" in record["detail"]
@@ -1032,7 +1020,9 @@ async def test_execute_readonly_gate_refusal_is_audited(tool_name, tmp_path, mon
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_runtime_refusal_alerts_and_audits(tool_name, tmp_path, monkeypatch):
+async def test_execute_runtime_refusal_alerts_and_audits(
+    tool_name, tmp_path, monkeypatch, recorded_entries
+):
     """The guard refused mid-run: the tool recognises it in stderr and reports.
 
     This is the layer that catches the spellings no static check sees, so it is
@@ -1051,19 +1041,21 @@ async def test_execute_runtime_refusal_alerts_and_audits(tool_name, tmp_path, mo
     )
 
     with _execute_env(mod, tmp_path, exec_result=refused, has_writes=False) as (notify, _):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
 
     notify.assert_not_called()
     blocked.assert_called_once()
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "runtime_guard"
     assert record["subject"] == tool_name
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
-async def test_execute_connector_refusal_is_reported_too(tool_name, tmp_path, monkeypatch):
+async def test_execute_connector_refusal_is_reported_too(
+    tool_name, tmp_path, monkeypatch, recorded_entries
+):
     """A write refused by the connector — the *approved* path in the wrong mode.
 
     Its message is not the guard's, so this pins that the tool matches on what
@@ -1085,19 +1077,19 @@ async def test_execute_connector_refusal_is_reported_too(tool_name, tmp_path, mo
     )
 
     with _execute_env(mod, tmp_path, exec_result=refused, has_writes=False) as (_, _exec):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
 
     blocked.assert_called_once()
-    (record,) = _audit_records(tmp_path)
+    (record,) = _audit_records(recorded_entries)
     assert record["reason"] == "runtime_guard"
     assert "SR:CORR:SP" in record["detail"]
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)
 async def test_execute_ordinary_failure_is_not_reported_as_a_refusal(
-    tool_name, tmp_path, monkeypatch
+    tool_name, tmp_path, monkeypatch, recorded_entries
 ):
     """A script that merely crashed must not land in the refusal audit log."""
     monkeypatch.chdir(tmp_path)
@@ -1110,13 +1102,13 @@ async def test_execute_ordinary_failure_is_not_reported_as_a_refusal(
     )
 
     with _execute_env(mod, tmp_path, exec_result=crashed, has_writes=False) as (notify, _):
-        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked, _audit_to(tmp_path):
+        with patch(f"{_GATES_MOD}.notify_agent_activity_async") as blocked:
             with assert_raises_error(error_type="execution_error"):
                 await call(execution_mode="readonly")
 
     notify.assert_not_called()
     blocked.assert_not_called()
-    assert _audit_records(tmp_path) == []
+    assert _audit_records(recorded_entries) == []
 
 
 @pytest.mark.parametrize("tool_name", _EXECUTE_TOOLS)

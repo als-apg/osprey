@@ -24,25 +24,6 @@ from osprey.mcp_server.python_executor.tools._execution_gates import enforce_pos
 from osprey_connectors_tests._harness import DEFAULT_TARGET, write_control_context
 
 
-@pytest.fixture(autouse=True)
-def _audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone into ``tmp_path`` for every test in this file.
-
-    The clamp *records* its refusal, and ``writer.audit_dir`` resolves against
-    the real project root — so without this a plain ``pytest`` run appends
-    refusals that never happened to the deployment's own ledger, where an
-    operator cannot tell them from the real ones.
-
-    Autouse rather than requested by the two tests that fire the clamp today: a
-    test added here later inherits the redirect instead of rediscovering the
-    leak the hard way.
-    """
-    from osprey.audit import writer
-
-    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
-    return tmp_path / "var" / "audit"
-
-
 def _envelope(exc_info) -> dict:
     """The structured error envelope ``make_error`` packed into the ToolError."""
     return json.loads(str(exc_info.value))
@@ -172,7 +153,7 @@ def session(control_context_root, monkeypatch):
     fields of one file now, so a second write naming only the posture would
     drop the target the first one set.
 
-    The session key is still stamped — the ledger joins on it — but nothing
+    The session key is still stamped — audit entries join on it — but nothing
     indexes a posture by it any more, which is why ``.narrow()`` names no
     session.
     """
@@ -205,18 +186,15 @@ def session(control_context_root, monkeypatch):
     return _Session
 
 
-def _executor_records(audit_root) -> list[dict]:
-    """Every record on the executor surface, for the identity in force."""
+def _executor_records(recorded_entries) -> list[dict]:
+    """Every ``executor`` audit entry in the record, oldest first."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = audit_root / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    entries = sorted(recorded_entries("audit"), key=lambda e: e.ts)
+    return [dict(e.body) for e in entries if e.body["surface"] == SURFACE_EXECUTOR]
 
 
-def test_a_narrowed_control_target_refuses_a_readwrite_run(session, _audit_zone):
+def test_a_narrowed_control_target_refuses_a_readwrite_run(session):
     """The narrowing lands on a session already running, with no respawn."""
     session.on("live")
     session.narrow(live="sandbox")
@@ -227,7 +205,7 @@ def test_a_narrowed_control_target_refuses_a_readwrite_run(session, _audit_zone)
     assert _envelope(exc_info)["error_type"] == "safety_error"
 
 
-def test_a_narrowed_target_refusal_names_that_target(session, _audit_zone):
+def test_a_narrowed_target_refusal_names_that_target(session):
     """Per target, so the refusal says WHICH machine — and says nothing wider.
 
     This gate runs before every readwrite tool call, so an unqualified "writes
@@ -263,7 +241,7 @@ def _clamp_fires(monkeypatch):
     monkeypatch.setattr(posture_module, "posture", lambda: posture_module.POSTURE_SANDBOX)
 
 
-def test_a_target_lost_between_the_two_reads_names_no_machine(session, _audit_zone, monkeypatch):
+def test_a_target_lost_between_the_two_reads_names_no_machine(session, monkeypatch):
     """The degraded cell: the clamp fired, but the target cannot be named now.
 
     A state file replaced between the two reads leaves the second answer
@@ -290,7 +268,7 @@ def test_a_target_lost_between_the_two_reads_names_no_machine(session, _audit_zo
     )
 
 
-def test_a_raising_target_resolver_still_refuses(session, _audit_zone, monkeypatch):
+def test_a_raising_target_resolver_still_refuses(session, monkeypatch):
     """Naming the target is a convenience; refusing is the contract.
 
     The resolver is documented never to raise, but this runs on the refusal
@@ -312,12 +290,12 @@ def test_a_raising_target_resolver_still_refuses(session, _audit_zone, monkeypat
     assert "at least one control target" in _envelope(exc_info)["error_message"]
 
 
-def test_the_refusal_files_reason_posture_and_posture_sandbox(session, _audit_zone):
+def test_the_refusal_files_reason_posture_and_posture_sandbox(session, recorded_entries):
     """The record an operator greps for: ``reason=posture``, ``posture=sandbox``.
 
     The posture field is not restated by the gate — it comes from
     ``posture.posture()``, which is exactly what the store now answers — so this
-    also pins that a store-backed refusal is indistinguishable in the ledger
+    also pins that a store-backed refusal is indistinguishable in the record
     from the session-wide one it replaces.
     """
     session.on("live")
@@ -326,32 +304,32 @@ def test_the_refusal_files_reason_posture_and_posture_sandbox(session, _audit_zo
     with pytest.raises(ToolError):
         enforce_posture_clamp("readwrite", tool="execute")
 
-    record = _executor_records(_audit_zone)[-1]
+    record = _executor_records(recorded_entries)[-1]
     assert record["reason"] == "posture"
     assert record["posture"] == "sandbox"
     assert record["decision"] == "refused"
     assert record["session"] == SESSION_KEY
 
 
-def test_a_narrowing_on_another_target_leaves_this_session_alone(session, _audit_zone):
+def test_a_narrowing_on_another_target_leaves_this_session_alone(session, recorded_entries):
     """Read-only on the live machine must not stop work on the accelerator."""
     session.on("va")
     session.narrow(live="sandbox")
 
     assert enforce_posture_clamp("readwrite", tool="execute") is None
-    assert _executor_records(_audit_zone) == []
+    assert _executor_records(recorded_entries) == []
 
 
-def test_a_narrowed_target_still_permits_a_readonly_run(session, _audit_zone):
+def test_a_narrowed_target_still_permits_a_readonly_run(session, recorded_entries):
     """Reads are unaffected by the posture, per target as session-wide."""
     session.on("live")
     session.narrow(live="sandbox")
 
     assert enforce_posture_clamp("readonly", tool="execute") is None
-    assert _executor_records(_audit_zone) == []
+    assert _executor_records(recorded_entries) == []
 
 
-def test_an_unnarrowed_session_runs(session, _audit_zone):
+def test_an_unnarrowed_session_runs(session):
     session.on("live")
     session.narrow()
 
@@ -359,7 +337,7 @@ def test_an_unnarrowed_session_runs(session, _audit_zone):
 
 
 @pytest.mark.usefixtures("session")
-def test_no_record_at_all_is_not_a_deployment_wide_clamp(_audit_zone):
+def test_no_record_at_all_is_not_a_deployment_wide_clamp():
     """No record: the process cannot say which machine it is about.
 
     Refusing here would refuse writes on targets nobody narrowed. The

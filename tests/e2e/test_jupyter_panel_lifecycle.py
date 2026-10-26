@@ -170,9 +170,9 @@ HINT_RAW_CLIENT_IMPORT = (
 #: The text every client refusal carries, re-spelled for the same reason.
 CLIENT_REFUSED_TEXT = "control-system client refused"
 
-#: The audit surface a cell's refusals file under, and the ledger it lands in.
+#: The audit surface a cell's refusals file under. The audit writer files them
+#: as ``audit`` entries in the agent record, under the terminal user's identity.
 SURFACE = "notebook_kernel"
-LEDGER = Path("var") / "audit" / USER / f"{SURFACE}.jsonl"
 
 DEPLOY_UP_TIMEOUT_SEC = 2400
 VERB_TIMEOUT_SEC = 180
@@ -509,14 +509,37 @@ class Terminal:
         return response.json()
 
     def ledger(self) -> list[dict[str, Any]]:
-        path = self.repo / LEDGER
-        if not path.is_file():
-            return []
-        return [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+        """Every :data:`SURFACE` audit entry :data:`USER` wrote, oldest first.
+
+        Read from the deployed agent record under the user's own login, drained
+        first so a refusal a cell just spooled is in the answer. A partial
+        answer fails the test rather than reading as "nothing was audited".
+        """
+        from osprey.agent_record.client import RecordClient
+        from osprey.agent_record.config import parse_agent_record_block
+        from osprey.agent_record.contract import Drain
+        from osprey.agent_record.credentials import login_file, read_login
+        from osprey.agent_record.identities import login_for
+        from osprey.port_layout import resolve_port_base
+
+        config = yaml.safe_load((self.repo / "build" / "config.yml").read_text(encoding="utf-8"))
+        port = parse_agent_record_block(config, base=resolve_port_base(config)).port
+        login = login_for(USER)
+        token = read_login(self.repo / login_file(login), login)
+        assert token, f"no {login!r} record login at the repo root"
+        answer = RecordClient(f"http://127.0.0.1:{port}", login, token).recent_audit(
+            surface=SURFACE, written_by="self", wait=Drain()
+        )
+        assert answer.available, f"the agent record is unavailable: {answer.unavailable}"
+        assert answer.complete and not answer.more, (
+            f"the record's {SURFACE} audit answer is partial: {answer.reason or 'more pages'}"
+        )
+        bodies = [
+            dict(item["body"])
+            for item in answer.data or []
+            if isinstance(item, dict) and isinstance(item.get("body"), dict)
         ]
+        return list(reversed(bodies))
 
     def start_notebook_session(self, notebook: str) -> dict[str, Any]:
         response = self.post(

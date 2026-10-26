@@ -420,10 +420,10 @@ def tutorial_stack(tmp_path: Path) -> Iterator[Path]:
 def test_hello_world_tutorial_query_through_gateway(tutorial_stack: Path) -> None:
     """The tutorial's SQL, run as the preset's reader, shows the chat turn just sent.
 
-    One `osprey chat` turn reaches the store two ways: the agent harness's own
-    events through the gateway into `otel_logs`, and the tool call's ledger
-    line, read by the gateway from `var/audit/`, into `audit_ledger`. Both are
-    stamped with the host identity the build recorded.
+    One `osprey chat` turn reaches the store through the gateway: the agent
+    harness's own events land in `otel_logs`, stamped with the host identity
+    the build recorded. The tool call's audit entry is not here: the audit
+    writer files it in the agent record, which this store never sees.
     """
     repo = tutorial_stack
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
@@ -437,12 +437,9 @@ def test_hello_world_tutorial_query_through_gateway(tutorial_stack: Path) -> Non
     while time.monotonic() < deadline:
         rows = _query_as_reader(tc.store_port(config), password, sql)
         sources = {row["source"] for row in rows if row["User"] == identity}
-        if {"otel_logs", "audit_ledger"} <= sources:
+        if "otel_logs" in sources:
             break
         time.sleep(2.0)
 
     mine = {row["source"] for row in rows if row["User"] == identity}
     assert "otel_logs" in mine, f"no otel_logs row for {identity!r} in the tutorial query: {rows}"
-    assert "audit_ledger" in mine, (
-        f"no audit_ledger row for {identity!r} in the tutorial query: {rows}"
-    )
