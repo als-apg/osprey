@@ -5,9 +5,8 @@ back the line's ``entry_id``, or ``None``. agent-record's spool consumer is the
 only reader of what lands here; the spool is transport, never history.
 
 **Where a line lands.** ``OSPREY_SPOOL_DIR`` names the acting identity's *own*
-spool directory, exactly as ``OSPREY_AUDIT_DIR`` names its audit directory, and
-the writer writes straight into it: a container binds only its own directory, so
-there is nothing above it to resolve. When the variable is unset (the host), the
+spool directory, and the writer writes straight into it: a container binds only
+its own directory, so there is nothing above it to resolve. When the variable is unset (the host), the
 directory is ``<project root>/var/spool/<acting identity>``, with the identity
 from :func:`osprey_connectors.identity.acting_identity`. Both are read on every
 call, never at import, because compose and the entrypoint set them per process.
@@ -36,6 +35,11 @@ agent-record is given, never ``OSPREY_SPOOL_DIR``, and every line carries the
 caller's key. A batch is written as one sealed segment of its own, fsynced
 before and after the seal rename, so the receiver answers 2xx only for a batch
 that is on disk.
+
+**Off switch.** With ``OSPREY_AGENT_RECORD_OFF=1`` in the environment,
+:func:`write` answers ``None`` before resolving a directory: nothing is created,
+appended or logged to ``.errors``. Receiver mode is agent-record's own and does
+not consult it.
 
 **Never raises.** A failure is logged at error level, recorded as one JSON line
 in the directory's ``.errors`` file for the consumer to report on health, and
@@ -66,6 +70,8 @@ from typing import Any
 from osprey.agent_record.contract import (
     OPEN_SUFFIX,
     OTLP_SPOOL_DIR,
+    RECORD_OFF_ENV,
+    RECORD_OFF_VALUE,
     SEALED_SUFFIX,
     SEGMENT_IDLE_S,
     SEGMENT_MAX_AGE_S,
@@ -82,6 +88,7 @@ __all__ = [
     "SEGMENT_FILE_MODE",
     "SPOOL_DIR_MODE",
     "ReceivedLine",
+    "record_off",
     "seal_all",
     "spool_dir",
     "write",
@@ -125,6 +132,15 @@ def _host() -> str:
     for ch in ("/", "\\", "\0"):
         name = name.replace(ch, "_")
     return name if name not in ("", ".", "..") else "host"
+
+
+def record_off() -> bool:
+    """Whether the record off switch is set for this call.
+
+    True only when ``$OSPREY_AGENT_RECORD_OFF`` is exactly ``1``; read on every
+    call, never at import.
+    """
+    return os.environ.get(RECORD_OFF_ENV) == RECORD_OFF_VALUE
 
 
 def spool_dir() -> Path:
@@ -414,8 +430,12 @@ def write(kind: str, body: Mapping[str, Any], **ids: Any) -> WriteResult:
 
     Returns:
         The line's ``entry_id``, which is also the caller's wait mark, or
-        ``None`` when the line was not stored. Never raises.
+        ``None`` when the line was not stored. Never raises. With the record
+        off switch set (:func:`record_off`) nothing is resolved or written and
+        the answer is ``None``.
     """
+    if record_off():
+        return None
     directory: Path | None = None
     entry_id = ids.get("entry_id")
     try:
