@@ -789,3 +789,203 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
     # is a facility's auditable config.yml adjustment rather than a caller's.
     # What the caller may not do is take anything AWAY.
     assert set(DENY_DEFAULTS) <= set(deny), sorted(set(DENY_DEFAULTS) - set(deny))
+
+
+# ---------------------------------------------------------------------------
+# Facility write declarations (C-FW): the headless block is the union of the
+# declared `writes:` tools, permissions.ask tools, destructive-marker names,
+# whole-server writes-check servers and control_system.write_tools.
+# ---------------------------------------------------------------------------
+
+_DECLARING_PLC = (
+    "claude_code:\n"
+    "  servers:\n"
+    "    plc:\n"
+    "      command: plc-server\n"
+    "      writes: [set_value, ramp]\n"
+    "      permissions:\n"
+    "        allow: [get_value, list_tags, wipe_log]\n"
+    "        ask: [reset_fault]\n"
+)
+
+
+def test_headless_blocks_declared_writes_exactly(tmp_path: Path) -> None:
+    """Each declared `writes:` tool is blocked by its exact name."""
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__set_value" in result
+    assert "mcp__plc__ramp" in result
+
+
+def test_headless_keeps_a_declaring_servers_other_tools(tmp_path: Path) -> None:
+    """A tool on a declaring server that is not declared, not asked and not
+    destructive stays callable headless: the server is not blocked whole."""
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__get_value" not in result
+    assert "mcp__plc__list_tags" not in result
+    assert "mcp__plc" not in result
+
+
+def test_headless_blocks_undeclared_ask_tool_on_declaring_server(tmp_path: Path) -> None:
+    """An undeclared permissions.ask tool on a declaring server stays blocked."""
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    assert "mcp__plc__reset_fault" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_blocks_undeclared_destructive_tool_on_declaring_server(
+    tmp_path: Path,
+) -> None:
+    """An undeclared destructive-marker tool on a declaring server stays blocked,
+    even though the facility auto-allows it."""
+    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
+
+    assert "mcp__plc__wipe_log" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_empty_writes_list_still_blocks_ask_and_destructive(tmp_path: Path) -> None:
+    """`writes: []` declares that nothing writes; asked and destructive tools
+    are still blocked and the reads stay open."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    plc:\n"
+        "      command: plc-server\n"
+        "      writes: []\n"
+        "      permissions:\n"
+        "        allow: [get_value, delete_cache]\n"
+        "        ask: [reset_fault]\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__reset_fault" in result
+    assert "mcp__plc__delete_cache" in result
+    assert "mcp__plc__get_value" not in result
+    assert "mcp__plc" not in result
+
+
+def test_headless_malformed_writes_fails_closed(tmp_path: Path) -> None:
+    """A `writes:` that is not a list cannot be resolved: block the server whole."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    plc:\n"
+        "      command: plc-server\n"
+        "      writes: set_value\n"
+        "      permissions: {allow: [get_value]}\n"
+    )
+
+    assert "mcp__plc" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_writes_list_with_writes_check_preset_fails_closed(tmp_path: Path) -> None:
+    """A declaring server that also attaches the whole-server writes-check
+    preset is a contradictory spec the registry refuses: block it whole."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    plc:\n"
+        "      command: plc-server\n"
+        "      writes: [set_value]\n"
+        "      hooks: {pre_tool_use: [writes_check]}\n"
+    )
+
+    assert "mcp__plc" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_reads_facility_write_tools_from_hook_config(tmp_path: Path) -> None:
+    """The rendered `facility_write_tools` key is read: exact names are kept and
+    a whole-server matcher becomes the server-level form the SDK honors."""
+    hooks = _hook_config_dir(tmp_path)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write"],
+                "facility_write_tools": ["mcp__plc__set_value", "mcp__dz__.*"],
+            }
+        )
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__plc__set_value" in result
+    assert "mcp__dz" in result
+    assert "mcp__plc" not in result
+
+
+def test_headless_ignores_malformed_facility_write_tools(tmp_path: Path) -> None:
+    """A scalar `facility_write_tools` is not character-split into names; the
+    config.yml path and the floor still apply."""
+    hooks = _hook_config_dir(tmp_path)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write"],
+                "facility_write_tools": "mcp__plc__set_value",
+            }
+        )
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "m" not in result
+    assert "mcp__controls__channel_write" in result
+
+
+def test_headless_blocks_control_system_write_tools_from_config(tmp_path: Path) -> None:
+    """`control_system.write_tools` entries are blocked even with no rendered
+    hook config (a whole-server regex entry becomes server-level)."""
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  write_tools:\n    - mcp__beamline__move_motor\n    - mcp__vacuum__.*\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__beamline__move_motor" in result
+    assert "mcp__vacuum" in result
+
+
+def test_headless_blocks_control_system_write_tools_from_hook_config(tmp_path: Path) -> None:
+    """The extras a render appended to `write_tools` stay blocked."""
+    hooks = _hook_config_dir(tmp_path)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write", "mcp__beamline__move_motor"],
+                "control_system_write_tools": ["mcp__beamline__move_motor"],
+            }
+        )
+    )
+
+    assert "mcp__beamline__move_motor" in read_only_disallowed_tools(tmp_path)
+
+
+def test_headless_covers_the_registry_facility_set(tmp_path: Path) -> None:
+    """Every entry of the registry's facility write set for a spec is blocked
+    headless from config.yml alone (the two cannot drift)."""
+    import yaml
+
+    from osprey.registry.mcp import facility_write_tools, resolve_servers
+
+    cfg_text = (
+        _DECLARING_PLC + "    dz:\n"
+        "      command: dz-server\n"
+        "      hooks: {pre_tool_use: [writes_check]}\n"
+    )
+    (tmp_path / "config.yml").write_text(cfg_text)
+    servers = resolve_servers(yaml.safe_load(cfg_text)["claude_code"], {})
+
+    expected = [
+        t[: -len("__.*")] if t.endswith("__.*") else t for t in facility_write_tools(servers)
+    ]
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert expected, "fixture must yield a facility write set"
+    for tool in expected:
+        assert tool in result, tool
