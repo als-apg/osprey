@@ -34,6 +34,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -387,25 +388,6 @@ def _fetch_html(artifact_port: int, path: str, secret: str | None = None) -> str
         return resp.read().decode("utf-8", "replace")
 
 
-def _ask_record_count(path: Path, offset: int) -> int:
-    """Count every complete ``status == "ask"`` record after ``offset``, named or not."""
-    try:
-        with Path(path).open("rb") as fh:
-            fh.seek(max(offset, 0))
-            data = fh.read()
-    except FileNotFoundError:
-        return 0
-    count = 0
-    for raw in data.split(b"\n")[:-1]:
-        try:
-            record = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
-            continue
-        if isinstance(record, dict) and record.get("status") == "ask":
-            count += 1
-    return count
-
-
 def _has_tool_result(transcript: Path | None, tool_use_id: str) -> bool:
     """Whether the transcript holds a ``tool_result`` for ``tool_use_id``.
 
@@ -485,7 +467,7 @@ class _Take:
         self.ctx = ctx
         self.page = ctx.page
         self.timeline = timeline
-        self.hook_log = video_check_approval.hook_log_path(ctx.stack.project_dir)
+        self.hook_log = video_check_approval.record_log(ctx.stack.project_dir)
         self.transcript: Path | None = None
         self.submitted_at = 0.0
         self.opened: set[str] = set()
@@ -528,10 +510,11 @@ class _Take:
             self.transcript, self.submitted_at, now=self.timeline.clock
         )
 
-    def asks(self, offset: int) -> list[video_check_approval.Ask]:
-        """Asks after ``offset``; fails the take on any unnamed or foreign ask."""
-        asks = video_check_approval.find_asks(self.hook_log, offset)
-        if _ask_record_count(self.hook_log, offset) > len(asks):
+    def asks(self, mark: datetime) -> list[video_check_approval.Ask]:
+        """Asks since ``mark``; fails the take on any unnamed or foreign ask."""
+        records = self.hook_log(mark)
+        asks = video_check_approval.asks_in(records)
+        if len(video_check_approval.ask_records(records)) > len(asks):
             raise ProbeFailed("approve", "an approval prompt without a tool name was logged")
         foreign = [a.name for a in asks if a.name != APPROVED_TOOL]
         if foreign:
@@ -626,7 +609,7 @@ class _Take:
     def wait_for_result(
         self,
         step_name: str,
-        ask_offset: int,
+        ask_offset: datetime,
         find: Callable[[], str | None],
         what: str,
     ) -> tuple[str, Any]:
@@ -643,7 +626,7 @@ class _Take:
         watch = self.watch(step_name, video_check_stall.PLOT_DIALOGS, self.phase_stall)
         ticks = max(1, -(-PLOT_BUDGET_MS // video_probes.POLL_MS))
         for _ in range(ticks):
-            if _ask_record_count(self.hook_log, ask_offset):
+            if video_check_approval.ask_record_count(self.hook_log, ask_offset):
                 raise ProbeFailed(
                     step_name, f"an approval prompt appeared while waiting for the {what}"
                 )
@@ -691,7 +674,7 @@ class _Take:
         self,
         step_name: str,
         caption: str,
-        ask_offset: int,
+        ask_offset: datetime,
         find: Callable[[], str | None],
         what: str,
     ) -> str:
@@ -916,7 +899,7 @@ class _Take:
             f"need {MIN_AZIMUTH_CHANGE_DEG:.0f}",
         )
 
-    def wait_for_approval(self, ask_offset: int) -> video_check_approval.Ask:
+    def wait_for_approval(self, ask_offset: datetime) -> video_check_approval.Ask:
         watch = self.watch("post", video_check_stall.NOTICE_DIALOGS)
         ticks = max(1, -(-APPROVAL_BUDGET_MS // video_probes.POLL_MS))
         for _ in range(ticks):
@@ -932,7 +915,7 @@ class _Take:
             self.page.wait_for_timeout(video_probes.POLL_MS)
         raise ProbeFailed("post", f"no {APPROVED_TOOL} approval within {APPROVAL_BUDGET_MS} ms")
 
-    def wait_for_draft(self, ask_offset: int, approved: video_check_approval.Ask) -> None:
+    def wait_for_draft(self, ask_offset: datetime, approved: video_check_approval.Ask) -> None:
         """Wait for the saved draft, pressing Enter once more only when it is safe.
 
         The retry fires once, after :data:`DRAFT_RETRY_AFTER_MS` without a
@@ -966,7 +949,7 @@ class _Take:
         ask_caption = "Ask in plain language"
         with self.step("focus-1", ask_caption):
             self.focus_terminal()
-        plot_offset = video_check_approval.log_offset(self.hook_log)
+        plot_offset = video_check_approval.log_mark()
         with self.step("prompt-1", ask_caption):
             self.submit("prompt-1", PROMPT_PLOT)
         plot_id = self.agent_phase(
@@ -983,7 +966,7 @@ class _Take:
         corr_caption = "Ask for a correlation"
         with self.step("focus-2", corr_caption):
             self.focus_terminal()
-        corr_offset = video_check_approval.log_offset(self.hook_log)
+        corr_offset = video_check_approval.log_mark()
         with self.step("prompt-2", corr_caption):
             self.submit("prompt-2", PROMPT_CORR)
         corr_id = self.agent_phase(
@@ -998,7 +981,7 @@ class _Take:
         post_caption = "Post it to the logbook"
         with self.step("focus-3", post_caption):
             self.focus_terminal()
-        post_offset = video_check_approval.log_offset(self.hook_log)
+        post_offset = video_check_approval.log_mark()
         with self.step("prompt-3", post_caption):
             self.submit("prompt-3", PROMPT_POST)
         with self.step("post", "The agent drafts the entry", fast_forward=True):

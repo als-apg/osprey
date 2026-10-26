@@ -31,8 +31,8 @@ that the operator approved it (APPROVAL_NOTE). That note reaches the request aft
 Each execute that (c), (d) and (e) add also settles the review notebook its approval left:
 it reads "ran" in (c), "not run" in (d), and "failed" in (e).
 
-Each gate's own decision for each call is read from the render's hook log, which
-records every decision a hook makes, denials included. The transcript is not the
+Each gate's own decision for each call is read from the agent record's hook debug
+lines, which record every decision a hook makes, denials included. The transcript is not the
 witness: it keeps a hook's output when the hook asks or allows, and nothing when
 the hook denies.
 """
