@@ -23,7 +23,7 @@ from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
-from tests._archive_composites import held_state_directories
+from tests._archive_composites import archives_closed, held_state_directories
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -31,6 +31,12 @@ if TYPE_CHECKING:
 T0 = 1_760_000_000.0
 HOUR = np.arange(T0, T0 + 3600.0, 1.0)
 BPM_X = "SR:DIAG:BPM:01:POSITION:X"
+
+
+@pytest.fixture(autouse=True)
+def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    with archives_closed(monkeypatch, sys.modules[__name__]):
+        yield
 
 
 # -- a stub engine that counts its builds and its reads ------------------------

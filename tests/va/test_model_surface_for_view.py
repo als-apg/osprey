@@ -674,7 +674,8 @@ def test_the_seeded_value_at_t_equals_the_live_value_at_t(tmp_path: Path, paddle
     _, composite, _ = _gate_surface(tmp_path, paddle=paddle)
     live = composite.get(list(GATED))
 
-    seeded = archive.build(tmp_path / "simulator", ["nominal"]).samples(list(GATED), [T0])
+    with archive.build(tmp_path / "simulator", ["nominal"]) as seeded_archive:
+        seeded = seeded_archive.samples(list(GATED), [T0])
 
     labels = ["FALSE", "TRUE"]
     assert seeded[GATED_SUM] == [pytest.approx(live[GATED_SUM], rel=1e-12)]
