@@ -1199,11 +1199,84 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    # `--with-deps` apt-installs ~140 MB of system debs (WebKit's gstreamer and
+    # codec stack is most of it), and the runner's default mirror,
+    # azure.archive.ubuntu.com, some days serves them at 30-100 kB/s: the
+    # installs then take 20-40 minutes and the lane hits its timeout without
+    # running a test. The browsers come from Playwright's CDN and are always
+    # fast. So the debs and the browsers are cached across runs, apt prefers
+    # archive.ubuntu.com, and each install step has its own short timeout.
+    - name: Resolve Playwright browser cache key
+      id: playwright-key
+      run: |
+        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
+        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
+        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
+        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+
+    - name: Configure apt for the Playwright system deps
+      # The runner's sources read `mirror+file:/etc/apt/apt-mirrors.txt`, one
+      # `URL<TAB>priority:N` per line, lowest tried first. Swapping azure's 1
+      # with archive.ubuntu.com's 2 keeps azure as the fallback; a file in any
+      # other shape is left as it is. Downloaded debs are kept in a
+      # runner-owned directory the cache steps can reach. The snippet's name
+      # sorts after the image's own `zz-retries`, which would otherwise
+      # override its retry count.
+      run: |
+        sudo sed -i -E \
+          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
+          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
+          /etc/apt/apt-mirrors.txt
+        cat /etc/apt/apt-mirrors.txt
+        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
+          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
+        mkdir -p "$HOME/apt-archives/partial"
+        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
+        Dir::Cache::Archives "$HOME/apt-archives";
+        APT::Keep-Downloaded-Packages "true";
+        Acquire::http::Timeout "15";
+        Acquire::Retries "3";
+        EOF
+
+    - name: Restore Playwright browsers and apt debs
+      id: playwright-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
+        restore-keys: |
+          ${{ steps.playwright-key.outputs.prefix }}
+
     - name: Install Playwright chromium
+      timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
     - name: Install Playwright webkit
+      timeout-minutes: 10
       run: uv run playwright install webkit --with-deps
+
+    - name: Hand the apt debs to the runner user
+      # apt wrote them as root, along with its lock file; the save cannot
+      # archive what it cannot read. autoclean first drops debs the current
+      # indexes no longer list, so a cache carried across image bumps by the
+      # prefix restore-key does not keep every superseded version.
+      run: |
+        sudo apt-get autoclean
+        sudo chown -R "$USER" ~/apt-archives
+        rm -f ~/apt-archives/lock
+
+    - name: Save Playwright browsers and apt debs
+      # Saved here rather than in a post step, so a later test failure still
+      # leaves the next run a warm cache. An exact hit has nothing new to save.
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          ~/apt-archives
+        key: ${{ steps.playwright-key.outputs.key }}
 
     - name: Run behavioral theming suite
       run: |

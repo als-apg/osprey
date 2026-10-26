@@ -4100,6 +4100,20 @@ def _browser_lane_files(wf: dict[str, Any]) -> str:
 #: proven nothing.
 _STEP_OUTPUT_CONDITION = re.compile(r"steps\.[A-Za-z0-9_-]+\.outputs")
 
+#: The one step a step output may switch off: saving the Playwright cache. It
+#: proves nothing and installs nothing, and skipping it on an exact cache hit
+#: only spares re-uploading what the cache already holds.
+_CACHE_SAVE_ACTION = "actions/cache/save@"
+
+
+def _browser_steps_gated_on_outputs(wf: dict[str, Any]) -> list[str | None]:
+    return [
+        step.get("name")
+        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
+        and not str(step.get("uses", "")).startswith(_CACHE_SAVE_ACTION)
+    ]
+
 
 def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None:
     """Three ways this lane could stop running, all of them silent.
@@ -4118,11 +4132,7 @@ def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None
         if str(step.get("uses", "")).startswith("dorny/paths-filter")
     ]
     assert filters == [], f"the '{BROWSER_JOB}' lane computes a paths filter: {filters}"
-    gated = [
-        step.get("name")
-        for step in job["steps"]
-        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
-    ]
+    gated = _browser_steps_gated_on_outputs(workflow)
     assert gated == [], (
         f"steps of the '{BROWSER_JOB}' lane gated on another step's output, which would "
         f"report the lane green having run nothing: {gated}"
@@ -4156,12 +4166,19 @@ def test_the_browser_lane_runs_unconditionally__mutation_gates_the_run_step() ->
     _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)["if"] = (
         "steps.changes.outputs.theming == 'true'"
     )
-    gated = [
-        step.get("name")
-        for step in _jobs(mutated)[BROWSER_JOB]["steps"]
-        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
-    ]
-    assert gated == [BROWSER_RUN_STEP]
+    assert _browser_steps_gated_on_outputs(mutated) == [BROWSER_RUN_STEP]
+
+
+def test_the_browser_lane_runs_unconditionally__mutation_gates_an_install_on_the_cache_hit() -> (
+    None
+):
+    """The cache-save exemption is by action, not by condition: an install
+    skipped on a cache hit must still be reported."""
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, BROWSER_JOB, "Install Playwright webkit")["if"] = (
+        "steps.playwright-cache.outputs.cache-hit != 'true'"
+    )
+    assert _browser_steps_gated_on_outputs(mutated) == ["Install Playwright webkit"]
 
 
 def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
@@ -4475,6 +4492,113 @@ def test_every_engine_is_installed__mutation_drops_the_webkit_install() -> None:
     job = _jobs(mutated)[BROWSER_JOB]
     job["steps"] = [s for s in job["steps"] if s.get("name") != "Install Playwright webkit"]
     assert set(_browser_engines()) - _engines_the_lane_installs(mutated) == {"webkit"}
+
+
+# ---------------------------------------------------------------------------
+# (h4) the browser lane's installs are cached and capped: their `--with-deps`
+# debs come from an Ubuntu mirror that some days crawls, and an uncapped,
+# uncached install then eats the whole job timeout before a test runs
+# ---------------------------------------------------------------------------
+
+_PLAYWRIGHT_INSTALL_STEPS = ("Install Playwright chromium", "Install Playwright webkit")
+_PLAYWRIGHT_INSTALL_CAP_MINUTES = 10
+_APT_ARCHIVES_SETTING = re.compile(r'Dir::Cache::Archives\s+"\$HOME/([^"]+)"')
+
+
+def _browser_cache_problems(wf: dict[str, Any]) -> list[str]:
+    """Every way the Playwright cache fails to cover the installs.
+
+    The restore has to come before both installs and the save after them but
+    before any suite, so a failing suite still leaves the next run a warm
+    cache; both have to name the same key and paths; and the paths have to
+    hold the browsers and the directory apt is told to keep its debs in.
+    Between the installs and the save, that directory has to be handed back
+    to the runner user: apt leaves it root-owned, and a save that cannot read
+    it only warns, so the cache would silently never be written.
+    """
+    steps = _jobs(wf)[BROWSER_JOB]["steps"]
+
+    def where(pred: Callable[[dict[str, Any]], bool]) -> list[int]:
+        return [i for i, s in enumerate(steps) if pred(s)]
+
+    restores = where(lambda s: str(s.get("uses", "")).startswith("actions/cache/restore@"))
+    saves = where(lambda s: str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
+    installs = where(lambda s: s.get("name") in _PLAYWRIGHT_INSTALL_STEPS)
+    suites = where(lambda s: _BROWSER_PYTEST_INVOCATION in s.get("run", ""))
+    archives = [
+        m.group(1) for s in steps for m in _APT_ARCHIVES_SETTING.finditer(str(s.get("run", "")))
+    ]
+    if len(restores) != 1 or len(saves) != 1 or len(archives) != 1:
+        return [f"restores={restores} saves={saves} apt archive dirs={archives}"]
+    restore, save = steps[restores[0]], steps[saves[0]]
+    problems = []
+    if not restores[0] < min(installs) or not max(installs) < saves[0] < min(suites):
+        problems.append("order")
+    if restore["with"]["key"] != save["with"]["key"]:
+        problems.append("key")
+    paths = set(restore["with"]["path"].split())
+    if paths != set(save["with"]["path"].split()):
+        problems.append("paths")
+    if not {"~/.cache/ms-playwright", f"~/{archives[0]}"} <= paths:
+        problems.append("coverage")
+    handbacks = where(
+        lambda s: "chown" in s.get("run", "") and f"~/{archives[0]}" in s.get("run", "")
+    )
+    if not any(max(installs) < i < saves[0] for i in handbacks):
+        problems.append("ownership")
+    return problems
+
+
+def test_the_playwright_cache_brackets_the_installs(workflow: dict[str, Any]) -> None:
+    assert _browser_cache_problems(workflow) == []
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_saves_after_the_suites() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[BROWSER_JOB]["steps"]
+    save = next(s for s in steps if str(s.get("uses", "")).startswith(_CACHE_SAVE_ACTION))
+    steps.remove(save)
+    steps.append(save)
+    assert _browser_cache_problems(mutated) == ["order"]
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_drops_the_apt_archive() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for step in _jobs(mutated)[BROWSER_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/cache/"):
+            step["with"]["path"] = "~/.cache/ms-playwright\n"
+    assert _browser_cache_problems(mutated) == ["coverage"]
+
+
+def test_the_playwright_cache_brackets_the_installs__mutation_drops_the_handback() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[BROWSER_JOB]
+    job["steps"] = [s for s in job["steps"] if "chown" not in s.get("run", "")]
+    assert _browser_cache_problems(mutated) == ["ownership"]
+
+
+def test_the_playwright_installs_carry_their_own_cap(workflow: dict[str, Any]) -> None:
+    """A stalled mirror has to fail the install in minutes, not after the job's
+    whole timeout, so the log points at the install rather than the job."""
+    job = _jobs(workflow)[BROWSER_JOB]
+    caps = {
+        name: _find_named_step(workflow, BROWSER_JOB, name).get("timeout-minutes")
+        for name in _PLAYWRIGHT_INSTALL_STEPS
+    }
+    assert all(
+        isinstance(cap, int) and cap <= _PLAYWRIGHT_INSTALL_CAP_MINUTES for cap in caps.values()
+    ), caps
+    assert sum(c for c in caps.values() if isinstance(c, int)) < job["timeout-minutes"], (
+        caps,
+        job["timeout-minutes"],
+    )
+
+
+def test_the_playwright_installs_carry_their_own_cap__mutation_drops_one() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, BROWSER_JOB, "Install Playwright webkit")["timeout-minutes"]
+    with pytest.raises(AssertionError):
+        test_the_playwright_installs_carry_their_own_cap(mutated)
 
 
 def test_every_browser_engine_has_its_fixture() -> None:
