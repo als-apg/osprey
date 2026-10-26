@@ -15,6 +15,7 @@ when docker is unavailable.
 from __future__ import annotations
 
 import subprocess
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -198,7 +199,7 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     }
     config_file = tmp_path / "config.yaml"
     config_file.write_text(yaml.safe_dump(rendered, sort_keys=False, width=1 << 16))
-    name = f"osprey-ledger-chain-{tmp_path.name[-12:]}".lower()
+    name = f"osprey-ledger-chain-{uuid.uuid4().hex[:12]}"
     subprocess.run(
         [
             "docker",
