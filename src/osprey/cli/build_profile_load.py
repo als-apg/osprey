@@ -15,6 +15,8 @@ assembled its own raw dict.
 from __future__ import annotations
 
 import difflib
+import logging
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
 from functools import lru_cache
@@ -193,6 +195,15 @@ _PROFILE_SCHEMA_MIN_OSPREY = "2026.10.0"
 #: removed.
 RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.11.0"
 
+#: The one sunset of the write-posture migration windows: the retired write
+#: keys, undeclared write-looking facility tools, ``control_system.write_tools``
+#: and unknown per-server keys are read with a warning until this release, and
+#: refused from it. It is the roster sunset itself, not a second literal, so the
+#: two windows close on the same release. Like the roster sunset it is a test
+#: tripwire, not a runtime version compare: the release that reaches it fails
+#: the window test until every such warning becomes its refusal.
+RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
+
 
 # Top-level keys recognized by BuildProfile. Anything else is almost certainly
 # a typo of one of these (e.g. mcp_server vs mcp_servers).
@@ -324,6 +335,26 @@ def known_profile_keys(kind: ProfileKind) -> frozenset[str]:
 # misspelled `deviation_marker:` would silently leave the default tag in force
 # and every `# SITE-DEVIATION:` comment unread.
 _KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "providers_hash", "deviation_marker"})
+
+
+_LOGGER = logging.getLogger(__name__)
+
+# Keys recognized inside one ``mcp_servers.<name>`` entry, derived from the
+# dataclass so a new field is a known key the moment it exists. An unknown key
+# warns until RETIRED_WRITE_KEYS_REFUSED_FROM (it used to vanish silently).
+_KNOWN_MCP_SERVER_KEYS = frozenset(f.name for f in fields(McpServerDef))
+
+# The hook events a server's ``hooks:`` block may name — the ones
+# registry.mcp._custom_server_from_spec reads back.
+_KNOWN_MCP_SERVER_HOOK_EVENTS = frozenset({"pre_tool_use"})
+
+# A ``writes:`` entry is one bare tool name. Anything outside this alphabet is
+# a wildcard, a regex or a prefix, which the registry would turn into a
+# matcher covering tools the facility never listed.
+_BARE_TOOL_NAME = re.compile(r"[A-Za-z0-9_-]+")
+
+# (server, key) pairs already warned about this process.
+_WARNED_MCP_SERVER_KEYS: set[tuple[str, str]] = set()
 
 
 # Keys recognized inside the ``environment:`` block. Rejected outright like the
@@ -1370,6 +1401,112 @@ def _block(raw: Mapping[str, Any], key: str) -> dict[str, Any]:
     return {} if value is None else value
 
 
+def _config_server_definitions(raw: dict[str, Any]) -> dict[str, Any]:
+    """``config:``'s ``claude_code.servers`` tree, whichever spelling addressed it."""
+    claude_code = _expand_dotted(raw.get("config")).get("claude_code")
+    servers = claude_code.get("servers") if isinstance(claude_code, dict) else None
+    return servers if isinstance(servers, dict) else {}
+
+
+def _refuse_second_server_spelling(name: str, config_servers: dict[str, Any]) -> None:
+    """Refuse a server defined both in ``mcp_servers`` and in ``config:``.
+
+    ``claude_code.servers.<name>`` is where the build persists a profile
+    server, so a definition key there (anything ``mcp_servers`` takes) is the
+    same server spelled twice, and which one the render keeps would depend on
+    write order. An ``enabled`` switch alone is not a definition.
+    """
+    entry = config_servers.get(name)
+    if not isinstance(entry, dict):
+        return
+    spelled = sorted(k for k in entry if k in _KNOWN_MCP_SERVER_KEYS)
+    if spelled:
+        raise BuildProfileError(
+            f"MCP server '{name}' is defined under both `mcp_servers.{name}` and "
+            f"`config: claude_code.servers.{name}` ({', '.join(spelled)}), two "
+            f"spellings of one server. Keep `mcp_servers.{name}` only."
+        )
+
+
+def _warn_unknown_server_keys(name: str, sdef: dict[str, Any]) -> None:
+    """Warn, once per server and key, about a key ``mcp_servers.<name>`` does not define."""
+    for key in sdef:
+        if key in _KNOWN_MCP_SERVER_KEYS or (name, str(key)) in _WARNED_MCP_SERVER_KEYS:
+            continue
+        _WARNED_MCP_SERVER_KEYS.add((name, str(key)))
+        close = difflib.get_close_matches(str(key), sorted(_KNOWN_MCP_SERVER_KEYS), n=1)
+        hint = f" (did you mean '{close[0]}'?)" if close else ""
+        _LOGGER.warning(
+            "MCP server '%s' has unknown key '%s'%s; it is ignored, and refused from "
+            "OSPREY %s. Known keys: %s",
+            name,
+            key,
+            hint,
+            RETIRED_WRITE_KEYS_REFUSED_FROM,
+            ", ".join(sorted(_KNOWN_MCP_SERVER_KEYS)),
+        )
+
+
+def _parse_server_hooks(name: str, hooks: Any) -> dict[str, list[str]]:
+    """``mcp_servers.<name>.hooks``: ``{pre_tool_use: [<preset>, ...]}`` or absent."""
+    if hooks is None:
+        return {}
+    if not isinstance(hooks, dict):
+        raise BuildProfileError(
+            f"MCP server '{name}' hooks must be a mapping like "
+            f"{{pre_tool_use: [<preset>, ...]}} (got {type(hooks).__name__})"
+        )
+    parsed: dict[str, list[str]] = {}
+    for event, presets in hooks.items():
+        if event not in _KNOWN_MCP_SERVER_HOOK_EVENTS:
+            raise BuildProfileError(
+                f"MCP server '{name}' hooks has unknown event {event!r}; known: "
+                f"{', '.join(sorted(_KNOWN_MCP_SERVER_HOOK_EVENTS))}"
+            )
+        if not isinstance(presets, list) or not all(isinstance(p, str) for p in presets):
+            raise BuildProfileError(
+                f"MCP server '{name}' hooks.{event} must be a list of preset names "
+                f"(got {presets!r})"
+            )
+        parsed[event] = list(presets)
+    return parsed
+
+
+def _parse_server_writes(name: str, writes: Any) -> list[str] | None:
+    """``mcp_servers.<name>.writes``: bare tool names, validated as written (CC-5).
+
+    The build never asks the server for its tool list: a name the server does
+    not serve is the facility's to fix, and nothing here can tell it apart.
+    """
+    if writes is None:
+        return None
+    if not isinstance(writes, list):
+        raise BuildProfileError(
+            f"MCP server '{name}' writes must be a list of bare tool names "
+            f"(got {type(writes).__name__})"
+        )
+    seen: set[str] = set()
+    for tool in writes:
+        if not isinstance(tool, str):
+            raise BuildProfileError(
+                f"MCP server '{name}' writes entry {tool!r} is not a string; list bare tool names"
+            )
+        if tool.startswith("mcp__"):
+            raise BuildProfileError(
+                f"MCP server '{name}' writes entry {tool!r} carries the mcp__ "
+                "prefix; list the bare tool name the server serves"
+            )
+        if not _BARE_TOOL_NAME.fullmatch(tool):
+            raise BuildProfileError(
+                f"MCP server '{name}' writes entry {tool!r} is not a bare tool name "
+                "(letters, digits, '_' and '-' only); wildcards and regexes are refused"
+            )
+        if tool in seen:
+            raise BuildProfileError(f"MCP server '{name}' writes lists {tool!r} more than once")
+        seen.add(tool)
+    return list(writes)
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile.
 
@@ -1391,9 +1528,14 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     _apply_connector_shorthand(raw)
     _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}
+    config_servers = _config_server_definitions(raw)
     for name, sdef in _block(raw, "mcp_servers").items():
         if not isinstance(sdef, dict):
             raise BuildProfileError(f"MCP server '{name}' must be a mapping")
+        _refuse_second_server_spelling(name, config_servers)
+        _warn_unknown_server_keys(name, sdef)
+        hooks = _parse_server_hooks(name, sdef.get("hooks"))
+        writes = _parse_server_writes(name, sdef.get("writes"))
         perms = sdef.get("permissions", {})
         url = sdef.get("url")
         command = sdef.get("command", "")
@@ -1445,6 +1587,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             url=url,
             transport=transport,
             port=port,
+            hooks=hooks,
+            writes=writes,
         )
 
     services: dict[str, ServiceDef] = {}
