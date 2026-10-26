@@ -116,14 +116,14 @@ COSMETIC_KEY = "claude_code.default_model"
 
 #: An unprotected key that still shapes the render, so a PUT carrying only this
 #: proves both halves of the surface at once: the gate lets it through, and the
-#: #244 regen fires. ``control_system.writes_enabled`` used to play this role and
+#: #244 regen fires. ``control_system.writes`` (once ``writes_enabled``) used to play this role and
 #: no longer can -- it is the write gate, which is the whole point of the gate.
 RENDER_SHAPING_KEY = ("channel_finder", "pipeline_mode")
 
 
 @pytest.fixture
 def built_project(tmp_path):
-    """A real OSPREY project with writes disabled (channel_write baked into deny)."""
+    """A real OSPREY project on a ``never`` tier (channel_write baked into deny)."""
     manager = TemplateManager()
     project_dir = _create_project(
         manager,
@@ -132,7 +132,7 @@ def built_project(tmp_path):
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
-    config_update_fields(project_dir / "config.yml", {"control_system.writes_enabled": False})
+    config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})
     manager.regenerate_claude_code(project_dir)
     return project_dir
 
@@ -223,7 +223,7 @@ def _put_raw(project_dir, mutate):
 
 def _flip_write_gate(doc):
     """Change one protected key: the kill-switch itself."""
-    doc["control_system"]["writes_enabled"] = True
+    doc["control_system"]["writes"] = "allowed"
 
 
 def _switch_pipeline(doc):
@@ -238,7 +238,7 @@ def _add_protected_key(doc):
 
 def _delete_protected_key(doc):
     """Delete one protected key, leaving its family in place."""
-    del doc["control_system"]["writes_enabled"]
+    del doc["control_system"]["writes"]
 
 
 def _delete_protected_family(doc):
@@ -253,7 +253,7 @@ def _collapse_subtree(doc):
 
 def _expand_scalar(doc):
     """Reshape a protected scalar into a block (scalar -> dict)."""
-    doc["control_system"]["writes_enabled"] = {"enabled": True}
+    doc["control_system"]["writes"] = {"enabled": True}
 
 
 def _empty_the_document(doc):
@@ -281,7 +281,7 @@ PUT_MUTATIONS = [
 #: block rewrites every protected leaf beneath it, so the parent is refused too.
 PROTECTED_CASES = [
     pytest.param("control_system.limits_checking.enabled", False, id="limits-gate"),
-    pytest.param("control_system.writes_enabled", True, id="write-gate"),
+    pytest.param("control_system.writes", "allowed", id="write-gate"),
     pytest.param("approval.mode", "disabled", id="approval-gate"),
     pytest.param("claude_code.permissions.deny", [], id="permission-surface"),
     pytest.param("agent_data.base_dir", "/tmp/elsewhere", id="agent-data-root"),
@@ -583,7 +583,8 @@ class TestPutProtectedDocument:
 
         assert resp.status_code == 403
         detail = resp.json()["detail"]
-        assert "control_system.writes_enabled" in detail
+        assert "control_system.writes" in detail
+        assert "control_system.writes_enabled" not in detail
         assert "config.yml is unchanged" in detail
         # The operator is pointed at the channel that *can* carry the change.
         assert "`config:` block" in detail
@@ -658,7 +659,7 @@ class TestPutProtectedDocument:
     def test_put_dotted_raw_key_cannot_mask_a_protected_change(self, client, built_project):
         """The adversarial case the segment-tuple view exists for.
 
-        A top-level key literally named ``"control_system.writes_enabled"`` is
+        A top-level key literally named ``"control_system.writes"`` is
         one raw segment that happens to contain dots. It is *not* the protected
         key -- nothing reads it, config reads are nested -- but a flattened
         *dotted* view renders it to the same string as the real one. A document
@@ -668,14 +669,14 @@ class TestPutProtectedDocument:
         """
 
         def _decoy(doc):
-            del doc["control_system"]["writes_enabled"]
-            doc["control_system.writes_enabled"] = False
+            del doc["control_system"]["writes"]
+            doc["control_system.writes"] = "never"
 
         before = (built_project / "config.yml").read_bytes()
         resp = client.put("/api/config", json={"raw": _put_raw(built_project, _decoy)})
 
         assert resp.status_code == 403
-        assert "control_system.writes_enabled" in resp.json()["detail"]
+        assert "control_system.writes" in resp.json()["detail"]
         assert (built_project / "config.yml").read_bytes() == before
 
     def test_put_protected_family_member_with_a_dotted_name_is_refused(self, client, built_project):

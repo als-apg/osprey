@@ -77,6 +77,77 @@ def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
             )
 
 
+#: The write ceiling, as the rendered-config path ``config.``-prefixed keys address.
+_WRITES_PATH = "control_system.writes"
+
+#: The one value this command may write there: it only narrows the ceiling.
+_WRITES_NARROW = "never"
+
+#: The words the ceiling takes, for the refusal of anything else.
+_WRITES_WORDS = ("allowed", "never")
+
+
+def _config_leaves(path: str, value: object) -> list[tuple[str, object]]:
+    """Every ``(dotted path, value)`` leaf *value* writes when stated at *path*.
+
+    A mapping value states the whole block at its key, so a posture key can sit
+    anywhere inside one (``config.control_system={writes: allowed}``). The
+    ceiling itself is not descended into: whatever is stated at it is its value.
+    """
+    if isinstance(value, dict) and value and path != _WRITES_PATH:
+        leaves: list[tuple[str, object]] = []
+        for key, inner in value.items():
+            leaves.extend(_config_leaves(f"{path}.{key}" if path else str(key), inner))
+        return leaves
+    return [(path, value)]
+
+
+def _refuse_write_posture(pairs: tuple[str, ...]) -> None:
+    """Refuse every pair that would raise or misstate the write ceiling.
+
+    No CLI path turns writes on. ``config.control_system.writes=never`` only
+    narrows and is accepted; ``=allowed`` is refused — raising the ceiling is an
+    edit to the profile or tier file a reviewer reads, not a command — and any
+    other value is refused naming the two words. The retired ``writes_enabled``
+    leaves (global or per connector type) are refused pointing at the new key.
+    Runs before anything is written, so one refused pair rejects the whole line.
+    """
+    import yaml
+
+    for pair in pairs:
+        key, separator, raw = pair.partition("=")
+        key = key.strip()
+        if not separator or not (key == "config" or key.startswith("config.")):
+            continue
+        try:
+            value = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            value = raw
+        for path, leaf in _config_leaves(key.removeprefix("config").lstrip("."), value):
+            if path.startswith("control_system.") and path.endswith(".writes_enabled"):
+                raise click.UsageError(
+                    f"`config.{path}` is retired. The write ceiling is "
+                    f"`{_WRITES_PATH}` (allowed | never). `osprey set` can only lower "
+                    f"it — `osprey set config.{_WRITES_PATH}={_WRITES_NARROW}`; to allow "
+                    "writes, edit the profile or tier file."
+                )
+            if path == _WRITES_PATH or path.startswith(f"{_WRITES_PATH}."):
+                if path == _WRITES_PATH and leaf == _WRITES_NARROW:
+                    continue
+                if path == _WRITES_PATH and leaf == "allowed":
+                    raise click.UsageError(
+                        f"`osprey set` cannot raise the write ceiling: `{_WRITES_PATH}: "
+                        "allowed` is stated by editing the profile or tier file, where "
+                        "it is reviewed. No CLI path turns writes on; "
+                        f"`config.{_WRITES_PATH}={_WRITES_NARROW}` is the one value "
+                        "this command writes."
+                    )
+                raise click.UsageError(
+                    f"`{_WRITES_PATH}` takes one of {' | '.join(_WRITES_WORDS)}; "
+                    f"`osprey set` writes only `{_WRITES_NARROW}`."
+                )
+
+
 def _unrecognized_top_level_keys(pairs: tuple[str, ...], profile_path: Path) -> list[str]:
     """Top-level keys in *pairs* not legal in the profile file at *profile_path*.
 
@@ -270,6 +341,10 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     One shorthand stands in for a longer key path: `connector=` writes
     config.control_system.type.
 
+    The write ceiling only narrows here: `config.control_system.writes=never`
+    is accepted, `=allowed` is refused — allowing writes is an edit to the
+    profile or tier file.
+
     Examples:
 
     \b
@@ -278,8 +353,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set connector=epics
       $ osprey set channel_finder_mode=in_context
       $ osprey set config.system.timezone=America/Los_Angeles
-      $ osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
-      $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
+      $ osprey set --repo ~/my-assistant config.control_system.writes=never
     """
     from osprey.deployment.staleness import check_drift
     from osprey_connectors.errors import BuildProfileError
@@ -304,6 +378,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     profile_path = repo_root / PROFILE_FILENAME
 
     _refuse_retired_shorthands(pairs)
+    _refuse_write_posture(pairs)
     model_check = _model_check(repo_root, pairs)
 
     try:
