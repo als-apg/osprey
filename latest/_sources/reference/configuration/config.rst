@@ -786,7 +786,8 @@ watcher that can go blind without saying so.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``osprey up`` refuses to deploy a tier that is entitled to a Bluesky launch
-token while its ``.claude/settings.json`` does not deny ``Bash``: a shell could
+token while its ``.claude/settings.json`` does not deny both ``Bash`` and
+``Monitor`` (which runs shell commands too): a shell could
 read the token out of its own environment and arm a queue with no approval.
 One root-level key waives that refusal, for a development box with a single
 trusted operator and no live machine behind it:

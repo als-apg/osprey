@@ -1248,7 +1248,8 @@ watcher that can go blind without saying so.</p>
 <section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
 <span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to deploy a tier that is entitled to a Bluesky launch
-token while its <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> does not deny <code class="docutils literal notranslate"><span class="pre">Bash</span></code>: a shell could
+token while its <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> does not deny both <code class="docutils literal notranslate"><span class="pre">Bash</span></code> and
+<code class="docutils literal notranslate"><span class="pre">Monitor</span></code> (which runs shell commands too): a shell could
 read the token out of its own environment and arm a queue with no approval.
 One root-level key waives that refusal, for a development box with a single
 trusted operator and no live machine behind it:</p>
