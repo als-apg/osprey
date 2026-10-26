@@ -1,0 +1,25 @@
+{
+  "name": "open-into-empty-dock",
+  "rule": "rule-7",
+  "before": null,
+  "op": {
+    "fn": "openItem",
+    "key": "a",
+    "context": {
+      "focusedTile": null,
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      }
+    }
+  },
+  "after": {
+    "tile": "t1",
+    "tabs": ["a"],
+    "showing": "a"
+  },
+  "focus": "t1"
+}

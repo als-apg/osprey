@@ -1,0 +1,21 @@
+{
+  "name": "validate-collection-duplicate-member",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tabs": [0]
+      },
+      {
+        "tabs": [0]
+      }
+    ]
+  },
+  "options": {
+    "form": "collection",
+    "members": 1
+  },
+  "reason": "duplicate_key",
+  "where": "layout.items[1].tabs[0]"
+}

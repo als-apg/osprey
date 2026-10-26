@@ -1,0 +1,61 @@
+{
+  "name": "close-showing-tab-shows-next",
+  "rule": "rule-8",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b", "e", "f"],
+        "showing": "e",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "closeTab",
+    "key": "e"
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b", "f"],
+        "showing": "f",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "record": {
+    "kind": "tab",
+    "key": "e",
+    "tile": "t2",
+    "index": 1,
+    "showing": true
+  }
+}

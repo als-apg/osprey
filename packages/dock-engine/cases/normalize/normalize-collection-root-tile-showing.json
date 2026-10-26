@@ -1,0 +1,12 @@
+{
+  "name": "normalize-collection-root-tile-showing",
+  "rule": "C-LAYOUT",
+  "form": "collection",
+  "input": {
+    "tabs": [0, 1]
+  },
+  "output": {
+    "tabs": [0, 1],
+    "showing": 0
+  }
+}

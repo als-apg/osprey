@@ -1,0 +1,13 @@
+{
+  "name": "validate-collection-member-missing",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tabs": [0, 1]
+  },
+  "options": {
+    "form": "collection",
+    "members": 3
+  },
+  "reason": "member_missing",
+  "where": "layout"
+}

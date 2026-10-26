@@ -1,0 +1,32 @@
+{
+  "name": "normalize-collection-weights",
+  "rule": "C-LAYOUT",
+  "form": "collection",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tabs": [0]
+      },
+      {
+        "tabs": [1],
+        "size": 3
+      }
+    ]
+  },
+  "output": {
+    "split": "row",
+    "items": [
+      {
+        "tabs": [0],
+        "showing": 0,
+        "size": 0.25
+      },
+      {
+        "tabs": [1],
+        "showing": 1,
+        "size": 0.75
+      }
+    ]
+  }
+}

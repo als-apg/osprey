@@ -158,6 +158,12 @@ fi
 step "js typecheck"
 npm run typecheck
 
+step "dock-engine bundle"
+node packages/dock-engine/scripts/build.mjs --check
+
+step "dock-engine tests"
+npm run test:dock-engine
+
 step "js lint"
 npm run lint
 

@@ -1,0 +1,21 @@
+{
+  "name": "validate-dock-duplicate-key",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a"
+      },
+      {
+        "tile": "t2",
+        "tabs": ["a"],
+        "showing": "a"
+      }
+    ]
+  },
+  "reason": "duplicate_key",
+  "where": "layout.items[1].tabs[0]"
+}

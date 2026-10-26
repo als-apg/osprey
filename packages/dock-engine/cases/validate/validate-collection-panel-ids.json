@@ -1,0 +1,19 @@
+{
+  "name": "validate-collection-panel-ids",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "column",
+    "items": [
+      {
+        "tabs": ["terminal"]
+      },
+      {
+        "tabs": ["p1", "p2"]
+      }
+    ]
+  },
+  "options": {
+    "form": "collection"
+  },
+  "valid": true
+}

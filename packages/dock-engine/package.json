@@ -1,0 +1,31 @@
+{
+  "name": "@als-apg/dock-engine",
+  "version": "0.0.0-dev",
+  "private": false,
+  "description": "Pure dock layout engine (layout model, geometry, drop, open, close, hit-test) shared by the OSPREY web terminal and CANOPY, with its golden case files",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/als-apg/osprey.git",
+    "directory": "packages/dock-engine"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/dock-engine.d.mts",
+      "default": "./dist/dock-engine.mjs"
+    },
+    "./cases": {
+      "types": "./dist/cases.d.mts",
+      "default": "./dist/cases.mjs"
+    },
+    "./cases/*": "./cases/*"
+  },
+  "files": [
+    "dist",
+    "cases",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false
+}

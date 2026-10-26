@@ -71,6 +71,10 @@ updates:
     ignore:
       - dependency-name: "marked"
       - dependency-name: "dompurify"
+      # Exact pins of the dock-engine build (dist/ is built by them); move by hand with a rebuild.
+      - dependency-name: "vite"
+      - dependency-name: "typescript-6"
+      - dependency-name: "@types/node"
     groups:
       js-toolchain:
         patterns:
