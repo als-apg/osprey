@@ -1,10 +1,11 @@
 """The checked-in OTLP fixture was captured from the Claude Code CLI the deployment pins.
 
 The fixture ``tests/fixtures/telemetry/claude_cli_session.otlp.json`` records
-the event names and attribute keys the CLI emits; the gateway, the store's
-columns and the "reconstruct a session" SQL are tested against it. It is
-recorded by ``tests/e2e/test_telemetry_contract_live.py``, which needs a model
-and runs only under ``full-ci``. This check needs neither, so it runs on every
+the event names and attribute keys the CLI emits when a launch exports to
+agent-record's ``/v1/logs``; agent-record's OTLP receiver is tested against it
+(``tests/agent_record/test_otlp_receiver.py``). It is recorded by
+``tests/e2e/test_telemetry_contract_live.py``, which needs a model and runs
+only under ``full-ci``. This check needs neither, so it runs on every
 pull request: a change of the pinned version that is not accompanied by a new
 capture fails here, on the pull request that makes it.
 """
@@ -50,6 +51,10 @@ def test_the_otlp_fixture_was_captured_with_the_pinned_cli_version() -> None:
     )
     assert recorded.get("captured_at"), f"the OTLP fixture records no capture time; {RECAPTURE}"
     assert recorded.get("requests"), f"the OTLP fixture holds no requests; {RECAPTURE}"
+    # The receiver test posts the log requests and nothing else.
+    assert any(r.get("signal") == "logs" for r in recorded["requests"]), (
+        f"the OTLP fixture holds no log requests; {RECAPTURE}"
+    )
 
 
 def _attributes(node: Any) -> Iterator[tuple[str, Any]]:
