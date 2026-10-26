@@ -369,7 +369,7 @@ rendered. Steps 1–9 happen at build time, step 10 at start:
 5. If ``copy_src: true``, copy ``src/`` into the build as ``repo_src/``, plus ``requirements.txt`` and ``pyproject.toml`` (renamed ``pyproject_user.toml``).
 6. With ``--dev``, build a wheel from the local Osprey checkout and drop it into the build dir.
 7. Copy any ``additional_dirs`` into the build.
-8. Auto-create the ``_agent_data/`` subdirectories the deploy step sweeps (currently ``registry_exports_dir``). Others declared under ``file_paths`` — ``api_calls_dir`` — are created on demand by the code that writes to them.
+8. Auto-create the ``_agent_data/`` subdirectories the deploy step sweeps (``registry_exports_dir``, the one subdirectory declared under ``file_paths``).
 9. Write a flattened ``config.yml`` per service. ``${VAR}`` placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).
 10. Shell out to ``docker compose`` / ``podman compose``.
 

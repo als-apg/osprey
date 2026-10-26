@@ -517,10 +517,6 @@ Documentation and feedback keys
      - Recipient of the prefilled mail draft the dialog's Email channel opens.
        Nothing ships here: the draft can carry a session's scrollback, so name
        the mailbox your operators should reach before offering the channel.
-   * - ``web.feedback.max_store_bytes``
-     - ``268435456`` (256 MB)
-     - Ceiling on the on-disk feedback store. Over it, the oldest saved session
-       contexts are dropped; the submissions themselves are always kept.
    * - ``web.app_name``
      - unset (no badge)
      - Optional name badge in the terminal header, so otherwise-identical
@@ -558,7 +554,6 @@ Documentation and feedback keys
            label: OSPREY upstream
        github_repo: ""
        email: controls-support@example.org
-       max_store_bytes: 268435456
 
 ``docs_url``, ``trackers``, ``github_repo`` and ``email`` are unset in every
 shipped preset — each is documented there as a commented example, so nothing
@@ -613,14 +608,12 @@ Three ways of writing one of the three **string** keys (``docs_url``,
   and it reads as *absent*, not blank — "I have not decided yet" rather than
   "there is none" — so you get the default. Write ``""`` when you mean none.
 
-``max_store_bytes`` takes a positive byte count; anything else — blank
-included — is reported in the log and the default is used. ``trackers`` has
-no blank posture of its own: an empty list, or none, simply adds no channel.
+``trackers`` has no blank posture of its own: an empty list, or none, simply adds no channel.
 The feedback dialog's Local channel is always available and needs no
 configuration at all.
 
 A build profile overrides any of these keys from its ``config:`` block in the
-dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
+dotted form, e.g. ``web.feedback.email: controls-support@example.org``.
 
 .. _config-web-tour:
 

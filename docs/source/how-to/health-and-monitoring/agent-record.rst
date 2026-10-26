@@ -35,11 +35,6 @@ Where the record lives
      - the worker's agent-data volume, ``claude-config/projects/``
      - Claude Code, after the same key
      - yes
-   * - Dispatch run records
-     - the worker's agent-data volume, ``dispatch/*.json``; at most 200 tool
-       calls, 16 KB per result
-     - ``RETENTION_DAYS`` and the dashboard's clear-history
-     - yes, from the next pass on — a record cleared before it is gone
    * - Dispatch artifact store
      - the worker's agent-data volume, ``artifacts/`` (files and
        ``artifacts.json``)

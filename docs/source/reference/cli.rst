@@ -681,10 +681,7 @@ A workspace that cannot be read is reported and the rest of the deployment is
 still listed or exported; the export's closing summary distinguishes a workspace
 that contributed nothing from one that was only partly readable. If nothing at
 all could be read, both verbs stop rather than reporting a deployment with no
-feedback in it. A submission whose session was dropped to keep the store inside
-``web.feedback.max_store_bytes`` carries ``context_pruned``; one missing its
-session for any other reason carries ``context_missing``. The submission is
-exported either way.
+feedback in it.
 
 Exit status: ``0`` on success, including a deployment nobody has sent feedback
 from. Non-zero when the repository has no build, when every workspace failed to
