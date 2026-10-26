@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.connectors.test_package_never_imports_osprey import framework_imports
+from osprey_connectors_tests.test_package_never_imports_osprey import framework_imports
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = REPO_ROOT / "packages" / "osprey-optimizer" / "src" / "osprey_optimizer"
