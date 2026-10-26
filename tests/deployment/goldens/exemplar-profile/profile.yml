@@ -260,14 +260,13 @@ config:
   # in the environment outranks this key, for a container pointed at a registry
   # mounted somewhere the config could not have named.
   # registry_path: project/registry.py
-  # Master write switch, the FIRST guard in the write-safety chain: while
-  # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only tier pins it off.
-  # Write posture is per connector type: a `control_system.connector.<type>.
-  # writes_enabled` overrides this for that type alone, and only a literal
-  # `true` arms writes at either level.
-  control_system.writes_enabled: true
+  # Write posture, the FIRST guard in the write-safety chain: while `never`,
+  # every hardware write is refused before the limits check or the approval
+  # prompt is consulted. `allowed` here because the baseline is the simulator,
+  # which cannot move a magnet; the read-only tier pins it `never`. Under
+  # `allowed`, each login's own write switch for each machine decides the next
+  # write, so allowing writes arms no machine by itself.
+  control_system.writes: allowed
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
@@ -309,10 +308,6 @@ config:
 
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Write posture for the simulator alone. Uncomment to arm writes here while
-  # the master switch keeps the live machine read-only; the shipped
-  # `readwrite` and `admin` tiers write this key.
-  # control_system.connector.virtual_accelerator.writes_enabled: true
   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
@@ -338,9 +333,6 @@ config:
 
   # Channel Access timeout in seconds.
   control_system.connector.epics.timeout_s: 5.0
-  # Write posture for the live machine. Stating it pins it: a type with its
-  # own posture never falls back to the master switch.
-  # control_system.connector.epics.writes_enabled: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT

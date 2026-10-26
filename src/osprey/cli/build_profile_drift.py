@@ -591,6 +591,12 @@ def _locate(node: Any, segments: list[str]) -> int | None:
             found = _locate(node[head], rest)
             if found is not None:
                 return found
+        # A block path the file spells only as dotted leaves (``control_system``
+        # under ``control_system.writes: never``) is cited at its first leaf.
+        prefix = ".".join(segments) + "."
+        for key in node:
+            if isinstance(key, str) and key.startswith(prefix):
+                return int(node.lc.key(key)[0]) + 1
         return None
     if isinstance(node, CommentedSeq) and len(segments) == 1:
         for index, item in enumerate(node):

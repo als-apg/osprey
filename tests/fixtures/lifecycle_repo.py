@@ -391,14 +391,13 @@ config:
   # `osprey set config.archiver.type=<the archiver that records it>` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: virtual_accelerator
-  # Master write switch, the FIRST guard in the write-safety chain: while
-  # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the
-  # simulator, which cannot move a magnet; the read-only tier pins it off.
-  # Write posture is per connector type: a `control_system.connector.<type>.
-  # writes_enabled` overrides this for that type alone, and only a literal
-  # `true` arms writes at either level.
-  control_system.writes_enabled: true
+  # Write posture, the FIRST guard in the write-safety chain: while `never`,
+  # every hardware write is refused before the limits check or the approval
+  # prompt is consulted. `allowed` here because the baseline is the simulator,
+  # which cannot move a magnet; the read-only tier pins it `never`. Under
+  # `allowed`, each login's own write switch for each machine decides the next
+  # write, so allowing writes arms no machine by itself.
+  control_system.writes: allowed
   # Extra tools the kill switch refuses while writes are off. Framework write
   # tools are covered automatically; list your own servers' write tools here.
   # control_system.write_tools: [mcp__my_server__dangerous_write]
@@ -440,10 +439,6 @@ config:
   #
   # Channel Access timeout in seconds.
   control_system.connector.virtual_accelerator.timeout_s: 5.0
-  # Write posture for the simulator alone. Uncomment to arm writes here while
-  # the master switch keeps the live machine read-only; the shipped
-  # `readwrite` and `admin` tiers in tiers/ write this key.
-  # control_system.connector.virtual_accelerator.writes_enabled: true
   # Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
@@ -473,9 +468,6 @@ config:
   # value, in seconds. Running out of budget refuses the write, so raise this
   # for a slow gateway — it buys room, never a weaker check.
   # control_system.connector.epics.step_read_timeout_s: 2.0
-  # Write posture for the live machine. Stating it pins it: a type with its
-  # own posture never falls back to the master switch.
-  # control_system.connector.epics.writes_enabled: false
   # Channel the target switch reads to prove the live machine is reachable.
   # While unset this target is never switched to.
   # control_system.connector.epics.probe_channel: SR:BEAM:CURRENT
@@ -500,12 +492,9 @@ config:
   # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
   # facility's own DOOCS environment already names, so the empty coordinate set
   # is the point of this block rather than an omission — what is left is how
-  # long a call is given and the two leaves every connector type answers.
+  # long a call is given and the probe channel every connector type answers.
   # Seconds an ENS lookup, a property read or a property set is given.
   # control_system.connector.doocs.timeout_s: 5.0
-  # Write posture for the DOOCS machine. Same tri-state as the epics leaf
-  # above: stating it pins it, and only a literal true arms writes.
-  # control_system.connector.doocs.writes_enabled: false
   # Property the target switch reads to prove this machine is reachable.
   # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
   # TANGO connector: one coordinate of its own, the device database, spelled
@@ -517,8 +506,7 @@ config:
   # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout_s: 5.0
-  # The same two leaves as every other connector type, for the TANGO machine.
-  # control_system.connector.tango.writes_enabled: false
+  # Device attribute the target switch reads to prove this machine is reachable.
   # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #
@@ -1653,18 +1641,13 @@ name: Als Exemplar (readonly)
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The axis this tier hard-pins, and it takes three keys rather than one.
-  # The flat key is the posture a connector type inherits when its own block
-  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
-  # in the deployment's profile would arm that type over it. So the read-only
-  # tier pins every block off as well as the key they inherit from, and a type
-  # that arms writes here has to be added by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The axis this tier hard-pins. `never` wins over the deployment's own
+  # `allowed`, since a tier's key beats the root's, so no session of this
+  # tier writes to any machine the deployment configures.
+  control_system.writes: never
   # Pared-down operator layout: chat only, workspace hidden until the agent
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
-  # pins `expert`), same rationale as writes_enabled.
+  # pins `expert`), same rationale as control_system.writes.
   #
   # This tier also has no EVENTS/BLUESKY panels, not by any key here, but
   # because only the write-capable tiers add them by name.
@@ -1707,18 +1690,12 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The tier boundary, and it takes three keys. Armed on the simulator alone.
-  # The flat key is what every connector type inherits when its own block says
-  # nothing, so its false is what the stand-in reads. The epics block is pinned
-  # by name so a per-type `true` in the deployment's profile cannot lift the
-  # live machine's ceiling. Only a literal `true` arms a type, and a per-type
-  # value never falls back to the flat key.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: true
+  # The tier boundary, pinned rather than left to the deployment's root, so
+  # a root that says `never` does not take this tier's writes away.
+  control_system.writes: allowed
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
-  # than left to the server default, for the same reason writes_enabled is.
+  # than left to the server default, for the same reason control_system.writes is.
   web.ui_mode: expert
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
@@ -1765,16 +1742,11 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.
 config:
-  # The admin tier carries readwrite's control posture exactly: armed on the
-  # simulator, read-only on both hardware-shaped targets. The flat key is what
-  # every connector type inherits when its own block says nothing, the epics
-  # block is pinned by name so no per-type `true` in the deployment's profile
-  # can lift the live ceiling, and the simulator's block is the one type armed.
+  # The admin tier carries readwrite's control posture exactly: writes
+  # allowed, each machine's write still decided by the login's own switch.
   # What makes this the admin tier is the deployment-editing block below, not a
   # wider write surface.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: true
+  control_system.writes: allowed
   # The axis this tier is defined by: the three privileges the deployment
   # floors, all lifted here and nowhere else.
   #
@@ -1901,11 +1873,8 @@ config:
   # deployment's graph store). The event dispatcher renders only with the
   # EVENTS panel, which no app carries.
   #
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write. Publishing is the half that reaches
   # the facility's logbook, so it is gated too.
@@ -2017,11 +1986,8 @@ config:
   # deployment's editors' work, not a shared card's.
   claude_code.permissions.deny:
     - mcp__osprey_facility_knowledge__draft_concept
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Full split-pane layout: the KNOWLEDGE and CHANNELS panels need the panel area.
   web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
@@ -2126,11 +2092,8 @@ config:
   # point of this app). The event dispatcher renders only with the EVENTS
   # panel, which no app carries.
   #
-  # The write boundary, pinned on all three keys: the flat key every connector
-  # type inherits, and both hardware-shaped types by name.
-  control_system.writes_enabled: false
-  control_system.connector.epics.writes_enabled: false
-  control_system.connector.virtual_accelerator.writes_enabled: false
+  # The write boundary: `never`, the only value an app may spell.
+  control_system.writes: never
   # Full split-pane layout: the CHANNELS panel needs the panel area.
   web.ui_mode: expert
   # No control-target picker in the title bar: nothing here reaches the machine.
