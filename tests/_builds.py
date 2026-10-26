@@ -24,7 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -284,3 +284,56 @@ def offline_build_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str
             fill_uv_cache(Path(tempfile.mkdtemp(prefix="uv-cache-", dir=shared)))
             record.write_text("served\n")
     return dict(OFFLINE_BUILD_ENV)
+
+
+def copy_build(
+    repo: Path,
+    parent: Path,
+    *,
+    ignore: Callable[[str, list[str]], Iterable[str]] | None = None,
+) -> Path:
+    """Copy a built repo to ``parent / repo.name``, re-anchored so nothing in it names *repo*.
+
+    A build records its repo's absolute path (``project_root`` in each
+    config.yml, the manifests, the MCP and settings files); rewriting it makes
+    the copy self-contained, so a test may write to the copy of a shared build.
+    The rewrite is on bytes, so a file with internal offsets (a database) would
+    be corrupted; a build carries the path in none. A build has no symlinks.
+
+    The copy has NO image context: ``build/.image`` is left out. Start and
+    deploy preflight (``render_images.verify_renders``) refuse it as a partial
+    render, the snapshot seeder finds fewer targets, and nothing can be
+    image-built from it. A test that needs any of that rebuilds the copy.
+
+    Args:
+        repo: The built repo.
+        parent: The directory the copy is made in, under the repo's own name,
+            which init made the project name.
+        ignore: Further entries to leave out, as :func:`shutil.copytree` takes it.
+
+    Returns:
+        The copy.
+    """
+    from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+
+    repo = repo.resolve()
+    dest = parent.resolve() / repo.name
+    build_zone = repo / BUILD_DIR_NAME
+
+    def skip(src: str, names: list[str]) -> set[str]:
+        skipped = set(ignore(src, names)) if ignore is not None else set()
+        if Path(src) == build_zone:
+            skipped.add(IMAGE_DIR_NAME)
+        return skipped
+
+    shutil.copytree(repo, dest, ignore=skip)
+    old, new = str(repo).encode(), str(dest).encode()
+    rewritten = 0
+    for path in dest.rglob("*"):
+        if path.is_file():
+            data = path.read_bytes()
+            if old in data:
+                path.write_bytes(data.replace(old, new))
+                rewritten += 1
+    assert rewritten, f"no file in {repo} names its path; the copy would not be its own"
+    return dest
