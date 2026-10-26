@@ -22,6 +22,7 @@ def envdir(tmp_path, monkeypatch):
     d = tmp_path / "environments"
     d.mkdir()
     monkeypatch.setenv("OPTIMIZER_ENVIRONMENTS_DIR", str(d))
+    monkeypatch.delenv("OPTIMIZER_PLUGINS", raising=False)
     monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [])
     EnvironmentRegistry.reset()
     yield d
@@ -50,8 +51,17 @@ def test_a_name_from_both_a_file_and_a_plugin_fails_discovery(envdir: Path, monk
     (envdir / "a.yml").write_text(ENV.format(name="alpha"))
     plugin = type("EP", (), {"name": "alpha"})()
     monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin])
+    monkeypatch.setenv("OPTIMIZER_PLUGINS", "alpha")
     with pytest.raises(ValueError, match="both a file and a plugin"):
         EnvironmentRegistry().discover_environments()
+
+
+def test_a_file_beside_a_plugin_not_enabled_is_no_clash(envdir: Path, monkeypatch):
+    (envdir / "a.yml").write_text(ENV.format(name="alpha"))
+    plugin = type("EP", (), {"name": "alpha"})()
+    monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin])
+    infos = EnvironmentRegistry().list_environments()
+    assert [(i.name, i.source) for i in infos] == [("alpha", "file")]
 
 
 def test_a_broken_file_fails_discovery_instead_of_vanishing(envdir: Path):
@@ -133,6 +143,7 @@ def _plugin(presets):
 def test_a_plugin_offers_presets_from_its_class(monkeypatch):
     plugin = _plugin({"quick": {"variables": ["x"], "n_iterations": 5}})
     monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin])
+    monkeypatch.setenv("OPTIMIZER_PLUGINS", "plug")
     presets = EnvironmentRegistry().get_presets("plug")
     assert presets["quick"].variables == ["x"]
     assert presets["quick"].n_iterations == 5
@@ -142,6 +153,7 @@ def test_a_plugin_offers_presets_from_its_class(monkeypatch):
 def test_a_plugin_with_a_bad_preset_is_refused(monkeypatch):
     plugin = _plugin({"q": {"n_iterations": 0}})
     monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin])
+    monkeypatch.setenv("OPTIMIZER_PLUGINS", "plug")
     with pytest.raises(ValueError, match="invalid preset"):
         EnvironmentRegistry().get_presets("plug")
 
@@ -150,3 +162,35 @@ def test_a_plugin_with_a_bad_preset_is_refused(monkeypatch):
 def test_presets_of_an_unknown_environment_is_a_key_error():
     with pytest.raises(KeyError):
         EnvironmentRegistry().get_presets("nope")
+
+
+@pytest.mark.usefixtures("envdir")
+@pytest.mark.parametrize("configured", [None, "", " , "])
+def test_no_plugin_is_loaded_unless_enabled(monkeypatch, caplog, configured):
+    monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [_plugin({})])
+    if configured is not None:
+        monkeypatch.setenv("OPTIMIZER_PLUGINS", configured)
+    with caplog.at_level("INFO", logger=plugin_registry.__name__):
+        assert EnvironmentRegistry().list_environments() == []
+    assert "not named in OPTIMIZER_PLUGINS: ['plug']" in caplog.text
+    with pytest.raises(KeyError):
+        EnvironmentRegistry().load_environment("plug", {})
+
+
+@pytest.mark.usefixtures("envdir")
+def test_an_enabled_plugin_is_listed_and_loaded(monkeypatch):
+    plugin = _plugin({})
+    other = type("EP", (), {"name": "other"})()
+    monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [plugin, other])
+    monkeypatch.setenv("OPTIMIZER_PLUGINS", " plug ,")
+    registry = EnvironmentRegistry()
+    assert [(i.name, i.source) for i in registry.list_environments()] == [("plug", "plugin")]
+    assert registry.get_environment_class("plug") is plugin.load()
+
+
+@pytest.mark.usefixtures("envdir")
+def test_an_enabled_plugin_not_installed_fails_discovery(monkeypatch):
+    monkeypatch.setattr(plugin_registry, "entry_points", lambda group: [_plugin({})])
+    monkeypatch.setenv("OPTIMIZER_PLUGINS", "plug,ghost")
+    with pytest.raises(ValueError, match=r"\['ghost'\] that are not installed"):
+        EnvironmentRegistry().discover_environments()

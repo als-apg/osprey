@@ -8,7 +8,16 @@ Environments come from two places:
   point group, for facilities that need more than channels (shot gating,
   composite objectives, machine checks).
 
-A name may come from only one of them; a clash is refused at discovery.
+Plugins are opt-in: only the entry points named in ``$OPTIMIZER_PLUGINS``
+(comma-separated) are loaded, and with it unset the service serves environment
+files only. A plugin implements ``set_variables`` itself, so it must reach the
+machine through
+:class:`~osprey_optimizer.environments.interface.ConnectorInterface`, whose
+every write is checked. Nothing yet enforces that for plugin code: enabling a
+plugin trusts it.
+
+A name may come from only one source; a clash between a file and an enabled
+plugin is refused at discovery.
 
 Either kind may offer presets, named run setups a draft starts from: an
 environment file under ``presets:``, a plugin class as ``PRESETS``, a mapping of
@@ -46,17 +55,37 @@ _REQUIRED_PROTOCOL_MEMBERS = (
 )
 
 
+def enabled_plugins() -> set[str]:
+    """The plugin names ``$OPTIMIZER_PLUGINS`` enables (comma-separated); none when unset."""
+    configured = os.environ.get("OPTIMIZER_PLUGINS", "")
+    return {name.strip() for name in configured.split(",") if name.strip()}
+
+
 @functools.cache
 def _discovered_environments() -> dict[str, EntryPoint]:
-    """Scan the entry-point group for environment plugins (cached: scanned once per process)."""
+    """Scan the entry-point group for enabled plugins (cached: scanned once per process).
+
+    An enabled name with no installed entry point fails discovery, as a bad
+    environment file does.
+    """
     logger.info("Discovering environment plugins...")
+    enabled = enabled_plugins()
     environments: dict[str, EntryPoint] = {}
+    skipped: list[str] = []
 
     eps = entry_points(group=ENTRY_POINT_GROUP)
     for ep in eps:
+        if ep.name not in enabled:
+            skipped.append(ep.name)
+            continue
         environments[ep.name] = ep
         logger.info("Discovered environment: %s", ep.name)
 
+    if skipped:
+        logger.info("Skipped plugin(s) not named in OPTIMIZER_PLUGINS: %s", sorted(skipped))
+    missing = sorted(enabled - set(environments))
+    if missing:
+        raise ValueError(f"OPTIMIZER_PLUGINS names plugin(s) {missing} that are not installed")
     return environments
 
 

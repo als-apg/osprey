@@ -31,8 +31,9 @@ if TYPE_CHECKING:
 
 
 # tuning_scripts ran these tests with its injector plugin installed. Here the same
-# names are served by this suite's own fake, registered as entry points, so the
-# tests that load "als_injector_sim" through the real registry still do.
+# names are served by this suite's own fake, registered as entry points and
+# enabled in OPTIMIZER_PLUGINS, so the tests that load "als_injector_sim" through
+# the real registry still do.
 _FAKE_PLUGINS = ("als_injector", "als_injector_sim")
 
 
@@ -53,6 +54,7 @@ def _fake_environment_plugins(
         for name in _FAKE_PLUGINS
     ]
     monkeypatch.setattr(plugin_registry, "entry_points", lambda group: eps)
+    monkeypatch.setenv("OPTIMIZER_PLUGINS", ",".join(_FAKE_PLUGINS))
     monkeypatch.setenv("OPTIMIZER_ENVIRONMENTS_DIR", str(tmp_path / "no-environment-files"))
     plugin_registry.EnvironmentRegistry.reset()
     yield

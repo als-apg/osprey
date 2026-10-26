@@ -5,7 +5,9 @@ system, with every write going through an OSPREY connector, so the write
 switch, channel limits and `max_step` apply to each one. An optimization
 environment is a YAML file of setpoint/readback channels and observables;
 Python environments register on the `osprey.optimizer.environments`
-entry-point group.
+entry-point group and are opt-in: the service loads only those named in
+`OPTIMIZER_PLUGINS` (comma-separated). A plugin must reach the machine through
+`ConnectorInterface`; that is not yet enforced for plugin code.
 
 ## Install
 
