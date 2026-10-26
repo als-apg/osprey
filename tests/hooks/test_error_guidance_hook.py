@@ -638,6 +638,8 @@ EXPECTED_ERROR_CLASSES = {
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    "record_unavailable": "Connection",
+    "incomplete": "Connection",
     "manager_unreachable": "Connection",
     "environment_unavailable": "Connection",
     "abort_pause_timeout": "Connection",
