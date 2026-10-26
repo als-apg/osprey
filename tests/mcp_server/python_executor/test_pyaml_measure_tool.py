@@ -178,7 +178,7 @@ def test_a_switched_off_machine_is_refused_by_the_real_clamp(tmp_path, monkeypat
     """
     from osprey.audit import posture, writer
     from osprey.mcp_server.python_executor.tools import _execution_gates
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import refusal_text
     from osprey_connectors_tests._write_fakes import (
         ARMED_SECTION,
         ARMED_TARGET,
@@ -196,7 +196,7 @@ def test_a_switched_off_machine_is_refused_by_the_real_clamp(tmp_path, monkeypat
     envelope = _error(kind="orm")
 
     assert envelope["error_type"] == "safety_error"
-    assert envelope["error_message"] == refusal_phrase("switch_off", "simulator")
+    assert envelope["error_message"] == refusal_text("switch_off", "simulator")
     assert envelope["details"] == {"reason": "switch_off", "target": ARMED_TARGET}
 
 

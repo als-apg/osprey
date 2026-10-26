@@ -1098,15 +1098,15 @@ def va_deployment(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def narrowed_va(tmp_path, monkeypatch, va_deployment):  # noqa: ARG001 - arms the switch first
-    """An operator narrowing of ``va`` to read-only, in reach of this process.
+def switched_off_va(tmp_path, monkeypatch, va_deployment):  # noqa: ARG001 - arms the switch first
+    """The operator's switch for ``va`` turned off, in reach of this process.
 
-    The narrowing lives in the deployment's control-context record under
+    The switch lives in the deployment's control-context record under
     ``OSPREY_AGENT_DATA_ROOT``, so every process on the deployment — this one
     and the connector-host child it spawns — reads the same one.
     """
     root = tmp_path / "agent-data"
-    write_control_context(root, posture={"va": posture_store.POSTURE_SANDBOX}, switch={"va": "on"})
+    write_control_context(root, switch={})
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     posture_store.invalidate_cache()
     yield root
@@ -1135,11 +1135,11 @@ def _verify(config, report, writes_enabled):
     return derivation, verify_child_report(derivation, report)
 
 
-@pytest.mark.usefixtures("narrowed_va")
-def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
+@pytest.mark.usefixtures("switched_off_va")
+def test_identical_gateways_report_the_role_the_switched_off_posture_selected(
     va_deployment, monkeypatch
 ):
-    """The shipped VA shape, with the operator holding ``va`` read-only.
+    """The shipped VA shape, with the operator's switch for ``va`` off.
 
     Both roles name the same endpoint, so there is no evidence in the
     environment to tell them apart and the reported role is decided by the
@@ -1157,7 +1157,7 @@ def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
         connector, "virtual_accelerator", "va", config["control_system"]
     )
 
-    # The deployment arms this target; only the operator's narrowing is holding
+    # The deployment arms this target; only the operator's switch is holding
     # it down, and the report is the connector's own answer rather than a
     # second reading of the config.
     assert connector._writes_enabled is False
@@ -1171,10 +1171,10 @@ def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
     assert report["readonly_run"] is False
 
 
-def test_identical_gateways_still_report_write_access_when_nothing_narrows(
+def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
     va_deployment, monkeypatch
 ):
-    """The same deployment with no narrowing — the armed answer still stands.
+    """The same deployment with the switch on — the armed answer still stands.
 
     The read-only report above is the store's doing, not a report that has been
     pinned to the read gateway.
@@ -1196,8 +1196,8 @@ def test_identical_gateways_still_report_write_access_when_nothing_narrows(
     assert verification.ok, verification.detail
 
 
-@pytest.mark.usefixtures("narrowed_va")
-async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
+@pytest.mark.usefixtures("switched_off_va")
+async def test_a_switched_off_target_reports_the_posture_its_writes_are_refused_on(
     va_deployment, monkeypatch
 ):
     """Distinct gateways: the report's posture is the connector's, end to end.
@@ -1220,7 +1220,7 @@ async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
     assert report["selected_role"] == "read_only"
 
     # Same instance, same rule: the deployment arms this target, so the refusal
-    # can only be the narrowing the report is now reporting.
+    # can only be the switch the report is now reporting.
     result = await connector.write_channel("SR:CORR:1:SP", 0.5)
     assert result.outcome is WriteOutcome.REFUSED
 

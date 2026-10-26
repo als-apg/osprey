@@ -327,7 +327,7 @@ async def test_execute_file_switched_off_target_blocks(tmp_path, monkeypatch):
     patterns ran under execution_mode="readwrite" whatever the deployment
     allowed. The refusal is the switch's phrase, and names no config key.
     """
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import refusal_text
     from osprey_connectors_tests._write_fakes import ARMED_TARGET, turn_switch
 
     turn_switch(ARMED_TARGET, "off")
@@ -365,7 +365,7 @@ async def test_execute_file_switched_off_target_blocks(tmp_path, monkeypatch):
             )
 
     mock_exec.assert_not_called()
-    assert ctx["envelope"]["error_message"] == refusal_phrase("switch_off", "simulator")
+    assert ctx["envelope"]["error_message"] == refusal_text("switch_off", "simulator")
     assert "writes_enabled" not in ctx["envelope"]["error_message"]
 
 

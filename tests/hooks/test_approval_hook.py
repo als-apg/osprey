@@ -1478,7 +1478,7 @@ def _posture_config(tmp_path, control_system, services=None):
     return path
 
 
-def _write_session_state(repo_root, target, on=(), posture=None):
+def _write_session_state(repo_root, target, on=()):
     """Point the deployment at *target*, with the switch on for each of *on*.
 
     Lands under ``<repo_root>/var/agent_data``, which is the root the hooks
@@ -1491,7 +1491,6 @@ def _write_session_state(repo_root, target, on=(), posture=None):
         root,
         target=target,
         generation=1,
-        posture=posture,
         switch=dict.fromkeys(on, "on") if on else None,
     )
     write_server_report(
@@ -1847,13 +1846,13 @@ def test_a_defer_is_never_the_last_word(
         assert run("osprey_writes_check.py") == "deny"
 
 
-def test_a_recorded_narrowing_defers_and_writes_check_denies(tmp_path, hook_runner, monkeypatch):
-    """A recorded sandbox composes like a switch turned off: defer, with the deny behind it.
+def test_a_switch_turned_off_defers_and_writes_check_denies(tmp_path, hook_runner, monkeypatch):
+    """Turning the machine's switch off moves the prompt to a defer, with the deny behind it.
 
-    The machine is switched on, so the narrowing on the control-context record
-    is the only thing refusing here, and ``osprey_writes_check`` reads the same
-    record. Keeping the prompt would ask the human to approve a write the next
-    hook is guaranteed to refuse.
+    The machine starts switched on, so the prompt stands; then the switch on the
+    control-context record is turned off, and ``osprey_writes_check`` reads the
+    same record. Keeping the prompt would ask the human to approve a write the
+    next hook is guaranteed to refuse.
     """
     session_key = "4f1c2a7e-0000-4000-8000-000000000001"
     config = _posture_config(tmp_path, TWO_TARGETS)
@@ -1870,13 +1869,14 @@ def test_a_recorded_narrowing_defers_and_writes_check_denies(tmp_path, hook_runn
             CHANNEL_WRITE_INPUT,
         )
 
-    # Control: with nothing narrowed, the switched-on machine keeps its prompt.
+    # Control: while its switch is on, the machine keeps its prompt.
     assert run("osprey_approval.py") == "ask"
 
-    _write_session_state(tmp_path, target="live", on=("live",), posture={"live": "sandbox"})
+    # The gesture turns every unnamed machine off: ``live`` off, ``va`` on.
+    _write_session_state(tmp_path, target="live", on=("va",))
 
     assert run("osprey_approval.py") is None, (
-        "the narrowing is refused by writes_check, so the prompt must defer to that deny"
+        "the switched-off machine is refused by writes_check, so the prompt must defer to that deny"
     )
     assert run("osprey_writes_check.py") == "deny"
 

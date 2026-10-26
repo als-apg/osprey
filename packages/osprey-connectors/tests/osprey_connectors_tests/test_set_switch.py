@@ -106,12 +106,15 @@ def test_a_turn_on_with_the_equal_epoch_is_accepted(data_root):
 
 
 def test_the_gesture_keeps_every_other_field(data_root):
-    path = write_control_context(data_root, target="va", generation=7, posture={"live": "sandbox"})
+    """Only ``switch`` and its ``posture`` mirror move; the mirror follows the switch."""
+    path = write_control_context(data_root, target="va", generation=7, switch={"va": "on"})
     before = _payload(path)
     set_switch(["live"], "on", epoch=before["switch_epoch"])
     after = _payload(path)
-    assert {k: v for k, v in after.items() if k != "switch"} == {
-        k: v for k, v in before.items() if k != "switch"
+    assert after["switch"] == {"va": "on", "live": "on"}
+    assert after["posture"] == control_context.posture_mirror(after["switch"])
+    assert {k: v for k, v in after.items() if k not in ("switch", "posture")} == {
+        k: v for k, v in before.items() if k not in ("switch", "posture")
     }
 
 

@@ -29,7 +29,7 @@ What is pinned here, and why each one matters:
 * **The record write is read-verified before the request is unlinked**, because
   the requester polls the record for its own id and nothing else.
 * **A write verdict that moves for the active target realigns the connector** —
-  the switch turned on or off, or a narrowing — and waits for a running
+  the switch turned on or off — and waits for a running
   execution, saying so while it waits: the realignment rebuilds the connector,
   and rebuilding it under a run would retire the child that run was promised.
 
@@ -423,7 +423,7 @@ class TestOwnership:
         """The claim is a merge: it changes who may write, not what it says."""
         manager = FakeManager(target="va", generation=3)
         install_context(manager, monkeypatch)
-        write_record(target="va", generation=3, posture={"va": "sandbox"}, owned_by=None)
+        write_record(target="va", generation=3, switch={"live": "on"}, owned_by=None)
 
         await session_control.SessionControlReconciler().poll_once()
 
@@ -431,7 +431,8 @@ class TestOwnership:
         assert current.owner.kind == control_context.OWNER_CONTROLS_SERVER
         assert current.owner.pid == os.getpid()
         assert (current.target, current.generation) == ("va", 3)
-        assert current.posture == {"va": "sandbox"}
+        assert current.switch == {"live": "on"}
+        assert current.posture == {"va": "sandbox", "standin": "sandbox"}
 
     @pytest.mark.usefixtures("records")
     async def test_a_record_owned_by_a_dead_process_is_claimed(self, monkeypatch):
@@ -651,14 +652,14 @@ class TestReconcileToTheRecord:
 
     @pytest.mark.usefixtures("records")
     async def test_the_reconcile_runs_before_the_realignment(self, monkeypatch):
-        """PROPOSAL bullet 7: a same-target adoption leaves a narrowing pending,
+        """PROPOSAL bullet 7: a same-target adoption leaves a switch-off pending,
         and the rebuild that answers it happens in the same pass, after it."""
         manager = FakeManager(target="live", generation=0)
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(target="live", generation=1, posture={"live": "sandbox"})
+        write_record(target="live", generation=1, switch={"va": "on"})
         await reconciler.poll_once()
 
         assert manager.reconcile_calls == [("live", 1)]
@@ -1124,22 +1125,23 @@ class TestPostureRealignment:
         assert realign() is None
 
     @pytest.mark.usefixtures("records")
-    async def test_a_narrowing_on_the_active_target_rebuilds_the_connector(self, monkeypatch):
+    async def test_every_machine_switched_off_rebuilds_the_connector(self, monkeypatch):
+        """The all-off gesture clears the active target's switch with the rest."""
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
 
-        await reconciler.poll_once()  # baseline: nothing narrowed
+        await reconciler.poll_once()  # baseline: every machine switched on
         assert manager.respawns == 0
 
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={})
         await reconciler.poll_once()
 
         assert manager.respawns == 1
         assert realign()["state"] == session_control.REALIGN_DONE
 
     @pytest.mark.usefixtures("records")
-    async def test_a_narrowing_waits_for_a_running_execution(self, monkeypatch):
+    async def test_a_switch_off_waits_for_a_running_execution(self, monkeypatch):
         """The rebuild retires the child a running execution was promised."""
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
@@ -1147,7 +1149,7 @@ class TestPostureRealignment:
         await reconciler.poll_once()
 
         write_marker("live")
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={"va": "on"})
         await reconciler.poll_once()
 
         assert manager.respawns == 0
@@ -1181,7 +1183,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={"va": "on"})
         await reconciler.poll_once()
 
         assert manager.respawns == 1, "the rebuild was not attempted"
@@ -1198,14 +1200,15 @@ class TestPostureRealignment:
         assert realign()["state"] == session_control.REALIGN_DONE
 
     @pytest.mark.usefixtures("records")
-    async def test_a_narrowing_on_another_target_is_not_a_realignment(self, monkeypatch):
-        """Narrowing the machine this server is not on changes nothing here."""
+    async def test_a_switch_turned_on_for_another_target_is_not_a_realignment(self, monkeypatch):
+        """Turning on the machine this server is not on changes nothing here."""
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
+        write_record(switch={"live": "on"})
         reconciler = session_control.SessionControlReconciler()
-        await reconciler.poll_once()
+        await reconciler.poll_once()  # baseline: live on, va off
 
-        write_record(posture={"va": "sandbox"})
+        write_record(switch={"live": "on", "va": "on"})
         await reconciler.poll_once()
 
         assert manager.respawns == 0
@@ -1218,7 +1221,7 @@ class TestPostureRealignment:
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
 
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={"va": "on"})
         await reconciler.poll_once()
         await reconciler.poll_once()
         await reconciler.poll_once()
@@ -1231,7 +1234,7 @@ class TestPostureRealignment:
         manager = FakeManager(target="live", generation=0)
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
-        write_record(posture={"va": "sandbox"})
+        write_record(switch={"live": "on"})
         await reconciler.poll_once()
 
         write_request("va")
@@ -1239,7 +1242,7 @@ class TestPostureRealignment:
         await reconciler.poll_once()  # this server follows it
         assert manager.active_target() == "va"
 
-        # The pass after the move finds a narrowed active target and rebuilds
+        # The pass after the move finds a switched-off active target and rebuilds
         # nothing: the child that switch built read the record on the way up.
         await reconciler.poll_once()
         assert manager.respawns == 0
@@ -1252,16 +1255,16 @@ class TestPostureRealignment:
 class TestDisplayRepublication:
     """The targets block follows the record, not just the switches.
 
-    Display metadata names the gateway a posture chose, and a narrowing can
-    land on a target no switch is about — where the writer would otherwise go
+    Display metadata names the gateway a posture chose, and a switch can
+    turn off a target this server is not on — where the writer would otherwise go
     on naming a gateway the session may no longer use. So a move of the record
     republishes the block on its own, and a record that has not moved buys
     nothing: the steady state must cost no publication and no write at all,
     or the reconciler would rewrite its report once a second forever.
     """
 
-    async def test_a_narrowing_on_another_target_republishes_without_realigning(self, monkeypatch):
-        """No switch runs for that machine, so nothing else would restate it."""
+    async def test_a_switch_off_on_another_target_republishes_without_realigning(self, monkeypatch):
+        """No target switch runs for that machine, so nothing else would restate it."""
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
@@ -1269,21 +1272,21 @@ class TestDisplayRepublication:
         await reconciler.poll_once()  # baseline
         manager.display_publishes = 0
 
-        write_record(posture={"va": "sandbox"})
+        write_record(switch={"live": "on"})
         await reconciler.poll_once()
 
         assert manager.display_publishes == 1
         assert manager.respawns == 0
         assert realign() is None
 
-    async def test_a_narrowing_on_the_active_target_republishes_and_realigns(self, monkeypatch):
+    async def test_a_switch_off_on_the_active_target_republishes_and_realigns(self, monkeypatch):
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
         await reconciler.poll_once()
         manager.display_publishes = 0
 
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={"va": "on"})
         await reconciler.poll_once()
 
         assert manager.display_publishes == 1
@@ -1295,7 +1298,7 @@ class TestDisplayRepublication:
         manager = FakeManager(target="live")
         armed(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={"va": "on"})
         await reconciler.poll_once()
 
         writes = 0
@@ -1324,7 +1327,7 @@ class TestDisplayRepublication:
         await reconciler.poll_once()
         manager.display_publishes = 0
 
-        write_record(posture={"live": "sandbox"})
+        write_record(switch={"va": "on"})
         await reconciler.poll_once()
 
         assert manager.display_publishes == 1

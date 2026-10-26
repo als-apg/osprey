@@ -37,6 +37,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.simulation.conftest import stage_built_simulator_view
 
 if TYPE_CHECKING:
@@ -54,16 +55,12 @@ QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
 UNSTABLE_CURRENT = 712.2
 
 
-def _writes_enabled(key: str, default: Any = None) -> Any:
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
 @pytest.fixture(autouse=True)
-def _no_model_log_file(monkeypatch: pytest.MonkeyPatch) -> None:
+def _no_model_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """No model log file, and a write tier that allows with the simulator switched on."""
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    arm_switch(monkeypatch, tmp_path / "agent-data")
 
 
 async def _connected(view: Path) -> VAInProcessConnector:

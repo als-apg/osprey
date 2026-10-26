@@ -20,7 +20,7 @@ from fastmcp.exceptions import ToolError
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
 from osprey_connectors import posture_store
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import refusal_text
 from osprey_connectors_tests._harness import (
     FIXTURE_IDENTITY,
     REFUSAL_BAN_LIST,
@@ -136,7 +136,7 @@ def test_a_read_only_run_refuses_with_its_phrase(deployment, monkeypatch):
 
     envelope = _refusal()
 
-    assert envelope["error_message"] == refusal_phrase("readonly_run", "real")
+    assert envelope["error_message"] == refusal_text("readonly_run", "real")
     assert envelope["details"] == {"reason": "readonly_run", "target": "live"}
 
 
@@ -144,7 +144,7 @@ def test_a_tier_that_allows_nothing_refuses(deployment):
     deployment.section = {"type": "epics"}
     deployment.on("live", switch={"live": "on"})
 
-    assert _refusal()["error_message"] == refusal_phrase("tier_never", "real")
+    assert _refusal()["error_message"] == refusal_text("tier_never", "real")
 
 
 def test_a_switch_that_is_off_refuses(deployment):
@@ -152,7 +152,7 @@ def test_a_switch_that_is_off_refuses(deployment):
 
     envelope = _refusal()
 
-    assert envelope["error_message"] == refusal_phrase("switch_off", "real")
+    assert envelope["error_message"] == refusal_text("switch_off", "real")
     assert envelope["details"] == {"reason": "switch_off", "target": "live"}
 
 
@@ -162,7 +162,7 @@ def test_no_record_refuses_the_baseline_as_switched_off():
     envelope = _refusal()
 
     assert envelope["details"] == {"reason": "switch_off", "target": "live"}
-    assert envelope["error_message"] == refusal_phrase("switch_off", "real")
+    assert envelope["error_message"] == refusal_text("switch_off", "real")
 
 
 def test_a_record_target_this_deployment_cannot_build_refuses(deployment):
@@ -173,7 +173,7 @@ def test_a_record_target_this_deployment_cannot_build_refuses(deployment):
     envelope = _refusal()
 
     assert envelope["details"]["reason"] == "target_unknown"
-    assert envelope["error_message"] == refusal_phrase("target_unknown")
+    assert envelope["error_message"] == refusal_text("target_unknown")
 
 
 def test_an_unknown_owner_refuses(deployment, monkeypatch):
@@ -183,7 +183,7 @@ def test_an_unknown_owner_refuses(deployment, monkeypatch):
     envelope = _refusal()
 
     assert envelope["details"]["reason"] == "owner_unknown"
-    assert envelope["error_message"] == refusal_phrase("owner_unknown", "real")
+    assert envelope["error_message"] == refusal_text("owner_unknown", "real")
 
 
 def test_an_unreadable_record_refuses(deployment):
@@ -194,7 +194,7 @@ def test_an_unreadable_record_refuses(deployment):
     envelope = _refusal()
 
     assert envelope["details"]["reason"] == "record_unavailable"
-    assert envelope["error_message"] == refusal_phrase("record_unavailable", "real")
+    assert envelope["error_message"] == refusal_text("record_unavailable", "real")
 
 
 def test_an_inherited_target_stamp_is_not_what_the_gate_asks_about(deployment, monkeypatch):

@@ -18,7 +18,7 @@ import pytest
 
 from osprey.audit import posture
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import refusal_phrase, refusal_text
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
@@ -38,7 +38,7 @@ CLIENT_WRITE = "epics.caput('SR:QF1:SP', 1.0)\n"
 
 #: What each refusal says, matched on its own words.
 SAYS_CLAMP = refusal_phrase("readonly_run")
-SAYS_OFF = refusal_phrase("switch_off", "simulator")
+SAYS_OFF = refusal_text("switch_off", "simulator")
 SAYS_PATH = "location the deployment protects"
 SAYS_IMPORT = "cannot be imported in readonly mode"
 SAYS_PATTERN = "write patterns detected in readonly mode"

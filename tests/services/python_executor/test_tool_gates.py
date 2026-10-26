@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.audit import posture
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import refusal_phrase, refusal_text
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST, write_control_context
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
@@ -471,7 +471,7 @@ async def test_a_switched_off_target_sends_the_operator_to_the_chip():
 
     envelope = ctx["envelope"]
     _assert_posture_envelope(envelope, source="store")
-    assert envelope["error_message"] == refusal_phrase("switch_off", "simulator")
+    assert envelope["error_message"] == refusal_text("switch_off", "simulator")
     assert envelope["details"] == {"reason": "switch_off", "target": ARMED_TARGET}
 
 
@@ -658,7 +658,7 @@ async def _run_readwrite(tmp_path, monkeypatch):
 def _assert_refused_for_the_live_machine(envelope, expected_target):
     """The refusal is the switch-off phrase for the real machine, and names no key."""
     text = " ".join([envelope["error_message"], *envelope["suggestions"]])
-    assert envelope["error_message"] == refusal_phrase("switch_off", "real")
+    assert envelope["error_message"] == refusal_text("switch_off", "real")
     assert REFUSAL_BAN_LIST.search(text) is None, text
     assert envelope["details"] == {"reason": "switch_off", "target": expected_target}
 
