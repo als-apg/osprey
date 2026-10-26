@@ -32,6 +32,7 @@ from osprey.agent_runner import (
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolStartEvent,
     ToolUseEvent,
     agent_session,
 )
@@ -333,6 +334,41 @@ _EXPIRED_MESSAGES = {
 #: reports in a later response of its own.
 _AGENT_TOOLS = frozenset({"Task", "Agent"})
 _ASYNC_LAUNCH_MARK = "Async agent launched"
+
+#: What the chat's agent is told about drawing in its replies. Only this chat
+#: draws a fenced ``svg`` block (the terminal would show its source), so the
+#: guide rides on this session's system prompt, not on the shared rules.
+_SVG_CALLOUT_GUIDE = (
+    "Your replies are shown in the web terminal's Simple view, which renders markdown "
+    "and draws a fenced `svg` code block as a picture in a box. Use a drawing only as a "
+    "quick look at a result you saved as an artifact: the top few values, a handful of "
+    "key numbers, or a small schematic of where something is. Make at most one drawing "
+    "in a reply, and always name the artifact it comes from in your text as "
+    "`artifact_id: <id>`, so the operator can open the full result. Every value in a "
+    "drawing must come from a tool result or an artifact; never invent or estimate one. "
+    "Do not draw what a plot tool should make: the artifact is the result, the drawing "
+    "is a glance at it. Skip the drawing when the reply is one or two numbers. Decide "
+    "whether to draw before you start writing the reply, and put the drawing in that "
+    "reply: once a reply is sent it stands. Never call a tool you do not need, such as a "
+    "read of an empty file or a subagent with nothing to do, only to keep your turn "
+    "going.\n"
+    "What to draw: bars only for values that share one unit, each bar's length "
+    "proportional to its value and measured from a common zero, with the value written "
+    "at its end. Values in different units are never bars: show them as a small grid of "
+    "labelled numbers (a label, the value and its unit), one tile each. Give one colour to "
+    "each kind of thing (every cavity the same colour), use var(--color-accent) for the "
+    "item the reply is about and var(--text-muted) for the rest, and lay items out in one "
+    "column or one row so the eye reads them in order.\n"
+    "How to draw: one <svg> element with a viewBox no larger than 640 by 240; text at "
+    "font-size 12 to 14; colours only currentColor, var(--text-primary), "
+    "var(--text-secondary), var(--text-muted), var(--border-default), var(--bg-elevated), "
+    "var(--color-accent), var(--color-accent-secondary), var(--color-success), "
+    "var(--color-warning) and var(--color-error), set as fill and stroke attributes on "
+    "each element; no background fill. Style elements, style attributes and any other "
+    "colour are removed before the drawing is shown, and a part left with no colour draws "
+    "in the reply's text colour. Scripts, foreignObject, links, images, <use> and "
+    "animation are removed too."
+)
 
 #: Task statuses that end a background agent, across ``task_notification``'s
 #: and ``task_updated``'s vocabularies (the SDK's TERMINAL_TASK_STATUSES).
@@ -650,6 +686,16 @@ def _event_to_wire(event: AgentEvent) -> dict[str, Any] | None:
             "type": "delta",
             "kind": event.kind,
             "content": event.text,
+            "parent_tool_use_id": event.parent_tool_use_id,
+        }
+    if isinstance(event, ToolStartEvent):
+        # The chat's status line names the call while its input is still
+        # being written; the row itself waits for the whole ``tool_use``.
+        return {
+            "type": "tool_start",
+            "tool_name": format_tool_name(event.name),
+            "tool_name_raw": event.name,
+            "tool_use_id": event.tool_use_id,
             "parent_tool_use_id": event.parent_tool_use_id,
         }
     # Any other record (rate-limit notices, …) stays off the stream.
@@ -1085,7 +1131,7 @@ class OperatorSession:
                 max_budget_usd=None,
                 permission_mode=None,
                 setting_sources=["project"],
-                system_prompt=build_system_prompt(get_facility_timezone()),
+                system_prompt=build_system_prompt(get_facility_timezone(), _SVG_CALLOUT_GUIDE),
                 env=session_env if session_env is not None else {},
                 resume=resume_id,
                 session_id=session_id,

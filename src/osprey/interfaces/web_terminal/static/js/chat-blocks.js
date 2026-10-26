@@ -141,13 +141,24 @@ export function createThinkingBlock(since = Date.now()) {
   row.status.append(chevron);
   row.head.addEventListener('click', () => row.setOpen(!row.isOpen()));
 
+  // The row opens only onto reasoning it holds: a model that keeps its
+  // reasoning hidden sends empty pieces, live and when it settles alike.
+  function syncOpenable() {
+    const empty = !row.body.textContent?.trim();
+    row.el.classList.toggle('empty', empty);
+    row.head.disabled = empty;
+  }
+  syncOpenable();
+
   return {
     el: row.el,
     add(text) {
       row.body.append(text);
+      syncOpenable();
     },
     set(text) {
       row.body.textContent = text;
+      syncOpenable();
     },
     record(ms) {
       recorded = ms;
@@ -156,11 +167,7 @@ export function createThinkingBlock(since = Date.now()) {
       row.setState('done');
       row.label.classList.remove('op-shimmer');
       row.label.textContent = thoughtLabel(recorded === undefined ? Date.now() - since : recorded);
-      // Models that return redacted reasoning send empty blocks: nothing to open.
-      if (!row.body.textContent?.trim()) {
-        row.el.classList.add('empty');
-        row.head.disabled = true;
-      }
+      syncOpenable();
     },
   };
 }

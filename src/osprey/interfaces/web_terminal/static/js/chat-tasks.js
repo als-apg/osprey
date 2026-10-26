@@ -15,7 +15,9 @@
  * `TaskCreate` adds one task and `TaskUpdate` changes one by id; both take
  * effect when their result lands, and only if the call succeeded. A created
  * task's id is read from the result (`Task #3 created successfully: …`), never
- * counted, so a lost frame cannot shift which task an update names. Calls made
+ * counted, so a lost frame cannot shift which task an update names. An update
+ * names its task as `taskId` or `task_id` (the CLI takes both), or, failing
+ * both, by the id its result reports (`Updated task #3 status`). Calls made
  * by a subagent are its own bookkeeping and are left out.
  *
  * @module chat-tasks
@@ -36,8 +38,8 @@ import { toolKey } from './chat-tool-vocab.js';
  * @property {TaskStatus} status
  */
 
-/** The id a successful `TaskCreate` reports: `Task #<id> created …`. */
-const CREATED_ID = /#([A-Za-z0-9_-]+)/;
+/** The id a successful task call reports: `Task #<id> created …`, `Updated task #<id> …`. */
+const REPORTED_ID = /#([A-Za-z0-9_-]+)/;
 
 /**
  * @param {unknown} status
@@ -88,14 +90,19 @@ export function createTaskList() {
   function create(input, result) {
     const subject = text(input.subject);
     if (!subject) return false;
-    const id = CREATED_ID.exec(result)?.[1] ?? `unnamed-${(unnamed += 1)}`;
+    const id = REPORTED_ID.exec(result)?.[1] ?? `unnamed-${(unnamed += 1)}`;
     tasks.set(id, { id, subject, activeForm: text(input.activeForm), status: 'pending' });
     return true;
   }
 
-  /** @param {Record<string, any>} input */
-  function update(input) {
-    const id = input.taskId === undefined ? '' : String(input.taskId);
+  /**
+   * @param {Record<string, any>} input
+   * @param {string} result
+   */
+  function update(input, result) {
+    const named = input.taskId ?? input.task_id;
+    const id =
+      named === undefined || named === null ? (REPORTED_ID.exec(result)?.[1] ?? '') : String(named);
     const task = tasks.get(id);
     if (!task) return false;
     if (input.status === 'deleted') {
@@ -133,9 +140,8 @@ export function createTaskList() {
         if (!call) return false;
         calls.delete(callId);
         if (event.is_error) return false;
-        return call.key === 'taskcreate'
-          ? create(call.input, String(event.preview ?? ''))
-          : update(call.input);
+        const result = String(event.preview ?? '');
+        return call.key === 'taskcreate' ? create(call.input, result) : update(call.input, result);
       }
       return false;
     },

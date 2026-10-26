@@ -369,8 +369,8 @@ describe('createChatRenderer', () => {
   });
 
   describe('activity-line state machine', () => {
-    // The loader is the activity line: it shows while a turn runs and nothing
-    // is streaming, and steps aside while text streams.
+    // The loader is the activity line: it stays at the foot of the log for the
+    // whole turn, and its label follows what the agent is doing.
     test('thinking marker shows "Thinking…"', () => {
       const r = createChatRenderer(container);
       r.beginTurn();
@@ -385,13 +385,59 @@ describe('createChatRenderer', () => {
       expect(qs(container, '.op-loader-label').textContent).toBe('Reading control channels…');
     });
 
-    test('text clears the activity line', () => {
+    test('the line stays up through a whole turn, and its label follows each phase', () => {
       const r = createChatRenderer(container);
       r.beginTurn();
-      r.handleEvent({ type: 'thinking' });
-      expect(container.querySelector('.op-loader')).not.toBeNull();
-      r.handleEvent({ type: 'text', content: 'answer' });
+      const label = () => qs(container, '.op-loader-label').textContent;
+      const pinned = () => container.lastElementChild?.classList.contains('op-loader');
+
+      r.handleEvent({ type: 'delta', kind: 'text', content: 'Reading the channels now.' });
+      expect([pinned(), label()]).toEqual([true, 'Writing…']);
+      // The call is named as soon as it starts, before its input arrives.
+      r.handleEvent({ type: 'tool_start', tool_name: 'Channel Read', tool_use_id: 't1' });
+      expect([pinned(), label()]).toEqual([true, 'Reading control channels…']);
+      r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read', tool_use_id: 't1', input: {} });
+      r.handleEvent({ type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '1.0' });
+      r.handleEvent({ type: 'delta', kind: 'text', content: 'Done.' });
+      expect([pinned(), label()]).toEqual([true, 'Writing…']);
+
+      r.handleEvent({ type: 'result', is_error: false, duration_ms: 10 });
       expect(container.querySelector('.op-loader')).toBeNull();
+    });
+
+    test("a subagent's call starting names the agent, and draws no row", () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      r.handleEvent({
+        type: 'tool_use',
+        tool_name: 'Agent',
+        tool_name_raw: 'Agent',
+        tool_use_id: 'a1',
+        input: { subagent_type: 'channel-finder', description: 'find' },
+      });
+      r.handleEvent({ type: 'tool_start', tool_name: 'Channel Read', parent_tool_use_id: 'a1' });
+      expect(qs(container, '.op-loader-label').textContent).toBe(
+        'channel-finder · Reading control channels…'
+      );
+      expect(container.querySelectorAll('.op-tool:not(.op-agent)')).toHaveLength(0);
+    });
+
+    test('while the reply streams a drawing, the line says "Drawing…", then "Writing…" again', () => {
+      const r = createChatRenderer(container);
+      r.beginTurn();
+      const label = () => qs(container, '.op-loader-label').textContent;
+      r.handleEvent({
+        type: 'delta',
+        kind: 'text',
+        content: 'Quick look:\n\n```svg\n<svg viewBox',
+      });
+      expect(label()).toBe('Drawing…');
+      r.handleEvent({
+        type: 'delta',
+        kind: 'text',
+        content: '="0 0 1 1"></svg>\n```\n\nThat is all',
+      });
+      expect(label()).toBe('Writing…');
     });
 
     test('the activity line stays pinned below the latest entry', () => {
@@ -400,6 +446,23 @@ describe('createChatRenderer', () => {
       r.beginTurn();
       r.handleEvent({ type: 'tool_use', tool_name: 'Read' });
       expect(container.lastElementChild?.classList.contains('op-loader')).toBe(true);
+    });
+
+    test('while a card waits on the operator, the line says so', () => {
+      const r = createChatRenderer(container, { answerPermission: vi.fn() });
+      r.beginTurn();
+      r.handleEvent({
+        type: 'permission_request',
+        request_id: 'req-1',
+        kind: 'tool',
+        tool_name: 'Execute',
+        tool_name_raw: 'mcp__python__execute',
+        tool_use_id: 'x1',
+        input: { code: 'print(1)' },
+        reason: null,
+        can_allow_session: false,
+      });
+      expect(qs(container, '.op-loader-label').textContent).toBe('Waiting for your answer');
     });
   });
 

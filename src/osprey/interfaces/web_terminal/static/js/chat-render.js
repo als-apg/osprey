@@ -96,7 +96,7 @@ const TIMED_FRAMES = new Set(['text', 'delta', 'thinking', 'tool_use', 'tool_res
  * @param {string} text
  */
 function renderAgentMarkdown(el, text) {
-  renderMarkdownInto(el, text, { math: true });
+  renderMarkdownInto(el, text, { math: true, svg: true });
   linkArtifactIds(el);
 }
 
@@ -166,7 +166,7 @@ export function createChatRenderer(container, options = {}) {
   let lastFrameAt = 0;
   /** The loader's label: the current activity. */
   let activity = 'Working…';
-  /** Whether text is streaming now; the loader steps aside while it does. */
+  /** Whether the reply's text is streaming now; the status line says so. */
   let streamingText = false;
   /** The live loader, created on first use and then reused. */
   let loader = /** @type {LoaderHandle | null} */ (null);
@@ -313,18 +313,21 @@ export function createChatRenderer(container, options = {}) {
   }
 
   /**
-   * Show the loader while a turn runs and nothing is streaming or waiting on
-   * the operator. Otherwise stop its clock and take it out of the log.
+   * The status line stays at the foot of the log for the whole turn, from
+   * beginTurn to endTurn, so there is always a sign of what the agent is
+   * doing. Its label follows the turn: a card waiting on the operator, the
+   * reply being written, or the current activity.
    */
   function syncLoader() {
-    const waiting = [...cards.values()].some((card) => card.pending);
-    if (!running || streamingText || waiting) {
+    if (!running) {
       loader?.stop();
       loader?.el.remove();
       return;
     }
+    const waiting = [...cards.values()].some((card) => card.pending);
     if (!loader) loader = createLoader();
-    loader.setLabel(activity);
+    const writing = turn?.drawing() ? 'Drawing…' : 'Writing…';
+    loader.setLabel(waiting ? 'Waiting for your answer' : streamingText ? writing : activity);
     loader.start(startedAt);
     if (container.lastElementChild !== loader.el) container.appendChild(loader.el);
   }
@@ -501,6 +504,19 @@ export function createChatRenderer(container, options = {}) {
         if (key === QUESTION_TOOL_KEY) {
           if (replaying) questionReplay.ask(event);
         } else if (!HIDDEN_TOOL_KEYS.has(key)) appendToolUse(event);
+        break;
+      }
+      case 'tool_start': {
+        // The agent began writing a call; name it now, as its input can take
+        // seconds to arrive. The row waits for the whole `tool_use`.
+        const { agent, nested } = ownerOf(event);
+        if (nested) {
+          if (agent) activity = `${agent.name} · ${activityLabel(event)}`;
+          break;
+        }
+        streamingText = false;
+        const key = toolKey(event.tool_name_raw ?? event.tool_name);
+        activity = key === QUESTION_TOOL_KEY ? 'Preparing a question…' : activityLabel(event);
         break;
       }
       case 'tool_result': {

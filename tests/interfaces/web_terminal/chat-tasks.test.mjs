@@ -97,6 +97,22 @@ describe('TaskCreate and TaskUpdate', () => {
     ]);
   });
 
+  test.each([
+    ['taskId', { taskId: '2' }],
+    ['task_id', { task_id: '2' }],
+    ['only the id its result reports', {}],
+  ])('an update that names its task by %s finds it', (_case, naming) => {
+    created('c1', '1', 'First');
+    created('c2', '2', 'Second');
+    use('u1', 'TaskUpdate', { ...naming, status: 'completed' });
+    result('u1', 'Updated task #2 status');
+
+    expect(rows()).toEqual([
+      ['pending', 'First'],
+      ['completed', 'Second'],
+    ]);
+  });
+
   test('the task in hand is named by what the agent is doing', () => {
     created('c1', '1', 'Plot setpoint vs readback', {
       activeForm: 'Plotting setpoint vs readback',

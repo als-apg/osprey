@@ -104,6 +104,22 @@ describe('the footer', () => {
 });
 
 describe('the reasoning row', () => {
+  test('a hidden thought cannot be opened while it runs, and one with text can', () => {
+    const t = turn();
+    t.think('', true);
+    const row = qs(t.entry, '.op-thinking');
+    const head = /** @type {HTMLButtonElement} */ (qs(row, '.op-row-head'));
+    expect(row.dataset.state).toBe('running');
+    expect(head.disabled).toBe(true);
+    head.click();
+    expect(qs(row, '.op-row-body').hidden).toBe(true);
+
+    t.think('Checking the gaps.', true);
+    expect(head.disabled).toBe(false);
+    head.click();
+    expect(qs(row, '.op-row-body').hidden).toBe(false);
+  });
+
   test('is live and pulsing while open, then settles and says how long it took', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-25T10:00:00Z'));

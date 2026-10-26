@@ -140,6 +140,13 @@ export function createSimpleView(callbacks) {
   // clicks "Show all"; latched here so re-renders (SSE, fetch) keep it expanded.
   let simpleShowAllResults = false;
 
+  // The entry the result card's preview was built from. Rebuilding the preview
+  // reloads its frame, so the card blanks for a moment: a render that shows the
+  // same entry (a focus on the artifact already shown, a new item in the list)
+  // leaves it alone. An update replaces the entry, so it is rebuilt.
+  /** @type {any} */
+  let previewOf = null;
+
   /** @returns {void} */
   function render() {
     if (!simpleListBody) return;
@@ -167,13 +174,14 @@ export function createSimpleView(callbacks) {
         simpleSave.href = fileUrl(latest);
         simpleSave.setAttribute('download', latest.filename);
       }
-      if (simpleResultPreview) {
+      if (simpleResultPreview && latest !== previewOf) {
         // Same dispatch the Expert preview pane renders through — Simple has no
         // renderer of its own, so every type Expert can show, Simple shows too.
         simpleResultPreview.innerHTML = artifactViewportHtml(latest);
         mountArtifactViewport(simpleResultPreview, latest, {
           onTimeseriesNeeded: callbacks.onTimeseriesNeeded,
         });
+        previewOf = latest;
       }
       if (simpleResultCaption) {
         simpleResultCaption.textContent =

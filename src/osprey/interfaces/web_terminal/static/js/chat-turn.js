@@ -19,6 +19,7 @@ import {
   createThinkingBlock,
   createTurnFooter,
 } from './chat-blocks.js';
+import { openSvgFenceAt } from './chat-svg.js';
 import { createTurnActions } from './chat-tool-runs.js';
 
 /** @typedef {import('./chat-dom.js').WireEvent} WireEvent */
@@ -31,6 +32,7 @@ import { createTurnActions } from './chat-tool-runs.js';
  * @property {HTMLElement} entry
  * @property {(chunk: string) => void} text - a whole text block
  * @property {(piece: string) => void} textDelta - a streamed piece of the open text block
+ * @property {() => boolean} drawing - whether the reply streaming now is inside an `svg` block
  * @property {(chunk: string, piece?: boolean, timing?: { since?: number, durationMs?: number | null }) => void} think - reasoning, whole or streamed; *timing* says when it began (live) or how long it took (replay)
  * @property {(event: WireEvent) => ToolChip} tool - a tool call's row
  * @property {(event: WireEvent) => AgentChip} agent - a subagent call's row
@@ -140,6 +142,9 @@ export function createTurn({ renderText, onThinkingEnd }) {
       const i = texts.length - 1;
       texts[i] += piece;
       scheduleRender(target, texts[i]);
+    },
+    drawing() {
+      return body !== null && streamed && openSvgFenceAt(texts[texts.length - 1] ?? '') >= 0;
     },
     /**
      * @param {string} chunk

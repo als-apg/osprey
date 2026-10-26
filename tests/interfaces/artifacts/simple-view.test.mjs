@@ -18,7 +18,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   fetchArtifacts,
+  getArtifacts,
   getSelectedArtifact,
+  setArtifacts,
   setSelectedArtifact,
   setFocusedArtifact,
   fileUrl,
@@ -313,6 +315,25 @@ describe('the result card', () => {
 
     const img = qs(byId('simple-result-preview'), 'img', HTMLImageElement);
     expect(img.getAttribute('src')).toBe(fileUrl(a));
+  });
+
+  test('a focus on the artifact already shown keeps its preview; an update rebuilds it', async () => {
+    await seed([makeArtifact({ id: 'a1' }), makeArtifact({ id: 'a2', timestamp: FRESH })]);
+    const simple = view();
+    simple.render();
+    const before = qs(byId('simple-result-preview'), 'img', HTMLImageElement);
+
+    // The agent focuses the artifact the card already shows.
+    setFocusedArtifact(getArtifacts().find((a) => a.id === 'a2'));
+    simple.render();
+    expect(qs(byId('simple-result-preview'), 'img', HTMLImageElement)).toBe(before);
+
+    // The same artifact rewritten in place arrives as a new entry.
+    setArtifacts(getArtifacts().map((a) => (a.id === 'a2' ? { ...a, title: 'Rewritten' } : a)));
+    setFocusedArtifact(getArtifacts().find((a) => a.id === 'a2'));
+    simple.render();
+    expect(qs(byId('simple-result-preview'), 'img', HTMLImageElement)).not.toBe(before);
+    expect(title()).toBe('Rewritten');
   });
 
   test('hands a timeseries artifact to onTimeseriesNeeded with its mounted container', async () => {

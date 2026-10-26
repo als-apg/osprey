@@ -125,10 +125,29 @@ class DeltaEvent:
     Produced only for a run opened with ``include_partial_messages``. The whole
     block still arrives afterwards as a :class:`TextEvent` or
     :class:`ThinkingEvent`, which is the authoritative copy.
+
+    A ``thinking`` delta with empty ``text`` marks a reasoning block opening. A
+    model that hides its reasoning streams only empty pieces, so the block's
+    start is the one sign, while it thinks, that it is thinking.
     """
 
     kind: str  # "text" | "thinking"
     text: str
+    parent_tool_use_id: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ToolStartEvent:
+    """The agent began writing a tool call; its input is still streaming.
+
+    Produced only for a run opened with ``include_partial_messages``, from the
+    call's block start. The whole call arrives later as a :class:`ToolUseEvent`
+    with the same ``tool_use_id``; until then this is the one sign of what the
+    agent is about to do.
+    """
+
+    name: str
+    tool_use_id: str
     parent_tool_use_id: str | None
 
 
@@ -141,11 +160,18 @@ AgentEvent = (
     | SystemEvent
     | ResultEvent
     | DeltaEvent
+    | ToolStartEvent
 )
 
 #: Stream-event delta types the chat shows as they arrive, and the record kind
 #: and payload field each maps to.
 _DELTA_FIELDS = {"text_delta": ("text", "text"), "thinking_delta": ("thinking", "thinking")}
+
+#: Content blocks whose start is announced as an empty ``thinking`` delta.
+_REASONING_BLOCKS = frozenset({"thinking", "redacted_thinking"})
+
+#: Content blocks whose start is announced as a :class:`ToolStartEvent`.
+_TOOL_BLOCKS = frozenset({"tool_use", "server_tool_use"})
 
 
 def _tool_block_event(block: object, parent_tool_use_id: str | None) -> AgentEvent | None:
@@ -177,8 +203,10 @@ def translate_message(message: object) -> list[AgentEvent]:
     plain string, yield nothing. Every system message, subclasses included,
     yields one :class:`SystemEvent`; the result message yields one
     :class:`ResultEvent`. A partial stream event yields one :class:`DeltaEvent`
-    when it is a text or thinking delta. Anything else — other stream events,
-    rate-limit notices, an unknown type — yields nothing.
+    when it is a text or thinking delta with text, or the start of a reasoning
+    block, and one :class:`ToolStartEvent` at the start of a tool call. Anything
+    else — other stream events, rate-limit notices, an unknown type — yields
+    nothing.
 
     Args:
         message: One message from the SDK's response stream.
@@ -227,14 +255,26 @@ def translate_message(message: object) -> list[AgentEvent]:
         )
     elif isinstance(message, StreamEvent):
         raw = message.event if isinstance(message.event, dict) else {}
+        parent = message.parent_tool_use_id
+        opened = raw.get("content_block") if raw.get("type") == "content_block_start" else None
+        if isinstance(opened, dict) and opened.get("type") in _REASONING_BLOCKS:
+            events.append(DeltaEvent(kind="thinking", text="", parent_tool_use_id=parent))
+        elif (
+            isinstance(opened, dict)
+            and opened.get("type") in _TOOL_BLOCKS
+            and isinstance(opened.get("name"), str)
+        ):
+            events.append(
+                ToolStartEvent(
+                    name=opened["name"],
+                    tool_use_id=str(opened.get("id", "")),
+                    parent_tool_use_id=parent,
+                )
+            )
         delta = raw.get("delta") if raw.get("type") == "content_block_delta" else None
         if isinstance(delta, dict):
             mapping = _DELTA_FIELDS.get(delta.get("type", ""))
             piece = delta.get(mapping[1]) if mapping is not None else None
             if mapping is not None and isinstance(piece, str) and piece:
-                events.append(
-                    DeltaEvent(
-                        kind=mapping[0], text=piece, parent_tool_use_id=message.parent_tool_use_id
-                    )
-                )
+                events.append(DeltaEvent(kind=mapping[0], text=piece, parent_tool_use_id=parent))
     return events

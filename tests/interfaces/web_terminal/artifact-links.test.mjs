@@ -53,6 +53,7 @@ describe('linkArtifactIds', () => {
     ['a link', '<p><a href="#">artifact_id: 28bfaa39e90e</a></p>'],
     ['a button', '<p><button>artifact_id: 28bfaa39e90e</button></p>'],
     ['math', '<p><span class="katex">artifact_id: 28bfaa39e90e</span></p>'],
+    ['a drawing', '<svg viewBox="0 0 9 9"><text>artifact_id: 28bfaa39e90e</text></svg>'],
     ['a code span holding more than an id', '<p>artifact_id: <code>28bfaa39e90e x</code></p>'],
     ['an id that is not hex', '<p>artifact_id: plot-of-orbit</p>'],
     ['an id shorter than the store mints', '<p>artifact_id: abc12</p>'],

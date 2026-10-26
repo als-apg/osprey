@@ -36,6 +36,7 @@ from osprey.agent_runner import (
     TextEvent,
     ThinkingEvent,
     ToolResultEvent,
+    ToolStartEvent,
     ToolUseEvent,
 )
 from osprey.agent_runner.clean_env import build_clean_env
@@ -153,6 +154,21 @@ class TestEventToWire:
         assert ev["tool_name_raw"] == "mcp__osprey__channel_read"
         assert ev["tool_use_id"] == "tu_1"
         assert ev["input"] == {"channels": ["X"]}
+
+    def test_a_tool_call_starting_reaches_the_stream_named_like_its_row(self):
+        """The status line names the call while its input is still being written."""
+        ev = _event_to_wire(
+            ToolStartEvent(
+                name="mcp__osprey__channel_read", tool_use_id="tu_1", parent_tool_use_id=None
+            )
+        )
+        assert ev == {
+            "type": "tool_start",
+            "tool_name": "Channel Read",
+            "tool_name_raw": "mcp__osprey__channel_read",
+            "tool_use_id": "tu_1",
+            "parent_tool_use_id": None,
+        }
 
     @pytest.mark.parametrize("is_error", [False, True])
     def test_tool_results_reach_the_stream_as_a_preview(self, is_error):

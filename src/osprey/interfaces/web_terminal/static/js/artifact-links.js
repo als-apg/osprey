@@ -27,8 +27,8 @@ const LEAD_IN = /\bartifact_id\s*[:=]\s*$/i;
 /** An inline code span that holds an id and nothing else. */
 const CODE_ID = new RegExp(`^${ID}$`, 'i');
 
-/** Where text is not to be touched. */
-const SKIP = 'a, button, pre, .katex';
+/** Where text is not to be touched. A drawing's text stays SVG: a button cannot sit in it. */
+const SKIP = 'a, button, pre, .katex, svg';
 
 /**
  * @param {string} id

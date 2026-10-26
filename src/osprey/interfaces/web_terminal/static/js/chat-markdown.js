@@ -5,7 +5,8 @@
  * {@link renderMarkdownInto} is the one path from model markdown to the DOM.
  * `marked` parses the text, DOMPurify sanitises the HTML, and only the
  * sanitised string reaches `innerHTML`. Math is typeset with KaTeX afterwards,
- * on the DOM, so KaTeX output never passes through the HTML string.
+ * on the DOM, so KaTeX output never passes through the HTML string. A ```svg
+ * block is drawn afterwards too, through chat-svg.js's own sanitising pass.
  *
  * The libraries are vendored classic-script globals. They are read off
  * `globalThis` behind an `any` cast, and every use is guarded: when one is
@@ -13,6 +14,8 @@
  *
  * @module chat-markdown
  */
+
+import { createSvgPlaceholder, mountSvgCallouts, openSvgFenceAt } from './chat-svg.js';
 
 /**
  * @returns {{ DOMPurify: any, hljs: any, katex: any }} the vendored
@@ -170,11 +173,12 @@ function chatMarkedParse() {
  *
  * @param {HTMLElement} el - target element; its contents are replaced
  * @param {string} text - raw markdown (model output)
- * @param {{ math?: boolean }} [options] - `math` typesets `$…$`, `$$…$$`,
- *   `\(…\)` and `\[…\]` with KaTeX when it is loaded
+ * @param {{ math?: boolean, svg?: boolean }} [options] - `math` typesets
+ *   `$…$`, `$$…$$`, `\(…\)` and `\[…\]` with KaTeX when it is loaded; `svg`
+ *   draws each complete ```svg block (see chat-svg.js)
  * @returns {void}
  */
-export function renderMarkdownInto(el, text, { math = false } = {}) {
+export function renderMarkdownInto(el, text, { math = false, svg = false } = {}) {
   const { DOMPurify, hljs, katex } = markdownGlobals();
   const parse = chatMarkedParse();
 
@@ -185,12 +189,17 @@ export function renderMarkdownInto(el, text, { math = false } = {}) {
     return;
   }
 
+  // A drawing still streaming is not shown as the code it is made of: the
+  // reply is drawn up to its fence, and a placeholder stands in until it closes.
+  const pendingAt = svg ? openSvgFenceAt(text) : -1;
+  const source = pendingAt >= 0 ? text.slice(0, pendingAt) : text;
+
   /** @type {Array<{expr: string, display: boolean, raw: string}>} */
   const found = [];
   const withMath = math && katex && typeof katex.render === 'function';
   let clean;
   try {
-    clean = DOMPurify.sanitize(parse(withMath ? extractMath(text, found) : text));
+    clean = DOMPurify.sanitize(parse(withMath ? extractMath(source, found) : source));
   } catch {
     // Any failure in parse/sanitise falls back to inert text rather than
     // risking unsanitised markup reaching the DOM.
@@ -199,6 +208,14 @@ export function renderMarkdownInto(el, text, { math = false } = {}) {
   }
   el.innerHTML = clean;
   if (found.length) mountMath(el, found, katex);
+  if (pendingAt >= 0) el.append(createSvgPlaceholder());
+  if (svg) {
+    try {
+      mountSvgCallouts(el, DOMPurify);
+    } catch {
+      // A drawing that fails stays the code block it was.
+    }
+  }
 
   if (hljs && typeof hljs.highlightElement === 'function') {
     el.querySelectorAll('pre code').forEach((block) => {

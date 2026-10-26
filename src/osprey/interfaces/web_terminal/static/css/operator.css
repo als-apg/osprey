@@ -978,6 +978,67 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-muted);
 }
 
+/* ---- SVG callout: a drawing in an agent reply (chat-svg.js) ---- */
+
+/* The same rounded box as a row's sections. The drawing inherits the reply's
+   font and draws with currentColor and the theme's tokens, so it follows the
+   theme; it is never drawn wider than the reply. */
+.op-svg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+}
+
+.op-svg-art {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+/* A part with no colour of its own draws in the reply's text colour, not
+   SVG's default black, so it reads in dark themes too. */
+.op-svg-art svg {
+  max-width: 100%;
+  height: auto;
+  font-family: var(--chat-font);
+  fill: currentColor;
+}
+
+.op-svg-source > summary {
+  width: fit-content;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.op-svg-source > summary:hover {
+  color: var(--text-primary);
+}
+
+.op-svg-source > pre {
+  max-height: 240px;
+  margin: var(--space-2) 0 0;
+  overflow: auto;
+}
+
+/* A drawing still streaming: the callout's frame with one quiet line, so the
+   reply does not fill with the code the drawing is made of. */
+.op-svg-pending {
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+}
+
+.op-svg-pending-label {
+  font-size: var(--text-md);
+}
+
 /* ---- Subagent row: a tool row whose body nests the agent's own work ---- */
 
 .op-agent-note {
