@@ -310,6 +310,62 @@ class TestPostureClamp:
         assert seen == ["do_thing"]
 
 
+class TestADeclaredFacilityWriteIsClamped:
+    """A server that declares ``writes:`` renders each declared tool exactly.
+
+    The render puts ``mcp__<srv>__<tool>`` for each declared tool in
+    ``write_tools`` and nothing for the server's other tools, so the clamp
+    refuses the declared ones and lets the rest through — under the same
+    backstop as a framework write. The rendered-fixture half of this is
+    ``tests/registry/test_tool_classification_drift.py``.
+    """
+
+    DECLARED = ("mcp__plc__set_value", "mcp__plc__ramp_value")
+
+    @pytest.fixture
+    def plc(self, project, monkeypatch):
+        project.write(
+            server_prefixes=["mcp__controls__", "mcp__plc__"],
+            write_tools=[CONTROLS_WRITE, *self.DECLARED],
+            mixed=[],
+        )
+        monkeypatch.setenv(am.TOOL_PREFIX_ENV, "plc")
+        project.section = dict(TIER_NEVER_SECTION)
+        return project
+
+    @pytest.mark.parametrize("tool", ["set_value", "ramp_value"])
+    async def test_each_declared_tool_is_refused_by_a_tier_that_allows_nothing(self, plc, tool):
+        error = await _refused(am.AuditMiddleware(), tool)
+
+        assert refusal_phrase("tier_never") in json.loads(str(error))["error_message"]
+        record = _records(plc, surface="plc")[-1]
+        assert record["subject"] == f"mcp__plc__{tool}"
+        assert record["decision"] == DECISION_REFUSED
+        assert record["reason"] == am.REASON_POSTURE
+
+    @pytest.mark.parametrize("tool", ["set_value", "ramp_value"])
+    async def test_each_declared_tool_is_refused_by_a_readonly_run(self, plc, monkeypatch, tool):
+        plc.section = dict(TIER_ALLOWED_SECTION)
+        _sandbox(monkeypatch)
+
+        error = await _refused(am.AuditMiddleware(), tool)
+
+        assert refusal_phrase("readonly_run") in json.loads(str(error))["error_message"]
+
+    async def test_the_declaring_servers_other_tools_run(self, plc):
+        _, seen = await _call(am.AuditMiddleware(), "get_value")
+
+        assert seen == ["get_value"]
+        assert _records(plc, surface="plc")[-1]["decision"] == DECISION_ALLOWED
+
+    async def test_a_declared_tool_runs_under_a_tier_that_allows_writes(self, plc):
+        plc.section = dict(TIER_ALLOWED_SECTION)
+
+        _, seen = await _call(am.AuditMiddleware(), "set_value")
+
+        assert seen == ["set_value"]
+
+
 # --------------------------------------------------------------------------
 # Degraded reads: both lists fall together
 # --------------------------------------------------------------------------
@@ -1395,10 +1451,11 @@ def session(project, monkeypatch):
     the fixture stamps the session key and the agent-data root, clears every
     variable that moves a verdict behind a test's back, and writes the record.
 
-    ``on``, ``switch`` and ``narrow`` write the SAME file: the deployment's
-    target, its switch and its per-target narrowings are fields of one record.
-    Until one of them is called there is no record at all, which is every
-    switch off.
+    ``on``, ``switch`` and ``off`` write the SAME file: the deployment's
+    target and its switch are fields of one record. Until one of them is
+    called there is no record at all, which is every switch off. A per-target
+    sandbox narrowing in that record is ignored by the verdict, so turning
+    writes off is the switch's job alone.
     """
     from osprey.audit import posture as posture_module
     from osprey_connectors_tests._harness import VERDICT_ENV_VARS, reset_verdict_state
@@ -1413,11 +1470,10 @@ def session(project, monkeypatch):
     class _Session:
         key = SESSION_KEY
         target = "live"
-        posture: dict[str, str] = {}
 
         @classmethod
         def _write(cls, switch: dict[str, str] | None = None) -> None:
-            write_control_context(root, target=cls.target, posture=cls.posture, switch=switch)
+            write_control_context(root, target=cls.target, posture={}, switch=switch)
             reset_verdict_state()
 
         @classmethod
@@ -1432,10 +1488,9 @@ def session(project, monkeypatch):
             cls._write(dict.fromkeys(targets, "on"))
 
         @classmethod
-        def narrow(cls, **entries: str) -> None:
-            """Write per-target narrowings into that record; the switch is kept."""
-            cls.posture = dict(entries)
-            cls._write()
+        def off(cls) -> None:
+            """Turn every machine's switch off in that record; the target is kept."""
+            cls._write({})
 
     reset_verdict_state()
     yield _Session
@@ -1564,16 +1619,16 @@ class TestTheSwitchIsNeverABackstopReason:
         assert record["decision"] == DECISION_ALLOWED
         assert record["posture"] == am.POSTURE_SANDBOX
 
-    async def test_a_narrowed_target_with_the_tier_allowed_passes_the_clamp_and_is_refused_in_the_tool(
+    async def test_a_switch_turned_off_with_the_tier_allowed_passes_the_clamp_and_is_refused_in_the_tool(
         self, project, session
     ):
         session.on("live")
         session.switch("live")
-        session.narrow(live="sandbox")
+        session.off()
 
         error, seen = await _refused_in_the_tool(am.AuditMiddleware(), "channel_write")
 
-        assert seen == ["channel_write"], "the backstop refused a narrowed target"
+        assert seen == ["channel_write"], "the backstop refused a switched-off target"
         assert refusal_phrase("switch_off", "real") in str(error)
         record = _records(project)[-1]
         assert record["decision"] == DECISION_REFUSED
@@ -1611,7 +1666,7 @@ class TestTheSwitchIsNeverABackstopReason:
         _, seen = await _call(middleware, "channel_write")
         assert seen == ["channel_write"]
 
-        session.narrow(live="sandbox")
+        session.off()
 
         _, seen = await _refused_in_the_tool(middleware, "channel_write")
         assert seen == ["channel_write"]

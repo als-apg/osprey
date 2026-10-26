@@ -21,6 +21,10 @@ the machine the write actually lands on. The clamp set is the rendered
 the read/write tools, of which ``mcp__python__execute`` is the framework's one,
 keep their own in-tool gate because a *readonly* execution is exactly what a
 read-only run is for. Refusing them here would take the reads with the writes.
+A facility server that declares ``writes:`` renders one exact
+``mcp__<srv>__<tool>`` per declared tool into ``write_tools`` and nothing for
+its other tools, so the clamp is those tools by construction; this module
+reads the list and classifies nothing itself.
 
 The ``posture`` every record carries is :func:`osprey.audit.posture.posture` —
 the write verdict for the recorded control target, in the ledger's words —
