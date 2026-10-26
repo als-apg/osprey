@@ -39,7 +39,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "@REPO_ID@"
-    env_file: .env.users
+    env_file:
+      - .env.users
+      - .env.agent-record.login.alice
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -49,6 +51,7 @@ services:
       - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/alice
       - OSPREY_SPOOL_DIR=/app/dls_controls-assistant/var/spool/alice
       - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/alice
+      - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:10053
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/alice
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run
@@ -110,7 +113,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "@REPO_ID@"
-    env_file: .env.users
+    env_file:
+      - .env.users
+      - .env.agent-record.login.bob
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -120,6 +125,7 @@ services:
       - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/bob
       - OSPREY_SPOOL_DIR=/app/dls_controls-assistant/var/spool/bob
       - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/bob
+      - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:10053
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/bob
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run
@@ -181,7 +187,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "@REPO_ID@"
-    env_file: .env.users
+    env_file:
+      - .env.users
+      - .env.agent-record.login.logbook
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -191,6 +199,7 @@ services:
       - OSPREY_AUDIT_DIR=/app/dls_controls-logbook/var/audit/logbook
       - OSPREY_SPOOL_DIR=/app/dls_controls-logbook/var/spool/logbook
       - OSPREY_STATE_DIR=/app/dls_controls-logbook/var/state/logbook
+      - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:10053
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-logbook/var/agent_data/control_target/logbook
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-logbook/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-logbook/var/guarded_run

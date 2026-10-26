@@ -33,7 +33,6 @@ from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     terminal_secret_var,
 )
-from osprey.deployment.web_terminals.env_production import renders_needing_telemetry_vars
 from osprey.deployment.web_terminals.render import (
     PROXY_ENV_NAMES,
     _auth_tls_context,
@@ -881,7 +880,6 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         resolve_facility_bundle_dir,
         shared_corpus_gid,
     )
-    from osprey.deployment.telemetry_credentials import sender_digests
     from osprey.utils.facility import facility_name
     from osprey_connectors.workspace import APPS_DIRNAME
 
@@ -893,9 +891,6 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     check_open_mode_requirements(config, root)
     return {
         "auth_env_digest": auth_env_digest(root),
-        # The sha256 of each terminal's telemetry login file, by audit
-        # identity; empty without a gateway.
-        "telemetry_cred_digests": sender_digests(root, config),
         "dispatcher_renders": renders_needing_dispatcher_token(config, root),
         "ariel_renders": renders_needing_ariel_password(config, root),
         # Every lane's slice: the render grants each render one launch token
@@ -905,7 +900,6 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "graphdb_renders": renders_needing_graphdb_password(config, root),
         "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),
-        "telemetry_vars_renders": renders_needing_telemetry_vars(config, root),
         "facility_bundle_renders": renders_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see
@@ -1015,20 +1009,16 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
     inputs = resolve_render_inputs(config, root)
-    # Every terminal the overlay is about to name a login file for has one
-    # before the overlay exists: a roster verb can add a terminal between two
-    # starts, and a compose document naming a missing `env_file` fails every
-    # command run against it. After the two refusals above, so a refused
-    # render still writes nothing; the digests are read once the files exist.
-    from osprey.deployment.telemetry_credentials import (
-        ensure_telemetry_credentials,
-        sender_digests,
-    )
+    # The telemetry credential set exists before the overlay does, the
+    # history page's gate secret the nginx sidecar reads among it. After the
+    # two refusals above, so a refused render still writes nothing.
+    from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
 
     ensure_telemetry_credentials(root, config, reader_keys=False)
-    inputs["telemetry_cred_digests"] = sender_digests(root, config)
-    # The agent record's logins likewise, so a terminal added by a roster verb
-    # has its record login (and the verifier names it) before the overlay does.
+    # Every terminal the overlay is about to name a record login file for has
+    # one before the overlay exists: a roster verb can add a terminal between
+    # two starts, and a compose document naming a missing `env_file` fails
+    # every command run against it.
     from osprey.agent_record.credentials import ensure_agent_record_credentials
 
     ensure_agent_record_credentials(root, config, reader_keys=False)

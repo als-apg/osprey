@@ -195,8 +195,8 @@ def test_every_bridge_binds_its_spool_and_state_and_carries_its_login(bridge):
     )
     env = _env(service)
     assert env["OSPREY_AGENT_RECORD_URL"] == "http://agent-record:8000"
-    # The bridge's own history file stays until the record replaces it.
-    assert "HISTORY_PATH" in env
+    # Conversation history lives in the record: no history file is configured.
+    assert "HISTORY_PATH" not in env
 
 
 @pytest.mark.parametrize("bridge", sorted(BRIDGE_IDENTITIES))
@@ -210,6 +210,156 @@ def test_a_bridge_on_the_host_network_dials_the_loopback_publish(bridge):
 
     port = parse_agent_record_block(config, base=resolve_port_base(config)).port
     assert _env(service)["OSPREY_AGENT_RECORD_URL"] == f"http://127.0.0.1:{port}"
+
+
+# ---------------------------------------------------------------------------
+# Each terminal's and worker's record login and URL
+# ---------------------------------------------------------------------------
+
+
+def _record_port(config: dict) -> int:
+    from osprey.agent_record.config import parse_agent_record_block
+    from osprey.port_layout import resolve_port_base
+
+    return parse_agent_record_block(config, base=resolve_port_base(config)).port
+
+
+def _record_logins(service: dict) -> list[str]:
+    """The agent-record credential files among *service*'s ``env_file`` entries."""
+    from osprey.agent_record.credentials import is_credential_file
+
+    entries = service.get("env_file") or []
+    if isinstance(entries, str):
+        entries = [entries]
+    return [entry for entry in entries if is_credential_file(entry)]
+
+
+def _worker_config(*, worker_count: int = 1, **settings) -> dict:
+    config = _base_config(["dispatch_worker"])
+    config["services"]["dispatch_worker"] = {"worker_count": worker_count, **settings}
+    return config
+
+
+@pytest.mark.parametrize("worker_count", [1, 3])
+def test_every_dispatch_worker_carries_its_own_login_and_the_record_url(worker_count):
+    from osprey.agent_record.credentials import digest_env_name, login_file, owner_files
+
+    config = _worker_config(worker_count=worker_count)
+    services = _render("dispatch_worker", config)
+    owners = owner_files(config)
+
+    for identity in dispatch_worker_audit_identities(config):
+        service = services[identity]
+        assert _record_logins(service) == [login_file(identity)]
+        assert owners[identity] == (login_file(identity),)
+        assert service["labels"]["osprey.agent-record.cred.digest"] == (
+            f"${{{digest_env_name(identity)}:-}}"
+        )
+        assert _env(service)["OSPREY_AGENT_RECORD_URL"] == "http://agent-record:8000"
+
+
+def test_shared_mode_workers_carry_the_shared_dispatch_login():
+    from osprey.agent_record.credentials import login_file, owner_files
+    from osprey.agent_record.identities import SHARED_DISPATCH_IDENTITY
+
+    config = _worker_config(worker_count=2, workspace_mode="shared")
+    services = _render("dispatch_worker", config)
+    owners = owner_files(config)
+
+    for identity in dispatch_worker_audit_identities(config):
+        assert _record_logins(services[identity]) == [login_file(SHARED_DISPATCH_IDENTITY)]
+        assert owners[identity] == (login_file(SHARED_DISPATCH_IDENTITY),)
+
+
+def test_a_worker_on_the_host_network_dials_the_loopback_publish():
+    config = _worker_config(network="host")
+    (service,) = _render("dispatch_worker", config).values()
+
+    assert _env(service)["OSPREY_AGENT_RECORD_URL"] == f"http://127.0.0.1:{_record_port(config)}"
+
+
+def test_a_worker_with_no_env_chain_and_no_gateway_still_carries_its_login():
+    from osprey.agent_record.credentials import login_file
+
+    config = _worker_config()
+    rendered = _inject_project_metadata(config)
+    assert not rendered.get("osprey_env_chain")
+    assert "telemetry_gateway" not in rendered["deployed_services"]
+    (service,) = _render("dispatch_worker", config).values()
+
+    assert service["env_file"] == [login_file("dispatch-worker-1")]
+
+
+def test_beside_the_gateway_the_worker_carries_only_its_record_login():
+    from osprey.agent_record.credentials import login_file
+
+    config = _base_config(["dispatch_worker", "telemetry_gateway"])
+    config["services"]["dispatch_worker"] = {"worker_count": 1}
+    (service,) = _render("dispatch_worker", config).values()
+
+    assert not [f for f in service["env_file"] if f.startswith(".env.telemetry-sender.")]
+    assert service["env_file"][-1] == login_file("dispatch-worker-1")
+
+
+def test_every_web_terminal_carries_its_own_login_and_the_loopback_url():
+    from osprey.agent_record.credentials import login_file
+
+    services = _web_services()
+    terminals = {key: svc for key, svc in services.items() if key.startswith("web-")}
+    assert terminals
+    url = f"http://127.0.0.1:{_record_port(_web_config(auth=False))}"
+    for service in terminals.values():
+        assert service["network_mode"] == "host"
+        env = _env(service)
+        identity = env["OSPREY_AUDIT_IDENTITY"]
+        assert service["env_file"][0] == ".env.users"
+        assert _record_logins(service) == [login_file(identity)]
+        assert env["OSPREY_AGENT_RECORD_URL"] == url
+
+
+def test_the_web_render_bakes_each_terminal_login_digest():
+    from osprey.agent_record.credentials import DIGEST_LABEL
+
+    digests = {"alice": "a" * 64, "bob": "b" * 64}
+    rendered = render_web_terminals(_web_config(auth=False), agent_record_login_digests=digests)[
+        "docker-compose.web.yml"
+    ]
+    services = yaml.safe_load(rendered)["services"]
+    terminals = {key: svc for key, svc in services.items() if key.startswith("web-")}
+    assert terminals
+    for service in terminals.values():
+        identity = _env(service)["OSPREY_AUDIT_IDENTITY"]
+        assert service["labels"][DIGEST_LABEL] == digests[identity]
+
+
+def test_a_web_render_without_digests_bakes_no_record_label():
+    from osprey.agent_record.credentials import DIGEST_LABEL
+
+    for key, service in _web_services().items():
+        assert DIGEST_LABEL not in (service.get("labels") or {}), key
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_no_container_receives_another_identitys_login(shared):
+    """Every record login a service is handed is its own identity's login."""
+    from osprey.agent_record.credentials import login_file, owner_files
+
+    worker_config = _worker_config(
+        worker_count=3, **({"workspace_mode": "shared"} if shared else {})
+    )
+    owners = owner_files(worker_config)
+    workers = _render("dispatch_worker", worker_config)
+    for key, service in workers.items():
+        assert _record_logins(service) == list(owners[key]), key
+
+    web = _web_services(auth=True)
+    for key, service in web.items():
+        logins = _record_logins(service)
+        if key.startswith("web-"):
+            identity = _env(service)["OSPREY_AUDIT_IDENTITY"]
+            assert logins == [login_file(identity)], key
+        else:
+            assert logins == [], key
 
 
 def _lane_config() -> dict:

@@ -62,7 +62,13 @@ from osprey.services.auth_sidecar.app import (
     ENV_USERS,
     ENV_WEB_APP_NAME,
 )
-from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX, env_var_suffix
+from osprey.services.auth_sidecar.roster_env import (
+    HISTORY_ORIGIN_VAR,
+    PW_HASH_VAR_PREFIX,
+    READERS_VAR,
+    ROSTER_HISTORY_VAR_PREFIX,
+    env_var_suffix,
+)
 from osprey_connectors.workspace import agent_data_base_dir
 from tests._renders import tier_render
 
@@ -2355,10 +2361,10 @@ def test_nginx_seam_auth_method_set_gates_every_proxied_user_location() -> None:
     nginx_conf = artifacts["nginx/nginx.conf"]
 
     # Assert
-    directives = _directives(nginx_conf)
+    directives = _directives(_terminals_part(nginx_conf))
     assert directives.count("auth_request ") == len(users)
     assert directives.count("    location /u/") == len(users)
-    assert "return 200;" not in directives
+    assert "return 200;" not in _directives(nginx_conf)
 
 
 def test_nginx_seam_auth_token_omits_auth_request_even_with_tls_enabled() -> None:
@@ -2564,6 +2570,26 @@ def _render_nginx(config: dict) -> str:
     return render_web_terminals(config)["nginx/nginx.conf"]
 
 
+#: The comment that opens the readers' origin, the server a signed-in deployment
+#: renders after the terminals' servers for its history page.
+_READERS_ORIGIN_MARKER = "# The readers' origin.\n"
+
+#: The history page's gate snippet: rendered by every signed-in render, beside
+#: the per-user ones, and included by the readers' origin's history location.
+_HISTORY_GATE_TEMPLATE = "nginx/templates/history-gate.conf.template"
+_HISTORY_GATE_INCLUDE = "/etc/nginx/osprey/history-gate.conf"
+
+
+def _terminals_part(conf: str) -> str:
+    """The terminals' servers of *conf*: everything before the readers' origin.
+
+    The readers' origin gates its history page with an ``auth_request``, an
+    ``internal`` verify target and a gate include of its own, which the
+    per-user counts are not about.
+    """
+    return conf.partition(_READERS_ORIGIN_MARKER)[0]
+
+
 def _directives(conf: str) -> str:
     """`conf` with its comment lines dropped.
 
@@ -2614,7 +2640,7 @@ def test_auth_location_is_named_by_each_users_own_auth_request() -> None:
         location = re.search(rf"location /u/{user}/ \{{(.*?)\n    \}}", nginx_conf, flags=re.DOTALL)
         assert location is not None, f"no proxied location rendered for {user}"
         assert f"auth_request /_osprey_auth/{user};" in location.group(1)
-    assert _directives(nginx_conf).count("auth_request ") == len(users)
+    assert _directives(_terminals_part(nginx_conf)).count("auth_request ") == len(users)
 
 
 def test_auth_location_verifies_against_the_sidecar_with_a_render_time_username() -> None:
@@ -2659,7 +2685,7 @@ def test_auth_location_is_internal_only() -> None:
         )
         assert target is not None, f"no auth target rendered for {user}"
         assert "internal;" in target.group(1)
-    assert nginx_conf.count("internal;") == len(users)
+    assert _terminals_part(nginx_conf).count("internal;") == len(users)
 
 
 def test_auth_location_suppresses_the_subrequest_body() -> None:
@@ -2678,8 +2704,12 @@ def test_auth_location_suppresses_the_subrequest_body() -> None:
     nginx_conf = _render_nginx(_auth_config(users))
 
     # Assert
-    assert nginx_conf.count("proxy_pass_request_body off;") == len(users)
-    assert nginx_conf.count('proxy_set_header Content-Length "";') == len(users)
+    terminals = _terminals_part(nginx_conf)
+    assert terminals.count("proxy_pass_request_body off;") == len(users)
+    assert terminals.count('proxy_set_header Content-Length "";') == len(users)
+    # The history page's verify target, on the readers' origin, is one more.
+    assert nginx_conf.count("proxy_pass_request_body off;") == len(users) + 1
+    assert nginx_conf.count('proxy_set_header Content-Length "";') == len(users) + 1
 
 
 def test_auth_location_verify_subrequest_fails_fast() -> None:
@@ -2860,13 +2890,21 @@ def test_auth_public_location_does_not_expose_the_verify_endpoint() -> None:
     nginx_conf = _render_nginx(_auth_config())
 
     # Assert
-    assert "location /verify" not in nginx_conf
-    assert "location = /verify" not in nginx_conf
+    assert not re.search(r"location (= )?/verify[ /{?]", nginx_conf)
     # Every directive (as opposed to comment prose) naming `/verify` is the
-    # proxy_pass target of an internal per-user location.
-    verify_lines = [line for line in _directives(nginx_conf).splitlines() if "/verify" in line]
+    # proxy_pass target of an internal per-user location — or belongs to the
+    # history page's own internal verify target, `/verify-history`.
+    directives = _directives(nginx_conf)
+    verify_lines = [
+        line
+        for line in directives.splitlines()
+        if "/verify" in line and "/verify-history" not in line
+    ]
     assert verify_lines, "the verify targets themselves should still be rendered"
     assert all("/verify?user=" in line for line in verify_lines)
+    history_target = re.search(r"location = /verify-history \{(.*?)\n    \}", directives, re.DOTALL)
+    assert history_target is not None
+    assert "internal;" in history_target.group(1)
 
 
 def test_auth_public_location_absent_when_method_is_token() -> None:
@@ -3441,8 +3479,8 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
         "key": "/etc/nginx/certs/dls.key",
     }
 
-    # Act
-    redirect, content, catch_all = _server_blocks(_render_nginx(config))
+    # Act — the fourth server is the readers' origin, the history page's.
+    redirect, content, catch_all, readers = _server_blocks(_render_nginx(config))
 
     # Assert
     assert "location /auth/" not in redirect
@@ -3459,6 +3497,10 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
     assert redirect.count("location") == 0
     assert _directives(catch_all).count("auth_request ") == 0
     assert "location" not in catch_all
+    # The readers' origin serves its sign-in-gated page behind TLS too, and
+    # holds none of the per-user gates.
+    assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)
+    assert "_osprey_auth" not in readers
 
 
 def test_nginx_landing_location_is_exact_match_only() -> None:
@@ -3785,6 +3827,14 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
         ENV_TLS_ENABLED,
         ENV_EXTERNAL_ORIGIN,
         ENV_USERS,
+        # The history page's origin, each roster user's history scope and the
+        # configured readers' names: the sign-in's routing and scope, none of
+        # them a credential.
+        HISTORY_ORIGIN_VAR,
+        f"{ROSTER_HISTORY_VAR_PREFIX}ALICE",
+        f"{ROSTER_HISTORY_VAR_PREFIX}BOB",
+        f"{ROSTER_HISTORY_VAR_PREFIX}CAROL",
+        READERS_VAR,
         # No egress passthrough: this render is told no proxy name holds a
         # value, so it writes none under either spelling. Its shape when one
         # does is asserted below.
@@ -4236,9 +4286,33 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
     for name, service in compose["services"].items():
         if not name.startswith("web-"):
             continue
-        assert service["env_file"] == ".env.users"
+        user = name.removeprefix("web-")
+        assert service["env_file"] == [".env.users", f".env.agent-record.login.{user}"]
         assert AUTH_ENV_FILENAME not in str(service["env_file"])
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
+
+
+def test_a_terminal_lists_only_its_record_login_beside_the_shared_file() -> None:
+    """A terminal's one login file is its agent-record login, gateway or not.
+
+    With the telemetry gateway deployed no terminal is handed a gateway login
+    file or carries a gateway login digest label.
+    """
+    # Arrange
+    config = _config(["alice", "bob"])
+    config["deployed_services"] = ["telemetry_store", "telemetry_gateway"]
+
+    # Act
+    compose = _compose(config)
+
+    # Assert
+    terminals = {n: s for n, s in compose["services"].items() if n.startswith("web-")}
+    assert terminals
+    for name, service in terminals.items():
+        user = name.removeprefix("web-")
+        assert service["env_file"] == [".env.users", f".env.agent-record.login.{user}"]
+        assert not [f for f in service["env_file"] if ".env.telemetry-sender." in f], name
+        assert "osprey.telemetry.cred.digest" not in (service.get("labels") or {}), name
 
 
 # ---------------------------------------------------------------------------
@@ -5299,71 +5373,18 @@ def test_render_without_graphdb_renders_emits_no_store_password_line() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Telemetry login -> each terminal's own file, never the environment
-#
-# Every terminal runs an agent that sends to the deployment's telemetry gateway
-# under its own login. The login is a file per terminal (`env_file`), so no
-# rendered `environment:` line names it and nothing is interpolated from the
-# shared deploy `.env`. `test_telemetry_gateway_render.py` pins the address and
-# the file per network shape.
+# No telemetry credential rides a terminal's environment
 # ---------------------------------------------------------------------------
 
 
 def test_no_terminal_environment_names_a_telemetry_credential() -> None:
-    """Neither the login nor any store-issued token rides `environment:`."""
+    """Neither a gateway login nor any store-issued token rides `environment:`."""
     for config in (_events_render_config(), _config(["alice"])):
         compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
         for name, service in compose["services"].items():
             env = service.get("environment") or []
             assert not any(str(line).startswith("OSPREY_TELEMETRY_LOGIN") for line in env), name
             assert not any("ZO_" in str(line) for line in env), name
-
-
-_COLLECTOR_VARS = ("OTLP_TOKEN", "OTLP_ENDPOINT", "SITE_NAME")
-
-
-def test_a_render_exporting_to_a_collector_gets_its_token_and_every_referenced_variable() -> None:
-    """Each referenced variable, in order, one `${VAR:-}` line each."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(
-            _events_render_config(), telemetry_vars_renders={"readwrite": _COLLECTOR_VARS}
-        )["docker-compose.web.yml"]
-    )
-
-    # Assert
-    alice_env = compose["services"]["web-alice"]["environment"]
-    lines = [f"{name}=${{{name}:-}}" for name in _COLLECTOR_VARS]
-    assert all(line in alice_env for line in lines)
-    positions = [alice_env.index(line) for line in lines]
-    assert positions == sorted(positions)
-    assert positions == list(range(positions[0], positions[0] + len(lines)))
-
-
-def test_a_render_without_telemetry_variables_gets_no_extra_line() -> None:
-    """Only the render that names the variables receives them."""
-    # Act
-    compose = yaml.safe_load(
-        render_web_terminals(
-            _events_render_config(), telemetry_vars_renders={"readwrite": _COLLECTOR_VARS}
-        )["docker-compose.web.yml"]
-    )
-
-    # Assert
-    bob_env = compose["services"]["web-bob"]["environment"]
-    assert not any(line.startswith(_COLLECTOR_VARS) for line in bob_env)
-
-
-def test_the_collector_variables_are_interpolated_never_written() -> None:
-    """Compose resolves each reference from the deploy `.env`; no value is rendered."""
-    # Act
-    rendered = render_web_terminals(
-        _events_render_config(), telemetry_vars_renders={"readwrite": ("OTLP_TOKEN",)}
-    )["docker-compose.web.yml"]
-
-    # Assert
-    assert "OTLP_TOKEN=${OTLP_TOKEN:-}" in rendered
-    assert re.search(r"OTLP_TOKEN=[^$]", rendered) is None
 
 
 # ---------------------------------------------------------------------------
@@ -5469,6 +5490,7 @@ def test_terminal_secrets_render_one_snippet_per_gated_roster_user() -> None:
         "nginx/templates/secret-alice.conf.template",
         "nginx/templates/secret-bob.conf.template",
         "nginx/templates/secret-carol.conf.template",
+        _HISTORY_GATE_TEMPLATE,
     }
 
 
@@ -5496,6 +5518,7 @@ def test_no_secret_snippet_is_written_for_a_location_nothing_gates() -> None:
     assert [path for path in auth_on if path.startswith("nginx/templates/")] == [
         "nginx/templates/secret-alice.conf.template",
         "nginx/templates/secret-kiosk.conf.template",
+        _HISTORY_GATE_TEMPLATE,
     ]
 
 
@@ -5526,7 +5549,11 @@ def test_every_secret_snippet_is_included_by_exactly_one_location() -> None:
             flags=re.MULTILINE,
         )
     }
-    assert materialized == included == {"secret-alice.conf", "secret-kiosk.conf"}
+    assert (
+        materialized
+        == included
+        == {"secret-alice.conf", "secret-kiosk.conf", Path(_HISTORY_GATE_INCLUDE).name}
+    )
 
 
 def test_terminal_secret_snippet_names_the_variable_never_the_value() -> None:
@@ -5766,7 +5793,7 @@ def test_terminal_secret_snippets_stay_inside_the_templates_directory() -> None:
 
     # Assert
     snippets = [path for path in artifacts if path.startswith("nginx/templates/")]
-    assert len(snippets) == 3
+    assert len(snippets) == 3 + 1  # one per user, and the history page's gate
     for path in snippets:
         assert Path(path).parent.as_posix() == "nginx/templates"
 
@@ -6030,8 +6057,8 @@ def test_nginx_secret_include_target_is_outside_the_globbed_conf_d() -> None:
 
     # Assert
     includes = re.findall(r"^\s*include (\S+);", nginx_conf, flags=re.MULTILINE)
-    assert includes == ["/etc/nginx/osprey/secret-alice.conf"]
-    assert "conf.d" not in includes[0]
+    assert includes == ["/etc/nginx/osprey/secret-alice.conf", _HISTORY_GATE_INCLUDE]
+    assert not any("conf.d" in include for include in includes)
 
 
 def test_nginx_secret_include_matches_the_filename_the_renderer_writes() -> None:
@@ -6051,7 +6078,7 @@ def test_nginx_secret_include_matches_the_filename_the_renderer_writes() -> None
 
     # Assert
     snippets = [path for path in artifacts if path.startswith("nginx/templates/")]
-    assert len(snippets) == len(users)
+    assert len(snippets) == len(users) + 1  # and the history page's gate
     for path in snippets:
         materialized = Path(path).name.removesuffix(".template")
         assert f"include /etc/nginx/osprey/{materialized};" in nginx_conf

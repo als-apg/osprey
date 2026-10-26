@@ -41,8 +41,9 @@ services:
       # label makes such an edit a document change. Empty when the invocation
       # did not set the variable (a hand-run `docker compose up`).
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+      # The same trigger for this worker's agent-record login file.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_1:-}"
     restart: unless-stopped
-
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
     # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
     # the process environment. `env_file:` is read by the compose CLI on the
@@ -64,7 +65,11 @@ services:
     # the disposable render.
     env_file:
       - ./.env
-
+      # This worker's agent-record login: one login and nothing else, which
+      # every worker shares in the shared workspace mode, because those
+      # workers write as one identity. Always listed, because the record is
+      # always deployed and `osprey build` writes the file before this one.
+      - .env.agent-record.login.dispatch-worker-1
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
@@ -100,6 +105,9 @@ services:
       # state: its own directories in the two zones, bound below. Named for
       # the writer and for the entrypoint, which joins each one's group.
       OSPREY_SPOOL_DIR: /app/golden-project/var/spool/dispatch-worker-1
+      # WHERE this worker reads the agent record: its compose service on the
+      # bridge network, its loopback publish from the host namespace.
+      OSPREY_AGENT_RECORD_URL: http://agent-record:8000
       OSPREY_STATE_DIR: /app/golden-project/var/state/dispatch-worker-1
 
       # WHO this worker is to the control system. Per worker, from the same

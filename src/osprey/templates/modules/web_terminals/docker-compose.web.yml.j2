@@ -93,6 +93,13 @@
                                         #   (`<container_project_dir>/var/state/<identity>`,
                                         #   OSPREY_STATE_DIR, render._zone_mounts()).
           "state_mount_source": str,    # the host directory backing it (`./var/state/<identity>`).
+          "agent_record_login_file": str,
+                                        # this terminal's agent-record login file
+                                        #   (`.env.agent-record.login.<identity>`), one
+                                        #   `env_file` entry of its own.
+          "agent_record_login_digest": str | None,
+                                        # its sha256, the `agent_record_digest_label` label;
+                                        #   None (a render outside the deploy path) emits none.
           "extra_mounts": [str, ...],   # resolved by resolve_cards() from the render's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
@@ -938,9 +945,10 @@ services:
 {%- endfor %}
 {#- The history page's carriers (render.history_carriers): the readers' origin,
    each roster entry's `history`, the roles marked `history: all`, and the
-   readers with their tables and IdP identities. Empty unless the page is
-   deployed. Inline rather than in `.env.auth` because none is a secret, and a
-   changed line is a changed service definition, which recreates the sidecar.
+   agent record's named readers with their kinds and IdP identities. Empty
+   unless the page is deployed. Inline rather than in `.env.auth` because none
+   is a secret, and a changed line is a changed service definition, which
+   recreates the sidecar.
    tojson quotes each whole `KEY=value`, as the role table above does. #}
 {%- for line in history_carriers %}
       - {{ line | tojson }}
@@ -1025,28 +1033,23 @@ services:
     security_opt: ["no-new-privileges:true"]
     labels:
       com.osprey.repo-id: "{{ repo_id }}"
-{%- if telemetry_sender_file_prefix and telemetry_cred_digests.get(svc.audit_identity) %}
-      {#- The sha256 of this terminal's telemetry login file, for the reason
-         the login service carries one for `.env.auth`: a container reads an
-         `env_file` when it is created, so a login minted anew reaches the
-         terminal only if its definition changed. One file per terminal, so
-         one terminal is recreated. Absent on a render outside the deploy
+{%- if svc.agent_record_login_digest %}
+      {#- The sha256 of this terminal's agent-record login file, for the
+         reason the login service carries one for `.env.auth`: a container
+         reads an `env_file` when it is created, so a login minted anew reaches
+         the terminal only if its definition changed. One file per terminal,
+         so one terminal is recreated. Absent on a render outside the deploy
          path, which has no repo root to read. #}
-      {{ telemetry_cred_digest_label }}: "{{ telemetry_cred_digests[svc.audit_identity] }}"
+      {{ agent_record_digest_label }}: "{{ svc.agent_record_login_digest }}"
 {%- endif %}
-{%- if telemetry_sender_file_prefix %}
-    {#- The terminal's telemetry login rides beside the shared runtime
-       secrets as a file of its own: one login and nothing else, named after
-       this terminal's audit identity, so the name the gateway stamps on what
-       it sends is the name its ledger is filed under. Listed whenever the
-       gateway is deployed — `osprey build` and `osprey up` both create the
-       file before any compose command reads this document. #}
+    {#- The terminal's agent-record login rides beside the shared runtime
+       secrets, a file of its own holding that one login and nothing else,
+       named after this terminal's audit identity. Always listed, because the
+       record is always deployed. `osprey build` and `osprey up` both create
+       the file before any compose command reads this document. #}
     env_file:
       - .env.users
-      - {{ telemetry_sender_file_prefix }}{{ svc.audit_identity }}
-{%- else %}
-    env_file: .env.users
-{%- endif %}
+      - {{ svc.agent_record_login_file }}
     environment:
       - CLAUDE_CONFIG_DIR=/data/claude-config
       - HOME=/data/claude-config
@@ -1094,6 +1097,9 @@ services:
          directories the entrypoint's root phase joins the group of. #}
       - OSPREY_SPOOL_DIR={{ svc.container_spool_dir }}
       - OSPREY_STATE_DIR={{ svc.container_state_dir }}
+      {#- WHERE this terminal reads the agent record: the API's loopback
+         publish, because the terminal shares the host's network namespace. #}
+      - OSPREY_AGENT_RECORD_URL={{ agent_record_url }}
       {#- WHERE this terminal writes its control-context record — the chip
          every lane and the dispatch worker read to decide whether a write
          this user owns is narrowed. Named explicitly rather than left to the
@@ -1245,16 +1251,6 @@ services:
          same reason OSPREY_TERMINAL_LANDING_URL above is not — a URL holds no
          `": "` and so is a plain YAML scalar. #}
       - OSPREY_TERMINAL_EXTERNAL_ORIGIN={{ svc.external_origin }}
-{%- for name in svc.telemetry_vars %}
-      {#- The variables this render's telemetry block needs: the collector's
-         bearer token (`claude_code.telemetry.auth.token_env`) plus every
-         variable the block references. Per-user because the names are the render's
-         own. `${VAR:-}` keeps every value in the deploy `.env`, out of this
-         rendered file. An empty token is refused at agent start by name, and a
-         defaulted reference falls back to its default inside the container
-         exactly as it would on the host. #}
-      - {{ name }}={{ "${" ~ name ~ ":-}" }}
-{%- endfor %}
 {%- if svc.display_name %}
       {#- Human-facing window/tab title. tojson quotes the WHOLE `KEY=value` as
          one double-quoted YAML scalar (never just the value — the compose

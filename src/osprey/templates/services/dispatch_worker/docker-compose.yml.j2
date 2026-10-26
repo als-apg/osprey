@@ -87,13 +87,10 @@ services:
       # label makes such an edit a document change. Empty when the invocation
       # did not set the variable (a hand-run `docker compose up`).
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
-{%- if 'telemetry_gateway' in (deployed_services | default([], true)) %}
-      # The same trigger for this worker's telemetry login file: a login
-      # minted anew recreates this worker and no other service.
-      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_DISPATCH_WORKER_{{ i }}:-}"
-{%- endif %}
+      # The same trigger for this worker's agent-record login file.
+      osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_DISPATCH_WORKER_{{ i }}:-}"
     restart: unless-stopped
-{% if osprey_env_chain | default([]) or 'telemetry_gateway' in (deployed_services | default([], true)) %}
+{%- if osprey_env_chain | default([]) %}
     # Provider auth: the worker's startup hook (inject_provider_env) resolves
     # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
     # the process environment. `env_file:` is read by the compose CLI on the
@@ -113,19 +110,16 @@ services:
     # to the pinned compose project directory, which is the deployment REPO
     # ROOT — so these are the deployment's own chain files, not copies inside
     # the disposable render.
+{%- endif %}
     env_file:
 {%- for env_chain_file in osprey_env_chain | default([]) %}
       - {{ env_chain_file }}
 {%- endfor %}
-{%- if 'telemetry_gateway' in (deployed_services | default([], true)) %}
-      # This worker's telemetry login: its own file at the repo root, one
-      # login and nothing else. The exception to "only files that exist" —
-      # listed whenever the gateway is deployed, because `osprey build`
-      # creates it before this file is rendered, so `status`, `down` and
-      # `logs` resolve it on any built repo.
-      - .env.telemetry-sender.dispatch-worker-{{ i }}
-{%- endif %}
-{% endif %}
+      # This worker's agent-record login: one login and nothing else, which
+      # every worker shares in the shared workspace mode, because those
+      # workers write as one identity. Always listed, because the record is
+      # always deployed and `osprey build` writes the file before this one.
+      - .env.agent-record.login.{{ 'dispatch-worker-shared' if mode == 'shared' else 'dispatch-worker-' ~ i }}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
@@ -175,6 +169,9 @@ services:
       # state: its own directories in the two zones, bound below. Named for
       # the writer and for the entrypoint, which joins each one's group.
       OSPREY_SPOOL_DIR: {{ osprey_worker_spool_dir }}/dispatch-worker-{{ i }}
+      # WHERE this worker reads the agent record: its compose service on the
+      # bridge network, its loopback publish from the host namespace.
+      OSPREY_AGENT_RECORD_URL: {{ osprey_agent_record_host_url if on_host else osprey_agent_record_url }}
       OSPREY_STATE_DIR: {{ osprey_worker_state_dir }}/dispatch-worker-{{ i }}
 {%- if dispatch_worker_corpus_mounts and dispatch_worker_corpus_mounts.bundle %}
       # WHERE this worker's tier reads the facility bundle, bound below — the
