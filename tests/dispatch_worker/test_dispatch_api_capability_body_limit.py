@@ -16,7 +16,6 @@ def client(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_runs", {})
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
-    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
 
     async def _fake_run_dispatch(*, event_queue=None, **kwargs):
         if event_queue is not None:
