@@ -94,22 +94,28 @@ def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
     marker = tmp_path / "sigterm-ignored"
     # An ignored signal stays ignored across exec, so the marker proves the
     # sleep that receives SIGABRT and SIGTERM is the one that ignores them.
+    # exec keeps the shell's pid, and the child leads its own group, so the
+    # recorded pid names the group the sleep runs in.
     command = [
         "sh",
         "-c",
-        f"trap '' TERM ABRT; : > {shlex.quote(str(marker))}; exec sleep 60",
+        f"trap '' TERM ABRT; echo $$ > {shlex.quote(str(marker))}; exec sleep 60",
     ]
-    started = time.monotonic()
-    result = _run("--dump", "1", "--grace", "1", "3", "--", *command)
-    elapsed = time.monotonic() - started
-    assert result.returncode == 124
-    assert marker.exists(), (
-        "the child was not ready inside the 3 s bound: SIGTERM was never ignored"
-    )
-    # Bound plus dump wait plus grace: anything shorter means the command died
-    # of SIGABRT or SIGTERM and the SIGKILL path never ran.
-    assert elapsed >= 5.0
-    assert elapsed < 12
+    try:
+        started = time.monotonic()
+        result = _run("--dump", "1", "--grace", "1", "3", "--", *command)
+        elapsed = time.monotonic() - started
+        assert result.returncode == 124
+        assert marker.exists(), (
+            "the child was not ready inside the 3 s bound: SIGTERM was never ignored"
+        )
+        # A run as long as bound plus dump wait plus grace rules out a death by
+        # SIGABRT or SIGTERM; a process that ignored both and is gone was ended
+        # by the SIGKILL.
+        assert elapsed >= 5.0
+        assert group_is_gone(int(marker.read_text()))
+    finally:
+        _kill_group(marker)
 
 
 def test_a_command_past_its_bound_prints_its_python_stacks_before_it_is_stopped(tmp_path):
