@@ -37,6 +37,14 @@ framework and are not sites. Resolution imports the connectors module for
 real, from the active environment or from ``--connectors-path``, so a module
 that exists but fails to import is reported with its error.
 
+A ``try`` whose ``except ImportError`` handler imports a stand-in for what its
+body imports asks one question with alternatives: the body is one, each such
+handler that holds a site is another, and their sites are reported only when
+no alternative resolves whole. A fallback kept for older connectors is then
+no break while the import ahead of it resolves, nor is the import ahead of it
+while the fallback does. A handler that holds no site -- ``B = None``,
+``sys.exit(0)`` -- is no alternative: the import it swallows must resolve.
+
 Usage::
 
     python -I scan_framework_imports.py <framework package dir>...
@@ -57,6 +65,7 @@ import importlib
 import importlib.util
 import re
 import sys
+from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +82,11 @@ _STRING_PATH_RE = re.compile(
 
 #: The keyword pair a connector registration names its class with.
 _REGISTRATION_KEYWORDS = ("module_path", "class_name")
+
+#: The exception names whose ``except`` a failed import reaches.
+_IMPORT_ERROR_CATCHERS = frozenset(
+    {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+)
 
 
 @dataclass(frozen=True)
@@ -97,6 +111,23 @@ class Site:
 
     def label(self) -> str:
         return self.module if self.name is None else f"{self.module}:{self.name}"
+
+
+@dataclass(frozen=True)
+class FallbackGroup:
+    """A ``try`` whose body and ``except ImportError`` handlers are alternatives.
+
+    Attributes:
+        file: The source file, labelled as :attr:`Site.file` is.
+        depth: How many enclosing groups hold this one; inner groups settle first.
+        alternatives: The first and last line of the ``try`` body, then of each
+            handler a failed import reaches. Which of them hold a site is known
+            only once the sites are.
+    """
+
+    file: str
+    depth: int
+    alternatives: tuple[tuple[int, int], ...]
 
 
 @dataclass(frozen=True)
@@ -200,6 +231,40 @@ def _sites_in(tree: ast.AST, file: str) -> Iterator[Site]:
             yield Site(file, node.lineno, match["path"], match["attr"], kind)
 
 
+def _catches_import_error(handler: ast.ExceptHandler) -> bool:
+    caught = handler.type
+    if caught is None:
+        return True
+    names = caught.elts if isinstance(caught, ast.Tuple) else [caught]
+    return any(
+        (isinstance(name, ast.Name) and name.id in _IMPORT_ERROR_CATCHERS)
+        or (isinstance(name, ast.Attribute) and name.attr in _IMPORT_ERROR_CATCHERS)
+        for name in names
+    )
+
+
+def _span(body: list[ast.stmt]) -> tuple[int, int]:
+    return body[0].lineno, body[-1].end_lineno or body[-1].lineno
+
+
+def _fallback_groups(tree: ast.AST, file: str) -> list[FallbackGroup]:
+    """Every ``try`` in ``tree`` with a handler a failed import reaches."""
+    groups: list[FallbackGroup] = []
+
+    def visit(node: ast.AST, depth: int) -> None:
+        if isinstance(node, (ast.Try, ast.TryStar)):
+            handlers = [handler for handler in node.handlers if _catches_import_error(handler)]
+            if handlers:
+                spans = (_span(node.body), *(_span(handler.body) for handler in handlers))
+                groups.append(FallbackGroup(file, depth, spans))
+                depth += 1
+        for child in ast.iter_child_nodes(node):
+            visit(child, depth)
+
+    visit(tree, 0)
+    return groups
+
+
 def source_files(root: Path) -> list[Path]:
     """Every ``.py`` file below ``root`` (or ``root`` itself), sorted."""
     if root.is_file():
@@ -213,9 +278,15 @@ def collect_sites(root: Path) -> tuple[list[Site], list[str]]:
     File labels are relative to ``root``'s parent, so a scan of an installed
     ``.../site-packages/osprey`` reads ``osprey/registry/builtins.py``.
     """
+    sites, unparsable, _ = _collect(root)
+    return sites, unparsable
+
+
+def _collect(root: Path) -> tuple[list[Site], list[str], list[FallbackGroup]]:
     base = root.parent
     sites: list[Site] = []
     unparsable: list[str] = []
+    groups: list[FallbackGroup] = []
     for path in source_files(root):
         label = path.relative_to(base).as_posix()
         try:
@@ -224,6 +295,7 @@ def collect_sites(root: Path) -> tuple[list[Site], list[str]]:
             unparsable.append(f"{label}: {error.__class__.__name__}: {error}")
             continue
         sites.extend(_sites_in(tree, label))
+        groups.extend(_fallback_groups(tree, label))
     # A registration's module_path is also a bare string literal: the
     # registration site is the stronger claim and stands for both.
     named = {(site.file, site.line, site.module) for site in sites if site.kind == "registration"}
@@ -237,7 +309,37 @@ def collect_sites(root: Path) -> tuple[list[Site], list[str]]:
         )
     ]
     sites.sort(key=lambda site: (site.file, site.line, site.module, site.name or ""))
-    return sites, unparsable
+    return sites, unparsable, groups
+
+
+def _settled_by_fallback(
+    sites: list[Site], groups: list[FallbackGroup], errors: dict[Site, str | None]
+) -> set[Site]:
+    """The sites of every group one of whose alternatives resolves whole.
+
+    An alternative is the sites within one span; a span with none is no
+    alternative, and a group left with fewer than two settles nothing. Inner
+    groups settle first, so a nested fallback that resolves counts as resolved
+    in the alternative around it.
+    """
+    by_file: dict[str, list[Site]] = defaultdict(list)
+    for site in sites:
+        by_file[site.file].append(site)
+    settled: set[Site] = set()
+    for group in sorted(groups, key=lambda group: -group.depth):
+        alternatives = [
+            [site for site in by_file[group.file] if first <= site.line <= last]
+            for first, last in group.alternatives
+        ]
+        alternatives = [alternative for alternative in alternatives if alternative]
+        if len(alternatives) < 2:
+            continue
+        if any(
+            all(errors[site] is None or site in settled for site in alternative)
+            for alternative in alternatives
+        ):
+            settled.update(site for alternative in alternatives for site in alternative)
+    return settled
 
 
 class Resolver:
@@ -328,14 +430,17 @@ def scan(root: Path) -> tuple[list[Site], list[Unresolved], list[str]]:
     """Scan ``root`` against the importable connectors.
 
     Returns:
-        Every site, the unresolved ones, and every file that would not parse.
+        Every site, the unresolved ones a fallback does not settle, and every
+        file that would not parse.
     """
-    sites, unparsable = collect_sites(root)
+    sites, unparsable, groups = _collect(root)
     resolver = Resolver()
+    errors = {site: resolver.site_error(site) for site in sites}
+    settled = _settled_by_fallback(sites, groups, errors)
     unresolved = [
         Unresolved(site, error)
         for site in sites
-        if (error := resolver.site_error(site)) is not None
+        if (error := errors[site]) is not None and site not in settled
     ]
     return sites, unresolved, unparsable
 

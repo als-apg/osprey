@@ -280,6 +280,84 @@ def test_sites_are_found_wherever_the_import_sits(tmp_path: Path) -> None:
     ]
 
 
+def test_a_fallback_the_import_ahead_of_it_spares_is_not_reported(tmp_path: Path) -> None:
+    # The shape of the limits hook: the namespaced name first, the older
+    # module path in a nested try, and a handler that gives up last.
+    result = _scan(
+        tmp_path,
+        {
+            "__init__.py": """\
+                try:
+                    from osprey_connectors.types import EPICS
+                except ImportError:
+                    try:
+                        from osprey_connectors.old_types import EPICS
+                    except ImportError:
+                        raise SystemExit(0)
+            """,
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_an_import_its_fallback_stands_in_for_is_not_reported(tmp_path: Path) -> None:
+    result = _scan(
+        tmp_path,
+        {
+            "__init__.py": """\
+                try:
+                    from osprey_connectors.new_types import EPICS
+                except ModuleNotFoundError:
+                    from osprey_connectors.types import EPICS
+            """,
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_an_import_and_its_fallback_that_both_fail_are_both_reported(tmp_path: Path) -> None:
+    result = _scan(
+        tmp_path,
+        {
+            "__init__.py": """\
+                try:
+                    from osprey_connectors.new_types import EPICS
+                except ImportError:
+                    try:
+                        from osprey_connectors.old_types import EPICS
+                    except ImportError:
+                        EPICS = None
+            """,
+        },
+    )
+    assert result.returncode == 1
+    assert _reported(result) == [
+        "osprey/__init__.py:2: osprey_connectors.new_types:EPICS",
+        "osprey/__init__.py:5: osprey_connectors.old_types:EPICS",
+    ]
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "except ImportError:\n    MOCK = None",
+        "except ValueError:\n    from osprey_connectors.types import EPICS as MOCK",
+    ],
+    ids=["swallowed", "not-an-import-handler"],
+)
+def test_an_import_with_no_fallback_in_an_import_handler_is_reported(
+    tmp_path: Path, handler: str
+) -> None:
+    result = _scan(
+        tmp_path,
+        {"__init__.py": f"try:\n    from osprey_connectors.types import MOCK\n{handler}\n"},
+    )
+    assert result.returncode == 1
+    assert _reported(result) == ["osprey/__init__.py:2: osprey_connectors.types:MOCK"]
+
+
 def test_an_unparsable_file_fails_the_scan(tmp_path: Path) -> None:
     result = _scan(
         tmp_path,
