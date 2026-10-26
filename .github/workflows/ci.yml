@@ -647,14 +647,25 @@ jobs:
 
     - name: Install dependencies
       # --all-packages so --extra service reaches the workspace member that defines it.
-      run: uv sync --all-packages --extra dev --extra service
+      run: uv sync --locked --all-packages --extra dev --extra service
 
     - name: Run the optimizer suite
+      # Below the job's cap, so a wedged run fails this step and the capture below still runs.
+      timeout-minutes: 25
       # -n 2: the runners have two CPUs, and each worker starts its own redis-server.
+      # --dist loadgroup: the root conftest's file-scoped scheduler, as in the `test` lanes.
+      # --timeout-method=signal: a timed-out test raises rather than killing its xdist worker.
       # Coverage is scoped to the optimizer: this is the only lane that runs its engine.
       run: >-
-        uv run pytest tests/optimizer -v --tb=short -n 2 --timeout=600
+        uv run --no-sync pytest tests/optimizer -v --tb=short -n 2 --dist loadgroup
+        --timeout=600 --timeout-method=signal
         --cov=packages/osprey-optimizer/src/osprey_optimizer --cov-report=xml --cov-report=term
+
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: optimizer
 
     - name: Upload coverage reports to Codecov
       # Codecov merges this with the `test` lanes' reports for the same commit.
