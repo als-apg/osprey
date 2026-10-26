@@ -2263,15 +2263,15 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset defaults control_system.writes_enabled to
-    # true (this deploy config never overrides it off), so the real,
+    # The control-assistant preset's root sets control_system.writes: allowed
+    # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
-    assert config["control_system"]["writes_enabled"] is True, (
+    assert config["control_system"]["writes"] == "allowed", (
         "this assertion block assumes the control-assistant preset's "
-        "writes_enabled default -- if that default ever changes, this test's "
-        "premise for asserting the channel_limits.json mount changes too"
+        "control_system.writes: allowed default -- if that default ever changes, this "
+        "test's premise for asserting the channel_limits.json mount changes too"
     )
     assert "CONFIG_FILE: /app/project/config.yml" in rendered
     assert "./build/services/bluesky/config.yml:/app/project/config.yml:ro" in rendered, (
@@ -7508,15 +7508,15 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # staying in step at both entry-point shapes - a deploy reading a config from
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
-# A limits database is optional. Refusals ride on one target both arming
-# writes and having `limits_checking.enabled` on
-# (`any_armed_target_checks_limits`), because that pairing is what opens the
-# file: a target that checks no limits builds no validator and reads no
-# database. The write half is a union over the targets a session here can
-# select rather than the flat key, since the template mounts the file per
-# Bluesky lane off each lane's own target posture -- so a deployment-wide
-# `writes_enabled: false` with an armed `connector.<type>.writes_enabled` still
-# mounts it. Where nothing opens the file, an unset or not-yet-staged path is a
+# A limits database is optional. Refusals ride on the login tier allowing
+# writes (`control_system.writes: allowed`) while some configured target has
+# `limits_checking.enabled` on (`tier_checks_limits`), because that pairing is
+# what opens the file: a target that checks no limits builds no validator and
+# reads no database. The tier is target-blind -- `allowed` lets a session write
+# to every configured target -- and a retired `writes_enabled` spelling is read
+# the way the normalizer reads it, so a deployment-wide `writes_enabled: false`
+# with an armed `connector.<type>.writes_enabled` is `allowed` and still mounts
+# it. Where nothing opens the file, an unset or not-yet-staged path is a
 # posture and not a fault, and no mount is recorded at all.
 # ---------------------------------------------------------------------------
 
@@ -7675,7 +7675,7 @@ def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_
     with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
         prepare_compose_files(str(config_path))
 
-    assert "writes_enabled" in excinfo.value.reason, (
+    assert "control_system.writes: allowed" in excinfo.value.reason, (
         "the reason must say which posture makes the missing key fatal"
     )
     assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key"
@@ -7708,12 +7708,12 @@ def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absen
 
 
 def _mixed_posture_limits_config(database_path: object) -> dict:
-    """Read-only deployment-wide, armed on its virtual accelerator.
+    """The retired per-type spelling: flat key off, armed on the virtual accelerator.
 
-    The posture this branch exists for: ``control_system.writes_enabled`` is
-    ``false`` and the VA's own block overrides it, so the VA lane renders
-    ``svc.writes_enabled`` true and mounts the limits database while the flat
-    key says the deployment writes nothing.
+    No ``control_system.writes`` key, so the normalizer's reading decides: the
+    literal ``true`` in the VA's own block makes the tier ``allowed``, every lane
+    renders ``svc.writes_enabled`` true and mounts the limits database, though
+    the flat key alone reads as a deployment that writes nothing.
     """
     return {
         "type": "virtual_accelerator",
@@ -7749,7 +7749,7 @@ def test_limits_mount_refuses_a_per_target_writable_deployment_whose_file_is_abs
     assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason, (
         "the reason must name the host path that was probed, not just the key"
     )
-    assert "writes_enabled" in excinfo.value.reason, (
+    assert "control_system.writes: allowed" in excinfo.value.reason, (
         "the reason must say which posture makes the absent file fatal"
     )
 
@@ -7775,7 +7775,7 @@ def test_limits_mount_refuses_a_per_target_writable_deployment_with_no_configure
     with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
         prepare_compose_files(str(config_path))
 
-    assert "writes_enabled" in excinfo.value.reason, (
+    assert "control_system.writes: allowed" in excinfo.value.reason, (
         "the reason must say which posture makes the missing key fatal"
     )
 
@@ -7958,25 +7958,27 @@ def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
     assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason
 
 
-def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_read_only_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("writes", ["allowed", "never"])
+def test_limits_mount_follows_the_tier_over_an_unchecked_baseline_beside_a_checking_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writes: str
 ) -> None:
-    """The mirror image: the target that checks limits is the one nobody arms.
+    """The target that checks limits is not the baseline, and the tier decides.
 
-    A fold that asked "is anything armed" and "is anything checking" separately
-    would refuse this build over a read-only machine's posture. Nothing here
-    opens the database, so its absence is not a fault.
+    The baseline VA checks no limits; the configured live block does. The tier
+    is target-blind, so an ``allowed`` render can write to the checking live
+    target and the absent database is fatal -- while a ``never`` render writes
+    nowhere, so nothing opens the database and its absence is not a fault. A
+    fold that read only the baseline's posture would build the ``allowed`` case
+    unguarded; one that ignored the tier would refuse the ``never`` case.
     """
     control_system = {
         "type": "virtual_accelerator",
-        "writes_enabled": False,
+        "writes": writes,
         "connector": {
             "virtual_accelerator": {
-                "writes_enabled": True,
                 "limits_checking": {"enabled": False, "mode": "exclusive"},
             },
             "epics": {
-                "writes_enabled": False,
                 "limits_checking": {"enabled": True, "mode": "exclusive"},
             },
         },
@@ -7985,9 +7987,13 @@ def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_rea
     config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
 
     monkeypatch.chdir(tmp_path)
-    config, _ = prepare_compose_files(str(config_path))
-
-    assert "limits_mount" not in config
+    if writes == "never":
+        config, _ = prepare_compose_files(str(config_path))
+        assert "limits_mount" not in config
+        return
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
+        prepare_compose_files(str(config_path))
+    assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason
 
 
 def test_limits_mount_absent_when_no_control_system_block_exists(

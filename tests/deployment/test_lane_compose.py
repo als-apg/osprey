@@ -1074,18 +1074,21 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     assert posture({"type": "virtual_accelerator", "writes_enabled": True}) is True
 
 
-def test_only_the_lane_whose_target_is_armed_mounts_the_limits_db() -> None:
-    """A live-baseline deployment can arm writes on its VA lane alone.
+@pytest.mark.parametrize("writes", ["allowed", "never"])
+def test_the_login_tier_alone_decides_which_lanes_mount_the_limits_db(writes: str) -> None:
+    """The tier is a ceiling, not a selection: ``allowed`` arms every lane, ``never`` none.
 
-    Both containers of the armed lane, not just its bridge: the per-put
-    reference monitor runs in the RE Manager, and an armed manager without the
-    DB refuses every write from the empty-DB failsafe.
+    A live-baseline deployment with a VA lane beside its live lane: the lane's
+    target does not narrow the mount, because which machine a write reaches is
+    the session's switch to decide at runtime. Both containers of an armed lane,
+    not just its bridge: the per-put reference monitor runs in the RE Manager,
+    and an armed manager without the DB refuses every write from the empty-DB
+    failsafe.
     """
-    # Writes off deployment-wide, armed in the VA connector block.
     control_system = {
         "type": "epics",
-        "writes_enabled": False,
-        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+        "writes": writes,
+        "connector": {"virtual_accelerator": {"timeout_s": 5.0}},
     }
     rendered = _render(
         _context(
@@ -1102,10 +1105,11 @@ def test_only_the_lane_whose_target_is_armed_mounts_the_limits_db() -> None:
         )
     )
 
-    assert _limits_mounts(rendered, "bluesky-va-bridge") == [LIMITS_DB_MOUNT]
-    assert _limits_mounts(rendered, "bluesky-va-queueserver") == [LIMITS_DB_MOUNT]
-    assert _limits_mounts(rendered, "bluesky-bridge") == []
-    assert _limits_mounts(rendered, "queueserver") == []
+    expected = [LIMITS_DB_MOUNT] if writes == "allowed" else []
+    assert _limits_mounts(rendered, "bluesky-va-bridge") == expected
+    assert _limits_mounts(rendered, "bluesky-va-queueserver") == expected
+    assert _limits_mounts(rendered, "bluesky-bridge") == expected
+    assert _limits_mounts(rendered, "queueserver") == expected
 
 
 def test_an_armed_lane_renders_without_a_limits_db_when_none_is_configured() -> None:
@@ -1134,25 +1138,6 @@ def test_an_armed_lane_renders_without_a_limits_db_when_none_is_configured() -> 
     assert rendered["services"]["bluesky-bridge"]["volumes"], (
         "the rest of the armed lane's volumes must still render"
     )
-
-
-def test_a_lane_that_declares_no_usable_target_falls_back_to_the_baseline() -> None:
-    """A target that is not a non-empty string is a lane that declares none.
-
-    The worker applies exactly that test to the same key
-    (``_declared_lane_target``), and a hand-edited config is where the two
-    readers meet: anything looser here would render the lane for a target the
-    worker never sees, while the worker comes up on the baseline's own block.
-    The render has to fall back where the runtime falls back.
-    """
-    from osprey.deployment.compose_generator import _lane_target
-    from osprey_connectors.types import baseline_target
-
-    control_system = {"type": "virtual_accelerator"}
-
-    assert _lane_target({"target": 123}, control_system) == baseline_target(control_system)
-    assert _lane_target({"target": ""}, control_system) == baseline_target(control_system)
-    assert _lane_target({"target": "live"}, control_system) == "live"
 
 
 # ---------------------------------------------------------------------------
