@@ -7,8 +7,9 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,7 @@ from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from tests._archive_composites import held_state_directories
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -468,6 +470,86 @@ def test_a_physics_model_that_fails_to_build_stops_the_archive(
 
     with pytest.raises(RuntimeError, match="M: deck unreadable"):
         build(_view(tmp_path), [])
+
+
+@pytest.fixture
+def recorded_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[TemporaryDirectory[str]]]:
+    """Every state directory ``build`` makes, none released by the collector."""
+    with held_state_directories(monkeypatch) as held:
+        yield held
+
+
+def test_close_removes_the_state_directory_and_a_second_close_does_nothing(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    del engine
+    archive = build(_view(tmp_path), [])
+    [state] = recorded_state
+    assert Path(state.name).is_dir()
+
+    archive.close()
+    archive.close()
+
+    assert not Path(state.name).exists()
+
+
+def test_a_with_block_removes_the_state_directory_on_exit(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    del engine
+    with build(_view(tmp_path), []) as archive:
+        assert archive.addresses
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
+def test_a_with_block_removes_the_state_directory_on_an_exception(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    del engine
+    with pytest.raises(LookupError, match="inside"), build(_view(tmp_path), []):
+        raise LookupError("inside")
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
+def test_a_failed_build_leaves_no_state_directory(
+    tmp_path: Path,
+    engine: SimpleNamespace,
+    recorded_state: list[TemporaryDirectory[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del engine
+
+    def missing(self: Composite, addresses: Any) -> None:
+        del self, addresses
+        raise KeyError("T:RB")
+
+    monkeypatch.setattr(Composite, "held", missing)
+
+    with pytest.raises(KeyError, match="T:RB"):
+        build(_view(tmp_path), [])
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
+
+
+def test_a_failed_model_leaves_no_state_directory(
+    tmp_path: Path, engine: SimpleNamespace, recorded_state: list[TemporaryDirectory[str]]
+) -> None:
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("deck unreadable")
+
+    engine.build = refuse
+
+    with pytest.raises(RuntimeError, match="M: deck unreadable"):
+        build(_view(tmp_path), [])
+
+    [state] = recorded_state
+    assert not Path(state.name).exists()
 
 
 def test_building_an_archive_appends_nothing_to_the_model_log(
