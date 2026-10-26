@@ -76,6 +76,31 @@ MIDDLE_LAYER_SETTINGS = (
 #: The supported trees ``osprey build`` is claimed to accept, from the registry.
 BUILT_TREES = names("builds")
 
+
+def only(*trees: str) -> pytest.MarkDecorator:
+    """Narrow ``served_repo`` to *trees*, skipping the others.
+
+    Every tree stays a param at its ``BUILT_TREES`` index: pytest groups tests
+    by a module-scoped param's index, so narrowing the list itself would mix
+    trees and drive each recipe again after every switch.
+
+    A tree the registry no longer claims fails collection rather than leaving
+    its case with nothing but skips.
+    """
+    unclaimed = sorted(set(trees) - set(BUILT_TREES))
+    assert not unclaimed, f"{unclaimed} is not a supported tree that builds"
+    return pytest.mark.parametrize(
+        "served_repo",
+        [
+            pytest.param(
+                tree, marks=() if tree in trees else pytest.mark.skip(reason="not this case's tree")
+            )
+            for tree in BUILT_TREES
+        ],
+        indirect=True,
+    )
+
+
 LIMITS_FILE = "channel_limits.json"
 
 #: The simulator view the build writes and the virtual accelerator serves,
@@ -657,7 +682,7 @@ class TestTheFacilityImportOfATwoZeroExport:
         ]
         assert (served_repo["repo"] / FACILITY_DIR / "scenarios" / "nominal.yaml").is_file()
 
-    @pytest.mark.parametrize("served_repo", ["spear3", "synthetic"], indirect=True)
+    @only("spear3", "synthetic")
     def test_the_build_stops_on_each_setpoint_outside_its_band_until_it_is_widened(
         self, served_repo: dict
     ) -> None:
@@ -676,7 +701,7 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert len(served_repo["remedied"]) == len(expected)
         assert set(served_repo["remedied"]) == expected
 
-    @pytest.mark.parametrize("served_repo", ["nsls2"], indirect=True)
+    @only("nsls2")
     def test_a_tree_whose_export_starts_every_setpoint_inside_its_band_builds_at_once(
         self, served_repo: dict
     ) -> None:
@@ -688,7 +713,7 @@ class TestTheFacilityImportOfATwoZeroExport:
         assert not seed_stops(stopped.stderr)
         assert served_repo["remedied"] == ()
 
-    @pytest.mark.parametrize("served_repo", ["synthetic"], indirect=True)
+    @only("synthetic")
     def test_the_synthetic_harvest_stops_on_its_one_planted_corrector(
         self, served_repo: dict
     ) -> None:
