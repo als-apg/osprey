@@ -34,7 +34,6 @@ from osprey.deployment.web_terminals.roster import (
     effective_tier,
     entry_is_shared,
     freeze_user_indices,
-    lane_control_target,
     normalize_users,
     phoebus_server_runs,
     renders_needing_archiver_ca_bundles,
@@ -2364,16 +2363,17 @@ def test_renders_needing_launch_token_skips_unrendered_render_projects(tmp_path)
 # ---------------------------------------------------------------------------
 # Per-lane launch-token entitlement
 #
-# A plan lane is bound at render time to ONE control target, so the posture
-# that decides whether its token may be issued is that target's -- not the
-# deployment's. The case the whole axis exists for: a deployment whose baseline
-# is a live machine arms writes on its virtual-accelerator lane alone, and lane
-# 1 (the live one) must stay disarmed while it does.
+# A plan lane is bound at render time to ONE control target, but the posture
+# that decides whether its token may be issued is the render's login tier,
+# which is target-blind (PR-3): a tier that allows writes entitles every lane
+# the render carries, and the person's switch picks the machine per write. The
+# lane decides only whether the render carries it.
 # ---------------------------------------------------------------------------
 
-#: A live-baseline project that arms writes on the VA connector only, and
-#: renders the VA second lane. Lane 1 has no `target:` of its own, so it takes
-#: the deployment baseline, which here is `live`.
+#: A live-baseline project whose retired spelling armed the VA connector only
+#: (rewritten to `control_system.writes: allowed`), and that renders the VA
+#: second lane. Lane 1 has no `target:` of its own, so it takes the deployment
+#: baseline, which here is `live`.
 _VA_ARMED_LIVE_DEPLOYMENT: dict = {
     "control_system": {
         "type": "epics",
@@ -2395,38 +2395,12 @@ _VA_BASELINE_DEPLOYMENT: dict = {
 }
 
 
-def test_lane_control_target_falls_back_to_the_baseline_for_lane_one() -> None:
-    """Lane 1 on a single-lane deployment has never carried a `target:` key -- it
-    serves the only target the deployment has -- so it reads the baseline."""
-    # Assert
-    assert lane_control_target(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") == "live"
-    assert lane_control_target(_VA_BASELINE_DEPLOYMENT, "bluesky") == "va"
-
-
-def test_lane_control_target_reads_a_second_lanes_declared_target() -> None:
-    """A second lane's rendered block states the target it drives."""
-    # Assert
-    assert lane_control_target(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_va") == "va"
-
-
-def test_lane_control_target_falls_back_to_the_target_the_lane_key_names() -> None:
-    """A lane is named for the target it serves, so a block that wrote no
-    `target:` is still unambiguous -- the key itself answers."""
-    # Arrange
-    config = {"services": {"bluesky_va": {"port": 10081}, "bluesky_live": {"port": 10082}}}
-
-    # Assert
-    assert lane_control_target(config, "bluesky_va") == "va"
-    assert lane_control_target(config, "bluesky_live") == "live"
-
-
-def test_config_needs_launch_token_for_arms_only_the_lane_whose_target_allows_writes() -> None:
-    """The feature in one assertion: writes are armed for `va` and nowhere else, so
-    the VA lane's token may be issued and lane 1's -- which drives the live machine
-    -- may not."""
+def test_config_needs_launch_token_for_arms_every_lane_an_allowed_tier_carries() -> None:
+    """The tier is target-blind: one armed connector leaf rewrites to `allowed`,
+    which entitles lane 1 -- the live machine's -- as well as the VA lane."""
     # Assert
     assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_va") is True
-    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") is False
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") is True
 
 
 def test_config_needs_launch_token_for_denies_a_lane_this_render_does_not_carry() -> None:
@@ -2471,17 +2445,16 @@ def test_config_needs_launch_token_for_denies_every_lane_when_the_server_is_off(
 
 
 def test_config_needs_launch_token_is_the_lane_one_case() -> None:
-    """The pre-lane predicate is this one asked about lane 1, so a deployment that
-    arms only its VA lane does not satisfy it."""
+    """The pre-lane predicate is this one asked about lane 1, which every render
+    carries, so it answers the render's tier."""
     # Assert
-    assert config_needs_launch_token(_VA_ARMED_LIVE_DEPLOYMENT) is False
+    assert config_needs_launch_token(_VA_ARMED_LIVE_DEPLOYMENT) is True
     assert config_needs_launch_token(_VA_BASELINE_DEPLOYMENT) is True
 
 
-def test_renders_needing_launch_token_by_lane_grants_only_the_armed_lane(tmp_path) -> None:
-    """The producer in roster form: the render holds the VA lane's token and not
-    lane 1's, and lane 1 is ABSENT from the map rather than present and empty --
-    the deployment renders no such grant at all."""
+def test_renders_needing_launch_token_by_lane_grants_every_carried_lane(tmp_path) -> None:
+    """The producer in roster form: an allowed tier holds the token of every lane
+    its render carries, lane 1 and the VA lane alike."""
     # Arrange
     config = _catalog_config(
         {
@@ -2499,7 +2472,7 @@ def test_renders_needing_launch_token_by_lane_grants_only_the_armed_lane(tmp_pat
     result = renders_needing_launch_token_by_lane(config, tmp_path)
 
     # Assert
-    assert result == {"bluesky_va": {"va_operator"}}
+    assert result == {"bluesky": {"va_operator"}, "bluesky_va": {"va_operator"}}
 
 
 def test_renders_needing_launch_token_by_lane_grants_lane_one_on_a_va_baseline(

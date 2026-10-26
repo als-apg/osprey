@@ -1178,34 +1178,59 @@ def test_every_lane_the_registry_knows_has_a_contract_of_its_own():
         ]
 
 
-def test_a_lanes_launch_token_follows_that_lanes_own_target():
-    """The per-target boundary, lane by lane: a deployment built for a live
-    machine, arming writes on its virtual-accelerator lane alone, hands out the
-    VA lane's token and withholds the live lane's — even though the two lanes
-    run in one container for one render."""
+@pytest.mark.parametrize(
+    ("control_system", "armed"),
+    [
+        ({"type": "epics", "writes": "allowed"}, True),
+        ({"type": "epics", "writes": "never"}, False),
+        # The retired per-type spelling, read as the normalizer reads it: a
+        # literal true in any connector block is `allowed`, for every lane.
+        (
+            {
+                "type": "epics",
+                "writes_enabled": False,
+                "connector": {"virtual_accelerator": {"writes_enabled": True}},
+            },
+            True,
+        ),
+        # When the tier key is present it alone decides; retired leaves are ignored.
+        (
+            {
+                "type": "epics",
+                "writes": "never",
+                "connector": {"virtual_accelerator": {"writes_enabled": True}},
+            },
+            False,
+        ),
+    ],
+)
+def test_a_lanes_launch_token_follows_the_login_tier_not_that_lanes_target(
+    control_system: dict, armed: bool
+):
+    """The tier is a ceiling, not a selection: a deployment built for a live
+    machine with a virtual-accelerator lane beside it hands out both lanes'
+    tokens when its tier allows writes and neither when it does not — the
+    lane's target never narrows the grant, because the person's switch picks
+    the machine at the moment of each write."""
     config = {
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
-        "control_system": {
-            "type": "epics",
-            "writes_enabled": False,
-            "connector": {"virtual_accelerator": {"writes_enabled": True}},
-        },
+        "control_system": control_system,
         "services": {
             "bluesky": {"port": 10080, "target": "live"},
             "bluesky_va": {"port": 10081, "target": "va"},
         },
     }
 
-    # Lane 1 serves this deployment's live target, and every lane this render
-    # does not carry — the second live lane, a stand-in lane — is withheld.
-    assert _launch_token_grants(config) == _expected_grants(bluesky_va=True)
+    # Every lane this render does not carry — the second live lane, a stand-in
+    # lane — is withheld whatever the tier says.
+    assert _launch_token_grants(config) == _expected_grants(bluesky=armed, bluesky_va=armed)
 
 
-def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
+def test_a_per_type_false_does_not_narrow_an_allowed_tier_on_one_lane():
     """The mirror deployment — built for the simulator, told about its real
-    machine by a connector block that disarms it. The deployment-wide key is
-    the VA lane's posture by inheritance, and says nothing about the live lane,
-    whose own block has already answered."""
+    machine by a connector block whose retired leaf says false. A global true
+    normalizes to `allowed`, which is target-blind, so the per-type false
+    withholds nothing: both carried lanes are granted, the rest withheld."""
     config = {
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
         "control_system": {
@@ -1219,7 +1244,7 @@ def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
         },
     }
 
-    assert _launch_token_grants(config) == _expected_grants(bluesky=True)
+    assert _launch_token_grants(config) == _expected_grants(bluesky=True, bluesky_live=True)
 
 
 def test_no_lane_is_armed_without_the_bluesky_server():

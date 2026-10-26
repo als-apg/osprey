@@ -61,7 +61,7 @@ from osprey.deployment.web_terminals.roster import (
     settings_json_is_rendered,
 )
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
-from osprey_connectors.types import WRITES_ENABLED_KEY
+from osprey_connectors.types import WRITES_KEY
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 #: Filename of the rendered web-stack compose file, as
@@ -162,10 +162,9 @@ class BashLaunchTokenConflictError(DeploymentError):
             caller holding only the flat set (the collect-all preflight, which
             asks :func:`bash_launch_token_offenders`) still gets the refusal and
             the remedy, without the per-lane breakdown.
-        writes_keys: Per lane, the config key that decides that lane's write
-            posture (:func:`~osprey.deployment.web_terminals.roster.launch_token_writes_key`).
-            Named per lane rather than deployment-wide because that is the key
-            an operator actually edits to withdraw one lane's entitlement.
+        writes_keys: Per lane, the config key that decides that lane's token
+            entitlement (:func:`~osprey.deployment.web_terminals.roster.launch_token_writes_key`),
+            which is the login tier's ``control_system.writes`` on every lane.
     """
 
     def __init__(
@@ -183,24 +182,16 @@ class BashLaunchTokenConflictError(DeploymentError):
         breakdown = "".join(
             f"\n  - lane {lane!r} ({lane_env_prefix(lane)}_LAUNCH_TOKEN): "
             f"{', '.join(repr(name) for name in names)} — armed by "
-            f"{(writes_keys or {}).get(lane, WRITES_ENABLED_KEY)} and "
+            f"{(writes_keys or {}).get(lane, WRITES_KEY)} and "
             f"claude_code.servers.bluesky.enabled"
             for lane, names in self.renders_by_lane.items()
         )
-        # A caller holding only the flat set has no lane to point at, so the
-        # remedy describes the key instead of referring back to a line that
-        # would not be there.
-        writes_remedy = (
-            "the control_system.connector.<type>.writes_enabled named above, set to false"
-            if self.renders_by_lane
-            else "control_system.connector.<type>.writes_enabled: false for the "
-            "target the lane drives"
-        )
+        writes_remedy = f"{WRITES_KEY}: never in that render's tier"
         super().__init__(
             f"Refusing to deploy: {named} would be granted a Bluesky launch token "
             f"while also permitted to run a shell.{breakdown}\n"
             f"Each named render is entitled to that lane's token — its rendered "
-            f"config.yml arms writes for the control target the lane drives AND leaves "
+            f"config.yml allows writes ({WRITES_KEY}: allowed) AND leaves "
             f"the bluesky MCP server enabled — and its shipped "
             f'.claude/settings.json does not list "Bash" in permissions.deny (a '
             f"missing or unparseable settings.json counts the same — it is not "
@@ -214,7 +205,7 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"is the one baked into the image, and the per-user services declare only "
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
             f"moving that render off the bluesky server "
-            f"(claude_code.servers.bluesky.enabled: false) or off that lane's writes "
+            f"(claude_code.servers.bluesky.enabled: false) or off writes "
             f"({writes_remedy})."
         )
 
