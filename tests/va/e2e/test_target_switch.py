@@ -58,7 +58,6 @@ import contextlib
 import json
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -86,6 +85,7 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
+from tests._live import async_wait_until, free_port
 from tests.fixtures.control_context import (
     claim_the_record,
     context_for,
@@ -113,9 +113,6 @@ except Exception as exc:  # pragma: no cover - depends on the installed extras
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The image under test, and the simulation data both containers serve.
-IMAGE = e2e_conftest.IMAGE
-
 #: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
 CONTAINER_VA = "osprey-va-e2e-switch-va"
 CONTAINER_LIVE = "osprey-va-e2e-switch-live"
@@ -131,8 +128,9 @@ MIN_COLLECTED_TESTS = 18
 # -- the namespace both containers serve ------------------------------------
 
 #: What each target's switch reads to prove itself reachable. A pyat-coupled
-#: readback, never written by anything in this file.
-VA_PROBE = "SR:MAG:HCM:01:CURRENT:RB"
+#: readback, never written by anything in this file, and what the readiness
+#: probe waits for.
+VA_PROBE = e2e_conftest.READINESS_ADDRESS
 LIVE_PROBE = VA_PROBE
 
 #: The channel that tells the two containers apart. Container L boots with the
@@ -187,81 +185,6 @@ CONSECUTIVE_SWITCHES = 5
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _require_image() -> None:
-    """Fail loudly unless the image can serve on a port other than 5064.
-
-    A precondition, not a nicety: the Channel Access *server* library reads
-    ``EPICS_CAS_SERVER_PORT`` and does not fall back to the client-side
-    variable, so an image whose entry point does not derive one from the other
-    keeps binding its build-time default while telling this suite's clients
-    some other port. The symptom would be an unexplained boot timeout; this
-    turns it into a sentence naming the fix.
-    """
-    inspected = _docker(
-        "image", "inspect", IMAGE, "--format", "{{.Architecture}}|{{.Config.Cmd}}", timeout=60
-    )
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-    architecture, _, command = inspected.stdout.strip().partition("|")
-    if "EPICS_CAS_SERVER_PORT" not in command:
-        pytest.fail(
-            f"image {IMAGE!r} ({architecture}) does not derive EPICS_CAS_SERVER_PORT from "
-            f"EPICS_CA_SERVER_PORT, so it cannot serve on any port but its baked default. "
-            f"{e2e_conftest.IMAGE_REMEDY} Its entry point is: {command}"
-        )
-
-
-def _served(port: int) -> bool:
-    """Whether a virtual accelerator is answering on *port*, asked out of process.
-
-    In a subprocess for the reason ``conftest.py`` gives: Channel Access reads
-    ``EPICS_CA_*`` once, when a process's context is created, and this probe
-    points it at *port*, so it cannot share a process with a client pointed
-    anywhere else.
-
-    It leaves through ``os._exit`` for that file's other reason: aioca's exit
-    hook destroys the CA context, and that blocks for as long as a name-server
-    circuit is still retrying a port nothing serves yet -- the very case a
-    readiness probe polls through. The word is written and flushed before the
-    exit.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({VA_PROBE!r}, timeout=2.0, throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
-
-
 @contextlib.contextmanager
 def _serving(prefix: str, *, state_dir: Path | None):
     """Boot one virtual accelerator container and wait until it serves.
@@ -272,12 +195,7 @@ def _serving(prefix: str, *, state_dir: Path | None):
     container boots with; ``None`` serves the suite set
     (``e2e_conftest.SUITE_SCENARIOS``).
     """
-    port = _free_port()
-    name = f"{prefix}-{port}"
-    # Stale-cleanup only. The port is this run's alone, so this can name nothing
-    # a concurrent run is using -- which is the point of the suffix.
-    _docker("rm", "-f", name, timeout=60)
-
+    port = free_port()
     data = (
         e2e_conftest.demo_data_run_args()
         if state_dir is None
@@ -289,39 +207,18 @@ def _serving(prefix: str, *, state_dir: Path | None):
             "VA_STATE_DIR=/state/simulation",
         )
     )
-    arguments = [
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
+    # The port is this run's alone, so the name can be nothing a concurrent run
+    # is using -- which is the point of the suffix.
+    with e2e_conftest.serving_container(
+        f"{prefix}-{port}",
+        port,
         *data,
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-    ]
-    started = _docker(*arguments, IMAGE)
-    if started.returncode != 0:
-        raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
-
-    try:
-        deadline = time.monotonic() + BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if _served(port):
-                break
-            time.sleep(1.0)
-        else:
-            logs = _docker("logs", "--tail", "40", name, timeout=60)
-            raise RuntimeError(
-                f"{name} never served {VA_PROBE} within {BOOT_TIMEOUT_S}s.\n"
-                f"{logs.stdout}\n{logs.stderr}"
-            )
+        boot_timeout=BOOT_TIMEOUT_S,
+    ):
         yield port
-    finally:
-        _docker("rm", "-f", name, timeout=60)
 
 
 @dataclass(frozen=True)
@@ -340,7 +237,7 @@ def endpoints(tmp_path_factory: pytest.TempPathFactory):
     and container V boots with none, which is what makes ``SEEDED_BPM``
     distinguish them on the wire.
     """
-    _require_image()
+    e2e_conftest.require_image_serving_any_port()
     state_dir = tmp_path_factory.mktemp("live-state")
     active = state_dir / "active_scenarios"
     active.write_text(SEEDED_ACTIVE_SCENARIOS, encoding="utf-8")
@@ -564,16 +461,6 @@ def quiet_switch_notifications(monkeypatch):
     return recorded
 
 
-async def wait_for(predicate, timeout: float = SETTLE_TIMEOUT_S) -> bool:
-    """Poll *predicate* on the event loop until it holds, or give up."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return True
-        await asyncio.sleep(0.05)
-    return False
-
-
 async def reading(manager: ConnectorHostManager, address: str) -> float:
     """One value off the wire, through whichever child is serving right now."""
     value = await manager.active_proxy().read_channel(address, timeout=READ_TIMEOUT_S)
@@ -655,12 +542,18 @@ class TestALiveVaRoundTrip:
 
         await manager.switch("va")
         second = manager.spawned[1]
-        assert await wait_for(lambda: first.returncode is not None), (
-            "the child for the previous target outlived the switch away from it"
+        await async_wait_until(
+            lambda: first.returncode is not None,
+            timeout=SETTLE_TIMEOUT_S,
+            what="the previous target's child exiting after the switch away from it",
         )
 
         await manager.switch("live")
-        assert await wait_for(lambda: second.returncode is not None)
+        await async_wait_until(
+            lambda: second.returncode is not None,
+            timeout=SETTLE_TIMEOUT_S,
+            what="the previous target's child exiting",
+        )
         assert manager.status()["child_pid"] == manager.spawned[2].pid
 
     async def test_the_state_file_follows_the_session_both_ways(self, make_manager):
@@ -704,7 +597,7 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
     @pytest.fixture
     def wrong_port_deployment(self, endpoints):
         """The ``va`` block pointed at a port no server holds."""
-        return raw_config(va_port=_free_port(), live_port=endpoints.live)
+        return raw_config(va_port=free_port(), live_port=endpoints.live)
 
     async def test_the_switch_fails_at_the_probe(self, make_manager, wrong_port_deployment):
         manager = await started_on(make_manager, "live", raw=wrong_port_deployment)
@@ -749,8 +642,10 @@ class TestAFailedSwitchLeavesThePreviousTargetActive:
             await manager.switch("va")
 
         candidate = manager.spawned[1]
-        assert await wait_for(lambda: candidate.returncode is not None), (
-            "the candidate child outlived the switch that failed to adopt it"
+        await async_wait_until(
+            lambda: candidate.returncode is not None,
+            timeout=SETTLE_TIMEOUT_S,
+            what="the candidate child exiting after the switch that failed to adopt it",
         )
         report = target_state.read()
         assert report["applied_target"] == "live"
@@ -858,8 +753,10 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         assert isinstance(await proxy.read_channel(VA_PROBE, timeout=READ_TIMEOUT_S), ChannelValue)
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
-        assert await wait_for(lambda: not manager.has_child()), (
-            "the manager kept reporting a child that had been killed"
+        await async_wait_until(
+            lambda: not manager.has_child(),
+            timeout=SETTLE_TIMEOUT_S,
+            what="the manager dropping the child that was killed",
         )
 
         with pytest.raises(NoConnectorHostError) as raised:
@@ -877,7 +774,11 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         generation = manager.active_generation()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
-        assert await wait_for(lambda: not manager.has_child())
+        await async_wait_until(
+            lambda: not manager.has_child(),
+            timeout=SETTLE_TIMEOUT_S,
+            what="the manager dropping its child",
+        )
 
         assert manager.active_target() == "va"
         assert manager.active_generation() == generation
@@ -899,7 +800,11 @@ class TestFailClosedWhenTheChildIsKilledExternally:
         generation = manager.active_generation()
 
         os.kill(manager.status()["child_pid"], signal.SIGKILL)
-        assert await wait_for(lambda: not manager.has_child())
+        await async_wait_until(
+            lambda: not manager.has_child(),
+            timeout=SETTLE_TIMEOUT_S,
+            what="the manager dropping its child",
+        )
         with pytest.raises(NoConnectorHostError):
             await context.control_system()
 

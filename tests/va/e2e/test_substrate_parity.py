@@ -54,6 +54,8 @@ import sys
 import time
 from typing import Any
 
+from tests._live import free_port
+
 # The CA-client worker. Dispatched before this module imports pytest or any
 # osprey package, so the client process stays a bare aioca client.
 
@@ -181,7 +183,6 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     os._exit(0)
 
 import math  # noqa: E402
-import socket  # noqa: E402
 import subprocess  # noqa: E402
 from collections.abc import Iterator, Mapping  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
@@ -695,44 +696,6 @@ def test_a_failed_scenario_reads_with_the_composites_severity(
 # ---------------------------------------------------------------------------
 
 
-def _docker(*args: str, timeout: float = 60.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _served(port: int) -> bool:
-    """Whether the container published on ``port`` serves the readiness channel.
-
-    Asked out of process, leaving through ``os._exit`` for the reason the
-    directory conftest's probe gives.
-    """
-    code = (
-        "import asyncio, os, sys, aioca\n"
-        f"v = asyncio.run(aioca.caget({e2e_conftest.READINESS_ADDRESS!r}, timeout=2.0, "
-        "throw=False))\n"
-        "sys.stdout.write('SERVED' if v.ok else 'NONE')\n"
-        "sys.stdout.flush()\n"
-        "os._exit(0)\n"
-    )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT"):
-        environment.pop(stale, None)
-    try:
-        probe = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=environment,
-        )
-    except subprocess.TimeoutExpired:
-        return False
-    return probe.stdout.strip() == "SERVED"
-
-
 @dataclass(frozen=True)
 class NoisyVa:
     """The noise container: its published port and the view it serves."""
@@ -769,9 +732,9 @@ def noisy_va() -> Iterator[NoisyVa]:
     port, _ = e2e_conftest.run_on_free_port(container)
     try:
         deadline = time.monotonic() + e2e_conftest.CONTAINER_BOOT_TIMEOUT_S
-        while not _served(port):
+        while not e2e_conftest.ca_served(port, timeout=10):
             if time.monotonic() > deadline:
-                logs = _docker("logs", "--tail", "40", NOISE_CONTAINER)
+                logs = e2e_conftest.docker("logs", "--tail", "40", NOISE_CONTAINER, timeout=60)
                 raise RuntimeError(
                     f"{NOISE_CONTAINER} never served {e2e_conftest.READINESS_ADDRESS} within "
                     f"{e2e_conftest.CONTAINER_BOOT_TIMEOUT_S}s.\n"
@@ -781,7 +744,7 @@ def noisy_va() -> Iterator[NoisyVa]:
             time.sleep(0.5)
         yield NoisyVa(port=port, view=View.read(root / VIEW_RELPATH.name))
     finally:
-        _docker("rm", "-f", NOISE_CONTAINER)
+        e2e_conftest.docker("rm", "-f", NOISE_CONTAINER, timeout=60)
 
 
 def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channels(
@@ -883,9 +846,7 @@ def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
 
     No container: the name server is a port nothing listens on.
     """
-    with socket.socket() as unused:
-        unused.bind(("127.0.0.1", 0))
-        port = unused.getsockname()[1]
+    port = free_port()
     environment = {
         **os.environ,
         "EPICS_CA_NAME_SERVERS": f"localhost:{port}",

@@ -275,17 +275,6 @@ def only_simulated_targets(config: Mapping[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _docker(*args: str, timeout: float = 180.0) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
-
-
-def require_image() -> None:
-    """Fail loudly unless the image is present."""
-    inspected = _docker("image", "inspect", IMAGE, "--format", "{{.Id}}", timeout=60)
-    if inspected.returncode != 0:
-        pytest.fail(f"image {IMAGE!r} is not present. {e2e_conftest.IMAGE_REMEDY}")
-
-
 class PortTaken(RuntimeError):
     """The port a build named was taken before its container could publish it."""
 
@@ -323,10 +312,10 @@ def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -
     The published ports and the servers' own are the same numbers; the Channel
     Access port also names the container, so a concurrent run cannot remove it.
     """
-    require_image()
+    e2e_conftest.require_image()
     port = deployment.port
     name = f"{prefix}-{port}-{uuid.uuid4().hex[:8]}"
-    started = _docker(
+    started = e2e_conftest.docker(
         "run",
         "-d",
         "--name",
@@ -350,7 +339,7 @@ def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -
         IMAGE,
     )
     if started.returncode != 0:
-        _docker("rm", "-f", name, timeout=60)
+        e2e_conftest.docker("rm", "-f", name, timeout=60)
         if "address already in use" in started.stderr:
             raise PortTaken(port)
         raise RuntimeError(f"docker run failed: {started.stdout}\n{started.stderr}")
@@ -366,14 +355,14 @@ def serving(deployment: Deployment, *, pva_port: int, prefix: str, probe: str) -
                 last = f"{type(exc).__name__}: {exc}"
             time.sleep(1.0)
         else:
-            logs = _docker("logs", "--tail", "60", name, timeout=60)
+            logs = e2e_conftest.docker("logs", "--tail", "60", name, timeout=60)
             raise AssertionError(
                 f"{name} never served {probe} within {BOOT_TIMEOUT_S}s ({last}).\n"
                 f"{logs.stdout}\n{logs.stderr}"
             )
         yield
     finally:
-        _docker("rm", "-f", name, timeout=60)
+        e2e_conftest.docker("rm", "-f", name, timeout=60)
 
 
 def ca_read(port: int, addresses: Sequence[str], *, timeout: float = 10.0) -> dict[str, Any]:

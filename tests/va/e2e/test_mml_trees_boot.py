@@ -506,10 +506,6 @@ def _declared_kinds(mapping: Path, view: SimulatorView) -> frozenset[str]:
 # ===================================================================
 
 
-def _docker(*arguments: str, timeout: float = 120.0) -> subprocess.CompletedProcess:
-    return subprocess.run(["docker", *arguments], capture_output=True, text=True, timeout=timeout)
-
-
 @dataclass(frozen=True)
 class ServedTree:
     """A built tree with a container serving it, the port it answers on, and its oracle.
@@ -623,7 +619,7 @@ def _serving(tree: BuiltTree, state_dir: Path | None = None):
         _wait_until_ready(name, served)
         yield served
     finally:
-        _docker("rm", "-f", name)
+        e2e_conftest.docker("rm", "-f", name, timeout=120)
 
 
 def _wait_until_ready(container: str, served: ServedTree) -> None:
@@ -651,7 +647,7 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
             last_attempt = f"{type(exc).__name__}: {exc}"
         time.sleep(2.0)
 
-    logs = _docker("logs", "--tail", "60", container)
+    logs = e2e_conftest.docker("logs", "--tail", "60", container, timeout=120)
     raise AssertionError(
         f"{served.tree.name}: the container never served {probe} within {BOOT_TIMEOUT_S}s.\n"
         f"The client's last attempt: {last_attempt}\n"
