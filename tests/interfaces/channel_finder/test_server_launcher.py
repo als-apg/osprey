@@ -16,13 +16,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
-
-
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from tests._live import free_port
 
 
 def _make_launcher(host: str, port: int):
@@ -140,7 +134,7 @@ class TestEnsureRunningOwnership:
         every OSPREY checkout on the machine answers it 200 and it says nothing
         about whether this port is ours. The bind question is the only one asked.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
@@ -154,7 +148,7 @@ class TestEnsureRunningOwnership:
 
     def test_launches_when_port_genuinely_free(self):
         """Bindable, nothing answering → launch and own the port."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=True),
@@ -168,7 +162,7 @@ class TestEnsureRunningOwnership:
 
     def test_waits_out_dying_predecessor_then_launches(self):
         """A predecessor that releases the port during the grace window is waited out."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
         # Unbindable on the first probe, bindable on the second (predecessor gone).
         bindable = iter([False, True])
 
@@ -193,7 +187,7 @@ class TestEnsureRunningOwnership:
         and it accepts THIS process's operator secret, so it is this deployment's
         panel under a shared ``OSPREY_TERMINAL_SECRET``.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=False),
@@ -217,7 +211,7 @@ class TestEnsureRunningOwnership:
         talk to. An ungated 200 to the adoption probe now refuses: no launch (the
         port is not ours to take), no latch, and a warning naming the conflict.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=False),
@@ -237,7 +231,7 @@ class TestEnsureRunningOwnership:
 
     def test_warns_when_port_held_by_a_listener_that_never_answers(self):
         """Held for the full grace window, nothing answering → warn, no silent skip."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
 
         with (
             patch.object(launcher, "_port_is_bindable", return_value=False),
@@ -260,7 +254,7 @@ class TestEnsureRunningOwnership:
         first call hit a foreign holder, a later call (after the port frees) must
         still launch instead of being permanently short-circuited.
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
 
         # First call: held by an unattributable listener → warn, throttle, no latch.
         with (
@@ -292,7 +286,7 @@ class TestEnsureRunningOwnership:
         call. The bind question is still re-asked first, so a freed port still
         launches (covered above).
         """
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
         sleep = MagicMock()
 
         for _pass in range(2):
@@ -313,7 +307,7 @@ class TestEnsureRunningOwnership:
 
     def test_cooldown_short_circuits_reprobe(self):
         """Within the retry cooldown, ensure_running must not re-probe (avoids grace cost)."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
         launcher._retry_not_before = time.monotonic() + 1000  # far future
 
         with (
@@ -327,7 +321,7 @@ class TestEnsureRunningOwnership:
 
     def test_dead_thread_health_200_not_marked_launched(self):
         """Post-launch: a /health 200 from a dead thread (foreign responder) is not trusted."""
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
         dead_thread = MagicMock()
         dead_thread.is_alive.return_value = False
 
@@ -374,7 +368,7 @@ class TestTheTwoProbesAnswerDifferentQuestions:
     """
 
     def test_a_free_port_is_bindable_and_answers_nothing(self):
-        launcher = _make_launcher("127.0.0.1", _free_port())
+        launcher = _make_launcher("127.0.0.1", free_port())
         host, port = launcher._config_reader()
 
         assert launcher._port_is_bindable(host, port) is True
