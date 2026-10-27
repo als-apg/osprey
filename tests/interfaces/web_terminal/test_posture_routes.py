@@ -121,13 +121,6 @@ def write_config(tmp_path, section=None, *, name="config.yml"):
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_watch"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def make_client(agent_data_root, workspace_dir, tmp_path):
     """Build an app + TestClient, repeatably, over the same stamped root.
 

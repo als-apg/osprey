@@ -67,13 +67,6 @@ OTHER_TERMINAL_PORT = 8090
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_watch"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def config_path(tmp_path):
     """A render whose ``va`` target is eligible from a ``live`` baseline.
 
