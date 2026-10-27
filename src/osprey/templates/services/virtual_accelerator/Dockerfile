@@ -1,7 +1,3 @@
-# check=skip=FromPlatformFlagConstDisallowed
-# (The constant --platform below is deliberate -- see the architecture note.
-# Parser directives must lead the file, so this one cannot sit beside it.)
-
 # Image for the Virtual Accelerator (osprey.services.virtual_accelerator): a
 # PyAT-backed EPICS server, reached over Channel Access by an unmodified
 # EPICSConnector, with the physics model's own variables served on PVAccess
@@ -26,30 +22,37 @@
 #     (the primer only covers the *released* extra set, and `pip check` cannot
 #     see missing extras); the second install is a fast, deps-free
 #     force-reinstall without the extra. With no wheel staged it is a no-op.
-# Deliberately no pinned native-dependency versions here — the extra + core
-# deps resolve them, so this Dockerfile can't drift from pyproject.toml's
-# declared constraints.
 #
-# linux/amd64, pinned — deliberately single-arch, and arm64 is not built.
-# pcaspy, the Channel Access server behind the serving stack, publishes no
-# linux/aarch64 wheel at any interpreter, so an arm64 image would have to
-# compile EPICS base and epics-modules/pcas from source before it could even
-# start on pcaspy itself. amd64 is what CI runs, and it is where every
-# framework dependency resolves to a prebuilt manylinux_x86_64 wheel.
+# The deps layer pins no native-dependency version — the extra + core deps
+# resolve them, so it can't drift from pyproject.toml's declared constraints.
+# The one exception is the arm64 native-wheels stage below, which builds two
+# sdists at pinned versions inside the ranges pyproject.toml admits.
 #
-# WHAT THIS COSTS YOU, since this file ships into generated projects: on an
-# Apple Silicon machine your virtual accelerator runs under emulation, and is
-# correspondingly slower. That is a deliberate trade, not an oversight. The
-# alternative is a ~10-minute EPICS source build on every cold image build, and
-# the real fix — a prebuilt EPICS base image to build aarch64 against — is
-# planned separately. Please don't drop the pin to "make it native" without
-# reading the guard below; on aarch64 the result is not a slower VA, it is a VA
-# with no Channel Access server.
+# ARCHITECTURE: native, linux/amd64 or linux/arm64 — whichever the build
+# targets. On amd64 every framework dependency resolves to a prebuilt manylinux
+# wheel. On arm64 several have no linux/aarch64 wheel at the interpreter this
+# image runs. p4p and the EPICS libraries under it build from source with the
+# deps layer's own toolchain. pcaspy, the Channel Access server behind the
+# serving stack, and accelerator-toolbox (PyAT) are built by the
+# `native-wheels-arm64` stage from their pinned sdists — pcaspy against EPICS
+# Base and the PCAS module, which that stage compiles first, statically, so the
+# wheel carries them — and handed to the final stage in a find-links
+# directory, where the deps layer installs them like any other wheel. On amd64
+# that directory is empty and the resolve is exactly what it is without it.
+# The stage depends on nothing but its pins, so BuildKit builds it once per
+# host and serves it from cache after; the deps layer, which rebuilds with
+# every new framework version, never recompiles EPICS. An architecture with no
+# native-wheels stage fails at the FROM that selects one.
 #
 # This image is built locally by `osprey up`; override with
 # OSPREY_VA_IMAGE to use a prebuilt/published image.
 
-FROM --platform=linux/amd64 python:3.11-slim
+# The build's target architecture, set by BuildKit and by buildah; it selects
+# the native-wheels stage.
+ARG TARGETARCH
+
+# ── base: site trust and apt settings, shared by every stage ────────────────
+FROM python:3.11-slim AS va-base
 
 WORKDIR /app
 
@@ -81,18 +84,6 @@ ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
-# Refuse to build anywhere but amd64. The pin above should make this
-# unreachable, but a `--platform` override, or someone lifting this recipe into
-# their own file, would otherwise produce an image that BUILDS CLEANLY AND
-# CANNOT SERVE: osprey's `virtual-accelerator` extra marks lume-pva-apg, whose
-# `ca` extra brings pcaspy, `sys_platform == 'linux' and
-# platform_machine == 'x86_64'`, and an environment marker that does not match
-# is not an error — pip simply installs nothing for it. The first sign would be a runtime ImportError on
-# `import pcaspy` inside serving/runner.py, long after the build reported
-# success. Fail here instead, where the message can say why.
-RUN arch="$(dpkg --print-architecture)"; [ "$arch" = "amd64" ] \
-    || { echo "ERROR: the virtual accelerator image is linux/amd64 only (this build is $arch). No pcaspy wheel exists for linux/aarch64 at any interpreter, so an aarch64 image would carry no Channel Access server." >&2; exit 1; }
-
 # Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
 # broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
 # bounded apt retries with backoff so a transient network blip mid-build does
@@ -118,6 +109,81 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
  && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
  && rm -f /etc/apt/apt.conf.d/docker-clean
 
+# ── native wheels ────────────────────────────────────────────────────────────
+# One stage per architecture, each leaving its wheels in /wheels. amd64 needs
+# none: PyPI has a wheel for every dependency there.
+FROM va-base AS native-wheels-amd64
+RUN mkdir -p /wheels
+
+# arm64: pcaspy and PyAT from their sdists. Every download is pinned by
+# version and checked against its sha256, the sdists through pip's hash mode.
+#
+# pcaspy links EPICS Base and the PCAS module, which Base 7 no longer bundles.
+# Both build here as position-independent static libraries, and PCAS's headers
+# and libraries are merged into Base's tree: pcaspy's setup.py links statically
+# when every library it needs sits under EPICS_BASE, so its extension carries
+# EPICS inside it and the image needs no EPICS tree at run time. The pcaspy pin
+# keeps lume-pva-apg's `>=0.8.1` floor: 0.8.0's `SimplePV.writeNotify` aborts
+# the server on any asynchronous write. swig generates pcaspy's bindings.
+#
+# The stage is a builder only — nothing but /wheels leaves it — so its
+# toolchain is never shipped and needs no purge.
+FROM va-base AS native-wheels-arm64
+ARG EPICS_BASE_VERSION=7.0.10
+ARG EPICS_BASE_SHA256=44193e962793de514ead442e9b5096a13109f1ee275f131995826468aa89b839
+ARG PCAS_VERSION=4.13.3
+ARG PCAS_SHA256=5004e39339c8e592fcb9b4275c84143635c6e688c0fbe01f17dafe19850398a0
+ARG PCASPY_VERSION=0.8.1
+ARG PCASPY_SHA256=80f6aafacdd796c471b62737ad242a322cff22d8b8f18d9c56feed4270d221bf
+ARG PYAT_VERSION=0.9.0
+ARG PYAT_SHA256=680f16803a8528c32afeb1d4485a935c4d56752034f0400801540739acec3842
+ARG PIP_NO_PROXY=""
+ARG PIP_INDEX_URL=""
+ARG PIP_EXTRA_INDEX_URL=""
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    set -e; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends build-essential perl swig curl; \
+    base=/tmp/native/epics; pcas=/tmp/native/pcas; \
+    mkdir -p "$base" "$pcas" /wheels; \
+    curl -fsSL --retry 5 -o /tmp/native/base.tar.gz \
+        "https://github.com/epics-base/epics-base/releases/download/R${EPICS_BASE_VERSION}/base-${EPICS_BASE_VERSION}.tar.gz"; \
+    echo "${EPICS_BASE_SHA256}  /tmp/native/base.tar.gz" | sha256sum -c -; \
+    curl -fsSL --retry 5 -o /tmp/native/pcas.tar.gz \
+        "https://github.com/epics-modules/pcas/archive/refs/tags/v${PCAS_VERSION}.tar.gz"; \
+    echo "${PCAS_SHA256}  /tmp/native/pcas.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/native/base.tar.gz --strip-components=1 -C "$base"; \
+    tar -xzf /tmp/native/pcas.tar.gz --strip-components=1 -C "$pcas"; \
+    printf 'STATIC_BUILD = YES\nSHARED_LIBRARIES = NO\nUSR_CFLAGS += -fPIC\nUSR_CXXFLAGS += -fPIC\n' \
+        > "$base/configure/CONFIG_SITE.local"; \
+    printf 'EPICS_BASE = %s\n' "$base" > "$pcas/configure/RELEASE.local"; \
+    cp "$base/configure/CONFIG_SITE.local" "$pcas/configure/CONFIG_SITE.local"; \
+    make -C "$base" -j"$(nproc)"; \
+    make -C "$pcas" -j"$(nproc)"; \
+    export EPICS_BASE="$base" EPICS_HOST_ARCH="$(perl "$base/src/tools/EpicsHostArch.pl")"; \
+    cp "$pcas/lib/$EPICS_HOST_ARCH"/*.a "$base/lib/$EPICS_HOST_ARCH/"; \
+    cp -R "$pcas/include/." "$base/include/"; \
+    printf 'pcaspy==%s --hash=sha256:%s\naccelerator-toolbox==%s --hash=sha256:%s\n' \
+        "$PCASPY_VERSION" "$PCASPY_SHA256" "$PYAT_VERSION" "$PYAT_SHA256" > /tmp/native/requirements.txt; \
+    pip wheel --no-deps --no-binary pcaspy,accelerator-toolbox --require-hashes \
+        -r /tmp/native/requirements.txt -w /wheels; \
+    ls /wheels/pcaspy-*_aarch64.whl /wheels/accelerator_toolbox-*_aarch64.whl; \
+    rm -rf /tmp/native
+
+FROM native-wheels-${TARGETARCH} AS native-wheels
+
+# ── final image ──────────────────────────────────────────────────────────────
+# Every install below resolves against the native wheels too, pip and uv
+# alike; with the directory empty (amd64) the variables change nothing.
+FROM va-base
+COPY --from=native-wheels /wheels/ /opt/osprey-native-wheels/
+ENV PIP_FIND_LINKS=/opt/osprey-native-wheels \
+    UV_FIND_LINKS=/opt/osprey-native-wheels
+
 # ── deps layer ───────────────────────────────────────────────────────────────
 # Prime the image with the pinned framework release + `virtual-accelerator`
 # extra and their dependencies. Under `--dev` an unreleased pin may not exist on
@@ -132,16 +198,19 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # bloats the final image.
 #
 # `--only-binary pcaspy` is a guard, not an optimisation: pcaspy's sdist wants
-# a full EPICS base + epics-modules/pcas build that this image is not set up
-# to do, and on the pinned platform a wheel always exists — so if pip ever
-# reaches for that sdist, something upstream is wrong and the build should say
-# so immediately instead of failing minutes later inside a compile. It trails
-# the requirement rather than leading it purely for readability of the pinned
-# spec; pip applies it to the whole resolve either way.
+# a full EPICS base + epics-modules/pcas build that only the native-wheels
+# stage is set up to do, and a wheel always exists here — PyPI's on amd64, that
+# stage's on arm64 — so if pip ever reaches for that sdist, something upstream
+# is wrong and the build should say so immediately instead of failing minutes
+# later inside a compile. It trails the requirement rather than leading it
+# purely for readability of the pinned spec; pip applies it to the whole
+# resolve either way.
+#
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
-# fails those arm64 sdist compiles; the PIP_CONSTRAINT below (which reaches
-# pip's isolated build environments, where a plain requirement pin would not)
-# holds setuptools <84 until a fixed release is out.
+# fails the arm64 source builds of p4p and its EPICS libraries; the
+# PIP_CONSTRAINT below (which reaches pip's isolated build environments, where
+# a plain requirement pin would not) holds setuptools <84 until a fixed release
+# is out.
 #
 # pip and apt fetch through BuildKit cache mounts, so a deps layer that does
 # rebuild (a new pin, a changed manifest) downloads only what changed, and
@@ -226,6 +295,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # wheels are then force-reinstalled --no-deps (no extra) to guarantee their own
 # modules win, and `pip check` guards against residual mismatches. No wheel
 # staged → no-op, image already complete after the deps layer.
+#
+# The overlay then asserts that the `pyaml` import package has exactly one
+# owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
+# writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
+# two of them installed together. The manifest above is staged only beside these
+# wheels, so every build that installed it runs the assertion.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
@@ -233,9 +308,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
         && pip install "${whl}[virtual-accelerator]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) --only-binary pcaspy \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
+        && python -m osprey.deployment.pyaml_owner \
         && pip check ; \
     fi \
     && rm -rf /tmp/ctx
+
+# The serving stack must be importable before the image counts as built. An
+# environment marker that does not match is not an error — pip simply installs
+# nothing for it — so a framework release whose `virtual-accelerator` extra
+# does not admit this platform would otherwise build cleanly and fail at
+# `import pcaspy` inside serving/runner.py, long after the build reported
+# success. Fail here instead, where the message can say why.
+RUN python -c "import pcaspy, p4p, lume_pva_apg.runner" \
+    || { echo "ERROR: the virtual accelerator image has no Channel Access/PVAccess serving stack on $(uname -m): the framework's virtual-accelerator extra did not install lume-pva-apg[ca,pva] here." >&2; exit 1; }
 
 # The image runs the shipped entrypoint module by name. `exec` replaces the
 # shell so SIGTERM reaches python directly and entrypoint.py's shutdown

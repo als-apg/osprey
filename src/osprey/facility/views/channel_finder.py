@@ -109,7 +109,9 @@ signal another channel's Field in the same Family is keyed by.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import shutil
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -973,11 +975,47 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
     return document, left_out, by_address
 
 
+def _imported_from(database: Path, digest: str) -> bool:
+    """Whether ``database`` still sits beside the index whose bytes hash to ``digest``.
+
+    A database is copied only while the index it was imported from is
+    unchanged beside it: a render directory rewritten or removed since leaves
+    nothing to copy.
+    """
+    index = database.with_name(MIDDLE_LAYER_FILE)
+    if not (database.is_file() and index.is_file()):
+        return False
+    return hashlib.sha256(index.read_bytes()).hexdigest() == digest
+
+
+def _import_database(index: Path, database: Path) -> None:
+    """Import the middle-layer index into a DuckDB database with its search index.
+
+    Raises:
+        FacilityBuildError: ``view-unsupported`` when DuckDB cannot write the
+            database.
+    """
+    import duckdb
+
+    from osprey.services.channel_finder.databases.duckdb_import import import_to_duckdb
+
+    try:
+        import_to_duckdb(str(index), str(database))
+    except duckdb.Error as exc:
+        database.unlink(missing_ok=True)
+        raise _mode_unsupported(
+            f"selects {MIDDLE_LAYER_MODE} and its DuckDB database cannot be written ({exc})",
+            "install DuckDB's `fts` extension on this host, or select another channel_finder_mode",
+        ) from exc
+
+
 def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
     """Write the middle-layer index and its DuckDB database into ``root``.
 
     The channels the index leaves out or keys by address are counted in one
-    note on stderr.
+    note on stderr. A render whose index bytes match a database this build has
+    already imported (``inputs.built_databases``) copies that database rather
+    than importing the index again.
 
     Args:
         root: The render's ``data/channel_finder`` directory.
@@ -1003,22 +1041,20 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
         )
     root.mkdir(parents=True, exist_ok=True)
     target = root / MIDDLE_LAYER_FILE
-    target.write_bytes(view_bytes(document))
+    payload = view_bytes(document)
+    target.write_bytes(payload)
     database = root / MIDDLE_LAYER_DUCKDB_FILE
     database.unlink(missing_ok=True)
 
-    import duckdb
-
-    from osprey.services.channel_finder.databases.duckdb_import import import_to_duckdb
-
-    try:
-        import_to_duckdb(str(target), str(database))
-    except duckdb.Error as exc:
-        database.unlink(missing_ok=True)
-        raise _mode_unsupported(
-            f"selects {MIDDLE_LAYER_MODE} and its DuckDB database cannot be written ({exc})",
-            "install DuckDB's `fts` extension on this host, or select another channel_finder_mode",
-        ) from exc
+    digest = hashlib.sha256(payload).hexdigest()
+    built = inputs.built_databases
+    source = None if built is None else built.get(digest)
+    if source is not None and _imported_from(source, digest):
+        shutil.copyfile(source, database)
+    else:
+        _import_database(target, database)
+        if built is not None:
+            built[digest] = database
     if left_out or by_address:
         report_note(
             inputs,

@@ -404,18 +404,22 @@ screen-capture-linux = [
 # nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
 # on any asynchronous write while `caput -w` still reports success.
 #
-# The environment marker is load-bearing. pcaspy publishes manylinux x86_64
-# wheels at every interpreter, but nothing else that loads: cp313/cp314 are
-# x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
-# macosx_11_0_arm64 wheels are broken as shipped (they link
-# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). The marker rides on
-# the lume-pva-apg entry alone, because its `ca` extra requires pcaspy with no
-# marker of its own: unmarked, this entry would send a developer's Mac into a
-# pcaspy source build that needs EPICS Base plus the separate PCAS module, and
-# fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
-# macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
-# and platform is the sdist. Marked, those hosts get the honest skip and run
-# the live suites in the container venue under scripts/va/live_ca/ instead.
+# The environment marker is load-bearing. It admits the two platforms where a
+# Channel Access server loads: linux x86_64, where pcaspy publishes manylinux
+# wheels at every interpreter, and linux aarch64, where it publishes none and
+# the VA service image builds pcaspy itself from its sdist against EPICS Base
+# plus the separate PCAS module (see that Dockerfile's native-wheels stage).
+# Everywhere else nothing loads: the macosx_11_0_arm64 wheels are broken as
+# shipped (they link @rpath/libc++.1.dylib with no surviving LC_RPATH entry).
+# The marker rides on the lume-pva-apg entry alone, because its `ca` extra
+# requires pcaspy with no marker of its own: unmarked, this entry would send a
+# developer's Mac into a pcaspy source build that needs EPICS Base plus the
+# PCAS module, and fail. Verified, not assumed -- resolving
+# `lume-pva-apg[ca,pva]==0.1.5` for macOS at 3.13 selects pcaspy 0.8.1, whose
+# only artifact at that interpreter and platform is the sdist. Marked, those
+# hosts get the honest skip and run the live suites in the container venue
+# under scripts/va/live_ca/ instead. A linux aarch64 host installing this extra
+# outside that image needs EPICS Base and PCAS for the same source build.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
 # too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
@@ -423,10 +427,10 @@ screen-capture-linux = [
 # else is installed, and the suites that reach it already treat all three server
 # roots the same way.
 virtual-accelerator = [
-    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     # Recorder-side (see the note above); deliberately UNMARKED, unlike the
     # serving entry. That marker is not a house style to copy — it exists
-    # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
+    # because pcaspy loads only on linux x86_64 and aarch64. These two load
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.
     "aioca>=1.7",

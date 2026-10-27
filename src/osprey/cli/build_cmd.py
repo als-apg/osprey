@@ -115,6 +115,7 @@ from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
+    from osprey.facility.render import WrittenViews
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -1419,6 +1420,25 @@ class _SharedRenderInputs(NamedTuple):
     for a single render, which names each view it omits.
     """
 
+    views_built_databases: dict[str, Path] | None = None
+    """View databases this build has already written, by the sha256 of their source.
+
+    Every render pass of a build writes the same view bytes from the same
+    facility file, so a database derived from them is one artifact of the build
+    rather than one per render: the first pass imports it and later passes copy
+    it. ``None`` for a single render, which imports each one it writes.
+    """
+
+    views_written: WrittenViews | None = None
+    """Facility views this build has already written, by what they were written from.
+
+    Every render pass of a build writes the views of one facility file, and most
+    passes agree on the few config keys a view reads, so the first pass writes a
+    view and every later one that agrees copies its bytes: the pyAML view alone
+    is a design lattice per model. ``None`` for a single render, which writes
+    each view.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2384,6 +2404,8 @@ def _render_project(
             rendered,
             data_root / "facility",
             omitted_reported=shared.views_omitted_reported,
+            built_databases=shared.views_built_databases,
+            views_written=shared.views_written,
         )
         progress("  ✓ Wrote the facility file and its views")
 
@@ -3529,6 +3551,8 @@ def _build_repo(
             graph_facts_reported=set(),
             model_facts_reported=set(),
             views_omitted_reported=set(),
+            views_built_databases={},
+            views_written={},
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,

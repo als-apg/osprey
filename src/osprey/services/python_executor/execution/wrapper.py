@@ -1302,9 +1302,18 @@ if not _execution_dir.exists():
         holder makes it raise
         :class:`~osprey.runtime.guarded_run.OspreyRunBusy`, which the record
         marks with :data:`FAILURE_KIND_GUARDED_RUN_BUSY`. The entered context
-        is kept in ``_osprey_run_lock``, set only once the entry succeeded. An
-        interpreter that cannot import ``osprey.runtime`` cannot take the lock
-        either, and runs without it.
+        is kept in ``_osprey_run_lock``, set only once the entry succeeded.
+
+        The lock is entered with one
+        :class:`~osprey.runtime.guarded_run.ActionContext`: the process's
+        stamped target (:func:`~osprey.runtime.guarded_run.guarded_run_target`),
+        the owner :func:`~osprey_connectors.posture_store.current_owner` names
+        (``None`` for :data:`~osprey_connectors.posture_store.NO_OWNER`), and
+        that same target as the one the run was admitted on — the executor
+        checked any approval against it before spawning, and no approval field
+        reaches the sandbox. An interpreter that cannot import
+        ``osprey.runtime`` or ``osprey_connectors`` cannot take the lock either,
+        and runs without it.
         """
         if self.execution_mode != "readwrite":
             return ""
@@ -1313,12 +1322,27 @@ if not _execution_dir.exists():
                 f"""
                 # The control target's lock, held until the record is saved.
                 try:
+                    from osprey.runtime.guarded_run import ActionContext as _OspreyActionContext
                     from osprey.runtime.guarded_run import OspreyRunBusy as _OspreyRunBusy
+                    from osprey.runtime.guarded_run import guarded_run_target as _osprey_target
                     from osprey.runtime.guarded_run import lock as _osprey_lock
+                    from osprey_connectors.posture_store import NO_OWNER as _OSPREY_NO_OWNER
+                    from osprey_connectors.posture_store import current_owner as _osprey_owner
                 except ImportError:
-                    _osprey_lock = _OspreyRunBusy = None
+                    _osprey_lock = _OspreyRunBusy = _OspreyActionContext = None
+                    _osprey_target = _osprey_owner = _OSPREY_NO_OWNER = None
                 if _osprey_lock is not None:
-                    _osprey_entering = _osprey_lock(None)
+                    _osprey_stamped = _osprey_target(None)
+                    _osprey_acting = _osprey_owner()
+                    _osprey_entering = _osprey_lock(
+                        None,
+                        context=_OspreyActionContext(
+                            target=_osprey_stamped,
+                            owner=None if _osprey_acting is _OSPREY_NO_OWNER else _osprey_acting,
+                            approved_target=_osprey_stamped,
+                        ),
+                    )
+                    del _osprey_stamped, _osprey_acting
                     try:
                         _osprey_entering.__enter__()
                     except _OspreyRunBusy:
@@ -1326,7 +1350,8 @@ if not _execution_dir.exists():
                         raise
                     _osprey_run_lock = _osprey_entering
                     del _osprey_entering
-                del _osprey_lock, _OspreyRunBusy
+                del _osprey_lock, _OspreyRunBusy, _OspreyActionContext
+                del _osprey_target, _osprey_owner, _OSPREY_NO_OWNER
                 """
             ).strip(),
             "        ",

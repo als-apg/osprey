@@ -14,8 +14,9 @@ decides what stands between a card and the terminal behind it.
    * - ``method``
      - What a person meets
    * - ``token``
-     - **The default.** No login page; each terminal is opened once from that
-       user's own login URL.
+     - **The framework default.** No login page; each terminal is opened once
+       from that user's own login URL. A login URL works only with this
+       method.
    * - ``none``
      - **Open.** A card opens its terminal. Only for a room where everyone who
        can reach the page is trusted.
@@ -37,7 +38,9 @@ The snippets on this page show only the keys their section is about; the
 deployment also carries ``default_tier`` and the rest of the roster from the
 multi-user page (see the worked example in
 :ref:`multi-user-registry-images`), and ``tier: readwrite`` / ``readonly``
-name files under ``tiers/``.
+name files under ``tiers/``. The ``control-assistant`` preset sets
+``method: password`` with ``allow_insecure_http: true``, which suits
+``127.0.0.1`` only; set ``method: token`` to use login URLs.
 
 Choose a method
 ===============

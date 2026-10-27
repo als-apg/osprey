@@ -492,7 +492,7 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
         inputs: The render's view inputs.
 
     Returns:
-        The files written, sorted.
+        The files written, in the order they were written.
     """
     doc = inputs.doc
     code = str(doc["identity"]["code"])
@@ -526,7 +526,7 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
         target = root / served
         target.write_bytes((inputs.facility_dir / model["deck"]).read_bytes())
         written.append(target)
-    return sorted(written)
+    return written
 
 
 def withdraw_scenarios(root: Path, names: Iterable[str]) -> None:

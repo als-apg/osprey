@@ -689,6 +689,21 @@ class TestWriteExactness:
         assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("given", "expected"), [(None, "configured"), (7.5, 7.5)])
+    async def test_the_write_waits_for_the_connection_as_long_as_the_call(self, given, expected):
+        """A channel not yet connected gets the write's own timeout to
+        connect, as a read does: a busy IOC answers the search late, and the
+        write must not fail first."""
+        connector = _typed_write_connector(DBR_DOUBLE)
+        connector._timeout = 42.0
+        want = connector._timeout if expected == "configured" else expected
+
+        await connector.write_channel("SR:CH", 5.0, confirm=False, timeout=given)
+
+        connects = [kw for fn, _, kw in connector._aioca.calls if fn == "connect"]
+        assert connects == [{"timeout": want}]
+
+    @pytest.mark.asyncio
     async def test_text_a_char_array_holds_is_confirmed(self):
         """Text goes to a char array as its bytes plus a NUL, and a confirming
         read returns those bytes, never the text."""

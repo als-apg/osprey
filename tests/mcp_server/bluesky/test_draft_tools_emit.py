@@ -247,7 +247,7 @@ async def test_queue_stop_withdrawal_refused_without_a_token_does_not_emit(tmp_p
         patch(f"{_QUEUE_MOD}._http_post_json") as post,
         patch(f"{_QUEUE_MOD}.notify_agent_activity_async") as notify,
     ):
-        with assert_raises_error(error_type="launch_token_required"):
+        with assert_raises_error(error_type="launch_token_invalid"):
             await _queue_stop_fn()(cancel=True)
 
     post.assert_not_called()

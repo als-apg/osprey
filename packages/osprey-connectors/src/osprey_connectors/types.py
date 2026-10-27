@@ -100,7 +100,7 @@ __all__ = [
     "UNSET_TYPE_WARNING",
     "VIRTUAL_ACCELERATOR",
     "WRITES_ENABLED_KEY",
-    "any_armed_target_checks_limits",
+    "any_armed_target_requires_limits_database",
     "any_target_writes_enabled",
     "archiver_settings_errors",
     "archiver_settings_key",
@@ -109,6 +109,7 @@ __all__ = [
     "connector_transport",
     "incomplete_limits_blocks",
     "is_simulated",
+    "limits_database_required",
     "most_restrictive_limits_posture",
     "resolve_archiver_settings",
     "resolve_archiver_type",
@@ -1310,14 +1311,43 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     )
 
 
-def any_armed_target_checks_limits(section: Any) -> bool:
-    """Whether some target that arms writes also has limits checking on.
+def limits_database_required(posture: LimitsPosture, *, path_configured: bool) -> bool:
+    """Whether a target with this limits posture needs a limits database.
+
+    The one answer every caller gives before it demands the file — the
+    connector's validator, the compose mount, the build check, a service start
+    and the bridge's startup gate — so none of them can refuse a deployment
+    another one runs.
+
+    A database is required when limits checking is on and either the mode is
+    not ``optional`` or a path is configured. ``optional`` with no path is a
+    deployment that legitimately keeps no limits file: every channel is
+    unlisted, and an unlisted channel is written with no limits, so there is
+    no file whose absence could matter. An unstated mode counts as not
+    optional, because silence is no permission to skip the database. A path
+    that is configured is always required, so a configured file that fails to
+    load stays a refusal everywhere rather than quietly checking nothing.
+
+    Args:
+        posture: The resolved posture of the target being asked about.
+        path_configured: Whether the caller's own config names a limits
+            database path (the live lookup at runtime, the rendered config at
+            render and build time).
+
+    Returns:
+        ``True`` when a limits database must exist and load.
+    """
+    return posture.enabled is True and (posture.mode != LIMITS_MODE_OPTIONAL or path_configured)
+
+
+def any_armed_target_requires_limits_database(section: Any, *, path_configured: bool) -> bool:
+    """Whether some target that arms writes also needs a limits database.
 
     The question a deployment-level caller asks before it demands a channel-
-    limits database: only a target that both writes and checks limits opens
-    that file, so only such a target makes its absence matter.
+    limits database: only a target that both writes and requires the file
+    (:func:`limits_database_required`) makes its absence matter.
 
-    The pairing is per target, and that is the whole point — the two leaves have
+    The pairing is per target, and that is the whole point — the leaves have
     to be read off the SAME machine. A deployment can arm its simulator while
     only its read-only live block checks limits, and separate
     :func:`any_target_writes_enabled` and
@@ -1331,30 +1361,27 @@ def any_armed_target_checks_limits(section: Any) -> bool:
     ``control_system.type`` builds, asked by *type* so a block belonging to a
     machine no session here reaches cannot vote.
 
-    ``enabled`` alone decides the limits half, because that is the leaf that
-    decides whether a validator exists at all —
-    :meth:`~osprey_connectors.control_system.LimitsValidator._from_posture`
-    builds none for anything else, and a target with no validator consults no
-    database. ``mode`` governs what a built validator does
-    with a channel the database omits, which is a different question.
-
     Args:
         section: The ``control_system:`` config section, in the same shape
             :func:`resolve_control_system_type` takes.
+        path_configured: Whether the config names a limits database path; the
+            path is deployment-wide, so one answer serves every target.
 
     Returns:
-        ``True`` when at least one reachable target arms writes and states
-        ``limits_checking.enabled: true``. Never raises.
+        ``True`` when at least one reachable target arms writes and requires a
+        limits database. Never raises.
     """
     if switch_capable(section):
         return any(
             target_writes_enabled(section, target)
-            and target_limits_posture(section, target).enabled is True
+            and limits_database_required(
+                target_limits_posture(section, target), path_configured=path_configured
+            )
             for target in configured_targets(section)
         )
     built = resolve_control_system_type(section)
-    return (
-        type_writes_enabled(section, built) and type_limits_posture(section, built).enabled is True
+    return type_writes_enabled(section, built) and limits_database_required(
+        type_limits_posture(section, built), path_configured=path_configured
     )
 
 

@@ -77,6 +77,30 @@ NO_CLASS = "-"
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
 
+#: The facility file last parsed and the document it parsed to: every render of
+#: one build carries byte-equal ``facility.json``, so it is parsed once and the
+#: views it is handed to see one document, whose wiring they memoize.
+_parsed: tuple[bytes, dict[str, Any]] | None = None
+
+
+def parsed_facility(raw: bytes) -> Any:
+    """``facility.json`` parsed from its bytes, once for each new bytes.
+
+    Args:
+        raw: The file's bytes.
+
+    Returns:
+        The parsed document, shared with every caller handed the same bytes;
+        callers read it and never change it.
+
+    Raises:
+        ValueError: The bytes are not UTF-8 JSON.
+    """
+    global _parsed
+    if _parsed is None or _parsed[0] != raw:
+        _parsed = (raw, json.loads(raw.decode("utf-8")))
+    return _parsed[1]
+
 
 def _identity(doc: Mapping[str, Any], project_name: str | None) -> dict[str, Any]:
     from osprey.utils.facility import identity_record
@@ -370,7 +394,9 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
     return records
 
 
-#: The most recent measurement blocks, keyed by the digests of the bytes each was read from.
+#: The most recent measurement blocks, keyed by the digests of the bytes each was
+#: read from and the ``entry_points`` its engines' descriptions came from: a
+#: replaced ``entry_points`` (a test registering an engine) reads the block afresh.
 _MEASUREMENT_MEMO: OrderedDict[tuple[Any, ...], dict[str, dict[str, Any]]] = OrderedDict()
 _MEASUREMENT_MEMO_KEYS = 8
 
@@ -381,8 +407,9 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     Read from each pyAML view the facts record: its arrays and the addresses
     their members stand for, through the view's one name mapping. A render
     whose facts record no view reads no file. The block is a function of the
-    bytes it reads, so it is computed once per distinct content; each caller
-    gets its own copy.
+    bytes it reads and of the engines that describe its models' wiring, so it
+    is computed once per distinct content and registry; each caller gets its
+    own copy.
 
     Args:
         facts: The facts document.
@@ -400,6 +427,8 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
+    from importlib import metadata
+
     from osprey.facility import FACILITY_FILE
 
     facility = (render_root / FACILITY_FILE).read_bytes()
@@ -408,6 +437,7 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
         for model, record in recorded.items()
     }
     key = (
+        metadata.entry_points,
         hashlib.sha256(facility).hexdigest(),
         tuple(
             (model, record["path"], record.get("sha256"), hashlib.sha256(view).hexdigest())
@@ -433,7 +463,7 @@ def _measurement_block(
     from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
-    doc = json.loads(facility.decode("utf-8"))
+    doc = parsed_facility(facility)
     models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
     for model, (record, view) in sorted(views.items()):

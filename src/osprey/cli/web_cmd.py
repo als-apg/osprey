@@ -403,7 +403,10 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     deployment to serve. The repo ``.env`` is loaded off that same publication
     (:func:`osprey.mcp_env.load_dotenv_from_project` walks up from the render
     to the repo root), so the ``get_config_value`` reads that follow can expand
-    ``${VAR}`` placeholders against it.
+    ``${VAR}`` placeholders against it. The load includes the credentials —
+    the terminal secret and the ``*_LAUNCH_TOKEN`` values — because the
+    terminal is the one process that holds them by design; a containerised
+    terminal receives the same names from its compose ``env_file``.
 
     Returns:
         ``(repo_root, build_dir, config_path)``, all absolute.
@@ -430,7 +433,7 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
 
     from osprey.mcp_env import load_dotenv_from_project
 
-    load_dotenv_from_project()
+    load_dotenv_from_project(include_sensitive=True)
     # Who the sessions this terminal starts are, to the ledger and to the
     # telemetry gateway alike: the one name the build recorded, with that
     # name's login. A terminal in a container already carries both.

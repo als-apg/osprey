@@ -22,7 +22,9 @@ process, and the executor's ``baseline`` stand-in for "no recorded target", are
 on the deployment's own baseline target, and resolve to its name.
 
 :func:`lock` takes the target's lock without blocking and records its holder
-(pid, start time) in the lock file, emptied on release. A second run on the
+(pid, start time, owner, target and control identity) in the lock file,
+emptied on release. The hold keeps the run's :class:`ActionContext`: whose run
+it is and on what target it was admitted. A second run on the
 target, from this or any other process or container, raises
 :class:`OspreyRunBusy` naming the holder before it starts. A readonly run
 raises :class:`OspreyWriteRefused` before the lock is taken.
@@ -61,11 +63,14 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from osprey.runtime import _run_state
+from osprey.runtime._run_state import ActionContext
 
 __all__ = [
+    "ENV_CONTROL_IDENTITY",
     "GUARDED_RUN_DIR",
     "GUARDED_RUN_DIR_MODE",
     "LOCK_FILE_NAME",
+    "ActionContext",
     "GuardedRunDirError",
     "OspreyRunBusy",
     "OspreyWriteRefused",
@@ -80,6 +85,10 @@ GUARDED_RUN_DIR = "guarded_run"
 
 #: The lock a read-write run holds on its target for the whole run.
 LOCK_FILE_NAME = "run.lock"
+
+#: The environment variable naming the control identity a process writes as;
+#: the holder record names it, so a busy run says who holds the target.
+ENV_CONTROL_IDENTITY = "OSPREY_CONTROL_IDENTITY"
 
 #: The mode a directory created here gets: setgid, so files created under it
 #: take the directory's group, and group-writable, so every process of the
@@ -125,20 +134,42 @@ class GuardedRunDirError(RuntimeError):
 class OspreyRunBusy(Exception):
     """Another guarded run holds the target's run lock; this run did not start.
 
+    Every holder field is ``None`` when the record does not name it.
+
     Attributes:
         root: The guarded-run directory holding the lock.
         pid: The holder's process id as its record names it, ``None`` when the
             record could not be read.
         started: When the holder took the lock (ISO-8601), ``None`` when unknown.
+        owner: The account the holder's run acts for.
+        target: The control target the holder's run drives.
+        identity: The control identity the holder writes as.
     """
 
-    def __init__(self, root: str, pid: int | None = None, started: str | None = None) -> None:
+    def __init__(
+        self,
+        root: str,
+        pid: int | None = None,
+        started: str | None = None,
+        owner: str | None = None,
+        target: str | None = None,
+        identity: str | None = None,
+    ) -> None:
         self.root = root
         self.pid = pid
         self.started = started
-        who = "unknown" if pid is None else str(pid)
-        since = "unknown" if started is None else started
-        super().__init__(f"another guarded run is live under {root} (pid {who}, since {since})")
+        self.owner = owner
+        self.target = target
+        self.identity = identity
+
+        def known(value: object) -> str:
+            return "unknown" if value is None else str(value)
+
+        super().__init__(
+            f"another guarded run is live under {root} (pid {known(pid)}, "
+            f"since {known(started)}, owner {known(owner)}, target {known(target)}, "
+            f"identity {known(identity)})"
+        )
 
 
 #: Whether the fork hooks (:func:`_register_fork_hook`) are registered in this process.
@@ -448,32 +479,59 @@ def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _write_holder(fd: int) -> str:
+def _write_holder(fd: int, owner: str | None, target: str, identity: str | None) -> str:
     """Record this process as the holder in the lock file ``fd`` it has locked.
+
+    Args:
+        fd: The locked lock file.
+        owner: The account the run acts for, ``None`` for nobody.
+        target: The control target the run drives.
+        identity: The control identity this process writes as, ``None`` when
+            it names none.
 
     Returns:
         The ``started`` time the record holds.
     """
     started = _utc_now()
-    holder = json.dumps({"pid": os.getpid(), "started": started}).encode("utf-8")
+    record = {
+        "pid": os.getpid(),
+        "started": started,
+        "owner": owner,
+        "target": target,
+        "identity": identity,
+    }
+    holder = json.dumps(record).encode("utf-8")
     os.ftruncate(fd, 0)
     os.pwrite(fd, holder, 0)
     return started
 
 
-def _read_holder(fd: int) -> tuple[int | None, str | None]:
-    """The ``(pid, started)`` the lock file ``fd`` records, ``None`` for what is unknown."""
+#: What :func:`_read_holder` answers when the record cannot be read.
+_UNKNOWN_HOLDER: tuple[None, None, None, None, None] = (None, None, None, None, None)
+
+
+def _read_holder(
+    fd: int,
+) -> tuple[int | None, str | None, str | None, str | None, str | None]:
+    """The ``(pid, started, owner, target, identity)`` the lock file ``fd`` records.
+
+    A field the record does not hold, or holds with the wrong type, is ``None``.
+    """
     try:
         holder = json.loads(os.pread(fd, 4096, 0) or b"null")
     except (OSError, ValueError):
-        return None, None
+        return _UNKNOWN_HOLDER
     if not isinstance(holder, dict):
-        return None, None
+        return _UNKNOWN_HOLDER
     pid = holder.get("pid")
-    started = holder.get("started")
+    texts = [holder.get(key) for key in ("started", "owner", "target", "identity")]
+    started, owner, target, identity = [v if isinstance(v, str) else None for v in texts]
     return (
         pid if isinstance(pid, int) and not isinstance(pid, bool) else None,
-        started if isinstance(started, str) else None,
+        started,
+        owner,
+        target,
+        identity,
     )
 
 
@@ -552,17 +610,25 @@ def _release(hold: _run_state.Hold) -> None:
 
 
 @contextlib.contextmanager
-def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
+def lock(
+    target: str | None, *, join: bool = False, context: ActionContext | None = None
+) -> Iterator[Path]:
     """Hold *target*'s run lock for the body.
 
-    The lock is taken without blocking. Its holder record (pid, started) is
-    written into the lock file and emptied on release. The lock is held by this
+    The lock is taken without blocking. Its holder record (pid, started, the
+    context's owner, the target and the process's control identity from
+    :data:`ENV_CONTROL_IDENTITY`) is written into the lock file and emptied on
+    release. The hold keeps *context*; a context whose ``target`` or
+    ``approved_target`` is not the resolved target is refused before anything
+    is opened. The lock is held by this
     process, not by the thread that took it: a thread or task the body starts
     runs under it. A process holds one run lock at a time; asking again, from
     any thread, is busy like any second run, and asking for another target is
     refused. With *join* a caller runs under the hold this process already
     has on *target*, taking and releasing nothing, and takes the lock as
-    without it when the process holds none. A forked child holds nothing; a
+    without it when the process holds none. A join without a context runs
+    under the held context unchanged; a join with a context other than the
+    held one is refused. A forked child holds nothing; a
     child started with ``subprocess`` or ``exec`` never inherits the lock,
     because the lock's descriptor is not inheritable (PEP 446).
 
@@ -570,13 +636,16 @@ def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
         target: The target the run is for, or ``None`` for the process's own
             stamp (see :func:`guarded_run_target`).
         join: Run under this process's hold on *target* when it has one.
+        context: Whose run this is and on what target it was admitted.
 
     Yields:
         The target's guarded-run directory.
 
     Raises:
         OspreyWriteRefused: This is a readonly run; no lock was taken.
-        RuntimeError: This process holds the run lock on another target.
+        RuntimeError: This process holds the run lock on another target;
+            *context* names another target than the resolved one; or a join
+            names a context other than the held one.
         GuardedRunDirError: The guarded-run directory cannot be resolved, a
             directory on the way is a link, or the lock is a link, has more
             than one hard link or is not a regular file.
@@ -588,6 +657,13 @@ def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
     if is_readonly_run():
         raise OspreyWriteRefused(_READONLY_REASON)
     name = guarded_run_target(target)
+    if context is not None and (context.target != name or context.approved_target != name):
+        raise RuntimeError(
+            f"a run on {name} cannot hold a context for target {context.target} "
+            f"admitted on {context.approved_target}"
+        )
+    identity = os.environ.get(ENV_CONTROL_IDENTITY) or None
+    owner = None if context is None else context.owner
     directory = _run_dir_path(name)
     where = directory / LOCK_FILE_NAME
     _register_fork_hook()
@@ -598,6 +674,11 @@ def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
                 f"this process holds the run lock on {held.target}; it cannot take one on {name}"
             )
         joined = join and held is not None
+        if held is not None and joined and context is not None and context != held.context:
+            raise RuntimeError(
+                f"this process holds the run lock on {name} under another context; "
+                "a join runs under the held one"
+            )
         if not joined:
             dir_fd = _open_run_dir(directory)
             try:
@@ -608,10 +689,9 @@ def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
                     try:
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except BlockingIOError:
-                        pid, started = _read_holder(fd)
-                        raise OspreyRunBusy(str(directory), pid, started) from None
+                        raise OspreyRunBusy(str(directory), *_read_holder(fd)) from None
                     try:
-                        started = _write_holder(fd)
+                        started = _write_holder(fd, owner, name, identity)
                     except BaseException:
                         with contextlib.suppress(OSError):
                             os.ftruncate(fd, 0)
@@ -623,7 +703,12 @@ def lock(target: str | None, *, join: bool = False) -> Iterator[Path]:
                 os.close(dir_fd)
                 raise
             hold = _run_state.Hold(
-                target=name, directory=directory, fd=fd, started=started, dir_fd=dir_fd
+                target=name,
+                directory=directory,
+                fd=fd,
+                started=started,
+                dir_fd=dir_fd,
+                context=context,
             )
             _run_state.STATE.hold = hold
     if joined:

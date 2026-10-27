@@ -136,7 +136,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
 
     def _stub_launch(self, monkeypatch):
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
     def test_multiuser_env_pins_loopback_reaches_run_web(self, reserve_port, runner, monkeypatch):
         """The scenario this whole fix exists for: a stale/hostile image CMD
@@ -155,7 +155,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
             captured.update(kwargs)
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
         result = runner.invoke(
             web,
@@ -211,7 +211,7 @@ class TestWebCommandHonorsDeclaredBindEnv:
             captured.update(kwargs)
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
         result = runner.invoke(
             web,
@@ -236,7 +236,7 @@ class TestPortEnvvar:
 
     def _stub_launch(self, monkeypatch):
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
         monkeypatch.delenv("OSPREY_TERMINAL_BIND_HOST", raising=False)
 
     def test_env_port_honored_when_flag_absent(self, reserve_port, runner, monkeypatch):
@@ -317,7 +317,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
 
     def _stub_launch(self, monkeypatch):
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
     def test_multiuser_env_pins_port_reaches_run_web(self, reserve_port, runner, monkeypatch):
         """A stale/hostile image CMD passes a mismatched --port, but the
@@ -336,7 +336,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
             captured.update(kwargs)
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
         result = runner.invoke(
             web,
@@ -389,7 +389,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
             captured.update(kwargs)
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
         flag_port = reserve_port()
         result = runner.invoke(
@@ -414,7 +414,7 @@ class TestBusyPortFallback:
         monkeypatch.setattr(
             "osprey.interfaces.web_terminal.run_web", lambda **kw: captured.update(kw)
         )
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
         return captured
 
     def _fake_config(self, monkeypatch, **wt) -> None:
@@ -488,7 +488,7 @@ class TestCookieNameAgreesWithTheTerminal:
         # No companions registered: this is about the port the launch
         # publishes, not about what it manages to start.
         monkeypatch.setattr("osprey.registry.web.FRAMEWORK_WEB_SERVERS", {})
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
         captured: dict = {}
         monkeypatch.setattr(
             "osprey.interfaces.web_terminal.run_web", lambda **kw: captured.update(kw)
@@ -610,7 +610,7 @@ class TestExposureWarning:
     def _stub(self, monkeypatch):
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_: None)
 
     @pytest.mark.parametrize("host", ["0.0.0.0", "::", "10.0.0.7"])
     def test_detached_start_warns_before_it_returns(self, reserve_port, runner, monkeypatch, host):

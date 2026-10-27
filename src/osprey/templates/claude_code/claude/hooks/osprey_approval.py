@@ -2816,7 +2816,7 @@ def _settle_review(stamp, outcome: str) -> None:
 #: and only a START names one. `queue_add` composes onto an idle queue and starts
 #: nothing
 #: (the server withholds the launch token, and the bridge refuses
-#: `launch_token_required` the moment the queue drains), and a plain stop is
+#: `launch_token_invalid` the moment the queue drains), and a plain stop is
 #: ungated everywhere by design. Neither has a target to resolve, and neither is
 #: ever short-circuited: a prompt that vanished on a tool nobody denies would be
 #: a gate removed rather than a gate applied.

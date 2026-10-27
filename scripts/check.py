@@ -158,7 +158,7 @@ LIVE_CA_VENUE = "linux-x86_64"
 DARWIN_VENUE = "darwin"
 
 #: The venue's requirement in words, for the line that names an unmet one.
-VENUE_NEEDS = {LIVE_CA_VENUE: "needs linux x86_64", DARWIN_VENUE: "needs macOS"}
+VENUE_NEEDS = {LIVE_CA_VENUE: "needs linux x86_64 or aarch64", DARWIN_VENUE: "needs macOS"}
 
 #: The readonly gate's warm-up module: which stdlib lookups load native code
 #: lazily depends on the OS and the interpreter.
@@ -863,8 +863,8 @@ NEED_PROBES: dict[str, Callable[[], str | None]] = {
 
 
 def _on_live_ca_venue() -> bool:
-    """The platform the virtual-accelerator extra's marker installs on."""
-    return sys.platform == "linux" and platform.machine() == "x86_64"
+    """The platforms the virtual-accelerator extra's marker installs on."""
+    return sys.platform == "linux" and platform.machine() in ("x86_64", "aarch64")
 
 
 #: Each venue to the probe that says whether this machine is one.

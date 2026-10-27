@@ -58,7 +58,8 @@ export function createPanelIframe(panel, panelId, state, contentEl) {
   // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
   // subpath); buildEmbedSrc preserves it verbatim.
   iframe.src = buildEmbedSrc(targetUrl);
-  iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
+  iframe.sandbox =
+    'allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads';
 
   // Cleared by the first load; the notice it raised, if any, goes with it.
   const loadStartedAt = Date.now();

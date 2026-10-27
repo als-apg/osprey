@@ -117,6 +117,10 @@ ARG OSPREY_CONNECTORS_VERSION=
 #
 # Everything here installs from prebuilt manylinux_x86_64 wheels, so the image
 # carries no C toolchain at all.
+#
+# The install ends by asserting that the `pyaml` import package has exactly one
+# owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
+# writes the same `pyaml/` files, and pip does not notice two of them together.
 RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
     && for member in ./packages/*/; do \
            version="${OSPREY_VERSION}"; \
@@ -127,7 +131,8 @@ RUN pip install --no-cache-dir "accelerator-toolbox[plot]==0.8.0" \
            pip install --no-cache-dir "$member" || exit 1; \
        done \
     && SETUPTOOLS_SCM_PRETEND_VERSION="${OSPREY_VERSION}" \
-       pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy
+       pip install --no-cache-dir ".[virtual-accelerator]" --only-binary pcaspy \
+    && python -m osprey.deployment.pyaml_owner
 
 # Channel Access server port. TCP only is required -- CA name-server mode
 # (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the

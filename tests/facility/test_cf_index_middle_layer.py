@@ -31,6 +31,7 @@ def _inputs(
     doc: dict[str, Any],
     rendered_config: dict[str, Any] | None = None,
     reported: set[str] | None = None,
+    built_databases: dict[str, Path] | None = None,
 ) -> Any:
     from osprey.facility.views import ViewInputs
 
@@ -40,6 +41,7 @@ def _inputs(
         facility_dir=Path("."),
         served=[],
         reported=reported,
+        built_databases=built_databases,
     )
 
 
@@ -723,6 +725,88 @@ def test_a_rewrite_replaces_the_duckdb_database(tmp_path: Path) -> None:
         con.close()
 
 
+def _counted_imports(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    from osprey.services.channel_finder.databases import duckdb_import
+
+    imported: list[str] = []
+    real = duckdb_import.import_to_duckdb
+
+    def counting(index: str, database: str, *args: Any, **kwargs: Any) -> Any:
+        imported.append(database)
+        return real(index, database, *args, **kwargs)
+
+    monkeypatch.setattr(duckdb_import, "import_to_duckdb", counting)
+    return imported
+
+
+def _channel_counts(database: Path) -> tuple[int, int]:
+    import duckdb
+
+    con = duckdb.connect(str(database), read_only=True)
+    try:
+        row = con.execute("SELECT count(*), count(DISTINCT channel_name) FROM channels").fetchone()
+    finally:
+        con.close()
+    assert row is not None
+    return row[0], row[1]
+
+
+def test_a_render_with_the_same_index_copies_the_database_the_build_wrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    imported = _counted_imports(monkeypatch)
+    built: dict[str, Path] = {}
+
+    (_first_index, first) = _write(tmp_path / "a", SYNTHETIC, built_databases=built)
+    (second_index, second) = _write(tmp_path / "b", SYNTHETIC, built_databases=built)
+
+    assert imported == [str(first)]
+    assert second.read_bytes() == first.read_bytes()
+    assert second_index.read_bytes() == _first_index.read_bytes()
+    assert _channel_counts(second) == (11, 6)
+
+
+def test_a_render_with_a_changed_index_imports_its_own_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    imported = _counted_imports(monkeypatch)
+    built: dict[str, Path] = {}
+    smaller = {**SYNTHETIC, "channels": SYNTHETIC["channels"][:3]}
+
+    (_index, first) = _write(tmp_path / "a", SYNTHETIC, built_databases=built)
+    (_index, second) = _write(tmp_path / "b", smaller, built_databases=built)
+
+    assert imported == [str(first), str(second)]
+    assert _channel_counts(first) == (11, 6)
+    assert _channel_counts(second) == (5, 3)
+
+
+def test_a_database_rewritten_since_it_was_built_is_not_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    imported = _counted_imports(monkeypatch)
+    built: dict[str, Path] = {}
+    smaller = {**SYNTHETIC, "channels": SYNTHETIC["channels"][:3]}
+
+    (_index, first) = _write(tmp_path / "a", SYNTHETIC, built_databases=built)
+    _write(tmp_path / "a", smaller, built_databases=built)
+    (_index, again) = _write(tmp_path / "b", SYNTHETIC, built_databases=built)
+
+    assert imported == [str(first), str(first), str(again)]
+    assert _channel_counts(again) == (11, 6)
+
+
+def test_without_a_build_every_render_imports_its_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    imported = _counted_imports(monkeypatch)
+
+    (_index, first) = _write(tmp_path / "a", SYNTHETIC)
+    (_index, second) = _write(tmp_path / "b", SYNTHETIC)
+
+    assert imported == [str(first), str(second)]
+
+
 def test_the_counts_are_one_note_per_build(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1088,11 +1172,17 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
 
 
 @pytest.mark.slow
-def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(tmp_path: Path) -> None:
+def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from click.testing import CliRunner
 
     from osprey.cli.init_cmd import init
-    from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA, MIDDLE_LAYER_FILE
+    from osprey.facility.views.channel_finder import (
+        CHANNEL_FINDER_SCHEMA,
+        MIDDLE_LAYER_DUCKDB_FILE,
+        MIDDLE_LAYER_FILE,
+    )
     from tests._builds import run_build
 
     repo = tmp_path / "demo"
@@ -1109,9 +1199,14 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(tmp_pat
     )
     assert result.exit_code == 0, result.output
 
+    imported = _counted_imports(monkeypatch)
     built = run_build(repo)
 
     assert built.exit_code == 0, built.output
+    databases = sorted((repo / "build").rglob(MIDDLE_LAYER_DUCKDB_FILE))
+    assert len(databases) > 1
+    assert len(imported) == 1
+    assert {database.read_bytes() for database in databases} == {databases[0].read_bytes()}
     index = repo / "build" / "data" / "channel_finder" / MIDDLE_LAYER_FILE
     assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
     assert "view middle_layer not written" not in built.output
