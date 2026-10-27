@@ -15,8 +15,7 @@ import pytest
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
-
-from .test_queue_routes import FakeManager
+from tests.services.bluesky_bridge._queue_fakes import FakeManager
 
 
 def _configure(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:

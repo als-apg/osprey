@@ -33,12 +33,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import document_plane, live_rows, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend, QueueItemInvalidError
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from tests.services.bluesky_bridge._queue_fakes import FakeManager, install_backend
 
 _GRID_SCAN_ARGS: dict[str, Any] = {
     "readbacks": ["BPM1"],
@@ -48,27 +48,6 @@ _RUN_ID = "run-abc"
 
 # The stamp `queue_backend.add_item` puts on an item enqueued with a run id.
 _STAMP = {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS}
-
-
-class FakeManager:
-    """A scripted ``REManagerAPI`` stand-in (same contract as `test_queue_routes.py`'s)."""
-
-    def __init__(self, **responses: Any) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.responses = responses
-
-    def __getattr__(self, method: str) -> Any:
-        async def call(**kwargs: Any) -> Any:
-            self.calls.append((method, kwargs))
-            response = self.responses.get(method, {"success": True, "msg": ""})
-            if isinstance(response, Exception):
-                raise response
-            return response
-
-        return call
-
-    async def close(self) -> None:  # pragma: no cover - lifespan only
-        pass
 
 
 def status_doc(**overrides: Any) -> dict[str, Any]:
@@ -105,12 +84,6 @@ def stamped_item(uid: str = "u1", **overrides: Any) -> dict[str, Any]:
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
-
-
-def _install(manager: Any) -> QueueBackend:
-    backend = QueueBackend(manager)
-    app_module.set_queue_backend(backend)
-    return backend
 
 
 def _parse_frame(raw: str) -> dict[str, Any]:
@@ -166,7 +139,7 @@ def test_get_queue_relays_items_without_the_plan_stamp(client: TestClient) -> No
             "running_item": stamped_item("u2"),
         },
     )
-    _install(manager)
+    install_backend(manager)
 
     body = client.get("/queue").json()
 
@@ -184,7 +157,7 @@ def test_get_queue_relays_items_without_the_plan_stamp(client: TestClient) -> No
 def test_the_running_items_progress_survives_the_strip(client: TestClient) -> None:
     """`_with_progress` and `_public_item` compose on the running item — one
     adds a key, the other removes one, and neither undoes the other."""
-    _install(
+    install_backend(
         FakeManager(
             status=status_doc(running_item_uid="u2"),
             queue_get={"success": True, "items": [], "running_item": stamped_item("u2")},
@@ -215,7 +188,7 @@ def test_a_streamed_hello_frame_carries_no_plan_stamp(
     point is production code — the route, `_frame_from`, `_format_sse`, and the
     ASGI transport.
     """
-    _install(
+    install_backend(
         FakeManager(
             status=status_doc(),
             queue_get={
@@ -256,7 +229,7 @@ async def test_a_streamed_change_frame_carries_no_plan_stamp(
         status=status_doc(items_in_queue=0),
         queue_get={"success": True, "items": [], "running_item": {}},
     )
-    _install(manager)
+    install_backend(manager)
 
     resp = await queue.queue_events()
     gen = resp.body_iterator

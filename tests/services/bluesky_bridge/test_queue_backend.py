@@ -30,49 +30,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from tests._control_system import IN_PROCESS, section_for
-
-
-class FakeManager:
-    """A scripted ``REManagerAPI`` stand-in.
-
-    Records every call as ``(method, kwargs)`` and answers from ``responses``.
-    A response that is an exception instance is raised instead of returned; a
-    response that is a list is consumed one call at a time (the tail repeats),
-    which is how the environment-open polling loop gets a state sequence.
-    """
-
-    def __init__(self, **responses: Any) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.responses = responses
-        self.closed = False
-
-    def _answer(self, method: str) -> Any:
-        response = self.responses.get(method, {"success": True, "msg": ""})
-        if isinstance(response, list):
-            value = response[0]
-            if len(response) > 1:
-                response.pop(0)
-        else:
-            value = response
-        if isinstance(value, Exception):
-            raise value
-        return value
-
-    def __getattr__(self, method: str) -> Any:
-        async def call(**kwargs: Any) -> Any:
-            self.calls.append((method, kwargs))
-            return self._answer(method)
-
-        return call
-
-    async def close(self) -> None:
-        self.closed = True
-
-    def kwargs_for(self, method: str) -> list[dict[str, Any]]:
-        return [kwargs for name, kwargs in self.calls if name == method]
-
-    def method_names(self) -> list[str]:
-        return [name for name, _ in self.calls]
+from tests.services.bluesky_bridge._queue_fakes import FakeManager
 
 
 def status_doc(**overrides: Any) -> dict[str, Any]:

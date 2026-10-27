@@ -12,20 +12,16 @@ fixture, plus resetting the draft singleton (`draft._clear()`).
 from __future__ import annotations
 
 import json
-import socket
-import threading
-import time
 from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any
 
 import httpx
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import draft
 from osprey.services.bluesky_bridge.app import app
+from tests.services.bluesky_bridge._live_bridge import live_bridge
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
@@ -50,58 +46,6 @@ def _read_frame(lines: Iterator[str]) -> dict[str, Any]:
         if line.startswith("data: "):
             return json.loads(line[len("data: ") :])
     raise AssertionError("SSE stream ended before yielding a frame")
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"bridge did not become ready on port {port} within {timeout}s")
-
-
-@contextmanager
-def _live_bridge() -> Iterator[str]:
-    """Run the real bridge app on a real TCP port in a background thread.
-
-    A genuine SSE stream needs a real socket: both `httpx.ASGITransport` and
-    Starlette's `TestClient` drive the ASGI app to full completion before
-    handing back *any* response (they exist to test request/response
-    handlers, not infinite generators) — an in-process simulated transport
-    would simply hang forever against `GET /draft/events`'s never-ending
-    generator. Mirrors `test_read_bounded.py`'s `_live_bridge` helper: same
-    module-level `draft`/`plan_loader` singletons as the test process (a
-    thread, not a subprocess), but requests travel over a real socket
-    through the real ASGI app.
-
-    Cross-loop note: `draft.py`'s module-level asyncio primitives (`_lock`,
-    subscriber queues) lazily bind to whichever event loop first touches
-    them. This is safe only because this suite's loops are used strictly
-    *sequentially* — the uvicorn server thread's loop runs and fully shuts
-    down (`server.should_exit = True; t.join(...)`) before the next test's
-    loop starts. Overlapping access from two live loops at once would fail
-    with "Future ... attached to a different loop".
-    """
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    _wait_for_port(port)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +420,7 @@ def test_revision_monotonic_across_clear_and_plan_change(client: TestClient) -> 
 
 
 def test_sse_frame_order_and_content_over_real_http() -> None:
-    with _live_bridge() as base_url:
+    with live_bridge() as base_url:
         action_client = httpx.Client(base_url=base_url)
         try:
             with httpx.Client(base_url=base_url) as stream_client:
