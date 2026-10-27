@@ -115,6 +115,7 @@ _COMMON_HOOK_FILES = frozenset(
         "osprey_hook_log.py",
         "osprey_memory_guard.py",
         "osprey_panels_context.py",
+        "osprey_prompt_render.py",
         "osprey_safety_file.py",
         "osprey_target_state.py",
         "osprey_turn_state.py",

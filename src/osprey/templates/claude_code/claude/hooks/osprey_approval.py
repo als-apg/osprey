@@ -180,6 +180,15 @@ try:
 except Exception:  # pragma: no cover - render without the helper
     _safety_file = None
 
+# The shared, stdlib-only prompt renderer, a sibling script like the two above.
+# Its control-character escaper is the one every label on this prompt goes
+# through (`_sanitize_label`). Guarded the same way; without it the labels fall
+# back to a stricter escape of their own.
+try:
+    import osprey_prompt_render as _prompt_render
+except Exception:  # pragma: no cover - render without the renderer
+    _prompt_render = None
+
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
 #: The harness kills the hook a fixed number of seconds after it launches it,
@@ -582,11 +591,6 @@ def _bridge_post_json(base_url: str, path: str, body, timeout: float):
         return None
 
 
-# Unicode code points that render as a line/paragraph break in some terminals
-# in addition to the C0 control range (< 0x20) and DEL (0x7f) escaped below.
-_UNICODE_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
-
-
 def _sanitize_label(text) -> str:
     """Escape control characters in an agent-influenced single-line label.
 
@@ -598,17 +602,21 @@ def _sanitize_label(text) -> str:
     by character content, and `PlanMetadata.name` carries no character
     constraint. An embedded newline would otherwise forge a fake enrichment line
     (e.g. a spoofed "Validation status: PASSED") on the human approval prompt.
-    Escaping the C0 range, DEL, and the unicode line breaks to a visible
-    ``\\xNN`` token keeps every label on one line and makes any tampering legible
-    to the approver rather than silently dropped. The `Plan source` block is
-    deliberately NOT run through this — it is rendered verbatim (and clearly
-    delimited) so the approver sees the real, possibly multi-line, plan body.
+    The prompt renderer's control-character escaper turns every control, format
+    character (a bidi override, a zero-width mark), line or paragraph separator,
+    private-use and unassigned code point into a visible ``\\x`` token carrying
+    its codepoint, which keeps every label on one line, in the order it was
+    written, and makes any tampering legible to the approver rather than silently
+    dropped. Without the renderer beside this hook, every character Python does
+    not call printable is escaped instead — stricter, never weaker. The `Plan
+    source` block is deliberately NOT run through this — it is rendered verbatim
+    (and clearly delimited) so the approver sees the real, possibly multi-line,
+    plan body.
     """
+    if _prompt_render is not None:
+        return str(_prompt_render.escape_control(text))
     return "".join(
-        ch
-        if (ch >= " " and ch != "\x7f" and ch not in _UNICODE_LINE_BREAKS)
-        else f"\\x{ord(ch):02x}"
-        for ch in str(text)
+        ch if (ch == " " or ch.isprintable()) else f"\\x{ord(ch):02x}" for ch in str(text)
     )
 
 

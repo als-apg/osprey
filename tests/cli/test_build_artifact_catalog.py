@@ -339,6 +339,7 @@ def test_helpers_are_the_rows_something_requires():
     assert BuildArtifactCatalog.default().helpers() == {
         "hooks/hook-config",
         "hooks/hook-log",
+        "hooks/prompt-render",
         "hooks/safety-file",
         "hooks/target-state",
     }
