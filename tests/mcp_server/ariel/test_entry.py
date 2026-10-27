@@ -17,6 +17,7 @@ from tests.mcp_server.ariel.conftest import (
     attach_fake_attachment_reader,
     get_tool_fn,
     make_mock_entry,
+    patch_ariel_service,
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
@@ -33,23 +34,14 @@ def _get_entry_create():
     return get_tool_fn(entry_create)
 
 
-def _setup_registry(tmp_path, monkeypatch, entry_text=None):
-    monkeypatch.chdir(tmp_path)
-    ariel: dict = {"database": {"uri": "postgresql://localhost/test"}}
-    if entry_text is not None:
-        ariel["entry_text"] = entry_text
-    (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
-    initialize_ariel_context()
-
-
 # ---------------------------------------------------------------------------
 # entry_get tests
 # ---------------------------------------------------------------------------
 
 
-async def test_entry_get_existing(tmp_path, monkeypatch):
+async def test_entry_get_existing(ariel_registry):
     """Get an existing entry returns full entry data."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entry = make_mock_entry(entry_id="e1", raw_text="Test content", author="Alice")
 
@@ -57,10 +49,7 @@ async def test_entry_get_existing(tmp_path, monkeypatch):
     attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entry.return_value = entry
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_get()
         result = await fn(entry_id="e1")
 
@@ -70,17 +59,14 @@ async def test_entry_get_existing(tmp_path, monkeypatch):
     assert data["author"] == "Alice"
 
 
-async def test_entry_get_nonexistent(tmp_path, monkeypatch):
+async def test_entry_get_nonexistent(ariel_registry):
     """Get a nonexistent entry returns not_found error."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.repository.get_entry.return_value = None
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_get()
         with assert_raises_error(error_type="not_found") as _exc_ctx:
             await fn(entry_id="nonexistent")
@@ -102,17 +88,14 @@ async def test_entry_get_empty_id():
 # ---------------------------------------------------------------------------
 
 
-async def test_entry_create_all_fields(tmp_path, monkeypatch):
+async def test_entry_create_all_fields(ariel_registry):
     """Create entry with all fields succeeds."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.repository.upsert_entry.return_value = None
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         result = await fn(
             subject="Test entry",
@@ -139,17 +122,14 @@ async def test_entry_create_all_fields(tmp_path, monkeypatch):
     assert call_args["metadata"]["created_via"] == "ariel-mcp"
 
 
-async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
+async def test_entry_create_minimal_fields(ariel_registry):
     """Create entry with only required fields succeeds."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.repository.upsert_entry.return_value = None
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         result = await fn(subject="Quick note", details="Something happened", draft=False)
 
@@ -178,9 +158,9 @@ async def test_entry_create_empty_details():
     _exc_ctx["envelope"]
 
 
-async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
+async def test_entry_create_with_file_paths(tmp_path, ariel_registry):
     """Create entry with file_paths attaches files and returns attachment_count."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     # Create test files
     img = tmp_path / "screenshot.png"
@@ -191,10 +171,7 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
     mock_service.repository.upsert_entry.return_value = None
     mock_service.repository.store_attachment.return_value = None
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         result = await fn(
             subject="Test with attachment",
@@ -217,9 +194,9 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
     assert mock_service.repository.upsert_entry.call_count == 2
 
 
-async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
+async def test_entry_create_with_invalid_file_path(ariel_registry):
     """Nonexistent file path returns validation error without creating entry."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     fn = _get_entry_create()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
@@ -233,9 +210,9 @@ async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
     assert "not found" in data["error_message"]
 
 
-async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
+async def test_entry_create_with_oversized_file(tmp_path, ariel_registry):
     """Oversized file returns validation error."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     big_file = tmp_path / "huge.bin"
     big_file.write_bytes(b"\x00" * (10 * 1024 * 1024 + 1))
@@ -252,17 +229,14 @@ async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
     assert "exceeds" in data["error_message"]
 
 
-async def test_entry_create_file_paths_none(tmp_path, monkeypatch):
+async def test_entry_create_file_paths_none(ariel_registry):
     """file_paths=None is backward compatible (no attachments)."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     mock_service.repository.upsert_entry.return_value = None
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         result = await fn(
             subject="No attachments",
@@ -385,9 +359,9 @@ async def test_entry_create_draft_custom_web_url(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
+async def test_entry_create_with_artifact_ids_direct(tmp_path, ariel_registry):
     """Direct mode with artifact_ids resolves and attaches PNG artifact."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     from osprey.stores.artifact_store import ArtifactStore
 
@@ -406,10 +380,7 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
     mock_service.repository.store_attachment.return_value = None
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.stores.artifact_store.get_artifact_store",
             return_value=store,
@@ -428,23 +399,43 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
     assert data["attachment_count"] == 1
 
 
-async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypatch):
-    """HTML artifact is auto-converted to PNG via converter registry."""
-    _setup_registry(tmp_path, monkeypatch)
+@pytest.mark.parametrize(
+    ("content", "filename", "artifact_type", "mime_type"),
+    [
+        pytest.param(
+            b"<html><body>Plot</body></html>", "plot.html", "html", "text/html", id="html"
+        ),
+        pytest.param(
+            b"# Report\n\nSome **bold** text.",
+            "report.md",
+            "markdown",
+            "text/markdown",
+            id="markdown",
+        ),
+        # An unknown MIME type falls back to the text_to_png converter.
+        pytest.param(
+            b"custom data here", "data.custom", "file", "application/x-custom", id="unknown-mime"
+        ),
+    ],
+)
+async def test_entry_create_converts_a_non_image_artifact(
+    tmp_path, ariel_registry, content, filename, artifact_type, mime_type
+):
+    """A non-image artifact is converted to PNG via the converter registry and attached."""
+    ariel_registry()
 
     from osprey.stores.artifact_store import ArtifactStore
 
     store = ArtifactStore(workspace_root=tmp_path)
     art = store.save_file(
-        file_content=b"<html><body>Plot</body></html>",
-        filename="plot.html",
-        artifact_type="html",
-        title="Interactive Plot",
-        mime_type="text/html",
+        file_content=content,
+        filename=filename,
+        artifact_type=artifact_type,
+        title="Artifact",
+        mime_type=mime_type,
         tool_source="execute",
     )
 
-    # Mock convert_html_to_image to write a fake PNG
     async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
         from pathlib import Path
 
@@ -456,10 +447,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
     mock_service.repository.store_attachment.return_value = None
 
     with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
+        patch_ariel_service(mock_service),
         patch(
             "osprey.stores.artifact_store.get_artifact_store",
             return_value=store,
@@ -471,114 +459,8 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
     ):
         fn = _get_entry_create()
         result = await fn(
-            subject="Test HTML conversion",
-            details="Should auto-convert",
-            artifact_ids=[art.id],
-            draft=False,
-        )
-
-    data = json.loads(result)
-    assert data["entry_id"].startswith("ariel-")
-    assert data["attachment_count"] == 1
-
-
-async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
-    """Markdown artifact is converted to PNG via converter registry."""
-    _setup_registry(tmp_path, monkeypatch)
-
-    from osprey.stores.artifact_store import ArtifactStore
-
-    store = ArtifactStore(workspace_root=tmp_path)
-    art = store.save_file(
-        file_content=b"# Report\n\nSome **bold** text.",
-        filename="report.md",
-        artifact_type="markdown",
-        title="Report",
-        mime_type="text/markdown",
-        tool_source="execute",
-    )
-
-    async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
-        from pathlib import Path
-
-        Path(output_path).write_bytes(b"\x89PNG md")
-        return Path(output_path).resolve()
-
-    mock_service = AsyncMock()
-    mock_service.repository.upsert_entry.return_value = None
-    mock_service.repository.store_attachment.return_value = None
-
-    with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
-        patch(
-            "osprey.stores.artifact_store.get_artifact_store",
-            return_value=store,
-        ),
-        patch(
-            "osprey.mcp_server.export.converter.convert_html_to_image",
-            side_effect=fake_convert,
-        ),
-    ):
-        fn = _get_entry_create()
-        result = await fn(
-            subject="Test markdown conversion",
-            details="Should convert md to png",
-            artifact_ids=[art.id],
-            draft=False,
-        )
-
-    data = extract_response_dict(result)
-    assert data["entry_id"].startswith("ariel-")
-    assert data["attachment_count"] == 1
-
-
-async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatch):
-    """Unknown MIME type artifact falls back to text_to_png converter."""
-    _setup_registry(tmp_path, monkeypatch)
-
-    from osprey.stores.artifact_store import ArtifactStore
-
-    store = ArtifactStore(workspace_root=tmp_path)
-    art = store.save_file(
-        file_content=b"custom data here",
-        filename="data.custom",
-        artifact_type="file",
-        title="Custom Data",
-        mime_type="application/x-custom",
-        tool_source="test",
-    )
-
-    async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
-        from pathlib import Path
-
-        Path(output_path).write_bytes(b"\x89PNG fallback")
-        return Path(output_path).resolve()
-
-    mock_service = AsyncMock()
-    mock_service.repository.upsert_entry.return_value = None
-    mock_service.repository.store_attachment.return_value = None
-
-    with (
-        patch(
-            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-            new=AsyncMock(return_value=mock_service),
-        ),
-        patch(
-            "osprey.stores.artifact_store.get_artifact_store",
-            return_value=store,
-        ),
-        patch(
-            "osprey.mcp_server.export.converter.convert_html_to_image",
-            side_effect=fake_convert,
-        ),
-    ):
-        fn = _get_entry_create()
-        result = await fn(
-            subject="Test fallback conversion",
-            details="Unknown MIME type should use text_to_png",
+            subject="Test conversion",
+            details="Should convert to png",
             artifact_ids=[art.id],
             draft=False,
         )
@@ -795,9 +677,9 @@ def _get_entries_by_ids():
     return get_tool_fn(entries_by_ids)
 
 
-async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
+async def test_entries_by_ids_batch_retrieval(ariel_registry):
     """Batch retrieval returns the found entries and names each id it did not find."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     entries = [
         make_mock_entry(entry_id="e1", raw_text="First"),
@@ -808,10 +690,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
     attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entries_by_ids.return_value = entries
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entries_by_ids()
         result = await fn(entry_ids=["e1", "e2", "e3"])
 
@@ -821,18 +700,15 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
     assert data["entries"][0]["entry_id"] == "e1"
 
 
-async def test_entries_by_ids_nothing_found_is_nothing_answered(tmp_path, monkeypatch):
+async def test_entries_by_ids_nothing_found_is_nothing_answered(ariel_registry):
     """No requested id exists: the call is refused with every id in the map."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entries_by_ids.return_value = []
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entries_by_ids()
         with assert_raises_error(error_type="nothing_answered") as _exc_ctx:
             await fn(entry_ids=["e1", "e2", "e1"])
@@ -859,18 +735,15 @@ async def test_entries_by_ids_max_limit_exceeded():
     assert "50" in data["error_message"]
 
 
-async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
+async def test_entries_by_ids_service_error(ariel_registry):
     """Service failure returns standard error format."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entries_by_ids.side_effect = RuntimeError("DB down")
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entries_by_ids()
         with assert_raises_error(error_type="internal_error") as _exc_ctx:
             await fn(entry_ids=["e1"])
@@ -878,9 +751,9 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-async def test_entries_by_ids_carries_the_read_budget(tmp_path, monkeypatch):
+async def test_entries_by_ids_carries_the_read_budget(ariel_registry):
     """A batch read cuts at read_chars, not at the listing budget."""
-    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_chars": 10, "read_chars": 20})
+    ariel_registry(entry_text={"listing_chars": 10, "read_chars": 20})
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
@@ -888,10 +761,7 @@ async def test_entries_by_ids_carries_the_read_budget(tmp_path, monkeypatch):
         make_mock_entry(entry_id="e1", raw_text="x" * 50)
     ]
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         result = await _get_entries_by_ids()(entry_ids=["e1"])
 
     [entry] = extract_response_dict(result)["entries"]
@@ -900,19 +770,16 @@ async def test_entries_by_ids_carries_the_read_budget(tmp_path, monkeypatch):
     assert entry["raw_text_length"] == 50
 
 
-async def test_entry_get_returns_the_whole_text(tmp_path, monkeypatch):
+async def test_entry_get_returns_the_whole_text(ariel_registry):
     """entry_get is never cut: a long entry comes back whole and unmarked."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     text = "x" * 5000
 
     mock_service = AsyncMock()
     attach_fake_attachment_reader(mock_service)
     mock_service.repository.get_entry.return_value = make_mock_entry(entry_id="e1", raw_text=text)
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         result = await _get_entry_get()(entry_id="e1")
 
     data = extract_response_dict(result)
@@ -930,7 +797,9 @@ def _real_png() -> bytes:
     return buf.getvalue()
 
 
-async def test_entry_create_native_picture_is_viewable_at_once(tmp_path, monkeypatch):
+async def test_entry_create_native_picture_is_viewable_at_once(
+    tmp_path, monkeypatch, ariel_registry
+):
     """Direct ``entry_create`` stores the picture copied with its rendition, no sync needed."""
     from osprey.imaging import render
     from osprey.services.ariel_search.attachments.formats import is_viewable
@@ -939,7 +808,7 @@ async def test_entry_create_native_picture_is_viewable_at_once(tmp_path, monkeyp
     # its start-up can outlast the default ready bound, which would store the
     # picture without one.
     monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     img = tmp_path / "beam.png"
     png = _real_png()
     img.write_bytes(png)
@@ -948,10 +817,7 @@ async def test_entry_create_native_picture_is_viewable_at_once(tmp_path, monkeyp
     mock_service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(True, True))
     mock_service.repository.upsert_entry.return_value = None
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         result = await _get_entry_create()(
             subject="Beam picture",
             details="Attached",
@@ -977,7 +843,9 @@ async def test_entry_create_native_picture_is_viewable_at_once(tmp_path, monkeyp
     assert linked["attachments"][0]["url"] == f"/api/attachments/{attachment_id}"
 
 
-async def test_entry_create_native_render_unavailable_leaves_no_rendition(tmp_path, monkeypatch):
+async def test_entry_create_native_render_unavailable_leaves_no_rendition(
+    tmp_path, monkeypatch, ariel_registry
+):
     """With the worker unavailable the row is still written, without a rendition."""
     from osprey.services.ariel_search.attachments import prepare as prepare_module
 
@@ -985,17 +853,14 @@ async def test_entry_create_native_render_unavailable_leaves_no_rendition(tmp_pa
         raise prepare_module.RenderUnavailable("no worker")
 
     monkeypatch.setattr(prepare_module, "prepare_picture", unavailable)
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     img = tmp_path / "beam.png"
     img.write_bytes(_real_png())
 
     mock_service = AsyncMock()
     mock_service.repository.schema_facts = AsyncMock(return_value=SchemaFacts(True, True))
 
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         result = await _get_entry_create()(
             subject="Beam picture", details="Attached", file_paths=[str(img)], draft=False
         )
@@ -1019,10 +884,7 @@ _SUMMARY_PNG = {
 
 
 async def _run_entries_by_ids(mock_service, entry_ids):
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         return extract_response_dict(await _get_entries_by_ids()(entry_ids=entry_ids))
 
 
@@ -1033,8 +895,8 @@ def _entries_by_ids_service(entries, **reader):
     return mock_service
 
 
-async def test_entries_by_ids_reads_the_attachment_rows_once(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_entries_by_ids_reads_the_attachment_rows_once(ariel_registry):
+    ariel_registry()
     entries = [make_mock_entry(entry_id=f"e{i}", attachments=[_SUMMARY_PNG]) for i in range(3)]
     mock_service = _entries_by_ids_service(entries)
 
@@ -1044,8 +906,8 @@ async def test_entries_by_ids_reads_the_attachment_rows_once(tmp_path, monkeypat
     mock_service.repository.get_attachment_rows.assert_awaited_once_with(["e0", "e1", "e2"])
 
 
-async def test_entries_by_ids_on_an_unmigrated_store_gives_the_fallback(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_entries_by_ids_on_an_unmigrated_store_gives_the_fallback(ariel_registry):
+    ariel_registry()
     mock_service = _entries_by_ids_service(
         [make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])], unmigrated=True
     )
@@ -1058,10 +920,10 @@ async def test_entries_by_ids_on_an_unmigrated_store_gives_the_fallback(tmp_path
     assert "attachment_id" not in summary
 
 
-async def test_entries_by_ids_with_a_failing_reader_keeps_its_entries(tmp_path, monkeypatch):
+async def test_entries_by_ids_with_a_failing_reader_keeps_its_entries(ariel_registry):
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     entries = [make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])]
 
     expected = await _run_entries_by_ids(_entries_by_ids_service(entries, unmigrated=True), ["e1"])
@@ -1073,8 +935,8 @@ async def test_entries_by_ids_with_a_failing_reader_keeps_its_entries(tmp_path, 
     assert data["missing"] == {}
 
 
-async def test_entries_by_ids_bounds_summaries_by_listing_attachments(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_attachments": 1})
+async def test_entries_by_ids_bounds_summaries_by_listing_attachments(ariel_registry):
+    ariel_registry(entry_text={"listing_attachments": 1})
     items = [
         {**_SUMMARY_PNG, "url": f"https://elog.example/f/{i}.png", "filename": f"{i}.png"}
         for i in range(3)
@@ -1122,10 +984,7 @@ def _entry_get_service(entry, **reader):
 
 
 async def _run_entry_get(mock_service, entry_id="e1"):
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         return extract_response_dict(await _get_entry_get()(entry_id=entry_id))
 
 
@@ -1150,8 +1009,8 @@ def _copied_row(entry_id, item, **extra):
     }
 
 
-async def test_entry_get_reads_the_rows_of_its_one_entry(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_entry_get_reads_the_rows_of_its_one_entry(ariel_registry):
+    ariel_registry()
     entry = make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])
     mock_service, reader = _entry_get_service(entry)
 
@@ -1160,11 +1019,11 @@ async def test_entry_get_reads_the_rows_of_its_one_entry(tmp_path, monkeypatch):
     reader.assert_awaited_once_with(["e1"])
 
 
-async def test_entry_get_emits_summaries_for_every_attachment(tmp_path, monkeypatch):
+async def test_entry_get_emits_summaries_for_every_attachment(ariel_registry):
     """No listing bound: every picture, whole captions, with the stored row's identity."""
     from osprey.services.ariel_search.attachments.summaries import SUMMARY_KEYS
 
-    _setup_registry(tmp_path, monkeypatch, entry_text={"listing_attachments": 1})
+    ariel_registry(entry_text={"listing_attachments": 1})
     caption = "c" * 900
     items = [
         {**_SUMMARY_PNG, "url": f"https://elog.example/f/{i}.png", "filename": f"{i}.png"}
@@ -1192,9 +1051,9 @@ async def test_entry_get_emits_summaries_for_every_attachment(tmp_path, monkeypa
     assert captioned["caption_source"] == "upstream"
 
 
-async def test_entry_get_keeps_its_own_fields(tmp_path, monkeypatch):
+async def test_entry_get_keeps_its_own_fields(ariel_registry):
     """Only attachments (and attachment_count) change; the rest of the dict stays whole."""
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     text = "y" * 5000
     entry = make_mock_entry(entry_id="e1", raw_text=text, attachments=[_SUMMARY_PNG])
     mock_service, _ = _entry_get_service(entry)
@@ -1208,8 +1067,8 @@ async def test_entry_get_keeps_its_own_fields(tmp_path, monkeypatch):
     assert "raw_text_truncated" not in data
 
 
-async def test_entry_get_without_attachments_omits_the_count(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_entry_get_without_attachments_omits_the_count(ariel_registry):
+    ariel_registry()
     mock_service, _ = _entry_get_service(make_mock_entry(entry_id="e1", attachments=[]))
 
     data = await _run_entry_get(mock_service)
@@ -1218,8 +1077,8 @@ async def test_entry_get_without_attachments_omits_the_count(tmp_path, monkeypat
     assert "attachment_count" not in data
 
 
-async def test_entry_get_on_an_unmigrated_store_gives_the_fallback(tmp_path, monkeypatch):
-    _setup_registry(tmp_path, monkeypatch)
+async def test_entry_get_on_an_unmigrated_store_gives_the_fallback(ariel_registry):
+    ariel_registry()
     mock_service, _ = _entry_get_service(
         make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG]), unmigrated=True
     )
@@ -1235,7 +1094,7 @@ async def test_entry_get_on_an_unmigrated_store_gives_the_fallback(tmp_path, mon
 
 
 async def test_entry_get_on_an_unmigrated_store_warns_once_per_process(
-    tmp_path, monkeypatch, caplog
+    monkeypatch, caplog, ariel_registry
 ):
     """The real reader logs the schema WARNING; a second call stays quiet."""
     import logging
@@ -1246,7 +1105,7 @@ async def test_entry_get_on_an_unmigrated_store_warns_once_per_process(
         ARIELRepository,
     )
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     monkeypatch.setattr(repository_module, "_attachment_schema_gap_warned", False)
     caplog.set_level(logging.WARNING, logger="ariel")
 
@@ -1270,11 +1129,11 @@ async def test_entry_get_on_an_unmigrated_store_warns_once_per_process(
     assert len(warnings) == 1
 
 
-async def test_entry_get_with_a_failing_reader_gives_the_fallback(tmp_path, monkeypatch):
+async def test_entry_get_with_a_failing_reader_gives_the_fallback(ariel_registry):
     """A DatabaseQueryError reads as no copy state: fallback summaries, one shared WARNING."""
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
-    _setup_registry(tmp_path, monkeypatch)
+    ariel_registry()
     entry = make_mock_entry(entry_id="e1", attachments=[_SUMMARY_PNG])
 
     expected = await _run_entry_get(_entry_get_service(entry, unmigrated=True)[0])
@@ -1339,10 +1198,7 @@ async def test_entry_create_direct_refuses_undeclared_field(tmp_path, monkeypatc
     _setup_example_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         with assert_raises_error(error_type="validation_error") as ctx:
             await fn(subject="S", details="D", fields={"book": "ops", "colour": "red"}, draft=False)
@@ -1452,10 +1308,7 @@ async def test_entry_create_direct_refuses_missing_required(tmp_path, monkeypatc
     _setup_example_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         with assert_raises_error(error_type="validation_error") as ctx:
             await fn(subject="S", details="D", draft=False)
@@ -1477,10 +1330,7 @@ async def test_entry_create_direct_stores_native_values(
 
     mock_service = AsyncMock()
     mock_service.repository = dict_repository
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         result = await fn(
             subject="S",
@@ -1512,10 +1362,7 @@ async def test_entry_create_direct_declared_logbook_conflict(
     example_entry_fields.state.declare_logbook = True
 
     mock_service = AsyncMock()
-    with patch(
-        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
-        new=AsyncMock(return_value=mock_service),
-    ):
+    with patch_ariel_service(mock_service):
         fn = _get_entry_create()
         with assert_raises_error(error_type="validation_error") as ctx:
             await fn(
