@@ -83,7 +83,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 
@@ -120,9 +120,6 @@ from tests.interfaces.web_terminal._posture_chip import (
     settled_chip,
     writes_toggle,
 )
-
-if TYPE_CHECKING:
-    pass
 
 # without playwright, the chromium_browser fixture skips the suite
 with suppress(ImportError):
