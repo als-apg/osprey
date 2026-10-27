@@ -204,21 +204,6 @@ def is_claude_code_available() -> bool:
         return False
 
 
-def has_anthropic_api_key() -> bool:
-    """Check if ANTHROPIC_API_KEY is set."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
-
-
-def has_als_apg_api_key() -> bool:
-    """Check if ALS_APG_API_KEY is set.
-
-    The als-apg gateway authenticates with this token; the safety/SDK E2E
-    suite skip-gates on it because the Claude Code CLI subprocess reaches the
-    gateway through the project's `.env`.
-    """
-    return bool(os.environ.get("ALS_APG_API_KEY"))
-
-
 #: The ARIEL database a run uses when it names none: a Postgres on the host's
 #: standard port, the one tests/e2e/README.md tells a developer to run.
 _DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"

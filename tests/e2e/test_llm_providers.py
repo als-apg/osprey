@@ -391,7 +391,7 @@ def available_providers():
 
 
 @pytest.fixture(autouse=True)
-def setup_llm_test_environment(test_config):
+def setup_llm_test_environment(test_config, monkeypatch):
     """Set up test environment with provider configurations."""
     config = yaml.safe_load(test_config.read_text())
     config["provider_configs"] = {}
@@ -420,20 +420,11 @@ def setup_llm_test_environment(test_config):
     with open(test_config, "w") as f:
         yaml.dump(config, f)
 
-    original_config_file = os.environ.get("CONFIG_FILE")
-    os.environ["CONFIG_FILE"] = str(test_config)
+    monkeypatch.setenv("CONFIG_FILE", str(test_config))
 
     # Remove proxy env vars that interfere with direct API calls
-    proxy_env_vars = [
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_AUTH_TOKEN",
-        "OPENAI_BASE_URL",
-        "OPENAI_API_BASE",
-    ]
-    saved_proxy_vars = {}
-    for var in proxy_env_vars:
-        if var in os.environ:
-            saved_proxy_vars[var] = os.environ.pop(var)
+    for var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL", "OPENAI_API_BASE"):
+        monkeypatch.delenv(var, raising=False)
 
     from osprey.registry import initialize_registry, reset_registry
     from osprey_connectors import config as config_module
@@ -450,39 +441,6 @@ def setup_llm_test_environment(test_config):
     config_module._default_config = None
     config_module._default_configurable = None
     config_module._config_cache.clear()
-
-    if original_config_file is not None:
-        os.environ["CONFIG_FILE"] = original_config_file
-    elif "CONFIG_FILE" in os.environ:
-        del os.environ["CONFIG_FILE"]
-
-    for var, value in saved_proxy_vars.items():
-        os.environ[var] = value
-
-
-# =============================================================================
-# MOCK TOOLS FOR REACT AGENT
-# =============================================================================
-
-
-def calculator_tool(expression: str) -> dict:
-    """Calculator tool for testing."""
-    try:
-        allowed = set("0123456789+-*/.(). ")
-        if not all(c in allowed for c in expression):
-            return {"error": "Invalid characters"}
-        return {"result": float(eval(expression)), "expression": expression}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def weather_tool(city: str) -> dict:
-    """Mock weather tool for testing."""
-    data = {
-        "tokyo": {"temperature": 28.0, "conditions": "Humid"},
-        "london": {"temperature": 15.0, "conditions": "Cloudy"},
-    }
-    return {"city": city, **data.get(city.lower(), {"temperature": 20.0, "conditions": "Unknown"})}
 
 
 # =============================================================================
