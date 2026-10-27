@@ -56,7 +56,7 @@ from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 from osprey.interfaces.web_terminal.routes import bar_items as bar_items_routes
 from osprey.interfaces.web_terminal.routes.bar_items import MAX_REQUEST_BYTES
 from tests.interfaces.fsevents_wait import collect_paths
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 # ── fixtures ───────────────────────────────────────────────────────────────
 
@@ -120,7 +120,7 @@ def config_path(tmp_path):
 @pytest.fixture
 def client(agent_data_root, workspace_dir, config_path):
     """The whole app, lifespan run, watching a throwaway workspace."""
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch(
             "osprey_connectors.workspace.resolve_shared_data_root",
@@ -627,7 +627,7 @@ def _app_over(stored: bytes | None, *, agent_data_root: Path, workspace_dir: Pat
         store = agent_data_root / "bar_items"
         store.mkdir(parents=True, exist_ok=True)
         (store / LAYOUT_FILENAME).write_bytes(stored)
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch(
             "osprey_connectors.workspace.resolve_shared_data_root",

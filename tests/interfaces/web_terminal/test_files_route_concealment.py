@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
 from osprey.interfaces.web_terminal.routes.files import router
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
@@ -356,7 +356,7 @@ class TestStateKeyContract:
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir()
 
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
@@ -378,7 +378,7 @@ class TestStateKeyContract:
                 found.extend(paths(child))
             return found
 
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",

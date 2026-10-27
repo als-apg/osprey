@@ -15,12 +15,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
 def client(workspace_dir):
-    with app_client(workspace_dir) as c:
+    with terminal_client(workspace_dir) as c:
         yield c
 
 
@@ -191,7 +191,7 @@ class TestLogoutRevokesBrowserSessions:
         monkeypatch.setenv("OSPREY_WEB_PORT", "8123")
         reset_web_credentials()
 
-        with app_client(workspace_dir) as store_client:
+        with terminal_client(workspace_dir) as store_client:
             credentials = get_web_credentials(store_client.app)
             session = credentials.create_session()
 

@@ -8,7 +8,7 @@ centralizes that boot as :func:`started_client`: the ``web:`` section the
 lifespan reads and the ``get_config_value`` keys it asks for both come from
 the test, key by key, and teardown is an ordinary ``with`` block.
 
-:func:`app_client` is the boot under it, and the one most route suites use
+:func:`terminal_client` is the boot under it, and the one most route suites use
 directly: ``_load_web_config`` answers only the watched directory, any further
 patches the test hands over are live across ``create_app`` and the lifespan,
 and every other keyword goes to ``create_app``.
@@ -28,7 +28,7 @@ from osprey.interfaces.web_terminal.app import create_app
 
 
 @contextmanager
-def app_client(
+def terminal_client(
     watch_dir: Path | str,
     *patches: AbstractContextManager[Any],
     shell_command: Sequence[str] = ("echo",),
@@ -79,7 +79,7 @@ def started_client(
     def get_config_value(path: str, default: Any = None, config_path: str | None = None) -> Any:  # noqa: ARG001
         return values.get(path, default)
 
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch(
             "osprey_connectors.workspace.load_osprey_config",

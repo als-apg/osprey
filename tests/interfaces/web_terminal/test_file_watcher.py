@@ -35,7 +35,7 @@ from tests.interfaces.fsevents_wait import (
     polled_frames,
     wait_for_polling_baseline,
 )
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Tighter than the unit lane's 600 s cap, because this file is the one that
 #: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
@@ -478,7 +478,7 @@ class TestLifespanConcealsItsStores:
             def stop(self):
                 pass
 
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",
@@ -952,7 +952,7 @@ class TestFirstEverStartup:
         workspace_dir = tmp_path / "_agent_data"  # deliberately NOT created
         store_root = tmp_path / "_AGENT_DATA"
 
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey_connectors.workspace.resolve_shared_data_root",

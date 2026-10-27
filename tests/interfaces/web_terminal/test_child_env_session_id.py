@@ -43,7 +43,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store, workspace
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
 
@@ -82,7 +82,7 @@ def shared_root(tmp_path, monkeypatch):
 def client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
-        with app_client(workspace_dir) as test_client:
+        with terminal_client(workspace_dir) as test_client:
             yield test_client
 
     with _make() as c:

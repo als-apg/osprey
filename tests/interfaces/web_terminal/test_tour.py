@@ -29,7 +29,7 @@ from osprey.interfaces.web_terminal.app import (
     DEFAULT_TOUR_POLICY,
     resolve_tour_policy,
 )
-from tests.interfaces.web_terminal._started_app import app_client, started_client
+from tests.interfaces.web_terminal._started_app import started_client, terminal_client
 
 
 class TestResolveTourPolicy:
@@ -74,7 +74,7 @@ def _started_over(workspace_dir, config: dict):
     :func:`started_client` answers the ``web`` section only; the capability
     check below needs a top-level section beside it.
     """
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
     ) as client:

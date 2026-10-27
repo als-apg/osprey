@@ -189,12 +189,12 @@ class TestAttachmentOwnership:
 class TestTerminalWsAttachment:
     """``terminal_ws`` holds one token and honours a refused attach."""
 
-    def test_connect_holds_the_key_and_releases_it_on_disconnect(self, app, sessions_dir):
+    def test_connect_holds_the_key_and_releases_it_on_disconnect(self, ws_app, sessions_dir):
         """The key is attached while the socket is open, and free but still pooled after it."""
         sid = new_session_id()
         seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
-            reg, spawned = patch_spawn(app)
+        with TestClient(ws_app) as client:
+            reg, spawned = patch_spawn(ws_app)
             with client.websocket_connect(resume_url(sid)) as ws:
                 send_resize(ws)
                 recv_json(ws, "session_info")
@@ -205,7 +205,7 @@ class TestTerminalWsAttachment:
             assert reg.get_session(sid) is spawned[0]
             assert spawned[0].is_alive
 
-    def test_a_switch_moves_the_attachment_and_releases_both_keys(self, app, sessions_dir):
+    def test_a_switch_moves_the_attachment_and_releases_both_keys(self, ws_app, sessions_dir):
         """One token per handler: it detaches the old key and takes the new.
 
         Both keys are free after the socket closes, which is only true if the
@@ -214,8 +214,8 @@ class TestTerminalWsAttachment:
         initial, target = new_session_id(), new_session_id()
         seed_session_file(sessions_dir, initial)
         seed_session_file(sessions_dir, target)
-        with TestClient(app) as client:
-            reg, _ = patch_spawn(app)
+        with TestClient(ws_app) as client:
+            reg, _ = patch_spawn(ws_app)
             with client.websocket_connect(resume_url(initial)) as ws:
                 send_resize(ws)
                 recv_json(ws, "session_info")
@@ -228,12 +228,12 @@ class TestTerminalWsAttachment:
             assert reg.is_attached(initial) is False
             assert reg.is_attached(target) is False
 
-    def test_a_refused_attach_closes_the_socket_with_4409(self, app, sessions_dir):
+    def test_a_refused_attach_closes_the_socket_with_4409(self, ws_app, sessions_dir):
         """A key someone else is reading is not served half a terminal."""
         sid = new_session_id()
         seed_session_file(sessions_dir, sid)
-        with TestClient(app) as client:
-            reg, _ = patch_spawn(app)
+        with TestClient(ws_app) as client:
+            reg, _ = patch_spawn(ws_app)
             reg.attach_session = lambda key, owner: False
 
             with client.websocket_connect(resume_url(sid)) as ws:
@@ -242,13 +242,13 @@ class TestTerminalWsAttachment:
 
         assert message["code"] == 4409
 
-    def test_a_refused_switch_closes_the_socket_with_4409(self, app, sessions_dir):
+    def test_a_refused_switch_closes_the_socket_with_4409(self, ws_app, sessions_dir):
         """Same refusal on the switch path, once the old key is released."""
         initial, target = new_session_id(), new_session_id()
         seed_session_file(sessions_dir, initial)
         seed_session_file(sessions_dir, target)
-        with TestClient(app) as client:
-            reg, _ = patch_spawn(app)
+        with TestClient(ws_app) as client:
+            reg, _ = patch_spawn(ws_app)
 
             with client.websocket_connect(resume_url(initial)) as ws:
                 send_resize(ws)

@@ -121,7 +121,7 @@ class ChatRegistry:
         pass
 
 
-def _patch_spawn(app, *, failing: str | None = None) -> list[Spawn]:
+def _patch_spawn(ws_app, *, failing: str | None = None) -> list[Spawn]:
     """Replace ``_spawn_session`` so no real PTY is created; record each call.
 
     A spawn whose command names *failing* raises ``OSError`` instead, the way
@@ -136,13 +136,13 @@ def _patch_spawn(app, *, failing: str | None = None) -> list[Spawn]:
         spawns.append(Spawn(list(command), rows, cols, session, cwd))
         return session
 
-    app.state.pty_registry._spawn_session = tracked_spawn
+    ws_app.state.pty_registry._spawn_session = tracked_spawn
     return spawns
 
 
-def _chats(app) -> ChatRegistry:
+def _chats(ws_app) -> ChatRegistry:
     registry = ChatRegistry()
-    app.state.operator_registry = registry
+    ws_app.state.operator_registry = registry
     return registry
 
 
@@ -159,10 +159,10 @@ def _with_started_command(chat: Chat) -> Chat:
     return chat
 
 
-def _fake_clock(app) -> FakeClock:
+def _fake_clock(ws_app) -> FakeClock:
     """Run the door's grace and death waits on a clock that only moves when slept."""
     clock = FakeClock()
-    app.state.handoff = HandoffState(clock=clock, sleep=clock.sleep)
+    ws_app.state.handoff = HandoffState(clock=clock, sleep=clock.sleep)
     return clock
 
 
@@ -172,12 +172,12 @@ def _fake_clock(app) -> FakeClock:
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app):
+def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(ws_app):
     """``handoff_pending`` goes out before the wait, ``session_info`` after the door."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid)
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             frames = json_frames_until(ws, "session_info")
@@ -188,17 +188,17 @@ def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app):
     assert frames[0] == {"type": "handoff_pending", "busy": False}
     assert frames[-1]["session_id"] == sid
     assert chat.teardowns == 1
-    assert app.state.operator_registry.chats.get(sid) is None
+    assert ws_app.state.operator_registry.chats.get(sid) is None
     assert len(spawns) == 1
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_key_with_no_transcript_starts_fresh_under_the_key(app):
+def test_a_key_with_no_transcript_starts_fresh_under_the_key(ws_app):
     """A chat that never wrote a transcript hands off to ``--session-id <key>``."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        _chats(app).hold(sid)
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app).hold(sid)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
@@ -209,28 +209,28 @@ def test_a_key_with_no_transcript_starts_fresh_under_the_key(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_the_spawn_runs_in_the_project_directory(app):
+def test_the_spawn_runs_in_the_project_directory(ws_app):
     """The launch argv names ``.mcp.json`` relative to the working directory."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        _chats(app).hold(sid)
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app).hold(sid)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
 
-    assert spawns[0].cwd == app.state.project_cwd
+    assert spawns[0].cwd == ws_app.state.project_cwd
 
 
-def test_the_spawn_resumes_the_keys_current_transcript(app, sessions_dir):
+def test_the_spawn_resumes_the_keys_current_transcript(ws_app, sessions_dir):
     """The key's transcript may have moved (``/clear``); the spawn resumes the current one."""
     sid, transcript = new_session_id(), new_session_id()
     (sessions_dir / f"{transcript}.jsonl").write_text("")
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        _chats(app).hold(sid)
-        app.state.transcript_map = {sid: transcript}
-        app.state.transcript_map_provisional = False
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app).hold(sid)
+        ws_app.state.transcript_map = {sid: transcript}
+        ws_app.state.transcript_map_provisional = False
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
@@ -240,7 +240,7 @@ def test_the_spawn_resumes_the_keys_current_transcript(app, sessions_dir):
     assert "--session-id" not in command
 
 
-def test_a_spawn_at_capacity_evicts_the_oldest_background_pty_off_the_loop(app, sessions_dir):
+def test_a_spawn_at_capacity_evicts_the_oldest_background_pty_off_the_loop(ws_app, sessions_dir):
     """The pool's eviction kill blocks; the handler takes the victim out and kills it in a thread."""
     sid, background = new_session_id(), new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
@@ -258,12 +258,12 @@ def test_a_spawn_at_capacity_evicts_the_oldest_background_pty_off_the_loop(app, 
             super().terminate()
 
     victim = EvictedPty()
-    with TestClient(app) as client:
+    with TestClient(ws_app) as client:
         # The lifespan installs the app's registry; a one-slot pool replaces it.
         registry = PtyRegistry(max_background=1)
-        app.state.pty_registry = registry
+        ws_app.state.pty_registry = registry
         registry._sessions[background] = victim
-        spawns = _patch_spawn(app)
+        spawns = _patch_spawn(ws_app)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
@@ -325,13 +325,13 @@ async def test_a_launch_env_change_kills_the_stale_pty_off_the_loop():
     assert registry._env_fingerprints["k"] == env_fingerprint({"OSPREY_PANEL_TOKEN": "after"})
 
 
-def test_a_free_key_gets_no_pending_frame(app, sessions_dir):
+def test_a_free_key_gets_no_pending_frame(ws_app, sessions_dir):
     """Nothing to wait on, nothing to announce: the first frame is the confirmation."""
     sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
-    with TestClient(app) as client:
-        _patch_spawn(app)
-        _chats(app)
+    with TestClient(ws_app) as client:
+        _patch_spawn(ws_app)
+        _chats(ws_app)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             frames = json_frames_until(ws, "session_info")
@@ -345,12 +345,12 @@ def test_a_free_key_gets_no_pending_frame(app, sessions_dir):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_busy_chat_is_waited_on(app):
+def test_a_busy_chat_is_waited_on(ws_app):
     """The terminal is confirmed once the chat's turn ends, and not before."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid, Chat(busy=True))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid, Chat(busy=True))
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             # Mid-turn: the frame says the wait is real, so the client shows
@@ -358,7 +358,7 @@ def test_a_busy_chat_is_waited_on(app):
             assert recv_json(ws, "handoff_pending")["busy"] is True
             time.sleep(0.3)
             assert spawns == []
-            assert app.state.operator_registry.chats.get(sid) is chat
+            assert ws_app.state.operator_registry.chats.get(sid) is chat
 
             chat.is_busy = False
             assert recv_json(ws, "session_info")["session_id"] == sid
@@ -368,12 +368,12 @@ def test_a_busy_chat_is_waited_on(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_interrupt_cuts_the_chat_turn_short(app):
+def test_interrupt_cuts_the_chat_turn_short(ws_app):
     """``interrupt=1`` on the resume URL is the "stop and switch now" path."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid, Chat(busy=True))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid, Chat(busy=True))
         with client.websocket_connect(resume_url(sid, interrupt=True)) as ws:
             send_resize(ws)
             assert recv_json(ws, "session_info")["session_id"] == sid
@@ -383,22 +383,24 @@ def test_interrupt_cuts_the_chat_turn_short(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(app):
+def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(ws_app):
     """A closed socket ends the wait: no spawn, no frame, the chat untouched, the key clean."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        registry = app.state.pty_registry
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid, Chat(busy=True))
+    with TestClient(ws_app) as client:
+        registry = ws_app.state.pty_registry
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid, Chat(busy=True))
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             recv_json(ws, "handoff_pending")
 
         wait_until(
-            lambda: sid not in get_state(app).pending, timeout=3.0, what="the pending entry cleared"
+            lambda: sid not in get_state(ws_app).pending,
+            timeout=3.0,
+            what="the pending entry cleared",
         )
         assert not registry.is_reserved(sid)
-        assert app.state.operator_registry.chats.get(sid) is chat
+        assert ws_app.state.operator_registry.chats.get(sid) is chat
         assert chat.teardowns == 0
         assert spawns == []
         assert registry.get_session(sid) is None
@@ -410,11 +412,11 @@ def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_newer_terminal_displaces_the_older_one_with_4409(app):
+def test_a_newer_terminal_displaces_the_older_one_with_4409(ws_app):
     """Same key, second socket: the first is closed with 4409, the PTY is reused."""
-    with TestClient(app) as client, ExitStack() as stack:
-        spawns = _patch_spawn(app)
-        _chats(app)
+    with TestClient(ws_app) as client, ExitStack() as stack:
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app)
         first = stack.enter_context(client.websocket_connect("/ws/terminal"))
         send_resize(first)
         sid = recv_json(first, "session_info")["session_id"]
@@ -436,13 +438,13 @@ def test_a_newer_terminal_displaces_the_older_one_with_4409(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(app):
+def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(ws_app):
     """The chat child would not die: nothing is spawned, the chat is pooled again, 4503."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        _fake_clock(app)
-        chat = _chats(app).hold(sid, Chat(exits=False))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        _fake_clock(ws_app)
+        chat = _chats(ws_app).hold(sid, Chat(exits=False))
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             recv_json(ws, "handoff_pending")
@@ -451,17 +453,17 @@ def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(app):
     assert closed["type"] == "websocket.close"
     assert closed["code"] == WS_CLOSE_OUTGOING_RUNNING
     assert spawns == []
-    assert app.state.operator_registry.chats.get(sid) is chat
-    assert app.state.pty_registry.get_session(sid) is None
+    assert ws_app.state.operator_registry.chats.get(sid) is chat
+    assert ws_app.state.pty_registry.get_session(sid) is None
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_chat_with_started_commands_refuses_the_terminal_with_the_list(app):
+def test_a_chat_with_started_commands_refuses_the_terminal_with_the_list(ws_app):
     """The list rides on a ``handoff_refused`` frame; the close code is the question's."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid, _with_started_command(Chat()))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid, _with_started_command(Chat()))
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             frames = json_frames_until(ws, "handoff_refused")
@@ -482,14 +484,14 @@ def test_a_chat_with_started_commands_refuses_the_terminal_with_the_list(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_chat_whose_started_commands_cannot_be_read_refuses_the_terminal(app):
+def test_a_chat_whose_started_commands_cannot_be_read_refuses_the_terminal(ws_app):
     """A process table that cannot be read is asked about, never taken as nothing running."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
         unread = Chat()
         unread.running_commands = None
-        chat = _chats(app).hold(sid, unread)
+        chat = _chats(ws_app).hold(sid, unread)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             frames = json_frames_until(ws, "handoff_refused")
@@ -508,11 +510,11 @@ def test_a_chat_whose_started_commands_cannot_be_read_refuses_the_terminal(app):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_end_started_on_the_resume_url_hands_the_key_off(app):
+def test_end_started_on_the_resume_url_hands_the_key_off(ws_app):
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid, _with_started_command(Chat()))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid, _with_started_command(Chat()))
         with client.websocket_connect(resume_url(sid, end_started=True)) as ws:
             send_resize(ws)
             info = recv_json(ws, "session_info")
@@ -522,17 +524,17 @@ def test_end_started_on_the_resume_url_hands_the_key_off(app):
     assert len(spawns) == 1
 
 
-def test_a_handoff_error_is_an_error_frame_and_a_close(app, sessions_dir):
+def test_a_handoff_error_is_an_error_frame_and_a_close(ws_app, sessions_dir):
     """An error from inside the door reaches the client as ``error``, then the socket closes."""
     sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
     failing = AsyncMock(side_effect=HandoffError.vanished(sid, "simple"))
     with (
         patch("osprey.interfaces.web_terminal.session_handoff.acquire_surface", failing),
-        TestClient(app) as client,
+        TestClient(ws_app) as client,
     ):
-        spawns = _patch_spawn(app)
-        _chats(app)
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app)
         with client.websocket_connect(resume_url(sid)) as ws:
             send_resize(ws)
             error = recv_json(ws, "error")
@@ -548,12 +550,12 @@ def test_a_handoff_error_is_an_error_frame_and_a_close(app, sessions_dir):
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_resize_sent_while_waiting_sizes_the_spawn(app):
+def test_a_resize_sent_while_waiting_sizes_the_spawn(ws_app):
     """The side reader records the resize; the spawn starts at that size."""
     sid = new_session_id()
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(sid, Chat(busy=True))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(sid, Chat(busy=True))
         with client.websocket_connect(resume_url(sid)) as ws:
             recv_json(ws, "handoff_pending")
             send_resize(ws, cols=132, rows=40)
@@ -564,7 +566,7 @@ def test_a_resize_sent_while_waiting_sizes_the_spawn(app):
     assert (spawns[0].rows, spawns[0].cols) == (40, 132)
 
 
-def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, sessions_dir):
+def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(ws_app, sessions_dir):
     """The spawn read the size before the resize arrived; the handler applies it after."""
     sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
@@ -588,10 +590,10 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
 
     with (
         patch("osprey.interfaces.web_terminal.session_handoff.acquire_surface", spawn_then_linger),
-        TestClient(app) as client,
+        TestClient(ws_app) as client,
     ):
-        spawns = _patch_spawn(app)
-        _chats(app)
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app)
         with client.websocket_connect(resume_url(sid)) as ws:
             time.sleep(0.15)
             assert (spawns[0].rows, spawns[0].cols) == (24, 80)
@@ -602,11 +604,11 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
 
 
 @pytest.mark.usefixtures("sessions_dir")
-def test_a_reused_pty_is_resized_to_the_clients_size(app):
+def test_a_reused_pty_is_resized_to_the_clients_size(ws_app):
     """The door hands a pooled PTY back as is; the handler applies the client's size."""
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        _chats(app)
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app)
         with client.websocket_connect("/ws/terminal") as ws:
             send_resize(ws, cols=80, rows=24)
             sid = recv_json(ws, "session_info")["session_id"]
@@ -626,13 +628,13 @@ def test_a_reused_pty_is_resized_to_the_clients_size(app):
 # ---------------------------------------------------------------------------
 
 
-def test_switching_to_a_chat_held_key_hands_off(app, sessions_dir):
+def test_switching_to_a_chat_held_key_hands_off(ws_app, sessions_dir):
     """``switch_session`` to a key the chat holds: pending frame, then ``session_switched``."""
     initial, target = new_session_id(), new_session_id()
     (sessions_dir / f"{initial}.jsonl").write_text("")
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(target)
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(target)
         with client.websocket_connect(resume_url(initial)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
@@ -647,12 +649,12 @@ def test_switching_to_a_chat_held_key_hands_off(app, sessions_dir):
     assert spawns[1].command[spawns[1].command.index("--session-id") + 1] == target
 
 
-def test_a_switch_to_a_chat_with_started_commands_is_refused_with_the_list(app, sessions_dir):
+def test_a_switch_to_a_chat_with_started_commands_is_refused_with_the_list(ws_app, sessions_dir):
     initial, target = new_session_id(), new_session_id()
     (sessions_dir / f"{initial}.jsonl").write_text("")
-    with TestClient(app) as client:
-        spawns = _patch_spawn(app)
-        chat = _chats(app).hold(target, _with_started_command(Chat()))
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        chat = _chats(ws_app).hold(target, _with_started_command(Chat()))
         with client.websocket_connect(resume_url(initial)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
@@ -672,15 +674,15 @@ def test_a_switch_to_a_chat_with_started_commands_is_refused_with_the_list(app, 
     assert len(spawns) == 1
 
 
-def test_a_switch_whose_spawn_fails_is_an_error_frame_and_a_close(app, sessions_dir):
+def test_a_switch_whose_spawn_fails_is_an_error_frame_and_a_close(ws_app, sessions_dir):
     """The old session is already let go; a spawn that fails ends the connection cleanly."""
     initial, target = new_session_id(), new_session_id()
     (sessions_dir / f"{initial}.jsonl").write_text("")
     (sessions_dir / f"{target}.jsonl").write_text("")
-    with TestClient(app) as client:
-        registry = app.state.pty_registry
-        spawns = _patch_spawn(app, failing=target)
-        _chats(app)
+    with TestClient(ws_app) as client:
+        registry = ws_app.state.pty_registry
+        spawns = _patch_spawn(ws_app, failing=target)
+        _chats(ws_app)
         with client.websocket_connect(resume_url(initial)) as ws:
             send_resize(ws)
             recv_json(ws, "session_info")
@@ -690,7 +692,7 @@ def test_a_switch_whose_spawn_fails_is_an_error_frame_and_a_close(app, sessions_
             assert recv_frame(ws)["type"] == "websocket.close"
 
         wait_until(
-            lambda: target not in get_state(app).pending,
+            lambda: target not in get_state(ws_app).pending,
             timeout=3.0,
             what="the pending entry cleared",
         )

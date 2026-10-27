@@ -62,7 +62,7 @@ from osprey_connectors_tests._harness import (
     write_server_report,
 )
 from tests.interfaces.web_terminal._control_context import only_alive
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 CHAT_A = "cccccccc-1111-2222-3333-444444444444"
@@ -298,7 +298,7 @@ def make_client(agent_data_root, workspace_dir, tmp_path):
         with patch.object(
             control_context_owner.ControlContextOwnerTask, "start", lambda self: None
         ):
-            with app_client(workspace_dir) as test_client:
+            with terminal_client(workspace_dir) as test_client:
                 test_client.app.state.config_path = (
                     render(tmp_path=tmp_path) if config_path is None else config_path
                 )

@@ -37,7 +37,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX, router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import bare_route_app
 
@@ -171,7 +171,7 @@ def test_routes_registered_on_composite_router(path, method):
 def test_app_lifespan_builds_a_bounded_ring(tmp_path):
     """The ring is created with its ``app.state`` peers when the app starts up."""
 
-    with app_client(tmp_path) as client:
+    with terminal_client(tmp_path) as client:
         ring = client.app.state.agent_activity_buffer
 
     assert isinstance(ring, deque)

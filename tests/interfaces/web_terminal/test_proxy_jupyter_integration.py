@@ -41,7 +41,7 @@ from osprey.interfaces.web_terminal.jupyter_sidecar import (
     kernel_notebook_path,
 )
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: Both halves of every test here spawn a process: the sidecar, then a kernel.
 pytestmark = pytest.mark.slow
@@ -139,7 +139,7 @@ def proxied(sidecar: JupyterSidecar, notebook_env: Path) -> Iterator[TestClient]
     """
     workspace = notebook_env / "_agent_data"
     workspace.mkdir(exist_ok=True)
-    with app_client(
+    with terminal_client(
         workspace,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",

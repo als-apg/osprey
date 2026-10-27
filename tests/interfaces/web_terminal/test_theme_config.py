@@ -27,7 +27,7 @@ from osprey.interfaces.design_system.theme_config import (
     resolve_pinned_mode,
     resolve_theme_id,
 )
-from tests.interfaces.web_terminal._started_app import app_client, started_client
+from tests.interfaces.web_terminal._started_app import started_client, terminal_client
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
 # `main` family (dark/light) plus a `high-contrast` family (dark/light).
@@ -126,7 +126,7 @@ class TestRenderedDataTheme:
 
     def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):
         """No config.yml at all (FileNotFoundError from get_config_value) -> fallback 'dark'."""
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey_connectors.config.get_config_value",

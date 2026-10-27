@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV, claude_project_dir
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 def _ts(minute: int) -> str:
@@ -33,7 +33,7 @@ def client(tmp_path, transcripts):
     project, _ = transcripts
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    with app_client(workspace, project_dir=project) as c:
+    with terminal_client(workspace, project_dir=project) as c:
         c.app.state.transcript_map = {}
         c.app.state.transcript_map_provisional = False
         yield c

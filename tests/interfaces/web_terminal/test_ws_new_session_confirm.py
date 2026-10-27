@@ -39,13 +39,13 @@ def _forced_session_id(command: list[str]) -> str:
     return command[command.index("--session-id") + 1]
 
 
-def _patch_spawn(app):
+def _record_spawned_commands(ws_app):
     """Replace ``_spawn_session`` so no real PTY is created.
 
     Returns the registry and the list of commands it was asked to spawn, which
     is where the forced ``--session-id`` can be read back from.
     """
-    reg = app.state.pty_registry
+    reg = ws_app.state.pty_registry
     commands: list[list[str]] = []
 
     def tracked_spawn(command, *_args, **_kwargs):
@@ -61,7 +61,7 @@ def _patch_spawn(app):
 # ---------------------------------------------------------------------------
 
 
-def test_new_session_confirms_the_forced_id(app, tmp_path):
+def test_new_session_confirms_the_forced_id(ws_app, tmp_path):
     """A new terminal is confirmed with the id spawned on its command line.
 
     The confirmation must not depend on a transcript: Claude Code writes
@@ -73,8 +73,8 @@ def test_new_session_confirms_the_forced_id(app, tmp_path):
     sessions_dir.mkdir()
 
     with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with TestClient(app) as client:
-            _, commands = _patch_spawn(app)
+        with TestClient(ws_app) as client:
+            _, commands = _record_spawned_commands(ws_app)
             with client.websocket_connect("/ws/terminal") as ws:
                 send_resize(ws)
                 msg = recv_json(ws, "session_info")
@@ -90,14 +90,14 @@ def test_new_session_confirms_the_forced_id(app, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_new_session_is_pooled_under_its_real_id(app):
+def test_new_session_is_pooled_under_its_real_id(ws_app):
     """The pool is keyed by the session id, not a placeholder needing a rekey.
 
     A placeholder key is what let a reconnect miss the warm PTY it should have
     found and spawn a second one against the same session.
     """
-    with TestClient(app) as client:
-        reg, commands = _patch_spawn(app)
+    with TestClient(ws_app) as client:
+        reg, commands = _record_spawned_commands(ws_app)
         with client.websocket_connect("/ws/terminal") as ws:
             send_resize(ws)
             msg = recv_json(ws, "session_info")
@@ -108,7 +108,7 @@ def test_new_session_is_pooled_under_its_real_id(app):
         assert len(commands) == 1
 
 
-def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
+def test_stale_handler_teardown_spares_the_replacement_session(ws_app, tmp_path):
     """A first tab closing must not kill the PTY a second tab is using.
 
     Handing every new session an id the client stores and resumes makes two
@@ -124,8 +124,8 @@ def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
     sessions_dir.mkdir()
 
     with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with TestClient(app) as client, ExitStack() as stack:
-            reg, spawned = patch_spawn(app)
+        with TestClient(ws_app) as client, ExitStack() as stack:
+            reg, spawned = patch_spawn(ws_app)
 
             # Tab one: a new session, confirmed with the forced id.
             first = stack.enter_context(client.websocket_connect("/ws/terminal"))

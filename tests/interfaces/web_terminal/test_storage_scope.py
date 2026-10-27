@@ -30,7 +30,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey.interfaces.common_middleware import resolve_storage_scope
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: The attribute under test.
 ATTR = "data-osprey-storage-scope"
@@ -68,7 +68,7 @@ def _serve(workspace_dir, terminal_user: str | None):
         ``{page_id: response_body}`` for every page in :data:`_PAGES`.
     """
     env = {} if terminal_user is None else {"OSPREY_TERMINAL_USER": terminal_user}
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch.dict("os.environ", env),
     ) as client:

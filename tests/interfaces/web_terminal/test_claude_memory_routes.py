@@ -12,7 +12,7 @@ from osprey.interfaces.web_terminal.claude_memory_service import (
     MEMORY_TRUNCATION_LIMIT,
     MEMORY_TRUNCATION_WARNING,
 )
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -36,7 +36,7 @@ def fake_home(tmp_path, monkeypatch):
 # directory.
 @pytest.fixture()
 def client(workspace_dir, fake_home):  # noqa: ARG001
-    with app_client(workspace_dir) as c:
+    with terminal_client(workspace_dir) as c:
         yield c
 
 

@@ -47,7 +47,7 @@ from osprey_connectors_tests._harness import (
     write_server_report,
 )
 from tests.interfaces.web_terminal._control_context import only_alive, read_record
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -147,7 +147,7 @@ def client(agent_data_root, workspace_dir, config_path):
     """
     write_control_context(agent_data_root, target="live", generation=1)
     with patch.object(control_context_owner.ControlContextOwnerTask, "start", lambda self: None):
-        with app_client(workspace_dir) as test_client:
+        with terminal_client(workspace_dir) as test_client:
             test_client.app.state.config_path = config_path
             yield test_client
 

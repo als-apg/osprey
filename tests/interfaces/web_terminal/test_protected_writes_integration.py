@@ -68,7 +68,7 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey_connectors.identity import acting_identity
 from tests._preset_data import create_project_as_built
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 
@@ -177,7 +177,7 @@ def client(project_dir, tmp_path):
     """
     watch_dir = tmp_path / "watch"
     watch_dir.mkdir()
-    with app_client(
+    with terminal_client(
         watch_dir,
         patch("osprey.interfaces.web_terminal.app._launch_enabled_sidecars", new=AsyncMock()),
         config_path=project_dir / "config.yml",

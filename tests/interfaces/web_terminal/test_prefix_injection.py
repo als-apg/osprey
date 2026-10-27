@@ -38,7 +38,7 @@ from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
 from tests.interfaces.web_terminal._fakes import FakePtySession
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 from tests.interfaces.web_terminal._ws import recv_json
 
 # (page id, request path) -- both served HTML documents in scope.
@@ -168,7 +168,7 @@ class TestPrefixInjection:
     # one asserts on the prefix every page carries, so the id column is not read here.
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_alice_prefix_baked_into_every_page(self, workspace_dir, page_id, path):  # noqa: ARG002
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ) as c:
@@ -205,7 +205,7 @@ class TestPrefixInjection:
         multi-user UI with no CSS/JS/fonts. The last request pins the other
         half: the prefixed form is no route.
         """
-        with app_client(
+        with terminal_client(
             workspace_dir, patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"})
         ) as c:
             assert c.app.root_path == ""  # never the prefix — see create_app note
@@ -224,7 +224,7 @@ class TestHeadAssetAndEntrypointPrefixing:
 
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_alice_prefixes_head_assets_and_entrypoint(self, workspace_dir, page_id, path):
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ) as c:
@@ -249,7 +249,7 @@ class TestHeadAssetAndEntrypointPrefixing:
 
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_empty_prefix_head_assets_and_entrypoint_unchanged(self, workspace_dir, page_id, path):
-        with app_client(workspace_dir) as c:
+        with terminal_client(workspace_dir) as c:
             body = c.get(path).text
 
             assert 'src="/design-system/js/theme-boot.js"' in body
@@ -267,7 +267,7 @@ class TestPrefixEmptyWhenUnset:
     # one asserts on the prefix every page carries, so the id column is not read here.
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
     def test_empty_prefix_baked_into_every_page(self, workspace_dir, page_id, path):  # noqa: ARG002
-        with app_client(workspace_dir) as c:
+        with terminal_client(workspace_dir) as c:
             resp = c.get(path)
             assert resp.status_code == 200
             body = resp.text
@@ -292,7 +292,7 @@ def ws_client(workspace_dir, tmp_path, monkeypatch):
     waits for always arrives and nothing is launched.
     """
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
-    with app_client(workspace_dir, project_dir=str(tmp_path)) as client:
+    with terminal_client(workspace_dir, project_dir=str(tmp_path)) as client:
         client.app.state.pty_registry._spawn_session = lambda *_a, **_kw: FakePtySession()
         yield client
 

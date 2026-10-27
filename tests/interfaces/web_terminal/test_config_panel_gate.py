@@ -54,7 +54,7 @@ from osprey.interfaces.web_terminal.app import (
 )
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: The dotted key under test. Spelled once so a rename shows up as one edit.
 CONFIG_PANEL_KEY = "web.config_panel.enabled"
@@ -522,7 +522,7 @@ def _started_app(
         config_path = root / "config.yml"
         config_path.write_text(yaml.safe_dump({"project_name": "config-panel-gate"}))
 
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch("osprey_connectors.config.get_config_value", fake_get_config_value),
         config_path=config_path,

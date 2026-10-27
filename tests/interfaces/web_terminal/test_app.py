@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 
 @pytest.fixture
 def client(workspace_dir):
     """Create a test client with mocked config active through lifespan."""
-    with app_client(workspace_dir) as c:
+    with terminal_client(workspace_dir) as c:
         yield c
 
 
@@ -22,12 +22,12 @@ class TestProjectDir:
         project = tmp_path / "my-project"
         project.mkdir()
 
-        with app_client(workspace_dir, project_dir=str(project)) as c:
+        with terminal_client(workspace_dir, project_dir=str(project)) as c:
             assert c.app.state.project_cwd == str(project.resolve())
 
     def test_default_project_cwd_is_cwd(self, workspace_dir):
         """Without project_dir, project_cwd defaults to os.getcwd()."""
-        with app_client(workspace_dir) as c:
+        with terminal_client(workspace_dir) as c:
             from pathlib import Path
 
             assert c.app.state.project_cwd == str(Path.cwd().resolve())
@@ -131,7 +131,7 @@ class TestHeaderAppName:
     """web.app_name surfaces as an optional header badge for deployment ID."""
 
     def test_app_name_renders_when_set(self, workspace_dir):
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_ui_config",
@@ -151,7 +151,7 @@ class TestHeaderAppName:
     def test_env_var_overrides_config(self, workspace_dir):
         # OSPREY_WEB_APP_NAME wins over web.app_name so containers sharing one
         # baked config image can still be named individually.
-        with app_client(
+        with terminal_client(
             workspace_dir,
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_ui_config",

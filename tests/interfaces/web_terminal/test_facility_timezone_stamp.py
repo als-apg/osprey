@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: The attribute under test.
 ATTR = "data-facility-timezone"
@@ -44,7 +44,7 @@ def _serve(workspace_dir, zone: str) -> dict[str, str]:
     Returns:
         ``{page_id: response_body}`` for every page in :data:`_PAGES`.
     """
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app.get_facility_timezone",

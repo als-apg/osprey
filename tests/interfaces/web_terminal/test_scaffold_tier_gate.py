@@ -46,7 +46,7 @@ from osprey.interfaces.web_terminal.app import (
     unreadable_config_refusal,
 )
 from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import bare_route_app
 
@@ -264,7 +264,7 @@ def _started_app(
         config_path = root / "config.yml"
         config_path.write_text(yaml.safe_dump({"project_name": "scaffold-tier-gate"}))
 
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch("osprey_connectors.config.get_config_value", fake_get_config_value),
         config_path=config_path,

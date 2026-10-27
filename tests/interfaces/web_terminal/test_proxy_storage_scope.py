@@ -23,7 +23,7 @@ import pytest
 from osprey.interfaces.common_middleware import STORAGE_SCOPE_ATTRIBUTE
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.routes.proxy import _stamp_storage_scope
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 #: A panel document of the shape the companion servers serve.
 _DOCUMENT = (
@@ -115,7 +115,7 @@ def _relay(tmp_path, terminal_user, path, body, content_type):
     with patch.dict("os.environ", env):
         if terminal_user is None:
             os.environ.pop("OSPREY_TERMINAL_USER", None)
-        with app_client(
+        with terminal_client(
             workspace,
             patch(
                 "osprey.interfaces.web_terminal.app._load_panel_config",

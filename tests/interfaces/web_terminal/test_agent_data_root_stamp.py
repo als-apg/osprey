@@ -69,7 +69,7 @@ from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import posture_store
 from osprey_connectors.ipc._launch import host_env
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -141,7 +141,7 @@ def shared_root(tmp_path, monkeypatch):
 def make_client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
-        with app_client(workspace_dir) as client:
+        with terminal_client(workspace_dir) as client:
             yield client
 
     return _make

@@ -29,7 +29,7 @@ from osprey.interfaces.web_terminal.routes.session import (
 )
 from osprey.mcp_server.workspace.transcript_reader import MAX_CHAT_MESSAGE_LENGTH
 from tests.interfaces.web_terminal._fakes import armed_chat
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from .conftest import bare_route_app
 
@@ -70,7 +70,7 @@ def client(tmp_path, transcripts):
     project, _ = transcripts
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    with app_client(workspace, project_dir=project) as c:
+    with terminal_client(workspace, project_dir=project) as c:
         c.app.state.transcript_map = {}
         c.app.state.transcript_map_provisional = False
         yield c

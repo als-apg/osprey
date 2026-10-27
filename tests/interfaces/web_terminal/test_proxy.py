@@ -64,7 +64,7 @@ from osprey.interfaces.web_terminal.routes.proxy import (
 )
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
-from tests.interfaces.web_terminal._started_app import app_client
+from tests.interfaces.web_terminal._started_app import terminal_client
 
 from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect
 
@@ -117,7 +117,7 @@ def _build_app(workspace_dir, custom_panels, framework_url=None):
     real (empty) panel set and every proxied request 404s.
     """
     enabled = set(UNIVERSAL_PANELS)
-    with app_client(
+    with terminal_client(
         workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",

@@ -60,7 +60,7 @@ variables a developer shell may export are unset, so an "unset" row means
 unset.
 
 ``workspace_dir`` is the empty watched directory most app tests boot over;
-``_started_app.app_client`` is the boot itself. ``app`` and ``sessions_dir``
+``_started_app.terminal_client`` is the boot itself. ``ws_app`` and ``sessions_dir``
 are the unstarted app and the transcript directory the ``/ws/terminal`` suites
 drive through the harness in ``_ws``. ``agent_data_root`` and ``ledger`` are
 the throwaway record root and the captured audit ledger of the posture and
@@ -239,7 +239,7 @@ def workspace_dir(tmp_path) -> Path:
 
 
 @pytest.fixture
-def app(tmp_path) -> Iterator[FastAPI]:
+def ws_app(tmp_path) -> Iterator[FastAPI]:
     """The app the ``/ws/terminal`` suites drive, built over ``tmp_path`` and not started.
 
     Each test enters its own ``TestClient``; the spawn is swapped out through

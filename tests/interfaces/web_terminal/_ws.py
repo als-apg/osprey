@@ -14,7 +14,7 @@ The rest is the terminal-socket harness the ``/ws/terminal`` suites share:
 :func:`sync_session` round-trips through the handler's main loop,
 :func:`seed_session_file` puts a transcript where discovery looks, and
 :func:`patch_spawn` swaps the registry's PTY spawn for a ``FakePtySession``.
-The app those suites drive and the transcript directory are the ``app`` and
+The app those suites drive and the transcript directory are the ``ws_app`` and
 ``sessions_dir`` fixtures of this directory's conftest.
 """
 
