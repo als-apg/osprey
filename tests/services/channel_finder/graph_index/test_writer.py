@@ -41,7 +41,11 @@ from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_
 
 
 def _meta(parsed: ParsedCorpus, **overrides) -> dict:
-    """A ``meta`` mapping for ``parsed``, as the corpus build will state it."""
+    """A ``meta`` mapping for ``parsed``, as the corpus build will state it.
+
+    Unlike ``_index.corpus_meta`` it does not check the key set, so a row can
+    add or drop a key and reach the writer's own meta validation.
+    """
     values = {
         "corpus_sha256": "0" * 64,
         "corpus_filename": "corpus.ttl",

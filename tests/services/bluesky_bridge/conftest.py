@@ -45,6 +45,9 @@ def _reset_bridge_singletons() -> None:
     live_rows._clear()
     analysis._clear()
     figure_cache._clear()
+    # Cleared to None rather than left alone: a test that forgets to install a
+    # fake lazily builds a managerless real backend (fail-closed 503s) instead
+    # of seeing another test's fake.
     app_module.set_queue_backend(None)
 
 
