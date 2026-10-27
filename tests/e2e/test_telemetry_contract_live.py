@@ -16,6 +16,21 @@ with that fixture structurally: the set of event names, the attribute keys of
 each event, the resource keys and the shape of the Authorization header. Ids,
 times and values differ on every run and are not compared.
 
+The same switch records the launches the agent record replays. A host launch
+(``osprey chat --print`` and ``osprey query``, the real commands) runs against
+the built project with its record address and login pointed at the receiver
+and its config directory in the test's temp tree, so it writes its session
+transcripts there; each turn starts a subagent and thinks, and the query's
+subagent reads a file large enough to give an oversized tool result. Each
+launch is written to ``tests/fixtures/agent_record/<launch>/``: ``capture.json``
+(the CLI version, the capture time, the command and what the session holds),
+``otlp.json`` (what the receiver got, scrubbed as the contract fixture is) and
+``transcripts/`` (the session's directory under ``projects/``, with the
+capturing host's paths and account name replaced). The launches that run in a
+container, the web terminal and dispatch, need a running stack and are not
+captured here. ``tests/build_pipeline/test_telemetry_fixture_cli_pin.py``
+holds every capture to the pinned version and the scrub.
+
 Reaches a model, so it carries no ``model_free`` marker and runs in the
 ``e2e-tests`` lane under ``full-ci``.
 """
@@ -30,6 +45,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from collections.abc import Iterator, Mapping
@@ -44,6 +60,7 @@ from google.protobuf import json_format
 
 from osprey.agent_record.ingest.otlp import PROTOBUF_CONTENT_TYPE, decode_logs
 from osprey.build.claude_code_telemetry import (
+    HOST_SESSION_PREFIX,
     LOGS_PATH,
     OTLP_PROTOCOL,
     RECORD_LOGIN_ENV,
@@ -64,7 +81,12 @@ pytestmark = [
 FIXTURE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "telemetry" / "claude_cli_session.otlp.json"
 )
+#: Where each launch's capture is written, one directory per launch.
+CAPTURES = Path(__file__).resolve().parents[1] / "fixtures" / "agent_record"
 CAPTURE_ENV = "OSPREY_CAPTURE_TELEMETRY_FIXTURE"
+#: The project's ``deployment.host_identity``: a host launch records under it,
+#: and the capture carries it in place of the capturing account's name.
+HOST_IDENTITY = "e2e-builder"
 
 PROJECT_NAME = "osprey-e2e-telemetry-contract"
 CLI_PACKAGE = "@anthropic-ai/claude-code"
@@ -269,7 +291,11 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     base = tmp_path_factory.mktemp("telemetry_contract")
     repo = base / PROJECT_NAME
     provider = build_provider(e2e_provider())
-    edits = {"provider": provider, "model": build_model(None)}
+    edits = {
+        "provider": provider,
+        "model": build_model(None),
+        "config": {"deployment": {"host_identity": HOST_IDENTITY}},
+    }
     for args, cwd in (
         (["init", str(repo), "--preset", "hello-world", "--no-git", *set_pairs(edits)], base),
         (["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"], base),
@@ -411,9 +437,20 @@ def _redact(node: Any, replacements: Mapping[str, str]) -> Any:
     return node
 
 
-def _host_replacements() -> dict[str, str]:
-    """The capturing host's home directory and account name, longest first."""
+def _host_replacements(temp_roots: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The capturing host's home directory and account name, longest first.
+
+    *temp_roots* maps further directories of the capturing host (the test's
+    temp tree, the system temp directory) to what stands in their place. Each
+    is replaced in both spellings a macOS host writes, the resolved one under
+    ``/private`` and the one the process was handed.
+    """
     pairs = {str(Path.home()): "~", getpass.getuser(): "<user>"}
+    for root, placeholder in (temp_roots or {}).items():
+        for spelling in {root, os.path.realpath(root)}:
+            pairs[spelling.rstrip("/")] = placeholder
+            if spelling.startswith("/private/"):
+                pairs[spelling[len("/private") :].rstrip("/")] = placeholder
     return dict(sorted(pairs.items(), key=lambda item: -len(item[0])))
 
 
@@ -534,3 +571,249 @@ def test_the_pinned_cli_speaks_the_otlp_shape_the_fixture_records(
         sorted(set(live["resource_keys"]) ^ set(expected["resource_keys"])),
     )
     assert recorded["authorization"] == "Basic <identity>:<password>"
+
+
+# --------------------------------------------------------------------------- #
+# The launches the agent record replays
+# --------------------------------------------------------------------------- #
+
+#: A tool result at least this large, serialized, is oversized: the replay
+#: carries one result well past every other entry of a session.
+OVERSIZED_RESULT_BYTES = 64 * 1024
+#: Lines in the file the query's subagent reads; with the line prefix the
+#: Read tool adds, its result passes :data:`OVERSIZED_RESULT_BYTES`.
+_LARGE_FILE_LINES = 1200
+#: Environment variables whose values the capture must never hold: a launch's
+#: credentials, whatever provider holds them.
+_SECRET_SUFFIXES = ("_API_KEY", "_AUTH_TOKEN", "_SECRET", "_PASSWORD")
+
+
+@dataclass(frozen=True)
+class HostLaunch:
+    """One command that starts a session on the host, as an operator types it."""
+
+    name: str
+    command: tuple[str, ...]
+    #: The prompt; ``{file}`` is the file the subagent reads.
+    prompt: str
+    #: What the file holds on its last line, and so what the answer carries.
+    marker: str
+    oversized: bool
+
+
+HOST_LAUNCHES = (
+    HostLaunch(
+        name="host-chat",
+        command=("chat", "--print"),
+        prompt=(
+            "Think it through first. Then use the Agent tool to start one general-purpose "
+            "subagent that reads the file {file} with the Read tool and reports its last "
+            "line. Reply with exactly that line."
+        ),
+        marker="osprey-capture-host-chat",
+        oversized=False,
+    ),
+    HostLaunch(
+        name="host-query",
+        command=("query", "--json"),
+        prompt=(
+            "Think it through first. Then use the Agent tool to start one general-purpose "
+            "subagent that reads the whole file {file} with one Read call (no offset or "
+            "limit) and reports its first line. Reply with exactly that line."
+        ),
+        marker="osprey-capture-host-query",
+        oversized=True,
+    ),
+)
+
+
+def _write_read_file(project: Path, launch: HostLaunch) -> Path:
+    """The file *launch*'s subagent reads, in the uploads directory the agent may read."""
+    uploads = project / "var" / "agent_data" / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    path = uploads / f"{launch.name}.txt"
+    if launch.oversized:
+        filler = "abcdefghij" * 5
+        lines = [launch.marker] + [
+            f"{i:05d} osprey-capture-line {filler}" for i in range(1, _LARGE_FILE_LINES)
+        ]
+    else:
+        lines = ["osprey capture", launch.marker]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _entries(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def _blocks(entries: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    for entry in entries:
+        content = (entry.get("message") or {}).get("content")
+        if isinstance(content, list):
+            yield from (block for block in content if isinstance(block, dict))
+
+
+def _session_dir(config_dir: Path) -> Path:
+    """The one ``projects/<encoded build dir>/`` directory the launch wrote."""
+    projects = config_dir / "projects"
+    found = [d for d in projects.iterdir() if d.is_dir()] if projects.is_dir() else []
+    assert len(found) == 1, f"expected one project directory under {projects}: {found}"
+    return found[0]
+
+
+def _scrub(text: str, replacements: Mapping[str, str]) -> str:
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _secrets() -> list[str]:
+    return [
+        value
+        for name, value in os.environ.items()
+        if name.endswith(_SECRET_SUFFIXES) and len(value) >= 16
+    ]
+
+
+@pytest.mark.parametrize("launch", HOST_LAUNCHES, ids=[launch.name for launch in HOST_LAUNCHES])
+def test_a_host_launch_records_a_subagent_and_thinking(
+    launch: HostLaunch,
+    project: Path,
+    pinned_cli: tuple[Path, str],
+    sink: Sink,
+    tmp_path: Path,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    cli, version = pinned_cli
+    read_file = _write_read_file(project, launch)
+    config_dir = tmp_path / "claude-config"
+    home = tmp_path / "home"
+    config_dir.mkdir()
+    home.mkdir()
+    env = _clean_env()
+    # The launch's own config dir and home: its transcripts land in the
+    # test's temp tree, and no settings, memory or hooks of the host reach it.
+    env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    env.setdefault("npm_config_cache", str(Path.home() / ".npm"))
+    env["HOME"] = str(home)
+    # The pinned CLI first on PATH: a headless run executes the `claude` it
+    # finds there, and `osprey chat` runs the pin through npx.
+    env["PATH"] = f"{cli.parent}{os.pathsep}{env.get('PATH', '')}"
+    env[RECORD_URL_ENV] = f"http://127.0.0.1:{sink.port}"
+    env[RECORD_LOGIN_ENV] = f"{HOST_IDENTITY}:{uuid.uuid4().hex}"
+
+    run = subprocess.run(
+        [
+            str(_osprey_bin()),
+            *launch.command,
+            "--repo",
+            str(project),
+            launch.prompt.format(file=read_file),
+        ],
+        cwd=str(project),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=TURN_TIMEOUT_S,
+        check=False,
+    )
+    assert run.returncode == 0, f"osprey {launch.command[0]} failed:\n{run.stdout}\n{run.stderr}"
+    assert launch.marker in run.stdout, (
+        f"the answer does not carry {launch.marker!r}; the model did not run the subagent's "
+        f"read. Re-run the case:\n{run.stdout}"
+    )
+
+    session_dir = _session_dir(config_dir)
+    mains = sorted(session_dir.glob("*.jsonl"))
+    subagents = sorted(session_dir.glob("*/subagents/*.jsonl"))
+    assert len(mains) == 1, mains
+    assert subagents, f"the session started no subagent: {sorted(session_dir.rglob('*'))}"
+    main = _entries(mains[0])
+    kinds = {block.get("type") for block in _blocks(main)}
+    assert "thinking" in kinds, f"the session holds no thinking block: {sorted(map(str, kinds))}"
+    assert any(b.get("name") == "Agent" for b in _blocks(main) if b.get("type") == "tool_use")
+    if launch.oversized:
+        sizes = [
+            len(json.dumps(block.get("content")))
+            for path in subagents
+            for block in _blocks(_entries(path))
+            if block.get("type") == "tool_result"
+        ]
+        assert max(sizes, default=0) >= OVERSIZED_RESULT_BYTES, sizes
+
+    requests = list(sink.requests)
+    assert requests, "the launch exported nothing"
+    assert {r["path"] for r in requests} == {LOGS_PATH}, sorted({r["path"] for r in requests})
+    sessions = {
+        _attr_value((rl.get("resource") or {}).get("attributes"), "terminal.session")
+        for r in requests
+        for rl in r["body"].get("resourceLogs", [])
+    }
+    assert len(sessions) == 1, sessions
+    (terminal,) = sessions
+    assert terminal and terminal.startswith(HOST_SESSION_PREFIX), terminal
+
+    dest = CAPTURES / launch.name
+    if os.environ.get(CAPTURE_ENV) != "1":
+        recorded = json.loads((dest / "capture.json").read_text())
+        assert recorded["cli_version"] == version, (
+            f"the {launch.name} capture was made with CLI {recorded['cli_version']}, the pin "
+            f"is {version}; re-capture with {CAPTURE_ENV}=1 under a provider key"
+        )
+        return
+
+    replacements = _host_replacements(
+        {
+            str(tmp_path_factory.getbasetemp()): "<tmp>",
+            tempfile.gettempdir(): "<tmpdir>",
+            str(project): "<project>",
+        }
+    )
+    # The CLI names the session's directory after the build directory's path.
+    replacements = dict(
+        sorted(
+            {**replacements, session_dir.name: "<project-dir>"}.items(), key=lambda i: -len(i[0])
+        )
+    )
+    scrubbed = {
+        path.relative_to(session_dir): _scrub(path.read_text(), replacements)
+        for path in sorted(session_dir.rglob("*"))
+        if path.is_file()
+    }
+    otlp = {
+        "cli_version": version,
+        "captured_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "protocol": OTLP_PROTOCOL,
+        "authorization": "Basic <identity>:<password>",
+        "requests": [
+            {"signal": r["signal"], "body": _redact(r["body"], replacements)} for r in requests
+        ],
+    }
+    otlp_text = json.dumps(otlp, indent=1, sort_keys=True) + "\n"
+    for secret in _secrets():
+        assert all(secret not in text for text in [otlp_text, *scrubbed.values()]), (
+            "a credential of this environment reached the capture; nothing was written"
+        )
+    left = sorted(str(p) for p, text in scrubbed.items() if str(Path.home()) in text)
+    assert not left, f"the home directory survived the scrub in {left}"
+
+    if dest.exists():
+        shutil.rmtree(dest)
+    (dest / "transcripts").mkdir(parents=True)
+    for relpath, text in scrubbed.items():
+        target = dest / "transcripts" / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+    (dest / "otlp.json").write_text(otlp_text)
+    holds = ["subagent", "thinking"] + (["oversized tool result"] if launch.oversized else [])
+    capture = {
+        "cli_version": version,
+        "captured_at": otlp["captured_at"],
+        "launch": launch.name,
+        "command": " ".join(("osprey", *launch.command)),
+        "identity": HOST_IDENTITY,
+        "terminal_session_prefix": HOST_SESSION_PREFIX,
+        "holds": holds,
+    }
+    (dest / "capture.json").write_text(json.dumps(capture, indent=1, sort_keys=True) + "\n")
