@@ -49,16 +49,11 @@ def _save_html_artifact(store, content: str):
     )
 
 
-@pytest.fixture
-def app_client(tmp_path):
-    return TestClient(create_app(workspace_root=tmp_path)), tmp_path
-
-
 class TestArtifactEntryAPI:
     """GET and DELETE /api/artifacts/{artifact_id}."""
 
-    def test_get_artifact_returns_entry(self, app_client):
-        client, _ = app_client
+    def test_get_artifact_returns_entry(self, workspace_client):
+        client, _ = workspace_client
         entry = _save_text_artifact(client.app.state.artifact_store, title="Fetch Me")
 
         resp = client.get(f"/api/artifacts/{entry.id}")
@@ -66,7 +61,7 @@ class TestArtifactEntryAPI:
         assert resp.json()["id"] == entry.id
         assert resp.json()["title"] == "Fetch Me"
 
-    def test_delete_route_runs_under_the_human_actor(self, app_client):
+    def test_delete_route_runs_under_the_human_actor(self, workspace_client):
         """A gallery delete is a human action: the store-level activity
         listener must be able to tell it apart from an agent delete."""
         from osprey.stores.artifact_store import (
@@ -75,7 +70,7 @@ class TestArtifactEntryAPI:
             unregister_artifact_delete_listener,
         )
 
-        client, _ = app_client
+        client, _ = workspace_client
         entry = _save_text_artifact(client.app.state.artifact_store)
 
         actors = []
@@ -91,8 +86,8 @@ class TestArtifactEntryAPI:
 
         assert actors == ["human"]
 
-    def test_delete_artifact_removes_entry(self, app_client):
-        client, _ = app_client
+    def test_delete_artifact_removes_entry(self, workspace_client):
+        client, _ = workspace_client
         entry = _save_text_artifact(client.app.state.artifact_store)
 
         resp = client.delete(f"/api/artifacts/{entry.id}")
@@ -105,8 +100,8 @@ class TestArtifactEntryAPI:
 class TestBulkDelete:
     """POST /api/artifacts/delete."""
 
-    def test_bulk_delete_removes_the_listed_ids_and_reports_missing(self, app_client):
-        client, _ = app_client
+    def test_bulk_delete_removes_the_listed_ids_and_reports_missing(self, workspace_client):
+        client, _ = workspace_client
         store = client.app.state.artifact_store
         a = _save_text_artifact(store, title="A")
         b = _save_text_artifact(store, title="B")
@@ -119,20 +114,20 @@ class TestBulkDelete:
         assert client.get(f"/api/artifacts/{b.id}").status_code == 404
         assert client.get(f"/api/artifacts/{keep.id}").status_code == 200
 
-    def test_bulk_delete_reports_a_repeated_missing_id_once(self, app_client):
-        client, _ = app_client
+    def test_bulk_delete_reports_a_repeated_missing_id_once(self, workspace_client):
+        client, _ = workspace_client
         resp = client.post("/api/artifacts/delete", json={"ids": ["x", "y", "x"]})
         assert resp.status_code == 200
         assert resp.json() == {"deleted": [], "missing": ["x", "y"]}
 
-    def test_bulk_delete_runs_under_the_human_actor(self, app_client):
+    def test_bulk_delete_runs_under_the_human_actor(self, workspace_client):
         from osprey.stores.artifact_store import (
             current_artifact_mutation_actor,
             register_artifact_delete_listener,
             unregister_artifact_delete_listener,
         )
 
-        client, _ = app_client
+        client, _ = workspace_client
         store = client.app.state.artifact_store
         a = _save_text_artifact(store)
         b = _save_text_artifact(store)
@@ -164,12 +159,12 @@ class TestBulkDelete:
             assert client.get("/api/focus").json() == {"focused": False, "artifact": None}
             assert (tmp_path / "focus_state.txt").read_text() == ""
 
-    def test_bulk_delete_refuses_an_empty_list(self, app_client):
-        client, _ = app_client
+    def test_bulk_delete_refuses_an_empty_list(self, workspace_client):
+        client, _ = workspace_client
         assert client.post("/api/artifacts/delete", json={"ids": []}).status_code == 422
 
-    def test_bulk_delete_refuses_more_than_the_cap(self, app_client):
-        client, _ = app_client
+    def test_bulk_delete_refuses_more_than_the_cap(self, workspace_client):
+        client, _ = workspace_client
         ids = [f"id{i}" for i in range(1001)]
         assert client.post("/api/artifacts/delete", json={"ids": ids}).status_code == 422
 
@@ -177,8 +172,8 @@ class TestBulkDelete:
 class TestFocus:
     """GET/POST /api/focus and the focus_state.txt file the CLI hook reads."""
 
-    def test_focus_lifecycle(self, app_client):
-        client, _ = app_client
+    def test_focus_lifecycle(self, workspace_client):
+        client, _ = workspace_client
         store = client.app.state.artifact_store
         assert client.get("/api/focus").json() == {"focused": False, "artifact": None}
 
@@ -196,11 +191,11 @@ class TestFocus:
         assert resp.status_code == 200
         assert resp.json()["artifact_id"] == first.id
 
-    def test_stale_focus_cleared_and_falls_back_to_latest(self, app_client):
+    def test_stale_focus_cleared_and_falls_back_to_latest(self, workspace_client):
         """A focused artifact deleted out from under the app contributes no
         line to focus_state.txt; GET /api/focus clears the stale id and falls
         back to the newest remaining entry."""
-        client, workspace = app_client
+        client, workspace = workspace_client
         store = client.app.state.artifact_store
         doomed = _save_text_artifact(store, title="Doomed")
         client.post("/api/focus", json={"artifact_id": doomed.id})
@@ -218,11 +213,11 @@ class TestFocus:
         assert focus["artifact"]["id"] == survivor.id
         assert client.app.state.focused_artifact_id is None  # stale id was cleared
 
-    def test_focus_file_pin_unpin_and_dedupe(self, app_client):
+    def test_focus_file_pin_unpin_and_dedupe(self, workspace_client):
         """Pinning writes a pinned line; unpinning empties (not deletes) the
         file; an artifact both focused and pinned appears only as the focused
         line, not duplicated as a pinned line."""
-        client, workspace = app_client
+        client, workspace = workspace_client
         entry = _save_text_artifact(client.app.state.artifact_store, title="Both")
         focus_file = workspace / "focus_state.txt"
 
@@ -264,8 +259,8 @@ class TestFocus:
 class TestServeFileEndpoint:
     """GET /files/{artifact_id}/{filename}."""
 
-    def test_missing_artifact_or_file_returns_404(self, app_client):
-        client, _ = app_client
+    def test_missing_artifact_or_file_returns_404(self, workspace_client):
+        client, _ = workspace_client
         assert client.get("/files/nonexistent/whatever.html").status_code == 404
 
         store = client.app.state.artifact_store
@@ -275,12 +270,12 @@ class TestServeFileEndpoint:
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
 
-    def test_plotly_bundle_injected_only_when_absent(self, app_client, monkeypatch):
+    def test_plotly_bundle_injected_only_when_absent(self, workspace_client, monkeypatch):
         """A plot_html artifact saved with include_plotlyjs=False gets the
         local Plotly bundle plus the responsive snippet injected (offline mode
         pins the injected src to the local vendor path); one already carrying
         the bundle must not get a second 4.8MB script tag."""
-        client, _ = app_client
+        client, _ = workspace_client
         store = client.app.state.artifact_store
 
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
@@ -305,11 +300,11 @@ class TestServeFileEndpoint:
         assert resp.text.count("plotly-3.3.1.min.js") == 1
         assert ".js-plotly-plot" in resp.text  # snippet still injected
 
-    def test_plotly_injection_for_include_plotlyjs_false(self, app_client, monkeypatch):
+    def test_plotly_injection_for_include_plotlyjs_false(self, workspace_client, monkeypatch):
         """A figure exported with include_plotlyjs=False calls Plotly but never
         loads it; serving it injects exactly one local bundle script tag."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
+        client, _ = workspace_client
         entry = _save_html_artifact(
             client.app.state.artifact_store,
             "<html><head></head><body>"
@@ -321,12 +316,12 @@ class TestServeFileEndpoint:
         assert resp.status_code == 200
         assert resp.text.count('src="/static/js/vendor/plotly-3.3.1.min.js"') == 1
 
-    def test_plotly_injection_skipped_for_inline_bundle(self, app_client, monkeypatch):
+    def test_plotly_injection_skipped_for_inline_bundle(self, workspace_client, monkeypatch):
         """A figure exported with include_plotlyjs=True inlines the bundle
         (banner ``plotly.js v...``); no second copy is injected, whatever its
         version, while the responsive snippet still is."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
+        client, _ = workspace_client
         entry = _save_html_artifact(
             client.app.state.artifact_store,
             "<html><head></head><body>"
@@ -342,12 +337,12 @@ class TestServeFileEndpoint:
         assert "cdn.plot.ly" not in resp.text
         assert ".js-plotly-plot" in resp.text  # snippet still injected
 
-    def test_offline_rewrites_cdn_plotly_to_local(self, app_client, monkeypatch):
+    def test_offline_rewrites_cdn_plotly_to_local(self, workspace_client, monkeypatch):
         """In offline mode a CDN Plotly reference is rewritten to the bundled
         copy and its SRI attributes are stripped (the local file may differ
         from the CDN version, and SRI would block it)."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
+        client, _ = workspace_client
         entry = _save_html_artifact(
             client.app.state.artifact_store,
             "<html><head>"
@@ -380,8 +375,8 @@ class TestServedPlotThemeBridge:
     runtime) and take every color from the ``--chart-*`` tokens.
     """
 
-    def test_bridge_loads_design_system_instead_of_reading_parent(self, app_client):
-        client, _ = app_client
+    def test_bridge_loads_design_system_instead_of_reading_parent(self, workspace_client):
+        client, _ = workspace_client
         entry = _save_html_artifact(
             client.app.state.artifact_store,
             '<html><head></head><body><div class="plotly-graph-div"></div></body></html>',
@@ -406,11 +401,11 @@ class TestServedPlotThemeBridge:
             assert literals == [], f"color literals in the {artifact_type} snippet: {literals}"
             assert "'dark'" not in snippet and '"dark"' not in snippet
 
-    def test_html_and_table_artifacts_get_design_system_wiring(self, app_client):
+    def test_html_and_table_artifacts_get_design_system_wiring(self, workspace_client):
         """table_html / html / dashboard_html pages join the design system too:
         theme-boot pre-paint, tokens.css, follower role -- an unstyled table
         must not render as a black-on-white browser-default island."""
-        client, _ = app_client
+        client, _ = workspace_client
         store = client.app.state.artifact_store
         entry = store.save_file(
             file_content=b'<table class="artifact-table"><tr><td>1</td></tr></table>',
@@ -604,17 +599,17 @@ class TestIndexPlotlyVendorMeta:
     404, and every timeseries preview dies with "Failed to load Plotly".
     """
 
-    def test_online_mode_carries_the_cdn_url(self, app_client, monkeypatch):
+    def test_online_mode_carries_the_cdn_url(self, workspace_client, monkeypatch):
         from osprey.interfaces.vendor import asset_cdn_url
 
         monkeypatch.setenv("OSPREY_OFFLINE", "0")
-        client, _ = app_client
+        client, _ = workspace_client
         html = client.get("/").text
         assert f'name="osprey-vendor-plotly" content="{asset_cdn_url("Plotly.js")}"' in html
 
-    def test_offline_mode_carries_the_vendored_path(self, app_client, monkeypatch):
+    def test_offline_mode_carries_the_vendored_path(self, workspace_client, monkeypatch):
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = app_client
+        client, _ = workspace_client
         html = client.get("/").text
         assert 'name="osprey-vendor-plotly" content="/static/js/vendor/plotly-3.3.1.min.js"' in html
 
