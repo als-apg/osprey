@@ -163,7 +163,7 @@ class ARIELSearchService:
         self.readonly_pool = readonly_pool
         self.repository = repository
         self._embedder: BaseProvider | None = None
-        self._validated_search_model = False
+        self._search_model_table_verified = False
         # Search-time provider calls (query embedding, reachability) run here,
         # never on the event loop or its default executor. Threads start on
         # the first call; aclose() closes the pool.
@@ -259,28 +259,29 @@ class ARIELSearchService:
             expanded_terms=expanded_terms,
         )
 
-    async def _validate_search_model(self) -> None:
-        """Validate that the configured search model's table exists.
+    async def verify_search_model_table(self) -> None:
+        """Refuse a configuration the host contradicts.
 
-        Called lazily on first semantic search. If validation fails (e.g.,
-        pgvector migration was skipped), disables semantic search at runtime
-        so other search modes continue working.
+        Semantic search enabled for a model whose embedding table this database
+        does not have is refused. Called by the search path on every search and
+        by every build that serves searches where it opens the service, so the
+        refusal is reported early where a surface can; a pass is remembered, a
+        failure is probed again, so a server heals as soon as the operator has
+        run the fix. The builds that create the table never call it. With
+        semantic search disabled it asks the database nothing.
+
+        Raises:
+            ConfigurationError: The embedding table is missing; the message
+                names the fix.
+            DatabaseQueryError: The database could not be asked.
         """
-        if self._validated_search_model:
+        if self._search_model_table_verified:
             return
-
         model = self.config.get_search_model()
-        if model:
-            try:
-                await self.repository.validate_search_model_table(model)
-            except ConfigurationError as e:
-                logger.warning(
-                    f"Semantic search disabled: embedding table not found ({e}). "
-                    f"Install pgvector and re-run 'osprey ariel quickstart' to enable."
-                )
-                self.config.search_modules["semantic"].enabled = False
-
-        self._validated_search_model = True
+        if not model:
+            return
+        await self.repository.validate_search_model_table(model)
+        self._search_model_table_verified = True
 
     async def search(
         self,
@@ -348,8 +349,7 @@ class ARIELSearchService:
             if self.config.vocabulary.enabled and self.config.vocabulary_errors:
                 raise VocabularyError(self.config.vocabulary_errors)
 
-            if self.config.is_search_module_enabled("semantic"):
-                await self._validate_search_model()
+            await self.verify_search_model_table()
 
             mode = request.modes[0] if request.modes else self.config.resolve_default_search_mode()
 
@@ -638,13 +638,10 @@ class ARIELSearchService:
 
         if not self.config.is_search_module_enabled(mode):
             if descriptor.needs_embedder:
-                # Contract: embedding-backed search "degrades gracefully to
-                # keyword-only" when embeddings are unavailable -- whether
-                # disabled in config or auto-disabled at runtime by
-                # _validate_search_model (missing pgvector table / Ollama).
-                # Return a non-error result that steers the caller to keyword
-                # search rather than raising, which would otherwise surface as
-                # a hard MCP tool error (#276).
+                # A mode that needs embeddings and is switched off in
+                # configuration answers with a non-error result steering the
+                # caller to keyword search, so an agent that asks for it is
+                # told what to use instead of receiving a tool error.
                 return self._diagnostic_result(
                     reasoning=(
                         f"{mode.capitalize()} search is unavailable "
