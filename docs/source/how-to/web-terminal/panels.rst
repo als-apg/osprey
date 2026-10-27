@@ -147,6 +147,19 @@ prefix the service serves with ``rewrite_prefixes``:
 Each list applies to the panel that declares it, so a prefix one service needs
 is never rewritten in another's pages.
 
+A proxied request waits 30 seconds for the service to answer. A service that
+answers slower (a long computation behind one request) sets its own bound with
+``read_timeout_s``, in seconds; ``null`` lifts it. The bound applies to that
+panel only, and a panel that omits the key keeps the 30 s default:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       optics:
+         url: https://optics.example.org
+         read_timeout_s: 300   # optional: seconds, or null for unbounded
+
 Theming a URL-backed panel
 --------------------------
 
