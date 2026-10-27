@@ -36,7 +36,7 @@ from osprey.cli.web_cmd import (
     resolve_session_lifetime,
     web,
 )
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._text import flat
 

@@ -32,8 +32,8 @@ from osprey.cli.web_cmd import (
     _write_pid,
     web,
 )
+from osprey.interfaces._serving import free_port
 from osprey.port_layout import default_port
-from tests._live import free_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
