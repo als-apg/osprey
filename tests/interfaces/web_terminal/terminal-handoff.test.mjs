@@ -18,6 +18,15 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import {
+  FakeTerminal,
+  FakeWebSocket,
+  openSocket,
+  receive,
+  refuse,
+  stubSessionProbe,
+  stubTerminalGlobals,
+} from './_terminal-fake.mjs';
 import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js')} */
@@ -29,105 +38,6 @@ const STORAGE_KEY = 'osprey-pty-session';
 const WS_CLOSE_SESSION_ATTACHED = 4409;
 const WS_CLOSE_OUTGOING_RUNNING = 4503;
 const WS_CLOSE_STARTED_COMMANDS = 4428;
-
-/** Minimal fake xterm.js Terminal -- just enough surface for initTerminal(). */
-class FakeTerminal {
-  constructor() {
-    this.cols = 80;
-    this.rows = 24;
-    this.options = {};
-    /** Everything written to the screen, concatenated. */
-    this.written = '';
-    /** @type {((data: string) => void)|null} */
-    this.dataHandler = null;
-    FakeTerminal.last = this;
-  }
-  loadAddon() {}
-  open() {}
-  /** @param {(data: string) => void} fn */
-  onData(fn) {
-    this.dataHandler = fn;
-  }
-  onResize() {}
-  /** @param {string} text */
-  write(text) {
-    this.written += text;
-  }
-  reset() {}
-  focus() {}
-  attachCustomKeyEventHandler() {}
-}
-/** @type {FakeTerminal|null} */
-FakeTerminal.last = null;
-
-class FakeAddon {
-  fit() {}
-}
-
-/** Minimal fake WebSocket; happy-dom's own implementation dials out for real. */
-class FakeWebSocket {
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = FakeWebSocket.CONNECTING;
-    /** @type {any[]} */
-    this.sent = [];
-    /** @type {((ev?: any) => void)|null} */
-    this.onopen = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onmessage = null;
-    /** @type {((ev?: any) => void)|null} */
-    this.onclose = null;
-    FakeWebSocket.last = this;
-    FakeWebSocket.created += 1;
-  }
-  /** @param {any} data */
-  send(data) {
-    this.sent.push(data);
-  }
-  close() {
-    this.readyState = FakeWebSocket.CLOSED;
-    if (this.onclose) this.onclose({ code: 1000, reason: '' });
-  }
-}
-FakeWebSocket.CONNECTING = 0;
-FakeWebSocket.OPEN = 1;
-FakeWebSocket.CLOSING = 2;
-FakeWebSocket.CLOSED = 3;
-/** @type {FakeWebSocket|null} */
-FakeWebSocket.last = null;
-/** How many have been constructed — a reconnect is a new one. */
-FakeWebSocket.created = 0;
-
-/** Flip the most recently created fake socket to OPEN and fire its onopen. */
-function openSocket() {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  ws.readyState = FakeWebSocket.OPEN;
-  if (!ws.onopen) throw new Error('onopen handler not set');
-  ws.onopen();
-}
-
-/**
- * Deliver a JSON control message from the "server" on the current socket.
- * @param {any} msg
- */
-function receive(msg) {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  if (!ws.onmessage) throw new Error('onmessage handler not set');
-  ws.onmessage({ data: JSON.stringify(msg) });
-}
-
-/**
- * Close the current socket the way a server refusal does.
- * @param {number} code
- * @param {string} [reason]
- */
-function refuse(code, reason = '') {
-  const ws = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
-  ws.readyState = FakeWebSocket.CLOSED;
-  if (!ws.onclose) throw new Error('onclose handler not set');
-  ws.onclose({ code, reason });
-}
 
 /** The overlay's single line of copy, or null when no overlay is up. */
 function overlayText() {
@@ -154,28 +64,12 @@ beforeEach(async () => {
   // @ts-expect-error -- test stub, not a full FontFaceSet
   document.fonts = { ready: Promise.resolve() };
 
-  vi.stubGlobal('Terminal', FakeTerminal);
-  vi.stubGlobal('FitAddon', { FitAddon: FakeAddon });
-  vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
-  vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
-  vi.stubGlobal('WebSocket', FakeWebSocket);
-  // api.js probes `/api/session` whenever a channel closes, to tell an expired
-  // session from a dropped connection. Nothing serves this environment, so the
-  // probe is answered here with the signed-in status every test below assumes.
-  // Any other URL is a dependency this file has not declared, and fails loudly.
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, json: async () => ({}) };
-    })
-  );
+  stubTerminalGlobals();
+  stubSessionProbe();
   // xtermPalette() logs a console.error when the CSS custom properties it
   // reads are absent, which they are in this bare happy-dom document.
   vi.spyOn(console, 'error').mockImplementation(() => {});
 
-  FakeWebSocket.last = null;
-  FakeWebSocket.created = 0;
   terminal = await import('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js');
 });
 
