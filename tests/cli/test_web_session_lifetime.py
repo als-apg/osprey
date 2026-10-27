@@ -189,7 +189,7 @@ def test_declared_env_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.usefixtures("process_state_restored")
+pytestmark = pytest.mark.usefixtures("restore_process_state")
 
 
 @pytest.fixture(autouse=True)

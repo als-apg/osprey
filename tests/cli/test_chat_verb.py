@@ -53,7 +53,7 @@ class Launch:
     env: dict[str, str] = field(default_factory=dict)
 
 
-pytestmark = pytest.mark.usefixtures("process_state_restored")
+pytestmark = pytest.mark.usefixtures("restore_process_state")
 
 
 @pytest.fixture(autouse=True)

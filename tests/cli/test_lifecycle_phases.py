@@ -385,7 +385,7 @@ class TestBuildPhases:
         assert titles(recorder) == ["→ Rendering the configuration"]
 
     @pytest.fixture
-    def installed(self, monkeypatch):
+    def reporter_at_render(self, monkeypatch):
         """What `build` had installed by the time the render would have run."""
         from osprey.cli import build_cmd
 
@@ -398,21 +398,21 @@ class TestBuildPhases:
         return recorded
 
     @pytest.mark.usefixtures("build_stubs", "restore_installed_reporter")
-    def test_build_installs_its_own_reporter(self, runner, installed):
+    def test_build_installs_its_own_reporter(self, runner, reporter_at_render):
         result = runner.invoke(cli, ["build"])
 
         assert result.exit_code == 0, result.output
-        assert installed == [("PhaseReporter", False)]
+        assert reporter_at_render == [("PhaseReporter", False)]
 
     @pytest.mark.usefixtures("build_stubs", "restore_installed_reporter")
-    def test_verbose_silences_the_build_phases(self, runner, installed):
+    def test_verbose_silences_the_build_phases(self, runner, reporter_at_render):
         """The render is the biggest captured-subprocess consumer on the build
         path, so `is_verbose()` being True here is what makes `--verbose` mean
         "stream it" rather than just "print no phases"."""
         result = runner.invoke(cli, ["--verbose", "build"])
 
         assert result.exit_code == 0, result.output
-        assert installed == [("NullReporter", True)]
+        assert reporter_at_render == [("NullReporter", True)]
 
 
 class TestResetPhases:

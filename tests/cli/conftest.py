@@ -73,7 +73,7 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture
-def process_state_restored(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def restore_process_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Put back the working directory and ``os.environ`` a verb changes in-process.
 
     Leak guarded: ``chat``, ``web``, ``query`` and ``sim`` chdir into the render
@@ -81,7 +81,7 @@ def process_state_restored(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     publication, the operator secret, ``OSPREY_CONFIG``). Both outlive a
     ``CliRunner`` invocation and would otherwise reach every later test in the
     worker. Modules whose verbs do this take it with
-    ``pytestmark = pytest.mark.usefixtures("process_state_restored")``.
+    ``pytestmark = pytest.mark.usefixtures("restore_process_state")``.
     """
     monkeypatch.chdir(Path.cwd())
     with patch.dict(os.environ):

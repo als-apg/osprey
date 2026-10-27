@@ -29,8 +29,9 @@ def nginx_server_blocks(conf: str) -> list[str]:
     Under TLS there are THREE: the redirect-only plain-port server first, then
     the 443 content server, then the redirect for every other name on the TLS
     listener. Without TLS there are TWO: the content server, then the redirect
-    for every other name on the plain port. Split on the closing brace in column 0, which only a top-level block has
-    (every nested `location` closes at an indent).
+    for every other name on the plain port. Split on the closing brace in
+    column 0, which only a top-level block has (every nested `location` closes
+    at an indent).
     """
     blocks = re.findall(r"^server \{\n(.*?)^\}$", conf, flags=re.DOTALL | re.MULTILINE)
     assert blocks, "no top-level server block in the rendered fragment"
