@@ -241,7 +241,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
-            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
+            requires=(
+                "hooks/hook-log",
+                "hooks/prompt-render",
+                "hooks/safety-file",
+                "hooks/target-state",
+            ),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",
@@ -297,6 +302,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_safety_file.py",
             output_path=".claude/hooks/osprey_safety_file.py",
             description="Shared atomic file-replace helper",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/prompt-render",
+            template_path="claude/hooks/osprey_prompt_render.py",
+            output_path=".claude/hooks/osprey_prompt_render.py",
+            description="Restricted approval-prompt renderer and input digest",
         ),
         BuildArtifact(
             canonical_name="hooks/hook-config",
