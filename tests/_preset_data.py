@@ -90,3 +90,42 @@ def packaged_facility_dir(bundle: str = "control_assistant") -> Path:
     if source.facility_root is not None:
         return source.facility_root
     return source.app_data / "facility"
+
+
+def create_project_as_built(manager, **kwargs) -> Path:
+    """``manager.create_project`` plus the three steps a real build takes next.
+
+    A build renders the framework template, overlays the resolved profile's
+    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
+    regenerates ``.claude/`` from the finished config. The template carries
+    only derived and profile-field-derived keys, so a fixture that stops after
+    the render holds half a config — the declarative half is the preset's, and
+    the artifacts rendered before it landed do not know about the deployment's
+    control system, services or servers. These fixtures render from a bundle
+    rather than from a profile, so they overlay the preset ``osprey init``
+    pairs with that bundle.
+
+    Args:
+        manager: A :class:`~osprey.cli.templates.manager.TemplateManager`.
+        **kwargs: Passed to ``manager.create_project``; ``data_bundle`` defaults
+            to ``control_assistant`` and ``data_root`` to that bundle's tree.
+
+    Returns:
+        The rendered project directory.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.utils.config_writer import config_update_fields
+
+    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    preset = bundle.replace("_", "-")
+    kwargs.setdefault("data_root", bundle_data_root(bundle))
+    project = manager.create_project(**kwargs)
+    profile, _preset_dir = resolve_build_profile(None, preset=preset)
+    config_update_fields(project / "config.yml", profile.config)
+    manager.generate_manifest(
+        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
+    )
+    # The build's last render, and the one that ships: `create_project` wrote
+    # `.claude/` from a config.yml that did not yet carry the preset's block.
+    manager.regenerate_claude_code(project)
+    return project
