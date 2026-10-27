@@ -37,9 +37,8 @@ from osprey.services.channel_finder.graph_index.reader import (
     GraphIndex,
     GraphIndexAbsence,
 )
+from tests.mcp_server.conftest import get_tool_fn
 from tests.services.channel_finder.graph_index import corpora
-
-from .conftest import get_tool_fn
 
 #: The prefixes and ontology every fixture corpus opens with, stripped when
 #: several of them are glued into one.
