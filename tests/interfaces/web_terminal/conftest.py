@@ -59,6 +59,9 @@ no-durable-store notice in ``ownership`` — and the deployment-identity
 variables a developer shell may export are unset, so an "unset" row means
 unset.
 
+``workspace_dir`` is the empty watched directory most app tests boot over;
+``_started_app.app_client`` is the boot itself.
+
 Two non-autouse builders serve the tests that ask for them:
 :func:`bar_items_app` boots the whole app with both agent-data stores on
 ``tmp_path``, and :func:`bare_route_app` mounts routers on a bare ``FastAPI``
@@ -221,6 +224,14 @@ def web_identity_env_unset(monkeypatch):
     """
     for name in _WEB_IDENTITY_ENV:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def workspace_dir(tmp_path) -> Path:
+    """An empty watched directory, ``tmp_path / "_agent_data"``."""
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    return ws
 
 
 @pytest.fixture

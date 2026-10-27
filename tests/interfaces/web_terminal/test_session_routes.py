@@ -6,32 +6,19 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.session_discovery import SessionInfo
 from tests.interfaces.web_terminal._fakes import FakePtySession, PoolChatSession
+from tests.interfaces.web_terminal._started_app import app_client
 
 SESSION_KEY = "11111111-2222-3333-4444-555555555555"
 CLEARED_TRANSCRIPT = "99999999-8888-7777-6666-555555555555"
 
 
 @pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
-
-
-@pytest.fixture
 def client(workspace_dir):
-    with patch(
-        "osprey.interfaces.web_terminal.app._load_web_config",
-        return_value={"watch_dir": str(workspace_dir)},
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    with app_client(workspace_dir) as c:
+        yield c
 
 
 class TestListSessionsEndpoint:

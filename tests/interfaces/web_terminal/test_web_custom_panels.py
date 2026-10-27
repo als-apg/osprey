@@ -27,6 +27,7 @@ from osprey.interfaces.web_terminal.app import (
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
+from tests.interfaces.web_terminal._started_app import app_client
 
 from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 
@@ -34,13 +35,6 @@ from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 #: module attribute — so the memoization tests can drive the implementation the
 #: stub stands in for.
 _real_host_interface_addresses = panels_module._host_interface_addresses
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 #: The panel id of the sidecar under test, and the dotted path of the class the
@@ -671,11 +665,8 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
     web_cfg: dict = {"allow_runtime_panels": True}
     if allowlist is not None:
         web_cfg["runtime_panel_allowlist"] = allowlist
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with app_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(UNIVERSAL_PANELS), [], None),
@@ -684,19 +675,14 @@ def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": web_cfg},
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    ) as c:
+        yield c
 
 
 def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panels):
     """Yield a TestClient where *hidden_panel_id* is enabled but hidden:true."""
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with app_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(set(enabled_panels), [], None),
@@ -705,10 +691,8 @@ def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panel
             "osprey_connectors.workspace.load_osprey_config",
             return_value={"web": {"panels": {hidden_panel_id: {"enabled": True, "hidden": True}}}},
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield c
+    ) as c:
+        yield c
 
 
 def _make_client_runtime_with_config_events(workspace_dir):
@@ -719,11 +703,8 @@ def _make_client_runtime_with_config_events(workspace_dir):
     stamped with the production ``configDefined`` marker the reservation check
     relies on.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with app_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.load_osprey_config",
             return_value={
@@ -739,10 +720,8 @@ def _make_client_runtime_with_config_events(workspace_dir):
                 }
             },
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as c:
-            yield app, c
+    ) as c:
+        yield c.app, c
 
 
 @pytest.fixture

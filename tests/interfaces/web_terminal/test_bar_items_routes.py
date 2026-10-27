@@ -44,7 +44,6 @@ from unittest.mock import patch
 import httpx
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import bar_items_store
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
@@ -52,12 +51,12 @@ from osprey.interfaces.web_terminal.app import (
     BAR_LAYOUT_VERSION,
     MAX_BAR_ITEMS_PER_HOST,
     bar_item_vocabulary,
-    create_app,
 )
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
 from osprey.interfaces.web_terminal.routes import bar_items as bar_items_routes
 from osprey.interfaces.web_terminal.routes.bar_items import MAX_REQUEST_BYTES
 from tests.interfaces.fsevents_wait import collect_paths
+from tests.interfaces.web_terminal._started_app import app_client
 
 # ── fixtures ───────────────────────────────────────────────────────────────
 
@@ -121,20 +120,15 @@ def config_path(tmp_path):
 @pytest.fixture
 def client(agent_data_root, workspace_dir, config_path):
     """The whole app, lifespan run, watching a throwaway workspace."""
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with app_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data_root,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as test_client:
-            test_client.app.state.config_path = config_path
-            yield test_client
+    ) as test_client:
+        test_client.app.state.config_path = config_path
+        yield test_client
 
 
 @pytest.fixture
@@ -633,20 +627,15 @@ def _app_over(stored: bytes | None, *, agent_data_root: Path, workspace_dir: Pat
         store = agent_data_root / "bar_items"
         store.mkdir(parents=True, exist_ok=True)
         (store / LAYOUT_FILENAME).write_bytes(stored)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with app_client(
+        workspace_dir,
         patch(
             "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=agent_data_root,
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as test_client:
-            test_client.app.state.config_path = config_path
-            yield test_client
+    ) as test_client:
+        test_client.app.state.config_path = config_path
+        yield test_client
 
 
 #: Two ways a stored document can be unreadable, each carrying a marker item

@@ -19,11 +19,11 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import STORAGE_SCOPE_ATTRIBUTE
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.routes.proxy import _stamp_storage_scope
+from tests.interfaces.web_terminal._started_app import app_client
 
 #: A panel document of the shape the companion servers serve.
 _DOCUMENT = (
@@ -112,22 +112,17 @@ def _relay(tmp_path, terminal_user, path, body, content_type):
         captured.update(headers)
         return httpx.Response(status_code=200, text=body, headers={"content-type": content_type})
 
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(set(UNIVERSAL_PANELS), custom, None),
-        ),
-        patch.dict("os.environ", env),
-    ):
+    with patch.dict("os.environ", env):
         if terminal_user is None:
             os.environ.pop("OSPREY_TERMINAL_USER", None)
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+        with app_client(
+            workspace,
+            patch(
+                "osprey.interfaces.web_terminal.app._load_panel_config",
+                return_value=(set(UNIVERSAL_PANELS), custom, None),
+            ),
+        ) as client:
+            client.app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
             response = client.get(path)
             assert response.status_code == 200
             return response.text, captured

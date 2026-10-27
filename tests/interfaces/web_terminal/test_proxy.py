@@ -54,7 +54,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import session_cookie_name
 from osprey.interfaces.web_auth import BIND_HOST_ENV, WebCredentials
-from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS
 from osprey.interfaces.web_terminal.routes.proxy import (
     _PANEL_STATE_MAP,
     TERMINAL_SECRET_HEADER,
@@ -64,6 +64,7 @@ from osprey.interfaces.web_terminal.routes.proxy import (
 )
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from tests.interfaces.web_terminal._started_app import app_client
 
 from ._proxy_fakes import _FakeConnect, _FakeStreamResponse, _lower, _patch_connect
 
@@ -116,29 +117,25 @@ def _build_app(workspace_dir, custom_panels, framework_url=None):
     real (empty) panel set and every proxied request 404s.
     """
     enabled = set(UNIVERSAL_PANELS)
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
+    with app_client(
+        workspace_dir,
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
             return_value=(enabled, custom_panels, None),
         ),
-    ):
-        app = create_app(shell_command="echo")
-        with TestClient(app) as client:
-            # Applied after the lifespan, which writes both of these itself.
-            # Pinning the credentials here gives the proxy — and the gate in
-            # front of it — a known secret without populating (and popping)
-            # anything from the environment.
-            app.state.web_credentials = WebCredentials(
-                operator_secret=OPERATOR_SECRET,
-                panel_token="panel-token-value",
-            )
-            if framework_url is not None:
-                setattr(app.state, FRAMEWORK_STATE_ATTR, framework_url)
-            yield app, client
+    ) as client:
+        app = client.app
+        # Applied after the lifespan, which writes both of these itself.
+        # Pinning the credentials here gives the proxy — and the gate in
+        # front of it — a known secret without populating (and popping)
+        # anything from the environment.
+        app.state.web_credentials = WebCredentials(
+            operator_secret=OPERATOR_SECRET,
+            panel_token="panel-token-value",
+        )
+        if framework_url is not None:
+            setattr(app.state, FRAMEWORK_STATE_ATTR, framework_url)
+        yield app, client
 
 
 def _cookie_client(app) -> TestClient:
@@ -194,13 +191,6 @@ def _roster_credentials(app, account=ROSTER_ACCOUNT):
 def _owners_of(captured):
     """Every header key in ``captured`` that a backend reads as the owner."""
     return [name for name in captured if name.lower() == OWNER_WIRE_NAME]
-
-
-@pytest.fixture
-def workspace_dir(tmp_path):
-    ws = tmp_path / "_agent_data"
-    ws.mkdir()
-    return ws
 
 
 @pytest.fixture

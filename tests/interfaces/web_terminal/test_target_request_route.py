@@ -34,12 +34,10 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal import jupyter_sidecar as jupyter_sidecar_module
-from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey_connectors import control_context, posture_store
@@ -49,6 +47,7 @@ from osprey_connectors_tests._harness import (
     write_control_context,
     write_server_report,
 )
+from tests.interfaces.web_terminal._started_app import app_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -170,14 +169,9 @@ def client(agent_data_root, workspace_dir, config_path):
     """
     write_control_context(agent_data_root, target="live", generation=1)
     with patch.object(control_context_owner.ControlContextOwnerTask, "start", lambda self: None):
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ):
-            app = create_app(shell_command="echo")
-            with TestClient(app) as test_client:
-                test_client.app.state.config_path = config_path
-                yield test_client
+        with app_client(workspace_dir) as test_client:
+            test_client.app.state.config_path = config_path
+            yield test_client
 
 
 @pytest.fixture

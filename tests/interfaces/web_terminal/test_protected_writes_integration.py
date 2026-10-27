@@ -66,9 +66,9 @@ from osprey.audit.protected import POSTURE_SOURCE_ENV_VAR, PROTECTED_SURFACES
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_reserved_write
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
-from osprey.interfaces.web_terminal.app import create_app
 from osprey_connectors.identity import acting_identity
 from tests._preset_data import bundle_data_root
+from tests.interfaces.web_terminal._started_app import app_client
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -209,20 +209,13 @@ def client(project_dir, tmp_path):
     """
     watch_dir = tmp_path / "watch"
     watch_dir.mkdir()
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(watch_dir)},
-        ),
+    with app_client(
+        watch_dir,
         patch("osprey.interfaces.web_terminal.app._launch_enabled_sidecars", new=AsyncMock()),
-    ):
-        app = create_app(
-            config_path=project_dir / "config.yml",
-            shell_command="echo",
-            project_dir=str(project_dir),
-        )
-        with TestClient(app) as test_client:
-            yield test_client
+        config_path=project_dir / "config.yml",
+        project_dir=str(project_dir),
+    ) as test_client:
+        yield test_client
 
 
 # ── Readers ──────────────────────────────────────────────────────────
