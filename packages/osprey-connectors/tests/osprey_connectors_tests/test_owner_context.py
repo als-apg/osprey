@@ -334,3 +334,84 @@ def test_a_copied_context_carries_the_owner_across_a_hand_copy():
     with bind_owner({RESERVED_OWNER_KWARG: "ada"}):
         context = contextvars.copy_context()
     assert context.run(bound_owner) == "ada"
+
+
+# --- owner_context: one owner's record and its verdict ----------------------
+#
+# The additive read a backend makes for the owner a request carries. These pin
+# the package's own promise; the framework's tests pin the full ladder of
+# refusals.
+
+
+def _bind_tree(tmp_path, monkeypatch):
+    """A provisioned tree bound in by this test (the harness clears the bind)."""
+    from osprey_connectors import control_context
+
+    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree.mkdir()
+    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    posture_store.invalidate_cache()
+
+    def write(owner, *, target, generation, posture=None):
+        control_context.write_record(
+            control_context.ControlContext(
+                target=target, generation=generation, posture=dict(posture or {})
+            ),
+            path=tree / owner / control_context.RECORD_FILENAME,
+        )
+        posture_store.invalidate_cache()
+
+    return write
+
+
+def test_owner_context_is_exported():
+    import inspect
+
+    assert {"owner_context", "OwnerContext"} <= set(posture_store.__all__)
+    params = inspect.signature(posture_store.owner_context).parameters
+    assert list(params) == ["owner", "target", "baseline"]
+    assert params["baseline"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_owner_context_returns_the_verdict_beside_the_record(tmp_path, monkeypatch):
+    write = _bind_tree(tmp_path, monkeypatch)
+    write("ada", target="live", generation=1, posture={"live": "sandbox"})
+
+    answer = posture_store.owner_context("ada", "live", baseline="live")
+
+    assert answer.record is not None
+    assert answer.record.target == "live"
+    assert answer.detail == posture_store.StoreVerdictDetail(
+        posture_store.StoreVerdict.NARROWING, None
+    )
+
+
+def test_owner_context_with_no_tree_bound_fails_closed():
+    answer = posture_store.owner_context("ada", "live", baseline="live")
+
+    assert answer.record is None
+    assert answer.detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+    assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in answer.detail.reason
+
+
+@pytest.mark.parametrize("owner", [NO_OWNER, None, "", "a/b"])
+def test_owner_context_for_an_owner_that_is_not_a_name_fails_closed(owner, tmp_path, monkeypatch):
+    _bind_tree(tmp_path, monkeypatch)
+
+    answer = posture_store.owner_context(owner, "live", baseline="live")
+
+    assert answer.record is None
+    assert answer.detail.verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+
+
+def test_owner_context_claims_an_unswitched_record_for_the_baseline(tmp_path, monkeypatch):
+    write = _bind_tree(tmp_path, monkeypatch)
+    write("ada", target="va", generation=0)
+
+    answer = posture_store.owner_context("ada", "live", baseline="live")
+
+    assert answer.record is not None
+    assert answer.record.target == "live"
+    assert answer.detail.verdict is posture_store.StoreVerdict.PERMITTED
