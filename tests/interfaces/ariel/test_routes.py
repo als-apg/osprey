@@ -13,6 +13,7 @@ from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from tests._audit_ledger import ledger_records
 from tests.interfaces.ariel._routes_app import routes_app
 
 
@@ -1200,15 +1201,9 @@ def audit_zone(tmp_path, monkeypatch):
 
 
 def _audit_records(zone):
-    import json
-
     from osprey.audit.protected import SURFACE_HTTP_CONFIG
-    from osprey_connectors.identity import acting_identity
 
-    path = zone / acting_identity() / f"{SURFACE_HTTP_CONFIG}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(zone, SURFACE_HTTP_CONFIG)
 
 
 @pytest.fixture

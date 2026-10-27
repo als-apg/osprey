@@ -72,7 +72,7 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.identity import acting_identity
+from tests._audit_ledger import ledger_records
 from tests._preset_data import create_project_as_built
 
 #: An unprotected key the Config panel may still write. ``claude_code`` is an
@@ -125,10 +125,7 @@ def _deny(project_dir):
 
 def _audit_records(zone):
     """Every ``http_config`` record this identity filed, oldest first."""
-    path = zone / acting_identity() / f"{SURFACE_HTTP_CONFIG}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(zone, SURFACE_HTTP_CONFIG)
 
 
 def _refusal_frames(client):
