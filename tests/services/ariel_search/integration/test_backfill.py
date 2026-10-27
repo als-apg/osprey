@@ -58,16 +58,13 @@ async def _to_b1_schema(config_dict: dict[str, Any]) -> None:
     from osprey.services.ariel_search.database.connection import create_connection_pool
 
     config = ARIELConfig.from_dict(json.loads(json.dumps(config_dict)))
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         for migration in (AttachmentFilesCopyStateMigration(), AttachmentTextColumnsMigration()):
             async with pool.connection() as conn, conn.transaction():
                 await migration.down(conn)
                 await conn.execute(
                     "DELETE FROM ariel_migrations WHERE name = %s", (migration.name,)
                 )
-    finally:
-        await pool.close()
 
 
 def _seed(uri: str, entry_id: str, attachments: list, *, minutes: int = 0) -> None:

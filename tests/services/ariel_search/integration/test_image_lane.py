@@ -210,12 +210,9 @@ async def lane(
             strict=True,
         )
     )
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         await run_migrations(pool, config)
         yield Lane(scratch_database, config, ARIELRepository(pool, config), vectors)
-    finally:
-        await pool.close()
 
 
 def _row(result: list[tuple[Any, ...]], entry_id: str) -> dict[str, Any]:

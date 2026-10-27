@@ -479,8 +479,7 @@ class TestBackfillAfterConfigChange:
         }
         await ops.run_migrate(dict(config_dict))
         cfg = ARIELConfig.from_dict(config_dict)
-        pool = await create_connection_pool(cfg.database)
-        try:
+        async with await create_connection_pool(cfg.database) as pool:
             for migration in (
                 AttachmentFilesCopyStateMigration(),
                 AttachmentTextColumnsMigration(),
@@ -490,8 +489,6 @@ class TestBackfillAfterConfigChange:
                     await conn.execute(
                         "DELETE FROM ariel_migrations WHERE name = %s", (migration.name,)
                     )
-        finally:
-            await pool.close()
 
         item = _png("b1.png")
         with psycopg.connect(scratch_database, autocommit=True) as conn:

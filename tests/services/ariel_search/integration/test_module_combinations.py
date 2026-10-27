@@ -343,16 +343,13 @@ async def test_every_module_combination_runs(
     config = ARIELConfig.from_dict(raw)
 
     # -- ingest one two-picture entry --------------------------------------------
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         await run_migrations(pool, config)
         repository = ARIELRepository(pool, config)
         adapter = _Adapter(config)
         await ingest_one(
             _entry(), adapter, repository, [], config, copy_mod.CopyRun(adapter, ORIGINS)
         )
-    finally:
-        await pool.close()
 
     rows = _copy_rows(scratch_database)
     assert set(rows) == {_id(n) for n in PICTURES}

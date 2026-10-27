@@ -95,13 +95,10 @@ def provider_cls(monkeypatch):
 
 
 async def _has_pgvector(config: ARIELConfig) -> bool:
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         async with pool.connection() as conn:
             result = await conn.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
             return await result.fetchone() is not None
-    finally:
-        await pool.close()
 
 
 async def test_expanded_entry_is_embedded_keyed_and_reported_stale_when_expansion_turns_off(
@@ -118,8 +115,7 @@ async def test_expanded_entry_is_embedded_keyed_and_reported_stale_when_expansio
     assert expander is not None
     table = model_to_table_name(MODEL)
 
-    pool = await create_connection_pool(config.database)
-    try:
+    async with await create_connection_pool(config.database) as pool:
         repository = ARIELRepository(pool, config)
         enhancers = create_enhancers_from_config(config)
         assert [e.name for e in enhancers] == ["text_embedding"]
@@ -128,8 +124,6 @@ async def test_expanded_entry_is_embedded_keyed_and_reported_stale_when_expansio
         async with pool.connection() as conn:
             result = await conn.execute(f"SELECT entry_id, input_key FROM {table}")
             rows = await result.fetchall()
-    finally:
-        await pool.close()
 
     embed_calls = [call for call in provider_cls.calls if "texts" in call]
     assert embed_calls, "the embedder never reached the provider"

@@ -1210,8 +1210,7 @@ class TestBackfill:
         assert await ops.run_migrate(dict(config_dict)) == []
 
         cfg = ARIELConfig.from_dict(config_dict)
-        pool = await create_connection_pool(cfg.database)
-        try:
+        async with await create_connection_pool(cfg.database) as pool:
             for migration in (
                 AttachmentFilesCopyStateMigration(),
                 AttachmentTextColumnsMigration(),
@@ -1221,8 +1220,6 @@ class TestBackfill:
                     await conn.execute(
                         "DELETE FROM ariel_migrations WHERE name = %s", (migration.name,)
                     )
-        finally:
-            await pool.close()
 
         item = {
             "url": "https://h.example/files/spot.png",
@@ -1383,12 +1380,9 @@ class TestBackfillRetryDecoderFailed:
         from osprey.services.ariel_search.database.migrations import run_migrations
 
         cfg = ARIELConfig.from_dict(_retry_config_dict(scratch_database, stub.url))
-        pool = await create_connection_pool(cfg.database)
-        try:
+        async with await create_connection_pool(cfg.database) as pool:
             await run_migrations(pool, cfg)
             yield ARIELRepository(pool, cfg)
-        finally:
-            await pool.close()
 
     async def test_retry_decoder_failed_flag_rerenders_and_the_picture_gets_caption_and_vector(
         self, image_repo, scratch_database, stub, attachment_fetch, monkeypatch
