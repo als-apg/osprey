@@ -343,16 +343,6 @@ async def ticks(app: SimpleNamespace, n: int) -> None:
     await until(lambda: len(app.clock.sleeps) >= target)
 
 
-def assert_registered(app: SimpleNamespace, plan: AcquirePlan, channel: object) -> None:
-    """The pending slot and the reservation an accepted plan leaves behind."""
-    pending = get_state(app).pending[plan.key]
-    assert pending.channel is channel
-    assert pending.surface == plan.surface
-    assert pending.task is not None
-    assert registry(app).is_reserved(plan.key)
-    assert plan.channel is channel
-
-
 def assert_released(app: SimpleNamespace) -> None:
     assert KEY not in get_state(app).pending
     assert not registry(app).is_reserved(KEY)
