@@ -49,6 +49,7 @@ from osprey_connectors_tests._harness import (
     write_control_context,
     write_server_report,
 )
+from tests.hooks.conftest import ask_reason
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
@@ -684,13 +685,6 @@ def _config_with(make_config, extra):
     return make_config(config)
 
 
-def _reason(result):
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-    return output["permissionDecisionReason"]
-
-
 def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, make_config):
     """The whole path — real config, real state file, real subprocess, no bridge
     listening anywhere — still puts the mismatch in front of the approver."""
@@ -709,7 +703,7 @@ def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, 
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert "LANE MISMATCH" in reason
     assert f"the 'bluesky_live' lane serves {LIVE_PHRASE}" in reason
     assert f"the deployment is on the {VA_PHRASE} target" in reason
@@ -735,7 +729,7 @@ def test_end_to_end_a_single_lane_start_says_nothing_about_lanes(
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert START_HEADLINE in reason
     assert "lane" not in reason.lower()
 
@@ -757,4 +751,4 @@ def test_end_to_end_the_hook_survives_garbage_everywhere(tmp_path, hook_runner, 
         hook_config=HOOK_CONFIG,
     )
 
-    assert "Tool: queue_add" in _reason(result)
+    assert "Tool: queue_add" in ask_reason(result)

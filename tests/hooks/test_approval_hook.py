@@ -1748,10 +1748,6 @@ RAW_PUT_CONFIG = {
 }
 
 
-def _decision(result):
-    return None if result is None else result["hookSpecificOutput"]["permissionDecision"]
-
-
 def _run_execute(hook_runner, make_config, tmp_path, code, *, mode="readwrite", config=None):
     return hook_runner(
         "osprey_approval.py",

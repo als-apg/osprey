@@ -35,6 +35,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
 HOOKS_DIR = (
     Path(__file__).parents[2] / "src" / "osprey" / "templates" / "claude_code" / "claude" / "hooks"
 )
@@ -191,6 +193,28 @@ def import_hook(name):
     finally:
         hooks_dir = os.path.abspath(str(HOOKS_DIR))
         sys.path[:] = [entry for entry in sys.path if os.path.abspath(entry) != hooks_dir]
+
+
+def ask_reason(result):
+    """The reason an approval prompt shows, asserting the hook asked."""
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    return output["permissionDecisionReason"]
+
+
+def pending_review_items(root):
+    """The items in the feedback hook's ``pending_reviews.json`` under *root*, or ``{}``.
+
+    The store lives under the agent-data root: it is written while the agent runs,
+    and a project's ``data/`` tree is build-owned while ``build/`` is re-rendered by
+    every build. No config names a ``base_dir`` in these runs, so the hook resolves
+    the framework default read here.
+    """
+    store = root / DEFAULT_AGENT_DATA_BASE_DIR / "feedback" / "pending_reviews.json"
+    if not store.exists():
+        return {}
+    return json.loads(store.read_text()).get("items", {})
 
 
 @pytest.fixture

@@ -45,6 +45,7 @@ from osprey_connectors_tests._harness import (
     write_payload,
     write_server_report,
 )
+from tests.hooks.conftest import ask_reason
 
 #: The exact line an approver must see whenever the target cannot be resolved.
 BASELINE_LINE = "Target: deployment baseline (state unavailable)"
@@ -771,13 +772,6 @@ def _approval_config(make_config):
     )
 
 
-def _reason(result):
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-    return output["permissionDecisionReason"]
-
-
 def test_end_to_end_channel_write_prompt_names_the_live_machine(tmp_path, hook_runner, make_config):
     """The whole path: real state file, real parentage walk, real subprocess."""
     config = _approval_config(make_config)
@@ -792,7 +786,7 @@ def test_end_to_end_channel_write_prompt_names_the_live_machine(tmp_path, hook_r
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert f"Target: LIVE MACHINE ({LIVE_ENDPOINT})" in reason
     assert "RING:QF:SP" in reason
 
@@ -811,7 +805,7 @@ def test_end_to_end_channel_write_prompt_names_the_simulation(tmp_path, hook_run
         hook_config=HOOK_CONFIG,
     )
 
-    assert "Target: virtual accelerator (simulation)" in _reason(result)
+    assert "Target: virtual accelerator (simulation)" in ask_reason(result)
 
 
 def test_end_to_end_a_non_write_tool_carries_the_baseline_line(tmp_path, hook_runner, make_config):
@@ -832,7 +826,7 @@ def test_end_to_end_a_non_write_tool_carries_the_baseline_line(tmp_path, hook_ru
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert BASELINE_LINE in reason
     assert "Tool: setup_patch" in reason
 
@@ -886,7 +880,7 @@ def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner
         hook_config=HOOK_CONFIG,
     )
 
-    reason = _reason(result)
+    reason = ask_reason(result)
     assert "Target: virtual accelerator (simulation)" in reason
     assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in reason
     assert "Destination probe channel: RING:BEAM:CURRENT" in reason
