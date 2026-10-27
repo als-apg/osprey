@@ -2867,7 +2867,7 @@ def _plan_mode_run(hook_runner, make_config, tmp_path, tool, mode, hook_config=N
 
 @pytest.fixture
 def plan_stamp_dir(tmp_path, monkeypatch):
-    from tests._control_context_fixtures import pin_identity, state_dir_under
+    from osprey_connectors_tests._harness import pin_identity, state_dir_under
 
     pin_identity(monkeypatch)
     root = tmp_path / "agent_data"
