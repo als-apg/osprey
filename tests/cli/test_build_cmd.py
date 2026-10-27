@@ -22,6 +22,7 @@ from osprey.cli.build_profile import (
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1974,11 +1975,8 @@ def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
 
 def _render(repo: Path):
     """Render *repo*'s build zone through the real verb."""
-    from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
-
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 # Every paradigm whose store is a channel-database file, derived from the
@@ -3012,7 +3010,6 @@ class TestVAArchiverConfigDerivation:
         return the RENDER — the directory whose config.yml the deploy reads."""
         from click.testing import CliRunner
 
-        from osprey.cli.build_cmd import build
         from osprey.cli.init_cmd import init
 
         repo = tmp_path / project_name
@@ -3021,7 +3018,7 @@ class TestVAArchiverConfigDerivation:
         runner = CliRunner()
         result = runner.invoke(init, argv)
         assert result.exit_code == 0, result.output
-        result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
         assert result.exit_code == 0, result.output
         return repo / "build"
 
@@ -3128,7 +3125,6 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
     """
     from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
     from osprey.cli.init_cmd import init
 
     repo = tmp_path / "graphed"
@@ -3144,7 +3140,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         ],
     )
     assert created.exit_code == 0, created.output
-    rendered = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    rendered = invoke_build(repo)
     assert rendered.exit_code == 0, rendered.output
     render = repo / "build"
 

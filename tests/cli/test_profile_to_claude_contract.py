@@ -46,6 +46,7 @@ from osprey.registry.mcp import (
 )
 from tests._builds import copy_build
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest
 
 # ---------------------------------------------------------------------------
@@ -265,7 +266,7 @@ def test_external_server_command_placeholder_resolves_to_interpreter(tmp_path):
     )
     assert init_result.exit_code == 0, init_result.output
 
-    build_result = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
+    build_result = invoke_build(target)
     assert build_result.exit_code == 0, build_result.output
 
     mcp_config = json.loads((target / "build" / ".mcp.json").read_text())

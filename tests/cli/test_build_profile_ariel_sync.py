@@ -33,8 +33,8 @@ from typing import Any
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 #: A logbook on another host — the case that needs something polling it.
 REMOTE_SOURCE = "https://logbook.example.org/api/entries"
@@ -78,7 +78,7 @@ def _build(
         profile.setdefault("services", {})["ariel_sync"] = dict(_ARIEL_SYNC_SERVICE)
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     return result.output, repo

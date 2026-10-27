@@ -36,6 +36,7 @@ import pytest
 
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey_connectors.workspace import TIERS_DIRNAME
+from tests.cli._lifecycle_build import invoke_build
 from tests.services.channel_finder.graph_index import corpora
 
 #: Where a render's index goes: the fixed path under the render.
@@ -101,13 +102,8 @@ def _graph_repo(
 
 def _build(repo: Path):
     """Run ``osprey build`` on *repo* the way CI does: no venv, no hooks."""
-    from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build as build_command
-
-    return CliRunner().invoke(
-        build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-    )
+    return invoke_build(repo)
 
 
 def _indexes(build_dir: Path) -> list[Path]:

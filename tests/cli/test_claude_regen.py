@@ -22,6 +22,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import recorded_claude_md_template
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest
 
 _BUNDLED_RENDERS = {
@@ -327,9 +328,6 @@ class TestManifestPresetStamp:
         write-gate lint refused the render: a build that worked became a
         build that could not finish.
         """
-        from click.testing import CliRunner
-
-        from osprey.cli.build_cmd import build
 
         repo = tmp_path / "hand-written"
         repo.mkdir()
@@ -357,7 +355,7 @@ class TestManifestPresetStamp:
         shutil.copytree(bundle_data_root(), repo / "data", dirs_exist_ok=True)
         (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
 
-        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
         assert result.exit_code == 0, (
             f"build failed (exit={result.exit_code})\n{result.output}\n{result.exception}"
         )

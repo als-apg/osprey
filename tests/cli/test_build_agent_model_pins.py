@@ -13,8 +13,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _init_repo(tmp_path: Path, *config_lines: str) -> Path:
@@ -53,7 +53,7 @@ def _site_helper(repo: Path, model: str) -> None:
 
 
 def _build(repo: Path):
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 def test_a_pin_naming_no_agent_is_refused_with_the_agent_names(tmp_path, caplog):

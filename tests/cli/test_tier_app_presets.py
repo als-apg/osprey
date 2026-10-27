@@ -88,6 +88,7 @@ from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_writes_enabled
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 TIER_NAMES = ("readonly", "readwrite", "admin")
@@ -699,11 +700,8 @@ def _build_layered_stack(repo: Path) -> Path:
     Returns:
         The repo root; the renders live under ``<repo>/build/``.
     """
-    from click.testing import CliRunner
 
-    from osprey.cli.build_cmd import build
-
-    built = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    built = invoke_build(repo)
     assert built.exit_code == 0, built.output
     return repo
 

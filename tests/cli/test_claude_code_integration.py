@@ -13,7 +13,6 @@ from click.testing import CliRunner
 from jinja2 import TemplateRuntimeError
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility.views.facts import zero_source_facts
@@ -24,6 +23,7 @@ from osprey_connectors.workspace import (
     resolve_shared_data_root,
 )
 from tests._preset_data import bundle_data_root
+from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest
 
 
@@ -34,9 +34,7 @@ def _init_and_build(runner: CliRunner, repo_dir):
     where the rendered project lands once both succeed.
     """
     init_result = runner.invoke(init, [str(repo_dir), "--preset", "hello-world", "--no-git"])
-    build_result = runner.invoke(
-        build, ["--repo", str(repo_dir), "--skip-deps", "--skip-lifecycle"]
-    )
+    build_result = invoke_build(repo_dir)
     return init_result, build_result
 
 

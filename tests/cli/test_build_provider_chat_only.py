@@ -15,10 +15,10 @@ from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner, Result
+from click.testing import Result
 
-from osprey.cli.build_cmd import build
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
+from tests.cli._lifecycle_build import invoke_build
 
 #: The refusal the build and the agent resolver both give for ``llama-cpp``.
 REFUSAL = (
@@ -63,7 +63,7 @@ def _repo(tmp_path: Path, provider: str | None, catalog: dict[str, Any] | None =
 
 
 def _run(repo: Path) -> Result:
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 def _flat(result: Result) -> str:

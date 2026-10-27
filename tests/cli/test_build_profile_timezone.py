@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_timezone import system_timezone_errors, system_timezone_reminders
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
+from tests.cli._lifecycle_build import invoke_build
 
 PROFILE = "profile.yml"
 UTC_LINE = "  system.timezone: UTC"
@@ -118,7 +118,7 @@ def _set_zone(repo: Path, text: str) -> None:
 
 
 def _build(repo: Path):
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 def _validate(repo: Path):

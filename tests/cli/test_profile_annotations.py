@@ -19,7 +19,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_profile
 from osprey.cli.build_profile_emit import (
     _ANNOTATIONS,
@@ -28,6 +27,7 @@ from osprey.cli.build_profile_emit import (
     emit_standalone_profile_yaml,
 )
 from osprey.cli.init_cmd import init
+from tests.cli._lifecycle_build import invoke_build
 
 # The lines the edited-text gates below apply: the block-style snippet
 # inside each annotation, which is the part a facility copies and edits. Keyed
@@ -366,10 +366,6 @@ def _init_with_edits(runner: CliRunner, tmp_path: Path, *pairs: str):
     return target, result
 
 
-def _build_from(runner: CliRunner, repo: Path):
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-
-
 def test_fragment_web_panel_reaches_the_built_config(runner: CliRunner, tmp_path: Path) -> None:
     """The panel the annotation teaches has to arrive in build/config.yml.
 
@@ -386,7 +382,7 @@ def test_fragment_web_panel_reaches_the_built_config(runner: CliRunner, tmp_path
     )
     assert result.exit_code == 0, result.output
 
-    built = _build_from(runner, repo)
+    built = invoke_build(repo)
     assert built.exit_code == 0, built.output
 
     config = yaml.safe_load((repo / "build" / "config.yml").read_text())
@@ -412,4 +408,4 @@ def test_fragment_env_required_reaches_the_env_example(runner: CliRunner, tmp_pa
     assert result.exit_code == 0, result.output
 
     assert "MY_TOKEN" in (repo / ".env.example").read_text()
-    assert _build_from(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0

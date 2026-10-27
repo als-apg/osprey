@@ -11,10 +11,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.cli import build_profile_presets
-from osprey.cli.build_cmd import _profile_data_bundle, build
+from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import (
     _load_preset_raw,
     _preset_exists,
@@ -22,6 +21,7 @@ from osprey.cli.build_profile import (
     list_presets,
     resolve_build_profile,
 )
+from tests.cli._lifecycle_build import invoke_build
 
 
 def test_preset_exists_returns_path_for_bundled_preset() -> None:
@@ -136,9 +136,7 @@ def test_extends_preset_chain_via_intermediate_file(tmp_path: Path) -> None:
     assert _profile_data_bundle(resolved) == "hello_world"
 
 
-def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(
-    runner: CliRunner, tmp_path: Path
-) -> None:
+def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(tmp_path: Path) -> None:
     """End-to-end: a deployment repo's ``profile.yml`` with ``extends: hello-world``
     (a bare preset name) builds through the real render pipeline, not just
     through ``resolve_build_profile`` in isolation — so a mistake in how the
@@ -152,7 +150,7 @@ def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(
         encoding="utf-8",
     )
 
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))

@@ -42,13 +42,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._preset_data import create_project_as_built
 from tests._vocabulary import hardcoded_vocabulary_hits
+from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -324,7 +323,7 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
 
 
 def _run_build(repo: Path):
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path):

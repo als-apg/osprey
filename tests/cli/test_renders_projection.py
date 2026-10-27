@@ -15,9 +15,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import build_lint_view
 from osprey.cli.build_profile_emit import effective_web_terminals, emits_layer_profiles
 from osprey.cli.build_profile_model import render_key_errors
@@ -29,6 +27,7 @@ from osprey.deployment.web_terminals.render_naming import (
 from osprey.deployment.web_terminals.roster import resolve_cards, served_renders
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import RETIRED_LAYER_DIRS
+from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -81,7 +80,7 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, list[dic
     with pytest.MonkeyPatch.context() as patch, preserved_environ():
         patch.setattr(lint, "profile_config_errors", record)
         patch.chdir(outside)
-        result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+        result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     return repo, judged
 

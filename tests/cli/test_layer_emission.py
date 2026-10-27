@@ -32,6 +32,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.profile_cmd import profile
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import RETIRED_LAYER_DIRS
+from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import (
     APP_PRESETS,
     EXEMPLAR_DIRNAME,
@@ -140,12 +141,10 @@ def test_exemplar_profile_and_layers_build_every_render(
     """The emitted repo builds: one render per tier and app it holds."""
     import shutil
 
-    from osprey.cli.build_cmd import build
-
     repo = tmp_path / EXEMPLAR_DIRNAME
     shutil.copytree(exemplar_repo, repo)
 
-    result = CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
     for relative in EXEMPLAR_LAYER_FILES:
@@ -333,7 +332,6 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
 ) -> None:
     """Switching the web terminals off keeps the dispatch workers on their tier:
     init writes that tier's file, and the build renders it and names it."""
-    from osprey.cli.build_cmd import build
 
     target = tmp_path / "backend-only"
     result = _new(
@@ -348,7 +346,7 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
     assert _layer_names(target, "tiers") == {"readonly"}
     assert _layer_names(target, "apps") == set()
 
-    built = CliRunner().invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
+    built = invoke_build(target)
 
     assert built.exit_code == 0, built.output
     assert (target / "build" / "backend-only-readonly" / "Dockerfile").is_file()

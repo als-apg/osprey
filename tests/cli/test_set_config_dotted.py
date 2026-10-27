@@ -24,7 +24,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_load import CONNECTOR_CONFIG_KEY
 from osprey.cli.build_profile_presets import list_presets
 from osprey.cli.build_profile_resolve import (
@@ -38,6 +37,7 @@ from osprey.cli.build_profile_resolve import (
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build
 
 
 def _flat(text: str) -> str:
@@ -55,9 +55,9 @@ def _init(runner: CliRunner, repo: Path, preset: str, *extra: str) -> None:
     assert result.exit_code == 0, result.output
 
 
-def _build(runner: CliRunner, repo: Path) -> dict:
+def _build(repo: Path) -> dict:
     """Render *repo* and return its ``build/config.yml``."""
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
@@ -360,7 +360,7 @@ def test_init_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Path
     runner, repo = runner_repo
     _init(runner, repo, "hello-world", "--set", "config.approval.tools.channel_read=always")
 
-    assert _build(runner, repo)["approval"]["tools"]["channel_read"] == "always"
+    assert _build(repo)["approval"]["tools"]["channel_read"] == "always"
 
 
 def test_osprey_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Path]) -> None:
@@ -373,7 +373,7 @@ def test_osprey_set_reaches_the_rendered_config(runner_repo: tuple[CliRunner, Pa
     )
     assert written.exit_code == 0, written.output
 
-    assert _build(runner, repo)["approval"]["tools"]["channel_read"] == "always"
+    assert _build(repo)["approval"]["tools"]["channel_read"] == "always"
 
 
 def test_osprey_set_with_a_mapping_value_prunes_the_file_beneath_it(
@@ -398,7 +398,7 @@ def test_osprey_set_with_a_mapping_value_prunes_the_file_beneath_it(
     assert config["approval.tools"] == {"channel_read": "always"}
     assert not [key for key in config if key.startswith("approval.tools.")]
     assert config["approval.enabled"] is True
-    assert _build(runner, repo)["approval"]["tools"] == {"channel_read": "always"}
+    assert _build(repo)["approval"]["tools"] == {"channel_read": "always"}
 
 
 def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
@@ -420,7 +420,7 @@ def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
 
     profile, _dir = resolve_build_profile(repo / "profile.yml", None)
     assert profile._claimed_ports()["services.graphdb.port_host"] == 9999
-    assert _build(runner, repo)["services"]["graphdb"]["port_host"] == 9999
+    assert _build(repo)["services"]["graphdb"]["port_host"] == 9999
 
 
 def test_osprey_set_with_a_leaf_key_keeps_the_siblings_in_the_file(

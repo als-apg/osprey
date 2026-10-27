@@ -21,12 +21,12 @@ from typing import Any
 
 import pytest
 import yaml
-from click.testing import CliRunner, Result
+from click.testing import Result
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_model import provider_catalog_key_errors
 from osprey.cli.templates.manager import TemplateManager
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
+from tests.cli._lifecycle_build import invoke_build
 
 #: A catalog an operator wrote: the built-in name the profiles below select,
 #: plus a gateway no packaged catalog knows. Both are entries, so both are
@@ -76,7 +76,7 @@ def _hello_world(**overrides: Any) -> dict[str, Any]:
 
 def _run(repo: Path) -> Result:
     """``osprey build`` over *repo*, with the venv and lifecycle skipped."""
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+    return invoke_build(repo)
 
 
 def _build_capturing_contexts(

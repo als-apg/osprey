@@ -27,7 +27,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_deploy import (
     IMAGE_SOURCE_CONFIG_KEY,
     config_image_source_spelling,
@@ -40,6 +39,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
 from osprey.profiles.providers import PROVIDERS_FILENAME, packaged_catalog_path
+from tests.cli._lifecycle_build import invoke_build
 
 #: The four ``approval`` leaves plus their two neighbours, as a "whole branch
 #: and then some" removal: the branch the proposal names, and two single keys
@@ -85,10 +85,6 @@ def _init(runner: CliRunner, target: Path, preset: str) -> None:
     """Materialize a deployment repo — the only way one comes into existence."""
     result = runner.invoke(init, [str(target), "--preset", preset, "--no-" + "git"])
     assert result.exit_code == 0, result.output
-
-
-def _build(runner: CliRunner, repo: Path):
-    return runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
 def _revalidate(runner: CliRunner, repo: Path, *extra: str):
@@ -311,7 +307,7 @@ def test_old_shape_refused_then_revalidate_then_build_green(
     removed = _to_old_shape(profile)
     assert removed, "fixture removed nothing"
 
-    refused = _build(runner, repo)
+    refused = invoke_build(repo)
     assert refused.exit_code != 0
     # The refusal reaches the operator through the build's logger.
     assert "osprey init --revalidate" in caplog.text
@@ -323,7 +319,7 @@ def test_old_shape_refused_then_revalidate_then_build_green(
     assert PRESET_DATA_BUNDLE_KEY not in _profile_data(profile)
     assert [key for key in removed if key not in _config_keys(text)] == []
 
-    built = _build(runner, repo)
+    built = invoke_build(repo)
     assert built.exit_code == 0, built.output
     assert (repo / "build" / "config.yml").is_file()
 
@@ -383,7 +379,7 @@ def test_a_whole_missing_branch_comes_back_as_its_leaves(runner: CliRunner, tmp_
         if _comment_block_above(text, key) != _comment_block_above(reference, key)
     ] == []
     assert f"Filled {len(removed)} key(s) from preset 'hello-world'" in result.output
-    assert _build(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
 
 def test_filled_values_are_the_presets(runner: CliRunner, tmp_path: Path) -> None:
@@ -443,10 +439,10 @@ def test_a_nested_spelling_is_left_alone(runner: CliRunner, tmp_path: Path) -> N
     assert "approval.tools.channel_write" not in keys
 
     # ...but inside it, addressing the same rendered leaf — asserted on the RENDER.
-    assert _build(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
     fresh = tmp_path / "reference"
     _init(runner, fresh, "hello-world")
-    assert _build(runner, fresh).exit_code == 0
+    assert invoke_build(fresh).exit_code == 0
     approval = _rendered_config(repo)["approval"]
     assert approval["tools"] == _rendered_config(fresh)["approval"]["tools"]
     assert _dotted_keys_below(approval) == []
@@ -474,7 +470,7 @@ def test_a_nested_parent_gets_real_mappings_not_a_dotted_key(
     )
 
     assert _revalidate(runner, repo).exit_code == 0
-    assert _build(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
     approval = _rendered_config(repo)["approval"]
     assert approval["default_policy"] == "selective"
@@ -552,7 +548,7 @@ def test_a_profile_without_provenance_fills_from_the_retired_key(
     assert data["provenance"]["preset"] == "hello-world"
     assert data["provenance"]["preset_hash"] == compute_preset_hash("hello-world")
     assert [key for key in removed if key not in data["config"]] == []
-    assert _build(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
 
 def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) -> None:
@@ -810,7 +806,7 @@ def test_control_assistant_keeps_every_section_header_where_it_belongs(
     ] == []
     # Not vacuous: the key after the trailing list has a header of its own.
     assert _comment_block_above(reference, "execution.execution_method")
-    assert _build(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
 
 def test_a_deploy_block_keeps_image_source_out_of_the_config_block(
@@ -949,7 +945,7 @@ def test_an_old_control_assistant_profile_without_shared_does_not_gain_it(
 
     assert "shared" not in _profile_data(profile)["config"]["modules.web_terminals"]
     assert "Left for you: modules.web_terminals.shared" in result.output
-    built = _build(runner, repo)
+    built = invoke_build(repo)
     assert built.exit_code == 0, built.output
 
 
@@ -1071,7 +1067,7 @@ def test_an_empty_config_block_is_filled_at_the_blocks_own_indent(
     text = profile.read_text(encoding="utf-8")
     assert _config_keys(text)
     assert [line for line in _config_lines(text) if line.startswith("#")] == []
-    assert _build(runner, repo).exit_code == 0
+    assert invoke_build(repo).exit_code == 0
 
 
 # ---------------------------------------------------------------------------
