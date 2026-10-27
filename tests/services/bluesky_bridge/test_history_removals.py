@@ -190,6 +190,7 @@ def test_a_run_that_has_not_finished_is_refused_with_the_route_that_applies(
 
     assert resp.status_code == 409
     assert detail["code"] == "run_not_finished"
+    assert detail["retryable"] is False
     assert detail["status"] == status
     assert instead in detail["detail"]
     assert len(history_removals.removed_runs()) == 0
