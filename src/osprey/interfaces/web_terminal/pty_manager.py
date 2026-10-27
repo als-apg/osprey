@@ -301,9 +301,12 @@ class PtySession:
         grace and SIGKILL wait for the child, plus about five more seconds for
         started processes that ignore SIGTERM, plus up to about
         ``process_tree.TEARDOWN_READ_WAIT_S`` and one read of a process table
-        that does not answer. A caller that must not block that long runs it
-        in a worker thread. When the table stays unreadable the child is ended
-        without its started groups, and a warning says they may survive.
+        that does not answer at each step that reads it. A caller that must not
+        block that long runs it in a worker thread. When the table stays
+        unreadable the child is ended without its started groups, and a warning
+        says they may survive. A started group the table could not be read to
+        re-identify is not signalled, and a warning names it as possibly still
+        running.
 
         The child's group is reported gone, its survivors are named, or the
         process table is named as unreadable; the child is not waited for when
@@ -386,6 +389,13 @@ class PtySession:
                     "Process group(s) the PTY child %d started survived SIGKILL: %s",
                     self._process.pid,
                     process_tree.describe(ending.survivors),
+                )
+            if ending.unknown:
+                logger.warning(
+                    "PTY child %d: process table unreadable: started group(s) may still be "
+                    "running: %s",
+                    self._process.pid,
+                    process_tree.describe(ending.unknown),
                 )
 
     def started_commands(self) -> list[process_tree.ProcessGroup] | None:
