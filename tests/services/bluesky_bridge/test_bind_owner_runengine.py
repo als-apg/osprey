@@ -59,7 +59,7 @@ from osprey_connectors.posture_store import (
     current_owner,
     store_verdict,
 )
-from tests.services.bluesky_bridge.test_connector_devices import FakeConnector
+from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
 _OWNER = "alice"
 _UNNARROWED_OWNER = "bob"
