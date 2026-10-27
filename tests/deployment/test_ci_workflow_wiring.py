@@ -8696,113 +8696,17 @@ def test_the_quick_tier_runs_the_plugin_version_check__mutation_drops_the_line()
 # the merge gate: each CI step that needs no secret or Docker calls one check
 # ---------------------------------------------------------------------------
 #
-# scripts/check.py is the one declaration of the merge gate, and each check CI
-# runs without a secret or a container is one step that calls it by id. The
-# table below holds those steps as main's ci.yml spells them; the full tier
-# runs each one's command too, so a contributor's `check.py full` is the
-# command CI runs.
+# scripts/check.py runs the merge gate from what the checks modules declare,
+# and each check CI runs without a secret or a container is one step that calls
+# it by id. Which step calls which check is read from ci.yml itself (see "One
+# check set" below); the full tier runs each call's command too, so a
+# contributor's `check.py full` is the command CI runs.
 
 FRONTEND_JS_JOB = "frontend-js"
 DOCS_JOB = "docs"
 #: How a caller step names the comparison base of the two diff checks: the
 #: pull request's base ref, read from ``env:``.
 CI_BASE = "origin/$BASE_REF"
-
-
-@dataclass(frozen=True)
-class CallerStep:
-    """One CI step that calls one check; ``based`` when it passes the base."""
-
-    job: str
-    step: str
-    check: str
-    based: bool = False
-
-    def call(self) -> list[str]:
-        return ["run", self.check, *(["--base", CI_BASE] if self.based else [])]
-
-
-CALLER_STEPS = (
-    CallerStep(LINT_JOB, LOCK_CHECK_STEP, "lockfile"),
-    CallerStep(LINT_JOB, "Run ruff (linting)", "ruff"),
-    CallerStep(LINT_JOB, "Run ruff (formatting)", "ruff-format"),
-    CallerStep(LINT_JOB, "Run lint-imports (import boundaries)", "import-contracts"),
-    CallerStep(LINT_JOB, "Run ruff import-private-name on the framework", "private-imports"),
-    CallerStep(LINT_JOB, "Run config-key resurrection guard (with back-test)", "config-keys"),
-    CallerStep(LINT_JOB, CHANGELOG_STEP, "changelog", based=True),
-    CallerStep(LINT_JOB, PLUGIN_VERSION_STEP, "plugin-version", based=True),
-    CallerStep(LINT_JOB, "No tracked file is gitignored", "tracked-ignored"),
-    CallerStep(LINT_JOB, "Run mypy (type checking)", "mypy"),
-    CallerStep(FRONTEND_JS_JOB, "Typecheck (tsc --noEmit)", "tsc"),
-    CallerStep(FRONTEND_JS_JOB, "Lint (eslint)", "eslint"),
-    CallerStep(FRONTEND_JS_JOB, "Run JS tests (vitest)", "vitest"),
-    CallerStep(FRONTEND_JS_JOB, "Check the dock-engine bundle is current", "dock-engine-bundle"),
-    CallerStep(FRONTEND_JS_JOB, "Run dock-engine tests (vitest)", "dock-engine-tests"),
-    CallerStep(DOCS_JOB, "Build documentation", "docs"),
-    CallerStep("package", "Build and check the packages", "package"),
-)
-assert len({row.step for row in CALLER_STEPS}) == len(CALLER_STEPS)
-
-
-@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
-def test_each_caller_step_calls_its_check(
-    row: CallerStep, raw_workflow: dict[str, Any] | None = None
-) -> None:
-    """The CI step exists in its job and calls exactly the row's check, so the
-    command it runs is the one the declaration holds."""
-    wf = _load_raw_workflow() if raw_workflow is None else raw_workflow
-    calls = _check_calls(_find_named_step(wf, row.job, row.step))
-    assert calls == [row.call()], f"{row.job}/{row.step} calls {calls}, the table says {row.call()}"
-
-
-@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
-def test_each_caller_step_calls_its_check__mutation_calls_another(row: CallerStep) -> None:
-    mutated = _load_raw_workflow()
-    step = _find_named_step(mutated, row.job, row.step)
-    step["run"] = step["run"].replace(f" run {row.check}", " run lockfile ruff", 1)
-    with pytest.raises(AssertionError):
-        test_each_caller_step_calls_its_check(row, mutated)
-
-
-def _ci_commands(row: CallerStep) -> list[str]:
-    """The command lines *row*'s call resolves to, one shell line each."""
-    return [_render(argv).replace("\n", " ") for argv in check_set.resolve(row.call())]
-
-
-@pytest.mark.parametrize("row", CALLER_STEPS, ids=lambda row: row.step)
-def test_the_gate_runs_each_ci_step_once(row: CallerStep, gate_source: str | None = None) -> None:
-    """The full tier runs the row's check, and each of its commands exactly once.
-    A check implemented in check.py itself runs no command of its own."""
-    assert row.check in {check.id for check in check_set.tier_checks("full")}
-    source = _tier_source("full", CI_BASE) if gate_source is None else gate_source
-    lines = source.splitlines()
-    for command in _ci_commands(row):
-        count = lines.count(command)
-        assert count == 1, f"the full tier runs {command!r} {count} times, not once"
-
-
-#: The rows whose check runs at least one command.
-_COMMAND_ROWS = tuple(row for row in CALLER_STEPS if check_set.resolve(row.call()))
-
-
-@pytest.mark.parametrize("row", _COMMAND_ROWS, ids=lambda row: row.step)
-def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: CallerStep) -> None:
-    source = _tier_source("full", CI_BASE)
-    first = _ci_commands(row)[0]
-    mutated = "\n".join(line for line in source.splitlines() if line != first)
-    assert mutated != source, f"the full tier has no {first!r}; mutation is stale"
-    with pytest.raises(AssertionError):
-        test_the_gate_runs_each_ci_step_once(row, mutated)
-
-
-def test_the_gate_runs_each_ci_step_once__mutation_hardcodes_a_second_base() -> None:
-    (row,) = [row for row in CALLER_STEPS if row.step == CHANGELOG_STEP]
-    source = _tier_source("full", CI_BASE)
-    (command,) = _ci_commands(row)
-    mutated = source.replace(command, command + " --base origin/main", 1)
-    assert mutated != source, f"the full tier has no {command!r}; mutation is stale"
-    with pytest.raises(AssertionError):
-        test_the_gate_runs_each_ci_step_once(row, mutated)
 
 
 def _first_index(commands: list[str], predicate: Callable[[str], bool]) -> int:
@@ -13017,6 +12921,101 @@ def test_every_full_check_is_called_on_ci__mutation_calls_an_exempted_check() ->
     assert _checks_missing_from_ci(mutated) == [
         "pytest-wallclock: a caller step runs it; drop its exemption"
     ]
+
+
+@dataclass(frozen=True)
+class CallerCall:
+    """One ``check.py run`` call a caller step makes, as ci.yml spells it."""
+
+    job: str
+    step: str
+    call: tuple[str, ...]
+
+    @property
+    def checks(self) -> tuple[str, ...]:
+        declared = {check.id for check in check_set.CHECKS}
+        return tuple(word for word in self.call[1:] if word in declared)
+
+
+def _gate_calls(wf: dict[str, Any]) -> list[CallerCall]:
+    """Every call a caller step makes that the full tier spells the same way.
+
+    A call that passes execution flags or a shard, or names a check the full
+    tier passes execution flags to, runs with flags of its own on CI; the
+    lane-leaving-marker tests above hold those.
+    """
+    flagged = {check.id for check in check_set.CHECKS if check.tier_flags.get("full")}
+    calls = []
+    for job, step in _caller_steps(wf):
+        for call in _check_calls(step):
+            row = CallerCall(job, str(step.get("name")), tuple(call))
+            if "--" in call or "--shard" in call or flagged & set(row.checks):
+                continue
+            calls.append(row)
+    return calls
+
+
+#: Read from ci.yml as written: the rows are the caller steps, not a table of them.
+GATE_CALLS = _gate_calls(_load_raw_workflow())
+
+
+def _ci_commands(row: CallerCall) -> list[str]:
+    """The command lines *row*'s call resolves to, one shell line each."""
+    return [_render(argv).replace("\n", " ") for argv in check_set.resolve(list(row.call))]
+
+
+def test_the_caller_steps_make_gate_calls() -> None:
+    assert GATE_CALLS, "no caller step calls a check the full tier spells alike; scan is stale"
+    assert len({row.step for row in GATE_CALLS}) == len(GATE_CALLS)
+
+
+@pytest.mark.parametrize("row", GATE_CALLS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once(row: CallerCall, gate_source: str | None = None) -> None:
+    """The full tier runs the call's checks, and each of its commands exactly
+    once. A check implemented in Python runs no command of its own."""
+    assert set(row.checks) <= {check.id for check in check_set.tier_checks("full")}
+    source = _tier_source("full", CI_BASE) if gate_source is None else gate_source
+    lines = source.splitlines()
+    for command in _ci_commands(row):
+        count = lines.count(command)
+        assert count == 1, f"the full tier runs {command!r} {count} times, not once"
+
+
+#: The calls whose checks run at least one command.
+_COMMAND_CALLS = tuple(row for row in GATE_CALLS if check_set.resolve(list(row.call)))
+
+
+@pytest.mark.parametrize("row", _COMMAND_CALLS, ids=lambda row: row.step)
+def test_the_gate_runs_each_ci_step_once__mutation_drops_the_line(row: CallerCall) -> None:
+    source = _tier_source("full", CI_BASE)
+    first = _ci_commands(row)[0]
+    mutated = "\n".join(line for line in source.splitlines() if line != first)
+    assert mutated != source, f"the full tier has no {first!r}; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_runs_each_ci_step_once(row, mutated)
+
+
+def test_the_gate_runs_each_ci_step_once__mutation_hardcodes_a_second_base() -> None:
+    (row,) = [row for row in GATE_CALLS if row.step == CHANGELOG_STEP]
+    source = _tier_source("full", CI_BASE)
+    (command,) = _ci_commands(row)
+    mutated = source.replace(command, command + " --base origin/main", 1)
+    assert mutated != source, f"the full tier has no {command!r}; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_the_gate_runs_each_ci_step_once(row, mutated)
+
+
+def test_a_new_caller_step_is_a_gate_call_without_a_table_row() -> None:
+    """A step a branch adds is held the moment it lands in ci.yml: nothing
+    beside the workflow lists it."""
+    mutated = _load_raw_workflow()
+    _jobs(mutated)[LINT_JOB]["steps"].append(
+        {
+            "name": "List what git ignores, again",
+            "run": "python3 scripts/check.py run tracked-ignored",
+        }
+    )
+    assert "List what git ignores, again" in {row.step for row in _gate_calls(mutated)}
 
 
 def _unknown_required_jobs(wf: dict[str, Any]) -> list[str]:
