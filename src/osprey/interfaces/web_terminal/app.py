@@ -35,6 +35,7 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.web_auth import set_panel_agent_routes
 from osprey.interfaces.web_terminal.bar_items_store import (
     BarLayoutInvalid,
     BarVocabulary,
@@ -62,6 +63,7 @@ from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
 from osprey.interfaces.web_terminal.routes.chat_attachments import sweep_uploads_at_startup
+from osprey.interfaces.web_terminal.routes.proxy import configured_agent_routes
 from osprey.interfaces.web_terminal.sidecar_status import (
     PANEL_STATUS_DIRNAME,
     SidecarStatus,
@@ -1440,10 +1442,51 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     # of its own `path` (see routes/proxy.py) — for a backend that
                     # serves a prefix its `path` does not cover.
                     "rewritePrefixes": spec.get("rewrite_prefixes") or [],
+                    # The application this panel serves, whether this login arms
+                    # it for writes (missing → False), and the exact routes the
+                    # panel credential may reach on it (routes/proxy.py).
+                    "app": spec.get("app"),
+                    "armWrites": bool(spec.get("arm_writes", False)),
+                    "agentRoutes": _panel_agent_routes(str(panel_id), spec.get("agent_routes")),
                 }
             )
 
     return enabled, custom, default_panel
+
+
+def _panel_agent_routes(panel_id: str, routes: object) -> list[dict[str, str]]:
+    """Validate ``web.panels.<id>.agent_routes`` into ``{method, path}`` entries.
+
+    Each entry is exactly ``{method, path}``: the method is upper-cased, the
+    path is backend-root-relative (leading ``/``, no query) and is composed
+    under ``/panel/<id>`` by the proxy, never here.
+
+    Raises:
+        ValueError: Any entry of another shape, naming the config key.
+    """
+    if routes is None:
+        return []
+    key = f"web.panels.{panel_id}.agent_routes"
+    if not isinstance(routes, list):
+        raise ValueError(f"{key} must be a list of {{method, path}} entries")
+    entries = []
+    for route in routes:
+        if (
+            not isinstance(route, dict)
+            or set(route) != {"method", "path"}
+            or not isinstance(route["method"], str)
+            or not route["method"].strip()
+            or not isinstance(route["path"], str)
+            or not route["path"].startswith("/")
+            or "?" in route["path"]
+            or "#" in route["path"]
+        ):
+            raise ValueError(
+                f"{key}: {route!r} is not a {{method, path}} entry with a "
+                "backend-root-relative path"
+            )
+        entries.append({"method": route["method"].strip().upper(), "path": route["path"]})
+    return entries
 
 
 class _PanelRuntimeConfig(NamedTuple):
@@ -2589,6 +2632,10 @@ def _create_lifespan(
         app.state.enabled_panels = enabled_panels
         app.state.custom_panels = custom_panels
         app.state.default_panel = default_panel
+        # The declared agent routes of the config-defined loopback panels are
+        # what the panel credential may reach under /panel/<id>; stated once
+        # per load, so a route the config drops stops admitting.
+        set_panel_agent_routes(configured_agent_routes(custom_panels))
 
         # Runtime-panel settings + visibility (honors hidden: true,
         # allow_runtime_panels, runtime_panel_allowlist).
