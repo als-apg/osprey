@@ -225,8 +225,7 @@ configured or deployed, so a minimal build shows no empty tiles.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
   graph MCP server (the graph store), the ARIEL panel and MCP server
-  (Postgres), agent telemetry (the telemetry gateway), the Bluesky MCP server
-  (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+  (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
   process running the check — so the same category answers a different
@@ -236,22 +235,6 @@ configured or deployed, so a minimal build shows no empty tiles.
   names the config key the client resolved it from, and a client switched on
   with nothing to resolve warns with the key that would give it one — the
   same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
-- ``telemetry_store`` — appears when ``telemetry_store`` is in
-  ``deployed_services``. One row, **ping**: ``GET /ping`` against the store's
-  HTTP interface at the address that fits where the check runs (the service
-  name from a container on the compose network, loopback and the published port
-  from the host). ``ok`` on HTTP 200, ``warning`` otherwise: a store that is
-  down loses no record, because the gateway queues on disk and retries.
-- ``telemetry_gateway`` — appears when ``telemetry_gateway`` is in
-  ``deployed_services``. Reads the gateway's own counters page and reports
-  whether it answers, a ``warning`` when an exporter's queue is more than 80 %
-  full (fix the store before restarting the gateway, or a full queue can lose a
-  batch), the refusals since the gateway started (information only), any
-  ``*.jsonl`` under ``var/audit`` that is not a regular file, and the audit
-  directories no feed reads until the next build. On the host it also keeps the
-  previous sample in ``var/health/telemetry_gateway.json`` and warns when send
-  failures or refusals rose since then, or when a queue has not drained for
-  five minutes.
 
 .. note::
 
@@ -1197,12 +1180,9 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-The telemetry store and the telemetry gateway are upstream pins with no row and
-no environment variable: ``services.telemetry_store.image`` and
-``services.telemetry_gateway.image`` in ``config.yml`` are the only way to
-change them. The store's tag decides whether the readers' query page is served
-at all — OSPREY serves that page only for an image tag whose page script it
-knows — so the tag comes from the config alone.
+The agent record's ClickHouse store is an upstream pin with no row and no
+environment variable: the profile's ``agent_record.clickhouse.image`` is the
+only way to change it.
 
 Which of these images a deploy builds, and what naming another image does to
 that, is in :ref:`deployment-image-builds`.
@@ -1217,8 +1197,13 @@ axes below.
 row value on purpose: all four run the bare project image, so all four read
 ``OSPREY_WORKER_IMAGE``. Set that variable and all four services move to the
 image you name. ``history`` (the history page) is rendered whenever the
-deployment runs the telemetry store and its web terminals sign people in; it is
-never listed in ``deployed_services``.
+deployment's web terminals sign people in (``auth.method`` of ``password`` or
+``oidc``); it is never listed in ``deployed_services``. Browsers reach it on
+the history page's origin, a second server of the web tier on its own port:
+``modules.web_terminals.history_port`` (``deployment.port_base`` + 2 by
+default), or ``modules.web_terminals.history_origin``, the address stated
+verbatim beside ``modules.web_terminals.external_origin`` when a load balancer
+is what browsers reach. The two must share a host.
 
 .. _deployment-image-axes:
 
@@ -1334,7 +1319,8 @@ the key families that gate writes and approval (``control_system.*``,
 are owned by the build profile: edit them in the profile and run
 ``osprey build``. Every refused attempt names the owning channel and is
 recorded in :ref:`the audit trail <reference-audit-trail>`, under
-``var/audit/<identity>/``, in a file named for the surface that refused it.
+an ``audit`` entry filed under the acting identity, whose ``surface`` names
+the surface that refused it.
 
 .. seealso::
 
