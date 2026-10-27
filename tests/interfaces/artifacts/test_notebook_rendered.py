@@ -40,12 +40,11 @@ class TestNotebookRenderedAPI:
             tool_source="test",
         )
 
-    def test_renders_notebook_cells_to_html(self, workspace_client):
+    def test_renders_notebook_cells_to_html(self, app_client):
         """A notebook artifact renders its cell content to an HTML page."""
-        client, _ = workspace_client
-        entry = self._save_notebook(client)
+        entry = self._save_notebook(app_client)
 
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
         # Code cell content is present (the render actually happened, and the
@@ -53,17 +52,16 @@ class TestNotebookRenderedAPI:
         # identifier).
         assert "UNIQUE_CELL_TOKEN" in resp.text
 
-    def test_an_offline_deployments_render_is_self_contained(self, workspace_client, monkeypatch):
+    def test_an_offline_deployments_render_is_self_contained(self, app_client, monkeypatch):
         """Rendered HTML must not reference external CDN assets when isolated.
 
         Where external hosts are unreachable those loads fail and the notebook
         renders broken inside the gallery's sandboxed iframe.
         """
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
-        client, _ = workspace_client
-        entry = self._save_notebook(client)
+        entry = self._save_notebook(app_client)
 
-        html = client.get(f"/api/notebooks/{entry.id}/rendered").text
+        html = app_client.get(f"/api/notebooks/{entry.id}/rendered").text
 
         # No src=/href= pointing at an external http(s) resource.
         external = re.findall(r'(?:src|href)\s*=\s*["\'](https?://[^"\']+)["\']', html)
@@ -73,23 +71,21 @@ class TestNotebookRenderedAPI:
         for host in _CDN_HOSTS:
             assert host not in html, f"rendered notebook references CDN host {host}"
 
-    def test_a_connected_deployments_render_keeps_its_assets(self, workspace_client, monkeypatch):
+    def test_a_connected_deployments_render_keeps_its_assets(self, app_client, monkeypatch):
         """A deployment that can reach the CDNs gets the fuller document.
 
         Blanking them here is not free: it is what makes the inline LaTeX in
         this notebook's markdown cell render as raw ``$x^2$``.
         """
         monkeypatch.setenv("OSPREY_OFFLINE", "0")
-        client, _ = workspace_client
-        entry = self._save_notebook(client)
+        entry = self._save_notebook(app_client)
 
-        html = client.get(f"/api/notebooks/{entry.id}/rendered").text
+        html = app_client.get(f"/api/notebooks/{entry.id}/rendered").text
 
         assert "cdnjs.cloudflare.com" in html
 
-    def test_non_notebook_returns_400(self, workspace_client):
-        client, _ = workspace_client
-        store = client.app.state.artifact_store
+    def test_non_notebook_returns_400(self, app_client):
+        store = app_client.app.state.artifact_store
         entry = store.save_file(
             file_content=b"# not a notebook",
             filename="x.md",
@@ -99,30 +95,27 @@ class TestNotebookRenderedAPI:
             mime_type="text/markdown",
             tool_source="test",
         )
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 400
 
-    def test_missing_artifact_returns_404(self, workspace_client):
-        client, _ = workspace_client
-        resp = client.get("/api/notebooks/nonexistent-id/rendered")
+    def test_missing_artifact_returns_404(self, app_client):
+        resp = app_client.get("/api/notebooks/nonexistent-id/rendered")
         assert resp.status_code == 404
 
-    def test_notebook_file_missing_on_disk_returns_404(self, workspace_client):
+    def test_notebook_file_missing_on_disk_returns_404(self, app_client):
         """A registered entry whose .ipynb vanished from disk returns 404, not 500."""
-        client, _ = workspace_client
-        entry = self._save_notebook(client)
-        client.app.state.artifact_store.get_file_path(entry.id).unlink()
+        entry = self._save_notebook(app_client)
+        app_client.app.state.artifact_store.get_file_path(entry.id).unlink()
 
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
 
-    def test_unparseable_notebook_returns_500_with_detail(self, workspace_client):
+    def test_unparseable_notebook_returns_500_with_detail(self, app_client):
         """A file that nbformat cannot parse surfaces as a 500 with the render
         error in the detail, rather than an unhandled exception."""
-        client, _ = workspace_client
-        entry = self._save_notebook(client, content=b"this is not JSON at all {")
+        entry = self._save_notebook(app_client, content=b"this is not JSON at all {")
 
-        resp = client.get(f"/api/notebooks/{entry.id}/rendered")
+        resp = app_client.get(f"/api/notebooks/{entry.id}/rendered")
         assert resp.status_code == 500
         assert "Notebook rendering failed" in resp.json()["detail"]
