@@ -83,25 +83,6 @@ HOOK_CONFIG = {
 
 
 @pytest.fixture
-def approval(hook_module):
-    """The `osprey_approval` module, imported through the test seam."""
-    return hook_module("osprey_approval")
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time.
-
-    Taken off the hook rather than imported here: the point of these tests is
-    that the hook's own binding resolves, and a separate import could pass while
-    the hook's sibling-import path was broken.
-    """
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
-
-
-@pytest.fixture
 def deployment(tmp_path, reader, monkeypatch):
     """An empty agent-data root the reader is pointed at.
 

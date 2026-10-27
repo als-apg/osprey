@@ -38,6 +38,7 @@ against real files in ``tmp_path``.
 
 from __future__ import annotations
 
+import functools
 import os
 
 import pytest
@@ -86,26 +87,6 @@ DRAFT_ROUTE = {"draft": {"plan_name": "orbit_scan", "plan_args": {}}, "revision"
 # ---------------------------------------------------------------------------
 # fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def approval(hook_module, monkeypatch):
-    """The `osprey_approval` module, imported through the test seam."""
-    module = hook_module("osprey_approval")
-    # Lane 1's URL must come from the config under test, not from a variable a
-    # developer happens to export.
-    monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_VA_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_LIVE_BRIDGE_URL", raising=False)
-    return module
-
-
-@pytest.fixture
-def reader(approval):
-    """The reader module the hook actually bound at import time."""
-    module = approval._target_state
-    assert module is not None, "the approval hook did not bind osprey_target_state"
-    return module
 
 
 @pytest.fixture
@@ -160,33 +141,13 @@ def write_state(root, target="va", targets=None):
 
 
 @pytest.fixture
-def bridge_calls():
-    """Recorder for the (base_url, path) pairs the describers ask for."""
-    return []
+def fake_bridge(fake_bridge):
+    """The shared routing table, answering both bridge verbs.
 
-
-@pytest.fixture
-def fake_bridge(approval, bridge_calls, monkeypatch):
-    """Replace both bridge verbs with a routing table that records its callers.
-
-    Recording the base URL is the point: on a two-lane deployment the prompt is
-    only honest if the queue it lists came from the lane it named, and the URL
-    is the only evidence of that.
+    Recording the base URL is the point here: on a two-lane deployment the
+    prompt is only honest if the queue it lists came from the lane it named.
     """
-
-    def _install(routes: dict[str, object]):
-        def _get(base_url, path, _timeout=3.0):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        def _post(base_url, path, _body, _timeout):
-            bridge_calls.append((base_url, path))
-            return routes.get(path)
-
-        monkeypatch.setattr(approval, "_bridge_get_json", _get)
-        monkeypatch.setattr(approval, "_bridge_post_json", _post)
-
-    return _install
+    return functools.partial(fake_bridge, post=True)
 
 
 def single_lane_config(*, with_services=True):
