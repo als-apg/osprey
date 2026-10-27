@@ -108,7 +108,7 @@ class _FakeBridgeHandler(http.server.BaseHTTPRequestHandler):
 
 
 @contextmanager
-def fake_bridge(routes: dict[str, object], posted: list | None = None):
+def serving_bridge(routes: dict[str, object], posted: list | None = None):
     """Runs a real threaded HTTP server for the duration of the `with` block.
 
     Pass *posted* to collect every POST the hook makes: the list is appended to
@@ -223,7 +223,7 @@ def test_matching_revision_renders_shipped_plan_and_source(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=7)
 
@@ -275,7 +275,7 @@ def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=3)
 
@@ -328,7 +328,7 @@ def test_matching_revision_reports_validated_session_plan_as_passed(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=2)
 
@@ -362,7 +362,7 @@ def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
         # plan_name interpolation, not the provenance block.
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=1)
 
@@ -412,7 +412,7 @@ def test_changed_revision_renders_loud_drift_warning(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=8)
 
@@ -434,7 +434,7 @@ def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_con
     config = _queue_config(make_config)
     routes = {"/draft": {"draft": None, "revision": 4}}
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=4)
 
@@ -475,7 +475,7 @@ def test_malformed_draft_response_fails_open(tmp_path, hook_runner, make_config,
     config = _queue_config(make_config)
     routes = {"/draft": b"this is not json {{{"}
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=6)
 
@@ -519,7 +519,7 @@ def test_queue_add_onto_a_running_queue_warns_that_it_executes_immediately(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
 
@@ -541,7 +541,7 @@ def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
         "/queue": _IDLE_QUEUE,
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
 
@@ -562,7 +562,7 @@ def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_con
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
 
@@ -592,7 +592,7 @@ def test_queue_start_names_every_item_it_would_run(tmp_path, hook_runner, make_c
         ],
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
@@ -607,7 +607,7 @@ def test_queue_start_on_an_empty_queue_says_so(tmp_path, hook_runner, make_confi
     """Approving a start that would run nothing should read as running nothing."""
     config = _queue_config(make_config)
 
-    with fake_bridge({"/queue": _IDLE_QUEUE}) as base_url:
+    with serving_bridge({"/queue": _IDLE_QUEUE}) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
@@ -628,7 +628,7 @@ def test_queue_stop_cancel_renders_the_loud_withdrawal_warning(
         }
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(
             _run_queue_tool(hook_runner, config, tmp_path, "queue_stop", {"cancel": True})
@@ -650,7 +650,7 @@ def test_plain_queue_stop_is_described_as_a_halt(tmp_path, hook_runner, make_con
     """
     config = _queue_config(make_config)
 
-    with fake_bridge({"/queue": _IDLE_QUEUE}) as base_url:
+    with serving_bridge({"/queue": _IDLE_QUEUE}) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_stop"))
 
@@ -672,7 +672,7 @@ def test_stop_run_renders_the_abort_prompt_end_to_end(
     """
     config = _queue_config(make_config)
 
-    with fake_bridge({"/queue": _IDLE_QUEUE}) as base_url:
+    with serving_bridge({"/queue": _IDLE_QUEUE}) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "stop_run"))
 
@@ -753,7 +753,7 @@ def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     }
     posted: list[tuple[str, object]] = []
 
-    with fake_bridge(routes, posted) as base_url:
+    with serving_bridge(routes, posted) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=4))
 
@@ -798,7 +798,7 @@ def test_queue_add_states_the_exact_total_when_the_pre_flight_truncated(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=5))
 
@@ -835,7 +835,7 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=6)
 
@@ -858,7 +858,7 @@ def test_queue_add_survives_a_bridge_with_no_pre_flight_route(
     same undegraded rest of the prompt, same approval prompt."""
     config = _queue_config(make_config)
 
-    with fake_bridge({"/draft": _draft_route("orm", {"num_points": 5}, 7)}) as base_url:
+    with serving_bridge({"/draft": _draft_route("orm", {"num_points": 5}, 7)}) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=7))
 
@@ -890,7 +890,7 @@ def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=8))
 
@@ -928,7 +928,7 @@ def test_queue_start_renders_the_trajectory_of_the_items_it_would_run(
     }
     posted: list[tuple[str, object]] = []
 
-    with fake_bridge(routes, posted) as base_url:
+    with serving_bridge(routes, posted) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
@@ -980,7 +980,7 @@ def test_queue_start_previews_only_the_first_three_items_of_a_larger_queue(
         # Deliberately no route for orm4's preview: it must never be fetched.
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
@@ -1263,7 +1263,7 @@ def test_declared_channels_survives_a_non_list_channels_field(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=9)
 
@@ -1298,7 +1298,7 @@ def test_declared_channels_survives_entries_missing_expected_keys(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=10)
 
@@ -1327,7 +1327,7 @@ def test_preview_fetch_survives_a_plan_name_with_a_lone_surrogate(
         # the network at all.
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=11)
 
@@ -1365,7 +1365,7 @@ def test_role_reason_and_detail_sanitize_embedded_newlines(
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=12)
 
@@ -1405,7 +1405,7 @@ def test_target_sanitizes_embedded_newlines(tmp_path, hook_runner, make_config, 
         },
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = _run_queue_add(hook_runner, config, tmp_path, draft_revision=13)
 
@@ -1469,7 +1469,7 @@ def test_the_rendered_start_prompt_leaves_its_queue_token_stamped_on_disk(
         "/plans": [{"name": "orm", "provenance": "shipped"}],
     }
 
-    with fake_bridge(routes) as base_url:
+    with serving_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
 
