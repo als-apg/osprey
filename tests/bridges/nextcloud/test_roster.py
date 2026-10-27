@@ -23,6 +23,7 @@ from osprey.bridges.nextcloud_talk.roster import (
     ParticipantRoster,
 )
 from tests.bridges.conftest import FakeClock, StubDispatcher
+from tests.bridges.nextcloud.conftest import ocs
 
 BOT = "osprey-bot"
 ROOM = "roomA"
@@ -136,10 +137,6 @@ def test_the_cache_and_the_seen_maps_are_bounded():
 # --- through the adapter --------------------------------------------------------
 
 
-def _ocs(data: Any, status: int = 200) -> httpx.Response:
-    return httpx.Response(status, json={"ocs": {"meta": {"statuscode": status}, "data": data}})
-
-
 def talk(participants: Any, *, room_type: int = 2) -> Any:
     """A Talk that answers participants (a list, or an int status), room info and posts."""
 
@@ -148,10 +145,10 @@ def talk(participants: Any, *, room_type: int = 2) -> Any:
         if path.endswith("/participants"):
             if isinstance(participants, int):
                 return httpx.Response(participants, text="lobby")
-            return _ocs(participants)
+            return ocs(participants)
         if "/api/v4/room/" in path:
-            return _ocs({"type": room_type, "displayName": ROOM})
-        return _ocs({"id": 99})
+            return ocs({"type": room_type, "displayName": ROOM})
+        return ocs({"id": 99})
 
     return handler
 
