@@ -46,16 +46,14 @@ Advisory CI lane (see ci.yml's ``bluesky-catalog-e2e`` job); run locally with
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from osprey.services.bluesky_bridge.app import (
@@ -76,7 +74,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
 )
-from tests.e2e import _orm_stack
+from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_support import format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -205,32 +203,16 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 
 
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=10.0)
 
 
 def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any]:
     """One request against the bridge, returning ``(status, parsed_body)``.
 
-    Refusal bodies are what this module asserts on, so an ``HTTPError`` is a
+    Refusal bodies are what this module asserts on, so an error status is a
     normal result here rather than an exception to propagate.
     """
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method=method,
-        headers={"Content-Type": "application/json"} if data is not None else {},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, method, body)
 
 
 def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
@@ -240,14 +222,14 @@ def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
     ones no well-behaved client would send, so a test of that promise has to be
     able to send them.
     """
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}", data=data, method="POST", headers={"Content-Type": content_type}
+    resp = httpx.post(  # localhost only
+        f"{BRIDGE_URL}{path}",
+        content=data,
+        headers={"Content-Type": content_type},
+        timeout=20.0,
+        trust_env=False,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return resp.status_code, resp.json()
 
 
 def _assert_preview_shape(payload: Any, *, plan: str) -> None:

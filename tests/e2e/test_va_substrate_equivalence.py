@@ -79,8 +79,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -608,12 +606,7 @@ def _dead_container_logs() -> str:
 
 
 def _get(path: str) -> tuple[int, dict]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=10.0)
 
 
 def _find_column(columns: list[str], device_name: str) -> int:

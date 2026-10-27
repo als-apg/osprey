@@ -78,14 +78,11 @@ unrelated to control-system safety. That allowlist gap has since landed
 from __future__ import annotations
 
 import ast
-import json
 import os
 import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -324,52 +321,16 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # HTTP helpers (mirrors test_orm_roundtrip.py / test_bluesky_catalog_e2e.py)
 # ---------------------------------------------------------------------------
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=10.0)
 
 
 def _post(path: str, body: dict, headers: dict | None = None) -> tuple[int, dict]:
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json", **(headers or {})},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "POST", body, extra_headers=headers, timeout=30.0)
 
 
 def _patch(path: str, body: dict) -> tuple[int, Any]:
     """A PATCH against the bridge (the shared draft is the only PATCH surface)."""
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=json.dumps(body).encode("utf-8"),
-        method="PATCH",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
-def _refusal_code(body: Any) -> Any:
-    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
-
-    ``None`` for any other shape, so an assertion reports the drifted body
-    rather than a ``KeyError`` from inside this helper.
-    """
-    detail = body.get("detail") if isinstance(body, dict) else None
-    return detail.get("code") if isinstance(detail, dict) else None
+    return _queue_drive.request(BRIDGE_URL, path, "PATCH", body, timeout=30.0)
 
 
 def _enqueue_session_plan(
@@ -597,7 +558,7 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
     # never something a caller could mistake for "this run does not exist".
     status, body = _post("/runs/not-a-real-run-id/launch", {}, headers={"X-Launch-Token": token})
     assert status == 410, f"expected 410 Gone from the retired launch route, got {status}: {body}"
-    assert _refusal_code(body) == "use_the_queue", (
+    assert _queue_drive.refusal_code(body) == "use_the_queue", (
         f"the retired route must say where the capability went: {body}"
     )
 

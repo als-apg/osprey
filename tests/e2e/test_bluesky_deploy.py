@@ -70,11 +70,8 @@ LLM secret/pre-flight probe this test doesn't need).
 
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -88,6 +85,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
 )
+from tests.e2e import _queue_drive
 from tests.e2e._deploy_support import (
     env_value,
     find_osprey_console_script,
@@ -262,37 +260,11 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
 
 def _get(path: str) -> tuple[int, Any]:
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "GET", timeout=15.0)
 
 
 def _request(path: str, method: str, body: dict | None = None) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    req = urllib.request.Request(
-        f"{BRIDGE_URL}{path}",
-        data=data,
-        method=method,
-        headers={"Content-Type": "application/json"} if data is not None else {},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
-
-
-def _refusal_code(body: Any) -> Any:
-    """The machine-readable code off a refusal body (``{"detail": {"code": ...}}``).
-
-    Returns ``None`` for any other shape so an assertion reports the drifted
-    body rather than a ``KeyError`` raised inside this helper.
-    """
-    detail = body.get("detail") if isinstance(body, dict) else None
-    return detail.get("code") if isinstance(detail, dict) else None
+    return _queue_drive.request(BRIDGE_URL, path, method, body)
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +423,7 @@ def test_plans_are_browsable_but_unqueueable() -> None:
 
     status, refusal = _request("/queue/items", "POST", {"draft_revision": patched["revision"]})
     assert status == 409, f"a browse-only enqueue must be refused: {status} {refusal}"
-    assert _refusal_code(refusal) == REASON_BROWSE_ONLY_CONNECTOR, (
+    assert _queue_drive.refusal_code(refusal) == REASON_BROWSE_ONLY_CONNECTOR, (
         f"wrong refusal code on a browse-only enqueue: {refusal}"
     )
 

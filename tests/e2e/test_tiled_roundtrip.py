@@ -59,13 +59,10 @@ safety/acceptance proof is never swept into lenient reruns).
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -322,18 +319,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 def _request(
     path: str, method: str, body: dict | None = None, token: str | None = None
 ) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers: dict[str, str] = {}
-    if data is not None:
-        headers["Content-Type"] = "application/json"
-    if token:
-        headers["X-Launch-Token"] = token
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=30.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, method, body, token=token, timeout=30.0)
 
 
 def _get(path: str) -> tuple[int, Any]:

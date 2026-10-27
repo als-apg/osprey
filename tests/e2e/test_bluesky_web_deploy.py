@@ -76,12 +76,11 @@ import os
 import shutil
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
@@ -187,28 +186,7 @@ def _request(
     body: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    all_headers = {"Content-Type": "application/json"} if data is not None else {}
-    all_headers.update(headers or {})
-    req = urllib.request.Request(
-        f"{base}{path}",
-        data=data,
-        method=method,
-        headers=all_headers,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            raw = resp.read()
-            try:
-                return resp.status, json.loads(raw.decode("utf-8"))
-            except ValueError:
-                return resp.status, raw.decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        raw = exc.read()
-        try:
-            return exc.code, json.loads(raw.decode("utf-8"))
-        except ValueError:
-            return exc.code, raw.decode("utf-8", errors="replace")
+    return _queue_drive.request(base, path, method, body, extra_headers=headers, timeout=15.0)
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
@@ -224,25 +202,14 @@ def _bridge_get(path: str) -> tuple[int, Any]:
 
 
 def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> tuple[int, Any]:
-    data = json.dumps(body).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["X-Launch-Token"] = token
-    req = urllib.request.Request(f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=15.0) as resp:
-            return resp.status, json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read().decode("utf-8"))
+    return _queue_drive.request(BRIDGE_URL, path, "POST", body, token=token, timeout=15.0)
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(f"{BLUESKY_WEB_URL}{path}", method="GET", headers=_auth_headers())
-    try:
-        with urllib.request.urlopen(req, timeout=10.0) as resp:
-            return resp.status, resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", errors="replace")
+    resp = httpx.get(  # localhost only
+        f"{BLUESKY_WEB_URL}{path}", headers=_auth_headers(), timeout=10.0, trust_env=False
+    )
+    return resp.status_code, resp.text
 
 
 def _docker_port(container: str) -> str:
