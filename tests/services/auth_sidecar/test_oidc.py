@@ -44,12 +44,14 @@ from osprey.services.auth_sidecar.routes.oidc import (
     token_admissible,
 )
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
-from tests.services.auth_sidecar._helpers import osprey_log, set_cookie_header
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-EXTERNAL_ORIGIN = "https://terminals.example.org"
-SESSION_LIFETIME = 3600
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    osprey_log,
+    set_cookie_header,
+)
+from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_SUBJECT = "idp|alice"
 CAROL_SUBJECT = "idp|carol"

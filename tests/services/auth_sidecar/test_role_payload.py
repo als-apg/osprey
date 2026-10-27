@@ -59,16 +59,14 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, STATE_SECRET
 from tests.services.auth_sidecar._oidc import (
     ALICE_SUBJECT,
     EXTERNAL_ORIGIN,
-    STATE_SECRET,
     FakeOIDCClient,
     callback,
 )
 
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
 SESSION_ID = "test-session-id"
 
 ALICE_PASSWORD = "alice-password"

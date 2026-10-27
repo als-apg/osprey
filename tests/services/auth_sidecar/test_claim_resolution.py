@@ -47,19 +47,16 @@ from osprey.services.auth_sidecar.routes.oidc import (
 )
 from osprey.services.auth_sidecar.routes.recheck import REASON_ROLE_MISMATCH, RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, STATE_SECRET
 from tests.services.auth_sidecar._oidc import (
     ALICE_SUBJECT,
     EXTERNAL_ORIGIN,
     FLOW_STATE,
-    STATE_SECRET,
     FakeOIDCClient,
     callback,
     pending_state,
 )
 from tests.services.auth_sidecar.mock_idp import MockIdP
-
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
 
 CAROL_SUBJECT = "idp|carol"
 

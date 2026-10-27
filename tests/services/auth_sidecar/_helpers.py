@@ -12,6 +12,11 @@ import pytest
 from osprey.audit import writer
 from osprey.services.auth_sidecar import audit
 
+#: The signing secrets and session lifetime every suite configures the sidecar with.
+SESSION_SECRET = "session-secret-value"
+STATE_SECRET = "state-secret-value"
+SESSION_LIFETIME = 3600
+
 
 class FakeClock:
     """A hand-advanced stand-in for ``time.time`` or ``time.monotonic``.

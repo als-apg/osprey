@@ -45,12 +45,13 @@ from osprey.services.auth_sidecar.routes.login import (
 from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
-from tests.services.auth_sidecar._helpers import FakeClock
-
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    FakeClock,
+)
+from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)

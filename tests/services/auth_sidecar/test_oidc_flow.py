@@ -67,21 +67,24 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
-from tests.services.auth_sidecar._helpers import ledger_records, osprey_log, set_cookie_header
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    ledger_records,
+    osprey_log,
+    set_cookie_header,
+)
 from tests.services.auth_sidecar.mock_idp import (
     DISCOVERY_AS_HTML,
     DISCOVERY_WITHOUT_AUTHORIZATION_ENDPOINT,
     MockIdP,
 )
 
-SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
 EXTERNAL_ORIGIN = "https://testserver"
 """The deployment's public origin. It matches the test client's base URL so the
 callback the provider redirects to is one this client can actually be asked
 for, exactly as a browser would be."""
-
-SESSION_LIFETIME = 3600
 
 ALICE_SUBJECT = "idp|alice"
 CAROL_SUBJECT = "idp|carol"

@@ -62,17 +62,18 @@ from osprey.services.auth_sidecar.routes.oidc import (
 from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-from tests.services.auth_sidecar._helpers import ledger_records
+from tests.services.auth_sidecar._helpers import (
+    SESSION_LIFETIME,
+    SESSION_SECRET,
+    STATE_SECRET,
+    ledger_records,
+)
 from tests.services.auth_sidecar._oidc import (
     ALICE_SUBJECT,
     EXTERNAL_ORIGIN,
-    STATE_SECRET,
     FakeOIDCClient,
     callback,
 )
-
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)

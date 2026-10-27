@@ -34,11 +34,8 @@ from osprey.services.auth_sidecar.sessions import (
     SessionCodec,
     UnlockedUser,
 )
-from tests.services.auth_sidecar._helpers import ledger_records
-
-SESSION_SECRET = "session-secret-value"
-SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
+from tests.services.auth_sidecar._helpers import SESSION_LIFETIME, SESSION_SECRET, ledger_records
+from tests.services.auth_sidecar._oidc import EXTERNAL_ORIGIN
 
 ALICE_PASSWORD = "alice-password"
 BOB_PASSWORD = "bob-password"

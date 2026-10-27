@@ -13,8 +13,8 @@ from fastapi.testclient import TestClient
 
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME
 from osprey.services.auth_sidecar.routes.oidc import CALLBACK_PATH, PENDING_FLOW_SESSION_KEY
+from tests.services.auth_sidecar._helpers import STATE_SECRET
 
-STATE_SECRET = "state-secret-value"
 EXTERNAL_ORIGIN = "https://terminals.example.org"
 ALICE_SUBJECT = "idp|alice"
 FLOW_STATE = "handshake-state-value"
