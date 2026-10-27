@@ -17,8 +17,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
-from tests._live import free_port
 
 
 def _make_launcher(host: str, port: int):
