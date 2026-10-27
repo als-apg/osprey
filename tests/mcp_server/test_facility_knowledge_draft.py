@@ -21,21 +21,16 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 from fastmcp.exceptions import ToolError
 
+from tests.mcp_server._facility_bundle import install_bundle
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 # ---------------------------------------------------------------------------
 # Bundle fixtures
 # ---------------------------------------------------------------------------
-
-
-def _write(path: Path, body: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dedent(body).lstrip(), encoding="utf-8")
 
 
 @pytest.fixture
@@ -50,9 +45,8 @@ def fixture_bundle(tmp_path: Path) -> Path:
 def _patch_bundle(fixture_bundle: Path, monkeypatch):
     """Inject the fixture bundle and reset the in-flight set before each test."""
     import osprey.mcp_server.facility_knowledge.server as srv
-    from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 
-    monkeypatch.setattr(srv, "_bundle", OKFBundle(fixture_bundle))
+    install_bundle(monkeypatch, fixture_bundle)
     # Ensure no residual in-flight state leaks between tests.
     srv._drafts_in_flight.clear()
     yield
