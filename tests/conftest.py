@@ -20,13 +20,34 @@ from osprey_connectors_tests._harness import _repo_cleanliness
 # The guards the connectors suite shares, imported by name so their autouse
 # fixtures take their usual places in this conftest's alphabetical order. See
 # osprey_connectors_tests._harness._guards for why they are not a registered plugin.
-from osprey_connectors_tests._harness._guards import (
+from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures and hooks, used by name
     _GUARD_KNOWN_LIMIT,
+    _clear_dotenv_timezone,
     _first_seen_clause,
     _is_real_deployment_item,
+    _no_host_timezone_leak,
+    agent_data_never_the_checkout,
+    control_context_root,
+    no_agent_data_in_the_repo,
+    no_spool_in_the_repo,
+    pytest_collection_finish,
+    pytest_runtest_setup,
+    pytest_xdist_make_scheduler,
+    reset_second_real_block_warning,
+    restore_cwd,
+    restore_environ,
+    restore_environ_per_module,
+    restore_root_logging,
+    session_posture_leak_guard,
+    write_control_context,
+    write_server_report,
 )
 from tests import _scoped_temp
 from tests._agent_cli import STUB_AGENT_CLI
+from tests._builds import (  # noqa: F401 - the session's shared builds
+    built_control_assistant,
+    offline_build_env,
+)
 
 # ===================================================================
 # Provider gateway stand-in

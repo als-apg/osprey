@@ -9,10 +9,7 @@ else. This module pins that two ways:
 * **Symbol check.** An AST scan of every production module (``src/osprey`` and
   ``packages/*/src``) finds no definition of, call to, or import of the retired
   writers and their path constants, and no string naming one of the retired
-  files. A legacy *read* the next phase removes is allow-listed in
-  :data:`LEGACY_READS`, each one with the slug of the task that removes it; an
-  allow-list entry that no longer matches anything fails too, so the list only
-  shrinks.
+  files. Any hit at all fails.
 * **Runtime check.** Every writer is driven through its production entry point
   inside a temporary project — once with the spool directory a launcher names,
   once with the writer's own ``<project>/var/spool/<identity>`` fallback — and
@@ -63,7 +60,6 @@ RETIRED_SYMBOLS: dict[str, str] = {
     "LEDGER_DIR_MODE": "the audit ledger file constants",
     "writer_context": "the audit ledger path resolver",
     "ledger_name": "the audit ledger path resolver",
-    "audit_dir": "the audit ledger directory",
     "ensure_audit_dir": "the audit ledger directory provisioning",
     "_container_audit_dir": "the audit ledger directory provisioning",
     "AUDIT_DIR_RELPATH": "the var/audit path constant",
@@ -82,7 +78,6 @@ RETIRED_MODULES: dict[str, str] = {
 
 #: Fragments no production string (docstrings aside) may hold, and what each names.
 RETIRED_LITERALS: dict[str, str] = {
-    "var/audit": "the audit ledger tree",
     "dispatch/*.json": "the dispatch run-record files",
     "history.json": "the bridge history file",
     "HISTORY_PATH": "the bridge history file setting",
@@ -91,47 +86,6 @@ RETIRED_LITERALS: dict[str, str] = {
     "hook_debug": "the hook debug log file",
     "api_calls_dir": "the API-call .txt directory",
     "_latest.txt": "the API-call .txt files",
-}
-
-#: Legacy reads (and the deploy plumbing of the legacy tree) that the next
-#: phase deletes, keyed ``(repo-relative path, retired token)``, each naming the
-#: task that removes it. Writes are never listed here.
-LEGACY_READS: dict[tuple[str, str], str] = {
-    # The archive still copies the old run-record files.
-    ("src/osprey/services/archive/run.py", "dispatch/*.json"): "archive-session-kinds-removed",
-    # The gateway, its health check and the audit-dir mounts and provisioning.
-    (
-        "packages/osprey-connectors/src/osprey_connectors/workspace.py",
-        "AUDIT_DIR_RELPATH",
-    ): "remove-gateway-and-accounts",
-    ("src/osprey/deployment/compose_generator.py", "AUDIT_DIR_RELPATH"): (
-        "remove-gateway-and-accounts"
-    ),
-    ("src/osprey/deployment/compose_generator.py", "ensure_audit_dir"): (
-        "remove-gateway-and-accounts"
-    ),
-    ("src/osprey/deployment/container_lifecycle.py", "AUDIT_DIR_RELPATH"): (
-        "remove-gateway-and-accounts"
-    ),
-    ("src/osprey/deployment/reset.py", "audit_dir"): "remove-gateway-and-accounts",
-    ("src/osprey/deployment/web_terminals/provision.py", "ensure_audit_dir"): (
-        "remove-gateway-and-accounts"
-    ),
-    ("src/osprey/deployment/web_terminals/render.py", "AUDIT_DIR_RELPATH"): (
-        "remove-gateway-and-accounts"
-    ),
-    ("src/osprey/deployment/web_terminals/render.py", "_container_audit_dir"): (
-        "remove-gateway-and-accounts"
-    ),
-    ("src/osprey/deployment/web_terminals/render.py", "var/audit"): "remove-gateway-and-accounts",
-    ("src/osprey/deployment/web_terminals/lint.py", "var/audit"): "remove-gateway-and-accounts",
-    ("src/osprey/mcp_server/python_executor/executor.py", "AUDIT_DIR_RELPATH"): (
-        "remove-gateway-and-accounts"
-    ),
-    # ``reset --purge-audit`` still clears a pre-upgrade ledger tree, and the
-    # build auditor's prompt still names it as off limits.
-    ("src/osprey/cli/reset_cmd.py", "var/audit"): "remove-gateway-and-accounts",
-    ("src/osprey/cli/audit_prompts.py", "var/audit"): "remove-gateway-and-accounts",
 }
 
 
@@ -258,19 +212,9 @@ def test_the_scan_reads_the_production_trees():
 
 
 def test_no_production_module_names_a_retired_writer(production_hits):
-    """Every hit outside :data:`LEGACY_READS` is a retired writer still in use."""
-    unlisted = [hit for hit in production_hits if (hit.path, hit.token) not in LEGACY_READS]
-    assert not unlisted, "production code still names a retired writer:\n  " + "\n  ".join(
-        str(hit) for hit in unlisted
-    )
-
-
-def test_every_legacy_read_still_exists(production_hits):
-    """An allow-list entry that matches nothing is stale and comes off the list."""
-    found = {(hit.path, hit.token) for hit in production_hits}
-    stale = sorted(key for key in LEGACY_READS if key not in found)
-    assert not stale, "LEGACY_READS entries that no longer match anything:\n  " + "\n  ".join(
-        f"{path}: {token} ({LEGACY_READS[(path, token)]})" for path, token in stale
+    """Every hit is a retired writer still in use."""
+    assert not production_hits, "production code still names a retired writer:\n  " + "\n  ".join(
+        str(hit) for hit in production_hits
     )
 
 
@@ -473,14 +417,14 @@ def _hook(project: Project) -> None:
 def _sidecar(project: Project, monkeypatch) -> None:
     from fastapi.testclient import TestClient
 
-    from osprey.services.auth_sidecar import audit
     from osprey.services.auth_sidecar.app import create_app
     from osprey.services.auth_sidecar.passwords import hash_password
+    from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV
     from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
     state = project.root / "var" / "state" / SIDECAR_IDENTITY
     state.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
+    monkeypatch.setenv(STATE_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     project.write_as(SIDECAR_IDENTITY)

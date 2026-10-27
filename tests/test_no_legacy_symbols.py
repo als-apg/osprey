@@ -4,7 +4,7 @@ Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
 
-Seven rename generations are guarded: the ``prompts``-era rename; the
+Eight rename generations are guarded: the ``prompts``-era rename; the
 ``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
 (a plan is an arbitrary generator, not only a scan); the
 ``motor``/``detector`` -> ``setpoint``/``readback`` rename that put the bridge
@@ -14,8 +14,11 @@ behind; the substrate-env -> devices-file move, which deleted the three
 passthrough variables and the helpers that produced and read them; the
 control-context rename, which made the control target and the write posture one
 record per *deployment* and retired every name that called that deployment-wide
-thing a session's; and the build-artifact catalog's move into the harness
-adapter. The genuine
+thing a session's; the build-artifact catalog's move into the harness
+adapter; and the agent record, which replaced the telemetry store's modules.
+The store's own vocabulary (its service names, tables, reader keys and the
+old audit ledger directory) is guarded in ``tests/test_retired_store_words.py``,
+which allows the refusal code and its tests to name it. The genuine
 tokens that legitimately survive — the ``scan``/``grid_scan``
 *plan names*, their ``Scan*Params`` schemas, physics scan docs, the many
 unrelated senses of "scan" (a directory scan, a pattern scan, a CRT scanline),
@@ -134,6 +137,15 @@ LEGACY_SUBSTRINGS = (
     # build-artifact catalog moved inside the harness adapter
     "services.build_artifacts",
     "services/build_artifacts",
+    # the agent record replaced the telemetry store: the modules that
+    # configured, credentialed, linted and exported it, and the session
+    # reconstruction query and page that read it, are deleted.
+    "telemetry_config",
+    "telemetry_credentials",
+    "telemetry_lint",
+    "telemetry_export",
+    "reconstruct_session",
+    "reconstruct-session",
 )
 
 ROOTS = ("src", "tests", "docs/source")
