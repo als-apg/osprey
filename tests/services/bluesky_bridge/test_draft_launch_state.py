@@ -9,7 +9,7 @@ mirrors its isolation fixture, resetting the draft singleton via
 `draft._clear()`. The `launched`-frame delivery test follows the white-box
 `draft._subscribe()` precedent (`TestClient`/`ASGITransport` drain streaming
 responses, so the SSE generator can't be driven in-process) rather than the
-live-uvicorn `_live_bridge` route.
+live-uvicorn route `test_draft.py` takes.
 """
 
 from __future__ import annotations

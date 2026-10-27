@@ -19,9 +19,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces._serving import run_app_server
 from osprey.services.bluesky_bridge import draft
 from osprey.services.bluesky_bridge.app import app
-from tests.services.bluesky_bridge._live_bridge import live_bridge
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
@@ -420,7 +420,12 @@ def test_revision_monotonic_across_clear_and_plan_change(client: TestClient) -> 
 
 
 def test_sse_frame_order_and_content_over_real_http() -> None:
-    with live_bridge() as base_url:
+    # A real socket, because `httpx.ASGITransport` and `TestClient` drive the
+    # app to completion before returning any response and so hang on an
+    # endless SSE stream. The bridge's module-level asyncio primitives bind to
+    # the first loop that touches them; the server thread is joined before the
+    # next test's loop starts, so the two loops never overlap.
+    with run_app_server(app) as base_url:
         action_client = httpx.Client(base_url=base_url)
         try:
             with httpx.Client(base_url=base_url) as stream_client:

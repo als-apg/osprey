@@ -17,10 +17,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces._serving import run_app_server
 from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
-from tests.services.bluesky_bridge._live_bridge import live_bridge
 
 
 @pytest.fixture
@@ -181,7 +181,7 @@ async def test_get_run_data_tool_end_to_end_over_real_http(
 
     monkeypatch.chdir(tmp_path)  # no config.yml in scope -> env var + defaults only
 
-    with live_bridge() as base_url:
+    with run_app_server(app) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         server_context.reset_server_context()
         server_context.initialize_server_context()
