@@ -201,7 +201,7 @@ def _config_service_block(config: Any, service: str) -> Any:
     Args:
         config: A profile's ``config:`` block, whatever shape it parsed as.
         service: The service's key in the rendered ``services:`` section
-            (``telemetry_store``, ``graphdb``, …), not its compose name.
+            (``graphdb``, ``postgresql``, …), not its compose name.
 
     Returns:
         :data:`_MISSING` when no spelling addresses that service; ``None`` when
@@ -1143,7 +1143,7 @@ class BuildProfile:
 
         Args:
             service: The service's key in the rendered ``services:`` section
-                (``telemetry_store``, ``postgresql``, …), not its compose name.
+                (``graphdb``, ``postgresql``, …), not its compose name.
 
         Returns:
             Whether the rendered ``config.yml`` will carry that block.

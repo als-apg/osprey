@@ -4,7 +4,7 @@ A deployment's services are reached by clients that do not deploy them — every
 web-terminal render is an *attached* render (``deploy_services: false``) whose
 container shares the host's network namespace and dials the hosting
 deployment's Postgres, its qmd sidecar, its graph store, its bluesky bridge,
-its telemetry store — and each of those clients resolves its endpoint through
+its agent record — and each of those clients resolves its endpoint through
 a different mechanism: a ``services.<name>`` block the build writes for a
 deploying project, a compiled-in default, an env var a compose author sets.
 Nothing tied the three together, so a client could be switched ON in a render
@@ -958,27 +958,11 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),
-    "telemetry_gateway": ReachContract(
-        service="telemetry_gateway",
-        no_client_reach=True,
-        note=(
-            "the agent exports its OTLP logs to agent-record; nothing in a render "
-            "container dials the gateway"
-        ),
-    ),
-    "telemetry_store": ReachContract(
-        service="telemetry_store",
-        no_client_reach=True,
-        note=(
-            "only the gateway, the archive pass and the history page query it; "
-            "nothing in a render container dials the store"
-        ),
-    ),
     "history": ReachContract(
         service="history",
         no_client_reach=True,
         note=(
-            "browsers reach the history page through the readers' origin; "
+            "browsers reach the history page on its own origin; "
             "nothing in a render container dials it"
         ),
     ),

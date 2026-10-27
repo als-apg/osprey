@@ -27,7 +27,7 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.agent_record.config import history_page_deployed
+from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.agent_runner.claude_state import (
     CLAUDE_CONFIG_VOLUME_SUFFIX,
     CLAUDE_PROJECTS_VOLUME_SUFFIX,
@@ -52,10 +52,6 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
 )
 from osprey.deployment.subprocess_capture import run_captured
-from osprey.deployment.telemetry_config import HISTORY_SERVICE
-from osprey.deployment.telemetry_store.render import (
-    render_context as telemetry_store_render_context,
-)
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
 # wheel_build; the copy helper is invoked here by _stage_dev_wheel_for_context,
@@ -1371,21 +1367,20 @@ def _resolve_archive_render_context(config):
     The archive reads other services' named volumes by declaring the same bare
     keys their owner templates declare, so the list of volumes it mounts is
     derived here from the same inputs the owners render from: the web-terminal
-    roster (two volumes per user: transcripts and agent data), the dispatch worker's count and workspace
-    mode, and the deployed plan-queue lanes that run their own Redis. A volume
-    is named only when its owner renders it, because naming one no service
-    declares would create an empty volume.
+    roster (one agent-data volume per user), the dispatch worker's count and
+    workspace mode, and the deployed plan-queue lanes that run their own Redis.
+    A volume is named only when its owner renders it, because naming one no
+    service declares would create an empty volume.
 
     :param config: Configuration dictionary
     :type config: dict
-    :return: ``dest_source``, ``audit_source``, ``terminals``, ``workers``,
-        ``lanes``, ``telemetry_store``, ``store_url``, ``store_backfill_days``
-        and ``interval_seconds``
+    :return: ``dest_source``, ``terminals`` (``user``, ``agent_data_volume``),
+        ``workers`` (``name``, ``volume``, ``service``), ``lanes`` and
+        ``interval_seconds``
     :rtype: dict
     """
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
-    from osprey.deployment import telemetry_config as tc
-    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
 
     config = config or {}
     deployed = {str(name) for name in config.get("deployed_services") or []}
@@ -1399,12 +1394,11 @@ def _resolve_archive_render_context(config):
     terminals = []
     if "archive" in deployed:
         terminals = [
-            {**terminal, "agent_data_volume": f"{terminal['user']}-agent-data"}
+            {"user": terminal["user"], "agent_data_volume": f"{terminal['user']}-agent-data"}
             for terminal in sources["terminals"]
         ]
     workers = [
-        {key: worker[key] for key in ("name", "volume", "projects_volume", "service")}
-        for worker in sources["workers"]
+        {key: worker[key] for key in ("name", "volume", "service")} for worker in sources["workers"]
     ]
 
     lanes = []
@@ -1421,18 +1415,11 @@ def _resolve_archive_render_context(config):
             )
 
     archive_block = _block("archive")
-    # The store's address from the archive's network shape: its service name on
-    # the bridge, the loopback port it publishes on the host namespace.
-    on_host = archive_block.get("network") == "host"
     return {
         "dest_source": repo_relative_mount_source(ARCHIVE_DIR_RELPATH),
-        "audit_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
         "terminals": terminals,
         "workers": workers,
         "lanes": lanes,
-        "telemetry_store": tc.STORE_SERVICE in deployed,
-        "store_url": tc.store_url(config, bridge=not on_host),
-        "store_backfill_days": tc.retention_days(config),
         "interval_seconds": int(
             archive_block.get("interval_seconds") or ARCHIVE_DEFAULT_INTERVAL_SECONDS
         ),
@@ -1504,7 +1491,8 @@ def _resolve_agent_record_render_context(config, repo_root=None):
         ``None``
     :type repo_root: str | pathlib.Path | None
     :return: ``port``, ``container_port``, ``env_files``, ``spool_source``,
-        ``spool_dir``, ``record_source``, ``record_dir``, ``transcripts_dir``,
+        ``spool_dir``, ``record_source``, ``record_dir``, ``archive_source``,
+        ``archive_dir``, ``transcripts_dir``,
         ``volume_roots`` (``volume``, ``root``), ``terminal_volumes`` (the
         volumes this slice re-declares), ``host`` (``source``, ``target``,
         or ``None``) and ``clickhouse`` (see
@@ -1516,7 +1504,11 @@ def _resolve_agent_record_render_context(config, repo_root=None):
     from osprey.agent_record.identities import HOST_TRANSCRIPT_ROOT
     from osprey.agent_record.service import DEFAULT_TRANSCRIPTS_DIR
     from osprey.port_layout import resolve_port_base
-    from osprey_connectors.workspace import RECORD_DIR_RELPATH, SPOOL_DIR_RELPATH
+    from osprey_connectors.workspace import (
+        ARCHIVE_DIR_RELPATH,
+        RECORD_DIR_RELPATH,
+        SPOOL_DIR_RELPATH,
+    )
 
     config = config or {}
     container_project_dir = PurePosixPath(_CONTAINER_APP_ROOT) / resolve_project_name(config)
@@ -1545,6 +1537,8 @@ def _resolve_agent_record_render_context(config, repo_root=None):
         "spool_dir": (container_project_dir / SPOOL_DIR_RELPATH).as_posix(),
         "record_source": repo_relative_mount_source(RECORD_DIR_RELPATH),
         "record_dir": (container_project_dir / RECORD_DIR_RELPATH).as_posix(),
+        "archive_source": repo_relative_mount_source(ARCHIVE_DIR_RELPATH),
+        "archive_dir": (container_project_dir / ARCHIVE_DIR_RELPATH).as_posix(),
         "transcripts_dir": DEFAULT_TRANSCRIPTS_DIR,
         "volume_roots": volume_roots,
         "terminal_volumes": terminal_volumes,
@@ -1603,8 +1597,12 @@ def _resolve_agent_record_clickhouse_context(config):
     :rtype: dict | None
     """
     from osprey.agent_record import credentials as creds
-    from osprey.agent_record.config import BACKEND_CLICKHOUSE, parse_agent_record_block
-    from osprey.deployment.telemetry_config import STORE_HTTP_CONTAINER_PORT, STORE_MEMORY_RATIO
+    from osprey.agent_record.config import (
+        BACKEND_CLICKHOUSE,
+        STORE_HTTP_CONTAINER_PORT,
+        STORE_MEMORY_RATIO,
+        parse_agent_record_block,
+    )
 
     block = parse_agent_record_block(config or {})
     if block.backend != BACKEND_CLICKHOUSE:
@@ -1630,31 +1628,31 @@ def _resolve_history_render_context(config):
     Computed for every config, so the template renders on its own; the origin
     is filled in only when the page is deployed
     (:func:`~osprey.agent_record.config.history_page_deployed`), the one
-    case where the readers' origin is required to exist.
+    case where the history page's origin is required to exist.
 
     :param config: Configuration dictionary
     :type config: dict
     :return: ``port``, ``container_port``, ``external_origin``, ``max_days``
-        and ``url`` (the page's browser URL, ``<readers' origin>/history/``,
+        and ``url`` (the page's browser URL, ``<history page's origin>/history/``,
         or ``""``)
     :rtype: dict
     """
-    from osprey.deployment import telemetry_config as tc
+    from osprey.agent_record.config import history_app_port, parse_agent_record_block
 
     origin = ""
     if history_page_deployed(config):
-        from osprey.deployment.web_terminals.render import reader_origin
+        from osprey.deployment.web_terminals.render import history_origin
 
-        # A deployment that names no readers' origin is refused where the web
-        # tier renders the readers' server; here it renders no origin and so
-        # no dashboard link.
+        # A deployment whose history page's origin cannot be named is refused
+        # where the web tier renders that server; here it renders no origin and
+        # so no dashboard link.
         with contextlib.suppress(ValueError):
-            origin = reader_origin(config).origin
+            origin = history_origin(config).origin
     return {
-        "port": tc.history_port(config),
+        "port": history_app_port(config),
         "container_port": HISTORY_CONTAINER_PORT,
         "external_origin": origin,
-        "max_days": tc.retention_days(config),
+        "max_days": parse_agent_record_block(config or {}).retention_days,
         "url": f"{origin}/history/" if origin else "",
     }
 
@@ -2248,7 +2246,6 @@ def _inject_project_metadata(config):
     # dot-prefixed is not reliably read as a path by every runtime. A state dir
     # outside the repo has no relative spelling and is emitted absolute.
     from osprey_connectors.workspace import (
-        AUDIT_DIR_RELPATH,
         SIMULATOR_LOG_DIR_RELPATH,
         agent_data_base_dir,
         resolve_simulation_state_dir,
@@ -2309,28 +2306,6 @@ def _inject_project_metadata(config):
         agent_data_base if agent_data_base.is_absolute() else worker_project_dir / agent_data_base
     ).as_posix()
 
-    # The audit zone, in the two spellings a compose template needs: the
-    # container-side ROOT of it (absolute, under this project's in-container
-    # root) and the HOST-side bind source (repo-relative, resolved by compose
-    # against the pinned project directory). Each service appends its own
-    # IDENTITY to both — `<root>/<identity>` — which is what makes the mount
-    # per-service: a container holds a bind to its own subdirectory and has no
-    # mount through which it could read another identity's records.
-    #
-    # Both halves come from the one `var/audit` constant the writer inside the
-    # container, `osprey reset --purge-audit` and the hooks resolve their own
-    # audit root through, so the path a service is MOUNTED at and the path its
-    # writer resolves cannot be spelled apart.
-    config_with_labels["osprey_container_audit_dir"] = (
-        container_project_dir / AUDIT_DIR_RELPATH
-    ).as_posix()
-    # The worker's own container-side root: under its project, which a tier
-    # moves. The host-side source is the same for every service.
-    config_with_labels["osprey_worker_audit_dir"] = (
-        worker_project_dir / AUDIT_DIR_RELPATH
-    ).as_posix()
-    config_with_labels["osprey_audit_mount_source"] = repo_relative_mount_source(AUDIT_DIR_RELPATH)
-
     # The simulator's model-log directory as an agent container binds it: the
     # host's `var/simulator` at `<container repo root>/var/simulator`, the path
     # the in-process composite resolves from the config the container loads.
@@ -2366,21 +2341,7 @@ def _inject_project_metadata(config):
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
 
-    # The container-side root for a SERVICE image — the bluesky bridge image
-    # (its bridge and queueserver containers) and the bluesky_web sidecar —
-    # which runs no OSPREY project of its own and takes the project's config as
-    # a bind mount under `_CONTAINER_PROJECT_ROOT`. Its compose service hands it
-    # `OSPREY_CONFIG` naming that mount, so its writer resolves the project
-    # root from the config (`writer.audit_dir` -> `resolve_project_root`, the
-    # config rung) and writes under `/app/project/var/audit`. Neither the
-    # project image's `/app/<project>/var/audit` above nor the image WORKDIR's
-    # `/app/var/audit`: a bind at either would be a directory nothing writes to
-    # while the records went to the container's writable layer.
-    config_with_labels["osprey_service_container_audit_dir"] = (
-        PurePosixPath(_CONTAINER_PROJECT_ROOT) / AUDIT_DIR_RELPATH
-    ).as_posix()
-
-    # The spool and state zones, in the spellings the audit zone has above:
+    # The spool and state zones, in two spellings:
     # the HOST-side bind source, and the container-side root for a project
     # image (`container`), a dispatch worker (`worker`), a service image
     # (`service_container`) and a bridge, whose image runs from `/app` with no
@@ -2414,7 +2375,7 @@ def _inject_project_metadata(config):
     # the read-only bind lands on (:data:`_CONTAINER_CONTROL_TREE_DIR`).
     #
     # A reader container binds the WHOLE tree rather than one identity's
-    # subdirectory, unlike the audit zone above: it does not know at render time
+    # subdirectory, unlike the spool and state zones above: it does not know at render time
     # which identity will own the write it has to judge — the owner arrives with
     # the request — so narrowing the mount per identity would mean a tree that
     # answers for nobody. Read-only for the same reason the mount exists: the
@@ -2438,7 +2399,7 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_container_control_tree_dir"] = _CONTAINER_CONTROL_TREE_DIR
 
     # ARIEL's markdown mirror, in the same two spellings and for the same
-    # reason as the audit zone above: the HOST bind source compose resolves
+    # reason as the spool and state zones above: the HOST bind source compose resolves
     # against the pinned project directory, and the CONTAINER target the
     # exporter inside actually writes to. A template that mounts the mirror
     # into a service consumes both and makes no path decision of its own, so
@@ -2500,9 +2461,6 @@ def _inject_project_metadata(config):
     # publishes: the interface `deployment.bind_address` names, or loopback for
     # a wildcard. One derivation for every template that sets such an address.
     config_with_labels["osprey_host_dial_address"] = _host_dial_address(config)
-    # The telemetry store's compose fragment and server config files render
-    # from one derivation of `services.telemetry_store`.
-    config_with_labels["osprey_telemetry_store"] = telemetry_store_render_context(config)
 
     # The archive service's sources — the volumes it reads, derived from the
     # same roster, worker and lane inputs their owner templates render from —
@@ -2523,19 +2481,6 @@ def _inject_project_metadata(config):
     history_context = _resolve_history_render_context(config)
     config_with_labels["osprey_history"] = history_context
     config_with_labels["osprey_history_url"] = history_context["url"]
-    # The telemetry gateway's memory limit, published ports, mounts and its
-    # rendered Collector configuration: one derivation for the compose
-    # fragment and the config.yaml beside it.
-    # Its ledger receivers cover every configured identity and every directory
-    # already under var/audit, so a directory keeps its receiver (and its
-    # checkpoint) after its writer leaves the config.
-    from osprey.deployment.telemetry_gateway import gateway_render_context, ledger_receivers
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
-
-    config_with_labels["osprey_telemetry_gateway"] = gateway_render_context(
-        config,
-        ledger_receivers=ledger_receivers(config, Path(repo_root) / AUDIT_DIR_RELPATH),
-    )
 
     # Every host port this deployment publishes, keyed by slot name
     # (:func:`osprey.port_layout.layout_ports`) — so a template line spells
@@ -2699,7 +2644,7 @@ def _site_image_args_for_context(config, out_dir):
 
     Only build contexts that contain a ``Dockerfile`` get any of it, for the
     reason :func:`_stage_dev_wheel_for_context` applies to the wheel: a
-    pure-image service (postgresql, telemetry_store) builds nothing, and an arg its
+    pure-image service (postgresql) builds nothing, and an arg its
     fragment never reads is noise in the render.
 
     :param config: The deployment's raw config.
@@ -2733,7 +2678,7 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     release under a flag that means "run my local code").
 
     Only build contexts that contain a ``Dockerfile`` get the wheel: pure-image
-    services (postgresql, telemetry_store) never install it, and a stray wheel in
+    services (postgresql) never install it, and a stray wheel in
     their context is dead weight that also churns the build-context hash.
 
     :param out_dir: The service's build context directory (already populated
@@ -2750,7 +2695,7 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
         logger.debug("Production mode: Containers will install osprey from PyPI")
         return False
     if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
-        # Routine and correct: pure-image services (postgresql, telemetry_store)
+        # Routine and correct: pure-image services (postgresql)
         # never install osprey. DEBUG, not INFO — at INFO these lines outnumber
         # the ones that carry a decision and bury them.
         logger.debug(
@@ -2945,9 +2890,9 @@ def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence, exa
     """Create *path* setgid + group-writable, and report its GID.
 
     The mechanism behind :func:`ensure_shared_corpus_dir` and
-    :func:`ensure_audit_dir`, which are the same act on two different
+    :func:`ensure_spool_dir`, which are the same act on two different
     directories — one shared BETWEEN containers, one written by a single
-    container and read on the host — and differ only in what a log line calls
+    container and read by another uid — and differ only in what a log line calls
     them. Sharing one body is what keeps the two from drifting into different
     modes or different failure postures, which is the drift that would matter:
     a directory the deploy left root-owned is unwritable by the process that
@@ -2968,7 +2913,7 @@ def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence, exa
         it already carries. The two rules differ only for a directory that
         already exists, and they differ over whose intent its mode expresses:
 
-        * ``False`` (:func:`ensure_shared_corpus_dir`, :func:`ensure_audit_dir`)
+        * ``False`` (:func:`ensure_shared_corpus_dir`, :func:`ensure_spool_dir`)
           — the directory may be an operator's, so its bits are widened and
           never narrowed. A bundle deliberately kept at 0700 must not become
           world-readable because a deploy ran.
@@ -3033,109 +2978,17 @@ def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence, exa
     return gid
 
 
-def audit_identity_dir(repo_root, identity):
-    """Where *identity* writes its audit records on the HOST.
-
-    One spelling of ``<repo>/var/audit/<identity>``, shared by the provisioning
-    helper below and by every renderer that emits the bind source for it, so a
-    container can never be handed a mount whose host side is a directory
-    nothing provisioned. The ``var/audit`` half comes from
-    :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — the same constant
-    the writer inside the container, ``osprey reset --purge-audit`` and the
-    hooks resolve their own audit root through.
-
-    :param repo_root: The deployment repo root
-    :type repo_root: str | pathlib.Path
-    :param identity: The audit identity (a roster user, a service key, or
-        ``sidecar``) — the subdirectory name, which is also what the container
-        is told to call itself via ``OSPREY_AUDIT_IDENTITY``
-    :type identity: str
-    :return: The identity's audit subdirectory
-    :rtype: pathlib.Path
-    :raises ValueError: If *identity* is outside the username charset. The
-        identity is a path SEGMENT here, and this helper is the seam every
-        provisioning caller goes through — an unvalidated ``../../x`` would
-        drive ``mkdir`` outside the audit zone entirely, and it would do so on
-        the deploy path BEFORE the render's own roster gates get to refuse the
-        deployment. Validating at the seam rather than at each caller is what
-        makes that unreachable however the identity was obtained. Every fixed
-        identity the framework mints (``sidecar``, ``dispatch-worker-<n>``)
-        matches; a roster name that does not is a name lint and the render both
-        reject on their own account.
-    """
-    from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
-
-    if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
-        raise ValueError(
-            f"audit identity {identity!r} must match {USERNAME_CHARSET_RE.pattern!r}: "
-            "it names a subdirectory of the audit zone, so anything else provisions "
-            "or mounts a directory outside it"
-        )
-    return Path(repo_root) / AUDIT_DIR_RELPATH / identity
-
-
-def ensure_audit_dir(repo_root, identity, relative_to=None):
-    """Provision one identity's audit subdirectory before its bind mount exists.
-
-    Called on the render/up path for every containerized service that binds
-    ``./var/audit/<identity>/`` — every service that hosts an interface app or
-    launches framework MCP servers, one subdirectory per dispatch worker
-    included. Same two failures as :func:`ensure_shared_corpus_dir`, in the
-    same order:
-
-    1. **Root-owned mount source.** A missing bind source is created by the
-       container runtime instead, and a rootful daemon creates it owned by
-       root — after which the container's own dropped (uid 1000) process cannot
-       write the records it exists to write, and the operator cannot purge them.
-    2. **Group access across the privilege drop.** setgid makes every record
-       take the DIRECTORY's group whichever uid wrote it, which is what keeps
-       host-side ``osprey reset --purge-audit`` working on files a container
-       wrote. The membership half is granted inside the container by the
-       entrypoint's group step, which reads the gid off this directory —
-       so this call has to happen BEFORE the container starts.
-
-    PER-IDENTITY, never shared: root and ``osprey`` never share a file, and one
-    user's container has no mount through which it could read another's records.
-
-    :param repo_root: The deployment repo root
-    :type repo_root: str | pathlib.Path
-    :param identity: The audit identity owning this subdirectory
-    :type identity: str
-    :param relative_to: Root to spell the directory against in the INFO line
-        (see :func:`ensure_shared_corpus_dir`); ``None`` names it absolutely
-    :type relative_to: str | pathlib.Path | None
-    :return: The directory's group id, or ``None`` when it could not be
-        provisioned, the identity was refused, or the platform reports none
-    :rtype: int | None
-    """
-    try:
-        target = audit_identity_dir(repo_root, identity)
-    except ValueError as e:
-        # SKIPPED, not raised. This helper is never the thing that fails a
-        # deploy — the render's roster gates and lint are, with messages that
-        # can explain a bad username, which this one cannot. What matters here
-        # is that nothing outside the audit zone is created on the way there.
-        logger.warning(f"Skipping audit directory provisioning: {e}")
-        return None
-    return _ensure_group_shared_dir(
-        target,
-        relative_to=relative_to,
-        label="Audit dir",
-        noun="audit directory",
-        consequence=(
-            "Records written inside the container may be unwritable or "
-            "invisible to the operator on the host."
-        ),
-    )
-
-
 def _zone_identity_dir(repo_root, zone_relpath, identity, zone):
     """``<repo>/<zone>/<identity>``, with the identity validated as a path segment.
 
-    The seam :func:`spool_identity_dir` and :func:`state_identity_dir` share,
-    validating for :func:`audit_identity_dir`'s reason: an unvalidated
-    ``../../x`` would provision or mount a directory outside the zone.
+    The seam :func:`spool_identity_dir` and :func:`state_identity_dir` share.
+    The identity is a path SEGMENT here, and this helper is the seam every
+    provisioning caller goes through: an unvalidated ``../../x`` would drive
+    ``mkdir`` outside the zone entirely, and on the deploy path BEFORE the
+    render's own roster gates get to refuse the deployment. Every fixed identity
+    the framework mints (``sidecar``, ``dispatch-worker-<n>``) matches; a roster
+    name that does not is one lint and the render both reject on their own
+    account.
     """
     from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
 
@@ -3193,11 +3046,26 @@ def state_identity_dir(repo_root, identity):
 def ensure_spool_dir(repo_root, identity, relative_to=None):
     """Provision one identity's spool directory before its bind mount exists.
 
-    Group-shared like :func:`ensure_audit_dir`, for its two reasons: a bind
-    source the runtime creates is root-owned under rootful docker, and the
-    container's writer and agent-record (which deletes what it ingested) run
-    under different uids and meet through the directory's group. Never fatal;
-    an identity outside the username charset is skipped with a warning.
+    Called on the render/up path for every containerized service that binds
+    ``./var/spool/<identity>/``, before the container starts. Two failures it
+    prevents:
+
+    1. **Root-owned mount source.** A missing bind source is created by the
+       container runtime instead, and a rootful daemon creates it owned by
+       root — after which the container's own dropped (uid 1000) process cannot
+       write what it exists to write.
+    2. **Group access across the privilege drop.** setgid makes every file take
+       the DIRECTORY's group whichever uid wrote it, so the container's writer
+       and agent-record (which deletes what it ingested) meet through that
+       group. The membership half is granted inside the container by the
+       entrypoint's group step, which reads the gid off this directory — so
+       this call has to happen BEFORE the container starts.
+
+    Never fatal: an identity outside the username charset is SKIPPED with a
+    warning, not raised. This helper is never the thing that fails a deploy —
+    the render's roster gates and lint are, with messages that can explain a
+    bad username. What matters here is that nothing outside the zone is created
+    on the way there.
 
     :param repo_root: The deployment repo root
     :type repo_root: str | pathlib.Path
@@ -3225,7 +3093,7 @@ def ensure_spool_dir(repo_root, identity, relative_to=None):
 def ensure_state_dir(repo_root, identity, relative_to=None):
     """Provision one identity's state directory before its bind mount exists.
 
-    Group-shared like :func:`ensure_audit_dir`, for its reasons: a bind source
+    Group-shared like :func:`ensure_spool_dir`, for its reasons: a bind source
     the runtime creates is root-owned under rootful docker, and the host reads
     what the container writes there. Never fatal; an identity outside the
     username charset is skipped with a warning.
@@ -3257,10 +3125,10 @@ def ensure_agent_record_dirs(repo_root, relative_to=None):
     """Provision agent-record's two writable binds before its container starts.
 
     ``var/spool`` with its ``.otlp/`` directory, and ``var/agent_record``, each
-    setgid and group-writable like :func:`ensure_audit_dir`: every source
+    setgid and group-writable like :func:`ensure_spool_dir`: every source
     appends to the spool under its own uid, agent-record ingests and deletes
     there, and the image's entrypoint joins each directory's group. Created
-    here rather than left to the container runtime for the audit directory's
+    here rather than left to the container runtime for the spool directory's
     reason: a bind source the runtime creates is root-owned under rootful
     docker. Every deployment runs agent-record, so every build provisions them.
 
@@ -3290,27 +3158,28 @@ def ensure_agent_record_dirs(repo_root, relative_to=None):
     return targets
 
 
-#: Mode the agent-record archive root is created at: its copies are verbatim,
-#: so who may read them is the operator's decision, and the default is nobody
-#: but the deploying account.
-ARCHIVE_DIR_MODE = 0o700
-
-
 def ensure_archive_dir(repo_root, relative_to=None):
-    """Provision the agent-record archive root before the archive service binds it.
+    """Provision the agent-record archive root before either of its writers binds it.
 
-    Created at exactly :data:`ARCHIVE_DIR_MODE` when absent. An existing
-    directory's mode is left as it is, never widened and never narrowed: a
-    facility that opened its archive to a group did so on purpose, and the
-    archive service gives every file it writes the root's mode. Not the setgid
-    group helper the audit and corpus directories use — a group-writable tree
-    is wrong for an operator-private one.
+    ``var/archive`` is the lasting half of the audit trail: agent-record
+    exports each closed day of the record into it, and the archive service
+    copies transcripts, artifacts and Bluesky history into it. Two writers in
+    two containers, under two uids, so it is group-shared exactly like
+    ``var/agent_record``, the record that holds the same facts: setgid,
+    group-writable, no world access, its group the one ``var/`` gives both
+    (the record's group). Every file either writer leaves takes the
+    directory's mode without the setgid and execute bits, so the deploying
+    account reads and deletes what a container wrote through that group.
 
-    Provisioned here rather than left to the container runtime for the audit
-    directory's reason: a bind source the runtime creates is root-owned under
-    rootful docker.
+    Set to exactly :data:`SHARED_CORPUS_DIR_MODE` even when it exists: the
+    directory is the framework's, its readers are fixed, and a mode left wider
+    would let ``other`` read the audit trail. Every deployment provisions it,
+    whether or not it deploys the archive service, because agent-record runs
+    in every deployment. Provisioned here rather than left to the container
+    runtime for the spool directory's reason: a bind source the runtime
+    creates is root-owned under rootful docker.
 
-    Never fatal: a failure warns and the deploy goes on.
+    Never fatal: a failure warns and the build goes on.
 
     :param repo_root: The deployment repo root
     :type repo_root: str | pathlib.Path
@@ -3323,30 +3192,24 @@ def ensure_archive_dir(repo_root, relative_to=None):
     from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
 
     target = Path(repo_root) / ARCHIVE_DIR_RELPATH
-    try:
-        if not target.is_dir():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.mkdir(mode=ARCHIVE_DIR_MODE)
-            os.chmod(target, ARCHIVE_DIR_MODE)
-            logger.info(
-                f"Archive dir {_display_path(target, relative_to)}: created {ARCHIVE_DIR_MODE:04o}"
-            )
-    except OSError as e:
-        logger.warning(
-            f"Could not provision archive directory {target}: {e}. "
-            "The archive service may be unable to write its copies."
-        )
-        return None
-    return target
+    gid = _ensure_group_shared_dir(
+        target,
+        relative_to=relative_to,
+        label="Archive dir",
+        noun="archive directory",
+        consequence="agent-record and the archive service may be unable to write the archive.",
+        exact=True,
+    )
+    return None if gid is None else target
 
 
 #: Compose service-key stem of a dispatch worker, and therefore the stem of its
-#: audit identity: worker ``i`` is the compose service ``dispatch-worker-<i>``,
-#: writes ``var/audit/dispatch-worker-<i>/`` and is told
+#: identity: worker ``i`` is the compose service ``dispatch-worker-<i>``, writes
+#: ``var/spool/dispatch-worker-<i>/`` and is told
 #: ``OSPREY_AUDIT_IDENTITY=dispatch-worker-<i>``. One derivation, spelled here
 #: because the compose template names the service key and this module has to
 #: provision the matching directory — a drift between the two is a bind mount
-#: whose host side nobody created (``tests/deployment/test_audit_mounts.py``
+#: whose host side nobody created (``tests/deployment/test_spool_mounts.py``
 #: asserts the two agree by rendering the template and reading its keys back).
 DISPATCH_WORKER_SERVICE_PREFIX = "dispatch-worker"
 
@@ -3546,7 +3409,7 @@ def control_target_tree_dir(config, repo_root):
 def control_target_identity_dir(config, repo_root, identity):
     """Where *identity*'s control-context record lives on the HOST.
 
-    The control-tree counterpart of :func:`audit_identity_dir`, and validated for
+    The control-tree counterpart of :func:`spool_identity_dir`, and validated for
     the same reason: the identity is a path SEGMENT here, and this helper is the
     seam every provisioning caller goes through — an unvalidated ``../../x``
     would drive ``mkdir`` outside the tree entirely, and it would do so on the
@@ -3584,7 +3447,7 @@ def control_target_identity_dir(config, repo_root, identity):
 def ensure_control_target_dir(config, repo_root, identity=None, relative_to=None):
     """Provision the control-context tree, or one identity's directory under it.
 
-    The same act, and the same two failures, as :func:`ensure_audit_dir`: a bind
+    The same act, and the same two failures, as :func:`ensure_spool_dir`: a bind
     source the deploy does not create is created by the container runtime
     instead — root-owned under a rootful daemon — after which the terminal's
     dropped ``osprey`` process writes no record at all, every lane and the
@@ -3642,7 +3505,7 @@ def ensure_control_target_dir(config, repo_root, identity=None, relative_to=None
         try:
             target = control_target_identity_dir(config, repo_root, identity)
         except ValueError as e:
-            # SKIPPED, not raised, for the reason `ensure_audit_dir`'s seam
+            # SKIPPED, not raised, for the reason `ensure_spool_dir`'s seam
             # states: this helper is never the thing that fails a deploy. What
             # matters here is that nothing outside the tree is created on the
             # way there.
@@ -3670,7 +3533,7 @@ def ensure_control_target_dir(config, repo_root, identity=None, relative_to=None
         #
         # Refused at this seam rather than inside `_ensure_group_shared_dir`,
         # even though that would cover the helper's other callers too: a symlink
-        # there can be legitimate. The corpus bundles and the audit zone may be
+        # there can be legitimate. The corpus bundles and the spool zone may be
         # an operator's, and a bundle pointed onto another filesystem by a link
         # is a normal relocation — refusing it would return no gid for the
         # containers to join and break access on a deploy that changed nothing.
@@ -4176,25 +4039,14 @@ def _ensure_agent_data_structure(config):
     if bundle_dir is not None:
         ensure_shared_corpus_dir(bundle_dir, relative_to=project_root)
 
-    # Each recording service's own audit subdirectory — one per dispatch worker,
-    # plus the fixed identity of every other service that records — for the same
-    # root-owned-mount-source reason as the two directories above and one more:
-    # the worker's container drops to `osprey` before it writes anything, so a
-    # runtime-created root-owned bind source would leave every record it tried
-    # to write failing inside a container nobody is watching. The gid the
-    # entrypoint's group step reads is read OFF this directory, so it has to
-    # exist before the container starts — which is here, on the build path every
-    # deploy runs through.
-    for identity in (
-        *dispatch_worker_audit_identities(config),
-        *service_audit_identities(config),
-        *lane_queueserver_audit_identities(config),
-    ):
-        ensure_audit_dir(project_root, identity, relative_to=project_root)
-
-    # Each such container's spool and state directories beside its audit one,
-    # and each deployed bridge's, which records into the spool but keeps no
-    # audit trail: the same before-the-container reason, and agent-record —
+    # Each recording service's spool and state directories — one per dispatch
+    # worker, plus the fixed identity of every other service that records — and
+    # each deployed bridge's. The worker's container drops to `osprey` before it
+    # writes anything, so a runtime-created root-owned bind source would leave
+    # every record it tried to write failing inside a container nobody is
+    # watching; the gid the entrypoint's group step reads is read OFF these
+    # directories, so they have to exist before the container starts — which is
+    # here, on the build path every deploy runs through. And agent-record —
     # another uid — deletes what it ingested from the spool.
     from osprey.agent_record.identities import bridge_identities, host_identity
 
@@ -4213,13 +4065,7 @@ def _ensure_agent_data_structure(config):
     if recorded_host is not None:
         ensure_spool_dir(project_root, recorded_host, relative_to=project_root)
 
-    # The agent-record archive root, for the same before-the-container reason:
-    # the archive service binds it, and a runtime-created bind source is
-    # root-owned under rootful docker.
-    if "archive" in {str(name) for name in config.get("deployed_services") or []}:
-        ensure_archive_dir(project_root, relative_to=project_root)
-
-    # The control-context tree, for the audit zone's reason and one of its own.
+    # The control-context tree, for the spool zone's reason and one of its own.
     # Every container that has to judge an owned write binds the tree READ-ONLY,
     # so none of them can create a directory the deploy left out — and a bind
     # source that does not exist is created empty by the container runtime, after
@@ -5539,6 +5385,7 @@ def prepare_compose_files(
         return config, deduped
     repo_root = resolve_repo_root(config)
     ensure_agent_record_dirs(repo_root, relative_to=repo_root)
+    ensure_archive_dir(repo_root, relative_to=repo_root)
     for service_dir in derived_compose_dirs(config):
         derived_template = os.path.join(SERVICES_DIR, service_dir, TEMPLATE_FILENAME)
         if not os.path.isfile(derived_template):

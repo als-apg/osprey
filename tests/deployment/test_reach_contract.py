@@ -971,7 +971,7 @@ def test_a_deploying_render_may_name_a_service_it_does_not_run():
         },
     ]
     for config in external:
-        assert reach_errors({**config, "deployed_services": ["telemetry_store"]}) == [], config
+        assert reach_errors({**config, "deployed_services": ["mongodb"]}) == [], config
 
 
 def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
@@ -982,7 +982,7 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
       facts are derived from the ``va_archiver:`` block on their own build
       path, which refuses an attached profile that names no host itself.
     * ``no_client_reach`` (the recorder, the dispatch worker, the chat
-      bridges, the telemetry gateway): nothing inside a render container dials them; each is a
+      bridges): nothing inside a render container dials them; each is a
       host-side writer or a worker that dials the render, never the reverse.
     """
     silent = [
@@ -994,7 +994,6 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
         "mongodb",
         "archiver_recorder",
         "dispatch_worker",
-        "telemetry_gateway",
     }
     for contract in silent:
         assert contract.consumers == (), contract.service
@@ -1007,13 +1006,6 @@ def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
         "deployed_services": ["postgresql"],
     }
     assert reach_errors(config) == []
-
-    # Nor is a render whose profile still names the gateway as its exporter.
-    gateway_named = {
-        "claude_code": {"telemetry": {"enabled": True, "backend": "gateway"}},
-        "deployed_services": ["qmd"],
-    }
-    assert reach_errors(gateway_named) == []
 
 
 def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):

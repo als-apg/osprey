@@ -47,7 +47,6 @@ from osprey.deployment.control_identity import (
 )
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey_connectors.workspace import (
-    AUDIT_DIR_RELPATH,
     SPOOL_DIR_RELPATH,
     STATE_DIR_RELPATH,
 )
@@ -224,10 +223,6 @@ def _context(
         # the context, decides which lane mounts the tree.
         "osprey_control_tree_mount_source": CONTROL_TREE_SOURCE,
         "osprey_container_control_tree_dir": _control_tree_target(),
-        # Both halves of a queueserver's audit bind, injected unconditionally
-        # for the same reason.
-        "osprey_audit_mount_source": repo_relative_mount_source(AUDIT_DIR_RELPATH),
-        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         # Both halves of a queueserver's spool and state binds, injected
         # unconditionally for the same reason.
         "osprey_spool_mount_source": repo_relative_mount_source(SPOOL_DIR_RELPATH),
@@ -1567,8 +1562,6 @@ def _web_context(
             "project_root": "/deploy/proj",
         },
         "osprey_images": _image_defaults("proj"),
-        "osprey_audit_mount_source": "./var/audit",
-        "osprey_service_container_audit_dir": f"/app/project/{AUDIT_DIR_RELPATH}",
         "osprey_spool_mount_source": "./var/spool",
         "osprey_service_container_spool_dir": f"/app/project/{SPOOL_DIR_RELPATH}",
         "osprey_state_zone_mount_source": "./var/state",
@@ -1692,7 +1685,7 @@ def test_the_control_tree_is_mounted_whole_and_never_writable() -> None:
     """Two properties the mount would be wrong without.
 
     WHOLE: the owner of a queue item arrives with the request, so a mount
-    narrowed to one identity's subdirectory — the shape the audit binds take —
+    narrowed to one identity's subdirectory — the shape the spool binds take —
     would answer for nobody. READ-ONLY: the record belongs to the terminal that
     wrote it, and a writable tree would let a queued plan rewrite the narrowing
     that judges it.

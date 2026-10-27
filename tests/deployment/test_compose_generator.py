@@ -2,9 +2,8 @@
 
 An "attached" project (built with ``deploy_services: false``, connecting to
 another project's already-deployed services stack) is what declares no
-deployed_services — the hello-world preset's own default build deploys two
-services (telemetry_store, telemetry_gateway). Two failure modes have to stay fixed for the empty
-case:
+deployed_services; the hello-world preset's own default build declares none
+either. Two failure modes have to stay fixed for the empty case:
 
 1. ``osprey build`` must still copy the root ``services/docker-compose.yml.j2``
    into the project, because the renderer references it unconditionally.
@@ -1059,9 +1058,9 @@ def test_the_control_tree_is_never_mounted_writable(rel_path: str, config: dict[
 
 
 def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
-    """The opposite shape to this worker's audit bind, for the opposite reason.
+    """The opposite shape to this worker's spool bind, for the opposite reason.
 
-    Audit isolation IS the mount — a worker holds a bind to its own identity's
+    Spool isolation IS the mount — a worker holds a bind to its own identity's
     subdirectory and can read no other. The tree is what a worker reads about
     OTHER people: the owner of a dispatch job arrives with the request, so a
     mount narrowed to one identity would answer for nobody, and every worker
@@ -1076,9 +1075,9 @@ def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
     for i in (1, 2):
         volumes = doc["services"][f"dispatch-worker-{i}"]["volumes"]
         assert f"{source}:{target}:ro" in volumes
-        audit = [v for v in volumes if "/var/audit" in v]
-        assert audit and all(f"dispatch-worker-{i}" in v for v in audit), (
-            "the audit bind stays per-identity; only the tree is mounted whole"
+        spool = [v for v in volumes if "/var/spool/" in v]
+        assert spool and all(f"dispatch-worker-{i}" in v for v in spool), (
+            "the spool bind stays per-identity; only the tree is mounted whole"
         )
 
 
@@ -1446,25 +1445,6 @@ def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
     service = _worker_service(rendered)
     assert service["environment"]["DISPATCH_WORKER_PORT"] == str(worker_one)
     assert f"http://localhost:{worker_one}/health" in service["healthcheck"]["test"][1]
-
-
-def test_worker_telemetry_host_follows_the_axis() -> None:
-    """The gateway is the compose service on the bridge, the dial address on the host.
-
-    Under host the service name resolves to nothing, so host mode has to name
-    the interface the gateway publishes on rather than its service key.
-    """
-    bridge = _render_worker_template(env_present=True, deployed_services=["telemetry_gateway"])
-    host = _render_worker_template(
-        env_present=True,
-        deployed_services=["telemetry_gateway"],
-        dispatch_worker={"network": "host"},
-    )
-
-    assert _worker_service(bridge)["environment"]["OSPREY_OTEL_GATEWAY_HOST"] == "telemetry_gateway"
-    host_value = _worker_service(host)["environment"]["OSPREY_OTEL_GATEWAY_HOST"]
-    assert host_value != "telemetry_gateway"
-    assert host_value in {"localhost", "127.0.0.1"}
 
 
 def test_worker_archiver_link_uses_the_published_port_on_the_host_namespace() -> None:
@@ -3672,7 +3652,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
-# (postgresql, telemetry_store) never install the wheel.
+# (postgresql, mongodb) never install the wheel.
 # ---------------------------------------------------------------------------
 
 
@@ -9997,8 +9977,8 @@ def test_dispatch_worker_mounts_the_staged_control_identity_directory_read_only(
 # ---------------------------------------------------------------------------
 
 
-def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
-    """A deployment running the store and gateway, its web terminals signing in by *auth_method*."""
+def _write_signed_in_config(tmp_path: Path, auth_method: str) -> Path:
+    """A deployment whose web terminals sign in by *auth_method*."""
     config_path = tmp_path / "config.yml"
     with config_path.open("w", encoding="utf-8") as handle:
         YAML().dump(
@@ -10008,11 +9988,7 @@ def _write_store_config(tmp_path: Path, auth_method: str) -> Path:
                 "build_dir": str(tmp_path / "build"),
                 "system": {"timezone": "UTC"},
                 "deploy": {"host": "deploy-host", "fqdn": "deploy-host.example.org"},
-                "services": {
-                    "telemetry_store": {"path": "./services/telemetry_store"},
-                    "telemetry_gateway": {"path": "./services/telemetry_gateway"},
-                },
-                "deployed_services": ["telemetry_store", "telemetry_gateway"],
+                "deployed_services": [],
                 "modules": {
                     "web_terminals": {
                         "enabled": True,
@@ -10037,12 +10013,12 @@ def test_up_finds_exactly_the_compose_files_the_build_wrote(
     """Build and up agree on the stack, derived services included.
 
     The history page has no ``deployed_services`` entry: the build renders it
-    because the config deploys the store under sign-in. ``osprey up`` and
+    because the config's web terminals sign people in. ``osprey up`` and
     ``osprey down`` hand compose what :func:`find_existing_compose_files`
     reports, so a lookup that walked ``deployed_services`` alone left the
     container the build rendered out of every stack it started.
     """
-    config_path = _write_store_config(tmp_path, auth_method)
+    config_path = _write_signed_in_config(tmp_path, auth_method)
     _copy_service_templates(tmp_path)
     monkeypatch.chdir(tmp_path)
 

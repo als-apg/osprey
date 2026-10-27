@@ -158,7 +158,7 @@ def test_the_start_plans_the_project_image_from_the_compose_files_it_starts(
         "_build_project_image",
         lambda *a, compose_files=None, **k: planned.append(compose_files),
     )
-    monkeypatch.setattr(container_lifecycle, "_stage_telemetry_store", _after_build)
+    monkeypatch.setattr(container_lifecycle, "_stage_agent_record_clickhouse", _after_build)
 
     with pytest.raises(_Reached):
         container_lifecycle._start_stack(config, compose_files, tmp_path, detached=True)
@@ -881,8 +881,9 @@ def test_up_asks_only_a_stack_whose_agent_record_opens_the_embedded_store(
     if shape == "clickhouse backend":
         config["agent_record"] = {"port": 1, "backend": "clickhouse"}
         compose_files = _record_compose(config)
-        for name in ("_stage_agent_record_clickhouse", "_stage_telemetry_store"):
-            monkeypatch.setattr(container_lifecycle, name, lambda *a, **k: None)
+        monkeypatch.setattr(
+            container_lifecycle, "_stage_agent_record_clickhouse", lambda *a, **k: None
+        )
     ups: list[str] = []
     monkeypatch.setattr(
         container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: ups.append("up")

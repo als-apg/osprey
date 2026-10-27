@@ -149,19 +149,19 @@ def test_a_refused_statement_stops_up(tmp_path, monkeypatch):
         lifecycle._stage_agent_record_clickhouse(_clickhouse_config(), [], {}, tmp_path)
 
 
-def test_the_start_flow_stages_the_record_store_beside_the_telemetry_store():
+def test_the_start_flow_stages_the_record_store_before_the_stack_starts():
     import inspect
 
     source = inspect.getsource(lifecycle)
-    telemetry = source.index(
-        "_stage_telemetry_store(config, compose_files, env, Path(repo_root), provider=provider)"
+    image = source.index(
+        "_build_project_image(config, dev_mode, env, build_context, compose_files=compose_files)"
     )
     record = source.index(
         "_stage_agent_record_clickhouse(config, compose_files, env, Path(repo_root), "
         "provider=provider)"
     )
-    ledger = source.index("if _guard_ledger_feed(config, Path(repo_root)):")
-    assert telemetry < record < ledger
+    site_ca = source.index("stage_service_site_ca(config, compose_files, repo_root)")
+    assert image < record < site_ca
 
 
 # --- on the pinned image ----------------------------------------------------------------------

@@ -23,13 +23,12 @@ from typing import Any, NamedTuple
 
 import yaml
 
-from osprey.agent_record.config import history_page_deployed
+from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_env_prefix
 from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
 from osprey.cli.phase_reporter import report_step as _report_step
-from osprey.deployment import telemetry_config
 from osprey.deployment.build_progress import BuildModel, with_plain_build_progress
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_TEMPLATE_DIR,
@@ -94,8 +93,6 @@ from osprey.deployment.service_tokens import (
 )
 from osprey.deployment.staleness import BUILD_DIRNAME, warn_if_project_stale
 from osprey.deployment.subprocess_capture import run_captured
-from osprey.deployment.telemetry_store.stage import compose_executor
-from osprey.deployment.telemetry_store.stage import stage_store as stage_telemetry_store
 from osprey.deployment.web_terminals.env_production import migrate_users_env
 from osprey.deployment.web_terminals.lifecycle import remove_orphan_terminals
 from osprey.deployment.web_terminals.provision import (
@@ -2370,7 +2367,7 @@ def _deployed_project_image_services(
     deployed = {str(s) for s in (config.get("deployed_services") or [])}
     services = [service for service in _PROJECT_IMAGE_SERVICES if service in deployed]
     if history_page_deployed(config):
-        services.append(telemetry_config.HISTORY_SERVICE)
+        services.append(HISTORY_SERVICE)
     if compose_files is None or _stack_runs_record(compose_files):
         services.append(AGENT_RECORD_TEMPLATE_DIR)
     return services
@@ -5586,133 +5583,6 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
         _report_step(f"graph schema baked into {prompt_snapshot.describe_patched(patched)}")
 
 
-def _guard_ledger_feed(config, project_dir: Path) -> list:
-    """Quarantine non-regular ledger paths and list the directories nobody reads.
-
-    Each ``*.jsonl`` under an identity directory that is not a regular file — a
-    FIFO or a symlink — is renamed ``<name>.refused-<UTC ts>`` (a FIFO is first
-    opened for writing and closed, which frees a gateway blocked opening it),
-    and its path is printed. Every ``var/audit`` directory the built gateway
-    configuration has no receiver for is listed as not fed until the next
-    build.
-
-    :param config: Raw deploy config.
-    :param project_dir: Root of the built project.
-    :returns: The paths moved aside (empty when nothing was).
-    :raises RuntimeError: When a non-regular path cannot be renamed.
-    """
-    if not telemetry_config.gateway_deployed(config):
-        return []
-    from osprey.deployment.telemetry_gateway import (
-        COLLECTOR_CONFIG_FILE,
-        quarantine_hostile_ledgers,
-    )
-    from osprey.health.core.telemetry_gateway import unfed_directories
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
-
-    audit_root = project_dir / AUDIT_DIR_RELPATH
-    if not audit_root.is_dir():
-        return []
-    quarantined = quarantine_hostile_ledgers(audit_root)
-    for moved in quarantined:
-        _warn_fact(
-            f"Moved aside a ledger path that is not a regular file: {moved.path}",
-            f"Kept as {moved.moved_to.name}; the gateway reads regular files only.",
-        )
-    built = (
-        project_dir
-        / "build"
-        / "services"
-        / telemetry_config.GATEWAY_SERVICE
-        / COLLECTOR_CONFIG_FILE
-    )
-    try:
-        collector = yaml.safe_load(built.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return quarantined
-    if not isinstance(collector, dict):
-        return quarantined
-    unfed = unfed_directories(audit_root, collector)
-    if unfed:
-        _report_fact(f"Audit directories not fed until the next build: {', '.join(unfed)}")
-    return quarantined
-
-
-def _recreate_ledger_gateway(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Remove the running gateway so the ``up`` that follows starts a fresh one.
-
-    Renaming a FIFO or an endless file does not close the descriptor a running
-    reader already holds on it: that reader stays blocked, keeps the moved path
-    open and ignores the shutdown signal, so every later stop of the gateway
-    runs to its timeout. Only a new process lets go of it. The stop here may
-    itself run to the timeout (that is the stuck reader); the reader offsets
-    live in the gateway's storage volume, so the new gateway resumes every
-    regular ledger where the old one left it.
-
-    :param config: Raw deploy config.
-    :param compose_files: Rendered compose file paths for this deploy.
-    :param env: The environment the deploy hands compose.
-    :param project_dir: Root of the built project.
-    :param provider: The compose provider this deploy resolved. ``None`` is the
-        docker shape.
-    """
-    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
-    base_cmd = compose_base_cmd(
-        get_runtime_command(config),
-        compose_files,
-        project_dir,
-        _env_file_args(project_dir, provider),
-        provider,
-    )
-    for verb, spool in (
-        (["stop", telemetry_config.GATEWAY_SERVICE], "telemetry-gateway-stop"),
-        (["rm", "-f", telemetry_config.GATEWAY_SERVICE], "telemetry-gateway-rm"),
-    ):
-        cmd = base_cmd + verb
-        logger.debug(f"Running command:\n    {' '.join(cmd)}")
-        run_captured(cmd, env=run_env, spool_name=spool, repo_root=project_dir, check=False)
-    _report_step("telemetry gateway removed, so the start below runs a fresh one")
-
-
-def _stage_telemetry_store(config, compose_files, env, project_dir, *, provider=None) -> None:
-    """Start the telemetry store alone and bring its schema and accounts up to date.
-
-    Unlike the graph store's staging, a failure here stops ``osprey up``: the
-    accounts script carries every withdrawal, so a store left short of it may
-    still let a withdrawn reader read. The error names the statement or the
-    table that stopped it (see :mod:`osprey.deployment.telemetry_store.stage`).
-
-    :param config: Raw deploy config.
-    :param compose_files: Rendered compose file paths for this deploy.
-    :param env: The environment the deploy hands compose.
-    :param project_dir: Root of the built project (holds the credential files).
-    :param provider: The compose provider this deploy resolved. ``None`` is the
-        docker shape.
-    """
-    if not telemetry_config.store_deployed(config):
-        return
-
-    run_env = runtime_env(config, {**env, **compose_provider_env(provider, project_dir)})
-    base_cmd = compose_base_cmd(
-        get_runtime_command(config),
-        compose_files,
-        project_dir,
-        _env_file_args(project_dir, provider),
-        provider,
-    )
-
-    _report_group("telemetry store")
-    up_cmd = base_cmd + ["up", "-d", telemetry_config.STORE_SERVICE]
-    logger.debug(f"Running command:\n    {' '.join(up_cmd)}")
-    with watched_compose_up(up_cmd, config=config, env=run_env) as bounds:
-        run_captured(
-            up_cmd, env=run_env, spool_name="telemetry-store-up", repo_root=project_dir, **bounds
-        )
-    _report_step("telemetry store started")
-    stage_telemetry_store(config, project_dir, compose_executor(base_cmd, run_env))
-    _report_step("telemetry store schema and accounts applied")
-
-
 def _stage_agent_record_clickhouse(
     config, compose_files, env, project_dir, *, provider=None
 ) -> None:
@@ -6040,55 +5910,10 @@ def _invoking_account() -> str | None:
         return None
 
 
-def _ensure_telemetry_credentials(config: dict, repo_root: Path | str) -> None:
-    """Provision the telemetry store's credential files, and say what changed.
-
-    Everything said is a file name. A reader's key is minted here and nowhere
-    else, and is never printed: the line names the file it is in and the page
-    the reader opens, and the operator hands the key over out of band. A
-    reader that left the config has its file set aside under a dated name in
-    the same start that drops its account, so adding the name back later mints
-    a new key rather than reviving the one that was handed out.
-
-    A no-op for a deployment without the store.
-
-    Args:
-        config: Raw deploy config.
-        repo_root: The deployment repo, where the files live.
-
-    Raises:
-        RuntimeError: If a sender's name cannot be a login name.
-    """
-    from osprey.deployment.deploy_summary import reader_page_url
-    from osprey.deployment.telemetry_credentials import (
-        ensure_telemetry_credentials,
-        reader_file,
-    )
-
-    try:
-        report = ensure_telemetry_credentials(repo_root, config, reader_keys=True)
-    except ValueError as exc:
-        raise RuntimeError(str(exc)) from exc
-    for name, set_aside in report.withdrawn:
-        _report_fact(f"reader {name}: withdrawn, key file set aside → {set_aside}")
-    for name in report.reader_keys:
-        _report_fact(f"reader {name}: key minted → {reader_file(name)}")
-        with contextlib.suppress(ValueError):
-            if (page := reader_page_url(config, name)) is not None:
-                _report_fact(f"reader {name}: signs in at {page}")
-    reader_files = {reader_file(name) for name in report.reader_keys}
-    service_files = [name for name in report.minted if name not in reader_files]
-    if service_files:
-        _report_fact(f"telemetry credential files created: {', '.join(service_files)}")
-    if report.purged:
-        _report_fact(f"telemetry credential files removed: {', '.join(report.purged)}")
-
-
 def _ensure_agent_record_credentials(config: dict, repo_root: Path | str) -> None:
     """Provision the agent record's credential files, and say what changed.
 
-    The sibling of :func:`_ensure_telemetry_credentials` for the record, which
-    every deployment runs. Everything said is a file name: a reader's key is
+    Every deployment runs it. Everything said is a file name: a reader's key is
     minted here and nowhere else, never printed, and handed over out of band.
     The service file (the verifier and the ingest secret set) is regenerated
     on every start, and its digest label recreates agent-record when it moved.
@@ -6163,9 +5988,14 @@ def _collect_unmet_preconditions(
         UnmetPreconditionsError: One or more probes reported a problem. Nothing
             has been built or started.
     """
+    from osprey.agent_record.credentials import (
+        credential_file_problems as record_credential_file_problems,
+    )
     from osprey.deployment.errors import UnmetPreconditionsError
-    from osprey.deployment.telemetry_credentials import credential_file_problems
-    from osprey.deployment.telemetry_lint import host_identity_advisories, preflight_problems
+    from osprey.deployment.web_terminals.lint import (
+        history_preflight_problems,
+        host_identity_advisories,
+    )
     from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
 
     findings: list[tuple[str, str]] = []
@@ -6189,13 +6019,12 @@ def _collect_unmet_preconditions(
     # the chain as it stands AFTER every mint above, so a token the deploy just
     # provisioned is not reported as missing -- see _required_env_problems.
     findings.extend(_required_env_problems(repo_root, env))
-    # The telemetry store's two start-blocking rules, asked of the config alone:
-    # reader names that would share one set of sign-on settings, and query
-    # limits that do not fit the store's memory limit.
-    findings.extend(preflight_problems(config))
+    # The start-blocking rule asked of the config alone: reader names that
+    # would share one set of the history page's sign-on settings.
+    findings.extend(history_preflight_problems(config))
     # And of the files the step above provisioned: one it could not create, or
     # one somebody else wrote with a mode that lets other accounts read it.
-    findings.extend(credential_file_problems(repo_root, config))
+    findings.extend(record_credential_file_problems(repo_root, config))
     # Said, not refused over: sessions started from this account are recorded
     # under the account that built the deployment.
     for advisory in host_identity_advisories(config, _invoking_account()):
@@ -6724,13 +6553,11 @@ def _start_stack(
     if web_terminals_enabled:
         migrate_users_env(repo_root)
 
-    # The telemetry store's credential files: every account's that the build
-    # minted, again — a file deleted since is a credential being rotated — and
-    # the readers' keys, which only a start mints. A provisioning step of its
-    # own, above the reporting pass below, which only reads them.
-    _ensure_telemetry_credentials(config, repo_root)
-    # The agent record's, as a sibling step: every login the build minted,
-    # again, the readers' keys, and the service file regenerated from them.
+    # The agent record's credential files: every login the build minted,
+    # again — a file deleted since is a credential being rotated — the
+    # readers' keys, which only a start mints, and the service file
+    # regenerated from them. A provisioning step of its own, above the
+    # reporting pass below, which only reads them.
     _ensure_agent_record_credentials(config, repo_root)
 
     # Refuse a chain that is not the one this project was rendered against:
@@ -6914,23 +6741,11 @@ def _start_stack(
     # no agent-record, and the build counts only the services it does hold.
     _build_project_image(config, dev_mode, env, build_context, compose_files=compose_files)
 
-    # And the telemetry store: its schema and its accounts must be in place
-    # before the gateway inserts and before any reader or page queries it.
-    # Before the branch because the attached `up` never returns. Fatal: a
-    # store short of its accounts could leave a withdrawn reader able to read.
-    _stage_telemetry_store(config, compose_files, env, Path(repo_root), provider=provider)
     # And the agent record's ClickHouse store, when it is the record's backend:
     # its schema and agent-record's account must exist before agent-record
-    # starts writing. Before the branch for the same reason, and fatal: a
-    # store short of either cannot take the record.
+    # starts writing. Before the branch because the attached `up` never
+    # returns, and fatal: a store short of either cannot take the record.
     _stage_agent_record_clickhouse(config, compose_files, env, Path(repo_root), provider=provider)
-    # And the gateway's ledger directories, before compose recreates it: a
-    # planted FIFO or symlink is moved out of the readers' glob, and a
-    # directory no receiver reads is named. Fatal only when a path cannot be
-    # moved aside. A gateway already reading a moved path keeps it open, so it
-    # is replaced by the start below.
-    if _guard_ledger_feed(config, Path(repo_root)):
-        _recreate_ledger_gateway(config, compose_files, env, Path(repo_root), provider=provider)
 
     # Stage the site CA into every service context compose may build, once and
     # ahead of the branch: both paths below can build those images, and the

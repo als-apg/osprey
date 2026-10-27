@@ -337,8 +337,8 @@ def _ensure_state_zone(repo_root: Path) -> None:
     """Create the ``var/`` skeleton when it is absent (idempotent).
 
     A build is the first command a fresh clone runs, and a clone carries no
-    git-ignored directory: ``var/agent_data`` and ``var/audit`` have to exist
-    before anything writes into them. Creating them here rather than at ``up``
+    git-ignored directory: ``var/agent_data`` has to exist before anything
+    writes into it. Creating it here rather than at ``up``
     keeps a cloned repo and an ``osprey init``-ed one identical from the first
     command either one runs.
 
@@ -1495,10 +1495,10 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     """
     import getpass
 
-    from osprey.deployment import telemetry_config
+    from osprey.agent_record.identities import host_identity
     from osprey.utils.config_writer import config_update_fields
 
-    if telemetry_config.host_identity(rendered) is not None:
+    if host_identity(rendered) is not None:
         return False
     try:
         account = getpass.getuser()
@@ -1510,30 +1510,12 @@ def _record_host_identity(render_dir: Path, rendered: dict[str, Any]) -> bool:
     return True
 
 
-def _ensure_telemetry_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
-    """Mint the telemetry credential files this build's compose files name.
-
-    Reader keys are left to ``osprey up``: a build must not produce a key
-    nobody was told about.
-    """
-    from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
-
-    try:
-        report = ensure_telemetry_credentials(repo_root, rendered, reader_keys=False)
-    except ValueError as exc:
-        raise click.UsageError(str(exc)) from exc
-    for name in report.minted:
-        logger.debug("telemetry credential file created: %s", name)
-    for name in report.purged:
-        logger.debug("telemetry credential file removed: %s", name)
-
-
 def _ensure_agent_record_credentials(repo_root: Path, rendered: dict[str, Any]) -> None:
     """Mint the agent record's login files and regenerate its service file.
 
-    A sibling of :func:`_ensure_telemetry_credentials`, not a part of it: the
-    record is always deployed and keeps its files under its own prefix. Reader
-    keys are left to ``osprey up``, as the telemetry store's are.
+    The record is always deployed and keeps its files under its own prefix.
+    Reader keys are left to ``osprey up``: a build must not produce a key
+    nobody was told about.
     """
     from osprey.agent_record.credentials import ensure_agent_record_credentials
 
@@ -3639,15 +3621,14 @@ def _build_repo(
             if renders:
                 phase.step(f"{len(renders)} render(s)")
 
-            # The telemetry credential files, before the compose files that
-            # name them as `env_file`: every sender's login (the render
+            # The agent record's credential files, before the compose files
+            # that name them as `env_file`: every sender's login (the render
             # renders above settled the roster) and every service account's.
             # At the real repo root, never in the staged tree — they are
             # durable secrets, and `build/` is disposable. Not under
             # --runtime-root, for the reason the compose files are not: those
             # files belong to the host that deploys.
             if not runtime_root:
-                _ensure_telemetry_credentials(zones.repo_root, rendered)
                 _ensure_agent_record_credentials(zones.repo_root, rendered)
 
             config = _render_compose_files(zones, runtime_root, dev_mode=dev)

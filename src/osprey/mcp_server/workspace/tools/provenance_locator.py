@@ -2,8 +2,8 @@
 
 Returns generic telemetry *coordinates* for the current agent session — a
 pointer a consumer can render into a filed issue so a maintainer can retrieve
-the turn's full provenance from the OTEL store (tool calls, subagents,
-model/tokens/cost, user prompts). The telemetry store is the harness-agnostic
+the turn's full provenance from the agent record (tool calls, subagents,
+model/tokens/cost, user prompts). The agent record is the harness-agnostic
 source of provenance truth; this tool is the seam that hands out the locator so
 consumers never scrape harness-specific environment themselves.
 

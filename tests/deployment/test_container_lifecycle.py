@@ -17,7 +17,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from osprey.deployment import container_lifecycle, telemetry_config
+from osprey.agent_record.config import HISTORY_SERVICE
+from osprey.deployment import container_lifecycle
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
@@ -3512,7 +3513,7 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
     # agent-record is derived and always deployed, so it joins unconditionally.
     assert on_project_image == {
         *container_lifecycle._PROJECT_IMAGE_SERVICES,
-        telemetry_config.HISTORY_SERVICE,
+        HISTORY_SERVICE,
         container_lifecycle.AGENT_RECORD_TEMPLATE_DIR,
     }
 

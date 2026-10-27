@@ -455,7 +455,6 @@ def deploy_aware_config_errors(
     # Imported in-function: this module is on `BuildProfile`'s import chain, and
     # the lint engine pulls in the whole web-terminals package behind it.
     from osprey.agent_record.config import reader_errors
-    from osprey.deployment.telemetry_lint import telemetry_errors
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_errors
 
     view = build_lint_view(
@@ -464,7 +463,6 @@ def deploy_aware_config_errors(
     nested = _nest_dotted(view)
     return [
         *profile_config_errors(view, profile_root=profile_root),
-        *telemetry_errors(nested),
         *(reader_errors(agent_record, nested) if agent_record is not None else []),
     ]
 
@@ -489,7 +487,6 @@ def deploy_aware_config_warnings(
     so printing is the only way it reaches an operator at all.
     """
     from osprey.agent_record.config import reader_warnings
-    from osprey.deployment.telemetry_lint import telemetry_warnings
     from osprey.deployment.web_terminals.lint import _nest_dotted, profile_config_warnings
 
     view = build_lint_view(
@@ -498,7 +495,6 @@ def deploy_aware_config_warnings(
     nested = _nest_dotted(view)
     return [
         *profile_config_warnings(view, profile_root=profile_root),
-        *telemetry_warnings(nested),
         *(reader_warnings(agent_record, nested) if agent_record is not None else []),
     ]
 

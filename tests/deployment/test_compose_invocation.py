@@ -44,7 +44,6 @@ from osprey.deployment import (
     compose_generator,
     container_lifecycle,
     status_display,
-    telemetry_credentials,
 )
 from osprey.deployment.compose_generator import (
     COMPOSE_ENV_FILENAME,
@@ -1132,14 +1131,8 @@ def test_no_compose_or_nginx_artifact_lands_in_the_repo_root(
 
     new_at_root = set(tmp_path.iterdir()) - before
     # Credential files are secrets kept beside ``.env``, not renders: the agent
-    # record's, which every deployment mints, and the history page's gate, which
-    # a deployment that signs people in mints.
-    credentials = {
-        p
-        for p in new_at_root
-        if agent_record_credentials.is_credential_file(p.name)
-        or p.name in telemetry_credentials.expected_files(config)
-    }
+    # record's, which every deployment mints.
+    credentials = {p for p in new_at_root if agent_record_credentials.is_credential_file(p.name)}
     assert new_at_root - credentials == {tmp_path / BUILD_DIR_NAME}
     assert (web_artifacts_dir(tmp_path) / WEB_COMPOSE_FILENAME).is_file()
     assert (web_artifacts_dir(tmp_path) / "nginx" / "nginx.conf").is_file()

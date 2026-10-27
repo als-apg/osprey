@@ -59,13 +59,6 @@ def test_the_schema_creates_the_database_then_every_table():
     assert [s.split("`.`")[1].split("`")[0] for s in statements[1:]] == ["entries", "state"]
 
 
-def test_the_ddl_does_not_import_the_telemetry_store():
-    import inspect
-
-    for module in (ddl, stage):
-        assert "telemetry_store" not in inspect.getsource(module)
-
-
 # --- reconcile --------------------------------------------------------------------------------
 
 

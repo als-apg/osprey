@@ -1445,7 +1445,6 @@ def test_a_real_build_leaves_no_runtime_state_in_the_output_zone(built_repo):
     assert not (build / "var").exists()
     # The durable location is untouched and still there.
     assert (built_repo / "var" / "agent_data").is_dir()
-    assert (built_repo / "var" / "audit").is_dir()
 
 
 def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
