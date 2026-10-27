@@ -23,11 +23,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.deployment import runtime_helper
+from tests.cli._lifecycle_build import rendered_config
 
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
@@ -52,7 +52,7 @@ def _build_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str =
 
 
 def _rendered_runtime(repo: Path) -> str:
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     return config["container_runtime"]
 
 

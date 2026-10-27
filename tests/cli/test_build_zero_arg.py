@@ -28,7 +28,6 @@ from pathlib import Path
 
 import click
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.cli import build_cmd
@@ -36,6 +35,7 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_environment import _ProjectVenvPlan
 from osprey.deployment import staleness
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import rendered_config
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 # Every build in this module renders without a venv and without lifecycle
@@ -75,10 +75,6 @@ def built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return repo
 
 
-def _rendered_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-
-
 def _manifest(repo: Path) -> dict:
     return json.loads(staleness.build_manifest_path(repo).read_text(encoding="utf-8"))
 
@@ -94,7 +90,7 @@ class TestRendersTheOutputZone:
         # The deployment name is the repo's; it names the project, never a
         # directory inside build/.
         assert not (build_dir / built_exemplar.name).exists()
-        assert _rendered_config(built_exemplar)["project_name"] == built_exemplar.name
+        assert rendered_config(built_exemplar)["project_name"] == built_exemplar.name
 
     def test_manifest_lands_where_the_drift_check_looks(self, built_exemplar):
         manifest_path = staleness.build_manifest_path(built_exemplar)
@@ -147,12 +143,12 @@ class TestRepoIdentity:
     """``project_root`` is the repo, not the directory being written."""
 
     def test_project_root_is_the_repo_not_the_render(self, built_exemplar):
-        assert _rendered_config(built_exemplar)["project_root"] == str(built_exemplar)
+        assert rendered_config(built_exemplar)["project_root"] == str(built_exemplar)
 
     def test_runtime_root_substitutes_the_path_a_container_sees(self, runner, lifecycle_repo):
         _build(runner, lifecycle_repo, "--runtime-root", "/app/als-exemplar")
 
-        assert _rendered_config(lifecycle_repo)["project_root"] == "/app/als-exemplar"
+        assert rendered_config(lifecycle_repo)["project_root"] == "/app/als-exemplar"
 
     def test_runs_from_any_subdirectory(self, runner, lifecycle_repo):
         result = _build(runner, lifecycle_repo / "data" / "facility" / "knowledge")

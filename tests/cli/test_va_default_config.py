@@ -29,7 +29,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.cli.set_cmd import set as set_cmd
@@ -40,7 +39,7 @@ from osprey_connectors.factory import (
     register_builtin_connectors,
 )
 from tests._builds import BuiltProject, copy_build
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.facility.served_tree import in_process_config
 
 # The epics block a scaffolded Control Assistant renders: the app template's
@@ -94,7 +93,7 @@ def _serve_in_process(runner: CliRunner, repo: Path) -> None:
 
 
 def _load_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    return rendered_config(repo)
 
 
 @pytest.fixture(scope="module")

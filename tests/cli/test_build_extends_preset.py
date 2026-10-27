@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
 from osprey.cli import build_profile_presets
 from osprey.cli.build_cmd import _profile_data_bundle
@@ -21,7 +20,7 @@ from osprey.cli.build_profile import (
     list_presets,
     resolve_build_profile,
 )
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
 def test_preset_exists_returns_path_for_bundled_preset() -> None:
@@ -153,7 +152,7 @@ def test_build_from_a_repo_whose_profile_extends_a_preset_by_name(tmp_path: Path
     result = invoke_build(repo)
 
     assert result.exit_code == 0, result.output
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
     # The preset's own provider flowed through the extends chain into the render.
     assert config["claude_code"]["provider"] == "anthropic"
 

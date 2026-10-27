@@ -32,7 +32,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.profile_cmd import profile
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import RETIRED_LAYER_DIRS
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import (
     APP_PRESETS,
     EXEMPLAR_DIRNAME,
@@ -350,7 +350,7 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
 
     assert built.exit_code == 0, built.output
     assert (target / "build" / "backend-only-readonly" / "Dockerfile").is_file()
-    rendered = yaml.safe_load((target / "build" / "config.yml").read_text(encoding="utf-8"))
+    rendered = rendered_config(target)
     assert rendered["services"]["dispatch_worker"]["tier"] == "readonly"
     assert rendered["modules"]["web_terminals"]["renders"]["readonly"]["kind"] == "tier"
 

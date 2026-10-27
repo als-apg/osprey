@@ -88,7 +88,7 @@ from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_writes_enabled
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 TIER_NAMES = ("readonly", "readwrite", "admin")
@@ -730,7 +730,7 @@ def _build_render_stack(repo: Path) -> Path:
 
 def _render_dir(stack: Path, name: str) -> Path:
     """The render of tier or app *name* in a built *stack*."""
-    host = yaml.safe_load((stack / "build" / "config.yml").read_text(encoding="utf-8"))
+    host = rendered_config(stack)
     return stack / "build" / f"{host['project_name']}-{name}"
 
 
@@ -1408,9 +1408,7 @@ class TestControlAssistantTiersAndApps:
         assert project.is_dir(), f"{tier} was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
         # The store's address, projected from the host, beside the corpus the
         # tier stages for itself (render-local, never stripped).
         assert (config.get("services") or {}).get("graphdb") == {
@@ -1485,9 +1483,7 @@ class TestControlAssistantTiersAndApps:
         """
         project = _render_dir(built_layered_stack, tier)
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
 
         assert config["services"] == {
             "qmd": {"port": host["services"]["qmd"]["port"]},
@@ -1523,9 +1519,7 @@ class TestControlAssistantTiersAndApps:
                 encoding="utf-8"
             )
         )
-        host = yaml.safe_load(
-            (built_layered_stack / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        host = rendered_config(built_layered_stack)
         for panel in ("events", "bluesky"):
             told = config["web"]["panels"][panel]
             hosts = host["web"]["panels"][panel]

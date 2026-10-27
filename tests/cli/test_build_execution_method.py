@@ -18,11 +18,11 @@ import logging
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey_connectors import config as config_module
+from tests.cli._lifecycle_build import rendered_config
 
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
@@ -55,7 +55,7 @@ def _build_repo(tmp_path: Path, monkeypatch, override: str):
 
 
 def _rendered_method(repo: Path) -> str:
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     return config["execution"]["execution_method"]
 
 

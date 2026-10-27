@@ -46,7 +46,7 @@ from osprey.deployment.staleness import DriftState, check_drift, profile_fingerp
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import TIERS_DIRNAME
-from tests.cli._lifecycle_build import stub_build
+from tests.cli._lifecycle_build import rendered_config, stub_build
 
 
 @pytest.fixture
@@ -274,10 +274,6 @@ def _build(runner: CliRunner, repo: Path):
         os.chdir(previous)
 
 
-def _rendered_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-
-
 def _write_variant(repo: Path, name: str, body: str) -> None:
     root = repo / VARIANT_DIRNAME
     root.mkdir(exist_ok=True)
@@ -301,12 +297,12 @@ class TestBuildIntegration:
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
         first = _build(runner, variant_repo)
         assert first.exit_code == 0, first.output
-        teststand = _rendered_config(variant_repo)
+        teststand = rendered_config(variant_repo)
 
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=control-room\n")
         second = _build(runner, variant_repo)
         assert second.exit_code == 0, second.output
-        control_room = _rendered_config(variant_repo)
+        control_room = rendered_config(variant_repo)
 
         assert teststand["system"]["timezone"] == "America/Los_Angeles"
         assert teststand["web"]["theme"] == "dark"
@@ -320,7 +316,7 @@ class TestBuildIntegration:
         result = _build(runner, variant_repo)
 
         assert result.exit_code == 0, result.output
-        config = _rendered_config(variant_repo)
+        config = rendered_config(variant_repo)
         assert config["web"]["theme"] == "light"
         assert config["system"]["timezone"] != "America/Los_Angeles"
 
@@ -336,7 +332,7 @@ class TestBuildIntegration:
 
         assert _build(runner, variant_repo).exit_code == 0
 
-        config = _rendered_config(variant_repo)
+        config = rendered_config(variant_repo)
         assert config["control_system"]["type"] == "virtual_accelerator"
         assert config["project_name"] == variant_repo.name
 
@@ -356,7 +352,7 @@ class TestBuildIntegration:
     ) -> None:
         """And leaves the previous ``build/`` alone, like every other refusal."""
         assert _build(runner, variant_repo).exit_code == 0
-        before = _rendered_config(variant_repo)
+        before = rendered_config(variant_repo)
 
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=staging\n")
         with caplog.at_level(logging.ERROR):
@@ -367,7 +363,7 @@ class TestBuildIntegration:
         # naming both the variant asked for and the ones that would work.
         assert "staging" in caplog.text
         assert "teststand" in caplog.text
-        assert _rendered_config(variant_repo) == before
+        assert rendered_config(variant_repo) == before
 
     def test_a_real_build_stamps_a_fingerprint_that_covers_its_variant(
         self, runner: CliRunner, variant_repo: Path

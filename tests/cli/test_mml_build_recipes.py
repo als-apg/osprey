@@ -49,6 +49,7 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
 from osprey_connectors import yaml_loader
+from tests.cli._lifecycle_build import rendered_config
 from tests.fixtures.mml._trees import names
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -406,10 +407,6 @@ def remove_named(repo: Path, line: str) -> list[str]:
         else:
             target.unlink()
     return named
-
-
-def rendered_config(repo: Path) -> dict:
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")

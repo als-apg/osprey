@@ -25,7 +25,7 @@ from osprey.cli.build_profile_deploy import (
     parse_deploy_block,
 )
 from osprey_connectors.errors import BuildProfileError
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 DEPLOY_BLOCK: dict[str, Any] = {
     "ci": "gitlab",
@@ -211,7 +211,7 @@ def _build_project(
         tier_file.write_text(yaml.safe_dump({"name": f"Demo ({tier})"}), encoding="utf-8")
     result = invoke_build(tmp_path)
     assert result.exit_code == 0, result.output
-    return yaml.safe_load((tmp_path / "build" / "config.yml").read_text(encoding="utf-8"))
+    return rendered_config(tmp_path)
 
 
 def test_a_built_project_reads_the_mode_the_deploy_block_named(tmp_path: Path) -> None:

@@ -39,7 +39,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
 from osprey.profiles.providers import PROVIDERS_FILENAME, packaged_catalog_path
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The four ``approval`` leaves plus their two neighbours, as a "whole branch
 #: and then some" removal: the branch the proposal names, and two single keys
@@ -206,17 +206,6 @@ def _without_top_level_block(text: str, key: str) -> str:
 
 def _profile_data(profile: Path) -> dict:
     return yaml.safe_load(profile.read_text(encoding="utf-8"))
-
-
-def _rendered_config(repo: Path) -> dict:
-    """The build's own ``build/config.yml`` — what the RUNTIME reads.
-
-    Dotted keys are expanded on the way here, but only at the top level of
-    ``config:``: a dotted key nested inside a mapping arrives as a literal key
-    with dots in its name, which no runtime reader ever looks up. So a claim
-    about what the deployment will actually do has to be made here.
-    """
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
 def _dotted_keys_below(value: object, prefix: str = "") -> list[str]:
@@ -443,8 +432,8 @@ def test_a_nested_spelling_is_left_alone(runner: CliRunner, tmp_path: Path) -> N
     fresh = tmp_path / "reference"
     _init(runner, fresh, "hello-world")
     assert invoke_build(fresh).exit_code == 0
-    approval = _rendered_config(repo)["approval"]
-    assert approval["tools"] == _rendered_config(fresh)["approval"]["tools"]
+    approval = rendered_config(repo)["approval"]
+    assert approval["tools"] == rendered_config(fresh)["approval"]["tools"]
     assert _dotted_keys_below(approval) == []
 
 
@@ -472,7 +461,7 @@ def test_a_nested_parent_gets_real_mappings_not_a_dotted_key(
     assert _revalidate(runner, repo).exit_code == 0
     assert invoke_build(repo).exit_code == 0
 
-    approval = _rendered_config(repo)["approval"]
+    approval = rendered_config(repo)["approval"]
     assert approval["default_policy"] == "selective"
     assert approval["tools"]["channel_write"] == "always"
     assert _dotted_keys_below(approval) == []

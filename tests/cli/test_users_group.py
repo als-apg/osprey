@@ -35,6 +35,7 @@ from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.errors import RemovalIncompleteError
 from osprey.deployment.web_terminals import lifecycle
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import rendered_config
 
 #: Every verb the group ships, mapped to the exact set of option spellings it
 #: accepts. Pinned as a whole rather than flag-by-flag: a verb must carry the
@@ -211,7 +212,7 @@ def fake_runtime(monkeypatch):
 
 
 def _roster(repo_root: Path) -> list:
-    data = yaml.safe_load((repo_root / "build" / "config.yml").read_text(encoding="utf-8"))
+    data = rendered_config(repo_root)
     return data["modules"]["web_terminals"]["users"]
 
 

@@ -27,7 +27,7 @@ from osprey.cli.build_profile_emit import (
     emit_standalone_profile_yaml,
 )
 from osprey.cli.init_cmd import init
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 # The lines the edited-text gates below apply: the block-style snippet
 # inside each annotation, which is the part a facility copies and edits. Keyed
@@ -385,7 +385,7 @@ def test_fragment_web_panel_reaches_the_built_config(runner: CliRunner, tmp_path
     built = invoke_build(repo)
     assert built.exit_code == 0, built.output
 
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     assert config["web"]["panels"]["elog"]["url"] == _ELOG_URL
 
 

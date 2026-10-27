@@ -20,7 +20,6 @@ import re
 from pathlib import Path
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
@@ -36,6 +35,7 @@ from osprey.deployment.web_terminals.render_naming import (
     render_project,
 )
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import rendered_config
 
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
@@ -168,7 +168,7 @@ class TestTheBuild:
         result = _build(CliRunner(), repo)
 
         assert result.exit_code == 0, result.output
-        config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+        config = rendered_config(repo)
         assert config["project_name"] == "als-exemplar"
         assert (repo / "build" / "als-exemplar-readonly" / "config.yml").is_file()
         renders = config["modules"]["web_terminals"]["renders"]
@@ -187,9 +187,7 @@ class TestTheBuild:
         result = _build(CliRunner(), lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        config = yaml.safe_load(
-            (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
-        )
+        config = rendered_config(lifecycle_repo)
         assert config["project_name"] == "als-exemplar-scratch"
         renders = config["modules"]["web_terminals"]["renders"]
         assert renders["admin"]["project"] == "als-exemplar-scratch-admin"

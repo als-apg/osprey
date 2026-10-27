@@ -22,7 +22,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import recorded_claude_md_template
 from tests._preset_data import bundle_data_root
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.cli._template_projects import create_project_with_manifest
 
 _BUNDLED_RENDERS = {
@@ -368,7 +368,7 @@ class TestManifestPresetStamp:
         assert stamped["artifacts"]["hooks"]
 
         # And the regen reads it back rather than needing a preset name.
-        config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+        config = rendered_config(repo)
         ctx = claude_code.build_claude_code_context(
             manager.template_root, manager.jinja_env, repo / "build", config
         )

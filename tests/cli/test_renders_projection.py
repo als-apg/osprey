@@ -27,7 +27,7 @@ from osprey.deployment.web_terminals.render_naming import (
 from osprey.deployment.web_terminals.roster import resolve_cards, served_renders
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import RETIRED_LAYER_DIRS
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 
 PROJECT = "als-exemplar"
@@ -53,7 +53,7 @@ def _with_readwrite_knobs(repo: Path) -> Path:
 
 
 def _rendered_web_terminals(repo: Path) -> dict:
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
     return config["modules"]["web_terminals"]
 
 
@@ -145,7 +145,7 @@ def test_the_lint_judges_the_projection_the_build_writes(built_repo):
 
 def test_rendered_projection_feeds_the_deploy_readers(built_repo):
     repo, _judged = built_repo
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
 
     assert set(effective_web_terminals(config)["renders"]) == {*TIERS, *APPS}
     assert emits_layer_profiles(config)

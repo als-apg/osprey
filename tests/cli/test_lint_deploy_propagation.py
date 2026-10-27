@@ -30,7 +30,7 @@ from osprey.cli.build_profile_deploy import (
 )
 from osprey.cli.profile_cmd import profile as profile_group
 from osprey.deployment.web_terminals.lint import profile_config_errors
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The frozen reference deployment. Its ``deploy:`` block says ``image_source:
 #: local`` and its ``config:`` block deliberately does NOT — one fact, one home.
@@ -313,7 +313,7 @@ def test_a_registry_mode_profile_names_its_registry_once_on_both_surfaces(
 
     assert validated.exit_code == 0, validated.output
     assert built.exit_code == 0, built.output
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    rendered = rendered_config(repo)
     assert rendered["registry"] == {"url": "registry.example.org/demo"}
 
 
@@ -333,7 +333,7 @@ def test_an_explicit_config_registry_url_reaches_the_render(tmp_path: Path) -> N
     built = invoke_build(path.parent)
 
     assert built.exit_code == 0, built.output
-    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    rendered = rendered_config(repo)
     assert rendered["registry"] == {"url": "mirror.example.org/demo"}
 
 

@@ -34,7 +34,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.init_cmd import init
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: A logbook on another host — the case that needs something polling it.
 REMOTE_SOURCE = "https://logbook.example.org/api/entries"
@@ -84,11 +84,6 @@ def _build(
     return result.output, repo
 
 
-def _rendered_config(repo: Path) -> dict[str, Any]:
-    """The parsed ``build/config.yml`` a build left in *repo*."""
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
-
-
 def _one_line(output: str) -> str:
     """Collapse *output* to single-spaced text, so wrapping cannot hide a match.
 
@@ -118,7 +113,7 @@ def test_declared_service_renders_its_compose_and_registers(
     assert "--watch" in document["services"]["ariel-sync"]["command"], (
         "the mirror must run as a daemon, not a one-shot sync"
     )
-    assert "ariel_sync" in _rendered_config(repo)["deployed_services"]
+    assert "ariel_sync" in rendered_config(repo)["deployed_services"]
     # The deployment now ingests the source it names, so there is nothing to say.
     assert "osprey.ariel_sync" not in output
 
@@ -139,7 +134,7 @@ def test_remote_source_without_the_service_is_advised_once(
     assert REMOTE_SOURCE in advisory
     assert "template: osprey.ariel_sync" in advisory
     # Advisory, not a refusal: the deployment is still built and registered.
-    assert "ariel_sync" not in _rendered_config(repo)["deployed_services"]
+    assert "ariel_sync" not in rendered_config(repo)["deployed_services"]
 
 
 def test_shipped_ariel_profile_is_silent(runner: CliRunner, tmp_path: Path) -> None:
@@ -151,5 +146,5 @@ def test_shipped_ariel_profile_is_silent(runner: CliRunner, tmp_path: Path) -> N
     output, repo = _build(runner, tmp_path)
 
     assert "osprey.ariel_sync" not in output
-    ariel = _rendered_config(repo)["ariel"]
+    ariel = rendered_config(repo)["ariel"]
     assert "ingestion" not in ariel, "the shipped deployment ingests nothing over the network"

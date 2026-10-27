@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 _PROFILE = """\
 extends: hello-world
@@ -42,7 +42,7 @@ def test_declared_service_renders_its_compose_and_registers(tmp_path: Path) -> N
         (repo / "build" / "services" / "archive" / "docker-compose.yml").read_text(encoding="utf-8")
     )
     assert compose["services"]["archive"]["entrypoint"] == ["osprey", "archive", "--watch"]
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    config = rendered_config(repo)
     assert "archive" in config["deployed_services"]
     archive_root = repo / "var" / "archive"
     assert archive_root.is_dir()

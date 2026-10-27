@@ -46,6 +46,7 @@ from osprey.cli.build_profile_standin import (
     live_standin_config_overrides,
     live_standin_duplicate_key_errors,
 )
+from tests.cli._lifecycle_build import rendered_config
 
 #: The port the stand-in is reserved on throughout the codebase — both config
 #: templates' gateway examples read 5094 rather than this, on purpose, so an
@@ -378,7 +379,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        config = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())
+        config = rendered_config(lifecycle_repo)
         standin = config["control_system"]["connector"]["live_standin"]
         assert standin["gateways"] == {
             "read_only": {
@@ -408,9 +409,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
-            "control_system"
-        ]
+        control_system = rendered_config(lifecycle_repo)["control_system"]
         assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]
 
@@ -453,9 +452,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
-            "control_system"
-        ]
+        control_system = rendered_config(lifecycle_repo)["control_system"]
         assert "limits_checking" not in control_system, (
             "an unstated posture must not be filled in by the build"
         )
@@ -469,7 +466,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         result = _build(runner, lifecycle_repo)
         assert result.exit_code == 0, result.output
 
-        config = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())
+        config = rendered_config(lifecycle_repo)
         va_gateways = config["control_system"]["connector"]["virtual_accelerator"]["gateways"]
         for row in va_gateways.values():
             assert "port" not in row, va_gateways

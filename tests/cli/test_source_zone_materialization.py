@@ -29,7 +29,7 @@ from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import TIERS_DIRNAME
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
@@ -813,7 +813,7 @@ def test_baked_override_survives_into_the_built_project(runner: CliRunner, tmp_p
 
     assert invoke_build(repo).exit_code == 0
 
-    config = yaml.safe_load((repo / "build" / "config.yml").read_text())
+    config = rendered_config(repo)
     assert config["claude_code"]["default_model"] == "claude-opus-5"
 
 

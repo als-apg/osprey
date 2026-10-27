@@ -37,7 +37,7 @@ from osprey.cli.build_profile_resolve import (
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.errors import BuildProfileError
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 
 def _flat(text: str) -> str:
@@ -59,7 +59,7 @@ def _build(repo: Path) -> dict:
     """Render *repo* and return its ``build/config.yml``."""
     result = invoke_build(repo)
     assert result.exit_code == 0, result.output
-    return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    return rendered_config(repo)
 
 
 # ── the spelling ─────────────────────────────────────────────────────────────
