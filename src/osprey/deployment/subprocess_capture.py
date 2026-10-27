@@ -68,6 +68,11 @@ _KILL_WAIT_S = 5.0
 #: How often a stopping process group is checked for members still running.
 _GROUP_POLL_S = 0.05
 
+#: How long a liveness probe waits for another thread's reap of a child to set
+#: its ``returncode``. A reap that does not land in this window was made by
+#: something other than the child's stop.
+_REAP_SETTLE_S = 1.0
+
 #: Called while a bounded run is still going: the seconds it has run, and the
 #: spool its output is going to (``None`` under ``--verbose``).
 Watch = Callable[[float, Path | None], None]
@@ -532,6 +537,58 @@ def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
             continue
 
 
+def observe_exit(process: subprocess.Popen, *, within: float | None = 0.0) -> int | None:
+    """The exit status of a child this process owns, or ``None`` while it runs.
+
+    The public liveness probe for an owned child. The status follows
+    ``Popen``'s convention: the exit code, or the negated signal number for a
+    child a signal ended. ``within=0`` gives one look; a positive ``within``
+    looks until the child has exited or that many seconds have passed;
+    ``within=None`` blocks until it exits.
+
+    It never reaps: the reap is left to :func:`stop_child`, so the group id the
+    child leads stays pinned by its unreaped leader while a stop runs. The rule
+    is one of correctness, not tidiness: ``Popen.wait()`` and ``poll()`` report
+    exit status 0 for a child something else reaped, so a second reaper turns a
+    real exit status into a false one.
+
+    Raises:
+        RuntimeError: the child was reaped by something other than its stop.
+    """
+    if process.returncode is not None:
+        return int(process.returncode)
+    flags = os.WEXITED | os.WNOWAIT
+    if within is not None:
+        flags |= os.WNOHANG
+    deadline = None if within is None else time.monotonic() + within
+    while True:
+        try:
+            result = os.waitid(os.P_PID, process.pid, flags)
+        except ChildProcessError:
+            return _settled_returncode(process)
+        if result is not None:
+            if result.si_code == os.CLD_EXITED:
+                return int(result.si_status)
+            return -int(result.si_status)
+        if deadline is None or time.monotonic() >= deadline:
+            return None
+        time.sleep(_GROUP_POLL_S)
+
+
+def _settled_returncode(process: subprocess.Popen) -> int:
+    """The status a reap in flight on another thread is about to record.
+
+    Between ``waitpid`` returning and ``Popen`` storing ``returncode`` there is
+    a short window in which the child is reaped but its status not yet set.
+    """
+    deadline = time.monotonic() + _REAP_SETTLE_S
+    while process.returncode is None:
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"pid {process.pid} was reaped by something other than its stop")
+        time.sleep(_GROUP_POLL_S)
+    return int(process.returncode)
+
+
 def group_is_gone(pgid: int, *, within: float = 0.0) -> bool:
     """Whether no process of the process group ``pgid`` is still running.
 
@@ -719,6 +776,7 @@ __all__ = [
     "captured_failure_detail",
     "diagnose_captured_failure",
     "group_is_gone",
+    "observe_exit",
     "run_captured",
     "stop_group",
 ]

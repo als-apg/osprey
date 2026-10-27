@@ -29,6 +29,7 @@ from osprey.deployment.subprocess_capture import (
     StopOutcome,
     _mismatched_volumes,
     group_is_gone,
+    observe_exit,
     run_captured,
     stop_group,
 )
@@ -701,6 +702,55 @@ class TestStopOutcome:
         assert outcome.describe(survivor=str.upper, unknown=lambda x: f"<{x}>") == (
             "still running after SIGKILL: B, C; process table unreadable: <d> may still be running"
         )
+
+
+class TestObserveExit:
+    def test_observe_exit_sees_an_exit_without_reaping_it(self):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        try:
+            assert observe_exit(proc, within=5.0) == 0
+            assert os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+            assert proc.returncode is None
+        finally:
+            proc.wait()
+
+    def test_observe_exit_answers_none_while_the_child_runs(self):
+        proc = subprocess.Popen(["sleep", "60"])
+        try:
+            assert observe_exit(proc) is None
+        finally:
+            proc.kill()
+            proc.wait()
+
+    def test_observe_exit_reports_a_signal_as_popen_does(self):
+        proc = subprocess.Popen(["sleep", "60"])
+        try:
+            proc.kill()
+            assert observe_exit(proc, within=5.0) == -signal.SIGKILL
+        finally:
+            proc.wait()
+
+    def test_observe_exit_blocks_until_the_exit_when_asked(self):
+        proc = subprocess.Popen(["sleep", "0.3"])
+        try:
+            start = time.monotonic()
+            assert observe_exit(proc, within=None) == 0
+            assert time.monotonic() - start >= 0.25
+        finally:
+            proc.wait()
+
+    def test_observe_exit_returns_the_status_a_reaped_child_already_has(self):
+        proc = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
+        proc.wait()
+        assert observe_exit(proc) == 3
+
+    def test_observe_exit_raises_when_something_else_reaped_the_child(self, monkeypatch):
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        os.waitid(os.P_PID, proc.pid, os.WEXITED)
+        monkeypatch.setattr(subprocess_capture, "_REAP_SETTLE_S", 0.2)
+        with pytest.raises(RuntimeError, match=f"pid {proc.pid} was reaped by something other"):
+            observe_exit(proc)
+        proc.returncode = 0  # the foreign reap took the status; keep Popen.__del__ quiet
 
 
 # ---------------------------------------------------------------------------
