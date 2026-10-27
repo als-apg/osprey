@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
+from osprey.services.bluesky_bridge import queue_backend as qb
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -47,8 +48,8 @@ def test_an_export_with_no_catalog_is_a_settled_refusal(from_uri_calls: list[Any
 
     assert response.status_code == 409, response.text
     detail = response.json()["detail"]
-    assert detail["code"] == app_module.EXPORT_REASON_TILED_NOT_CONFIGURED
-    assert detail["code"] == "tiled_not_configured"
+    assert detail["code"] == qb.REASON_TILED_NOT_CONFIGURED
+    assert detail["retryable"] is False
     assert "no tiled catalog is configured" in detail["detail"].lower()
     assert from_uri_calls == []
 
@@ -59,24 +60,6 @@ def test_an_unsupported_format_is_refused_before_the_catalog_check(
     response = TestClient(app_module.app).get("/runs/some-run/export?format=bogus")
 
     assert response.status_code == 400, response.text
-    assert response.json()["detail"]["code"] == app_module.EXPORT_REASON_UNSUPPORTED_FORMAT
+    assert response.json()["detail"]["code"] == qb.REASON_UNSUPPORTED_FORMAT
+    assert response.json()["detail"]["retryable"] is False
     assert from_uri_calls == []
-
-
-def test_a_refusal_outside_the_export_vocabulary_fails_at_construction() -> None:
-    with pytest.raises(ValueError, match="not_a_reason"):
-        app_module._export_refused(400, "not_a_reason", "x")
-
-
-_EXPORT_REASON_NAMES = sorted(
-    name for name in vars(app_module) if name.startswith("EXPORT_REASON_")
-)
-
-
-def test_the_export_vocabulary_is_declared() -> None:
-    assert _EXPORT_REASON_NAMES
-
-
-@pytest.mark.parametrize("name", _EXPORT_REASON_NAMES)
-def test_every_export_reason_is_in_the_vocabulary(name: str) -> None:
-    assert vars(app_module)[name] in app_module.EXPORT_REASONS

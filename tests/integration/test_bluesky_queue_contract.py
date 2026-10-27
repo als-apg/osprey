@@ -1714,7 +1714,9 @@ def test_a_retired_direct_execute_route_refuses_with_use_the_queue(
 
     assert resp.status_code == 410
     detail = resp.json()["detail"]
-    assert detail["code"] == "use_the_queue"
+    assert detail["code"] == qb.REASON_USE_THE_QUEUE
+    assert resp.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert replacement in detail["detail"]
     # A refusal that is a property of the deployment's shape, not its state:
     # nothing is asked of the manager, and no item is touched.

@@ -66,11 +66,21 @@ from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
 from .queue_backend import (
     PLAN_META_KEY,
+    REASON_AMBIGUOUS_TABLE,
+    REASON_EXPORT_FAILED,
+    REASON_NOTHING_STORED,
+    REASON_RUN_NOT_FINISHED,
+    REASON_TILED_NOT_CONFIGURED,
+    REASON_TILED_UNAVAILABLE,
+    REASON_UNKNOWN_RUN,
+    REASON_UNSUPPORTED_FORMAT,
+    REASON_USE_THE_QUEUE,
     REFUSAL_REASONS,
     QueueBackend,
     QueueBackendError,
     run_id_of,
 )
+from .refusals import refusal
 from .session_dir import resolve_session_plan_dir
 from .session_upload import get_session_uploader, upload_after_validation
 from .validation import _assert_limits_readable_if_writable
@@ -100,22 +110,18 @@ _BRIDGE_ONLY_MODULES = {"bluesky", "bluesky_tiled_plugins", "ophyd", "ophyd_asyn
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
-# The refusal code every retired direct-execute route answers with. One code
-# for all of them: the answer is always "this capability belongs to the queue",
-# and the per-route sentence in `detail` says which route owns it.
-_USE_THE_QUEUE = "use_the_queue"
-
 
 def _use_the_queue(detail: str) -> HTTPException:
     """The machine-readable refusal a retired direct-execute route raises.
 
-    Same ``{"code", "detail"}`` body shape as every queue refusal
-    (``queue.py``), so a caller branches on ``detail.code`` uniformly rather
-    than special-casing these four routes. 410 Gone, not 404: the route is
-    still here and still answering — what is gone is the in-process execution
-    behind it.
+    One code for every retired route: the answer is always "this capability
+    belongs to the queue", and the per-route sentence in ``detail`` says which
+    route owns it. Made by `refusal`, like every queue refusal, so a caller
+    branches on ``detail.code`` uniformly rather than special-casing these
+    routes. 410 Gone, not 404: the route is still here and still answering —
+    what is gone is the in-process execution behind it.
     """
-    return HTTPException(status_code=410, detail={"code": _USE_THE_QUEUE, "detail": detail})
+    return refusal(REASON_USE_THE_QUEUE, detail)
 
 
 # The bridge's single `QueueBackend` — one queueserver client handle for the
@@ -515,14 +521,11 @@ async def remove_run(run_id: str) -> dict:
             if record["status"] == runs.STATUS_PENDING
             else "POST /queue/abort"
         )
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "run_not_finished",
-                "detail": f"Run {run_id!r} is {record['status']}; only a finished run "
-                f"can be removed from history. Use {instead}.",
-                "status": record["status"],
-            },
+        raise refusal(
+            REASON_RUN_NOT_FINISHED,
+            f"Run {run_id!r} is {record['status']}; only a finished run "
+            f"can be removed from history. Use {instead}.",
+            status=record["status"],
         )
     removed_runs().add(run_id)
     queue._notify_change()
@@ -2097,46 +2100,6 @@ _EXPORT_FORMATS = {
     "parquet": "application/x-parquet",
 }
 
-# Why an export could not be produced. Same `{"code", "detail"}` refusal body
-# every other refusal on this app uses (`queue.py`, `_use_the_queue`), so a
-# caller branches on `detail.code` here exactly as it does there. The set is
-# closed: `_export_refused` refuses any code outside `EXPORT_REASONS`.
-EXPORT_REASON_UNSUPPORTED_FORMAT = "unsupported_format"
-EXPORT_REASON_TILED_NOT_CONFIGURED = "tiled_not_configured"
-EXPORT_REASON_TILED_UNAVAILABLE = "tiled_unavailable"
-EXPORT_REASON_UNKNOWN_RUN = "unknown_run"
-EXPORT_REASON_NOTHING_STORED = "nothing_stored"
-EXPORT_REASON_AMBIGUOUS_TABLE = "ambiguous_table"
-EXPORT_REASON_EXPORT_FAILED = "export_failed"
-
-EXPORT_REASONS: frozenset[str] = frozenset(
-    {
-        EXPORT_REASON_UNSUPPORTED_FORMAT,
-        EXPORT_REASON_TILED_NOT_CONFIGURED,
-        EXPORT_REASON_TILED_UNAVAILABLE,
-        EXPORT_REASON_UNKNOWN_RUN,
-        EXPORT_REASON_NOTHING_STORED,
-        EXPORT_REASON_AMBIGUOUS_TABLE,
-        EXPORT_REASON_EXPORT_FAILED,
-    }
-)
-
-
-def _export_refused(status: int, code: str, detail: str) -> HTTPException:
-    """The refusal an export answers with — always a body, never a bare status.
-
-    A download route that fails has to say *why* in something a caller can
-    branch on: the response body is the only place left, because the bytes it
-    would otherwise be carrying are what is missing.
-
-    *code* is one of `EXPORT_REASONS`; any other value raises `ValueError`, so a
-    misspelled reason fails where the refusal is made and never reaches the wire.
-    """
-    if code not in EXPORT_REASONS:
-        raise ValueError(f"{code!r} is not an export refusal reason")
-    return HTTPException(status_code=status, detail={"code": code, "detail": detail})
-
-
 # Everything a run id may contribute to a download filename. Deliberately a
 # tiny allowlist rather than a blocklist of the characters that are known to
 # hurt: the quoted-string form of `Content-Disposition` gives a `"` the power to
@@ -2202,23 +2165,19 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
     """
     client = _tiled_client()
     if client is None:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_TILED_NOT_CONFIGURED,
+        raise refusal(
+            REASON_TILED_NOT_CONFIGURED,
             "No Tiled catalog is configured for this deployment, so no run has "
             "stored data to export.",
         )
 
     run_node = _newest_run_node(client, run_id)
     if run_node is None:
-        raise _export_refused(
-            404, EXPORT_REASON_UNKNOWN_RUN, f"No run in the catalog matches {run_id!r}."
-        )
+        raise refusal(REASON_UNKNOWN_RUN, f"No run in the catalog matches {run_id!r}.")
 
     if "primary" not in run_node:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_NOTHING_STORED,
+        raise refusal(
+            REASON_NOTHING_STORED,
             f"Run {run_id!r} recorded no data — it has no 'primary' stream to export.",
         )
 
@@ -2281,22 +2240,19 @@ def _stored_table_node(run_id: str) -> Any:
         logger.warning(
             "export: the Tiled catalog could not be read for run %r", run_id, exc_info=True
         )
-        raise _export_refused(
-            503,
-            EXPORT_REASON_TILED_UNAVAILABLE,
+        raise refusal(
+            REASON_TILED_UNAVAILABLE,
             f"The Tiled catalog could not be reached to look up this run: {exc}",
         ) from exc
 
     if not tables:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_NOTHING_STORED,
+        raise refusal(
+            REASON_NOTHING_STORED,
             f"Run {run_id!r} stored no row table, so there is nothing to serialize.",
         )
     if len(tables) > 1:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_AMBIGUOUS_TABLE,
+        raise refusal(
+            REASON_AMBIGUOUS_TABLE,
             f"Run {run_id!r} stored {len(tables)} row tables; an export serializes one "
             "node, and serving part of an archive without saying so is not an option.",
         )
@@ -2359,9 +2315,8 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
     """
     media_type = _EXPORT_FORMATS.get(format)
     if media_type is None:
-        raise _export_refused(
-            400,
-            EXPORT_REASON_UNSUPPORTED_FORMAT,
+        raise refusal(
+            REASON_UNSUPPORTED_FORMAT,
             f"{format!r} is not an export format; this bridge serves "
             f"{', '.join(sorted(_EXPORT_FORMATS))}.",
         )
@@ -2373,9 +2328,8 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
         node.export(buffer, format=media_type)
     except Exception as exc:
         logger.warning("export: serializing run %r as %s failed", run_id, format, exc_info=True)
-        raise _export_refused(
-            502,
-            EXPORT_REASON_EXPORT_FAILED,
+        raise refusal(
+            REASON_EXPORT_FAILED,
             f"The Tiled catalog could not serialize this run as {format}: {exc}",
         ) from exc
 
