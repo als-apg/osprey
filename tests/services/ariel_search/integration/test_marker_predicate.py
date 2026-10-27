@@ -31,12 +31,6 @@ CAPTION = "image_caption"
 MODULE = "marker_probe"
 
 
-@pytest.fixture
-def repo(scratch_repo: ARIELRepository) -> ARIELRepository:
-    """A repository over a freshly migrated scratch database."""
-    return scratch_repo
-
-
 def _seed(
     uri: str,
     entry_id: str,
@@ -64,14 +58,14 @@ def _seed(
 
 class TestModelSwitch:
     async def test_three_failures_then_a_model_switch_restart_the_count(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """Giving up under model A is forgotten under model B: pending, attempts from 1."""
         _seed(scratch_database, "e-1")
         insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         attempts = [
-            await repo.mark_enhancement_failed("e-1", CAPTION, "timeout", marker="vis-a")
+            await scratch_repo.mark_enhancement_failed("e-1", CAPTION, "timeout", marker="vis-a")
             for _ in range(MAX_ENHANCEMENT_ATTEMPTS)
         ]
 
@@ -79,12 +73,12 @@ class TestModelSwitch:
         stored = enhancement_status(scratch_database, "e-1")[CAPTION]
         assert stored["gave_up"] is True
         assert stored["marker"] == "vis-a"
-        assert await repo.get_incomplete_entries(CAPTION, marker="vis-a") == []
-        stats = await repo.get_enhancement_stats(markers={CAPTION: "vis-a"})
+        assert await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-a") == []
+        stats = await scratch_repo.get_enhancement_stats(markers={CAPTION: "vis-a"})
         assert stats[CAPTION] == {"complete": 0, "failed": 1, "pending": 0, "gave_up": 1}
 
-        walked = await repo.get_incomplete_entries(CAPTION, marker="vis-b")
-        stats = await repo.get_enhancement_stats(markers={CAPTION: "vis-b"})
+        walked = await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-b")
+        stats = await scratch_repo.get_enhancement_stats(markers={CAPTION: "vis-b"})
 
         assert [e["entry_id"] for e in walked] == ["e-1"]
         assert {k: stats[CAPTION][k] for k in ("failed", "gave_up", "pending")} == {
@@ -92,33 +86,36 @@ class TestModelSwitch:
             "gave_up": 0,
             "pending": 1,
         }
-        assert await repo.mark_enhancement_failed("e-1", CAPTION, "t", marker="vis-b") == 1
-        assert await repo.mark_enhancement_failed("e-1", CAPTION, "t", marker="vis-b") == 2
+        assert await scratch_repo.mark_enhancement_failed("e-1", CAPTION, "t", marker="vis-b") == 1
+        assert await scratch_repo.mark_enhancement_failed("e-1", CAPTION, "t", marker="vis-b") == 2
         stored = enhancement_status(scratch_database, "e-1")[CAPTION]
         assert stored["gave_up"] is False
         assert stored["marker"] == "vis-b"
-        assert [e["entry_id"] for e in await repo.get_incomplete_entries(CAPTION, marker="vis-b")]
+        assert [
+            e["entry_id"]
+            for e in await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-b")
+        ]
 
     async def test_complete_under_the_current_marker_leaves_the_walk(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """The complete object stores the marker; a new marker brings the entry back."""
         _seed(scratch_database, "e-1")
         insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
-        await repo.mark_enhancement_complete("e-1", CAPTION, marker="vis-a")
+        await scratch_repo.mark_enhancement_complete("e-1", CAPTION, marker="vis-a")
 
         stored = enhancement_status(scratch_database, "e-1")[CAPTION]
         assert stored["status"] == "complete"
         assert stored["marker"] == "vis-a"
         assert "completed_at" in stored
-        assert await repo.get_incomplete_entries(CAPTION, marker="vis-a") == []
-        assert len(await repo.get_incomplete_entries(CAPTION, marker="vis-b")) == 1
+        assert await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-a") == []
+        assert len(await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-b")) == 1
 
 
 class TestImageTodo:
     async def test_pending_copies_are_not_walked(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """500 entries whose only picture is still copying stay out of the walk."""
         with psycopg.connect(scratch_database, autocommit=True) as conn:
@@ -143,15 +140,15 @@ class TestImageTodo:
         _seed(scratch_database, "c-1")
         insert_picture(scratch_database, "ca-1", "c-1", copy_status="copied")
 
-        walked = await repo.get_incomplete_entries(CAPTION, marker="vis-a", limit=1000)
+        walked = await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-a", limit=1000)
 
         assert [e["entry_id"] for e in walked] == ["c-1"]
-        stats = await repo.get_enhancement_stats(markers={CAPTION: "vis-a"})
+        stats = await scratch_repo.get_enhancement_stats(markers={CAPTION: "vis-a"})
         # No entry carries the key yet, so no module row exists: all 501 stay unfinished.
         assert stats == {"total_entries": 501}
 
     async def test_captioned_pictures_are_done_and_null_captions_are_not(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """A caption under the current model is done; a NULL caption column is not done."""
         _seed(scratch_database, "done", captions={"d-1": {"vis-a": {"caption": "x"}}})
@@ -159,8 +156,8 @@ class TestImageTodo:
         _seed(scratch_database, "null")
         insert_picture(scratch_database, "n-1", "null", copy_status="copied")
 
-        walked = await repo.get_incomplete_entries(CAPTION, marker="vis-a")
-        switched = await repo.get_incomplete_entries(CAPTION, marker="vis-b")
+        walked = await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-a")
+        switched = await scratch_repo.get_incomplete_entries(CAPTION, marker="vis-b")
 
         assert [e["entry_id"] for e in walked] == ["null"]
         assert sorted(e["entry_id"] for e in switched) == ["done", "null"]
@@ -168,7 +165,7 @@ class TestImageTodo:
 
 class TestCatchupOrder:
     async def test_pending_newest_first_then_failed_by_attempts(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """Key-absent, pending and stale rows sort as pending; failed rows follow."""
         hour = timedelta(hours=1)
@@ -212,7 +209,7 @@ class TestCatchupOrder:
             status={MODULE: {"status": "complete", "marker": "m-a"}},
         )
 
-        walked = await repo.get_incomplete_entries(MODULE, marker="m-a")
+        walked = await scratch_repo.get_incomplete_entries(MODULE, marker="m-a")
 
         assert [e["entry_id"] for e in walked] == [
             "stale",
@@ -225,7 +222,7 @@ class TestCatchupOrder:
 
 class TestStats:
     async def test_counts_partition_the_store_and_gave_up_is_a_subset_of_failed(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """complete + failed + pending == total; stale rows count pending, never gave_up."""
         rows: dict[str, dict[str, Any]] = {
@@ -249,7 +246,7 @@ class TestStats:
             )
         _seed(scratch_database, "absent")
 
-        stats = await repo.get_enhancement_stats(markers={CAPTION: "vis-a"})
+        stats = await scratch_repo.get_enhancement_stats(markers={CAPTION: "vis-a"})
 
         counts = stats[CAPTION]
         assert counts == {"complete": 1, "failed": 2, "pending": 4, "gave_up": 1}
@@ -258,15 +255,15 @@ class TestStats:
         assert stats["text_embedding"] == {"complete": 6, "failed": 0, "pending": 1}
 
     async def test_a_module_absent_from_markers_keeps_b1_counts(
-        self, repo: ARIELRepository, scratch_database: str
+        self, scratch_repo: ARIELRepository, scratch_database: str
     ) -> None:
         """Without markers the counts are B1's, exactly, whatever the markers stored."""
         _seed(scratch_database, "a", status={CAPTION: {"status": "complete", "marker": "x"}})
         _seed(scratch_database, "b", status={CAPTION: {"status": "failed", "gave_up": True}})
         _seed(scratch_database, "c")
 
-        b1 = await repo.get_enhancement_stats()
-        other = await repo.get_enhancement_stats(markers={"image_embedding": "img_t"})
+        b1 = await scratch_repo.get_enhancement_stats()
+        other = await scratch_repo.get_enhancement_stats(markers={"image_embedding": "img_t"})
 
         assert b1 == {
             "total_entries": 3,

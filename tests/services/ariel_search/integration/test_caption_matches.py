@@ -41,12 +41,6 @@ MODEL = "vis-a"
 OTHER_MODEL = "vis-b"
 
 
-@pytest.fixture
-def repo(scratch_repo: ARIELRepository) -> ARIELRepository:
-    """A repository over a freshly migrated scratch database."""
-    return scratch_repo
-
-
 def _seed(
     uri: str,
     entry_id: str,
@@ -178,7 +172,7 @@ async def test_schema_behind_returns_empty_without_touching_the_database() -> No
 
 
 async def test_glob_pattern_yields_the_captioned_attachment(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -191,19 +185,23 @@ async def test_glob_pattern_yields_the_captioned_attachment(
     parsed = parse_keyword_query("QX-77*")
     bodies = tuple(span.body for span in parsed.pattern_spans)
     assert bodies, "the glob must parse to a pattern span"
-    assert await repo.caption_matches(["e1"], MODEL, pattern_bodies=bodies) == {"e1": ["att-1"]}
+    assert await scratch_repo.caption_matches(["e1"], MODEL, pattern_bodies=bodies) == {
+        "e1": ["att-1"]
+    }
 
 
 async def test_visible_text_counts_as_caption_text(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {MODEL: _caption("a screen", "QX-77B 12 A")}})
     bodies = tuple(span.body for span in parse_keyword_query("QX-77*").pattern_spans)
-    assert await repo.caption_matches(["e1"], MODEL, pattern_bodies=bodies) == {"e1": ["att-1"]}
+    assert await scratch_repo.caption_matches(["e1"], MODEL, pattern_bodies=bodies) == {
+        "e1": ["att-1"]
+    }
 
 
 async def test_caption_beside_an_error_for_the_same_id_succeeds(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -217,19 +215,26 @@ async def test_caption_beside_an_error_for_the_same_id_succeeds(
         },
     )
     sql, params = _tsquery("orbit")
-    result = await repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params)
+    result = await scratch_repo.caption_matches(
+        ["e1"], MODEL, tsquery_sql=sql, tsquery_params=params
+    )
     assert result == {"e1": ["att-1"]}
 
 
 async def test_other_models_captions_do_not_match(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {OTHER_MODEL: _caption("orbit plot")}})
     sql, params = _tsquery("orbit")
-    assert await repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params) == {}
+    assert (
+        await scratch_repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params)
+        == {}
+    )
 
 
-async def test_stopword_query_matches_nothing(repo: ARIELRepository, scratch_database: str) -> None:
+async def test_stopword_query_matches_nothing(
+    scratch_repo: ARIELRepository, scratch_database: str
+) -> None:
     _seed(
         scratch_database,
         "e1",
@@ -238,11 +243,14 @@ async def test_stopword_query_matches_nothing(repo: ARIELRepository, scratch_dat
         files=[("att-up", "https://up/1.png")],
     )
     sql, params = _tsquery("what was it")
-    assert await repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params) == {}
+    assert (
+        await scratch_repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params)
+        == {}
+    )
 
 
 async def test_vocabulary_expansion_matches_bpm_orbit_plot(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {MODEL: _caption("BPM orbit plot")}})
     _seed(
@@ -261,14 +269,14 @@ async def test_vocabulary_expansion_matches_bpm_orbit_plot(
         flattened_text="orbit at bpm beam position monitor beam position monitors",
     )
     sql, params = build_expanded_tsquery(parsed, expansion)
-    result = await repo.caption_matches(
+    result = await scratch_repo.caption_matches(
         ["e1", "e2", "e3"], MODEL, tsquery_sql=sql, tsquery_params=params
     )
     assert result == {"e1": ["att-1"], "e2": ["att-2"]}
 
 
 async def test_tsquery_and_pattern_spans_are_or_ed(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -281,10 +289,11 @@ async def test_tsquery_and_pattern_spans_are_or_ed(
     )
     sql, params = _tsquery("orbit")
     bodies = tuple(span.body for span in parse_keyword_query("QX-77*").pattern_spans)
-    await repo.schema_facts()  # cached, so only caption_matches' own statements are recorded
-    pool = RecordingPool(repo.pool)
-    repo.pool = pool  # type: ignore[assignment]
-    result = await repo.caption_matches(
+    # Cached, so only caption_matches' own statements are recorded.
+    await scratch_repo.schema_facts()
+    pool = RecordingPool(scratch_repo.pool)
+    scratch_repo.pool = pool  # type: ignore[assignment]
+    result = await scratch_repo.caption_matches(
         ["e1"], MODEL, tsquery_sql=sql, tsquery_params=params, pattern_bodies=bodies
     )
     assert result == {"e1": ["att-1", "att-2"]}
@@ -295,7 +304,9 @@ async def test_tsquery_and_pattern_spans_are_or_ed(
     assert pool.timeouts_inside and pool.timeouts_inside[0] not in ("0", "")
 
 
-async def test_upstream_caption_joined_by_url(repo: ARIELRepository, scratch_database: str) -> None:
+async def test_upstream_caption_joined_by_url(
+    scratch_repo: ARIELRepository, scratch_database: str
+) -> None:
     _seed(
         scratch_database,
         "e1",
@@ -307,13 +318,13 @@ async def test_upstream_caption_joined_by_url(repo: ARIELRepository, scratch_dat
         files=[("att-up1", "https://up/1.png"), ("att-up2", "https://up/2.png")],
     )
     sql, params = _tsquery("orbit")
-    assert await repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params) == {
-        "e1": ["att-up1"]
-    }
+    assert await scratch_repo.caption_matches(
+        ["e1"], MODEL, tsquery_sql=sql, tsquery_params=params
+    ) == {"e1": ["att-up1"]}
 
 
 async def test_no_model_id_omits_model_captions_but_keeps_upstream(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -323,32 +334,37 @@ async def test_no_model_id_omits_model_captions_but_keeps_upstream(
         files=[("att-up1", "https://up/1.png")],
     )
     sql, params = _tsquery("orbit")
-    assert await repo.caption_matches(["e1"], None, tsquery_sql=sql, tsquery_params=params) == {
-        "e1": ["att-up1"]
-    }
-    assert await repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params) == {
-        "e1": ["att-1", "att-up1"]
-    }
+    assert await scratch_repo.caption_matches(
+        ["e1"], None, tsquery_sql=sql, tsquery_params=params
+    ) == {"e1": ["att-up1"]}
+    assert await scratch_repo.caption_matches(
+        ["e1"], MODEL, tsquery_sql=sql, tsquery_params=params
+    ) == {"e1": ["att-1", "att-up1"]}
 
 
 async def test_only_the_named_entries_are_searched(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {MODEL: _caption("orbit plot")}})
     _seed(scratch_database, "e2", captions={"att-2": {MODEL: _caption("orbit plot")}})
     sql, params = _tsquery("orbit")
-    assert await repo.caption_matches(["e2"], MODEL, tsquery_sql=sql, tsquery_params=params) == {
-        "e2": ["att-2"]
-    }
-    assert await repo.caption_matches([], MODEL, tsquery_sql=sql, tsquery_params=params) == {}
+    assert await scratch_repo.caption_matches(
+        ["e2"], MODEL, tsquery_sql=sql, tsquery_params=params
+    ) == {"e2": ["att-2"]}
+    assert (
+        await scratch_repo.caption_matches([], MODEL, tsquery_sql=sql, tsquery_params=params) == {}
+    )
 
 
 async def test_null_captions_and_attachments_are_tolerated(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions=None)
     sql, params = _tsquery("orbit")
-    assert await repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params) == {}
+    assert (
+        await scratch_repo.caption_matches(["e1"], MODEL, tsquery_sql=sql, tsquery_params=params)
+        == {}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +373,7 @@ async def test_null_captions_and_attachments_are_tolerated(
 
 
 async def test_coverage_half_matches_a_close_caption(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -368,17 +384,17 @@ async def test_coverage_half_matches_a_close_caption(
         },
     )
     query = "orbit kick near BPM 7"
-    result = await repo.caption_matches(
+    result = await scratch_repo.caption_matches(
         ["e1"], MODEL, terms=coverage_terms(query), min_fraction=0.5
     )
     assert result == {"e1": ["att-1"]}
 
 
 async def test_coverage_with_no_query_lexemes_matches_nothing(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {MODEL: _caption("what was it")}})
-    result = await repo.caption_matches(
+    result = await scratch_repo.caption_matches(
         ["e1"],
         MODEL,
         terms=coverage_terms("what was it"),
@@ -388,16 +404,16 @@ async def test_coverage_with_no_query_lexemes_matches_nothing(
 
 
 async def test_coverage_counts_an_expansion_alternative_in_the_numerator(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(scratch_database, "e1", captions={"att-1": {MODEL: _caption("BPM drift trace")}})
     original = "beam position monitor drift"
     # Four words (beam, position, monitor, drift): ceil(0.5 * 4) = 2 needed.
-    unexpanded = await repo.caption_matches(
+    unexpanded = await scratch_repo.caption_matches(
         ["e1"], MODEL, terms=coverage_terms(original), min_fraction=0.5
     )
     assert unexpanded == {}
-    expanded = await repo.caption_matches(
+    expanded = await scratch_repo.caption_matches(
         ["e1"],
         MODEL,
         terms=coverage_terms(
@@ -415,7 +431,7 @@ async def test_coverage_counts_an_expansion_alternative_in_the_numerator(
 
 
 async def test_coverage_mode_emits_only_the_coverage_predicate(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -427,11 +443,12 @@ async def test_coverage_mode_emits_only_the_coverage_predicate(
     )
     sql, params = _tsquery("QX")
     bodies = tuple(span.body for span in parse_keyword_query("QX-77*").pattern_spans)
-    await repo.schema_facts()  # cached, so only caption_matches' own statements are recorded
-    pool = RecordingPool(repo.pool)
-    repo.pool = pool  # type: ignore[assignment]
+    # Cached, so only caption_matches' own statements are recorded.
+    await scratch_repo.schema_facts()
+    pool = RecordingPool(scratch_repo.pool)
+    scratch_repo.pool = pool  # type: ignore[assignment]
     query = "orbit kick near BPM 7"
-    result = await repo.caption_matches(
+    result = await scratch_repo.caption_matches(
         ["e1"],
         MODEL,
         tsquery_sql=sql,
@@ -448,7 +465,7 @@ async def test_coverage_mode_emits_only_the_coverage_predicate(
 
 
 async def test_coverage_applies_to_upstream_captions(
-    repo: ARIELRepository, scratch_database: str
+    scratch_repo: ARIELRepository, scratch_database: str
 ) -> None:
     _seed(
         scratch_database,
@@ -457,5 +474,7 @@ async def test_coverage_applies_to_upstream_captions(
         files=[("att-up1", "https://up/1.png")],
     )
     query = "orbit kick near BPM 7"
-    result = await repo.caption_matches(["e1"], None, terms=coverage_terms(query), min_fraction=0.5)
+    result = await scratch_repo.caption_matches(
+        ["e1"], None, terms=coverage_terms(query), min_fraction=0.5
+    )
     assert result == {"e1": ["att-up1"]}
