@@ -416,6 +416,54 @@ class TestPtySession:
             _kill_group(child)
             session.terminate()
 
+    def test_terminate_says_started_groups_are_unknown_when_the_table_fails_after_the_first_read(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        pid_file = tmp_path / "pids"
+        script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
+        session = PtySession(
+            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+        )
+        session.start()
+        pids: list[int] = []
+        try:
+            pids = wait_for_pids(session, pid_file, 2)
+            sleeper = os.getpgid(pids[0])
+            real_snapshot = process_table.snapshot
+            real_killpg = os.killpg
+            reads: list[None] = []
+            targets: list[int] = []
+
+            def first_read_only():
+                reads.append(None)
+                if len(reads) > 1:
+                    raise process_table.ProcessTableUnreadable(PermissionError("process table"))
+                return real_snapshot()
+
+            def killpg(pgid: int, sig: int) -> None:
+                targets.append(pgid)
+                real_killpg(pgid, sig)
+
+            with monkeypatch.context() as patch, caplog.at_level(logging.WARNING):
+                patch.setattr(process_table, "snapshot", first_read_only)
+                patch.setattr(os, "killpg", killpg)
+                session.terminate()
+
+            warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+            unknown = [
+                w
+                for w in warnings
+                if "process table unreadable: started group(s) may still be running" in w
+            ]
+            assert len(unknown) == 1, warnings
+            assert f"pgid {sleeper} " in unknown[0], unknown
+            assert not any("survived SIGKILL" in w for w in warnings), warnings
+            assert sleeper not in targets, targets
+        finally:
+            monkeypatch.undo()
+            session.terminate()
+            kill_quietly(pids)
+
     def test_started_commands_lists_only_groups_of_their_own(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py")
