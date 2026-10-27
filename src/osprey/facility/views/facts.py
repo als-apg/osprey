@@ -75,6 +75,11 @@ NO_CLASS = "-"
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
 
+#: The facility file last parsed and the document it parsed to: every render of
+#: one build carries byte-equal ``facility.json``, so it is parsed once and the
+#: views it is handed to see one document, whose wiring they memoize.
+_parsed: tuple[bytes, dict[str, Any]] | None = None
+
 
 def _identity(doc: Mapping[str, Any], project_name: str | None) -> dict[str, Any]:
     from osprey.utils.facility import identity_record
@@ -398,7 +403,11 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
-    doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
+    global _parsed
+    raw = (render_root / FACILITY_FILE).read_bytes()
+    if _parsed is None or _parsed[0] != raw:
+        _parsed = (raw, json.loads(raw.decode("utf-8")))
+    doc = _parsed[1]
     models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
     for model, record in sorted(recorded.items()):
