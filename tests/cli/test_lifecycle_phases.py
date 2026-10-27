@@ -27,6 +27,7 @@ from osprey.cli.phase_reporter import (
     install_reporter,
     is_verbose,
 )
+from tests.cli._reporters import installed
 
 
 class RecordingReporter(PhaseReporter):
@@ -81,11 +82,8 @@ def recorder():
     report into it — the same path ``init --up`` puts ``build`` and ``up`` on.
     """
     recording = RecordingReporter()
-    previous = install_reporter(recording)
-    try:
+    with installed(recording):
         yield recording
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture

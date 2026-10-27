@@ -52,10 +52,11 @@ from osprey.cli.init_cmd import (
     init,
 )
 from osprey.cli.main import cli
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
 from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests.cli._reporters import installed
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
 
 #: The exemplar's display name — what ``init`` derives from the directory it
@@ -1011,11 +1012,8 @@ def test_the_report_is_written_through_the_reporters_console(
     # Installed before the verb runs, so `lifecycle_reporter` reuses it rather
     # than installing one of its own. Nothing is mounted and no thread starts:
     # this is the plain reporter with its console swapped.
-    previous = install_reporter(Recording(color=False))
-    try:
+    with installed(Recording(color=False)):
         result = init_exemplar(runner, tmp_path / EXEMPLAR_DIRNAME)
-    finally:
-        install_reporter(previous)
 
     assert result.exit_code == 0, result.output
     assert EXEMPLAR_REPORT in buffer.getvalue()

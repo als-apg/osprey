@@ -37,6 +37,7 @@ from osprey.cli.phase_reporter import (
 from osprey.cli.styles import osprey_theme
 from osprey.cli.summary_card import format_summary_card, owns_summary_card, print_summary_card
 from tests._simulator_view import write_scenarios_view
+from tests.cli._reporters import installed
 
 
 def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
@@ -116,11 +117,8 @@ def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
 def recorder():
     """Install a recording reporter for the duration of one test."""
     console, buffer = recording_console()
-    previous = install_reporter(RecordingReporter(console))
-    try:
+    with installed(RecordingReporter(console)):
         yield Recorded(buffer)
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture

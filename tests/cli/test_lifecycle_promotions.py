@@ -59,6 +59,7 @@ from osprey.simulation import apply
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import invoke_build
+from tests.cli._reporters import installed
 from tests.cli.conftest import TerminalProbe
 
 # The witness logger and its marker. An ERROR is above the altitude gate on
@@ -135,11 +136,8 @@ def printed() -> Iterator[Printed]:
         theme=osprey_theme,
     )
     reporter = _CaptureReporter(console)
-    previous = install_reporter(reporter)
-    try:
+    with installed(reporter):
         yield Printed(reporter, buffer)
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture
