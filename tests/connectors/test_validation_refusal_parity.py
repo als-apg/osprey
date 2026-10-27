@@ -13,24 +13,14 @@ suite uses: the mock's store, DOOCS' ``doocs4py.set``, TANGO's
 have touched its client.
 """
 
-import sys
-from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
-
-_DOOCS_LIMITS_PATCH = (
-    "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
-)
-_DOOCS_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
-_TANGO_LIMITS_PATCH = (
-    "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
-)
-_TANGO_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
 
 VALUE_SENT = 5.0
 
@@ -79,9 +69,7 @@ async def _run_doocs(_monkeypatch, _tmp_path) -> WriteRun:
     doocs4py.names.return_value = [("FACILITY", "XFEL")]
 
     with (
-        patch.dict(sys.modules, {"doocs4py": doocs4py}),
-        patch(_DOOCS_LIMITS_PATCH, return_value=None),
-        patch(_DOOCS_TZ_PATCH, return_value=UTC),
+        driven_through("doocs4py", doocs4py),
         patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
@@ -105,9 +93,7 @@ async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
     tango.Database.return_value = database
 
     with (
-        patch.dict(sys.modules, {"tango": tango}),
-        patch(_TANGO_LIMITS_PATCH, return_value=None),
-        patch(_TANGO_TZ_PATCH, return_value=UTC),
+        driven_through("tango", tango),
         patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
     ):
         from osprey_connectors.control_system._tango_connector import TangoConnector
