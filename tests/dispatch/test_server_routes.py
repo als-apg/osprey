@@ -35,17 +35,7 @@ from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.utils.owner_header import OWNER_HEADER
 from tests._live import wait_until
 from tests.conftest import dispatcher_route_registry
-
-
-class _FakeEntryPoint:
-    """Minimal EntryPoint stand-in exposing .name and .load()."""
-
-    def __init__(self, name: str, cls: type) -> None:
-        self.name = name
-        self._cls = cls
-
-    def load(self) -> type:
-        return self._cls
+from tests.dispatch._fakes import FakeEntryPoint
 
 
 @pytest.fixture(autouse=True)
@@ -92,7 +82,7 @@ def app(triggers_yml, monkeypatch):
 
     def fake_entry_points(*, group):
         assert group == "osprey.trigger_sources"
-        return [_FakeEntryPoint("webhook", WebhookSource)]
+        return [FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
 
@@ -149,7 +139,7 @@ def test_webhook_unconfigured_token_fails_closed_503(triggers_yml, monkeypatch):
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
 
     def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
-        return [_FakeEntryPoint("webhook", WebhookSource)]
+        return [FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
     app = server.create_server().http_app()
@@ -263,7 +253,7 @@ def test_dashboard_state_carries_a_clock_triggers_next_fire(tmp_path, monkeypatc
     monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: berlin)
 
     def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
-        return [_FakeEntryPoint("cron", CronSource)]
+        return [FakeEntryPoint("cron", CronSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
     app = server.create_server().http_app()
@@ -311,7 +301,7 @@ def test_dashboard_reports_a_blank_allowed_tools_as_empty(tmp_path, monkeypatch,
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret")
 
     def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
-        return [_FakeEntryPoint("webhook", WebhookSource)]
+        return [FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
     app = server.create_server().http_app()
@@ -409,7 +399,7 @@ def test_check_auth_routes_reject_unconfigured_token(triggers_yml, monkeypatch):
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
 
     def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
-        return [_FakeEntryPoint("webhook", WebhookSource)]
+        return [FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
     app = server.create_server().http_app()

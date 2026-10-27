@@ -67,3 +67,13 @@ def fake_provider(result: tuple[bool, str] = (True, "ok"), sleep: float = 0.0) -
             return result
 
     return _Fake
+
+
+class SpyConnector:
+    """Minimal async-``disconnect``-only stand-in for a control-system connector."""
+
+    def __init__(self) -> None:
+        self.disconnect_calls = 0
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1

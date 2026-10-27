@@ -35,21 +35,12 @@ from osprey.health.lifecycle import (
 )
 from osprey.health.models import Status
 from osprey_connectors import factory
+from tests.health._fakes import SpyConnector
 
 _LIFECYCLE_LOGGER = "osprey.health.lifecycle"
 
 
-class _SpyConnector:
-    """Minimal async-``disconnect``-only stand-in for a control-system connector."""
-
-    def __init__(self) -> None:
-        self.disconnect_calls = 0
-
-    async def disconnect(self) -> None:
-        self.disconnect_calls += 1
-
-
-class _ThreadRecordingConnector(_SpyConnector):
+class _ThreadRecordingConnector(SpyConnector):
     """Spy that records the thread its ``disconnect`` ran on (loop-affinity proof)."""
 
     def __init__(self) -> None:
@@ -141,7 +132,7 @@ async def test_reconcile_constructs_lazily_from_first_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    _patch_factory(monkeypatch, _SpyConnector(), construct_calls)
+    _patch_factory(monkeypatch, SpyConnector(), construct_calls)
 
     lc = HealthRuntimeLifecycle()
     assert lc.runtime is None
@@ -172,7 +163,7 @@ async def test_reconcile_constructs_lazily_from_first_snapshot(
 async def test_reconcile_unchanged_snapshot_is_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_factory(monkeypatch, _SpyConnector(), [])
+    _patch_factory(monkeypatch, SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
     lc.reconcile(
@@ -201,7 +192,7 @@ async def test_reconcile_resnapshots_before_any_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    _patch_factory(monkeypatch, _SpyConnector(), construct_calls)
+    _patch_factory(monkeypatch, SpyConnector(), construct_calls)
 
     lc = HealthRuntimeLifecycle()
     lc.reconcile(
@@ -230,7 +221,7 @@ async def test_reconcile_broken_first_snapshot_then_fixed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    _patch_factory(monkeypatch, _SpyConnector(), construct_calls)
+    _patch_factory(monkeypatch, SpyConnector(), construct_calls)
 
     lc = HealthRuntimeLifecycle()
     # Broken-config first refresh: no `control_system` section → empty snapshot.
@@ -263,7 +254,7 @@ async def test_reconcile_emits_restart_notice_after_construction(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _patch_factory(monkeypatch, _SpyConnector(), [])
+    _patch_factory(monkeypatch, SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
     lc.reconcile(
@@ -296,7 +287,7 @@ async def test_restart_notice_row_persists_but_warning_logs_once(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _patch_factory(monkeypatch, _SpyConnector(), [])
+    _patch_factory(monkeypatch, SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
     lc.reconcile(
@@ -324,7 +315,7 @@ async def test_reconcile_back_to_live_config_clears_notice_and_relogs(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _patch_factory(monkeypatch, _SpyConnector(), [])
+    _patch_factory(monkeypatch, SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
     lc.reconcile(
@@ -393,7 +384,7 @@ def test_shutdown_disconnects_on_owning_loop_thread(
 def test_shutdown_cancels_inflight_refresh_before_disconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    connector = _SpyConnector()
+    connector = SpyConnector()
     _patch_factory(monkeypatch, connector, [])
 
     with _background_loop() as (loop, thread):
@@ -435,7 +426,7 @@ def test_atexit_hook_noops_without_a_constructed_connector(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _patch_factory(monkeypatch, _SpyConnector(), [])
+    _patch_factory(monkeypatch, SpyConnector(), [])
     submitted: list[Any] = []
     monkeypatch.setattr(
         lifecycle_mod.asyncio,
@@ -471,7 +462,7 @@ def test_atexit_wedged_teardown_logs_single_warning_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    _patch_factory(monkeypatch, _SpyConnector(), [])
+    _patch_factory(monkeypatch, SpyConnector(), [])
 
     lc = HealthRuntimeLifecycle()
 

@@ -31,6 +31,7 @@ from osprey_connectors.types import baseline_target, configured_targets, resolve
 from osprey_connectors_tests._harness import state_dir_under
 from tests.connectors.ipc.test_pool import CHILD_START_TIMEOUT_S, PYTHONPATH, SERVED, SLOW
 from tests.facility.served_tree import in_process_config, served_tree
+from tests.runtime._loop import inside_a_running_loop
 from tests.runtime.test_executor_target_stamp import stamp_env, write_record
 
 #: A deployment that can switch: a virtual accelerator baseline and a stand-in.
@@ -234,19 +235,6 @@ def fake_pool(monkeypatch):
     monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", no_in_process_build)
     yield _FakePool.instances
     _FakePool.instances = []
-
-
-def inside_a_running_loop(call):
-    """Run *call* synchronously from inside a coroutine, as a notebook cell runs."""
-
-    async def driver():
-        return call()
-
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(driver())
-    finally:
-        loop.close()
 
 
 # ---------------------------------------------------------------------------
