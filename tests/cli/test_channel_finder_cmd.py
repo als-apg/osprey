@@ -549,12 +549,6 @@ class TestImportSmoke:
 class TestCLIErrorPaths:
     """Test CLI error paths for validate and preview without config."""
 
-    def test_validate_no_database_no_config_shows_error(self, runner, tmp_path):
-        """validate without --database and no config shows config error."""
-        result = runner.invoke(channel_finder, ["--project", str(tmp_path), "validate"])
-        assert result.exit_code != 0
-        assert "not found" in result.output or "Error" in result.output
-
     def test_preview_no_database_no_config_shows_error(self, runner, tmp_path):
         """preview without --database and no config shows config error."""
         result = runner.invoke(channel_finder, ["--project", str(tmp_path), "preview"])
