@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
-from tests._tree_scan import text_files
+from tests._text_sweep import text_files
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests._tree_scan import text_files
+from tests._text_sweep import text_files
 
 LEGACY_SUBSTRINGS = (
     # prompts-era rename
