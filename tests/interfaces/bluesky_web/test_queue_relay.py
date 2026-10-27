@@ -902,12 +902,12 @@ def test_enqueue_stale_revision_409_passes_through_without_unwrapping() -> None:
 @pytest.mark.parametrize(
     ("status_code", "code"),
     [
-        (409, "draft_revision_already_launched"),
-        (409, "session_plan_unvalidated"),
-        (409, "session_plan_not_in_namespace"),
         *(
             (qb.REFUSAL_REASONS[code].status, code)
             for code in (
+                qb.REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
+                qb.REASON_SESSION_PLAN_UNVALIDATED,
+                qb.REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
                 qb.REASON_QUEUE_REQUEST_REJECTED,
                 qb.REASON_UNSUPPORTED_CONNECTOR,
                 qb.REASON_CONFIG_UNREADABLE,

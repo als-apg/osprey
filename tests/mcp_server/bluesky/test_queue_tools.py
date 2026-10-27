@@ -843,6 +843,13 @@ def test_the_hint_rows_of_table_reasons_leave_retry_advice_to_the_field():
             assert "retry" not in hint.lower(), code
 
 
+def test_every_hint_row_is_a_declared_refusal_code():
+    """A hint keyed on a code the bridge never declares is advice nobody receives."""
+    from osprey.services.bluesky_bridge import queue_backend as qb
+
+    assert set(queue._REFUSAL_HINTS) <= set(qb.REFUSAL_REASONS)
+
+
 # =========================================================================
 # queue_start — quoting back the queue the approver was shown
 # =========================================================================
