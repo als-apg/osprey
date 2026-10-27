@@ -15,10 +15,10 @@ the ``var/`` skeleton created by whichever command runs first in a fresh clone.
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import logging
-import os
 import shutil
 import signal
 import subprocess
@@ -35,13 +35,8 @@ from osprey.cli.build_cmd import build
 from osprey.cli.build_environment import _ProjectVenvPlan
 from osprey.deployment import staleness
 from osprey_connectors.errors import BuildProfileError
-from tests.cli._lifecycle_build import rendered_config
+from tests.cli._lifecycle_build import CI_FLAGS, rendered_config
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
-
-# Every build in this module renders without a venv and without lifecycle
-# hooks: neither is what the atomic swap is about, and a real `uv` install per
-# test would dominate the runtime of the suite.
-CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 # A plan with nothing to install, for builds whose environment step is faked.
 _EMPTY_PLAN = _ProjectVenvPlan(
@@ -55,12 +50,8 @@ _EMPTY_PLAN = _ProjectVenvPlan(
 
 def _build(runner: CliRunner, cwd: Path, *args: str, flags: list[str] | None = None):
     """Run ``osprey build`` from *cwd*, as an operator standing there would."""
-    previous = Path.cwd()
-    os.chdir(cwd)
-    try:
+    with contextlib.chdir(cwd):
         return runner.invoke(build, [*(CI_FLAGS if flags is None else flags), *args])
-    finally:
-        os.chdir(previous)
 
 
 @pytest.fixture(scope="module")

@@ -41,11 +41,10 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 
-from osprey.cli.build_cmd import build
 from osprey.cli.build_profile import load_profile
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
-from tests.cli._lifecycle_build import rendered_config
+from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The preset that ships the graph store. Every project here starts from it.
 PRESET = "control-assistant"
@@ -53,8 +52,6 @@ PRESET = "control-assistant"
 #: Non-graph paradigm, so the mode never supplies the store the tests remove.
 #: The graph mode gets its own project, in :class:`TestGraphModeNeedsAStore`.
 MODE = "hierarchical"
-
-BUILD_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
 #: Dotted-key prefix an operator deletes to run no store, and the
 #: ``deployed_services`` member that goes with it.
@@ -136,7 +133,7 @@ def _remove_graph_app(project: Path) -> None:
 def _build(project: Path, monkeypatch) -> Result:
     """Run ``osprey build`` in *project* and return the click result."""
     monkeypatch.chdir(project)
-    return CliRunner().invoke(build, BUILD_FLAGS)
+    return invoke_build()
 
 
 def _mcp_servers(project: Path) -> dict:

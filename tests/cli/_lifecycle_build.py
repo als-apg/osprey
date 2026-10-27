@@ -15,7 +15,8 @@ which is exactly what it writes, with the stamped fingerprint under the
 caller's control so drift is a one-line parameter.
 
 For the tests that do run one, :func:`invoke_build` is the in-process
-``osprey build`` with the install and the lifecycle hooks skipped, and
+``osprey build`` with the install and the lifecycle hooks skipped,
+:func:`invoke_build_in` the same from a working directory instead of ``--repo``, and
 :func:`rendered_config` reads back the ``build/config.yml`` it rendered.
 
 Lives in a ``_``-prefixed module rather than ``conftest.py`` because these are
@@ -25,6 +26,7 @@ than once per test. Same convention as :mod:`tests.cli._scoped_subprocess`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -111,6 +113,16 @@ def invoke_build(repo: Path | None = None, *args: str) -> Result:
 
     repo_args = [] if repo is None else ["--repo", str(repo)]
     return CliRunner().invoke(build, [*repo_args, *CI_FLAGS, *args])
+
+
+def invoke_build_in(cwd: Path, *args: str) -> Result:
+    """Run :func:`invoke_build` with no ``--repo``, from *cwd*.
+
+    The build finds its repo from the working directory, as an operator's
+    bare ``osprey build`` does; the previous one is back once it returns.
+    """
+    with contextlib.chdir(cwd):
+        return invoke_build(None, *args)
 
 
 def rendered_config(repo: Path) -> dict[str, Any]:
