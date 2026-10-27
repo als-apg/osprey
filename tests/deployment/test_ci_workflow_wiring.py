@@ -12293,6 +12293,144 @@ def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -
 
 
 # ---------------------------------------------------------------------------
+# 3.11/macOS runs nightly: ci.yml's unit lane runs one macOS cell on every
+# event, and macos-py311-nightly.yml runs the cell it dropped
+# ---------------------------------------------------------------------------
+
+PY311_NIGHTLY_YML = REPO_ROOT / ".github" / "workflows" / "macos-py311-nightly.yml"
+PY311_NIGHTLY_JOB = "test"
+PY311_REPORT_JOB = "report-failure"
+
+
+def _load_py311_nightly() -> dict[str, Any]:
+    with PY311_NIGHTLY_YML.open() as f:
+        return yaml.safe_load(f)
+
+
+@pytest.fixture()
+def py311_nightly() -> dict[str, Any]:
+    return _load_py311_nightly()
+
+
+def _unit_cells(wf: dict[str, Any]) -> set[tuple[str, str]]:
+    """The (python-version, os) cells the unit lane runs, on whichever event."""
+    matrix = _jobs(wf)[UNIT_TEST_JOB]["strategy"]["matrix"]
+    exclude = matrix.get("exclude", [])
+    assert isinstance(exclude, list), (
+        f"the '{UNIT_TEST_JOB}' matrix's exclude must be one list for every event, got {exclude!r}"
+    )
+    dropped = {(row["python-version"], row["os"]) for row in exclude}
+    return {(v, o) for v in matrix["python-version"] for o in matrix["os"]} - dropped
+
+
+def _check_pytest_line(step: dict[str, Any]) -> str:
+    """The one ``scripts/check.py run pytest`` line of a step, as written."""
+    lines = [
+        line.strip() for line in step["run"].splitlines() if "scripts/check.py run pytest" in line
+    ]
+    assert len(lines) == 1, f"expected exactly one check.py pytest line; got: {lines}"
+    return lines[0]
+
+
+def test_the_unit_lane_runs_one_macos_cell(workflow: dict[str, Any]) -> None:
+    assert {cell for cell in _unit_cells(workflow) if cell[1] == "macos-latest"} == {
+        ("3.12", "macos-latest")
+    }
+
+
+def test_the_unit_lane_runs_one_macos_cell__mutation_restores_3_11() -> None:
+    mutated = _load_workflow()
+    exclude = _jobs(mutated)[UNIT_TEST_JOB]["strategy"]["matrix"]["exclude"]
+    exclude[:] = [row for row in exclude if row["python-version"] != "3.11"]
+    with pytest.raises(AssertionError):
+        test_the_unit_lane_runs_one_macos_cell(mutated)
+
+
+def test_the_py311_nightly_runs_on_a_schedule_and_on_dispatch(
+    py311_nightly: dict[str, Any],
+) -> None:
+    on = _on(py311_nightly)
+    assert set(on) == {"schedule", "workflow_dispatch"}
+    assert len(on["schedule"]) == 1 and on["schedule"][0]["cron"]
+
+
+def test_the_py311_nightly_runs_the_cell_the_unit_lane_dropped(
+    workflow: dict[str, Any], py311_nightly: dict[str, Any]
+) -> None:
+    """Same shards, same interpreter install, same pytest line as the unit
+    lane's macOS cells, so a red here is one the per-push cell would show."""
+    assert ("3.11", "macos-latest") not in _unit_cells(workflow)
+    job = _jobs(py311_nightly)[PY311_NIGHTLY_JOB]
+    unit = _jobs(workflow)[UNIT_TEST_JOB]
+    assert job["runs-on"] == "macos-latest"
+    assert job["timeout-minutes"] == unit["timeout-minutes"]
+    assert job["strategy"]["matrix"] == {"shard": unit["strategy"]["matrix"]["shard"]}
+    runs = _runs(py311_nightly, PY311_NIGHTLY_JOB)
+    assert "uv python install 3.11" in runs
+    nightly_step = _find_named_step(py311_nightly, PY311_NIGHTLY_JOB, "Run unit tests")
+    unit_step = _find_named_step(workflow, UNIT_TEST_JOB, "Run unit tests")
+    assert nightly_step["timeout-minutes"] == unit_step["timeout-minutes"]
+    # The unit lane's check.py line as written (`workflow` has it expanded),
+    # with its coverage argument, which only the 3.12/ubuntu cell fills, left out.
+    raw_unit_step = _find_named_step(_load_raw_workflow(), UNIT_TEST_JOB, "Run unit tests")
+    assert _check_pytest_line(nightly_step) == _check_pytest_line(raw_unit_step).replace(
+        " $COV_ARGS", ""
+    )
+    unit_steps = [step.get("name") for step in unit["steps"]]
+    for name in (
+        "Install dependencies",
+        "Install the pinned Claude Code CLI",
+        "Summarise lane diagnostics",
+        "Upload lane diagnostics",
+    ):
+        assert name in unit_steps, f"the unit lane has no '{name}' step; this test is stale"
+        nightly_run = _find_named_step(py311_nightly, PY311_NIGHTLY_JOB, name).get("run")
+        assert nightly_run == _find_named_step(workflow, UNIT_TEST_JOB, name).get("run"), name
+
+
+def test_the_py311_nightly_runs_the_cell__mutation_drops_a_shard() -> None:
+    mutated = _load_py311_nightly()
+    _jobs(mutated)[PY311_NIGHTLY_JOB]["strategy"]["matrix"]["shard"].pop()
+    with pytest.raises(AssertionError):
+        test_the_py311_nightly_runs_the_cell_the_unit_lane_dropped(_load_workflow(), mutated)
+
+
+def test_the_py311_nightly_runs_the_cell__mutation_drifts_the_pytest_line() -> None:
+    mutated = _load_py311_nightly()
+    step = _find_named_step(mutated, PY311_NIGHTLY_JOB, "Run unit tests")
+    assert "-n 4" in step["run"], "mutation is stale"
+    step["run"] = step["run"].replace("-n 4", "-n 2")
+    with pytest.raises(AssertionError):
+        test_the_py311_nightly_runs_the_cell_the_unit_lane_dropped(_load_workflow(), mutated)
+
+
+def test_the_py311_nightly_reports_a_failed_scheduled_run(py311_nightly: dict[str, Any]) -> None:
+    """Only the report job writes issues, and only for a scheduled run: a
+    dispatched run reports to whoever ran it."""
+    assert py311_nightly["permissions"] == {"contents": "read"}
+    jobs = _jobs(py311_nightly)
+    assert set(jobs) == {PY311_NIGHTLY_JOB, PY311_REPORT_JOB}
+    assert "gh issue" not in json.dumps(jobs[PY311_NIGHTLY_JOB])
+    assert "permissions" not in jobs[PY311_NIGHTLY_JOB]
+    report = jobs[PY311_REPORT_JOB]
+    assert report["needs"] == [PY311_NIGHTLY_JOB]
+    assert report["if"] == "failure() && github.event_name == 'schedule'"
+    assert report["permissions"] == {"actions": "read", "issues": "write"}
+    assert all("uses" not in step for step in report["steps"]), "the report job checks nothing out"
+
+
+def test_the_py311_nightly_checkout_drops_its_credentials(py311_nightly: dict[str, Any]) -> None:
+    checkouts = [
+        step
+        for job in _jobs(py311_nightly).values()
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == 1
+    assert checkouts[0]["with"]["persist-credentials"] is False
+
+
+# ---------------------------------------------------------------------------
 # One check set: the caller jobs run scripts/check.py and spell no check
 # ---------------------------------------------------------------------------
 #

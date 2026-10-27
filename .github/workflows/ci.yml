@@ -198,23 +198,28 @@ jobs:
         # that the three sets cover tests/ exactly once.
         #
         # Runner-minutes are unchanged by the split; the macOS concurrency
-        # ceiling discussed below sees more jobs at a shorter length each. A
-        # main push runs two macOS cells, so 6 macOS jobs against the ceiling
-        # of 5: one queues until the first finishes, which delays that one
-        # job's start and costs no runner-minutes.
+        # ceiling discussed below sees more jobs at a shorter length each: the
+        # one macOS cell is 3 of its 5 slots.
         shard: [cli, rest-a, rest-b]
-        # Pull requests drop the 3.11/macOS cell; every other event runs the
-        # full product.
+        # macOS runs one cell, 3.12, on every event. 3.11/macOS runs nightly
+        # instead, in macos-py311-nightly.yml.
         #
-        # Two reasons, and neither is "macOS does not matter". The macOS
-        # concurrency ceiling is 5 jobs across the whole account and does not
-        # move on Free, Pro or Team -- only on Enterprise. Every macOS cell is
-        # three jobs (the shard axis above), so at one cell per PR two in-flight
-        # PRs already want 6 of those 5 slots, and at two cells they would want
-        # 12. A 3.12/macOS cell was measured sitting 24.8 minutes in the queue
-        # behind other PRs at two cells per PR. The second reason is load: the four
-        # test cells are ~101 of the ~350 job-minutes a PR run costs, the
-        # largest single item in this file.
+        # The macOS concurrency ceiling is 5 jobs across the whole account and
+        # does not move on Free, Pro or Team -- only on Enterprise. Every macOS
+        # cell is three jobs (the shard axis above), so one in-flight PR and
+        # one main push already want 6 of those 5 slots. A 3.12/macOS cell was
+        # measured sitting 24.8 minutes in the queue behind other PRs at two
+        # cells per PR. On main at two cells, every green run between
+        # 2026-10-17 and 2026-10-27 (21) had a macOS job start 8-25 minutes
+        # late, and the macOS jobs set the end of most of them.
+        #
+        # What the second cell caught on main: between 2026-07-13 and
+        # 2026-10-27, 13 of the 52 main runs with a red test job were red on
+        # 3.11/macOS alone. Each was one timing-sensitive test or a dependency
+        # install that lost DNS; none was a 3.11-on-macOS defect, and the two
+        # that changed anything before main went green again changed the test
+        # (its process-global state, its clock). The nightly run keeps the
+        # combination covered without holding every merge behind it.
         #
         # Dropping to ZERO macOS cells on PRs was considered and rejected. The
         # merge commit a PR creates is itself a push to main, so main-push runs
@@ -225,15 +230,16 @@ jobs:
         #
         # 3.12 is the surviving macOS cell so it pairs with the 3.12/ubuntu
         # coverage cell: same interpreter, different OS, so a failure isolates
-        # to the OS. 3.11 stays covered on ubuntu, and on macOS everywhere
-        # except pull requests.
+        # to the OS. 3.11 stays covered on ubuntu on every event.
         #
         # 3.14 runs on ubuntu only, on every event. It is in the matrix for the
         # interpreter's own removals -- behaviour 3.11 and 3.12 only warn about
-        # and 3.14 raises on -- and those do not depend on the OS. A third macOS
-        # cell would add three more macOS jobs to a main-push run that already
-        # queues one against the ceiling of 5.
-        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"python-version":"3.11","os":"macos-latest"},{"python-version":"3.14","os":"macos-latest"}]' || '[{"python-version":"3.14","os":"macos-latest"}]') }}
+        # and 3.14 raises on -- and those do not depend on the OS.
+        exclude:
+        - python-version: '3.11'
+          os: macos-latest
+        - python-version: '3.14'
+          os: macos-latest
 
     steps:
     - name: Checkout repository

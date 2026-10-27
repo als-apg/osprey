@@ -1,0 +1,115 @@
+name: Python 3.11 on macOS (nightly)
+
+# The 3.11/macOS cell of ci.yml's unit lane, run once a night against main
+# instead of on every push (ci.yml's `test` matrix says why). It is the same
+# three shards with the same pytest invocation, so a red here is a red the
+# per-push cell would have shown; it lands within a day instead of holding
+# every merge behind three more macOS jobs.
+#
+# 09:23 UTC is the small hours in California, when the account's five macOS
+# slots are least likely to be held by PR runs. A red scheduled run opens an
+# issue per failed shard (or comments on the open one), because a scheduled
+# run's red otherwise reaches nobody. Dispatched, it runs the same cell
+# against any ref and files no issue.
+
+on:
+  schedule:
+    - cron: '23 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-py311-nightly
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test Python 3.11 on macos-latest (${{ matrix.shard }})
+    runs-on: macos-latest
+    # ci.yml's `test` job explains both caps.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [cli, rest-a, rest-b]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python 3.11
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev --extra virtual-accelerator
+
+    - name: Install the pinned Claude Code CLI
+      uses: ./.github/actions/install-pinned-claude-code
+
+    - name: Run unit tests
+      timeout-minutes: 55
+      env:
+        OSPREY_CI_DIAG_DIR: ci-diag
+        TMPDIR: ${{ runner.temp }}
+      run: |
+        mkdir -p ci-diag
+        set -o pipefail
+        uv run python scripts/check.py run pytest --shard "${{ matrix.shard }}" -- --durations=50 --timeout=600 --timeout-method=signal -n 4 2>&1 | tee ci-diag/pytest.log
+
+    - name: Summarise lane diagnostics
+      if: always()
+      run: python3 scripts/ci/diag_summary.py ci-diag >> "$GITHUB_STEP_SUMMARY" || true
+
+    - name: Upload lane diagnostics
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ci-diag-unit-3.11-macos-latest-${{ matrix.shard }}
+        path: ci-diag/
+        retention-days: 14
+        if-no-files-found: warn
+
+  report-failure:
+    name: Open or update an issue for each failed nightly shard
+    needs: [test]
+    # A scheduled run only: a dispatched run reports to whoever ran it.
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      issues: write
+    steps:
+    - name: Open or update the issue for each failed shard
+      # One open issue per shard: a red night comments on it rather than
+      # opening another. The title is the key, matched exactly.
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        failed=$(gh api --paginate \
+          "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+          --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name')
+        if [[ -z "$failed" ]]; then
+          failed="The run"
+        fi
+        while IFS= read -r job; do
+          title="Nightly 3.11/macOS: $job failed"
+          body="$job failed in the nightly 3.11/macOS run at ${GITHUB_SHA}: $RUN_URL"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" \
+            --json number,title --jq "map(select(.title == \"$title\")) | first | .number // empty")
+          if [[ -n "$number" ]]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
+        done <<< "$failed"
