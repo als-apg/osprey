@@ -52,6 +52,8 @@ def _base_ctx(**overrides):
         # into the Read() globs, so a ctx without it renders filesystem-root
         # grants that no real render produces.
         "agent_data_root": DEFAULT_AGENT_DATA_BASE_DIR,
+        # Derived by the render funnel; settings.json.j2 renders it unconditionally.
+        "cleanup_period_days": 30,
     }
     ctx.update(overrides)
     return ctx

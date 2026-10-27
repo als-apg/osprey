@@ -410,9 +410,9 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # The terminal theme `web.theme` pins, if any — settings.json.j2
         # renders it so one config key governs the look of both surfaces.
         "terminal_theme": _terminal_theme(config),
-        # How long Claude Code keeps session transcripts — settings.json.j2
-        # renders it as `cleanupPeriodDays`, absent when the deployment is silent.
-        "transcripts_retention_days": _transcripts_retention_days(config),
+        # How long Claude Code keeps session transcripts on the volumes OSPREY
+        # owns — settings.json.j2 renders it as `cleanupPeriodDays`.
+        "cleanup_period_days": _cleanup_period_days(config),
         # Whether Claude Code shows its thinking summaries — settings.json.j2
         # renders it as `showThinkingSummaries`, true unless the deployment
         # sets `claude_code.thinking.display: omitted`.
@@ -569,36 +569,34 @@ def _ariel_read_tools(view_enabled: bool) -> list[str]:
     return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
 
 
-def _transcripts_retention_days(config: dict) -> int | None:
-    """The days ``claude_code.transcripts.retention_days`` keeps a session transcript.
+_CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
+"""Claude Code's own transcript-deletion default, which the record never undercuts."""
 
-    Rendered as Claude Code's ``cleanupPeriodDays``: at startup Claude Code
-    deletes every transcript older than that, 30 days when nothing sets it. The
-    key reaches the web terminals and the dispatch worker alike, because both
-    load project settings only (the terminals launch with
-    ``--setting-sources project``; the worker's SDK options pass
-    ``setting_sources=["project"]``).
 
-    Returns ``None`` when the key is absent, so the line is not rendered and
-    Claude Code's own default applies.
+def _cleanup_period_days(config: dict) -> int:
+    """The ``cleanupPeriodDays`` OSPREY-owned Claude Code volumes render.
 
-    Raises:
-        BuildProfileError: If the value is not a whole number of days of at
-            least 1. Unlike the theme helper this refuses rather than degrades:
-            a value silently dropped here leaves the 30-day deletion in force,
-            which is the loss the key exists to prevent.
+    ``max(agent_record.retention_days, 30)``: Claude Code deletes a transcript
+    at startup once it is older than this, so a record that keeps entries for
+    ``retention_days`` is never outlived by a shorter deletion, and a short
+    record retention never tightens Claude Code below its own 30-day default.
+    The terminals and the dispatch worker load project settings only, so the
+    rendered ``.claude/settings.json`` is where this reaches them; host
+    settings are never written.
+
+    The record's own value is refused by ``agent_record_errors`` when it is not
+    a whole number of days; a value that cannot be one reads as the record's
+    default here.
     """
-    transcripts = (config.get("claude_code") or {}).get("transcripts") or {}
-    value = transcripts.get("retention_days")
+    from osprey.agent_record.config import DEFAULT_RETENTION_DAYS
+
+    block = config.get("agent_record")
+    value = block.get("retention_days") if isinstance(block, Mapping) else None
     if value is None:
-        return None
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
-        return value
-    raise BuildProfileError(
-        f"claude_code.transcripts.retention_days must be a whole number of days, "
-        f"1 or more (got {value!r}). Claude Code refuses 0, and deletes transcripts "
-        f"older than this at startup."
-    )
+        value = config.get("agent_record.retention_days")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        value = DEFAULT_RETENTION_DAYS
+    return max(value, _CLAUDE_CODE_MIN_CLEANUP_DAYS)
 
 
 def _thinking_display(config: dict) -> str:

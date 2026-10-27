@@ -26,6 +26,8 @@ def _base_ctx(**overrides):
     ctx = {
         "project_root": "/tmp/test-project",
         "current_python_env": "/usr/bin/python3",
+        # Derived by the render funnel; settings.json.j2 renders it unconditionally.
+        "cleanup_period_days": 30,
     }
     ctx.update(overrides)
     return ctx
