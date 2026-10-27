@@ -917,25 +917,6 @@ LANES: tuple[Lane, ...] = (
         ),
     ),
     Lane(
-        "connectors-standalone",
-        "installs the connectors alone",
-        ("packages/osprey-connectors/**", "pyproject.toml", "uv.lock"),
-    ),
-    Lane(
-        "connectors-compat-plan",
-        "reads the release tags",
-        ("scripts/ci/connectors_compat_matrix.py", "pyproject.toml"),
-    ),
-    Lane(
-        "connectors-compat",
-        "installs released frameworks",
-        (
-            "packages/osprey-connectors/**",
-            "scripts/ci/connectors_compat_lane.py",
-            "scripts/ci/connectors_compat_matrix.py",
-        ),
-    ),
-    Lane(
         "framework-at-connectors-floor",
         "installs the published connectors floor",
         (

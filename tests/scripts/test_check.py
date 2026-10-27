@@ -2360,3 +2360,14 @@ def test_no_check_is_keyed_by_its_id_in_the_command() -> None:
         {c.id for c in check.CHECKS if re.search(rf"[\"']{re.escape(c.id)}[\"']", source)}
     )
     assert keyed == [] and named == []
+
+
+def test_the_connectors_package_declares_its_own_lanes() -> None:
+    """The lanes that install the connectors on their own are the package's,
+    declared beside it and collected after the framework's."""
+    connectors = "packages/osprey-connectors/repo_checks.py"
+    assert list(check.DECLARED.modules) == [check.FRAMEWORK_MODULE, connectors]
+    own = {lane.job for lane in check.DECLARED.modules[connectors].LANES}
+    assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
+    assert own <= {lane.job for lane in check.LANES}
+    assert not own & {lane.job for lane in fw.LANES}
