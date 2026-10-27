@@ -671,6 +671,7 @@ async def _request_no_redirect(
     url: str,
     headers: dict[str, str],
     content: bytes | None,
+    timeout: httpx.Timeout | None = None,
 ) -> httpx.Response:
     """Send one panel request without letting httpx chase redirects.
 
@@ -692,13 +693,25 @@ async def _request_no_redirect(
     The redirect is relayed to the browser instead (:func:`_relay_redirect`),
     whose re-request is re-gated by the terminal's own auth and, if it comes
     back through a panel path, earns a freshly evaluated injection.
+
+    *timeout* is the panel's own bound (:func:`_panel_timeout`); ``None`` sends
+    the request on the shared client's default.
     """
+    if timeout is None:
+        return await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=content,
+            follow_redirects=False,
+        )
     return await client.request(
         method=method,
         url=url,
         headers=headers,
         content=content,
         follow_redirects=False,
+        timeout=timeout,
     )
 
 
@@ -864,6 +877,32 @@ def _panel_json_rewrite_paths(request: Request, panel_id: str) -> tuple[str, ...
                 return tuple(str(p).rstrip("/") for p in paths if p)
             return (str(paths).rstrip("/"),)
     return ()
+
+
+def _panel_timeout(request: Request, panel_id: str, shared: httpx.Timeout) -> httpx.Timeout | None:
+    """The timeout of this panel's proxied requests, or ``None`` for the shared default.
+
+    A config-defined panel that writes ``read_timeout_s`` replaces the read bound
+    of the shared client's timeout and keeps its connect, write and pool bounds;
+    ``null`` lifts the read bound. A panel that writes nothing, and every runtime
+    registration (a timeout is configuration), stays on *shared*.
+
+    Args:
+        request: The request being proxied.
+        panel_id: The panel id from the proxied URL.
+        shared: The shared proxy client's timeout.
+    """
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            if not cp.get("configDefined") or "readTimeoutS" not in cp:
+                return None
+            return httpx.Timeout(
+                connect=shared.connect,
+                read=cp["readTimeoutS"],
+                write=shared.write,
+                pool=shared.pool,
+            )
+    return None
 
 
 def _path_rewrite_prefix(path: object) -> tuple[str, ...]:
@@ -1928,6 +1967,7 @@ async def _forward_to_panel(
             url=target,
             headers=fwd_headers,
             content=body or None,
+            timeout=_panel_timeout(request, panel_id, client.timeout),
         )
         if _is_redirect(resp):
             return _relay_redirect(
