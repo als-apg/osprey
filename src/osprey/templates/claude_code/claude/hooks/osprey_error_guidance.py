@@ -228,17 +228,37 @@ ERROR_CLASS_MAP = {
 }
 
 
-def _detect_error(tool_response: str | dict | None) -> tuple[str | None, str | None]:
+def _classify_type(error_type: str, app_error_types: object) -> tuple[str, str | None]:
+    """Map an ``error_type`` to ``(error_class, app_guidance_text)``.
+
+    An application's dotted ``<app>.<type>`` is looked up in ``app_error_types``
+    (the rendered ``hook_config.json`` key, ``{"<app>.<type>": {class, text}}``)
+    first; framework types are undotted, so the two maps cannot collide. A
+    missing or malformed map, entry or class falls through to
+    ``ERROR_CLASS_MAP`` exactly as before, never raising.
+    """
+    entry = app_error_types.get(error_type) if isinstance(app_error_types, dict) else None
+    if isinstance(entry, dict) and isinstance(entry.get("class"), str):
+        text = entry.get("text")
+        return entry["class"], text if isinstance(text, str) else None
+    return ERROR_CLASS_MAP.get(error_type, "Internal"), None
+
+
+def _detect_error(
+    tool_response: str | dict | None, app_error_types: object = None
+) -> tuple[str | None, str | None, str | None]:
     """Detect a structured error in the tool response.
 
     OSPREY tools now return ``CallToolResult(isError=True, ...)`` for every
     failure. The PostToolUse hook input surfaces this as a dict with
     ``isError: true`` and a ``content`` list of text blocks; the first text
     block carries the structured envelope JSON. Returns
-    ``(error_class, error_message)`` or ``(None, None)`` if no error detected.
+    ``(error_class, error_message, app_guidance_text)``, the last ``None``
+    unless an application's error-type entry carries a text, or
+    ``(None, None, None)`` if no error detected.
     """
     if not isinstance(tool_response, dict) or tool_response.get("isError") is not True:
-        return None, None
+        return None, None, None
 
     for block in tool_response.get("content", []) or []:
         if not isinstance(block, dict) or block.get("type") != "text":
@@ -249,14 +269,12 @@ def _detect_error(tool_response: str | dict | None) -> tuple[str | None, str | N
             continue
         if isinstance(parsed, dict) and parsed.get("error") is True:
             error_type = parsed.get("error_type", "unknown")
-            return (
-                ERROR_CLASS_MAP.get(error_type, "Internal"),
-                parsed.get("error_message", str(parsed)),
-            )
+            error_class, text = _classify_type(error_type, app_error_types)
+            return error_class, parsed.get("error_message", str(parsed)), text
 
     # isError=True but no structured envelope (shouldn't happen for OSPREY
     # tools, but cover the case so guidance still fires).
-    return "Internal", "Tool returned an error"
+    return "Internal", "Tool returned an error", None
 
 
 def main():
@@ -267,20 +285,25 @@ def main():
     tool_name = hook_input.get("tool_name", "")
 
     # Only inspect OSPREY tools (prefixes loaded from hook_config.json)
-    _prefixes = load_hook_config().get("server_prefixes", [])
+    config = load_hook_config()
+    _prefixes = config.get("server_prefixes", [])
     if not any(tool_name.startswith(p) for p in _prefixes):
         sys.exit(0)
 
     tool_response = hook_input.get("tool_response")
-    error_class, error_message = _detect_error(tool_response)
+    error_class, error_message, app_text = _detect_error(
+        tool_response, config.get("app_error_types")
+    )
 
     if error_class is None:
         log_hook("error-guidance", hook_input, status="no-error")
         sys.exit(0)
 
     # Inject guidance reminder
+    app_line = f"Application guidance: {app_text}\n" if app_text else ""
     guidance = (
-        f"ERROR DETECTED [{error_class}]: {error_message}\n\n"
+        f"ERROR DETECTED [{error_class}]: {error_message}\n"
+        f"{app_line}\n"
         "Follow the error-handling protocol (.claude/rules/error-handling.md):\n"
         "- Report the error clearly to the user with actionable next steps.\n"
         "- Do NOT debug infrastructure, write mock data, or work around the failure.\n"
