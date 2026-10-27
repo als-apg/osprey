@@ -58,13 +58,10 @@ user       role           render     what only this entry can prove
                                       an opener's own history view, and a
                                       sign-in as the card lists nothing.
 ``erin``   (none)         probe stub  ``history: all``: the history page shows
-                                      every person's sessions; then removed
-                                      from the roster, which drops her store
-                                      view user on the next ``osprey up``.
+                                      every person's sessions.
 =========  =============  ==========  =========================================
 
-``carol`` is also a reader (``services.telemetry_store.readers`` and
-``agent_record.readers``), so the history page shows her the reader's scope of
+``carol`` is also a reader (``agent_record.readers``), so the history page shows her the reader's scope of
 the agent record until a second ``osprey up`` withdraws her from the readers
 and maps her back to her own view.
 
@@ -160,8 +157,7 @@ built ONCE for the module and every assertion below runs against it.
 
 CONTAINER-OPS SAFETY: every runtime-mutating call below names an EXACT resource
 this test created — the ``<project>-nginx`` / ``<project>-auth`` / ``<project>-web-
-<user>`` / ``<project>-telemetry-store`` / ``<project>-telemetry-gateway`` /
-``<project>-history`` containers, this project's volumes, and the ``:local`` image tags — or
+<user>`` / ``<project>-history`` containers, this project's volumes, and the ``:local`` image tags — or
 is the project-scoped ``compose down`` the deploy lifecycle itself uses. Nothing
 here ever runs a prune, an ``-a``/``--all`` sweep, or a wildcard removal.
 """
@@ -272,8 +268,7 @@ UNSAFE_ROLE_USER = "dave"
 #: A shared card: its ``access`` admits every roster person as an opener, and
 #: its sessions are the card's, not the opener's.
 SHARED_CARD = "kiosk"
-#: The one person whose roster entry carries ``history: all``, and the roster
-#: user the history withdrawal case removes from the roster.
+#: The one person whose roster entry carries ``history: all``.
 ALL_USER = "erin"
 #: Declaration order is roster order, and roster order is index order.
 USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER, SHARED_CARD, ALL_USER)
@@ -315,11 +310,7 @@ AUTH_C = f"{PROJECT}-auth"
 #: history service runs (the render names it; a history case pins that).
 PROJECT_IMAGE_TAG = f"{PROJECT}:local"
 
-STORE_C = f"{PROJECT}-telemetry-store"
-GATEWAY_C = f"{PROJECT}-telemetry-gateway"
 HISTORY_C = f"{PROJECT}-history"
-#: The reader the readers' origin is proven with: no roster person, a key only.
-READER = "ext"
 
 # Two real framework installs; give them room. The step budget in CI is 55
 # minutes (see the module docstring); this is the in-test ceiling below it.
@@ -389,9 +380,9 @@ _PROTECTED_PATCH_BODY = json.dumps({"updates": {_PROTECTED_KEY: _PROTECTED_VALUE
 _REFUSAL_SUBJECT = _PROTECTED_KEY
 _REFUSAL_REASON = "protected_key"
 
-#: The audit zone, host side, relative to the deployment repo: where the
+#: The state zone, host side, relative to the deployment repo: where the
 #: sidecar keeps its revoked-session file.
-AUDIT_RELPATH = Path("var") / "audit"
+STATE_RELPATH = Path("var") / "state"
 #: The sidecar's fixed audit identity — one service, so its records name their
 #: SUBJECTS rather than being filed under a username.
 SIDECAR_IDENTITY = "sidecar"
@@ -686,16 +677,6 @@ def _roster() -> list[dict[str, Any]]:
     return entries
 
 
-def _readers() -> list[dict[str, Any]]:
-    """The store's readers: :data:`READER`, and the roster person ``carol``.
-
-    A reader named for a roster person is how that person reads the history
-    page through the reader's tables rather than as themselves; the history
-    withdrawal case removes her from this list.
-    """
-    return [{"name": READER}, {"name": NO_ROLE_USER, "tables": ["otel_logs"]}]
-
-
 def _record_readers() -> list[dict[str, Any]]:
     """The agent record's readers: ``carol``, so her reader viewer reads prompts.
 
@@ -725,20 +706,13 @@ def _profile_edits() -> dict[str, Any]:
     terminator, and here it keeps the lane off certificate management — the TLS
     mount has its own render-level coverage.
 
-    ``deployed_services`` names the telemetry store and its gateway and nothing
-    else the preset would deploy: the history cases read the store's view
-    users, and a backend service would only add containers and bound ports.
-    Sign-on brings the history page and with it the readers' origin. One store
-    reader, :data:`READER`, proves that origin opens nothing to a store key.
+    Sign-on brings the history page and with it the history page's origin.
     """
     return {
         "config": {
             "container_runtime": RUNTIME,
             "system.timezone": "UTC",
             "deploy.fqdn": "127.0.0.1",
-            "deployed_services": ["telemetry_store", "telemetry_gateway"],
-            "claude_code.telemetry.enabled": True,
-            "services.telemetry_store.readers": _readers(),
             "agent_record.readers": _record_readers(),
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "modules.web_terminals": {
@@ -932,8 +906,7 @@ def _teardown() -> None:
         _runtime_cli("rm", "-f", _web_container(user))
     _runtime_cli("rm", "-f", AUTH_C)
     _runtime_cli("rm", "-f", NGINX_C)
-    for name in (STORE_C, GATEWAY_C, HISTORY_C):
-        _runtime_cli("rm", "-f", name)
+    _runtime_cli("rm", "-f", HISTORY_C)
     _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=90)
     remove_project_volumes(PROJECT_NAME, runtime=RUNTIME)
     for tag in (AUTH_IMAGE_TAG, TERMINAL_IMAGE_TAG, PROBE_IMAGE_TAG, PROJECT_IMAGE_TAG):
@@ -1822,7 +1795,7 @@ def test_a_logged_out_cookie_stays_refused_after_the_login_service_is_recreated(
     ran first. A recreate, not a restart: a restart keeps the container's
     writable layer, so a revocation file written to the wrong place would still
     pass. The container id changing is what proves the refusal came from the
-    file on the host's ``var/audit/sidecar`` bind.
+    file on the host's ``var/state/sidecar`` bind.
 
     The positive control keeps the refusal from being vacuous: a fresh login
     for the same user after the recreate reaches her upstream.
@@ -1855,9 +1828,9 @@ def test_a_logged_out_cookie_stays_refused_after_the_login_service_is_recreated(
     assert _replay(NO_ROLE_USER, copied) == 401, (
         f"the recreated sidecar accepted a cookie logged out before it\n{_logs(AUTH_C)}"
     )
-    revocations = repo / AUDIT_RELPATH / SIDECAR_IDENTITY
+    revocations = repo / STATE_RELPATH / SIDECAR_IDENTITY
     assert (revocations / REVOCATION_FILE_NAME).exists(), (
-        f"no revoked-session file under var/audit/{SIDECAR_IDENTITY}/ "
+        f"no revoked-session file under var/state/{SIDECAR_IDENTITY}/ "
         f"(present: {sorted(p.name for p in revocations.glob('*'))})"
     )
 
@@ -1958,106 +1931,12 @@ def test_the_shared_guard_refuses_a_render_that_never_happened(tmp_path: Path) -
         _orm_stack.assert_off_default_block(repo, "some-e2e-lane")
 
 
-# ---------------------------------------------------------------------------
-# The readers' origin: no query endpoint and no /play behind real nginx
-# ---------------------------------------------------------------------------
-#
-# The readers' origin serves the history page and nothing else. A named reader
-# reads the agent record's read API on the deploy host with their own
-# credential; the store's query endpoint and its query page are not served
-# here, to a reader's key or to anyone. Every case name carries
-# `reader_origin`.
-
-
-def _store_sql(query: str) -> str:
-    """Run *query* as the store's admin account, inside the store container."""
-    result = _exec(STORE_C, "clickhouse-client", "--format", "TSV", "-q", query, timeout=120)
-    assert result.returncode == 0, _fmt(f"store query {query[:80]!r}", result)
-    return result.stdout
-
-
 def _rendered_config(repo: Path) -> dict[str, Any]:
     return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
-@pytest.fixture(scope="module")
-def reader_origin(deployment: dict[str, Any]) -> dict[str, Any]:
-    """The readers' origin and the store reader's key, which opens none of it."""
-    from osprey.deployment import telemetry_config as tc
-    from osprey.deployment import telemetry_credentials as creds
-
-    repo: Path = deployment["repo"]
-    config = _rendered_config(repo)
-    key = None
-    for line in (repo / creds.reader_file(READER)).read_text(encoding="utf-8").splitlines():
-        name, sep, value = line.partition("=")
-        if sep and name.strip() == creds.READER_KEY:
-            key = value.strip().strip("'\"")
-    assert key, f"{creds.reader_file(READER)} holds no key"
-    return {"origin": f"http://127.0.0.1:{tc.reader_port(config)}", "key": key, "repo": repo}
-
-
-#: Every path the store's query endpoint and query page were served under, and
-#: the store pages nothing on this origin ever served.
-_GONE_PATHS = (
-    "/telemetry/",
-    "/telemetry/?query=SELECT%201",
-    "/telemetry/play",
-    "/telemetry/play?url=x",
-    "/telemetry/play/",
-    "/play",
-    "/telemetry/dashboard",
-    "/telemetry/clickstack",
-    "/telemetry/webterminal",
-    "/landing.html",
-    "/js/uplot.js",
-)
-
-
-@pytest.mark.parametrize("path", _GONE_PATHS)
-@pytest.mark.parametrize("keyed", [True, False], ids=["with-key", "without-key"])
-def test_reader_origin_answers_404_for_the_query_endpoint_and_the_query_page(
-    reader_origin: dict[str, Any], path: str, keyed: bool
-) -> None:
-    import httpx
-
-    auth = (READER, reader_origin["key"]) if keyed else None
-    url = f"{reader_origin['origin']}{path}"
-    got = httpx.get(url, auth=auth, timeout=30, follow_redirects=False)
-    assert got.status_code == 404, f"GET {path}: {got.status_code}"
-    assert "WWW-Authenticate" not in got.headers, path
-    posted = httpx.post(
-        url, auth=auth, content=b"SELECT currentUser()", timeout=30, follow_redirects=False
-    )
-    assert posted.status_code == 404, f"POST {path}: {posted.status_code}"
-    assert READER not in posted.text, path
-
-
-def test_reader_origin_reaches_no_store_query_with_a_readers_key(
-    reader_origin: dict[str, Any],
-) -> None:
-    """A query sent the way `/play`'s Download sent one runs nowhere."""
-    import httpx
-
-    case = f"reader-origin-{os.getpid()}-{int(time.time())}"
-    _store_sql("SYSTEM FLUSH LOGS")
-    response = httpx.post(
-        f"{reader_origin['origin']}/telemetry/?"
-        + urllib.parse.urlencode({"user": READER, "password": reader_origin["key"]}),
-        content=f"SELECT '{case}'".encode(),
-        timeout=30,
-    )
-    assert response.status_code == 404, response.text[:300]
-    _store_sql("SYSTEM FLUSH LOGS")
-    ran = _store_sql(
-        "SELECT count() FROM system.query_log WHERE "
-        f"position(query, unhex('{case.encode().hex()}')) > 0 AND user = '{READER}'"
-    ).strip()
-    assert ran == "0", f"{ran} query_log rows ran as {READER}"
-
-
 # ---------------------------------------------------------------------------
-# The history page: `/history/` on the readers' origin, behind real nginx
+# The history page: `/history/` on the history page's origin, behind real nginx
 # ---------------------------------------------------------------------------
 #
 # The sidecar maps one sign-in to one agent-record viewer (`all`,
@@ -2065,7 +1944,7 @@ def test_reader_origin_reaches_no_store_query_with_a_readers_key(
 # page's gate secret, and the page reads the agent record with its `history`
 # login, naming that viewer on every read. These cases mean something only
 # with all three real. Every case name carries `history`; the withdrawal
-# cases run last because they change the deployment with a second `osprey up`.
+# case runs last because it changes the deployment with a second `osprey up`.
 
 HISTORY_PATH = "/history/"
 #: The history page's agent-record login: the one login that may name a viewer.
@@ -2104,18 +1983,18 @@ def _rendered_services(repo: Path) -> dict[str, dict[str, Any]]:
     return services
 
 
-def _reader_server_block(repo: Path) -> str:
-    """The readers' ``server`` block of the nginx config *repo*'s render produces.
+def _history_server_block(repo: Path) -> str:
+    """The history page's ``server`` block of the nginx config *repo*'s render produces.
 
     Rendered from ``build/config.yml`` through the function ``osprey up`` writes
     the deployed file with, so the auth-none case reads exactly what a deploy
     of that render would serve without deploying it.
     """
-    from osprey.deployment import telemetry_config as tc
+    from osprey.agent_record.config import history_origin_port
     from osprey.deployment.web_terminals.render import render_web_terminals
 
     config = _rendered_config(repo)
-    port = tc.reader_port(config)
+    port = history_origin_port(config)
     text = render_web_terminals(config)["nginx/nginx.conf"]
     for start in (m.start() for m in re.finditer(r"(?m)^server \{", text)):
         depth, end = 0, start
@@ -2130,7 +2009,7 @@ def _reader_server_block(repo: Path) -> str:
         block = text[start:end]
         if re.search(rf"(?m)^\s*listen {port}\b", block):
             return block
-    raise AssertionError(f"no rendered server block listens on the readers' port {port}")
+    raise AssertionError(f"no rendered server block listens on the history port {port}")
 
 
 def _record_client(repo: Path, viewer: str) -> Any:
@@ -2175,7 +2054,7 @@ def _spool_prompt(repo: Path, identity: str, session: str) -> None:
 @pytest.fixture(scope="module")
 def history_page(deployment: dict[str, Any]) -> dict[str, Any]:
     """The two origins and one prompt session per person, spooled into the record."""
-    from osprey.deployment import telemetry_config as tc
+    from osprey.agent_record.config import history_app_port, history_origin_port
 
     repo: Path = deployment["repo"]
     config = _rendered_config(repo)
@@ -2193,9 +2072,9 @@ def history_page(deployment: dict[str, Any]) -> dict[str, Any]:
     assert set(sessions.values()) <= listed, f"the record never listed {sessions}: {listed}"
     return {
         "repo": repo,
-        "reader": f"http://127.0.0.1:{tc.reader_port(config)}",
-        "reader_port": tc.reader_port(config),
-        "history_port": tc.history_port(config),
+        "reader": f"http://127.0.0.1:{history_origin_port(config)}",
+        "history_origin_port": history_origin_port(config),
+        "history_port": history_app_port(config),
         "terminal": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
         "sessions": sessions,
     }
@@ -2241,9 +2120,9 @@ def _history_sign_in(
 def _history_get(
     page_info: dict[str, Any], client: urllib.request.OpenerDirector | None, target: str
 ) -> tuple[int, str]:
-    """A navigation to *target* on the readers' origin with *client*'s cookies."""
+    """A navigation to *target* on the history page's origin with *client*'s cookies."""
     status, _, body = _request(
-        target, headers=_navigation(), port=page_info["reader_port"], opener=client
+        target, headers=_navigation(), port=page_info["history_origin_port"], opener=client
     )
     return status, body
 
@@ -2267,15 +2146,15 @@ def test_history_is_404_under_auth_method_none_by_render(tmp_path: Path) -> None
     """Without sign-on there is no history service, and nginx answers `/history/` 404.
 
     A render, not a second deployment (owner ruling F2): the compose set carries
-    no ``history`` service, and the readers' server has no ``/history/``
+    no ``history`` service, and the history page's server has no ``/history/``
     location, so the request falls to its catch-all ``return 404``.
     """
     repo = _make_repo(tmp_path, _find_osprey_console_script(), edits=_auth_none_edits())
 
     services = _rendered_services(repo)
-    assert "telemetry_store" in services, sorted(services)
+    assert "nginx" in services, sorted(services)
     assert "history" not in services, sorted(services)
-    server = _reader_server_block(repo)
+    server = _history_server_block(repo)
     assert "/history" not in server, server
     assert "verify-history" not in server, server
     assert re.search(r"location / \{\s*return 404;\s*\}", server), server
@@ -2292,7 +2171,7 @@ def test_history_service_runs_the_project_image_the_render_names(
     assert tag == PROJECT_IMAGE_TAG, image
     assert _container_image(HISTORY_C) == tag, _logs(HISTORY_C)
     # The location the auth-none case finds absent is present here.
-    assert "location /history/" in _reader_server_block(repo)
+    assert "location /history/" in _history_server_block(repo)
 
 
 def test_history_a_forged_header_call_from_a_web_container_is_refused_and_recorded(
@@ -2509,25 +2388,9 @@ def test_history_a_sign_in_as_a_shared_card_without_all_lists_nothing(
     assert listed == [], listed
 
 
-def _view_user_rows(view: str) -> dict[str, str]:
-    """How many store rows still name *view*: the user, its grants, its policies."""
-    return {
-        "users": _store_sql(f"SELECT count() FROM system.users WHERE name = '{view}'").strip(),
-        "grants": _store_sql(
-            f"SELECT count() FROM system.grants WHERE user_name = '{view}'"
-        ).strip(),
-        "role_grants": _store_sql(
-            f"SELECT count() FROM system.role_grants WHERE user_name = '{view}'"
-        ).strip(),
-        "row_policies": _store_sql(
-            f"SELECT count() FROM system.row_policies WHERE has(apply_to_list, '{view}')"
-        ).strip(),
-    }
-
-
 @pytest.fixture(scope="module")
 def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any]) -> dict[str, Any]:
-    """``carol`` leaves ``readers[]`` and ``erin`` the roster, then a real ``osprey up``.
+    """``carol`` leaves ``readers[]``, then a real ``osprey up``.
 
     ``carol``'s browser is signed in before and kept open across it. What held
     before is asserted here, so the cases after it compare against a state
@@ -2544,21 +2407,14 @@ def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any])
     # session to that viewer and not to carol's own.
     assert sessions[REAL_USER] in _record_sessions(repo, f"reader:{NO_ROLE_USER}")
     assert sessions[REAL_USER] not in _record_sessions(repo, f"own:{NO_ROLE_USER}")
-    removed_view = f"view_{ALL_USER}"
-    assert _view_user_rows(removed_view)["users"] == "1", "the roster user's view user is absent"
 
     profile_path = repo / "profile.yml"
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     config = profile["config"]
-    readers_key = "services.telemetry_store.readers"
-    config[readers_key] = [r for r in config[readers_key] if r["name"] != NO_ROLE_USER]
     record_readers_key = "agent_record.readers"
     config[record_readers_key] = [
         r for r in config[record_readers_key] if r["name"] != NO_ROLE_USER
     ]
-    # `osprey init` writes the profile's config as flat dotted keys.
-    users_key = "modules.web_terminals.users"
-    config[users_key] = [u for u in config[users_key] if u["name"] != ALL_USER]
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     osprey_bin = _find_osprey_console_script()
@@ -2572,7 +2428,7 @@ def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any])
     up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
     assert up.returncode == 0, _fmt("osprey up --dev (history withdrawal)", up)
     _wait_for_health(AUTH_READY_TIMEOUT_SEC)
-    return {"carol": carol, "removed_view": removed_view}
+    return {"carol": carol}
 
 
 def test_history_a_reader_withdrawn_from_readers_is_back_in_their_own_scope_after_up(
@@ -2595,12 +2451,3 @@ def test_history_a_reader_withdrawn_from_readers_is_back_in_their_own_scope_afte
     assert not withdrawn.available, withdrawn
     own = _record_sessions(history_page["repo"], f"own:{NO_ROLE_USER}")
     assert sessions[NO_ROLE_USER] in own and sessions[REAL_USER] not in own, own
-
-
-def test_history_a_removed_roster_users_view_user_and_policies_are_gone_after_up(
-    history_withdrawal: dict[str, Any],
-) -> None:
-    gone = _view_user_rows(history_withdrawal["removed_view"])
-    assert gone == {"users": "0", "grants": "0", "role_grants": "0", "row_policies": "0"}, gone
-    # The same reads see a view user that stayed.
-    assert _view_user_rows(f"view_{REAL_USER}")["users"] == "1"

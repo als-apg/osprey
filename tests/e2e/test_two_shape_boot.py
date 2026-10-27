@@ -508,11 +508,8 @@ def _wait_for_service_ready(container: str, url: str, timeout: float) -> None:
 #: stage the bundled dispatcher/worker templates and register both in
 #: ``deployed_services``; ``network:`` is the one word the shape fixture flips.
 #:
-#: The two config edits drop the preset's telemetry store: it is not part
-#: of what this module tests, and deploying it would add a third container
-#: whose published port collides with any other OSPREY stack on the host. The
-#: dispatch injection appends its own two services to the emptied
-#: ``deployed_services``, which is what leaves the render same-mode by
+#: ``deployed_services`` is stated empty, and the dispatch injection appends
+#: its own two services to it, which is what leaves the render same-mode by
 #: construction — exactly the pair, nothing else.
 _PROFILE_EDITS: dict[str, Any] = {
     "dispatch": {
@@ -524,7 +521,6 @@ _PROFILE_EDITS: dict[str, Any] = {
         "network": BRIDGE,
     },
     "config": {
-        "claude_code.telemetry.enabled": False,
         "deployed_services": [],
     },
 }

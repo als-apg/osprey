@@ -21,7 +21,7 @@ What each group pins:
 
 ``TestReadOnlyRenderZone`` — the render zone is the agent's ceiling. The
 config the agent runs under is root-owned and unwritable by ``osprey``; the
-state zone (``var/audit``) it must write is writable; the server the image
+state zone (``var/spool``) it must write is writable; the server the image
 actually starts runs as uid 1000; and the entrypoint demonstrably ran and
 dropped privileges before it did.
 
@@ -498,13 +498,13 @@ class TestReadOnlyRenderZone:
         assert touch.returncode != 0, "the agent's user could write the render zone's config.yml"
         assert "Permission denied" in touch.stderr
 
-    def test_agent_user_can_write_the_audit_zone(self, ro_container):
+    def test_agent_user_can_write_the_spool_zone(self, ro_container):
         """The other half, and the one a too-broad chown would break: a refusal
         nobody can record is a refusal only the agent's own transcript saw."""
-        probe = f"{ro_container.root}/var/audit/e2e-privsplit-probe"
+        probe = f"{ro_container.root}/var/spool/e2e-privsplit-probe"
         touch = _exec(ro_container.cid, "gosu", "osprey", "touch", probe)
         assert touch.returncode == 0, (
-            f"the agent's user cannot write the audit zone:\n{touch.stderr}"
+            f"the agent's user cannot write the spool zone:\n{touch.stderr}"
         )
 
     def test_the_served_process_runs_as_the_runtime_uid(self, ro_container):
@@ -1184,7 +1184,7 @@ IDENTITY = "alice"
 #: carry that membership over to the identity's name, or ``gosu 1000`` (which
 #: resolves uid 1000 to the identity and asks ``initgroups`` for ITS groups)
 #: would drop the very directories the card writes its records into.
-AUDIT_GID = 4242
+SPOOL_GID = 4242
 CONTEXT_GID = 4343
 
 #: The in-container probe. Fed to the image's python on stdin, never collected.
@@ -1272,7 +1272,7 @@ def identity_containers(ro_image, tmp_path_factory):
     staged from THIS tree, so the rewrite under test is the local one whatever
     the image carries, and the script's sibling import resolves from that
     read-only directory alone. Two
-    group-shared binds with foreign gids stand in for the audit and
+    group-shared binds with foreign gids stand in for the spool and
     control-context directories, so the join-then-rewrite order is exercised
     on real memberships.
 
@@ -1286,7 +1286,7 @@ def identity_containers(ro_image, tmp_path_factory):
 
     tag, project = ro_image
     root = f"/app/{project}"
-    audit_dir = f"{root}/var/audit/{IDENTITY}"
+    spool_dir = f"{root}/var/spool/{IDENTITY}"
     context_dir = f"{root}/var/agent_data/control_target/{IDENTITY}"
     staged_dir = tmp_path_factory.mktemp("control-identity")
     files = BuildArtifactCatalog.default().files_beside(
@@ -1300,7 +1300,7 @@ def identity_containers(ro_image, tmp_path_factory):
     volumes: list[str] = []
     names: list[str] = []
     try:
-        volumes.append(_group_volume(tag, AUDIT_GID))
+        volumes.append(_group_volume(tag, SPOOL_GID))
         volumes.append(_group_volume(tag, CONTEXT_GID))
         names.append(
             _run_sleeper(
@@ -1312,9 +1312,9 @@ def identity_containers(ro_image, tmp_path_factory):
                 "-v",
                 f"{staged_dir}:{staged_path}:ro",
                 "-v",
-                f"{volumes[0]}:{audit_dir}",
+                f"{volumes[0]}:{spool_dir}",
                 "-e",
-                f"OSPREY_AUDIT_DIR={audit_dir}",
+                f"OSPREY_SPOOL_DIR={spool_dir}",
                 "-v",
                 f"{volumes[1]}:{context_dir}",
                 "-e",
@@ -1328,7 +1328,7 @@ def identity_containers(ro_image, tmp_path_factory):
             cid=names[0],
             plain=names[1],
             root=root,
-            audit_dir=audit_dir,
+            spool_dir=spool_dir,
             context_dir=context_dir,
             logs=identity_logs,
         )
@@ -1381,13 +1381,13 @@ class TestControlIdentity:
         named = _exec(identity_containers.cid, "stat", "-c", "%U", state)
         assert named.stdout.strip() == IDENTITY, named.stdout
 
-        probe = f"{identity_containers.audit_dir}/e2e-identity-probe"
+        probe = f"{identity_containers.spool_dir}/e2e-identity-probe"
         touch = _exec(identity_containers.cid, "gosu", "osprey", "touch", probe)
         assert touch.returncode == 0, (
-            f"the dropped user cannot write its audit bind:\n{touch.stderr}"
+            f"the dropped user cannot write its spool bind:\n{touch.stderr}"
         )
         owner = _exec(identity_containers.cid, "stat", "-c", "%u:%g", probe)
-        assert owner.stdout.strip() == f"1000:{AUDIT_GID}", owner.stdout
+        assert owner.stdout.strip() == f"1000:{SPOOL_GID}", owner.stdout
 
     @pytest.mark.parametrize("spelling", ["osprey", "1000"])
     def test_both_gosu_spellings_carry_the_mount_gids(self, identity_containers, spelling):
@@ -1397,7 +1397,7 @@ class TestControlIdentity:
         ids = _exec(identity_containers.cid, "gosu", spelling, "id", "-G")
         assert ids.returncode == 0, ids.stderr
         gids = set(ids.stdout.split())
-        assert {str(AUDIT_GID), str(CONTEXT_GID)} <= gids, (
+        assert {str(SPOOL_GID), str(CONTEXT_GID)} <= gids, (
             f"`gosu {spelling} id -G` lacks a mount gid: {ids.stdout!r}\n"
             f"{identity_containers.logs[-4000:]}"
         )

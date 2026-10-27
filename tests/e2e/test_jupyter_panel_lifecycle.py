@@ -338,7 +338,6 @@ def _profile_edits() -> dict[str, Any]:
             "deploy.fqdn": "127.0.0.1",
             PORT_BASE_CONFIG_KEY: PORT_BASE,
             "control_system.type": "virtual_accelerator",
-            "claude_code.telemetry.enabled": False,
             "claude_code.servers.bluesky.enabled": False,
             "claude_code.servers.health.enabled": False,
             "modules.web_terminals": {

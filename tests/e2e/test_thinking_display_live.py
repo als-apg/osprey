@@ -158,7 +158,6 @@ def _build(base: Path, name: str, display: str | None, config_dir: Path, cli: Pa
     config: dict[str, Any] = {
         "claude_code.cli_version": _DEFAULT_CLAUDE_CLI_VERSION,
         # No gateway runs here; a session should not export to one.
-        "claude_code.telemetry.enabled": False,
     }
     if display is not None:
         config[launcher.THINKING_DISPLAY_KEY] = display

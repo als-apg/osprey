@@ -279,7 +279,6 @@ def _services_edits(ports: dict[str, int]) -> dict[str, Any]:
             "services.postgresql.database_name": "ariel",
             "services.postgresql.username": "ariel",
             "services.postgresql.port_host": ports["postgres"],
-            "claude_code.telemetry.enabled": False,
             "deployed_services": ["postgresql"],
         }
     }

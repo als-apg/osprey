@@ -5,7 +5,7 @@ Reaches a model (the e2e provider) and runs real containers, so it carries no
 
 One deployment: ``osprey init --preset hello-world`` and ``osprey build
 --dev``, with ``CLAUDE_CONFIG_DIR`` and ``HOME`` pointed into the module's temp
-tree, no old telemetry store (``deployed_services`` pinned empty) and a stated
+tree, ``deployed_services`` pinned empty and a stated
 ``deployment.host_identity``. The cases run in file order:
 
 1. No ``osprey up``. A live ``osprey query`` and a live ``osprey chat --print``

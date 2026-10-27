@@ -443,8 +443,7 @@ def _seed_repo(
     if write_users_env:
         (dest / ".env.users").write_text("", encoding="utf-8")
 
-    for state_dir in ("var/agent_data", "var/audit"):
-        (dest / state_dir).mkdir(parents=True, exist_ok=True)
+    (dest / "var/agent_data").mkdir(parents=True, exist_ok=True)
 
     _stamp_build_manifest(dest)
     return dest
