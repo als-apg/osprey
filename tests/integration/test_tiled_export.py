@@ -46,8 +46,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces._serving import free_port
 from tests._container_support import is_docker_available, start_or_skip, stop_quietly
-from tests._live import free_port
 
 # xdist_group("docker"): this file starts a real container, and every
 # container-starting file in the suite shares one group so that only one xdist

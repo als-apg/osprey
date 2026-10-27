@@ -86,7 +86,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,

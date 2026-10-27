@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 HOOK = "osprey_panels_context.py"
 

@@ -26,8 +26,7 @@ from pathlib import Path
 import pytest
 
 import osprey_connectors
-
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 pytest.importorskip("aioca", reason="the EPICS connector's Channel Access client")
 pytest.importorskip("epicscorelibs.ioc", reason="serves the soft IOC")

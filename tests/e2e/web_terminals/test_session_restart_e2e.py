@@ -70,8 +70,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
-from tests._live import free_port
 from tests.e2e.web_terminals.test_terminal_auth_e2e import (
     _operator_secret_from_url,
     _read_login_url,

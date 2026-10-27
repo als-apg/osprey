@@ -42,7 +42,7 @@ from typing import Any
 
 import pytest
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 from tests.va._collection import assert_module_collected
 
 # Loopback only, on an ephemeral port of this module's own -- an inherited

@@ -50,8 +50,8 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
-from tests._live import free_port
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 

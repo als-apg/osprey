@@ -56,7 +56,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 pytest.importorskip(
     "lume_pva_apg",

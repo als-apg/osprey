@@ -24,7 +24,7 @@ from typing import Any
 import httpx
 import pytest
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 from tests.e2e._deploy_support import find_osprey_console_script, format_failure
 
 

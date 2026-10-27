@@ -110,6 +110,7 @@ from fastapi.testclient import TestClient
 
 from osprey.audit import posture as audit_posture
 from osprey.audit import writer as audit_writer
+from osprey.interfaces._serving import free_port
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.mcp_server.control_system import server_context as server_context_mod
 from osprey.mcp_server.control_system import session_control, target_state
@@ -123,7 +124,6 @@ from osprey.mcp_server.python_executor.tools import python_execute as python_exe
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
-from tests._live import free_port
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import get_tool_fn
 from tests.va._collection import assert_module_collected

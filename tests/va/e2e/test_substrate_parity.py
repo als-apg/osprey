@@ -54,7 +54,7 @@ import sys
 import time
 from typing import Any
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 # The CA-client worker. Dispatched before this module imports pytest or any
 # osprey package, so the client process stays a bare aioca client.

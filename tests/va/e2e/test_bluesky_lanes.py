@@ -82,6 +82,7 @@ import yaml
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
 from osprey.deployment.compose_generator import BLUESKY_DEVICES_FILENAME
+from osprey.interfaces._serving import free_port
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -93,7 +94,6 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_f
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
-from tests._live import free_port
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs

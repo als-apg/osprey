@@ -124,6 +124,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.interfaces._serving import free_port
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
@@ -140,7 +141,6 @@ from osprey.mcp_server.control_system.tools.control_target import target_rows
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
-from tests._live import free_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 

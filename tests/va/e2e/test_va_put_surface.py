@@ -47,7 +47,7 @@ from typing import Any
 
 import pytest
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 

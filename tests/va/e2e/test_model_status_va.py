@@ -29,8 +29,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.interfaces._serving import free_port
 from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
-from tests._live import free_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 

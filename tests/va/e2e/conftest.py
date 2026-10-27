@@ -62,7 +62,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 # Re-exported: the modules of this directory read the image under test and its
 # remedy as ``e2e_conftest.IMAGE`` and ``e2e_conftest.IMAGE_REMEDY``.

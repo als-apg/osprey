@@ -50,7 +50,8 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
-from tests._live import free_port, wait_until
+from osprey.interfaces._serving import free_port
+from tests._live import wait_until
 from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import HEALTH_TIMEOUT_SEC

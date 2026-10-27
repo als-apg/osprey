@@ -18,8 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-from tests._live import free_port
 
 HOOK_NAME = "osprey_notebook_update.py"
 

@@ -50,9 +50,9 @@ import time
 from contextlib import contextmanager
 
 from osprey import bluesky_tool_names as bsky
+from osprey.interfaces._serving import free_port
 from osprey.registry import mcp as mcp_registry
 from osprey_connectors_tests._harness import pin_identity, state_dir_under
-from tests._live import free_port
 from tests.hooks.conftest import ask_reason
 
 SCAN_HOOK_CONFIG = {

@@ -72,7 +72,7 @@ import pytest
 import websockets
 from websockets.sync.client import connect as ws_connect
 
-from tests._live import free_port
+from osprey.interfaces._serving import free_port
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
 
