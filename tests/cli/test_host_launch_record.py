@@ -583,3 +583,107 @@ def test_the_supervisor_restarts_the_record_stopped_mid_session(tmp_path):
     finally:
         if state_dir.exists():
             hr.stop_host_process(state_dir, wait_s=10)
+
+
+# ---------------------------------------------------------------------------
+# A host launch records under the identity the build recorded
+# ---------------------------------------------------------------------------
+
+AUDIT_IDENTITY = "OSPREY_AUDIT_IDENTITY"
+
+
+def _rendered(repo: Path, config: dict | str) -> Path:
+    path = repo / "build" / "config.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config if isinstance(config, str) else yaml.safe_dump(config))
+    return repo
+
+
+def test_export_built_host_identity_exports_the_identity_alone(tmp_path):
+    repo = _rendered(tmp_path, _config(tmp_path))
+    environ: dict[str, str] = {}
+    assert creds.export_built_host_identity(environ, repo) == [AUDIT_IDENTITY]
+    # The identity alone: no sender login, no address.
+    assert environ == {AUDIT_IDENTITY: HOST}
+
+
+def test_export_built_host_identity_leaves_a_terminal_container_alone(tmp_path):
+    repo = _rendered(tmp_path, _config(tmp_path))
+    environ = {"OSPREY_TERMINAL_USER": "alice"}
+    assert creds.export_built_host_identity(environ, repo) == []
+    assert environ == {"OSPREY_TERMINAL_USER": "alice"}
+
+
+@pytest.mark.parametrize(
+    "render",
+    [None, "{not: [yaml", "- a list\n", {"project_name": "no-identity"}],
+    ids=["no-render", "unreadable", "not-a-mapping", "no-host-identity"],
+)
+def test_export_built_host_identity_exports_nothing_without_one(tmp_path, render):
+    repo = tmp_path if render is None else _rendered(tmp_path, render)
+    environ: dict[str, str] = {}
+    assert creds.export_built_host_identity(environ, repo) == []
+    assert environ == {}
+
+
+@pytest.mark.usefixtures("fake_ensure")
+def test_chat_launches_under_the_built_host_identity(runner, lifecycle_repo, monkeypatch):
+    monkeypatch.delenv(AUDIT_IDENTITY, raising=False)
+    monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+    repo = _deploy(lifecycle_repo, _config(lifecycle_repo), credentials=False)
+    launched: list[dict] = []
+
+    def fake_run(_argv, *_args, env=None, **_kwargs):
+        launched.append(dict(env or {}))
+        return SimpleNamespace(returncode=0)
+
+    with patch_subprocess("osprey.cli.chat_cmd", side_effect=fake_run):
+        result = runner.invoke(chat, ["--repo", str(repo)])
+
+    assert result.exit_code == 0, result.output
+    assert launched[0][AUDIT_IDENTITY] == HOST
+    assert "OSPREY_TELEMETRY_LOGIN" not in launched[0]
+
+
+@pytest.mark.parametrize(
+    ("module", "anchor"),
+    [
+        ("chat_cmd", "_overlay_repo_env(repo_root)\n"),
+        ("query_cmd", "_overlay_repo_env(repo_root)\n"),
+        ("web_cmd", "load_dotenv_from_project()\n"),
+    ],
+)
+def test_every_host_launcher_exports_the_identity_after_the_env_chain(
+    module: str, anchor: str
+) -> None:
+    """Each launcher makes the one call, after the env chain is loaded.
+
+    After, because the chain is loaded with override: an identity exported
+    first could be replaced by a stale line in ``.env``.
+    """
+    import importlib
+    import inspect
+
+    source = inspect.getsource(importlib.import_module(f"osprey.cli.{module}"))
+    call = "export_built_host_identity(os.environ, repo_root)"
+
+    assert source.count(call) == 1
+    assert source.rindex(anchor) < source.index(call)
+    assert "from osprey.agent_record.credentials import export_built_host_identity" in source
+
+
+def test_web_resolves_its_render_with_the_identity_exported(tmp_path, monkeypatch) -> None:
+    from osprey.cli import web_cmd
+
+    (tmp_path / "profile.yml").write_text("project_name: p\n")
+    _rendered(tmp_path, _config(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(AUDIT_IDENTITY, "")
+    monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+    monkeypatch.delenv("OSPREY_TELEMETRY_LOGIN", raising=False)
+    monkeypatch.setenv("OSPREY_CONFIG", "")
+
+    web_cmd._resolve_render(tmp_path)
+
+    assert os.environ[AUDIT_IDENTITY] == HOST
+    assert "OSPREY_TELEMETRY_LOGIN" not in os.environ

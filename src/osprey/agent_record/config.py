@@ -20,10 +20,14 @@ the pattern of the other per-block modules:
 * :func:`agent_record_config_overrides` is the resolved block as dotted keys,
   written into the rendered ``config.yml`` under the top-level key
   ``agent_record`` so the service and the build read one config source.
+* :func:`refuse_retired_config_keys` refuses a ``config:`` block that still
+  spells a key the record replaced (:data:`RETIRED_CONFIG_KEYS`), naming what
+  to write instead.
 
-The reserved account names and ``deployment.host_identity`` belong to
-:mod:`osprey.deployment.telemetry_config`; they are imported from there, inside
-the functions that use them, so a profile parse stays cheap and cycle-free.
+Beside the block live the names the record's deployment shares with the
+history page and the compose render: the history service's name, the two
+history ports, the ClickHouse container's port and memory ratio, and
+:func:`parse_memory`, which reads every memory size the block states.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any
 
 from osprey.agent_record.contract import KINDS
-from osprey.port_layout import default_port
+from osprey.port_layout import default_port, resolve_port_base
 from osprey_connectors.errors import BuildProfileError
 
 #: The profile key, and the top-level key of the rendered ``config.yml``.
@@ -62,6 +66,24 @@ DEFAULT_CLICKHOUSE_IMAGE = "clickhouse/clickhouse-server:26.8.18.2"
 
 #: The ClickHouse container's memory limit.
 DEFAULT_CLICKHOUSE_MEMORY = "2g"
+
+#: The history page's compose service, its audit identity and its template
+#: directory. Derived (see :func:`history_page_deployed`), never a
+#: ``deployed_services`` entry.
+HISTORY_SERVICE = "history"
+
+#: The port the ClickHouse image listens on for HTTP. A property of the image,
+#: not a host port, so ``deployment.port_base`` does not move it.
+STORE_HTTP_CONTAINER_PORT = 8123
+
+#: The share of its memory limit the ClickHouse server lets itself use
+#: (``max_server_memory_usage_to_ram_ratio`` in its server config).
+STORE_MEMORY_RATIO = 0.9
+
+_KIB = 1024
+_MIB = 1024 * _KIB
+_MEMORY_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([bkmg]?)(?:i?b)?\s*$", re.IGNORECASE)
+_MEMORY_UNITS = {"": 1, "b": 1, "k": _KIB, "m": _MIB, "g": 1024 * _MIB}
 
 #: The keys one ``readers`` entry may spell.
 READER_KEYS: tuple[str, ...] = ("name", "kinds", "days_back", "oidc_subject")
@@ -148,6 +170,49 @@ def history_page_deployed(config: Mapping[str, Any] | None) -> bool:
     return _mapping(web_terminals.get("auth")).get("method") in HISTORY_AUTH_METHODS
 
 
+def history_origin_port(config: Mapping[str, Any] | None) -> int:
+    """The port of the history page's origin (``modules.web_terminals.history_port``).
+
+    Raises:
+        ValueError: If the key is set to something that is not a port.
+    """
+    value = _mapping(_mapping(_mapping(config).get("modules")).get("web_terminals")).get(
+        "history_port"
+    )
+    if value is None:
+        return default_port("history_origin", base=resolve_port_base(config))
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 < value < 65536:
+        raise ValueError(f"{_WEB}.history_port must be an integer port, got {value!r}")
+    return value
+
+
+def history_app_port(config: Mapping[str, Any] | None) -> int:
+    """The loopback port the history app is published on."""
+    return default_port(HISTORY_SERVICE, base=resolve_port_base(config))
+
+
+def parse_memory(value: Any, key: str) -> int:
+    """Return a compose memory value in bytes.
+
+    Args:
+        value: An integer byte count, or a string as compose's ``mem_limit``
+            takes it — ``2g``, ``512m``, ``1.5gb``, ``2GiB``. Units are binary.
+        key: The dotted config key the value came from, for the refusal.
+
+    Raises:
+        ValueError: If the value is not a positive memory size.
+    """
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    match = _MEMORY_RE.match(value) if isinstance(value, str) else None
+    size = float(match.group(1)) * _MEMORY_UNITS[match.group(2).lower()] if match else 0
+    if size < 1:
+        raise ValueError(
+            f"{key} must be a memory size such as 2g or 512m (or a byte count), got {value!r}"
+        )
+    return int(size)
+
+
 def parse_agent_record_block(
     raw: Mapping[str, Any], *, base: int | None = None
 ) -> AgentRecordConfig:
@@ -220,8 +285,6 @@ def agent_record_errors(agent_record: AgentRecordConfig, config: Any = None) -> 
     Returns:
         The problems found, each naming its fix; empty when the block is clean.
     """
-    from osprey.deployment.telemetry_config import parse_memory
-
     cfg = agent_record
     errors: list[str] = []
     if cfg.backend not in BACKENDS:
@@ -304,11 +367,6 @@ def _reader_findings(
     agent_record: AgentRecordConfig, config: Mapping[str, Any] | None
 ) -> list[tuple[bool, str]]:
     """Every reader finding as ``(is_error, message)``."""
-    from osprey.deployment.telemetry_config import (
-        RESERVED_ACCOUNT_NAMES,
-        RESERVED_ACCOUNT_PREFIX,
-        is_reserved_account_name,
-    )
     from osprey.deployment.web_terminals.roster import authored_people
 
     web_terminals = _mapping(_mapping(_mapping(config).get("modules")).get("web_terminals"))
@@ -344,15 +402,6 @@ def _reader_findings(
                     True,
                     f"{_READERS} entry {name!r} names {', '.join(unknown)}, which a reader "
                     f"entry does not have; the keys are {', '.join(READER_KEYS)}",
-                )
-            )
-        if is_reserved_account_name(name):
-            findings.append(
-                (
-                    True,
-                    f"{_READERS} entry {name!r} takes a name the record keeps for its own "
-                    f"accounts ({RESERVED_ACCOUNT_PREFIX}*, "
-                    f"{', '.join(sorted(RESERVED_ACCOUNT_NAMES))}). Rename the reader",
                 )
             )
         findings.extend(_check_kinds(name, entry))
@@ -453,7 +502,117 @@ def _check_reader_subject(
     return []
 
 
+# --- retired keys ------------------------------------------------------------
+
+#: Every config key the agent record replaced, with what a profile writes
+#: instead. A key here is refused wherever a profile spells it — the key
+#: itself or anything below it, in a nested, dotted or mixed spelling — and
+#: the refusal names the replacement, so the operator edits the profile once
+#: and builds.
+RETIRED_CONFIG_KEYS: Mapping[str, str] = {
+    "claude_code.telemetry": (
+        "remove it: Claude Code's OTLP logs always go to the agent record, and no "
+        "key selects another destination, signal or capture level"
+    ),
+    "claude_code.transcripts": (
+        "set `agent_record.retention_days` instead: Claude Code keeps its "
+        "transcripts for the longer of that and 30 days"
+    ),
+    "audit.tool_call": (
+        "remove it: every tool call is an agent-record entry, kept for "
+        "`agent_record.retention_days`"
+    ),
+    "services.telemetry_store": (
+        "state the store in the top-level `agent_record:` block instead — "
+        "`backend: clickhouse`, with `retention_days`, `readers`, `memory`, "
+        "`clickhouse.image` and `clickhouse.memory`"
+    ),
+    "services.telemetry_gateway": (
+        "remove it: every sender logs in to the agent record with a credential the build mints"
+    ),
+    "web.feedback.max_store_bytes": (
+        "remove it: feedback is an agent-record entry, kept for `agent_record.retention_days`"
+    ),
+    f"{_WEB}.reader_port": f"rename it to `{_WEB}.history_port`, the history page's port",
+    f"{_WEB}.reader_origin": f"rename it to `{_WEB}.history_origin`, the history page's origin",
+}
+
+#: The ``deployed_services`` entries the agent record replaced.
+RETIRED_DEPLOYED_SERVICES: frozenset[str] = frozenset({"telemetry_store", "telemetry_gateway"})
+
+_RETIRED_SERVICE_ENTRY = (
+    "remove it: the agent record is always deployed and is never a "
+    "`deployed_services` entry; state its settings in the top-level `agent_record:` block"
+)
+
+
+def refuse_retired_config_keys(config: Any) -> None:
+    """Refuse a ``config:`` block that spells a key the agent record replaced.
+
+    Every key of :data:`RETIRED_CONFIG_KEYS` and every key below one is
+    refused, and so is a :data:`RETIRED_DEPLOYED_SERVICES` entry in
+    ``deployed_services``. Nested, dotted and mixed spellings address the same
+    keys, so the refusal cannot be stepped around by spelling one differently.
+    Every offender is reported at once, each with what to write instead.
+
+    Args:
+        config: A profile's ``config:`` block, or a rendered config mapping.
+
+    Raises:
+        BuildProfileError: Naming every retired key the block spells and its
+            replacement.
+    """
+    if not isinstance(config, Mapping):
+        return
+    spelled: dict[str, set[str]] = {}
+    services: set[str] = set()
+    for path, value in _leaf_paths(config):
+        retired = next(
+            (key for key in RETIRED_CONFIG_KEYS if path == key or path.startswith(f"{key}.")),
+            None,
+        )
+        if retired is not None:
+            spelled.setdefault(retired, set()).add(path)
+        elif path == "deployed_services" and isinstance(value, list):
+            services.update(
+                entry
+                for entry in value
+                if isinstance(entry, str) and entry in RETIRED_DEPLOYED_SERVICES
+            )
+    problems = [
+        f"{', '.join(sorted(paths))} — {RETIRED_CONFIG_KEYS[key]}"
+        for key, paths in sorted(spelled.items())
+    ]
+    if services:
+        problems.append(
+            f"deployed_services: {', '.join(sorted(services))} — {_RETIRED_SERVICE_ENTRY}"
+        )
+    if problems:
+        raise BuildProfileError(
+            "The profile's config: block states key(s) the agent record replaced. "
+            "Edit the profile as directed and build again:\n  " + "\n  ".join(problems)
+        )
+
+
 # --- helpers -----------------------------------------------------------------
+
+
+def _leaf_paths(node: Mapping[Any, Any], prefix: str = "") -> list[tuple[str, Any]]:
+    """Every leaf of *node* as a dotted path and its value, whatever the spelling.
+
+    A key may itself carry dots, so ``{"a.b": {"c": 1}}`` and
+    ``{"a": {"b.c": 1}}`` both give ``a.b.c``. An empty mapping is a leaf.
+    """
+    leaves: list[tuple[str, Any]] = []
+    for key, value in node.items():
+        if not isinstance(key, str):
+            continue
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(value, Mapping) and value:
+            leaves.extend(_leaf_paths(value, path))
+        else:
+            leaves.append((path, value))
+    return leaves
 
 
 def _duplicate_config_key_errors(config: Any) -> list[str]:

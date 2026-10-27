@@ -20,10 +20,16 @@ from osprey.agent_record.config import (
     BACKEND_EMBEDDED,
     DEFAULT_CLICKHOUSE_IMAGE,
     DEFAULT_RETENTION_DAYS,
+    HISTORY_SERVICE,
+    STORE_HTTP_CONTAINER_PORT,
+    STORE_MEMORY_RATIO,
     AgentRecordConfig,
     agent_record_config_overrides,
     agent_record_errors,
+    history_app_port,
+    history_origin_port,
     parse_agent_record_block,
+    parse_memory,
     reader_errors,
     reader_warnings,
 )
@@ -238,13 +244,6 @@ def test_a_reader_without_a_usable_name_is_refused() -> None:
     assert error.startswith("agent_record.readers[0] must be a mapping whose 'name' is")
 
 
-def test_a_reserved_reader_name_is_refused() -> None:
-    (error,) = reader_errors(_parse({"readers": [{"name": "history"}]}), {})
-
-    assert "agent_record.readers entry 'history' takes a name the record keeps" in error
-    assert "Rename the reader" in error
-
-
 def test_a_reader_stated_twice_is_refused() -> None:
     (error,) = reader_errors(_parse({"readers": [{"name": "ops"}, {"name": "ops"}]}), {})
 
@@ -379,10 +378,9 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
 ) -> None:
     from osprey.agent_record import writer as record_writer
     from osprey.agent_record.contract import SPOOL_DIR_ENV
+    from osprey.agent_record.credentials import export_built_host_identity
     from osprey.audit import writer
     from osprey.cli import build_cmd
-    from osprey.deployment import telemetry_config
-    from osprey.deployment.telemetry_credentials import export_host_launch_identity
     from osprey_connectors.identity import IDENTITY_ENV_LADDER
 
     monkeypatch.setattr("getpass.getuser", lambda: "builder")
@@ -390,8 +388,6 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     render.mkdir()
     (render / "config.yml").write_text(yaml.safe_dump({"deployed_services": []}), encoding="utf-8")
     rendered = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
-    assert not telemetry_config.store_deployed(rendered)
-
     assert build_cmd._record_host_identity(render, rendered) is True
 
     stamped = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
@@ -404,7 +400,7 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
     for name in IDENTITY_ENV_LADDER:
         monkeypatch.delenv(name, raising=False)
     environ: dict[str, str] = {}
-    exported = export_host_launch_identity(environ, tmp_path, stamped)
+    exported = export_built_host_identity(environ, tmp_path)
     assert exported
     for name, value in environ.items():
         monkeypatch.setenv(name, value)
@@ -424,3 +420,72 @@ def test_a_store_less_build_stamps_host_identity_and_files_audit_under_it(
 
     monkeypatch.delenv(SPOOL_DIR_ENV)
     assert record_writer.spool_dir().name == "builder"
+
+
+# ── Names the record shares with the history page and the render ─────────────
+
+MIB = 1024 * 1024
+
+
+def test_the_shared_names_keep_their_values() -> None:
+    assert HISTORY_SERVICE == "history"
+    assert STORE_HTTP_CONTAINER_PORT == 8123
+    assert STORE_MEMORY_RATIO == 0.9
+
+
+def test_the_history_ports_default_to_their_slots_at_the_deployments_base() -> None:
+    config = {"deployment": {"port_base": 20000}}
+    assert history_origin_port(config) == 20002
+    assert history_app_port(config) == 20003
+    assert history_origin_port({}) == default_port("history_origin")
+    assert history_app_port({}) == default_port("history")
+
+
+def test_a_stated_history_origin_port_wins_over_the_layout() -> None:
+    config = {"modules": {"web_terminals": {"history_port": 8443}}}
+    assert history_origin_port(config) == 8443
+
+
+@pytest.mark.parametrize("value", ["8443", 0, 70000, True, 1.5])
+def test_an_unusable_history_origin_port_is_refused_naming_the_key(value: Any) -> None:
+    config = {"modules": {"web_terminals": {"history_port": value}}}
+    with pytest.raises(
+        ValueError, match=r"modules\.web_terminals\.history_port must be an integer port"
+    ):
+        history_origin_port(config)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2g", 2 * 1024 * MIB),
+        ("2GiB", 2 * 1024 * MIB),
+        ("512m", 512 * MIB),
+        ("1.5gb", 1536 * MIB),
+        ("64k", 65536),
+        (1048576, MIB),
+        ("1048576", MIB),
+    ],
+)
+def test_memory_is_read_as_compose_reads_it(value: Any, expected: int) -> None:
+    assert parse_memory(value, "k") == expected
+
+
+@pytest.mark.parametrize("value", ["", "2 gigs", "g", 0, -1, True, None, "0m"])
+def test_an_unusable_memory_value_is_refused_naming_the_key(value: Any) -> None:
+    with pytest.raises(ValueError, match=r"agent_record\.memory must be a memory size"):
+        parse_memory(value, "agent_record.memory")
+
+
+def test_an_unusable_record_memory_is_reported_naming_the_key() -> None:
+    errors = agent_record_errors(AgentRecordConfig(memory="2 gigs"))
+    assert any(e.startswith("agent_record.memory must be a memory size") for e in errors)
+
+
+def test_the_history_pages_max_days_is_the_records_retention() -> None:
+    """The page offers what the record keeps."""
+    from osprey.deployment.compose_generator import _resolve_history_render_context
+
+    stated = {"agent_record": {"retention_days": 45}}
+    assert _resolve_history_render_context(stated)["max_days"] == 45
+    assert _resolve_history_render_context({})["max_days"] == DEFAULT_RETENTION_DAYS

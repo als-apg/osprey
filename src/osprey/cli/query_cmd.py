@@ -226,8 +226,8 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
         # provider that needs it is declared in the render.
         _overlay_repo_env(repo_root)
         # Who this session is, to the ledger: the one name the build recorded.
+        from osprey.agent_record.credentials import export_built_host_identity
         from osprey.build.claude_code_telemetry import export_host_terminal_session
-        from osprey.deployment.telemetry_credentials import export_built_host_identity
 
         export_built_host_identity(os.environ, repo_root)
         export_host_terminal_session(os.environ)

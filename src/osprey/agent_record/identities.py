@@ -115,10 +115,18 @@ def dispatch_shared(config: Mapping[str, Any] | None) -> bool:
 
 
 def terminal_identities(config: Mapping[str, Any] | None) -> list[str]:
-    """The roster terminals the config renders; empty unless web terminals are on."""
-    from osprey.deployment.telemetry_credentials import terminal_identities as roster
+    """The roster terminals (people and shared cards alike) the config renders.
 
-    return list(roster(_config(config)))
+    Empty unless web terminals are on.
+    """
+    config = _config(config)
+    if not _web_terminals_enabled(config):
+        return []
+    from osprey.deployment.web_terminals.roster import resolve_cards
+
+    web_terminals = dict((config.get("modules") or {}).get("web_terminals") or {})
+    registry = config.get("registry") or {}
+    return [entry["name"] for entry in resolve_cards(web_terminals, registry, strict=False)]
 
 
 def dispatch_identities(config: Mapping[str, Any] | None) -> list[str]:
@@ -145,10 +153,14 @@ def queueserver_identities(config: Mapping[str, Any] | None) -> list[str]:
 
 
 def host_identity(config: Mapping[str, Any] | None) -> str | None:
-    """``deployment.host_identity``, or ``None`` when the config records none."""
-    from osprey.deployment.telemetry_config import host_identity as configured
+    """The identity host launches send and record under (``deployment.host_identity``).
 
-    return configured(_config(config))
+    ``None`` when the config records none, which is a config no build has
+    stamped yet.
+    """
+    deployment = _config(config).get("deployment")
+    value = deployment.get("host_identity") if isinstance(deployment, Mapping) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def reader_entries(config: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:

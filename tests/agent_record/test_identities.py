@@ -1,6 +1,6 @@
 """The identity tables: the source-identity map (spool directory, OTLP login,
 transcript root; shared-mode dispatch workers collapse to one identity), the
-trusted on-behalf list (agreeing with the gateway's), and the D18 credential →
+trusted on-behalf list (the auth sidecar and the deployed queueservers), and the D18 credential →
 scope table, whose logins never contain ``:``.
 """
 
@@ -12,8 +12,7 @@ import pytest
 
 from osprey.agent_record import contract as c
 from osprey.agent_record import identities as ids
-from osprey.deployment.telemetry_config import HISTORY_SERVICE
-from osprey.deployment.telemetry_gateway import trusted_on_behalf_of
+from osprey.agent_record.config import HISTORY_SERVICE
 from osprey.deployment.web_terminals.render import AUTH_SIDECAR_AUDIT_IDENTITY
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
@@ -167,10 +166,10 @@ def test_allow_list_through_the_identity_map():
 
 
 @pytest.mark.parametrize("lanes", [False, True])
-def test_trusted_on_behalf_agrees_with_the_gateway(lanes):
+def test_trusted_on_behalf_is_the_sidecar_and_the_queueservers(lanes):
     config = _config(lanes=lanes)
     trusted = ids.trusted_on_behalf(config)
-    assert (trusted.sidecar, trusted.queueservers) == trusted_on_behalf_of(config)
+    assert trusted.sidecar == AUTH_SIDECAR_AUDIT_IDENTITY
     assert trusted.queueservers == (("queueserver",) if lanes else ())
 
 
@@ -271,3 +270,19 @@ def test_a_login_claimed_twice_is_refused_naming_both(host):
 def test_a_reader_with_an_unknown_kind_is_refused():
     with pytest.raises(ValueError, match="unknown kind"):
         ids.credential_table(_config(readers=[{"name": "ops", "kinds": ["gossip"]}]))
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ({"deployment": {"host_identity": "  builder "}}, "builder"),
+        ({"deployment": {"host_identity": "   "}}, None),
+        ({"deployment": {"host_identity": 7}}, None),
+        ({"deployment": "builder"}, None),
+        ({}, None),
+        (None, None),
+    ],
+    ids=["stripped", "blank", "not-a-string", "deployment-not-a-mapping", "absent", "no-config"],
+)
+def test_host_identity_is_the_stamped_name_or_none(config, expected):
+    assert ids.host_identity(config) == expected

@@ -5,17 +5,13 @@ ClickHouse accounts with ``backend: clickhouse``); a roster user, worker or
 reader named like a fixed login is refused naming both; a secret holding
 ``$``, a quote or a newline survives ``.env.agent-record.service`` as compose
 reads it; login files are written once while the verifier and the secret set
-follow the config and the env chain; the verifier matches its tokens; the
-secret set holds every minted token; the old ``.env.telemetry-*`` files and
-digests are byte-identical before and after; and a reader named in both the
-telemetry store and the record gets two files that neither sweep touches
-across.
+follow the config and the env chain; the verifier matches its tokens; and the
+secret set holds every minted token.
 """
 
 from __future__ import annotations
 
 import copy
-import datetime
 import hashlib
 import stat
 from pathlib import Path
@@ -23,7 +19,6 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_record import credentials as cr
-from osprey.deployment import telemetry_credentials as tcred
 from osprey_connectors.dotenv import parse_dotenv_file
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
@@ -280,64 +275,87 @@ def test_digest_env_follows_a_changed_file_and_never_raises(tmp_path):
     assert set(cr.login_digests(tmp_path, config)) == {"alice", "bob", "sidecar"}
 
 
-def _old_store_config() -> dict:
-    config = _config(workers=1, readers=["ops"])
-    config["deployed_services"] += ["telemetry_store", "telemetry_gateway"]
-    config["services"]["telemetry_store"] = {"readers": [{"name": "ops"}]}
-    return config
-
-
-def _telemetry_snapshot(root: Path, config: dict) -> tuple[dict[str, bytes], dict[str, str]]:
-    files = {p.name: p.read_bytes() for p in root.iterdir() if tcred.is_credential_file(p.name)}
-    return files, tcred.digest_env(root, config)
-
-
-def test_old_store_credentials_are_byte_identical(tmp_path):
-    config = _old_store_config()
-    tcred.ensure_telemetry_credentials(tmp_path, config, reader_keys=True)
-    before = _telemetry_snapshot(tmp_path, config)
-    assert before[0], "the old store minted nothing; the fixture is wrong"
-    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=True)
-    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=True)
-    assert _telemetry_snapshot(tmp_path, config) == before
-
-
-def test_a_reader_in_both_stores_gets_two_files_neither_sweep_crosses(tmp_path):
-    config = _old_store_config()
-    today = datetime.date(2026, 10, 23)
-    tcred.ensure_telemetry_credentials(tmp_path, config, reader_keys=True, today=today)
-    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=True, today=today)
-    old, new = tmp_path / tcred.reader_file("ops"), tmp_path / cr.reader_file("ops")
-    assert old.name != new.name and old.is_file() and new.is_file()
-    old_bytes, new_bytes = old.read_bytes(), new.read_bytes()
-
-    # The reader leaves the record: only the record's key is set aside.
-    record_only = copy.deepcopy(config)
-    record_only["agent_record"]["readers"] = []
-    report = cr.ensure_agent_record_credentials(
-        tmp_path, record_only, reader_keys=True, today=today
-    )
-    assert report.withdrawn == [("ops", f"{cr.reader_file('ops')}.withdrawn-2026-10-23")]
-    assert not new.exists() and old.read_bytes() == old_bytes
-    tcred.ensure_telemetry_credentials(tmp_path, record_only, reader_keys=True, today=today)
-    assert old.read_bytes() == old_bytes
-
-    # The reader leaves the telemetry store: only the old key is set aside.
-    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=True, today=today)
-    new_bytes = new.read_bytes()
-    store_only = copy.deepcopy(config)
-    store_only["services"]["telemetry_store"]["readers"] = []
-    tcred.ensure_telemetry_credentials(tmp_path, store_only, reader_keys=True, today=today)
-    assert not old.exists() and new.read_bytes() == new_bytes
-    cr.ensure_agent_record_credentials(tmp_path, store_only, reader_keys=True, today=today)
-    assert new.read_bytes() == new_bytes
-
-
 def test_existing_files_are_listed_for_reset(tmp_path):
     cr.ensure_agent_record_credentials(tmp_path, _config(readers=["ops"]), reader_keys=True)
-    (tmp_path / ".env.telemetry-admin").write_text("x\n", encoding="utf-8")
+    (tmp_path / ".env.unrelated").write_text("x\n", encoding="utf-8")
     listed = dict(cr.existing_credential_files(tmp_path))
+    assert ".env.unrelated" not in listed
     assert cr.SERVICE_FILE in listed
     assert listed[cr.login_file("alice")] == "the agent record login of alice"
     assert listed[cr.reader_file("ops")] == "the key of the agent record reader ops"
     assert all(cr.is_credential_file(name) for name in listed)
+
+
+def _history_config() -> dict:
+    """:func:`_config` with a sign-in, so the history page is deployed."""
+    config = _config()
+    config["modules"]["web_terminals"]["auth"] = {"method": "password"}
+    return config
+
+
+def test_history_gate_follows_the_page(tmp_path):
+    config = _history_config()
+    report = cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
+    gate = tmp_path / cr.HISTORY_GATE_FILE
+    assert cr.HISTORY_GATE_FILE in report.minted
+    assert cr.is_credential_file(cr.HISTORY_GATE_FILE)
+    assert stat.S_IMODE(gate.stat().st_mode) == 0o600
+    secret = parse_dotenv_file(gate)[cr.HISTORY_GATE_ENV]
+    assert len(secret) >= 32
+    assert cr.HISTORY_GATE_ENV.startswith("OSPREY_TERMINAL_SECRET_")
+
+    # Written once: a second call leaves the secret as it is.
+    again = cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
+    assert cr.HISTORY_GATE_FILE not in again.minted
+    assert parse_dotenv_file(gate)[cr.HISTORY_GATE_ENV] == secret
+
+    # The page leaves the deployment: so does its gate secret.
+    gone = cr.ensure_agent_record_credentials(tmp_path, _config(), reader_keys=False)
+    assert gone.purged == [cr.HISTORY_GATE_FILE]
+    assert not gate.exists()
+
+
+def test_no_history_page_mints_no_gate(tmp_path):
+    report = cr.ensure_agent_record_credentials(tmp_path, _config(), reader_keys=False)
+    assert cr.HISTORY_GATE_FILE not in report.minted
+    assert not (tmp_path / cr.HISTORY_GATE_FILE).exists()
+
+
+def test_history_gate_has_owners_and_one_digest_label(tmp_path):
+    config = _history_config()
+    owners = cr.owner_files(config)
+    assert owners["history"] == (cr.login_file("history"), cr.HISTORY_GATE_FILE)
+    assert owners[cr.PROXY_SERVICE] == (cr.HISTORY_GATE_FILE,)
+    # Fixed owners: listed whether or not the page is deployed.
+    assert cr.owner_files(_config())[cr.PROXY_SERVICE] == (cr.HISTORY_GATE_FILE,)
+    before = cr.digest_env(tmp_path, config)
+    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
+    after = cr.digest_env(tmp_path, config)
+    for service in ("history", cr.PROXY_SERVICE):
+        assert before[cr.digest_env_name(service)] != after[cr.digest_env_name(service)]
+
+
+def test_history_gate_is_listed_for_reset(tmp_path):
+    cr.ensure_agent_record_credentials(tmp_path, _history_config(), reader_keys=False)
+    listed = dict(cr.existing_credential_files(tmp_path))
+    assert listed[cr.HISTORY_GATE_FILE] == "the secret the history page is gated on"
+
+
+def test_file_check_names_a_missing_or_open_gate(tmp_path):
+    config = _history_config()
+    problems = cr.credential_file_problems(tmp_path, config)
+    assert [p for p, _ in problems] == [f"{cr.HISTORY_GATE_FILE} is missing"]
+    assert cr.credential_file_problems(tmp_path, _config()) == []
+
+    cr.ensure_agent_record_credentials(tmp_path, config, reader_keys=False)
+    assert cr.credential_file_problems(tmp_path, config) == []
+
+    gate = tmp_path / cr.HISTORY_GATE_FILE
+    gate.chmod(0o644)
+    ((problem, remedy),) = cr.credential_file_problems(tmp_path, config)
+    assert "0644" in problem and remedy == f"chmod 600 {cr.HISTORY_GATE_FILE}"
+
+    gate.unlink()
+    gate.mkdir()
+    ((problem, _),) = cr.credential_file_problems(tmp_path, config)
+    assert problem == f"{cr.HISTORY_GATE_FILE} is not a regular file"

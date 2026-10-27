@@ -1009,14 +1009,10 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
     inputs = resolve_render_inputs(config, root)
-    # The telemetry credential set exists before the overlay does, the
-    # history page's gate secret the nginx sidecar reads among it. After the
-    # two refusals above, so a refused render still writes nothing.
-    from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
-
-    ensure_telemetry_credentials(root, config, reader_keys=False)
+    # After the two refusals above, so a refused render still writes nothing.
     # Every terminal the overlay is about to name a record login file for has
-    # one before the overlay exists: a roster verb can add a terminal between
+    # one before the overlay exists, and so does the history page's gate
+    # secret the nginx sidecar reads: a roster verb can add a terminal between
     # two starts, and a compose document naming a missing `env_file` fails
     # every command run against it.
     from osprey.agent_record.credentials import ensure_agent_record_credentials

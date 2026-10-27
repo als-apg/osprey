@@ -17,6 +17,10 @@ and never rewritten:
 ``.env.agent-record.service``              derived: the verifier and the
                                            ingest secret set, regenerated on
                                            every build and start
+``.env.agent-record.history-gate``         the secret the history page is
+                                           gated on; the history front's and
+                                           the proxy's ``env_file`` (while the
+                                           page is deployed)
 =========================================  ====================================
 
 Each login file holds :data:`LOGIN_ENV` ``=<login>:<token>``; a reader's key
@@ -28,9 +32,7 @@ base64 of one ``<login>:<sha256 hex of the token>`` line per login, and
 Base64 keeps a ``$``, a quote or a newline in a secret out of compose's
 ``env_file`` parsing.
 
-The ``.env.agent-record.`` prefix is this module's alone: the telemetry store's
-``.env.telemetry-*`` files, their minting and their sweeps never see these
-files, and nothing here touches theirs.
+The ``.env.agent-record.`` prefix is this module's alone.
 
 Recreate triggers
 -----------------
@@ -40,6 +42,12 @@ these files carries a :data:`DIGEST_LABEL` label interpolated from the variable
 :func:`~osprey.deployment.runtime_helper.runtime_env` sets them on every compose
 invocation. A terminal's and the sidecar's login are baked into the web overlay
 at render time (:func:`login_digests`).
+
+Host launches
+-------------
+A session started on the host (``osprey chat``, ``query``, ``web``) records
+under ``deployment.host_identity``; :func:`export_built_host_identity` tells it
+so, reading the config the build rendered.
 
 Nothing here prints, and nothing here returns a secret:
 :func:`ensure_agent_record_credentials` returns file names.
@@ -54,13 +62,15 @@ import hashlib
 import json
 import os
 import secrets
-from collections.abc import Iterable, Mapping
+import stat
+from collections.abc import Iterable, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from osprey.agent_record import identities as ids
-from osprey.agent_record.config import uses_clickhouse
+from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed, uses_clickhouse
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.safety_file import atomic_replace
 
 __all__ = [
@@ -70,20 +80,25 @@ __all__ = [
     "CREDENTIAL_PREFIX",
     "DIGEST_ENV_PREFIX",
     "DIGEST_LABEL",
+    "HISTORY_GATE_ENV",
+    "HISTORY_GATE_FILE",
     "LOGIN_ENV",
     "LOGIN_FILE_PREFIX",
     "READER_FILE_PREFIX",
+    "PROXY_SERVICE",
     "RECORD_SERVICE",
     "SECRETS_ENV",
     "SERVICE_FILE",
     "VERIFIER_ENV",
     "AgentRecordCredentialReport",
+    "credential_file_problems",
     "decode_secret_set",
     "decode_verifier",
     "digest_env",
     "digest_env_name",
     "ensure_agent_record_credentials",
     "existing_credential_files",
+    "export_built_host_identity",
     "files_digest",
     "is_credential_file",
     "login_digests",
@@ -103,12 +118,17 @@ READER_FILE_PREFIX = f"{CREDENTIAL_PREFIX}reader."
 SERVICE_FILE = f"{CREDENTIAL_PREFIX}service"
 CLICKHOUSE_FILE = f"{CREDENTIAL_PREFIX}clickhouse"
 CLICKHOUSE_ADMIN_FILE = f"{CREDENTIAL_PREFIX}clickhouse-admin"
+HISTORY_GATE_FILE = f"{CREDENTIAL_PREFIX}history-gate"
 
 #: The variable a login or reader file carries: ``<login>:<token>``.
 LOGIN_ENV = "OSPREY_AGENT_RECORD_LOGIN"
 #: The service file's two variables.
 VERIFIER_ENV = "OSPREY_AGENT_RECORD_VERIFIER"
 SECRETS_ENV = "OSPREY_AGENT_RECORD_SECRETS"
+#: The history gate file's variable. Spelled so the proxy's
+#: ``^OSPREY_TERMINAL_SECRET_`` substitution filter passes it and the history
+#: app's roster-secret seam accepts it.
+HISTORY_GATE_ENV = "OSPREY_TERMINAL_SECRET_HISTORY"
 
 #: agent-record's ClickHouse account.
 CLICKHOUSE_USER = "agent_record"
@@ -120,6 +140,9 @@ CLICKHOUSE_ADMIN_USER = "agent_record_admin"
 #: The compose services that own the fixed files.
 RECORD_SERVICE = "agent-record"
 CLICKHOUSE_SERVICE = "agent_record_clickhouse"
+#: The proxy, which stamps the history gate secret on the requests it forwards
+#: to the history page.
+PROXY_SERVICE = "nginx"
 
 #: The label every owner of a credential file carries, and the prefix of the
 #: variable it is interpolated from.
@@ -454,6 +477,9 @@ def ensure_agent_record_credentials(
     * With ``reader_keys``: one key per configured reader, and the key file of
       a reader that left the config is set aside as ``.withdrawn-<date>``, so
       adding the name back mints a new key instead of reviving the old one.
+    * The history page's gate secret while the page is deployed
+      (:func:`~osprey.agent_record.config.history_page_deployed`); removed
+      otherwise.
     * The service file, always: the verifier of every login and key on disk
       and the secret set.
 
@@ -481,6 +507,12 @@ def ensure_agent_record_credentials(
         for name, content in _clickhouse_contents().items():
             if _create(root / name, content()):
                 report.minted.append(name)
+
+    if history_page_deployed(config):
+        if _create(root / HISTORY_GATE_FILE, _env_lines([(HISTORY_GATE_ENV, _token())])):
+            report.minted.append(HISTORY_GATE_FILE)
+    elif _remove(root / HISTORY_GATE_FILE):
+        report.purged.append(HISTORY_GATE_FILE)
 
     logins = {g.login: g for g in grants if not g.identity.startswith(ids.READER_IDENTITY_PREFIX)}
     for login in logins:
@@ -518,21 +550,22 @@ def ensure_agent_record_credentials(
 def owner_files(config: Mapping[str, Any] | None) -> dict[str, tuple[str, ...]]:
     """Which credential files each compose service is handed, by service name.
 
-    agent-record and its ClickHouse store, always (a label interpolated from
-    an unset variable reads as a document change); then every dispatch worker,
-    bridge, the history front and the sidecar the config renders, each with
-    its login file. A terminal's is baked by the web render
+    agent-record and its ClickHouse store, the history front (its login file
+    and the gate file) and the proxy (the gate file), always: a label
+    interpolated from an unset variable reads as a document change. Then the
+    sidecar, and every dispatch worker and bridge the config renders, each
+    with its login file. A terminal's is baked by the web render
     (:func:`login_digests`).
     """
     from osprey.deployment.compose_generator import dispatch_worker_audit_identities
-    from osprey.deployment.telemetry_config import HISTORY_SERVICE
 
     owners: dict[str, tuple[str, ...]] = {
         RECORD_SERVICE: (SERVICE_FILE, CLICKHOUSE_FILE)
         if uses_clickhouse(config)
         else (SERVICE_FILE,),
         CLICKHOUSE_SERVICE: (CLICKHOUSE_ADMIN_FILE,),
-        HISTORY_SERVICE: (login_file(ids.HISTORY_IDENTITY),),
+        HISTORY_SERVICE: (login_file(ids.HISTORY_IDENTITY), HISTORY_GATE_FILE),
+        PROXY_SERVICE: (HISTORY_GATE_FILE,),
         ids.SIDECAR_IDENTITY: (login_file(ids.SIDECAR_IDENTITY),),
     }
     shared = ids.dispatch_shared(config)
@@ -605,6 +638,7 @@ _HOLDS: Mapping[str, str] = {
     SERVICE_FILE: "the agent record's login verifier and the secrets its ingest scrubs",
     CLICKHOUSE_FILE: "the password the agent record keeps its ClickHouse store with",
     CLICKHOUSE_ADMIN_FILE: "the agent record ClickHouse store's administrator password",
+    HISTORY_GATE_FILE: "the secret the history page is gated on",
 }
 
 
@@ -633,3 +667,95 @@ def existing_credential_files(repo_root: Path | str) -> list[tuple[str, str]]:
             holds = "an agent record credential"
         listed.append((name, holds))
     return listed
+
+
+# --- checks --------------------------------------------------------------------------
+
+
+def credential_file_problems(
+    repo_root: Path | str, config: Mapping[str, Any] | None
+) -> list[tuple[str, str]]:
+    """Credential files a start cannot go on without, or cannot trust.
+
+    Asked of the files a container is handed whole: the history gate file
+    while the history page is deployed. Pure: reads names and modes, writes
+    nothing. Asked after :func:`ensure_agent_record_credentials` has run, so a
+    missing file here is one that could not be minted, and a file with the
+    wrong mode is one somebody else wrote.
+
+    Returns:
+        ``(problem, remedy)`` pairs, empty when every such file is a regular
+        file readable by its owner alone.
+    """
+    root = Path(repo_root)
+    names = [HISTORY_GATE_FILE] if history_page_deployed(config) else []
+    problems: list[tuple[str, str]] = []
+    for name in names:
+        try:
+            status = (root / name).lstat()
+        except OSError:
+            problems.append(
+                (
+                    f"{name} is missing",
+                    "Run `osprey up` from an account that may write the deployment's "
+                    "repo root; it creates the file",
+                )
+            )
+            continue
+        if not stat.S_ISREG(status.st_mode):
+            problems.append(
+                (
+                    f"{name} is not a regular file",
+                    "Remove it and run `osprey up`; the file is created again with a new secret",
+                )
+            )
+            continue
+        if status.st_mode & 0o077:
+            problems.append(
+                (
+                    f"{name} has mode {stat.S_IMODE(status.st_mode):04o}: a credential file "
+                    "is readable by its owner alone",
+                    f"chmod 600 {name}",
+                )
+            )
+    return problems
+
+
+# --- host launches -------------------------------------------------------------------
+
+
+def export_built_host_identity(
+    environ: MutableMapping[str, str], repo_root: Path | str
+) -> list[str]:
+    """Tell a session launched on the host who it records as.
+
+    Sets :data:`~osprey_connectors.identity.AUDIT_IDENTITY_ENV` to
+    ``deployment.host_identity`` of the config the build rendered, so the
+    record files the session under the name the build recorded whichever
+    account runs the command. For the commands that launch a session from a
+    repo: one call, after the env chain is loaded and before anything is
+    spawned.
+
+    A rendered container is left alone: it carries a terminal user, and its
+    identity was set by the compose file that started it. A repo with no
+    readable render, or a render with no host identity, exports nothing; the
+    command that needs the render says so itself.
+
+    Returns:
+        The names of the variables set, for the caller to report. Never a value.
+    """
+    if (environ.get(TERMINAL_USER_ENV) or "").strip():
+        return []
+    import yaml
+
+    from osprey_connectors.workspace import rendered_config_path
+
+    try:
+        config = yaml.safe_load(rendered_config_path(Path(repo_root)).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return []
+    identity = ids.host_identity(config if isinstance(config, Mapping) else None)
+    if identity is None:
+        return []
+    environ[AUDIT_IDENTITY_ENV] = identity
+    return [AUDIT_IDENTITY_ENV]

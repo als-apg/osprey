@@ -530,7 +530,7 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     load_dotenv_from_project()
     # Who the sessions this terminal starts are, to the ledger: the one name
     # the build recorded. A terminal in a container already carries it.
-    from osprey.deployment.telemetry_credentials import export_built_host_identity
+    from osprey.agent_record.credentials import export_built_host_identity
 
     export_built_host_identity(os.environ, repo_root)
     return repo_root, build_dir, config_path

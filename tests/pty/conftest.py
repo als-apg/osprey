@@ -511,26 +511,45 @@ def _free_host_ports(count: int) -> list[int]:
             probe.close()
 
 
+def configured_port_block(service: str) -> tuple[str, ...]:
+    """The rendered-config block whose ``port`` the deploy dials *service* on.
+
+    The agent record's service is addressed by the top-level ``agent_record``
+    block; every other service by its own ``services.<service>`` block.
+    """
+    from osprey.agent_record.credentials import RECORD_SERVICE
+
+    return ("agent_record",) if service == RECORD_SERVICE else ("services", service)
+
+
+def configured_port(config: dict[str, Any], service: str) -> int | None:
+    """The port the rendered *config* names for *service*, or None when it names none."""
+    node: Any = config
+    for key in configured_port_block(service):
+        node = node.get(key) if isinstance(node, dict) else None
+    port = node.get("port") if isinstance(node, dict) else None
+    return port if isinstance(port, int) else None
+
+
 def _move_configured_port(config_path: Path, service: str, old: int, new: int) -> bool:
-    """Rewrite ``services.<service>.port`` from *old* to *new* in a rendered config.
+    """Rewrite *service*'s configured ``port`` from *old* to *new* in a rendered config.
 
     Edited as text so the rest of the file stays byte for byte what the build
     wrote. Returns False when the service carries no such port line, which is a
     service whose address the deploy never reads from the config.
     """
+    path = configured_port_block(service)
     lines = config_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    section = block = False
+    depth = 0
     for index, line in enumerate(lines):
         stripped = line.strip()
         indent = len(line) - len(line.lstrip(" "))
-        if not stripped or stripped.startswith("#"):
+        if not stripped or stripped.startswith("#") or indent % 2 or indent > 2 * depth:
             continue
-        if indent == 0:
-            section = stripped == "services:"
-            block = False
-        elif section and indent == 2:
-            block = stripped == f"{service}:"
-        elif block and indent == 4 and stripped == f"port: {old}":
+        depth = indent // 2
+        if depth < len(path):
+            depth += stripped == f"{path[depth]}:"
+        elif stripped == f"port: {old}":
             lines[index] = line.replace(f"port: {old}", f"port: {new}", 1)
             config_path.write_text("".join(lines), encoding="utf-8")
             return True
@@ -550,11 +569,11 @@ def startable_repo(exemplar_copy: Path) -> Path:
     rendered compose file, which is the same edit ``osprey up``'s own refusal
     asks the operator for.
 
-    A service the deploy also dials (the telemetry store, which ``osprey up``
-    provisions over HTTP) has its configured port moved with it, in the
-    rendered config. Nothing listens on the free port, so every run meets the
-    same refused connection instead of whatever store this host runs at the
-    rendered default.
+    A service the deploy also dials (the agent record's service, which
+    ``osprey up`` waits on over HTTP) has its configured port moved with it, in
+    the rendered config. Nothing listens on the free port, so every run meets
+    the same refused connection instead of whatever service this host runs at
+    the rendered default.
 
     Rendered output only: nothing in ``profile.yml`` changes, so the build
     fingerprint still matches and the start is not a stale one.
@@ -581,8 +600,7 @@ def startable_repo(exemplar_copy: Path) -> Path:
         )
         assert moved != text, f"could not move {binding.service}'s published port in {path}"
         path.write_text(moved, encoding="utf-8")
-        configured = (config.get("services") or {}).get(binding.service)
-        if isinstance(configured, dict) and configured.get("port") == binding.host_port:
+        if configured_port(config, binding.service) == binding.host_port:
             config_path = as_built_config_path(exemplar_copy)
             assert _move_configured_port(config_path, binding.service, binding.host_port, port), (
                 f"could not move {binding.service}'s configured port in {config_path}"

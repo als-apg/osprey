@@ -22,7 +22,7 @@ from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.agent_record.config import history_page_deployed
+from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
 from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
@@ -36,7 +36,6 @@ from osprey.deployment.host_binding import (
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
 )
-from osprey.deployment.telemetry_config import HISTORY_SERVICE
 from osprey.utils.config_writer import (
     anchored_append,
     anchored_put,

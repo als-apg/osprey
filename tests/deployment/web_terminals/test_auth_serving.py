@@ -96,7 +96,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 
-from osprey.deployment.telemetry_credentials import ensure_telemetry_credentials
+from osprey.agent_record.credentials import ensure_agent_record_credentials
 from osprey.deployment.web_terminals.artifacts import (
     proxy_env_names_with_a_value,
     web_artifacts_dir,
@@ -705,7 +705,7 @@ def serving_stack(tmp_path: Path, *, oidc: bool = False) -> Iterator[Stack]:
     # The history page's gate secret, which a signed-in deployment serves and
     # nginx reads from its own env file: minted by the preflight function too.
     # Every config this module renders signs people in, so one call covers all.
-    ensure_telemetry_credentials(
+    ensure_agent_record_credentials(
         deployment_root, _config(free_port(), oidc_issuer=None), reader_keys=False
     )
     env_local = parse_dotenv_file(deployment_root / ENV_LOCAL_FILENAME)
