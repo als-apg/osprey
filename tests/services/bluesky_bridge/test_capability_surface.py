@@ -33,7 +33,7 @@ from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app as bridge_app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
-from tests._control_system import IN_PROCESS, section_for
+from tests._control_system import IN_PROCESS
 
 _BRIDGE_URL = "http://bridge.test"
 
@@ -81,36 +81,6 @@ class _ExplodingBackend:
 
     async def capability(self) -> Any:
         raise self._exc
-
-
-@pytest.fixture
-def connector(monkeypatch: pytest.MonkeyPatch):
-    """Set — or break — the `control_system.type` the bridge resolves.
-
-    Both `_resolve_connector_type` and the shared `_resolve_control_system_type`
-    it delegates to import `get_config_value` inside the function body, so
-    patching it at its home module covers both.
-    """
-
-    def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, default: Any = None) -> Any:
-            if isinstance(value, Exception):
-                raise value
-            # Only the control system is what this fixture is about. Every
-            # other key falls through to its default, because the bridge reads
-            # more than one (the lifespan's limits guard reads three) and
-            # answering all of them with the connector type would stage a
-            # nonsense config — a `writes_enabled` of "epics" is truthy.
-            section = section_for(value)
-            if key == "control_system.type":
-                return section["type"]
-            if key == "control_system":
-                return section
-            return default
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-
-    return _set
 
 
 @pytest.fixture

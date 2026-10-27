@@ -29,7 +29,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     QueueUnavailableError,
 )
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from tests._control_system import IN_PROCESS, section_for
+from tests._control_system import IN_PROCESS
 from tests.services.bluesky_bridge._queue_fakes import FakeManager
 
 
@@ -44,31 +44,6 @@ def status_doc(**overrides: Any) -> dict[str, Any]:
     }
     doc.update(overrides)
     return doc
-
-
-@pytest.fixture
-def connector(monkeypatch: pytest.MonkeyPatch):
-    """Set (or break) the ``control_system.type`` the adapter resolves.
-
-    Both `_resolve_connector_type` and the shared
-    `_resolve_control_system_type` it delegates to import `get_config_value`
-    inside the function body, so patching it at its home module covers both.
-    """
-
-    def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, _default: Any = None) -> Any:
-            if isinstance(value, Exception):
-                raise value
-            section = section_for(value)
-            if key == "control_system.type":
-                return section["type"]
-            if key == "control_system":
-                return section
-            return value
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-
-    return _set
 
 
 @pytest.fixture

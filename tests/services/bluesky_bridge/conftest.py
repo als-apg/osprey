@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
 
@@ -19,6 +20,7 @@ from osprey.services.bluesky_bridge import (
 )
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge.validation_record import validation_records
+from tests._control_system import section_for
 
 #: Variables a test sets itself when it needs them. Left to the ambient
 #: environment, an exported ``BLUESKY_TILED_URI`` would send a test that falls
@@ -70,3 +72,53 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     with validation_records.lock:
         validation_records._passing_hashes.clear()
         validation_records._passing_hashes.update(saved_hashes)
+
+
+@pytest.fixture
+def connector(monkeypatch: pytest.MonkeyPatch) -> Callable[[str | Exception], None]:
+    """Set (or break) the ``control_system.type`` the bridge resolves.
+
+    Both `_resolve_connector_type` and the shared `_resolve_control_system_type`
+    it delegates to import `get_config_value` inside the function body, so
+    patching it at its home module covers both.
+    """
+
+    def _set(value: str | Exception) -> None:
+        def fake_get_config_value(key: str, default: Any = None) -> Any:
+            if isinstance(value, Exception):
+                raise value
+            # Only the control system is what this fixture is about. Every
+            # other key falls through to its default, because the bridge reads
+            # more than one (the lifespan's limits guard reads three) and
+            # answering all of them with the connector type would stage a
+            # nonsense config: a `writes_enabled` of "epics" is truthy.
+            section = section_for(value)
+            if key == "control_system.type":
+                return section["type"]
+            if key == "control_system":
+                return section
+            return default
+
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+
+    return _set
+
+
+@pytest.fixture
+def limits_probe_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every `LimitsValidator._load_limits_database` call, still doing it.
+
+    The list staying empty is the assertion that a posture never even reached
+    for the database.
+    """
+    from osprey_connectors.control_system._limits_validator import LimitsValidator
+
+    probe_calls: list[str] = []
+    original_load = LimitsValidator._load_limits_database
+
+    def spy(db_path: str):
+        probe_calls.append(db_path)
+        return original_load(db_path)
+
+    monkeypatch.setattr(LimitsValidator, "_load_limits_database", staticmethod(spy))
+    return probe_calls

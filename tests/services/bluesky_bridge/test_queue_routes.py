@@ -46,7 +46,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
-from tests._control_system import IN_PROCESS, section_for
+from tests._control_system import IN_PROCESS
 from tests.services.bluesky_bridge._queue_fakes import (
     FakeManager,
     install_abort_backend,
@@ -63,26 +63,6 @@ _GRID_SCAN_ARGS: dict[str, Any] = {
     "readbacks": ["BPM1"],
     "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
 }
-
-
-@pytest.fixture
-def connector(monkeypatch: pytest.MonkeyPatch):
-    """Set (or break) the ``control_system.type`` the capability check resolves."""
-
-    def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, _default: Any = None) -> Any:
-            if isinstance(value, Exception):
-                raise value
-            section = section_for(value)
-            if key == "control_system.type":
-                return section["type"]
-            if key == "control_system":
-                return section
-            return value
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-
-    return _set
 
 
 @pytest.fixture

@@ -240,21 +240,6 @@ def _patch_lane_config(
     monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
 
-def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Record every `LimitsValidator._load_limits_database` call, still doing it."""
-    from osprey_connectors.control_system._limits_validator import LimitsValidator
-
-    probe_calls: list[str] = []
-    original_load = LimitsValidator._load_limits_database
-
-    def spy(db_path: str):
-        probe_calls.append(db_path)
-        return original_load(db_path)
-
-    monkeypatch.setattr(LimitsValidator, "_load_limits_database", staticmethod(spy))
-    return probe_calls
-
-
 def test_guard_reads_limits_enabled_from_the_lane_targets_own_block(
     monkeypatch: pytest.MonkeyPatch, _no_execution_mode: None
 ) -> None:
@@ -298,7 +283,10 @@ def test_unreadable_database_refusal_names_the_per_type_limits_key(
 
 
 def test_guard_ignores_the_deployment_wide_key_when_the_lanes_block_disables_limits(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _no_execution_mode: None
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    _no_execution_mode: None,
+    limits_probe_calls: list[str],
 ) -> None:
     """An armed lane whose own block turns limits checking off needs no database."""
     # Arrange
@@ -307,10 +295,9 @@ def test_guard_ignores_the_deployment_wide_key_when_the_lanes_block_disables_lim
     monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
     missing = tmp_path / "does_not_exist.json"
     _patch_lane_config(monkeypatch, section=_VA_UNCHECKED_SECTION, db_path=str(missing))
-    probe_calls = _spy_on_limits_probe(monkeypatch)
 
     # Act
     assert _assert_limits_readable_if_writable() is None
 
     # Assert
-    assert probe_calls == []
+    assert limits_probe_calls == []
