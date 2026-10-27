@@ -594,8 +594,10 @@ class TestAttachmentTextColumnsMigration:
         The reader holds ACCESS SHARE on ``enhanced_entries`` for the whole run.
         A queued ACCESS EXCLUSIVE request would make the third session's read
         wait behind it; the NOWAIT retries never queue, so it returns within its statement_timeout.
+        The reader starts once migrate has been refused the lock, inside its retry window.
         """
         import asyncio
+        from types import SimpleNamespace
 
         import psycopg
 
@@ -608,13 +610,24 @@ class TestAttachmentTextColumnsMigration:
         assert await migrations.run_migrations(scratch_pool, scratch_config) == ["core_schema"]
         monkeypatch.setattr(migrations, "KNOWN_MIGRATIONS", both)
 
+        # The retry pause runs only after a refused NOWAIT attempt.
+        refused = asyncio.Event()
+
+        async def retry_pause(delay: float) -> None:
+            refused.set()
+            await asyncio.sleep(delay)
+
+        monkeypatch.setattr(migrations, "asyncio", SimpleNamespace(sleep=retry_pause))
+        # A hang ceiling: k times the retry budget the busy skip is bounded by.
+        ceiling_s = 6 * migrations.LOCK_ATTEMPTS * migrations.LOCK_RETRY_DELAY_S
+
         holder = await psycopg.AsyncConnection.connect(scratch_database)
         third = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
         try:
             await holder.execute("SELECT count(*) FROM enhanced_entries")  # opens a txn
 
             async def late_reader() -> None:
-                await asyncio.sleep(1.5)
+                await refused.wait()
                 await third.execute("SET statement_timeout = '3s'")
                 await third.execute("SELECT count(*) FROM enhanced_entries")
 
@@ -633,7 +646,7 @@ class TestAttachmentTextColumnsMigration:
 
             (result, lock_still_held), _ = await asyncio.wait_for(
                 asyncio.gather(migrate_and_see_the_lock(), late_reader()),
-                timeout=30,
+                timeout=ceiling_s,
             )
         finally:
             await holder.rollback()
