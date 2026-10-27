@@ -1010,8 +1010,8 @@ def response_matrix(
             cannot be built as a reading.
     """
     import numpy as np
-    from lume_pyat.simulator import PyATSimulator
 
+    from osprey.simulation.engines.pyat_periodic import PeriodicSimulator
     from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
     from osprey.simulation.engines.pyat_variables import (
         EV_PER_GEV,
@@ -1060,7 +1060,7 @@ def response_matrix(
         columns.append((variable, float(width)))
 
     simulator = (
-        PyATSimulator(lattice)
+        PeriodicSimulator(lattice)
         if prepared.solve == SOLVES[0]
         else SinglePassSimulator(lattice, twiss_in=prepared.twiss_in)  # type: ignore[arg-type]
     )
