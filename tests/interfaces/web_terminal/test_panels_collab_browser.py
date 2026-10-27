@@ -41,8 +41,8 @@ from contextlib import contextmanager
 import pytest
 import requests
 
+from tests.interfaces._hub import hub_app
 from tests.interfaces.conftest import _free_port, _run_app_server
-from tests.interfaces.web_terminal._hub import hub_app
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard

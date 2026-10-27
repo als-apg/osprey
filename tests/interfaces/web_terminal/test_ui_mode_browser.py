@@ -45,9 +45,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._hub import hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _run_app_server
-from tests.interfaces.web_terminal._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

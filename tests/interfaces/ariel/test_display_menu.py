@@ -38,15 +38,13 @@ import threading
 import time
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 from urllib.parse import urlparse
 
 import pytest
 import uvicorn
 
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all
+from tests.interfaces._hub import hub_app
 
 # The standalone-ARIEL launcher the seven-interface smoke suite already owns —
 # imported rather than re-declared so this suite boots the app exactly the way
@@ -169,31 +167,11 @@ def _serve_on_port(app: FastAPI, port: int) -> Iterator[str]:
 def _launch_hub_on_port(workspace_dir: Path, port: int) -> Iterator[str]:
     """Launch a real web-terminal hub on *port*.
 
-    Same patch set as ``design_system/test_behavioral.py``'s
-    ``_hub_live_server`` (config lookup, panel config, panel-server spawn); the
-    only difference is the fixed port.
+    The standard hub (:func:`tests.interfaces._hub.hub_app`); the only
+    difference is the fixed port.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _serve_on_port(app, port) as base_url:
-            yield base_url
+    with hub_app(workspace_dir) as app, _serve_on_port(app, port) as base_url:
+        yield base_url
 
 
 # ---------------------------------------------------------------------------

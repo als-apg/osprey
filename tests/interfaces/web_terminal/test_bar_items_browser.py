@@ -102,7 +102,7 @@ import requests
 
 from osprey.interfaces.web_terminal.app import BAR_LAYOUT_VERSION
 from osprey.interfaces.web_terminal.bar_items_store import LAYOUT_FILENAME
-from tests.interfaces.web_terminal._hub import hub_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

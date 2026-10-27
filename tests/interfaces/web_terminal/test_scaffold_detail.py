@@ -54,7 +54,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
-from tests.interfaces.web_terminal._hub import hub_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

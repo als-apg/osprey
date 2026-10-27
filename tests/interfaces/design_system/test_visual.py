@@ -37,7 +37,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -46,9 +45,9 @@ from fastapi.responses import HTMLResponse
 from PIL import Image
 
 from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._hub import hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
-    _apply_all,
     _run_app_server,
     launch_graph_channel_finder,
     use_process_web_credentials,
@@ -109,26 +108,11 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
     (not the dead fake URL some other suites use), so the captured screenshot
     shows real embedded content instead of a proxy error page.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(artifact_server_url),
-        ),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(workspace_dir, launch=publish_artifact_url(artifact_server_url)) as (
+        base_url,
+        _app,
+    ):
+        yield base_url
 
 
 # ---------------------------------------------------------------------------

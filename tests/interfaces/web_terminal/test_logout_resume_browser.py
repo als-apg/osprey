@@ -49,8 +49,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+from tests.interfaces._hub import hub_app
 from tests.interfaces.conftest import _authorize_browser_context, _run_app_server
-from tests.interfaces.web_terminal._hub import hub_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

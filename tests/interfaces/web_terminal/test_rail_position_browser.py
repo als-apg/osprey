@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.web_terminal._hub import hub_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     pass

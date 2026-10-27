@@ -72,6 +72,7 @@ from fastapi import Request
 
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import publish_panel_urls
 from tests.interfaces.conftest import _run_app_server
 
@@ -82,7 +83,6 @@ from tests.interfaces.web_terminal._fakes import (
     result_message,
     system_message,
 )
-from tests.interfaces.web_terminal._hub import hub_app
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard

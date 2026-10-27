@@ -80,7 +80,7 @@ from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
-from tests.interfaces.web_terminal._hub import hub_server
+from tests.interfaces._hub import hub_server
 
 # The control-target render, the chip's selectors and the waits are the sibling
 # browser suite's, imported rather than restated: two suites disagreeing about

@@ -96,7 +96,7 @@ import yaml
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
-from tests.interfaces.web_terminal._hub import hub_server
+from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

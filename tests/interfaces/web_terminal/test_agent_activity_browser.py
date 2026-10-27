@@ -56,11 +56,11 @@ from typing import TYPE_CHECKING
 import pytest
 import requests
 
+from tests.interfaces._hub import hub_server
 from tests.interfaces.conftest import (
     _run_app_server,
     use_process_web_credentials,
 )
-from tests.interfaces.web_terminal._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

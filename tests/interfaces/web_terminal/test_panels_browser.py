@@ -77,9 +77,9 @@ import requests
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
+from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
-from tests.interfaces.web_terminal._hub import hub_app
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
