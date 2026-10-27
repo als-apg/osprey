@@ -24,7 +24,7 @@ from osprey_connectors.workspace import TIERS_DIRNAME
 
 _DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
-#: The four shipped presets every all-templates key must appear in.
+#: The shipped presets every all-templates key must appear in.
 _PRESETS = ("hello-world", "control-assistant")
 
 

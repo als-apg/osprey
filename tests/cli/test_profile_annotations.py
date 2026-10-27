@@ -305,7 +305,7 @@ def test_edited_annotation_keeps_everything_the_key_already_resolved(
     """The example is only worth shipping if editing it in is additive.
 
     hello-world leaves both keys empty and control-assistant populates both, so
-    the two presets are the two edits a facility actually makes: uncomment the
+    the presets cover the two edits a facility actually makes: uncomment the
     example over an empty key, or add one entry beside existing ones. Either
     way the key must still resolve, must still be the only one of its name, and
     must still carry everything it carried before the edit.

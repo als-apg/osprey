@@ -84,7 +84,7 @@ jobs:
         TAG_NAME: ${{ github.ref_name }}
         # The model-spending lanes, one per line: <ci.yml job id>=<rendered
         # job-name prefix>. A prefix, because `agentic-per-preset` is a matrix
-        # that renders one job per preset. tests/deployment/
+        # that renders a job for every preset. tests/deployment/
         # test_ci_workflow_wiring.py pins this list against ci.yml, so a renamed
         # lane fails a unit test, not a release.
         REQUIRED_LANES: |

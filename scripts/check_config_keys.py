@@ -109,9 +109,46 @@ REQUIRED_SECTIONS = ("keys", "deleted", "orphan_sites", "render_contexts")
 EVIDENCE_ROOTS = ("src/osprey", "packages/osprey-connectors/src/osprey_connectors")
 PRESET_DIR = "src/osprey/profiles/presets"
 
-#: The pages that describe the presets; ``preset-count`` reads them beside the
-#: manifest's prose. A missing page fails the check, so a moved page moves here.
-PRESET_PROSE_FILES = ("scripts/config_key_parity.md", "docs/source/how-to/build-profiles.rst")
+#: The files whose prose describes the presets; ``preset-count`` reads them
+#: beside the manifest's prose. A missing file fails the check, so a moved file
+#: moves here.
+PRESET_PROSE_FILES = (
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "docs/source/how-to/build-profiles.rst",
+    "plugins/osprey/skills/housekeeping/SKILL.md",
+    "plugins/osprey/skills/release/SKILL.md",
+    "scripts/config_key_parity.md",
+    "src/osprey/cli/build_profile_emit.py",
+    "tests/cli/test_emit_partition.py",
+    "tests/cli/test_example_server_launch.py",
+    "tests/cli/test_init_revalidate_fill.py",
+    "tests/cli/test_posture_floor.py",
+    "tests/cli/test_profile_annotations.py",
+    "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/mcp_server/workspace/test_setup_tools.py",
+    "tests/profiles/test_preset_connector_prose.py",
+    "tests/profiles/test_simulation_models_key.py",
+    "tests/profiles/test_simulation_tick_s_key.py",
+    "tests/templates/test_graphdb_preset_block.py",
+)
+
+#: Phrases that count presets and stay, keyed by the one file of
+#: ``PRESET_PROSE_FILES`` each is declared in, with the reason. A count inside
+#: a phrase passes in that file only; a phrase its file does not hold fails, so
+#: an exception leaves with the text it excused.
+PRESET_COUNT_EXCEPTIONS = {
+    ".github/workflows/ci.yml": {
+        "Tier 3 — Agentic flow (both presets)": (
+            "the agentic-flow lane's name in the CI gate's skipped-lanes notice"
+        ),
+    },
+    "tests/deployment/test_ci_workflow_wiring.py": {
+        "Tier 3 — Agentic flow (both presets)": (
+            "the test asserts the skipped-lanes notice names that lane"
+        ),
+    },
+}
 
 #: The union's non-preset half: the framework template's renders, under one
 #: name so a failure can say which side of the config a key came from.
@@ -1232,10 +1269,11 @@ class ConfigKeyGuard:
         ship; a number, or "both", in a note restates that fact and goes false
         when a preset is added or removed. Every string scalar is read except
         ``evidence`` and ``regex`` values, which are patterns, not prose. The
-        pages in ``PRESET_PROSE_FILES`` (``scripts/config_key_parity.md`` and
-        ``docs/source/how-to/build-profiles.rst``) are read whole, so a count
-        wrapped across a line break is still found; a missing page fails. A
-        quantifier such as "every root preset" stays true and passes.
+        files in ``PRESET_PROSE_FILES`` are read whole, so a count wrapped
+        across a line break is still found; a missing file fails. A count
+        inside a ``PRESET_COUNT_EXCEPTIONS`` phrase passes in the file it is
+        declared in, and a phrase its file does not hold fails. A quantifier
+        such as "every root preset" stays true and passes.
         """
         for path, text in _prose_strings(self.manifest, ()):
             match = PRESET_COUNT_RE.search(text)
@@ -1245,19 +1283,36 @@ class ConfigKeyGuard:
                     f"{'.'.join(path)} counts presets ({match.group(0)!r}); the "
                     f"presets list in render_contexts.presets is the count's one home",
                 )
+        unused = {
+            (rel, phrase) for rel, phrases in PRESET_COUNT_EXCEPTIONS.items() for phrase in phrases
+        }
         for rel in PRESET_PROSE_FILES:
             page = self.root / rel
             if not page.is_file():
                 self.fail("preset-count", f"{rel} is missing; the preset-count check reads it")
+                unused -= {(rel, phrase) for phrase in PRESET_COUNT_EXCEPTIONS.get(rel, {})}
                 continue
             text = page.read_text(encoding="utf-8")
+            excused = []
+            for phrase in PRESET_COUNT_EXCEPTIONS.get(rel, {}):
+                for found in re.finditer(re.escape(phrase), text):
+                    excused.append((found.start(), found.end()))
+                    unused.discard((rel, phrase))
             for match in PRESET_COUNT_RE.finditer(text):
+                if any(start <= match.start() and match.end() <= end for start, end in excused):
+                    continue
                 line = text.count("\n", 0, match.start()) + 1
                 self.fail(
                     "preset-count",
                     f"{rel}:{line} counts presets ({match.group(0)!r}); the presets "
                     f"list in render_contexts.presets is the count's one home",
                 )
+        for rel, phrase in sorted(unused):
+            self.fail(
+                "preset-count",
+                f"exception {phrase!r} is not in {rel}; drop it from "
+                f"PRESET_COUNT_EXCEPTIONS[{rel!r}]",
+            )
 
     def check_branch_self_test(self) -> None:
         """Each Jinja conditional branch must still be covered by the matrix.

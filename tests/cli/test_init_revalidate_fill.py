@@ -566,7 +566,7 @@ def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) 
     recorded = _preset_config("hello-world")
     serving = "control_system.connector.virtual_accelerator.serving"
     epics_timeout = "control_system.connector.epics.timeout_s"
-    # Measured, not assumed: the two presets disagree on these keys.
+    # Measured, not assumed: the presets disagree on these keys.
     assert bundle["control_system.writes"] == "allowed"
     assert recorded["control_system.writes"] == "never"
     assert serving not in bundle

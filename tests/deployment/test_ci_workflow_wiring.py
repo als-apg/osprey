@@ -1067,7 +1067,7 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_dist_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The boot smoke selects one preset per cell, so the matrix and the module's
+# The boot smoke selects a single preset per cell, so the matrix and the module's
 # own list are two halves of one statement
 # ---------------------------------------------------------------------------
 
@@ -1171,7 +1171,7 @@ def test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(
     assert sorted(matrix) == sorted(module), (
         f"the '{BOOT_SMOKE_JOB}' matrix in .github/workflows/ci.yml names "
         f"{sorted(matrix)} while {BOOT_SMOKE_TEST_FILE} parametrises {sorted(module)} — "
-        f"one cell per preset, and no cell without one"
+        f"a cell for every preset, and no cell without one"
     )
 
 
@@ -1204,7 +1204,7 @@ def test_boot_smoke_step_selects_the_matrix_preset(workflow: dict[str, Any]) -> 
         f"{step['run'].strip()!r}"
     )
     assert BOOT_SMOKE_SELECTOR in step["run"], (
-        f"the '{BOOT_SMOKE_STEP}' step must select one preset with {BOOT_SMOKE_SELECTOR} — "
+        f"the '{BOOT_SMOKE_STEP}' step must select a single preset with {BOOT_SMOKE_SELECTOR} — "
         f"without it every cell runs the whole file and the matrix buys nothing; got: "
         f"{step['run'].strip()!r}"
     )
@@ -1248,7 +1248,7 @@ def test_every_boot_smoke_test_runs_in_exactly_one_matrix_cell() -> None:
     )
     assert stray == [], (
         f"test(s) in {BOOT_SMOKE_TEST_FILE} are not parametrised over "
-        f"{BOOT_SMOKE_PRESETS_CONSTANT}: {stray}. The lane selects one preset per cell "
+        f"{BOOT_SMOKE_PRESETS_CONSTANT}: {stray}. The lane selects a single preset per cell "
         f"with {BOOT_SMOKE_SELECTOR}, so a test with no preset in its id runs in no cell."
     )
 
@@ -9695,7 +9695,7 @@ def _assert_lane_prefixes_match(
 
 def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
     """Each prefix identifies its own lane and nothing else. The matrix lane
-    renders one job per preset, so a prefix is the only stable handle."""
+    renders a job for every preset, so a prefix is the only stable handle."""
     _assert_lane_prefixes_match(workflow, _required_lane_prefixes())
 
 
@@ -11295,7 +11295,7 @@ def test_auth_sidecar_cleanup_removes_project_named_sidecar__mutation_prefix_ima
 
 #: Every belt-and-suspenders cleanup step of a lane whose deployment runs the
 #: telemetry store and its gateway, with the compose projects that deployment
-#: takes. Both shipped presets deploy the pair and no lane module narrows
+#: takes. Every shipped preset deploys the pair and no lane module narrows
 #: ``deployed_services``, so every lane that runs ``osprey up`` belongs here, as
 #: does every lane whose modules deploy the store directly. A killed run
 #: otherwise leaves the store holding its port and its credential-pinned volume

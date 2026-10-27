@@ -113,7 +113,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
 # which means absent from what the emitter ADDS: never synthesized (a facility
 # should not inherit build plumbing it did not ask for) and never offered as a
 # commented template. It does NOT mean stripped when carried — `claude_md_template`
-# is a preset-author primitive that two bundled presets rely on, and dropping it
+# is a preset-author primitive that bundled presets rely on, and dropping it
 # would silently swap their CLAUDE.md render and break emitted-vs-preset parity.
 _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
     {
@@ -302,7 +302,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "data": """
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies. `osprey
-# init` materializes one from the preset's packaged tree and sets this key; a
+# init` materializes it from the preset's packaged tree and sets this key; a
 # layer under tiers/ inherits it and resolves it against this
 # profile's directory. Full replacement, not a fallback.
 #
@@ -943,7 +943,7 @@ def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
     :func:`_sync_to_resolved` deletes a key the resolved profile does not carry
     but deliberately KEEPS the block above it, because for a preset-authored
     key that block is usually a section header introducing what follows. For a
-    key the emitted profile must not document at all — one the preset consumes
+    key the emitted profile must not document at all — a key the preset consumes
     on its own behalf — the block is the key's own explanation and has to go
     with it, or the emitted file explains a key it does not contain.
 
