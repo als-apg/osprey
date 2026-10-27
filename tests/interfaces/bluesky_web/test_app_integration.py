@@ -40,15 +40,6 @@ RUN_ID = "run-xyz789"
 _BRIDGE_URL = "http://bridge.test"
 
 
-@pytest.fixture(autouse=True)
-def _isolate_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # Mirrors test_queue_relay.py's isolation fixture: point config resolution
-    # at a config.yml that does not exist, so ambient repo/user config can never
-    # leak a real launch token (or bridge URL) into these tests.
-    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
-    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
-
-
 def _wire_mock_bridge(handler: Callable[[httpx.Request], httpx.Response]) -> None:
     """Overwrite the (already-lifespan-started) composed app's bridge client.
 
