@@ -561,20 +561,49 @@ def test_a_render_can_unwire_every_event_at_once(tmp_path: Path):
 # ── Declared wiring: what it refuses ─────────────────────────────────
 
 
-def test_wiring_a_hook_the_profile_does_not_ship_is_refused(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("shipped", "reference", "needles"),
+    [
+        pytest.param(
+            "facility_guard.py",
+            "nowhere.py",
+            ("nowhere.py", "does not ship"),
+            id="a_hook_the_profile_does_not_ship",
+        ),
+        # ``hook_config.json`` is reserved to the framework render, wiring included.
+        pytest.param(
+            "facility_guard.py",
+            "hook_config.json",
+            (".claude/hooks/hook_config.json", "osprey_writes_check.py"),
+            id="the_generated_write_safety_config",
+        ),
+        # The framework owns its own hooks' wiring — declaring one would double
+        # it. A claimed built-in hook is the realistic way to hit this: the
+        # profile really does ship the file, but ``settings.json`` already wires
+        # that filename from the ``hooks:`` selection.
+        pytest.param(
+            "osprey_limits.py",
+            "osprey_limits.py",
+            ("osprey_limits.py", "built-in"),
+            id="a_built_in_hook",
+        ),
+    ],
+)
+def test_wiring_is_refused(tmp_path: Path, shipped: str, reference: str, needles: tuple[str, ...]):
+    """A declaration naming a hook the profile may not wire is refused, saying why."""
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "hooks" / shipped, "print('guard')\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
             tmp_path,
-            "hook-missing",
+            "hook-refused",
             profile,
-            declarations={"claude_code.hooks.PreToolUse": ["nowhere.py"]},
+            declarations={"claude_code.hooks.PreToolUse": [reference]},
         )
 
-    assert "nowhere.py" in str(excinfo.value)
-    assert "does not ship" in str(excinfo.value)
+    for needle in needles:
+        assert needle in str(excinfo.value)
 
 
 def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
@@ -599,23 +628,6 @@ def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
 
     assert "facility_guard.py" in str(excinfo.value)
     assert "excludes" in str(excinfo.value)
-
-
-def test_wiring_the_generated_write_safety_config_is_refused(tmp_path: Path):
-    """``hook_config.json`` is reserved to the framework render, wiring included."""
-    profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
-
-    with pytest.raises(BuildProfileError) as excinfo:
-        _build(
-            tmp_path,
-            "hook-reserved",
-            profile,
-            declarations={"claude_code.hooks.PreToolUse": ["hook_config.json"]},
-        )
-
-    assert ".claude/hooks/hook_config.json" in str(excinfo.value)
-    assert "osprey_writes_check.py" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -643,28 +655,6 @@ def test_wiring_a_path_outside_the_hooks_channel_is_refused(tmp_path: Path, refe
         )
 
     assert "hooks/ channel" in str(excinfo.value)
-
-
-def test_wiring_a_built_in_hook_is_refused(tmp_path: Path):
-    """The framework owns its own hooks' wiring — declaring one would double it.
-
-    A claimed built-in hook is the realistic way to hit this: the profile really
-    does ship the file, but ``settings.json`` already wires that filename from
-    the ``hooks:`` selection.
-    """
-    profile = tmp_path / "profile"
-    _write(profile / "hooks" / "osprey_limits.py", "# facility edit\n")
-
-    with pytest.raises(BuildProfileError) as excinfo:
-        _build(
-            tmp_path,
-            "hook-builtin",
-            profile,
-            declarations={"claude_code.hooks.PreToolUse": ["osprey_limits.py"]},
-        )
-
-    assert "osprey_limits.py" in str(excinfo.value)
-    assert "built-in" in str(excinfo.value)
 
 
 def test_an_unknown_hook_event_is_refused_with_the_real_vocabulary(tmp_path: Path):
