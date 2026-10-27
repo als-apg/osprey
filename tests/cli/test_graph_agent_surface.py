@@ -322,10 +322,6 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
     return repo
 
 
-def _run_build(repo: Path):
-    return invoke_build(repo)
-
-
 def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path):
     """The build verb completes, the facility-knowledge-graph subagent gets the
     tools, and the channel-finder subagent rendered beside it gets none of them
@@ -337,7 +333,7 @@ def test_osprey_build_ships_the_graph_tools_to_the_graph_subagent_only(tmp_path)
     """
     repo = _write_profile(tmp_path / "graph-on")
 
-    result = _run_build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
     project = repo / "build"
@@ -366,7 +362,7 @@ def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
     """
     repo = _write_profile(tmp_path / "graph-off", {"claude_code.servers.graph.enabled": False})
 
-    result = _run_build(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, result.output
 
     project = repo / "build"

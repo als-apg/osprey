@@ -1973,12 +1973,6 @@ def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
     return repo
 
 
-def _render(repo: Path):
-    """Render *repo*'s build zone through the real verb."""
-
-    return invoke_build(repo)
-
-
 # Every paradigm whose store is a channel-database file, derived from the
 # registry so a new paradigm cannot be added without landing here. ``graph`` is
 # excluded by the same subtraction the CLI's ``click.Choice`` lists use: its
@@ -2010,7 +2004,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     """
     repo = _mode_repo(tmp_path, paradigm)
 
-    result = _render(repo)
+    result = invoke_build(repo)
     assert result.exit_code == 0, (
         f"build failed (exit={result.exit_code})\n"
         f"--- output ---\n{result.output}\n"
