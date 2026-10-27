@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.interfaces.lattice_dashboard._render import deck, settle, write_render
+from tests.interfaces.lattice_dashboard._render import fodo_deck, settle, write_render
 
 from osprey.interfaces.lattice_dashboard import app as app_mod
 from osprey.interfaces.lattice_dashboard.app import create_app
@@ -209,7 +209,7 @@ class TestModels:
 
     def test_changed_deck_reloads(self, client, render, launched):
         client.post("/api/state/param", json={"family": "QF", "value": 1.05})
-        deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
+        fodo_deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
         launched.clear()
 
         client.get("/api/state")
@@ -527,7 +527,7 @@ class TestKeyedFigures:
 
     def test_deck_change_via_sync_never_serves_the_old_deck(self, client, render, fake_slots):
         land(client, fake_slots, "optics", _OPTICS_RAW)
-        deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
+        fodo_deck(kf=1.1).save(str(render / "data/simulator/decks/SR.json"))
 
         client.get("/api/state")
         settle(client)

@@ -1,7 +1,7 @@
 """A synthetic render's simulator view, and the wait for the dashboard to resolve over it.
 
 :func:`write_render` writes the view's documents, ``variables.json`` listing the
-models, and a pyAT JSON deck (:func:`deck`) per deck-bearing model;
+models, and a pyAT JSON deck (:func:`fodo_deck`) per deck-bearing model;
 :func:`settle` reads the app's state once no resolve is loading.
 """
 
@@ -25,7 +25,7 @@ from osprey_connectors.simulation.view import (
 at = pytest.importorskip("at")
 
 
-def deck(kf: float = 1.0) -> at.Lattice:
+def fodo_deck(kf: float = 1.0) -> at.Lattice:
     d = at.Drift("DR", 0.5)
     qf = at.Quadrupole("QF", 0.2, kf)
     qd = at.Quadrupole("QD", 0.2, -kf)
@@ -54,7 +54,7 @@ def write_render(root, *, served, models):
         deck = None
         if pyat is not None:
             deck = f"decks/{name}.json"
-            deck().save(str(view / deck))
+            fodo_deck().save(str(view / deck))
         records.append(
             {
                 "name": name,
