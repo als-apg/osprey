@@ -51,8 +51,8 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.search import image_lane
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.ariel_search.search.qmd import PICTURE_UNAVAILABLE_MESSAGE
-from osprey.services.qmd import QMDSearchResult
 from tests.mcp_server.conftest import get_tool_fn
+from tests.services.ariel_search.integration._support import FakeQMDClient
 from tests.services.ariel_search.llama_stub import FIXTURES
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -202,36 +202,6 @@ def ollama_stub() -> Iterator[OllamaStub]:
 
 
 # --- fakes -------------------------------------------------------------------------
-
-
-class _FakeQMDClient:
-    """qmd faked at its client boundary: one hit, the entry's mirror file."""
-
-    is_configured = True
-    base_url = "http://127.0.0.1:8180"
-
-    def __init__(self, mirror_file: str, title: str) -> None:
-        self.mirror_file = mirror_file
-        self.title = title
-        self.queries = 0
-
-    def is_available(self) -> bool:
-        return True
-
-    def query(self, collection: str | None, _text: str, **kwargs: Any) -> list[QMDSearchResult]:
-        self.queries += 1
-        hits = [
-            QMDSearchResult(
-                docid="#000000",
-                file=self.mirror_file,
-                collection=collection or "ariel",
-                title=self.title,
-                score=0.9,
-                line=1,
-                snippet=f"1: {TEXT}",
-            )
-        ]
-        return hits[: kwargs.get("limit", len(hits))]
 
 
 # --- config ------------------------------------------------------------------------
@@ -502,7 +472,7 @@ async def _run_case(
 
     # -- the MCP surface ---------------------------------------------------------
     hybrid_on = bool(raw["search_modules"]["hybrid"]["enabled"])
-    qmd_client = _FakeQMDClient(*_mirror_hit(tmp_path)) if hybrid_on else None
+    qmd_client = FakeQMDClient(*_mirror_hit(tmp_path), TEXT) if hybrid_on else None
     if qmd_client is not None:
         monkeypatch.setattr(qmd_module, "_resolve_client", lambda client: (qmd_client, True))
     initialize_ariel_context()

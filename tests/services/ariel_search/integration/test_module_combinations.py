@@ -49,10 +49,12 @@ from osprey.services.ariel_search.enhancement.image_caption import module as cap
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
-from osprey.services.qmd import QMDSearchResult
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.services.ariel_search.fake_adapters import HttpStubAdapter
-from tests.services.ariel_search.integration._support import fake_prepare_as_own_rendition
+from tests.services.ariel_search.integration._support import (
+    FakeQMDClient,
+    fake_prepare_as_own_rendition,
+)
 from tests.services.ariel_search.llama_stub import FIXTURES
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
@@ -79,34 +81,6 @@ ATTACHMENT_KEYS = {"attachments", "attachment_count", "matched_attachment_ids"}
 
 
 # --- fakes -------------------------------------------------------------------------
-
-
-class _FakeQMDClient:
-    """qmd faked at its client boundary: the seeded entry, titled ``Entry <entry_id>``."""
-
-    is_configured = True
-    base_url = "http://127.0.0.1:8180"
-
-    def __init__(self) -> None:
-        self.queries = 0
-
-    def is_available(self) -> bool:
-        return True
-
-    def query(self, collection: str | None, _text: str, **kwargs: Any) -> list[QMDSearchResult]:
-        self.queries += 1
-        hits = [
-            QMDSearchResult(
-                docid="#000000",
-                file=f"2024/06/{encode_entry_id(ENTRY_ID)}.md",
-                collection=collection or "ariel",
-                title=f"Entry {ENTRY_ID}",
-                score=0.9,
-                line=1,
-                snippet=f"1: {RAW_TEXT}",
-            )
-        ]
-        return hits[: kwargs.get("limit", len(hits))]
 
 
 class _FakeVision:
@@ -307,7 +281,9 @@ async def test_every_module_combination_runs(
     stub = llama_stub()
     vision = _FakeVision()
     monkeypatch.setattr(caption_mod, "_chat_completion", vision)
-    qmd_client = _FakeQMDClient()
+    qmd_client = FakeQMDClient(
+        f"2024/06/{encode_entry_id(ENTRY_ID)}.md", f"Entry {ENTRY_ID}", RAW_TEXT
+    )
     monkeypatch.setattr(qmd_module, "_resolve_client", lambda client: (qmd_client, True))
     copies = copy_on_ingest == "images"
     picture_search = embedding and hybrid

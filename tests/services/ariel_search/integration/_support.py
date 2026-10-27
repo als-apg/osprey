@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.qmd import QMDSearchResult
 
 
 #: The rendition digest ``fake_prepare`` stamps on every picture it renders.
@@ -78,3 +79,47 @@ def fake_prepare_as_own_rendition(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
+
+
+def is_ollama_available() -> bool:
+    """Check if Ollama is available for tests."""
+    try:
+        import requests
+
+        response = requests.get("http://localhost:11434/api/tags", timeout=2)
+        return response.status_code == 200
+    except Exception:
+        return False
+
+
+class FakeQMDClient:
+    """qmd faked at its client boundary: one hit, the entry's mirror file."""
+
+    is_configured = True
+    base_url = "http://127.0.0.1:8180"
+
+    def __init__(self, mirror_file: str, title: str, text: str) -> None:
+        self.mirror_file = mirror_file
+        self.title = title
+        self.text = text
+        self.queries = 0
+
+    def is_available(self) -> bool:
+        return True
+
+    def query(self, collection: str | None, _text: str, **kwargs: Any) -> list[QMDSearchResult]:
+        from osprey.services.qmd import QMDSearchResult
+
+        self.queries += 1
+        hits = [
+            QMDSearchResult(
+                docid="#000000",
+                file=self.mirror_file,
+                collection=collection or "ariel",
+                title=self.title,
+                score=0.9,
+                line=1,
+                snippet=f"1: {self.text}",
+            )
+        ]
+        return hits[: kwargs.get("limit", len(hits))]

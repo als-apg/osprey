@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from tests.services.ariel_search.integration._support import is_ollama_available
+
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
 # a run has a single testcontainers session and a single ryuk reaper -- concurrent
 # reaper starts race the Docker daemon's port mapper. It also serializes the shared
@@ -395,17 +397,6 @@ class TestKeywordPartialMatch:
 # ==============================================================================
 # Semantic Search Tests with Real Embeddings (TEST-M005 / INT-003)
 # ==============================================================================
-
-
-def is_ollama_available() -> bool:
-    """Check if Ollama is available for tests."""
-    try:
-        import requests
-
-        response = requests.get("http://localhost:11434/api/tags", timeout=2)
-        return response.status_code == 200
-    except Exception:
-        return False
 
 
 @pytest.mark.requires_ollama
