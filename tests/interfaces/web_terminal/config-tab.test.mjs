@@ -44,6 +44,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { stubEventSource } from '../_support/event-source.mjs';
 import {
   applyConfigTabGate,
   applyConfigUnreadableNotice,
@@ -97,14 +98,7 @@ function stubPanelsFetch(configPanelEnabled, unreadablePath = null) {
       throw new Error(`unstubbed fetch: ${url}`);
     })
   );
-  class FakeEventSource {
-    constructor() {
-      /** @type {((e: {data: string}) => void)|null} */
-      this.onmessage = null;
-    }
-    close() {}
-  }
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource();
 }
 
 /** The drawer markup index.html ships: four tabs, four panels, Behavior active. */

@@ -43,6 +43,7 @@ import { stderr } from 'node:process';
 // otherwise every panel here is labelled by its id.
 import { FakeResizeObserver } from './_dock-fake.mjs';
 import { stampPanelLabels } from './panel-labels-fixture.mjs';
+import { stubEventSource } from '../_support/event-source.mjs';
 import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 // dock-workspace.js is stubbed at the module boundary so a test can publish a
@@ -149,37 +150,6 @@ function renderContainer() {
     <nav id="panel-rail"></nav>
     <div id="panel-manager"><div id="panel-content"></div></div>
   `;
-}
-
-/**
- * A no-op EventSource stub that records constructed URLs and exposes `emit`
- * to inject server frames through the live onmessage handler — the same
- * dispatch seam real SSE frames arrive on (api.js's createEventSource
- * JSON-parses e.data before invoking panel-manager's handler).
- * @returns {{ urls: string[], emit: (frame: object) => void }}
- */
-function stubEventSource() {
-  /** @type {string[]} */
-  const urls = [];
-  /** @type {{ onmessage?: ((e: { data: string }) => void) | null }[]} */
-  const sources = [];
-  class FakeEventSource {
-    /** @param {string} url */
-    constructor(url) {
-      urls.push(url);
-      /** @type {((e: { data: string }) => void) | null} */
-      this.onmessage = null;
-      sources.push(this);
-    }
-    close() {}
-  }
-  vi.stubGlobal('EventSource', FakeEventSource);
-  return {
-    urls,
-    emit: (frame) => {
-      for (const s of sources) s.onmessage?.({ data: JSON.stringify(frame) });
-    },
-  };
 }
 
 /**
@@ -444,12 +414,12 @@ describe('/api/files/events EventSource (via createEventSource)', () => {
         jsonOk({ enabled: [], custom: [], default: null, visible: [], active: null, labels: {} })
       )
     );
-    const { urls } = stubEventSource();
+    const { opened } = stubEventSource();
 
     const { initPanelManager } = await freshImport();
     await initPanelManager('panel-manager');
 
-    expect(urls).toEqual([expectedUrl]);
+    expect(opened.map((source) => source.url)).toEqual([expectedUrl]);
   }
 
   test('prepends the prefix when set', async () => {

@@ -53,7 +53,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { FakeEventSource, stubEventSource } from './_event-source-fake.mjs';
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
 
 const MODULE = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 
@@ -272,7 +272,7 @@ function pushFrame(/** @type {any} */ frame) {
 }
 
 beforeEach(async () => {
-  stubEventSource();
+  stubEventSource({ open: true });
   vi.resetModules();
   served = viewOf();
   stubFetch();

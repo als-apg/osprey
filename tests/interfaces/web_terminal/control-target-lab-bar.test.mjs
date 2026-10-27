@@ -34,7 +34,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { FakeEventSource, stubEventSource } from './_event-source-fake.mjs';
+import { FakeEventSource, stubEventSource } from '../_support/event-source.mjs';
 
 const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
@@ -183,7 +183,7 @@ beforeEach(async () => {
     settings.handleDisabledFileLoadingAsSuccess = true;
   }
   stubFetch();
-  stubEventSource();
+  stubEventSource({ open: true });
   mountLabFixture();
   Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   // Importing the module is how the page runs it: there is no app shell on a

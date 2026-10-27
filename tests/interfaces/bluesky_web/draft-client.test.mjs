@@ -48,7 +48,7 @@ import {
   buildAgentDraftBanner,
 } from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js';
 import { renderSchemaForm } from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/schema-form.js';
-import { fakeEventSourceClass } from './_event-source.mjs';
+import { fakeEventSourceClass } from '../_support/event-source.mjs';
 
 // A small ORM-shaped fixture: one channel-list (container widget, exercises
 // whole-value-replacement flash) and two plain scalars (exercise the
@@ -1897,7 +1897,7 @@ describe('createSSEConnection', () => {
   /** @returns {{FakeES: any, instances: any[]}} */
   function makeFakeEventSource() {
     const FakeES = fakeEventSourceClass();
-    return { FakeES, instances: FakeES.instances };
+    return { FakeES, instances: FakeES.opened };
   }
 
   test('reconnects with capped exponential backoff on repeated errors', () => {

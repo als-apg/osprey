@@ -45,7 +45,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { stubEventSource } from './_event-source-fake.mjs';
+import { stubEventSource } from '../_support/event-source.mjs';
 
 const SESSION = 'aaaaaaaa-1111-2222-3333-444444444444';
 const CHIP = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
@@ -277,7 +277,7 @@ beforeEach(async () => {
   vi.resetModules();
   served = viewOf();
   stubFetch();
-  stubEventSource();
+  stubEventSource({ open: true });
   mountFixture();
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.

@@ -28,7 +28,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { FakeEventSource, stubEventSource } from '../_event-source-fake.mjs';
+import { FakeEventSource, stubEventSource } from '../../_support/event-source.mjs';
 
 const HOST_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js';
 const ITEMS_PATH = '../../../../src/osprey/interfaces/web_terminal/static/js/bar-items.js';
@@ -103,7 +103,7 @@ async function flush() {
 beforeEach(async () => {
   warnings = [];
   stubFetch();
-  stubEventSource();
+  stubEventSource({ open: true });
   vi.spyOn(console, 'warn').mockImplementation((/** @type {unknown[]} */ ...args) => {
     warnings.push(args.map(String).join(' '));
   });
