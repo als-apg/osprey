@@ -1694,7 +1694,7 @@ const SESSION_ID_SAFE = /^[A-Za-z0-9._-]{1,128}$/;
 /**
  * The history page's transcript of this run's session, or null.
  *
- * The page lives on the readers' origin; the dispatcher is handed its URL at
+ * The page lives on its own origin; the dispatcher is handed its URL at
  * deploy time only when the deployment serves it. A run's session belongs to
  * the person who asked for the run, so the page shows its thinking, folded, to
  * that person and to `history: all` viewers, which is what the link's label

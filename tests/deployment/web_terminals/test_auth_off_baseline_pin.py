@@ -21,9 +21,9 @@ So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 byte-for-byte what it rendered before this feature, with exactly eleven
 exceptions:
 
-  1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
-     ``OSPREY_AUDIT_DIR`` and the per-identity ``./var/audit/<identity>`` bind,
-     which are unconditional by design: a deployment with no login wall still
+  1. **the identity emitter** — ``OSPREY_AUDIT_IDENTITY``, which names the
+     per-identity spool and state binds (exception 13) and is unconditional
+     by design: a deployment with no login wall still
      records what its agents did, and a posture that only writes a trail when
      someone opted into logins would have the trail missing exactly where it is
      least supervised.
@@ -107,7 +107,8 @@ line, and every port *site* (see the mask below) — must be untouched, with one
 REPLACEMENT the feature makes rather than an addition: the interim per-user audit
 bind the baseline already carries
 (``./var/audit/<user>`` mounted at the container's audit ROOT, shipped for the
-executor's old refusal ledger) becomes the identity-addressed bind above. The
+executor's old refusal ledger) is gone; the identity-addressed spool and state
+binds (exception 13) carry the trail now. The
 old line and its two comment lines are the only pre-feature lines that may
 disappear, and they are allowlisted below by exact spelling.
 
@@ -441,15 +442,11 @@ _LAYOUT_PORTS = frozenset(
 # user). Literals rather than patterns on purpose: a regex here would quietly
 # absorb a changed path, a renamed variable or a third user's worth of lines.
 
-#: Task 3.1 (compose-audit-mounts). Two env emitters and one bind per identity.
+#: The identity emitter, one per identity.
 _ALLOWED_COMPOSE_LINES = Counter(
     {
         "      - OSPREY_AUDIT_IDENTITY=alice": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/alice": 1,
-        "      - ./var/audit/alice:/app/dls_controls-assistant/var/audit/alice": 1,
         "      - OSPREY_AUDIT_IDENTITY=bob": 1,
-        "      - OSPREY_AUDIT_DIR=/app/dls_controls-assistant/var/audit/bob": 1,
-        "      - ./var/audit/bob:/app/dls_controls-assistant/var/audit/bob": 1,
         # The cookie-lifecycle feature — the deliberate THIRD exception to SC6,
         # stated in its PROPOSAL. The terminal's own session-cookie lifetime now
         # travels to every per-user container, under `token` as under every
@@ -461,7 +458,7 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # behaviour rather than changing it.
         "      - OSPREY_TERMINAL_SESSION_LIFETIME=43200": 2,
         # The control-context tree — the FIFTH exception to SC6, on the same
-        # argument as the audit pair at the top of this list. Each per-user
+        # argument as the identity emitter at the top of this list. Each per-user
         # container is told where to file the narrowing record for the operator
         # on the other end, and gets that one directory bound read-write; the
         # services that judge those writes mount the tree read-only. It is
@@ -478,7 +475,7 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # The simulator's model logs — the SEVENTH exception to SC6. The
         # reference roster's deployment runs the mock, so every terminal runs
         # the composite in process and appends its model logs to the one host
-        # directory `osprey sim status` names. Like the audit pair it carries
+        # directory `osprey sim status` names. Like the identity emitter it carries
         # no account, role or claim. Count 2 = alice + bob.
         "      - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator": 2,
         "      - ./var/simulator:/app/dls_controls-assistant/var/simulator": 2,
@@ -502,7 +499,7 @@ _ALLOWED_COMPOSE_LINES = Counter(
         "  alice-claude-projects:": 1,
         "  bob-claude-projects:": 1,
         # The spool and state directories — the THIRTEENTH exception to SC6, on
-        # the same argument as the audit pair at the top of this list. Each
+        # the same argument as the identity emitter at the top of this list. Each
         # per-user container appends its agent-record entries to its own spool
         # directory and keeps its restart state in its own state directory,
         # whatever the method: the identity in both paths is the roster name
@@ -531,8 +528,8 @@ _ALLOWED_COMPOSE_LINES = Counter(
 )
 
 #: The interim per-user audit bind the pre-feature render carried — mounted at
-#: the container's audit ROOT, for the executor's old refusal ledger — which the
-#: identity-addressed bind above replaces. These, and ONLY these, may vanish
+#: the container's audit ROOT, for the executor's old refusal ledger — which no
+#: longer renders: the spool and state binds above carry the trail. These, and ONLY these, may vanish
 #: from the `token` render; anything else that disappears is still a failure.
 _REPLACED_COMPOSE_LINES = frozenset(
     {
@@ -800,7 +797,6 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
 
     compose = (_BASELINE_DIR / "docker-compose.web.yml").read_text()
     assert "OSPREY_AUDIT_IDENTITY" not in compose
-    assert "OSPREY_AUDIT_DIR" not in compose
     # The identity-addressed target is the feature's marker; the baseline may
     # carry the interim root-of-`var/audit` bind it replaces (see the module
     # docstring), so the bare `/var/audit/` substring is not the test.
@@ -1005,9 +1001,8 @@ def test_landing_page_adds_exactly_the_token_login_badge() -> None:
 
 
 def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
-    """The compose overlay's whole SC6 exception: two env emitters and one bind
-    per identity, from task 3.1. Set-with-multiplicity equality both ways, so a
-    stray new line fails AND a silently dropped audit mount fails."""
+    """The compose overlay's whole SC6 exception list, above. Set-with-multiplicity equality both ways, so a
+    stray new line fails AND a silently dropped spool or state mount fails."""
     _assert_added_directives_are_exactly_allowed("docker-compose.web.yml")
 
 

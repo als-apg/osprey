@@ -1201,10 +1201,10 @@ def test_provisioning_refuses_an_undeclared_role(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _catalog_config(project_path, render="operator", deployed_services=()):
+def _catalog_config(project_path, render="operator"):
     """A local-mode deploy config whose roster runs one catalogued render."""
     return {
-        "deployed_services": list(deployed_services),
+        "deployed_services": [],
         "facility": {},
         "system": {"timezone": "UTC"},
         "modules": {
@@ -1283,26 +1283,22 @@ def test_a_users_file_never_draws_a_telemetry_advisory(tmp_path, caplog):
     assert "TENANT_NAME" not in caplog.text
 
 
-def test_a_gateway_login_in_the_chain_never_reaches_the_users_file(tmp_path):
-    """A telemetry login in the deploy ``.env`` never reaches the shared file.
+def test_a_record_login_in_the_chain_never_reaches_the_users_file(tmp_path):
+    """An agent-record login in the deploy ``.env`` never reaches the shared file.
 
     The shared file every terminal reads must not carry a login, or every
     terminal would act as whoever that login names.
     """
     _write_dotenv(
         tmp_path / ".env",
-        {"ANTHROPIC_API_KEY": "cc-secret", "OSPREY_TELEMETRY_LOGIN": "alice:l0gin-s3cret"},
+        {"ANTHROPIC_API_KEY": "cc-secret", "OSPREY_AGENT_RECORD_LOGIN": "alice:l0gin-s3cret"},
     )
-    block = {"enabled": True, "backend": "gateway"}
-    config = _catalog_config(
-        _write_block_render(tmp_path, block),
-        deployed_services=("telemetry_store", "telemetry_gateway"),
-    )
+    config = _catalog_config(_write_block_render(tmp_path, {"enabled": True}))
 
     result = env_production.ensure_env_production(config, tmp_path)
 
     raw_text = result.read_text(encoding="utf-8")
-    assert "OSPREY_TELEMETRY_LOGIN" not in raw_text
+    assert "OSPREY_AGENT_RECORD_LOGIN" not in raw_text
     assert "l0gin-s3cret" not in raw_text
 
 

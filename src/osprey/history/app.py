@@ -1,6 +1,6 @@
 """The history page: the across-users view of the agent record.
 
-Served on the readers' origin under ``/history/``. nginx asks the auth sidecar
+Served on the history page's origin under ``/history/``. nginx asks the auth sidecar
 who the browser is, strips the ``/history`` prefix and forwards the request
 here with the sidecar's ``X-Osprey-History-*`` answer and this service's gate
 secret. The gate is :class:`~osprey.interfaces.common_middleware.WebAuthMiddleware`:

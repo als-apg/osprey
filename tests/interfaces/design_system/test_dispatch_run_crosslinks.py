@@ -141,7 +141,7 @@ STATE = {
 #: The history link's label: who sees the run's thinking on the history page.
 HISTORY_LINK_LABEL = "history (thinking: the asker and history: all)"
 
-#: The history page's URL as the dispatcher is handed it: the readers' origin.
+#: The history page's URL as the dispatcher is handed it: the history page's origin.
 HISTORY_URL = "https://readers.example.org:10002/history/"
 
 

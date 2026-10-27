@@ -115,18 +115,18 @@ def _directives(conf: str) -> str:
     return "\n".join(line for line in conf.splitlines() if not line.lstrip().startswith("#"))
 
 
-#: The comment that opens the readers' origin, the server a signed-in deployment
+#: The comment that opens the history page's origin, the server a signed-in deployment
 #: renders after the terminals' servers for its history page.
-_READERS_ORIGIN_MARKER = "# The readers' origin.\n"
+_HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
 
 
 def _terminals_part(conf: str) -> str:
-    """The terminals' servers of *conf*: everything before the readers' origin.
+    """The terminals' servers of *conf*: everything before the history page's origin.
 
-    The readers' origin gates its history page with an ``auth_request`` and an
+    The history page's origin gates its history page with an ``auth_request`` and an
     ``internal`` verify target of its own; the per-user seams are not about it.
     """
-    return conf.partition(_READERS_ORIGIN_MARKER)[0]
+    return conf.partition(_HISTORY_ORIGIN_MARKER)[0]
 
 
 def _server_blocks(conf: str) -> list[str]:
@@ -136,7 +136,7 @@ def _server_blocks(conf: str) -> list[str]:
     the 443 content server, then the redirect for every other name on the TLS
     listener. Without TLS there are TWO: the content server, then the redirect
     for every other name on the plain port. A signed-in render adds the
-    readers' origin, the history page's server, last. Split on the closing
+    history page's origin, the history page's server, last. Split on the closing
     brace in column 0, which only a top-level block has.
     """
     blocks = re.findall(r"^server \{\n(.*?)^\}$", conf, flags=re.DOTALL | re.MULTILINE)
@@ -235,7 +235,7 @@ def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> Non
     config = _auth_config(["alice", "bob"])
     users = config["modules"]["web_terminals"]["users"]
 
-    # Act — the terminals' servers: the readers' origin asks the sidecar about
+    # Act — the terminals' servers: the history page's origin asks the sidecar about
     # its history page, from the signed-in session, at its own target.
     nginx_conf = _render_nginx(config)
     directives = _directives(_terminals_part(nginx_conf))
@@ -485,7 +485,7 @@ def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None
     assert _directives(content).count("auth_request ") == len(users)
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
-    # The readers' origin is encrypted on its own port, never on the moved one.
+    # The history page's origin is encrypted on its own port, never on the moved one.
     assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)
     assert f"listen {_ALT_TLS_PORT} " not in readers
 
@@ -627,7 +627,7 @@ def test_seam_auth_surface_exists_only_on_the_tls_content_server() -> None:
     assert "location /auth/ {" in content
     assert "return 200;" not in content
 
-    # Assert — the readers' origin holds none of the per-user gates, and is
+    # Assert — the history page's origin holds none of the per-user gates, and is
     # itself served only behind TLS
     assert "_osprey_auth" not in readers
     assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)

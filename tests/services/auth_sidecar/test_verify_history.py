@@ -61,7 +61,6 @@ PASSWORD_ENV = {
     "OSPREY_AUTH_ROSTER_HISTORY_BOB": "own",
     "OSPREY_AUTH_ROSTER_HISTORY_DESK": "own",
     "OSPREY_AUTH_READERS": "carol",
-    "OSPREY_AUTH_READER_TABLES_CAROL": "otel_logs",
 }
 
 OIDC_ENV = {
@@ -75,7 +74,6 @@ OIDC_ENV = {
     "OSPREY_AUTH_OIDC_SUBJECT_ALICE": "alice@example.org",
     "OSPREY_AUTH_OIDC_SUBJECT_BOB": "bob@example.org",
     "OSPREY_AUTH_READERS": "carol,ext",
-    "OSPREY_AUTH_READER_TABLES_EXT": "otel_logs,audit_ledger",
     "OSPREY_AUTH_READER_SUBJECT_EXT": "ext@partner.org",
 }
 
@@ -153,8 +151,6 @@ class TestCarriers:
         assert not settings.role_history_all("viewer")
         assert not settings.role_history_all("")
         assert settings.readers == ("carol", "ext")
-        assert settings.tables_for_reader("carol") == ("otel_logs",)
-        assert settings.tables_for_reader("ext") == ("otel_logs", "audit_ledger")
         assert settings.reader_subject("ext") == "ext@partner.org"
         assert settings.reader_subject("carol") is None
 
@@ -172,14 +168,11 @@ class TestCarriers:
                 "OSPREY_AUTH_HISTORY_ORIGIN": f" {HISTORY_ORIGIN}/ ",
                 "OSPREY_AUTH_ROSTER_HISTORY_ALICE": " ALL ",
                 "OSPREY_AUTH_READERS": " x , ,x, y",
-                "OSPREY_AUTH_READER_TABLES_X": "otel_logs, audit_ledger",
             }
         )
         assert settings.history_origin == HISTORY_ORIGIN
         assert settings.user_history_all("alice")
         assert settings.readers == ("x", "y")
-        assert settings.tables_for_reader("x") == ("otel_logs", "audit_ledger")
-        assert settings.tables_for_reader("y") == ()
 
     def test_the_answer_names_the_viewer_and_no_table_list(self) -> None:
         response = _ask(_app(PASSWORD_ENV), _cookie(_entry("alice")))
@@ -201,7 +194,6 @@ class TestOwnCard:
         env = {
             **PASSWORD_ENV,
             "OSPREY_AUTH_READERS": "alice",
-            "OSPREY_AUTH_READER_TABLES_ALICE": "otel_logs",
         }
         env["OSPREY_AUTH_ROSTER_HISTORY_ALICE"] = "all"
         response = _ask(_app(env), _cookie(_entry("alice")))
@@ -609,7 +601,6 @@ def _reader_sidecar(provider: MockIdP, **overrides: str) -> FastAPI:
     carriers = {
         "OSPREY_AUTH_HISTORY_ORIGIN": HISTORY_ORIGIN,
         "OSPREY_AUTH_READERS": "ext",
-        "OSPREY_AUTH_READER_TABLES_EXT": "otel_logs",
         "OSPREY_AUTH_READER_SUBJECT_EXT": EXT_SUBJECT,
     }
     return create_app(_env(provider, **{**carriers, **overrides}))

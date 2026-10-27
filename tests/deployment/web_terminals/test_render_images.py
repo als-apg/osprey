@@ -585,16 +585,11 @@ def _render(repo: Path, name: str = "ops-app", *, complete: bool = True) -> Path
     return project
 
 
-def _render_config(
-    repo: Path, deployed_services=("telemetry_store", "telemetry_gateway"), **render_overrides
-):
+def _render_config(repo: Path, **render_overrides):
     """A local-mode config whose single tier 'ops' renders to build/ops-app.
 
     The ``renders`` entry is the one ``osprey build`` projects for
     ``tiers/ops.yml``; pass a keyword to override one of its fields.
-
-    Deploys the telemetry store and its gateway by default — the shipped
-    shape. Pass an empty ``deployed_services`` for a config that runs neither.
     """
     render = {
         "kind": "tier",
@@ -603,7 +598,7 @@ def _render_config(
     }
     render.update(render_overrides)
     return {
-        "deployed_services": list(deployed_services),
+        "deployed_services": [],
         "modules": {
             "web_terminals": {
                 "image_source": "local",

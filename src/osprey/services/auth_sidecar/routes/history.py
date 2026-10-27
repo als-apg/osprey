@@ -1,7 +1,7 @@
 """The history page's ``auth_request`` target: which person, as which record viewer.
 
 nginx asks ``/verify-history`` once per request under ``/history/`` on the
-readers' origin. Where ``/verify`` answers "may this browser reach this card",
+history page's origin. Where ``/verify`` answers "may this browser reach this card",
 this route answers "whose sessions may this browser see, right now": it resolves
 **one person** out of the session cookie and maps them to exactly one agent-record
 viewer: ``all``, ``own:<person>`` or ``reader:<name>``. The page names that
