@@ -17,8 +17,8 @@ import pytest
 from osprey.cli import build_profile_document as doc
 from osprey.cli.build_profile_document import _parse_profile_document, _read_profile_document
 from osprey.cli.build_profile_resolve import resolve_build_profile
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
 
 
 @pytest.fixture(autouse=True)

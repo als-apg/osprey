@@ -20,7 +20,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from osprey_connectors.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
+from osprey.utils.workspace import IMAGE_DIR_NAME
+from osprey_connectors.workspace import BUILD_DIR_NAME
 
 
 def stub_render_image(

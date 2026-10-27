@@ -70,12 +70,20 @@ removed; the table maps each old path to the public spelling that replaces it.
 | `osprey.connectors.archiver.*_archiver_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config` | `osprey_connectors.config` |
-| `osprey.utils.dotenv` | `osprey_connectors.dotenv` |
+| `osprey.utils.dotenv` (reading the env chain) | `osprey_connectors.dotenv` |
 | `osprey.utils.identity` | `osprey_connectors.identity` |
-| `osprey.utils.workspace` | `osprey_connectors.workspace` |
+| `osprey.utils.workspace` (config and agent-data resolution) | `osprey_connectors.workspace` |
 | `osprey.utils.logger` | `osprey_connectors.logger` |
 | `osprey.utils.log_filter` | `osprey_connectors.log_filter` |
 | `osprey.utils.relative_time` | `osprey_connectors.relative_time` |
+
+Not everything those modules held moved here. The deployment repo's layout
+(layer directories, the image staging area, the audit and archive zones)
+stayed with the framework, in a new `osprey.utils.workspace` that holds only
+those names. The executor's vocabulary and the
+facility timestamp formatter are the framework's `osprey.utils.execution_method`
+and `osprey.utils.facility`, and writing `.env` files is
+`osprey.deployment.dotenv`.
 
 ## Optional runtime dependencies
 

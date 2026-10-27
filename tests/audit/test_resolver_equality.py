@@ -16,7 +16,7 @@ Two anchors, two groups of tests:
    :attr:`osprey.deployment.reset.ResetPlan.audit_dir`, and the hook's own
    ``get_repo_root() / AUDIT_DIR_RELPATH`` must all name the same directory.
    ``ResetPlan.audit_dir`` does not import
-   :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — it is spelled as
+   :data:`~osprey.utils.workspace.AUDIT_DIR_RELPATH` — it is spelled as
    ``STATE_DIR_NAME / "audit"`` — so this is the test that would catch the two
    spellings drifting apart; it is included in the equality on purpose.
 
@@ -39,7 +39,7 @@ from osprey.audit import writer
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.reset import ResetPlan
 from osprey.mcp_server import audit_middleware as am
-from osprey_connectors import workspace
+from osprey.utils.workspace import AUDIT_DIR_RELPATH
 from tests._preset_data import create_project_as_built
 from tests.hooks.conftest import import_hook
 
@@ -93,7 +93,7 @@ class TestAuditDirResolverEquality:
         osprey_hook_log = import_hook("osprey_hook_log")
         from_hook = Path(osprey_hook_log.get_repo_root()) / osprey_hook_log.AUDIT_DIR_RELPATH
 
-        expected = repo_root / workspace.AUDIT_DIR_RELPATH
+        expected = repo_root / AUDIT_DIR_RELPATH
         assert from_writer == expected
         assert from_reset_plan == expected
         assert from_hook == expected
@@ -113,7 +113,7 @@ class TestAuditDirResolverEquality:
         monkeypatch.setenv("OSPREY_CONFIG", str(build_dir / "config.yml"))
 
         assert build_dir != repo_root
-        wrong = build_dir / workspace.AUDIT_DIR_RELPATH
+        wrong = build_dir / AUDIT_DIR_RELPATH
 
         assert writer.audit_dir() != wrong
         assert (
@@ -166,8 +166,8 @@ class TestHookConfigPathResolverEquality:
         # hook_config.json is anchored on the RENDER zone (build/)...
         assert hook_config_site == build_dir / am.HOOK_CONFIG_RELPATH
         # ...the audit dir is anchored on the REPO root, one level up...
-        assert audit_site == repo_root / workspace.AUDIT_DIR_RELPATH
+        assert audit_site == repo_root / AUDIT_DIR_RELPATH
         # ...and the two do not coincide in this real two-zone render.
-        assert audit_site != build_dir / workspace.AUDIT_DIR_RELPATH
+        assert audit_site != build_dir / AUDIT_DIR_RELPATH
         assert hook_config_site != repo_root / am.HOOK_CONFIG_RELPATH
         am.reset_audit_state()

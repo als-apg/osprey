@@ -551,7 +551,7 @@ class ConfigKeyGuard:
         from osprey.cli.build_profile_ports import layout_port_fill
         from osprey.cli.build_profile_resolve import resolve_build_profile
         from osprey.port_layout import DEFAULT_PORT_BASE
-        from osprey_connectors.workspace import APPS_DIRNAME
+        from osprey.utils.workspace import APPS_DIRNAME
 
         host = preset_id(self.app_host)
         roots = {preset_id(rel) for rel in self.preset_rels}

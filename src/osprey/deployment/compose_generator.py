@@ -1233,7 +1233,7 @@ def _resolve_archive_render_context(config):
     from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
     from osprey.deployment import telemetry_config as tc
     from osprey.deployment.web_terminals.roster import roster_user_names
-    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, AUDIT_DIR_RELPATH
 
     config = config or {}
     deployed = {str(name) for name in config.get("deployed_services") or []}
@@ -1995,8 +1995,8 @@ def _inject_project_metadata(config):
     # with an explicit ``./`` — a bind source that is neither absolute nor
     # dot-prefixed is not reliably read as a path by every runtime. A state dir
     # outside the repo has no relative spelling and is emitted absolute.
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
     from osprey_connectors.workspace import (
-        AUDIT_DIR_RELPATH,
         SIMULATOR_LOG_DIR_RELPATH,
         agent_data_base_dir,
         resolve_simulation_state_dir,
@@ -2249,7 +2249,7 @@ def _inject_project_metadata(config):
     # already under var/audit, so a directory keeps its receiver (and its
     # checkpoint) after its writer leaves the config.
     from osprey.deployment.telemetry_gateway import gateway_render_context, ledger_receivers
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
     config_with_labels["osprey_telemetry_gateway"] = gateway_render_context(
         config,
@@ -2759,7 +2759,7 @@ def audit_identity_dir(repo_root, identity):
     helper below and by every renderer that emits the bind source for it, so a
     container can never be handed a mount whose host side is a directory
     nothing provisioned. The ``var/audit`` half comes from
-    :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — the same constant
+    :data:`~osprey.utils.workspace.AUDIT_DIR_RELPATH` — the same constant
     the writer inside the container, ``osprey reset --purge-audit`` and the
     hooks resolve their own audit root through.
 
@@ -2783,7 +2783,7 @@ def audit_identity_dir(repo_root, identity):
         reject on their own account.
     """
     from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
     if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
         raise ValueError(
@@ -2879,7 +2879,7 @@ def ensure_archive_dir(repo_root, relative_to=None):
     :return: The archive root, or ``None`` when it could not be provisioned
     :rtype: pathlib.Path | None
     """
-    from osprey_connectors.workspace import ARCHIVE_DIR_RELPATH
+    from osprey.utils.workspace import ARCHIVE_DIR_RELPATH
 
     target = Path(repo_root) / ARCHIVE_DIR_RELPATH
     try:
@@ -3513,8 +3513,9 @@ def simulator_log_mount_sources():
     :return: ``{instance key: bind source}``
     :rtype: dict[str, str]
     """
+    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
     from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
-    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH
 
     base = PurePosixPath(SIMULATOR_LOG_DIR_RELPATH)
     return {
@@ -3573,7 +3574,8 @@ def ensure_simulator_log_dirs(repo_root, relative_to=None):
         be provisioned or the platform reports none
     :rtype: int | None
     """
-    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH
 
     log_dir = Path(repo_root) / SIMULATOR_LOG_DIR_RELPATH
     gid = _ensure_group_shared_dir(
@@ -3605,7 +3607,7 @@ def guarded_run_relpath():
     :rtype: str
     """
     from osprey.runtime.guarded_run import GUARDED_RUN_DIR
-    from osprey_connectors.workspace import STATE_DIR_NAME
+    from osprey.utils.workspace import STATE_DIR_NAME
 
     return f"{STATE_DIR_NAME}/{GUARDED_RUN_DIR}"
 

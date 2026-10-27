@@ -32,8 +32,8 @@ from osprey.cli.build_profile_load import (
     reject_unknown_kind_keys,
 )
 from osprey.cli.profile_root import ProfileKind
+from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 
 _DEPLOYMENT_KEYS = frozenset(
     {

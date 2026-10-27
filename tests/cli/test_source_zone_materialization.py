@@ -27,8 +27,8 @@ from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_root import ProfileKind, layer_files
 from osprey.profiles.providers import PROVIDERS_FILENAME, compute_providers_hash
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
-from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 

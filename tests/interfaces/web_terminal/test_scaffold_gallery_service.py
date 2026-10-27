@@ -26,7 +26,7 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     ScaffoldGalleryService,
     restore_scaffold_bodies,
 )
-from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests._builds import copy_build
 
 from .conftest import bare_route_app

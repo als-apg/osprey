@@ -35,7 +35,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.phase_reporter import PhaseReporter
-from osprey_connectors.workspace import TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from tests.cli._lifecycle_build import invoke_build
 from tests.cli._reporters import installed
 from tests.services.channel_finder.graph_index import corpora

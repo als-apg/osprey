@@ -198,10 +198,11 @@ def get_project_dir(hook_input=None):
 
 
 #: The marker that makes a directory a deployment repo root, and the name of the
-#: render zone inside it. Kept in step with ``osprey.cli.repo_resolver`` and
-#: ``osprey_connectors.workspace``; spelled out here rather than imported because a
-#: hook can be executed by a bare system ``python3`` with no ``osprey`` on its
-#: path, and the derivation below has to work under exactly that interpreter.
+#: render zone inside it. Kept in step with ``osprey.cli.repo_resolver``,
+#: ``osprey.utils.workspace`` and ``osprey_connectors.workspace``; spelled out
+#: here rather than imported because a hook can be executed by a bare system
+#: ``python3`` with no ``osprey`` on its path, and the derivation below has to
+#: work under exactly that interpreter.
 PROFILE_MARKER = "profile.yml"
 BUILD_DIR_NAME = "build"
 
@@ -568,7 +569,7 @@ def log_hook(hook_name, hook_input, status="ok", detail=""):
 # `sys.exit(0)` that carries the decision, never after.
 
 #: The durable audit zone, relative to the repo root. Mirrors
-#: ``osprey_connectors.workspace.AUDIT_DIR_RELPATH``; the hook cannot import it.
+#: ``osprey.utils.workspace.AUDIT_DIR_RELPATH``; the hook cannot import it.
 AUDIT_DIR_RELPATH = "var/audit"
 
 #: Every hook surface starts with this. The MCP middleware records under the

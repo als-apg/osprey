@@ -54,10 +54,11 @@ from osprey.stores.artifact_manifest import (
     collect_artifacts,
     is_collectable_file,
 )
+from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
+from osprey.utils.workspace import LAYER_DIRNAMES
 from osprey_connectors import posture_store
-from osprey_connectors.config import EXECUTION_METHOD_SUBPROCESS, get_facility_timezone
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.workspace import LAYER_DIRNAMES
 
 if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
@@ -300,7 +301,10 @@ def _read_config() -> dict:
             ``python_executor.execution_timeout_seconds`` is not a finite,
             positive number (an explicit null included).
     """
-    from osprey_connectors.config import DEFAULT_EXECUTION_TIMEOUT_SECONDS, resolve_execution_method
+    from osprey.utils.execution_method import (
+        DEFAULT_EXECUTION_TIMEOUT_SECONDS,
+        resolve_execution_method,
+    )
     from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()
@@ -371,7 +375,8 @@ def resolve_protected_roots(
         Absolute, resolved paths — de-duplicated, order preserved. The child
         gets these as literals and never re-derives them.
     """
-    from osprey_connectors.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+    from osprey_connectors.workspace import BUILD_DIR_NAME
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
