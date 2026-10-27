@@ -274,8 +274,9 @@ A roster entry carries ``role:`` or ``tier:``, never both. The rules:
   the one way to end a role now is to end the person's access:
   ``osprey users remove <name>``.
 
-Every login and refusal is recorded in ``var/audit/sidecar/auth_sidecar.jsonl``
-on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
+Every login and refusal is recorded as an ``audit`` entry in the agent record,
+filed under the authentication service's own identity (``sidecar``) and naming
+the person it was for. A ``claims`` stanza under ``password`` resolves nothing;
 ``osprey up`` warns rather than fails.
 
 .. note::
@@ -907,7 +908,7 @@ A credential can outlive an account, so:
   carrying is refused from that moment on. The login page's cookie is refused
   too, and stays refused when the authentication service restarts or is
   recreated (``osprey up``, ``osprey users passwd``): the service keeps each
-  logged-out session as a one-way digest in ``var/audit/sidecar/``, until that
+  logged-out session as a one-way digest in ``var/state/sidecar/``, until that
   session would have expired anyway. If that directory cannot be written, the
   service logs a warning and a logout lasts until the service restarts.
 - **Terminal sessions are kept on disk** — behind ``auth.method: token`` and

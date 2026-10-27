@@ -72,19 +72,7 @@ Quickstart
    cd build/.image/my-project              # the context the build rendered
    docker build -t my-project -f build/Dockerfile .
    cd -                                    # back to the deployment repo root
-   docker run --rm -p 10100:10100 --env-file .env \
-     --env-file .env.telemetry-sender.<host identity> my-project
-
-The second ``--env-file`` is the sender login gateway telemetry needs
-(``claude_code.telemetry.enabled: true`` with ``backend: gateway``).
-``osprey build`` mints ``.env.telemetry-sender.<identity>`` at the repo root,
-mode 0600, for each sender; a container run by hand is a host launch and sends
-under ``deployment.host_identity`` from ``config.yml``, so that is the
-``<host identity>`` to pass. Without it the container's ``osprey web`` refuses
-to start. With gateway telemetry off, drop that flag. Records reach the gateway
-only while the deployment's gateway runs (``osprey up``) and the container
-shares the host network: replace ``-p 10100:10100`` with ``--network host``,
-and the container sends to the gateway's loopback publish.
+   docker run --rm -p 10100:10100 --env-file .env my-project
 
 Then open http://localhost:10100. The container's ``osprey web`` prints a login
 URL (``…/?token=…``) to its logs at startup; open that URL to set your session
@@ -94,7 +82,8 @@ sets ``OSPREY_TERMINAL_SECRET`` itself, the container uses that value and
 explains why it is printing no URL — browse to
 ``http://localhost:10100/?token=<that value>`` instead. Secrets are
 passed at runtime via ``--env-file`` — the ``.dockerignore`` guarantees
-``.env`` and every ``.env.telemetry-*`` file never enter the image.
+``.env`` and every other ``.env.*`` file but ``.env.example`` never enter the
+image.
 
 Build Arguments
 ===============
@@ -435,7 +424,7 @@ Two areas of the project, two owners:
      - What the running deployment legitimately writes: agent data and
        API-call logs (``var/agent_data/``), the config backups every config
        write takes first (``var/agent_data/config-backups/``), and the
-       protected-write audit ledger (``var/audit/``). The facility-knowledge
+       agent record's spool (``var/spool/``). The facility-knowledge
        bundle under ``build/data/`` joins them when the deployment has one,
        because the agent drafts into it
 
@@ -634,7 +623,6 @@ Two kinds of state are worth persisting across container restarts:
 .. code-block:: bash
 
    docker run --rm -p 10100:10100 --env-file .env \
-     --env-file .env.telemetry-sender.<host identity> \
      -v my-project-agent-data:/app/my-project/var/agent_data \
      -v my-project-home:/home/osprey \
      my-project
@@ -679,8 +667,7 @@ matches the usual amd64 deployment target:
 .. code-block:: bash
 
    docker build --platform linux/amd64 -t my-project .
-   docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env \
-     --env-file .env.telemetry-sender.<host identity> my-project
+   docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env my-project
 
 Customizing
 ===========

@@ -241,8 +241,8 @@ channel back and compares what it now holds with what was sent. See
 :doc:`/reference/contracts/connectors`.
 
 **The audit trail.** Every refusal and every approval prompt on every path, and every tool
-call that was allowed, is written down as one line under ``var/audit/`` in the deployment
-repository, by the check, the server or the Python executor that made the decision; the
+call that was allowed, is written down as one ``audit`` entry in the agent record, by the
+check, the server or the Python executor that made the decision; the
 connector writes none itself, the path that called it does. Each line records the write
 posture in force and who acted, or which kernel. See :ref:`reference-audit-trail`.
 
@@ -272,10 +272,9 @@ connector; no connector asks the narrowing records at write time; and nothing re
 channel back.
 
 The audit trail records the call as it records any tool call: one line naming
-``phoebus_drive``, who called it, the posture in force and the decision. With
-``audit.tool_call.enabled`` on (:ref:`config-audit-tool-call`), a second record carries the
-widget, verb, mode and value the call was given and the bridge's answer. Neither names the
-channel written, because the bridge decides which channel a widget writes. See
+``phoebus_drive``, who called it, the posture in force and the decision. The tool call's
+own entry in the agent record carries the widget, verb, mode and value the call was given
+and the bridge's answer. Neither names the channel written, because the bridge decides which channel a widget writes. See
 :doc:`/how-to/control-systems/phoebus-bridge` for the configuration and for the displays a
 drive is fit for.
 
