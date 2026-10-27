@@ -36,7 +36,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
 from tests._builds import BuiltProject
-from tests.connectors._view_records import view_channel
+from tests._simulator_view import view_channel
 
 TOKEN = "s3cret"
 STATUS = "T:SIM:M:STATUS"

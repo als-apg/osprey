@@ -21,7 +21,8 @@ from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
-from tests.connectors._view_records import activate, view_channel
+from tests._simulator_view import view_channel
+from tests.connectors._view_records import activate
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject

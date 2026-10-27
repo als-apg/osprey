@@ -1,33 +1,9 @@
-"""A synthetic simulator view's channel records, and its scenario state."""
+"""A synthetic simulator view's scenario state."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
-
-
-def view_channel(address: str, owner: str = "texture", **fields: Any) -> dict[str, Any]:
-    """One channel record, every field filled.
-
-    A readback by default, owned by ``owner``; a setpoint pairs with itself
-    unless ``pair`` says otherwise. Any other field in ``fields`` replaces its
-    default or is added to the record.
-    """
-    role = fields.pop("role", "readback")
-    return {
-        "address": address,
-        "role": role,
-        "pair": address if role == "setpoint" else None,
-        "value_type": "float",
-        "unit": None,
-        "description": None,
-        "writable": False,
-        "value_range": None,
-        "owner": owner,
-        "on": None,
-        **fields,
-    }
 
 
 def activate(state: Path, *names: str) -> None:

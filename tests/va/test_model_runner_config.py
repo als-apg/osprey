@@ -32,7 +32,7 @@ from osprey_connectors.simulation.view import (
     SimulatorView,
 )
 from tests._builds import BuiltProject
-from tests.connectors._view_records import view_channel
+from tests._simulator_view import view_channel
 
 STATUS = "T:SIM:M:STATUS"
 
