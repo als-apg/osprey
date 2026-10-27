@@ -75,7 +75,6 @@ and no ``xdist_group`` is needed.
 from __future__ import annotations
 
 import json
-import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -312,13 +311,11 @@ class CellRenderer:
     refused — is cached under the cell directory.
     """
 
-    def __init__(self, root: Path, build_env: Mapping[str, str]) -> None:
+    def __init__(self, root: Path) -> None:
         """Args:
         root: An existing directory to build the cells under.
-        build_env: Environment additions each cell's ``osprey build`` runs under.
         """
         self._root = root
-        self._build_env = build_env
         self._outcomes: dict[str, Rendered | Refused] = {}
 
     def attempt(self, cell: Cell) -> Rendered | Refused:
@@ -376,10 +373,11 @@ class CellRenderer:
             return Refused("init", _failure_reason(result))
 
         project = scratch / PROJECT_NAME
-        result = _run_cli(["build"], cwd=project, env={**env, **self._build_env})
-        # The comparison reads only rendered documents, never the venv, and a
-        # refused build has no reader at all.
-        shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
+        # --skip-deps: the comparison reads only rendered documents, never a
+        # venv. The one key a venv reaches is the interpreter under
+        # execution.environment, which mask_document deletes, so the masked
+        # documents are the ones the freeze's full build captured.
+        result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
         if result.returncode != 0:
             return Refused("build", _failure_reason(result))
 
@@ -389,11 +387,9 @@ class CellRenderer:
 
 
 @pytest.fixture(scope="module")
-def rendered_cells(
-    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
-) -> CellRenderer:
+def rendered_cells(tmp_path_factory: pytest.TempPathFactory) -> CellRenderer:
     """One renderer for the whole module, so no cell is built twice."""
-    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"), offline_build_env)
+    return CellRenderer(tmp_path_factory.mktemp("explicit-config-equivalence"))
 
 
 def _fixture_documents(cell: Cell) -> dict[str, dict[str, Any]]:
