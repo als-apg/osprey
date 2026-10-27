@@ -39,6 +39,7 @@ any other file for the zero-source facts, which every build rewrites.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from collections import defaultdict
@@ -79,6 +80,32 @@ FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
 #: one build carries byte-equal ``facility.json``, so it is parsed once and the
 #: views it is handed to see one document, whose wiring they memoize.
 _parsed: tuple[bytes, dict[str, Any]] | None = None
+
+#: The bytes the last measurement block was read from, the ``entry_points`` its
+#: engines' descriptions came from, and the block: every render of one build
+#: carries byte-equal pyAML views and facility file, and the Claude Code render
+#: asks for the block twice per render. A replaced ``entry_points`` (a test
+#: registering an engine) reads the block afresh.
+_measured: tuple[tuple[Any, ...], dict[str, dict[str, Any]]] | None = None
+
+
+def parsed_facility(raw: bytes) -> Any:
+    """``facility.json`` parsed from its bytes, once for each new bytes.
+
+    Args:
+        raw: The file's bytes.
+
+    Returns:
+        The parsed document, shared with every caller handed the same bytes;
+        callers read it and never change it.
+
+    Raises:
+        ValueError: The bytes are not UTF-8 JSON.
+    """
+    global _parsed
+    if _parsed is None or _parsed[0] != raw:
+        _parsed = (raw, json.loads(raw.decode("utf-8")))
+    return _parsed[1]
 
 
 def _identity(doc: Mapping[str, Any], project_name: str | None) -> dict[str, Any]:
@@ -398,22 +425,31 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
+    from importlib import metadata
+
     from osprey.facility import FACILITY_FILE
     from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
     from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
-    global _parsed
+    global _measured
     raw = (render_root / FACILITY_FILE).read_bytes()
-    if _parsed is None or _parsed[0] != raw:
-        _parsed = (raw, json.loads(raw.decode("utf-8")))
-    doc = _parsed[1]
+    views = [
+        (model, record, (render_root / record["path"]).read_bytes())
+        for model, record in sorted(recorded.items())
+    ]
+    key = (
+        metadata.entry_points,
+        raw,
+        *((model, repr(record), view) for model, record, view in views),
+    )
+    if _measured is not None and _measured[0] == key:
+        return copy.deepcopy(_measured[1])
+    doc = parsed_facility(raw)
     models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
-    for model, record in sorted(recorded.items()):
-        configuration = yaml_loader.safe_load(
-            (render_root / record["path"]).read_text(encoding="utf-8")
-        )
+    for model, record, view in views:
+        configuration = yaml_loader.safe_load(view.decode("utf-8"))
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
         measurement = models[str(model)].get("measurement") or {}
@@ -450,7 +486,8 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
             "rf": sorted(rf),
             "view_sha256": record.get("sha256"),
         }
-    return block
+    _measured = (key, block)
+    return copy.deepcopy(block)
 
 
 def _member_addresses(device: Mapping[str, Any]) -> list[str]:
