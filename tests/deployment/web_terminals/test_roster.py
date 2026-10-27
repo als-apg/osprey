@@ -44,7 +44,7 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_graphdb_password,
     renders_needing_launch_token_by_lane,
     renders_needing_phoebus_handles,
-    renders_not_denying_bash,
+    renders_with_open_shell,
     resolve_access_principals,
     resolve_authorization_roles,
     resolve_cards,
@@ -2821,7 +2821,7 @@ def test_settings_json_denies_for_bash_ignores_non_string_deny_entries(tmp_path)
     assert settings_json_denies(tmp_path / "mixed", (BASH_DENY_ENTRY,)) is True
 
 
-def test_renders_not_denying_bash_reports_only_the_permissive_render(tmp_path) -> None:
+def test_renders_with_open_shell_reports_only_the_permissive_render(tmp_path) -> None:
     """The roster form: the render whose shipped settings dropped the Bash deny is
     named; the locked-down one is not."""
     # Arrange
@@ -2829,7 +2829,7 @@ def test_renders_not_denying_bash_reports_only_the_permissive_render(tmp_path) -
         "locked": {
             "project": "locked",
             "project_path": _write_settings_json(
-                tmp_path, "locked", {"permissions": {"deny": ["Bash", "Edit"]}}
+                tmp_path, "locked", {"permissions": {"deny": ["Bash", "Monitor", "Edit"]}}
             ),
         },
         "shelly": {
@@ -2848,13 +2848,13 @@ def test_renders_not_denying_bash_reports_only_the_permissive_render(tmp_path) -
     )
 
     # Act
-    result = renders_not_denying_bash(config, tmp_path)
+    result = renders_with_open_shell(config, tmp_path)
 
     # Assert
     assert result == {"shelly"}
 
 
-def test_renders_not_denying_bash_includes_unrendered_and_pathless_renders(tmp_path) -> None:
+def test_renders_with_open_shell_includes_unrendered_and_pathless_renders(tmp_path) -> None:
     """Fail-closed at roster level too: a render whose artifact cannot be located
     is reported as permissive rather than silently skipped."""
     # Arrange
@@ -2870,10 +2870,10 @@ def test_renders_not_denying_bash_includes_unrendered_and_pathless_renders(tmp_p
     )
 
     # Act / Assert
-    assert renders_not_denying_bash(config, tmp_path) == {"ghost", "pathless"}
+    assert renders_with_open_shell(config, tmp_path) == {"ghost", "pathless"}
 
 
-def test_renders_not_denying_bash_covers_the_default_tier(tmp_path) -> None:
+def test_renders_with_open_shell_covers_the_default_tier(tmp_path) -> None:
     """`default_tier` is deployed by every roster entry that names none, so it is
     walked alongside the explicitly referenced ones."""
     # Arrange
@@ -2889,10 +2889,10 @@ def test_renders_not_denying_bash_covers_the_default_tier(tmp_path) -> None:
     config["modules"]["web_terminals"]["default_tier"] = "fallback"
 
     # Act / Assert
-    assert renders_not_denying_bash(config, tmp_path) == {"fallback"}
+    assert renders_with_open_shell(config, tmp_path) == {"fallback"}
 
 
-def test_renders_not_denying_bash_ignores_unreferenced_catalog_entries(tmp_path) -> None:
+def test_renders_with_open_shell_ignores_unreferenced_catalog_entries(tmp_path) -> None:
     """A render nobody deploys cannot leak a token, so it is not reported."""
     # Arrange
     catalog = {
@@ -2904,10 +2904,10 @@ def test_renders_not_denying_bash_ignores_unreferenced_catalog_entries(tmp_path)
     config = _catalog_config(catalog, [])
 
     # Act / Assert
-    assert renders_not_denying_bash(config, tmp_path) == set()
+    assert renders_with_open_shell(config, tmp_path) == set()
 
 
-def test_renders_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) -> None:
+def test_renders_with_open_shell_reads_the_artifact_not_the_config(tmp_path) -> None:
     """`osprey up` does not rebuild, so a config edited after the last build does not
     change what ships. Both directions of that divergence are asserted here, because
     the function must follow the artifact whichever way the two disagree.
@@ -2931,7 +2931,9 @@ def test_renders_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) ->
         )
 
     # Intent says the shell was unblocked; the built artifact still blocks it.
-    _write_settings_json(tmp_path, "intent-permissive", {"permissions": {"deny": ["Bash"]}})
+    _write_settings_json(
+        tmp_path, "intent-permissive", {"permissions": {"deny": ["Bash", "Monitor"]}}
+    )
     _write_config_yml("intent-permissive", {"permissions": {"remove_deny": ["Bash"]}})
 
     # Intent says the shell is blocked; the built artifact does not block it.
@@ -2953,7 +2955,7 @@ def test_renders_not_denying_bash_reads_the_artifact_not_the_config(tmp_path) ->
     )
 
     # Act
-    result = renders_not_denying_bash(config, tmp_path)
+    result = renders_with_open_shell(config, tmp_path)
 
     # Assert -- the verdict tracks the artifact, opposite to the intent, both ways
     assert result == {"intent-safe"}
