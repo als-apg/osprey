@@ -18,8 +18,6 @@ from osprey_connectors.archiver._field_names import (
 )
 from osprey_connectors.archiver._mongo_client import (
     CA_FILE_ERRORS,
-    HOST_OVERRIDE_ENV,
-    PORT_OVERRIDE_ENV,
     address_overrides,
     mongo_client_kwargs,
 )
@@ -39,8 +37,6 @@ __all__ = [
     "ArchiverConnector",
     "ArchiverMetadata",
     "CA_FILE_ERRORS",
-    "HOST_OVERRIDE_ENV",
-    "PORT_OVERRIDE_ENV",
     "PROCESSING_MODES",
     "Processing",
     "address_overrides",

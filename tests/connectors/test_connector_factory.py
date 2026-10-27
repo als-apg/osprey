@@ -13,9 +13,9 @@ from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
-    isolated_connector_registries,
     register_builtin_connectors,
 )
+from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
 

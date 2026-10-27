@@ -1,7 +1,7 @@
 """A channel's motion envelope: how far its declared motion can carry it from the held value.
 
 The envelope is ``|drift.amplitude| + sum |gain| x (1 + |gain_wander.amplitude|)
-x |drive.amplitude| + MOTION_SIGMAS x noise sigma``, a relative noise sigma
+x |drive.amplitude| + _MOTION_SIGMAS x noise sigma``, a relative noise sigma
 taken at the seed's own ``nominal``, and 0.0 for a channel that declares no
 motion.
 """
@@ -14,11 +14,11 @@ import pytest
 
 from osprey.facility.views import view_bytes
 from osprey_connectors.simulation.envelope import (
-    MOTION_SIGMAS,
+    _MOTION_SIGMAS,
+    _noise_sigma,
     active_envelopes,
     declares_motion,
     motion_envelope,
-    noise_sigma,
 )
 from osprey_connectors.simulation.view import SCHEMAS, SEEDS_FILE, SimulatorView
 from tests._simulator_view import write_scenarios_view
@@ -28,7 +28,7 @@ _DRIVE = {"kind": "sine", "amplitude": 2.0, "period_s": 300.0}
 
 
 def test_noise_alone_is_its_sigmas() -> None:
-    assert motion_envelope({"noise": {"absolute": 0.001}}) == pytest.approx(MOTION_SIGMAS * 0.001)
+    assert motion_envelope({"noise": {"absolute": 0.001}}) == pytest.approx(_MOTION_SIGMAS * 0.001)
 
 
 def test_drift_alone_is_its_amplitude() -> None:
@@ -53,19 +53,19 @@ def test_a_negative_drift_counts_by_magnitude() -> None:
 
 
 def test_the_factor_is_six() -> None:
-    assert MOTION_SIGMAS == 6.0
+    assert _MOTION_SIGMAS == 6.0
 
 
 def test_relative_noise_is_taken_of_the_seeds_nominal() -> None:
     seed = {"nominal": -200.0, "noise": {"relative": 1e-4}}
 
-    assert noise_sigma(seed["noise"], seed["nominal"]) == pytest.approx(0.02)
+    assert _noise_sigma(seed["noise"], seed["nominal"]) == pytest.approx(0.02)
     assert motion_envelope(seed) == pytest.approx(6.0 * 0.02)
 
 
 def test_a_relative_noise_without_a_nominal_is_refused() -> None:
     with pytest.raises(ValueError, match="numeric nominal"):
-        noise_sigma({"relative": 0.01}, None)
+        _noise_sigma({"relative": 0.01}, None)
 
 
 def test_a_scenario_noise_replaces_the_seeds() -> None:

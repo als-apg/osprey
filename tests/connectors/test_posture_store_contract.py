@@ -239,7 +239,7 @@ def test_a_recorded_writes_narrows_nothing(data_root):
 
 def test_a_degraded_record_narrows_nothing(data_root):
     """Every unusable record is "no record", and no record narrows anything."""
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     for payload in (
@@ -261,7 +261,7 @@ def test_an_undecodable_record_is_no_narrowing_not_an_exception(data_root):
     asks on each write — so an exception from one mis-encoded file would be
     raised into the write itself instead of leaving the ceiling in charge.
     """
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\xff\xfe{\x00k\x00: sandbox}")
     posture_store.invalidate_cache()
@@ -292,7 +292,7 @@ def test_two_narrowings_within_one_second_are_both_seen(data_root):
     Both writes go through the atomic temp+rename the owner uses, so the
     signature moves on size and inode even when ``st_mtime_ns`` does not.
     """
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     def _atomic(posture):

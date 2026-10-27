@@ -80,7 +80,7 @@ def contain_env_written_by_the_cli():
 
 
 class StubCollection:
-    """The collection calls :func:`seed_base`, :func:`write_manifest` and
+    """The collection calls :func:`seed_base`, :func:`_write_manifest` and
     :func:`compare_fingerprint` make, and no more.
 
     Lets the manifest contract run without a MongoDB container. What it cannot
