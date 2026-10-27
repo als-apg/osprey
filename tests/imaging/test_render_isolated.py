@@ -47,6 +47,8 @@ SOURCE = _png((32, 24))
 # The clocks as shipped, for the cases where only the test may end a render.
 _TASK_TIMEOUT_S = render.RENDER_TASK_TIMEOUT_S
 _READY_TIMEOUT_S = render.RENDER_READY_TIMEOUT_S
+# A hang ceiling for a wait on a worker: k times the shipped ready wait.
+_WAIT_CEILING_S = 3 * render.RENDER_READY_TIMEOUT_S
 
 # A stub worker: hand-shakes (unless told otherwise), then answers every frame
 # from ``behaviour(payload)``, which returns (header dict, body bytes) or acts.
@@ -128,7 +130,7 @@ async def _scaled(monkeypatch):
     await render.close_render_worker()
 
 
-async def _wait_for(predicate, label: str, *, ceiling: float = 30.0) -> None:
+async def _wait_for(predicate, label: str, *, ceiling: float = _WAIT_CEILING_S) -> None:
     """Poll *predicate* until it is truthy; fail naming *label* past *ceiling* s.
 
     Interim: this file's one async wait, the counterpart of
