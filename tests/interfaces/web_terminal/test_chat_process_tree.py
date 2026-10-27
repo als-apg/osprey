@@ -231,6 +231,49 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_table_stays_unread
         kill_quietly(pids)
 
 
+async def test_stop_reports_started_processes_as_unknown_when_the_table_fails_after_the_first_read(
+    tmp_path, monkeypatch, caplog
+):
+    factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
+    session = await start_chat(factory)
+    pids: list[int] = []
+    try:
+        pids = wait_for_chat_pids(session, factory.pid_files[0], 2)
+        grandchild = pids[0]
+        real = process_table.snapshot
+        reads: list[None] = []
+
+        def first_read_only():
+            reads.append(None)
+            if len(reads) > 1:
+                raise process_table.ProcessTableUnreadable(PermissionError("process table"))
+            return real()
+
+        monkeypatch.setattr(process_table, "snapshot", first_read_only)
+
+        with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
+            await session.stop()
+
+        ending = session.tree_ending
+        assert ending is not None
+        assert ending.read is True
+        assert grandchild in {pid for group in ending.unknown_groups for pid, _ in group.members}
+        assert ending.surviving_groups == ()
+        assert ending.ended_groups == ()
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        unknown = [
+            w
+            for w in warnings
+            if "process table unreadable: started process(es) may still be running" in w
+        ]
+        assert len(unknown) == 1, warnings
+        assert not any("survived SIGKILL" in w for w in warnings), warnings
+    finally:
+        monkeypatch.undo()
+        await session.stop()
+        kill_quietly(pids)
+
+
 async def test_stop_of_a_child_that_already_exited_looks_for_nothing(monkeypatch):
     def factory(**_kwargs):
         return ChildClient([sys.executable, "-c", "pass"])
