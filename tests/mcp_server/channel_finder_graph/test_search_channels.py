@@ -37,7 +37,7 @@ from osprey.services.channel_finder.graph_index.reader import (
     GraphIndex,
     GraphIndexAbsence,
 )
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.services.channel_finder.graph_index import corpora
 
 #: The prefixes and ontology every fixture corpus opens with, stripped when
@@ -141,11 +141,6 @@ def render(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(_write_config(tmp_path)))
     return tmp_path
-
-
-def _envelope(exc: pytest.ExceptionInfo[ToolError]) -> dict:
-    """The structured envelope a raised ``ToolError`` carries."""
-    return json.loads(str(exc.value))
 
 
 class TestKeywordSearch:
@@ -320,20 +315,20 @@ class TestValidation:
 
     @pytest.mark.usefixtures("render")
     def test_an_unknown_direction_is_refused(self):
-        with pytest.raises(ToolError) as exc:
+        with assert_raises_error() as raised:
             _search(direction="read")
 
-        envelope = _envelope(exc)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert "direction" in envelope["error_message"]
         assert envelope["suggestions"]
 
     @pytest.mark.usefixtures("render")
     def test_page_zero_is_refused(self):
-        with pytest.raises(ToolError) as exc:
+        with assert_raises_error() as raised:
             _search(page=0)
 
-        envelope = _envelope(exc)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert "page" in envelope["error_message"]
 
@@ -358,10 +353,10 @@ class TestAbsence:
         )
         monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
 
-        with pytest.raises(ToolError) as exc:
+        with assert_raises_error() as raised:
             _search(query="qf1")
 
-        envelope = _envelope(exc)
+        envelope = raised["envelope"]
         assert envelope["error_type"] == "service_unavailable"
         assert str(render / _INDEX_RELPATH) in envelope["error_message"]
         assert envelope["details"]["reason"] == "missing"
@@ -373,10 +368,10 @@ class TestAbsence:
     ):
         monkeypatch.setenv("OSPREY_CONFIG", str(_write_config(tmp_path)))
 
-        with pytest.raises(ToolError) as exc:
+        with assert_raises_error() as raised:
             _search()
 
-        suggestions = _envelope(exc)["suggestions"]
+        suggestions = raised["envelope"]["suggestions"]
         assert any("services.graphdb.ttl_path" in s for s in suggestions)
         assert not any(GRAPHDB_REBUILD_HINT in s for s in suggestions)
 
@@ -395,10 +390,10 @@ class TestAbsence:
         )
         monkeypatch.setattr(tool_module, "open_graph_index", lambda path: stale)
 
-        with pytest.raises(ToolError) as exc:
+        with assert_raises_error() as raised:
             _search()
 
-        envelope = _envelope(exc)
+        envelope = raised["envelope"]
         assert envelope["details"]["reason"] == "schema_mismatch"
         suggestions = envelope["suggestions"]
         assert any("rebuilt" in s for s in suggestions)
