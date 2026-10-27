@@ -13,12 +13,13 @@ import importlib
 import json
 import sys
 import threading
-import time
 import types
 from collections.abc import Callable
 from typing import Any
 
 import pytest
+
+from tests._live import wait_until
 
 pytest.importorskip("p4p")
 
@@ -177,13 +178,6 @@ def _document(reply: Any) -> Any:
     return json.loads(reply["value"])
 
 
-def _wait_for(condition: Callable[[], bool], within: float = 5.0) -> None:
-    deadline = time.monotonic() + within
-    while not condition():
-        assert time.monotonic() < deadline, "timed out waiting"
-        time.sleep(0.005)
-
-
 def test_a_second_completion_is_dropped() -> None:
     """p4p completes an operation once; a second completion is an error its
     client never sees, so the call drops it."""
@@ -233,7 +227,7 @@ def test_a_call_the_loop_never_runs_is_answered_with_the_timeout() -> None:
     # Daemon, so a call still being waited on never holds up a shutdown.
     assert all(timer.daemon for timer in timers)
 
-    _wait_for(lambda: bool(op.calls))
+    wait_until(lambda: op.calls, timeout=5.0, what="the operation completing")
     assert len(op.calls) == 1
     assert _document(op.calls[0]["value"]) == {"ok": False, "error": ERR_TIMEOUT}
 
@@ -242,7 +236,7 @@ def test_a_late_job_after_the_timeout_answers_nothing() -> None:
     op = FakeOp()
     loop = Loop()
     _door(FakeSurface(), loop, timeout_s=0.05)(None, op)
-    _wait_for(lambda: bool(op.calls))
+    wait_until(lambda: op.calls, timeout=5.0, what="the operation completing")
 
     loop.run()
 

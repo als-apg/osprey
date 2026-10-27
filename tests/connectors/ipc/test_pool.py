@@ -20,7 +20,6 @@ import signal
 import subprocess
 import sys
 import textwrap
-import time
 from pathlib import Path
 
 import pytest
@@ -42,6 +41,7 @@ from osprey_connectors.ipc._pool import (
 )
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests._child_stubs import CHILD_STUBS
+from tests._live import async_wait_until, wait_until
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -340,7 +340,7 @@ async def test_a_killed_child_fails_its_call_once_and_the_next_call_respawns(poo
     first_pid = live.pid
 
     write = asyncio.create_task(live.write_channel("SLOW:SP", 7.0))
-    await _wait_for(lambda: log.exists() and log.read_text().strip())
+    await async_wait_until(lambda: log.exists() and log.read_text().strip())
     os.kill(first_pid, signal.SIGKILL)
 
     with pytest.raises(ConnectorHostLostError) as caught:
@@ -467,7 +467,7 @@ async def test_a_stale_failure_never_drops_the_replacement_child(pools):
     live = await pool.connector("live")
     old = pool._children[("live", None)]
     os.kill(old.pid, signal.SIGKILL)
-    await _wait_for(lambda: old.proxy.dead_reason is not None)
+    await async_wait_until(lambda: old.proxy.dead_reason is not None)
 
     # The next call replaces the child ...
     assert (await live.read_channel("SR:DCCT", timeout=OK_TIMEOUT_S)).value is not None
@@ -538,7 +538,7 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
         await pool.connector("live")
 
     assert caught.value.stage == "init"
-    await _wait_for(lambda: not _alive(caught.value.pid))
+    await async_wait_until(lambda: not _alive(caught.value.pid))
     names = [name for name, _ in caught.value.phases]
     assert names == list(START_PHASES[: len(names)])
     assert "connected" not in names
@@ -739,7 +739,7 @@ async def test_close_stops_every_child(pools):
 
     await pool.close()
 
-    await _wait_for(lambda: not any(_alive(pid) for pid in pids))
+    await async_wait_until(lambda: not any(_alive(pid) for pid in pids))
     with pytest.raises(RuntimeError, match="closed"):
         await pool.connector("live")
 
@@ -747,7 +747,7 @@ async def test_close_stops_every_child(pools):
 async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
 
     await pool.close()
 
@@ -762,7 +762,7 @@ async def test_close_during_a_start_leaves_nothing_running(pools, spawns):
 async def test_disconnect_during_a_start_waits_for_it_and_leaves_no_child_running(pools, spawns):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
 
     # A handle on the key, from before the start has handed one out.
     await PooledConnector(pool, ("live", None)).disconnect()
@@ -835,10 +835,11 @@ def test_children_do_not_outlive_a_parent_that_is_killed(isolated):
         parent.kill()
         parent.wait()
 
-    deadline = time.monotonic() + 10.0
-    while time.monotonic() < deadline and any(_alive(pid) for pid in pids):
-        time.sleep(0.1)
-    assert not any(_alive(pid) for pid in pids), "a child outlived its parent"
+    wait_until(
+        lambda: not any(_alive(pid) for pid in pids),
+        interval=0.1,
+        what="every child exiting with its parent",
+    )
 
 
 # ------------------------------------------------------------ handles and batches
@@ -1102,7 +1103,7 @@ async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool
         pid = live.pid
         assert _alive(pid)
 
-    await _wait_for(lambda: not _alive(pid))
+    await async_wait_until(lambda: not _alive(pid))
     assert pool.pids() == {}
     with pytest.raises(RuntimeError, match="ConnectorHostPool is closed"):
         await pool.connector("live")
@@ -1113,7 +1114,7 @@ async def test_a_caller_queued_behind_a_start_that_close_interrupts_is_refused_a
 ):
     pool = pools(_section(SLOW_START))
     starting = asyncio.create_task(pool.connector("live"))
-    await _wait_for(lambda: spawns)
+    await async_wait_until(lambda: spawns)
     queued = asyncio.create_task(pool.connector("live"))
     # Past the pool's first closed check, and waiting on the key's lock.
     await asyncio.sleep(0.1)
@@ -1134,14 +1135,3 @@ async def test_disconnecting_a_key_with_no_child_starts_nothing(pools, spawns):
 
     assert spawns == []
     assert pool.pids() == {}
-
-
-# ------------------------------------------------------------ helpers
-
-
-async def _wait_for(predicate, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while not predicate():
-        if time.monotonic() > deadline:
-            raise AssertionError("condition never became true")
-        await asyncio.sleep(0.05)
