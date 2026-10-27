@@ -15,15 +15,12 @@ sidesteps the ``functools.cache`` wrapped around the real
 from __future__ import annotations
 
 import importlib.util
-import runpy
 import sys
 from pathlib import Path
-from typing import Any
 
-import osprey.version
+from tests.docs._conf import CONF_PY, run_conf
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CONF_PY = _REPO_ROOT / "docs" / "source" / "conf.py"
 _DOCS_PUBLISH_PY = _REPO_ROOT / "scripts" / "ci" / "docs_publish.py"
 
 
@@ -39,19 +36,6 @@ def _load_docs_publish():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def run_conf(monkeypatch, *, released: bool, running: str) -> dict[str, Any]:
-    """Execute ``conf.py`` with a pinned version source and return its namespace."""
-    monkeypatch.setattr(osprey.version, "is_release", lambda: released)
-    monkeypatch.setattr(osprey.version, "get_running_version", lambda: running)
-    monkeypatch.chdir(_CONF_PY.parent)
-
-    saved_path = list(sys.path)
-    try:
-        return runpy.run_path(str(_CONF_PY))
-    finally:
-        sys.path[:] = saved_path
 
 
 def test_release_build_uses_the_running_version(monkeypatch):
@@ -101,7 +85,7 @@ def test_switcher_json_url_matches_the_ci_site_url(monkeypatch):
 
 
 def test_conf_no_longer_shells_out_to_git():
-    source = _CONF_PY.read_text(encoding="utf-8")
+    source = CONF_PY.read_text(encoding="utf-8")
 
     assert "subprocess" not in source
     assert "git describe" not in source
