@@ -11,19 +11,26 @@ import pytest
 from osprey.agent_runner import ResultEvent
 
 
-def stub_osprey_helpers(monkeypatch: pytest.MonkeyPatch, agent_data: Path | None = None) -> None:
+def stub_osprey_helpers(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    agent_data: Path | None = None,
+    open_allowlist: bool = False,
+) -> None:
     """Stub the deferred OSPREY helpers so ``run_dispatch`` runs without a project.
 
     Args:
         monkeypatch: The test's monkeypatch.
         agent_data: When given, the runner's agent-data root (where it creates
-            the agent's Claude state directory), and the tool allowlist is
-            stubbed open, for suites that drive the full client setup.
+            the agent's Claude state directory).
+        open_allowlist: Stub the tool allowlist open, for suites that drive
+            the full client setup.
     """
     if agent_data is not None:
         monkeypatch.setattr(
             "osprey.agent_runner.artifact_resolve.deployed_agent_data_root", lambda: agent_data
         )
+    if open_allowlist:
         monkeypatch.setattr(
             "osprey.agent_runner.sdk_context.make_tool_allowlist",
             lambda tools, denied=(): lambda *a, **k: None,

@@ -32,7 +32,7 @@ from tests.dispatch_worker._runner import stub_osprey_helpers
 @pytest.fixture(autouse=True)
 def _stub_osprey_helpers(monkeypatch, tmp_path):
     """Stub the deferred OSPREY helpers and point the render at ``tmp_path``."""
-    stub_osprey_helpers(monkeypatch, tmp_path / "stub-agent-data")
+    stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
     (tmp_path / "build").mkdir()
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))

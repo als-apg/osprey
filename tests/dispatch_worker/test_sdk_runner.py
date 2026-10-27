@@ -44,7 +44,7 @@ def _stub_osprey_helpers(monkeypatch, tmp_path):
     """Stub the deferred OSPREY helper imports on their source modules."""
     # The runner creates the agent's Claude state directory under the agent-data
     # root; keep that inside the test's own directory.
-    stub_osprey_helpers(monkeypatch, tmp_path / "stub-agent-data")
+    stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
 
 
 def _text(text: str) -> TextEvent:

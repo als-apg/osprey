@@ -34,7 +34,7 @@ from claude_agent_sdk import (
 
 from osprey.mcp_server.dispatch_worker import dispatch_api, run_stats, sdk_runner
 from tests._agent_cli import STUB_AGENT_CLI
-from tests.dispatch_worker._runner import drain
+from tests.dispatch_worker._runner import drain, stub_osprey_helpers
 
 _TOOL = "mcp__controls__channel_read"
 
@@ -59,19 +59,7 @@ _ENV_KEYS = [
 @pytest.fixture(autouse=True)
 def render_dir(monkeypatch, tmp_path) -> Path:
     """A render with one subagent and one declared MCP server; OSPREY helpers stubbed."""
-    monkeypatch.setattr(
-        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
-        lambda: tmp_path / "stub-agent-data",
-    )
-    monkeypatch.setattr("osprey.agent_runner.clean_env.build_clean_env", lambda **kw: {})
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt", lambda *a, **k: "system"
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.make_tool_allowlist",
-        lambda tools, denied=(): lambda *a, **k: None,
-    )
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda *a, **k: "UTC")
+    stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
     monkeypatch.setattr(
         "osprey_connectors.workspace.resolve_shared_data_root",
         lambda: tmp_path / "agent-data",
