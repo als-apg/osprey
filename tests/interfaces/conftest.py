@@ -343,7 +343,7 @@ def launch_graph_channel_finder(
 ) -> Iterator[str]:
     """Serve the Channel Finder in graph mode over the shared demo corpus.
 
-    Mirrors ``_launch_channel_finder`` in ``test_load_smokes.py`` — same
+    Mirrors ``launch_channel_finder`` in ``_launchers.py`` — same
     contract, same yielded live base URL — with the two differences the graph
     paradigm needs: a config that selects it, and the app's ``_make_graph_context``
     seam repointed at the fake store from

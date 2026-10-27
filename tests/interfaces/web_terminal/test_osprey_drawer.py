@@ -25,7 +25,7 @@ Covers the acceptance criteria for B.2/B.3:
     pinning the B.2 review's fixes: C1 (gate installs independent of
     `#tab-config`), M1 (a rapid second click never spawns a second dialog)
 
-Follows the harness pattern from ``test_load_smokes.py``'s ``_launch_web_terminal``:
+Follows the harness pattern from ``_launchers.py``'s ``launch_web_terminal``:
 a real uvicorn web_terminal server on a free port, over an empty ``tmp_path``,
 with the companion-backend spawns (artifact server, panel/web config loaders)
 patched out exactly as the smoke suite does, and a real chromium page via the
@@ -89,7 +89,7 @@ VIEWPORT = {"width": 1280, "height": 800}
 
 
 # ---------------------------------------------------------------------------
-# Live server launcher (mirrors test_load_smokes.py's _launch_web_terminal)
+# Live server launcher (mirrors _launchers.py's launch_web_terminal)
 # ---------------------------------------------------------------------------
 
 

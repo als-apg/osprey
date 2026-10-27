@@ -57,7 +57,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.test_load_smokes import _launch_artifacts
+from tests.interfaces._launchers import launch_artifacts
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -101,7 +101,7 @@ def gallery_url(tmp_path, monkeypatch) -> Iterator[str]:
     No fixture artifacts are seeded — the browse layout and both handles exist
     whether or not the tree has content, and this suite asserts geometry only.
     """
-    with _launch_artifacts(tmp_path, monkeypatch) as base_url:
+    with launch_artifacts(tmp_path, monkeypatch) as base_url:
         yield base_url
 
 

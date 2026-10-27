@@ -3,7 +3,7 @@
 ``test_osprey_drawer.py`` style (see
 ``tests/interfaces/design_system/test_osprey_drawer.py``): a real uvicorn
 lattice_dashboard server over an empty ``tmp_path`` (mirrors
-``test_load_smokes.py``'s ``_launch_lattice_dashboard``) driven by a real
+``_launchers.py``'s ``launch_lattice_dashboard``) driven by a real
 chromium page via the shared ``chromium_browser`` fixture. This is the
 per-cluster behavioral regression net for the computation-settings layer
 (``static/js/settings.js``): it proves the real frontend JS, attached to the

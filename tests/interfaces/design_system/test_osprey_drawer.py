@@ -20,7 +20,7 @@ role that the hub does there. Keeping this out of ``tests/interfaces/ariel/``
 or ``tests/interfaces/web_terminal/`` also leaves the latter namespace clear
 for B.3's parity suite, as directed.
 
-Launches through ``test_load_smokes.py``'s ``_launch_ariel``:
+Launches through ``test_load_smokes.py``'s ``launch_ariel``:
 a real uvicorn ariel server on a free port, monkeypatched into an empty
 ``tmp_path`` (no ``config.yml`` — the Settings drawer's config fetch 404s,
 which never touches the focusable-element set this suite's a11y assertions
@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces.test_load_smokes import _launch_ariel
+from tests.interfaces._launchers import launch_ariel
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -88,7 +88,7 @@ def _open_settings_drawer(page: Page) -> None:
 
 def test_custom_element_upgrades_and_page_loads_clean(tmp_path, monkeypatch, chromium_browser):
     """``settings-drawer`` upgrades to the real class; the page loads with no error."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         assert_page_loads_clean(page, base_url)
 
@@ -110,7 +110,7 @@ def test_custom_element_upgrades_and_page_loads_clean(tmp_path, monkeypatch, chr
 
 def test_open_via_trigger_and_close_via_close_button(tmp_path, monkeypatch, chromium_browser):
     """The popover's Settings entry opens the drawer; the close button closes it."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
@@ -128,7 +128,7 @@ def test_open_via_trigger_and_close_via_close_button(tmp_path, monkeypatch, chro
 
 def test_close_via_backdrop_click(tmp_path, monkeypatch, chromium_browser):
     """Clicking the shared backdrop closes the open drawer."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
@@ -150,7 +150,7 @@ def test_close_via_backdrop_click(tmp_path, monkeypatch, chromium_browser):
 
 def test_close_via_escape_key(tmp_path, monkeypatch, chromium_browser):
     """Pressing Escape while a drawer is open closes it."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
@@ -168,7 +168,7 @@ def test_close_via_escape_key(tmp_path, monkeypatch, chromium_browser):
 
 def test_single_active_exclusivity(tmp_path, monkeypatch, chromium_browser):
     """Opening a second drawer closes any other open drawer (module-level exclusivity)."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
@@ -198,7 +198,7 @@ def test_single_active_exclusivity(tmp_path, monkeypatch, chromium_browser):
 
 def test_focus_enters_traps_and_restores_on_close(tmp_path, monkeypatch, chromium_browser):
     """Opening moves focus in and traps Tab; closing restores focus to the trigger."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
@@ -232,7 +232,7 @@ def test_focus_enters_traps_and_restores_on_close(tmp_path, monkeypatch, chromiu
 
 def test_dialog_aria_semantics(tmp_path, monkeypatch, chromium_browser):
     """The open drawer exposes role=dialog/aria-modal and a resolvable accessible name."""
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 
@@ -270,7 +270,7 @@ def test_background_inert_while_open_including_preexisting_modal(
     opens the drawer and the entry modal at the same time, so this pins the
     decision rather than working around a real conflict.
     """
-    with _launch_ariel(tmp_path, monkeypatch) as base_url:
+    with launch_ariel(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
 

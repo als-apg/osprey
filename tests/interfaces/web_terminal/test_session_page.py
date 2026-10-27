@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.interfaces.test_load_smokes import _launch_web_terminal
+from tests.interfaces._launchers import launch_web_terminal
 
 try:
     from playwright.sync_api import expect
@@ -58,7 +58,7 @@ def test_session_nav_pills_switch_views(tmp_path, monkeypatch, chromium_browser)
     does not -- session.js's handler toggles all of them together in one
     click handler, so a partial update would be a real regression.
     """
-    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
 
         # Arrange -- initial load triggers refreshActive() for the default view.
@@ -95,7 +95,7 @@ def test_session_refresh_loop_repaints_active_view(tmp_path, monkeypatch, chromi
     faked clock by the time that line executes -- installing afterward would
     leave it bound to a real timer instead.
     """
-    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+    with launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
         page.clock.install()
 

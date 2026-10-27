@@ -12,7 +12,7 @@ Three things only a live page can prove, all of them wired in
 - the warning class (a pre-existing ``validate()`` error, valid vocabulary)
   renders ``#config-warning-banner`` instead and leaves the button usable.
 
-The panel is booted the way ``test_load_smokes.py::_launch_ariel`` boots it —
+The panel is booted the way ``_launchers.py::launch_ariel`` boots it —
 a real ``create_app()`` on a real uvicorn server — with a real ``config.yml``
 written into ``tmp_path`` and ``create_ariel_service`` patched, so the
 configuration classification, the ``/api/capabilities`` payload and the
@@ -127,7 +127,7 @@ def _launch_ariel_with_config(
 ) -> Iterator[str]:
     """Boot standalone ARIEL against a real ``config.yml``, with no database.
 
-    Mirrors ``test_load_smokes.py::_launch_ariel`` (cwd isolation + the real
+    Mirrors ``_launchers.py::launch_ariel`` (cwd isolation + the real
     ``create_app()`` on a real server); the config file is written first and
     handed to the factory explicitly, so a relative ``ariel.vocabulary.path``
     resolves against ``tmp_path`` and no stray ``/app/config.yml`` or

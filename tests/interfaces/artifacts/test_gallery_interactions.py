@@ -28,7 +28,7 @@ Covers:
     bar -- proving the direct-import wiring actually renders them (a
     grep-level check that no window bridge exists can't show that)
 
-Unlike test_load_smokes.py's `_launch_artifacts` (an empty tmp_path -- fine
+Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
 on-disk artifacts: ArtifactStore.list_entries() reflects whatever the
 `artifacts.json` index says, and the gallery has nothing to filter/select
