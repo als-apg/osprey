@@ -9,7 +9,9 @@ never selected the approval hook is asked for, and what counts as "stated".
 
 The **CLI** half runs the real ``osprey init`` + ``osprey build``, because the
 floor is only worth anything if it is wired into the gate a build actually
-passes through. Each preset is built once and cached for the
+passes through. The builds pass ``--skip-deps``: the gate reads the rendered
+config, which the project venv does not change, and the venv install has its
+own tests. Each preset is built once and cached for the
 module; the refusals then take one built hello-world repo, delete a single
 required line from its ``profile.yml``, and rebuild — so the assertion is on the
 message the CLI prints, not on a function called in isolation.
@@ -461,14 +463,11 @@ def _output(result: subprocess.CompletedProcess[str]) -> str:
 
 
 @pytest.fixture(scope="module")
-def built_preset(
-    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
-) -> Any:
+def built_preset(tmp_path_factory: pytest.TempPathFactory) -> Any:
     """Build a preset once per module and hand back its repo.
 
     Args:
         tmp_path_factory: Pytest's session-scoped directory factory.
-        offline_build_env: Environment additions each build's install runs under.
 
     Returns:
         A callable taking a preset name and returning the built repo directory.
@@ -487,9 +486,7 @@ def built_preset(
         init = _run_cli(["init", PROJECT_NAME, "--preset", preset, "--no-git"], workspace)
         assert init.returncode == 0, f"osprey init {preset} failed:\n{_output(init)}"
         repo = workspace / PROJECT_NAME
-        build = _run_cli(["build"], repo, offline_build_env)
-        # Every reader of this repo reads its rendered files, never the venv.
-        shutil.rmtree(repo / "build" / ".venv", ignore_errors=True)
+        build = _run_cli(["build", "--skip-deps"], repo)
         assert build.returncode == 0, f"osprey build ({preset}) failed:\n{_output(build)}"
         built[preset] = repo
         return repo

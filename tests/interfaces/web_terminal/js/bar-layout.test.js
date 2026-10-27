@@ -258,14 +258,19 @@ describe('dropping', () => {
     );
     expect(types(result.layout.header)).toEqual(['logo', 'docs']);
     expect(types(result.layout.status)).toEqual(['clock']);
-    expect(result.dropped).toEqual([{ host: 'status', index: 0, type: 'docs', reason: 'duplicate' }]);
+    expect(result.dropped).toEqual([
+      { host: 'status', index: 0, type: 'docs', reason: 'duplicate' },
+    ]);
     expect(result.changed).toBe(true);
     expect(result.readonly).toBe(false);
   });
 
   test('a type the catalog marks multi may be placed as often as the cap allows', () => {
     const result = normalize(
-      doc({ header: [item('clock'), item('separator'), item('clock')], status: [item('separator')] }),
+      doc({
+        header: [item('clock'), item('separator'), item('clock')],
+        status: [item('separator')],
+      }),
       BAR_CATALOG,
       {}
     );

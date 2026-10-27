@@ -235,7 +235,9 @@ def test_a_file_swapped_for_another_between_the_check_and_the_open_is_not_read(
 
     def swapping_open(path, flags, *args, **kwargs):
         if path == "kept.json":
-            target.unlink()
+            # Renamed aside, not unlinked: the original keeps its inode, so the
+            # replacement cannot be handed the same number by the filesystem.
+            target.rename(target.with_name("original.json"))
             target.write_bytes(b"swapped")
         return real_open(path, flags, *args, **kwargs)
 

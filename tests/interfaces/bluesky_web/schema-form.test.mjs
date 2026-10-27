@@ -741,9 +741,9 @@ describe('applyValues (field registry / programmatic draft application)', () => 
     collect.applyValues({ correctors: ['HCM9'] });
 
     expect(addInput.value).toBe('');
-    expect($$(correctors, '.channel-item').map((li) => $(li, '.channel-name').textContent)).toEqual([
-      'HCM9',
-    ]);
+    expect($$(correctors, '.channel-item').map((li) => $(li, '.channel-name').textContent)).toEqual(
+      ['HCM9']
+    );
     expect(collect().correctors).toEqual(['HCM9']);
 
     // A subsequent apply-to-empty clears the list entirely.

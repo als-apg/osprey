@@ -19,7 +19,10 @@ function fakeApi() {
 }
 
 /** The two bar kinds, which share one close control. */
-const CLOSE_BARS = [['service', 'iframe:ariel'], ['terminal', 'terminal']];
+const CLOSE_BARS = [
+  ['service', 'iframe:ariel'],
+  ['terminal', 'terminal'],
+];
 
 /**
  * The page's terminal header, built DETACHED from the document — the real
@@ -66,21 +69,24 @@ describe('tile-tab renderer', () => {
     const api = fakeApi();
     const tab = createTileTab(id);
     tab.init({ title: 'ARIEL', params: {}, api });
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
-      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close')).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
     expect(api.close).toHaveBeenCalledTimes(1);
   });
 
-  test.each(CLOSE_BARS)('%s close pointerdown is prevented so it cannot start a tile drag', async (_kind, id) => {
-    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
-    setTerminalHeaderSource(detachedTerminalHeader());
-    const tab = createTileTab(id);
-    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
-    const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'))
-      .dispatchEvent(ev);
-    expect(ev.defaultPrevented).toBe(true);
-  });
+  test.each(CLOSE_BARS)(
+    '%s close pointerdown is prevented so it cannot start a tile drag',
+    async (_kind, id) => {
+      const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+      setTerminalHeaderSource(detachedTerminalHeader());
+      const tab = createTileTab(id);
+      tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+      const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+      /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close')).dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+    }
+  );
 
   test('the strip carries the dockview panel id as a stable handle', async () => {
     const { createTileTab } = await import(MOD);
@@ -94,7 +100,11 @@ describe('tile-tab renderer', () => {
     const api = fakeApi();
     /** @type {(e: {title: string}) => void} */ let onTitle = () => {};
     api.onDidTitleChange = /** @type {any} */ (
-      vi.fn((/** @type {any} */ fn) => { onTitle = fn; return { dispose: vi.fn() }; }));
+      vi.fn((/** @type {any} */ fn) => {
+        onTitle = fn;
+        return { dispose: vi.fn() };
+      })
+    );
     const tab = createTileTab('iframe:okf');
     tab.init({ title: 'KNOWLEDGE', params: {}, api });
 
@@ -122,8 +132,9 @@ describe('tile-tab renderer', () => {
     const reachedRoot = vi.fn();
     tab.element.addEventListener('pointerdown', reachedRoot);
 
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title'))
-      .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title')).dispatchEvent(
+      new MouseEvent('pointerdown', { bubbles: true, cancelable: true })
+    );
     expect(reachedRoot).toHaveBeenCalledTimes(1);
   });
 
@@ -172,15 +183,16 @@ describe('tile-tab renderer', () => {
       const reachedRoot = vi.fn();
       tab.element.addEventListener('pointerdown', reachedRoot);
 
-      tab.element.querySelector('#session-selector')
+      tab.element
+        .querySelector('#session-selector')
         .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
       expect(reachedRoot).not.toHaveBeenCalled(); // contained — no tile drag
 
-      tab.element.querySelector('.terminal-header')
+      tab.element
+        .querySelector('.terminal-header')
         .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
       expect(reachedRoot).toHaveBeenCalledTimes(1); // plain surface drags
     });
-
   });
 });
 
@@ -203,7 +215,10 @@ describe('tile header context menu', () => {
   /** A right-click, cancelable so defaultPrevented is observable. */
   function rightClick(x = 40, y = 12) {
     return new MouseEvent('contextmenu', {
-      bubbles: true, cancelable: true, clientX: x, clientY: y,
+      bubbles: true,
+      cancelable: true,
+      clientX: x,
+      clientY: y,
     });
   }
 
@@ -287,13 +302,16 @@ describe('tile header context menu', () => {
 
     // The close button is interactive too, by the same rule.
     const onClose = rightClick();
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close')).dispatchEvent(onClose);
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close')).dispatchEvent(
+      onClose
+    );
     expect(handler).not.toHaveBeenCalled();
     expect(onClose.defaultPrevented).toBe(false);
 
     // Plain bar surface still opens the menu.
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title'))
-      .dispatchEvent(rightClick());
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title')).dispatchEvent(
+      rightClick()
+    );
     expect(handler).toHaveBeenCalledTimes(1);
 
     // The terminal bar's adopted header applies the same rule to its selector.
@@ -303,7 +321,9 @@ describe('tile header context menu', () => {
     terminal.init({ title: 'SESSION', params: {}, api: fakeApi() });
     document.body.appendChild(terminal.element);
     const onSelector = rightClick();
-    /** @type {HTMLElement} */ (header.querySelector('#session-selector')).dispatchEvent(onSelector);
+    /** @type {HTMLElement} */ (header.querySelector('#session-selector')).dispatchEvent(
+      onSelector
+    );
     expect(handler).toHaveBeenCalledTimes(1);
     expect(onSelector.defaultPrevented).toBe(false);
   });
@@ -348,9 +368,9 @@ describe('tile header context menu', () => {
     second.init({ title: 'SESSION', params: {}, api: fakeApi() });
     document.body.appendChild(second.element);
 
-    /** @type {HTMLElement} */ (second.element.querySelector('.terminal-header'))
-      .dispatchEvent(rightClick());
+    /** @type {HTMLElement} */ (second.element.querySelector('.terminal-header')).dispatchEvent(
+      rightClick()
+    );
     expect(handler).toHaveBeenCalledTimes(1);
   });
-
 });

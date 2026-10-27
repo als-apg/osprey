@@ -161,7 +161,7 @@ class McpServerDef:
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
     permissions: dict[str, list[str]] = field(default_factory=dict)
-    # permissions: {"allow": ["tool1"], "ask": ["tool2"]}
+    # permissions: {"allow": ["tool1"], "ask": ["tool2"]}  # noqa: ERA001 -- an example value
     url: str | None = None  # Remote transport URL (mutually exclusive with command)
     # Wire transport for URL servers: "http" (streamable-HTTP, the default) or
     # "sse" (legacy Server-Sent Events). Stdio servers (command) must not set

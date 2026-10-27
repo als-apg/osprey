@@ -13,7 +13,8 @@ what pip is actually asked to do:
 
 - the standalone Virtual Accelerator image (``docker/virtual-accelerator/
   Containerfile``) builds every ``./packages/*/`` member from source before the
-  framework, under the same ``SETUPTOOLS_SCM_PRETEND_VERSION``;
+  framework, each under its own stream's ``SETUPTOOLS_SCM_PRETEND_VERSION``
+  (osprey-connectors' own number, everything else the framework's);
 - the service Dockerfiles whose dev wheel layer resolves the framework wheel
   with an extra pass every staged non-framework wheel in that same pip call.
 """
@@ -45,6 +46,7 @@ RESOLVING_SERVICES = {
 }
 
 OSPREY_VERSION = "2026.9.23.dev7"
+OSPREY_CONNECTORS_VERSION = "2026.10.0.post3+g123456789"
 
 
 def _run_bodies(text: str) -> list[str]:
@@ -88,7 +90,11 @@ def _containerfile_install_body() -> str:
 
 
 def _run_containerfile_install(
-    tmp_path: pathlib.Path, members: tuple[str, ...], *, failing: str | None = None
+    tmp_path: pathlib.Path,
+    members: tuple[str, ...],
+    *,
+    failing: str | None = None,
+    connectors_version: str | None = OSPREY_CONNECTORS_VERSION,
 ) -> tuple[subprocess.CompletedProcess, list[tuple[str, list[str]]]]:
     """Execute the install RUN in a staged tree holding *members* under packages/."""
     workdir = tmp_path / "opt-osprey"
@@ -104,6 +110,8 @@ def _run_containerfile_install(
             )
         )
     env["OSPREY_VERSION"] = OSPREY_VERSION
+    # A Containerfile ARG with an empty default reaches RUN as an empty variable.
+    env["OSPREY_CONNECTORS_VERSION"] = connectors_version or ""
     result = subprocess.run(
         ["sh", "-c", _containerfile_install_body()],
         cwd=workdir,
@@ -143,18 +151,40 @@ def test_containerfile_installs_each_member_before_the_framework(tmp_path):
     )
 
 
+def _pretend_versions(calls: list[tuple[str, list[str]]]) -> dict[str, str]:
+    """``{member or "framework": SETUPTOOLS_SCM_PRETEND_VERSION}`` per source build."""
+    versions = {}
+    for version, argv in calls:
+        if ".[virtual-accelerator]" in argv:
+            versions["framework"] = version
+        for member in WORKSPACE_MEMBERS:
+            if any(a.rstrip("/").endswith(f"packages/{member}") for a in argv):
+                versions[member] = version
+    return versions
+
+
 def test_containerfile_member_builds_carry_the_pretend_version(tmp_path):
     """The staged context has no .git, so every source build — members and
-    framework alike — needs the host-resolved version handed to setuptools-scm."""
+    framework alike — needs the host-resolved version handed to setuptools-scm.
+    osprey-connectors has its own calendar stream, so it gets its own number;
+    every other build gets the framework's."""
     _, calls = _run_containerfile_install(tmp_path, WORKSPACE_MEMBERS)
-    source_builds = [
-        (version, argv)
-        for version, argv in calls
-        if ".[virtual-accelerator]" in argv or any("packages/" in a for a in argv)
-    ]
-    assert len(source_builds) == len(WORKSPACE_MEMBERS) + 1, calls
-    for version, argv in source_builds:
-        assert version == OSPREY_VERSION, f"{argv} built without the pretend version"
+    versions = _pretend_versions(calls)
+    assert set(versions) == {*WORKSPACE_MEMBERS, "framework"}, calls
+    for build, version in versions.items():
+        expected = OSPREY_CONNECTORS_VERSION if build == "osprey-connectors" else OSPREY_VERSION
+        assert version == expected, f"{build} built with {version!r}, not {expected!r}"
+
+
+def test_containerfile_connectors_falls_back_to_the_framework_version(tmp_path):
+    """A caller that passes only OSPREY_VERSION (any from before the split)
+    still builds: connectors carries the framework's number, as it used to."""
+    _, calls = _run_containerfile_install(tmp_path, WORKSPACE_MEMBERS, connectors_version=None)
+    assert set(_pretend_versions(calls).values()) == {OSPREY_VERSION}, calls
+
+
+def test_containerfile_declares_the_connectors_version_arg():
+    assert re.search(r"^ARG OSPREY_CONNECTORS_VERSION=$", CONTAINERFILE.read_text(), re.M)
 
 
 def test_containerfile_member_loop_covers_an_unlisted_member(tmp_path):

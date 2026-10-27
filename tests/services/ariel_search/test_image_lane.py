@@ -28,7 +28,7 @@ TABLE = image_table_name(MODEL, DIMS)
 #: The lane's own deadline plus room for a loaded CI runner to wake the event
 #: loop late. Well under a doubled timeout, so a lane that waits a provider
 #: out, or uses a looser deadline, still fails the bound.
-LANE_DEADLINE_S = image_lane.IMAGE_QUERY_TIMEOUT_S + 1
+LANE_DEADLINE_S = image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1
 BOUND_S = LANE_DEADLINE_S + 3.0
 
 
@@ -38,7 +38,7 @@ MEASURED_QUERY_P95_S = 0.94
 
 
 def test_query_timeout_is_twice_the_measured_p95_and_never_under_five():
-    assert image_lane.IMAGE_QUERY_TIMEOUT_S == max(5.0, 2 * MEASURED_QUERY_P95_S)
+    assert image_lane.QUERY_EMBEDDING_TIMEOUT_S == max(5.0, 2 * MEASURED_QUERY_P95_S)
 
 
 # ---------------------------------------------------------------------------

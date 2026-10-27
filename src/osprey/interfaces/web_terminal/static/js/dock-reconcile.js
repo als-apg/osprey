@@ -168,10 +168,16 @@ function flattenLeaves(node) {
  * @returns {boolean}
  */
 function isSerializedDockview(data) {
-  return !!data && typeof data === 'object'
-    && !!data.grid && typeof data.grid === 'object'
-    && !!data.grid.root && typeof data.grid.root === 'object'
-    && !!data.panels && typeof data.panels === 'object';
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    !!data.grid &&
+    typeof data.grid === 'object' &&
+    !!data.grid.root &&
+    typeof data.grid.root === 'object' &&
+    !!data.panels &&
+    typeof data.panels === 'object'
+  );
 }
 
 /**

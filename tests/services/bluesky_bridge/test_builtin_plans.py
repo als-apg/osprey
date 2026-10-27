@@ -76,7 +76,7 @@ from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams
 from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
 
 # =========================================================================
-# GridScanParams (plans_core/grid_scan.py)
+# Tests of GridScanParams in plans_core/grid_scan.py
 # =========================================================================
 
 

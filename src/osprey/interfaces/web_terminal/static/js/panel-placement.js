@@ -40,7 +40,10 @@
  */
 
 import {
-  withEchoSuppressed, dockPanelAt, dockPanelBesideActive, serializeOpenTiles,
+  withEchoSuppressed,
+  dockPanelAt,
+  dockPanelBesideActive,
+  serializeOpenTiles,
 } from './dock-sync.js';
 import { hidePanel, PLACEHOLDER_PREFIX } from './dock-iframe.js';
 import { getDockApi } from './dock-workspace.js';
@@ -116,7 +119,7 @@ export function hasDockedTile(panelId) {
 function hasAnyServiceTile() {
   const panels = getDockApi()?.panels;
   return (Array.isArray(panels) ? panels : []).some(
-    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX),
+    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX)
   );
 }
 
@@ -147,7 +150,10 @@ function revealOpenedPanel(panelId, wasOnScreen) {
  * @param {string} panelId
  */
 export function openPanelBeside(panelId) {
-  if (panelId === TERMINAL_RAIL_ID) { ctx().openTerminal(); return; }
+  if (panelId === TERMINAL_RAIL_ID) {
+    ctx().openTerminal();
+    return;
+  }
   const wasOnScreen = hasDockedTile(panelId);
   dockPanelBesideActive(panelId, ctx().label(panelId));
   revealOpenedPanel(panelId, wasOnScreen);
@@ -251,9 +257,11 @@ function rebuildTiles(tiles) {
       // leaving it out of the walk would strand it outside the requested order.
       if (!c.isHealthy(id) && !hasDockedTile(id)) continue;
       const group = prev ? api.getPanel(PLACEHOLDER_PREFIX + prev)?.group : null;
-      dockPanelAt(id, c.label(id), group
-        ? { referenceGroup: group, direction: 'right' }
-        : { direction: 'left' });
+      dockPanelAt(
+        id,
+        c.label(id),
+        group ? { referenceGroup: group, direction: 'right' } : { direction: 'left' }
+      );
       // Advance only for a tile that actually landed: a skipped panel — or a
       // placement that threw — must not become the anchor the next one splits
       // against, which is what could push a tile to the terminal's right.

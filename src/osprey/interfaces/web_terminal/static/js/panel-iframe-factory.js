@@ -9,7 +9,12 @@
  * vs "when one is needed".
  */
 
-import { sendThemeToIframe, sendSessionToIframe, sendModeToIframe, buildEmbedSrc } from './panel-iframe-sync.js';
+import {
+  sendThemeToIframe,
+  sendSessionToIframe,
+  sendModeToIframe,
+  buildEmbedSrc,
+} from './panel-iframe-sync.js';
 import { adoptIframe, setPanelReachable } from './dock-iframe.js';
 import { clockTime } from './panel-rail.js';
 
@@ -48,12 +53,13 @@ export function createPanelIframe(panel, panelId, state, contentEl) {
   // otherwise base URL. For custom panels with a subpath (e.g. path:
   // "/panel/"), append it so the iframe loads the UI root, not the API root.
   const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
-  const targetUrl = state.pendingUrl || (state.url + panelPath);
+  const targetUrl = state.pendingUrl || state.url + panelPath;
   state.pendingUrl = null;
   // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
   // subpath); buildEmbedSrc preserves it verbatim.
   iframe.src = buildEmbedSrc(targetUrl);
-  iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
+  iframe.sandbox =
+    'allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads';
 
   // Cleared by the first load; the notice it raised, if any, goes with it.
   const loadStartedAt = Date.now();

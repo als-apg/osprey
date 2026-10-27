@@ -319,3 +319,47 @@ class TestPanelPathIsARewritePrefix:
                 app, client, "/panel/pvinfo/pvinfo/app.js", self._JS_BODY, "text/javascript"
             )
         assert text == self._JS_BODY
+
+
+#: A page served from a panel whose ``path`` derives ``/panel/``, and where
+#: each root-absolute literal in it must land (outer prefix left off).
+_SEGMENT_PANEL = "my-dash"
+_SEGMENT_LITERALS = {
+    "/design-system/js/theme-boot.js": "/panel/my-dash/design-system/js/theme-boot.js",
+    "/design-system/css/tokens.css": "/panel/my-dash/design-system/css/tokens.css",
+    "/static/fonts/fonts.css": "/panel/my-dash/static/fonts/fonts.css",
+    "/panel/app.js": "/panel/my-dash/panel/app.js",
+    "/api/run": "/panel/my-dash/api/run",
+}
+_SEGMENT_PAGE = """<!DOCTYPE html>
+<html lang="en"><head>
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel='stylesheet' href='/static/fonts/fonts.css'>
+<script type="module">
+  import { app } from "/panel/app.js";
+  const door = `/api/run`;
+</script>
+</head><body></body></html>
+"""
+
+
+@pytest.mark.parametrize("outer", ["", "/u/alice"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param((), id="no-extra"),
+        pytest.param(("/panel/",), id="derived-panel"),
+        pytest.param(("/panel/", f"/panel/{_SEGMENT_PANEL}/"), id="overlapping-extras"),
+    ],
+)
+def test_rewrite_content_prefixes_each_literal_once(outer, extra):
+    """No prefix rewrites a literal another prefix already rebased."""
+    rewritten = _rewrite_content(_SEGMENT_PAGE, _SEGMENT_PANEL, outer, extra)
+
+    for original, rebased in _SEGMENT_LITERALS.items():
+        if original.startswith("/panel/") and not extra:
+            continue
+        assert any(f"{q}{outer}{rebased}" in rewritten for q in "\"'`"), original
+    doubled = f"/panel/{_SEGMENT_PANEL}/panel/{_SEGMENT_PANEL}"
+    assert doubled not in rewritten

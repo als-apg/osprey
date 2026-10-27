@@ -1,0 +1,92 @@
+{
+  "name": "hit-off-dock",
+  "rule": "hit-precedence",
+  "layout": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "dockRect": {
+    "x": 0,
+    "y": 0,
+    "width": 1000,
+    "height": 600
+  },
+  "tabRects": {
+    "t1": {
+      "barRect": {
+        "x": 0,
+        "y": 0,
+        "width": 500,
+        "height": 30
+      },
+      "tabRects": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 100,
+          "height": 30
+        }
+      ]
+    },
+    "t2": {
+      "barRect": {
+        "x": 500,
+        "y": 0,
+        "width": 300,
+        "height": 30
+      },
+      "tabRects": [
+        {
+          "x": 500,
+          "y": 0,
+          "width": 100,
+          "height": 30
+        }
+      ]
+    },
+    "t3": {
+      "barRect": {
+        "x": 800,
+        "y": 0,
+        "width": 200,
+        "height": 30
+      },
+      "tabRects": [
+        {
+          "x": 800,
+          "y": 0,
+          "width": 100,
+          "height": 30
+        }
+      ]
+    }
+  },
+  "point": {
+    "x": 500,
+    "y": 650
+  },
+  "source": {
+    "new": "d"
+  },
+  "target": null,
+  "resultRect": null
+}

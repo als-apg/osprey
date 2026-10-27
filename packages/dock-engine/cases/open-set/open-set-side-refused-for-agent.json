@@ -1,0 +1,45 @@
+{
+  "name": "open-set-side-refused-for-agent",
+  "rule": "rule-15",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "openSet",
+    "members": ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9"],
+    "as": "side",
+    "context": {
+      "focusedTile": "t2",
+      "dock": {
+        "px": {
+          "width": 400,
+          "height": 200
+        },
+        "minPx": 40
+      },
+      "caller": "agent"
+    }
+  },
+  "after": "unchanged",
+  "refusal": "too_many_for_side"
+}

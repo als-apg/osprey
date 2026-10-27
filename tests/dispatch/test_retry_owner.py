@@ -177,7 +177,7 @@ async def test_owner_less_history_entries_carry_no_owner_key():
 
 
 # ---------------------------------------------------------------------------
-# POST /retry/{trigger_name}
+# Tests of POST /retry/{trigger_name}
 # ---------------------------------------------------------------------------
 
 

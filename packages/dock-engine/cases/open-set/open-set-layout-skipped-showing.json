@@ -1,0 +1,100 @@
+{
+  "name": "open-set-layout-skipped-showing",
+  "rule": "rule-16",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "openSet",
+    "members": ["d", "e", "f"],
+    "as": "layout",
+    "layout": {
+      "split": "column",
+      "items": [
+        {
+          "tabs": ["d", "f"],
+          "showing": "f"
+        },
+        {
+          "tabs": ["e"]
+        }
+      ]
+    },
+    "skip": ["f"],
+    "context": {
+      "focusedTile": "t2",
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      },
+      "caller": "agent"
+    }
+  },
+  "after": {
+    "split": "column",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["d"],
+        "showing": "d",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["e"],
+        "showing": "e",
+        "size": 0.5
+      }
+    ]
+  },
+  "skipped": ["f"],
+  "record": {
+    "kind": "layout",
+    "layout": {
+      "split": "row",
+      "items": [
+        {
+          "tile": "t1",
+          "tabs": ["a"],
+          "showing": "a",
+          "size": 0.5
+        },
+        {
+          "tile": "t2",
+          "tabs": ["b"],
+          "showing": "b",
+          "size": 0.3
+        },
+        {
+          "tile": "t3",
+          "tabs": ["c"],
+          "showing": "c",
+          "size": 0.2
+        }
+      ]
+    }
+  }
+}

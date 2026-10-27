@@ -1,0 +1,22 @@
+{
+  "name": "validate-collection-zero-weight",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tabs": [0],
+        "size": 0
+      },
+      {
+        "tabs": [1]
+      }
+    ]
+  },
+  "options": {
+    "form": "collection",
+    "members": 2
+  },
+  "reason": "bad_size",
+  "where": "layout.items[0].size"
+}

@@ -45,6 +45,7 @@ import { activityLabel } from './chat-activity.js';
 import { renderMarkdownInto } from './chat-markdown.js';
 import { emitChat } from './chat-events.js';
 import { systemFrame } from './chat-system.js';
+import { endsTurn } from './chat-frames.js';
 
 export { elem } from './chat-dom.js';
 
@@ -367,7 +368,7 @@ export function createChatRenderer(container, options = {}) {
     const id = String(event.tool_use_id ?? '');
     if (raw === 'Agent' || raw === 'Task') {
       const agent = t.group.addAgent(event, (el, text) =>
-        renderMarkdownInto(el, text, { math: true }),
+        renderMarkdownInto(el, text, { math: true })
       );
       if (id) {
         agents.set(id, agent);
@@ -382,7 +383,9 @@ export function createChatRenderer(container, options = {}) {
   /** @param {Record<string, any>} event - a `tool_use` event for TodoWrite */
   function upsertPlan(event) {
     const todos = event.input?.todos;
-    const items = Array.isArray(todos) ? todos.filter((item) => item && typeof item === 'object') : [];
+    const items = Array.isArray(todos)
+      ? todos.filter((item) => item && typeof item === 'object')
+      : [];
     const t = ensureTurn();
     if (!t.tasks) {
       closeAll(t);
@@ -679,7 +682,7 @@ export function createChatRenderer(container, options = {}) {
         if (turn) turn.entry.appendChild(block);
         else append(block);
         // An assistant-message error leaves the turn streaming; anything else ends it.
-        if (event.error_type !== 'AssistantMessageError') endTurn();
+        if (endsTurn(event)) endTurn();
         break;
       }
       case 'system': {

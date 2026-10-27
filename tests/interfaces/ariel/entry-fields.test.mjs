@@ -308,7 +308,9 @@ describe('logbook / shift override', () => {
     // A section holding only the override is not rendered.
     expect(document.querySelectorAll('[data-entry-field-section]').length).toBe(0);
     // The built-in path's FormData reads the declared value.
-    const fd = new FormData(/** @type {HTMLFormElement} */ (document.getElementById('create-entry-form')));
+    const fd = new FormData(
+      /** @type {HTMLFormElement} */ (document.getElementById('create-entry-form'))
+    );
     expect(fd.get('logbook')).toBe('ops');
     expect(mod.collectEntryFieldValues()).toEqual({ logbook: 'ops' });
   });
@@ -317,7 +319,14 @@ describe('logbook / shift override', () => {
     stubOptionsFetch(() => []);
     const mod = await load();
     await mod.renderEntryFields([
-      { name: 'shift', label: 'Shift', description: '', type: 'text', default: 'owl', section: 'X' },
+      {
+        name: 'shift',
+        label: 'Shift',
+        description: '',
+        type: 'text',
+        default: 'owl',
+        section: 'X',
+      },
     ]);
     const shift = /** @type {HTMLInputElement} */ (document.getElementById('entry-shift'));
     expect(shift.dataset.entryField).toBe('shift');
@@ -385,7 +394,9 @@ describe('dynamic select', () => {
   test('a blank parent is left out of the query', async () => {
     const calls = stubOptionsFetch(() => []);
     const mod = await load();
-    await mod.renderEntryFields(FIELDS.map((f) => (f.name === 'day' ? { ...f, default: null } : f)));
+    await mod.renderEntryFields(
+      FIELDS.map((f) => (f.name === 'day' ? { ...f, default: null } : f))
+    );
     const url = new URL(calls[0], window.location.origin);
     expect([...url.searchParams.keys()]).toEqual([]);
   });

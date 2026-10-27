@@ -62,7 +62,7 @@ design, and a rerun must not inherit their state.
 
 Gating: needs Docker. Skipped entirely if unavailable. Lives in ``tests/e2e/``
 (not ``tests/integration/``) so the fast lane (``pytest tests/ --ignore=tests/e2e``,
-see ``ci_check.sh``/``premerge_check.sh``/ci.yml's ``test`` job) never collects
+see the ``pytest`` check in ``scripts/check.py`` and ci.yml's ``test`` job) never collects
 this real-container build+deploy; it runs instead in its own
 ``bluesky-deploy-e2e`` CI job (mirrors ``dispatch-deploy-e2e``'s setup, minus the
 LLM secret/pre-flight probe this test doesn't need).

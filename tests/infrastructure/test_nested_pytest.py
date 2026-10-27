@@ -5,51 +5,117 @@ writes nothing for the stall window is stopped and its output reported. A
 finished run says how long it sat silent before it exited. A
 nested run's temporary directories, and the pruning pytest does of them at
 exit, stay inside a root of its own.
+
+The children here take no time of their own. Each says its words one at a time
+and waits after each to be told to go on, and the run is measured on a
+``_ConversationClock`` that moves only between a word and that go-ahead. What
+the run counts as elapsed is then fixed by the test, not by how loaded the host
+is or how late a poll sees a write.
 """
 
 from __future__ import annotations
 
 import getpass
 import os
+import signal
 import sys
+from pathlib import Path
 
 import pytest
 
 from tests._nested_pytest import run_nested_pytest
 
-# Every stall window here is generous: it starts at Popen, so the child's
-# interpreter start-up counts as silence, and a loaded runner can take over a
-# second to reach the first print.
-_TALKER = "import time\nfor _ in range(30):\n    print('.', flush=True)\n    time.sleep(0.5)\n"
+#: Says each argument after the first on its own line, records how many it has
+#: said, and its pid, in the file the first names, then waits for ``SIGUSR1``
+#: before the next. It exits after the last go-ahead. The wait is on an event
+#: the signal sets, which keeps a go-ahead that comes early and, unlike
+#: ``signal.sigwait`` on macOS, still dies of ``SIGABRT`` with its stacks.
+_CHILD = """\
+import os, signal, sys, threading
+go = threading.Event()
+signal.signal(signal.SIGUSR1, lambda *_: go.set())
+said = sys.argv[1]
+for count, word in enumerate(sys.argv[2:], 1):
+    print(word, flush=True)
+    with open(said + ".new", "w") as record:
+        record.write(f"{os.getpid()} {count}")
+    os.replace(said + ".new", said)
+    go.wait()
+    go.clear()
+"""
 
 
-def test_a_run_that_keeps_writing_is_not_stopped_by_its_length():
+class _ConversationClock:
+    """A clock for ``run_nested_pytest`` that moves with what ``_CHILD`` says.
+
+    It stands still until the child has said a new word, and for one reading
+    more: the run checks the streams before it reads the clock, so by that
+    second reading it has seen the word. Each reading after is ``step`` later,
+    until ``gap`` after the word, when the child is told to go on and the clock
+    stands still again. With no ``gap`` the child is never told.
+    """
+
+    def __init__(self, said: Path, *, gap: float | None, step: float = 1.0) -> None:
+        self.now = 0.0
+        self._said = said
+        self._gap = gap
+        self._step = step
+        self._heard = 0
+        self._spoken_at: float | None = None
+        self._held = False
+
+    def __call__(self) -> float:
+        record = self._said.read_text().split() if self._said.exists() else None
+        if record is not None and int(record[1]) != self._heard:
+            self._heard = int(record[1])
+            self._spoken_at = self.now
+            self._held = True
+        elif self._held:
+            self._held = False
+        elif self._spoken_at is not None:
+            self.now += self._step
+            if self._gap is not None and self.now >= self._spoken_at + self._gap:
+                os.kill(int(record[0]), signal.SIGUSR1)
+                self._spoken_at = None
+        return self.now
+
+
+def _say(tmp_path: Path, *words: str) -> list[str]:
+    return [sys.executable, "-c", _CHILD, str(tmp_path / "said"), *words]
+
+
+def test_a_run_that_keeps_writing_is_not_stopped_by_its_length(tmp_path):
+    clock = _ConversationClock(tmp_path / "said", gap=1.0)
+
     result = run_nested_pytest(
-        [sys.executable, "-c", _TALKER], cwd=None, env=None, stall_seconds=10.0
+        _say(tmp_path, *"." * 3), cwd=None, env=None, stall_seconds=1.5, clock=clock
     )
+
     assert result.returncode == 0
-    assert result.stdout.count(".") == 30
+    assert result.stdout.count(".") == 3
+    assert clock.now == 3.0
 
 
-def test_a_finished_run_reports_its_silence_before_exit():
+def test_a_finished_run_reports_its_silence_before_exit(tmp_path):
     result = run_nested_pytest(
-        [sys.executable, "-c", "import time\nprint('done', flush=True)\ntime.sleep(2)"],
+        _say(tmp_path, "done"),
         cwd=None,
         env=None,
+        clock=_ConversationClock(tmp_path / "said", gap=5.0),
     )
+
     assert result.returncode == 0
-    # The poll sees the line up to one interval late, later still on a loaded
-    # runner, so the bound leaves most of a second for that lag.
-    assert result.quiet_before_exit >= 1.0
+    assert result.quiet_before_exit == 5.0
 
 
-def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks():
-    with pytest.raises(pytest.fail.Exception, match="no new output for 10.0 s") as stopped:
+def test_a_run_that_writes_nothing_for_the_stall_window_is_stopped_with_its_stacks(tmp_path):
+    with pytest.raises(pytest.fail.Exception, match="no new output for 1.0 s") as stopped:
         run_nested_pytest(
-            [sys.executable, "-c", "print('started', flush=True)\nimport time\ntime.sleep(60)"],
+            _say(tmp_path, "started"),
             cwd=None,
             env=None,
-            stall_seconds=10.0,
+            stall_seconds=1.0,
+            clock=_ConversationClock(tmp_path / "said", gap=None),
         )
     report = str(stopped.value)
     assert "started" in report

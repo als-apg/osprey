@@ -58,7 +58,6 @@ import {
 /** @typedef {{title: string, x_label: string, y_label: string, x_units: string|null, y_units: string|null, x_columns: FigureColumns|null, y_columns: FigureColumns|null, annotations: string[], mark: FigureMark, section?: string|null, series_picker?: boolean}} FigurePanel */
 /** @typedef {{panels: FigurePanel[], partial: boolean, source: 'live'|'tiled', reason: string|null}} Figure */
 
-
 /** @typedef {{left: number, top: number, width: number, height: number, right: number, bottom: number}} PlotBox */
 /** @typedef {(value: number) => number} Scale */
 /** @typedef {{pos: number, label: string}} AxisTick */
@@ -777,7 +776,12 @@ function drawLines(svg, mark, panel, box, colors) {
   const scaleX = linearScale(xMin, xMax, box.left, box.right);
   const scaleY = linearScale(yMin, yMax, box.bottom, box.top);
 
-  drawAxes(svg, box, { x: axisTicks(xMin, xMax, scaleX), y: axisTicks(yMin, yMax, scaleY) }, colors);
+  drawAxes(
+    svg,
+    box,
+    { x: axisTicks(xMin, xMax, scaleX), y: axisTicks(yMin, yMax, scaleY) },
+    colors
+  );
   drawAxisTitles(
     svg,
     box,
@@ -856,7 +860,11 @@ function drawHeatmap(svg, mark, panel, box, colors) {
     // "never measured" and "measured, no response" would be the same picture.
     const rect =
       cell.value === null
-        ? svgNode('rect', { ...attributes, class: 'figure-cell figure-cell-missing', fill: missingFill })
+        ? svgNode('rect', {
+            ...attributes,
+            class: 'figure-cell figure-cell-missing',
+            fill: missingFill,
+          })
         : svgNode('rect', {
             ...attributes,
             class: 'figure-cell',
@@ -921,7 +929,11 @@ function drawBars(svg, mark, panel, box, colors) {
     svg,
     box,
     {
-      x: categoryTicks(bars.map((bar) => bar.category), box.left, box.width),
+      x: categoryTicks(
+        bars.map((bar) => bar.category),
+        box.left,
+        box.width
+      ),
       y: axisTicks(domain.min, domain.max, scaleY),
     },
     colors
@@ -951,7 +963,9 @@ function drawBars(svg, mark, panel, box, colors) {
     svg.appendChild(rect);
   }
 
-  const legend = mark.label ? [{ label: mark.label, color: seriesColor(colors.palette, 0, colors.text) }] : [];
+  const legend = mark.label
+    ? [{ label: mark.label, color: seriesColor(colors.palette, 0, colors.text) }]
+    : [];
   return { plotted: true, legend };
 }
 

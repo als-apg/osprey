@@ -311,7 +311,8 @@ export function shouldAutoSwitch(prevState, reduced) {
   if (action.type === 'reset') {
     const firstEver = prevState.lastAppliedRevision === null;
     const agentAdvanced =
-      next.lastUpdatedBy === AGENT_ORIGIN && updatedAtAdvanced(prevState.lastUpdatedAt, next.lastUpdatedAt);
+      next.lastUpdatedBy === AGENT_ORIGIN &&
+      updatedAtAdvanced(prevState.lastUpdatedAt, next.lastUpdatedAt);
     return { switch: firstEver || agentAdvanced, banner };
   }
   return { switch: false, banner };
@@ -411,9 +412,7 @@ export function buildQueueAddBody({ revision }) {
  * @returns {Record<string, unknown>}
  */
 export function buildDraftReplaceBody({ planName, planArgs, draftArgKeys, clientId }) {
-  const remove = draftArgKeys.filter(
-    (key) => !Object.prototype.hasOwnProperty.call(planArgs, key)
-  );
+  const remove = draftArgKeys.filter((key) => !Object.prototype.hasOwnProperty.call(planArgs, key));
   return { plan_name: planName, plan_args_patch: planArgs, remove, client_id: clientId };
 }
 
@@ -456,6 +455,17 @@ export function queueRefusalDetail(body) {
  */
 
 /**
+ * The bridge's two launch-token refusal codes: `launch_token_invalid` (403, the
+ * caller's token is missing or wrong) and `launch_token_required` (503, the
+ * bridge has no token configured). For an enqueue both mean the same thing to
+ * the operator — the queue is armed and this add needed a token it did not
+ * carry — so they classify as one outcome.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const LAUNCH_TOKEN_CODES = new Set(['launch_token_invalid', 'launch_token_required']);
+
+/**
  * Classify `POST /queue/items`'s response into a display-ready outcome —
  * pure and DOM/fetch-free, so the whole `detail.code` branch table is
  * unit-testable without a real panel or bridge.
@@ -463,8 +473,9 @@ export function queueRefusalDetail(body) {
  * The status code is used only where it genuinely discriminates (200 success,
  * 502 sidecar-unreachable); every refusal branch keys on `detail.code`, which
  * the bridge guarantees on all of them and which — unlike the status — tells
- * `launch_token_required` (403 armed-wrong-token AND 503 unarmed, one code)
- * apart from the other 403/503 refusals.
+ * the two launch-token refusals (`launch_token_invalid`, 403 missing or wrong
+ * token; `launch_token_required`, 503 no token configured — one outcome) apart
+ * from the other 403/503 refusals.
  *
  * @param {number} status
  * @param {any} body
@@ -493,7 +504,7 @@ export function classifyQueueAddResponse(status, body) {
     // revision the bridge will accept.
     return { type: 'draft_revision_already_launched' };
   }
-  if (code === 'launch_token_required') {
+  if (LAUNCH_TOKEN_CODES.has(code)) {
     // Only enqueue-while-the-queue-is-draining is token-gated; enqueue onto an
     // idle queue succeeds unarmed by design. `item_left_behind` means the
     // bridge could not withdraw the item it had already added — the operator
@@ -540,7 +551,8 @@ export function classifyQueueAddResponse(status, body) {
   // A bare-string `detail` is not a refusal record, but it is still the
   // answer's own sentence — the sidecar's web gate speaks that way
   // ("cross-origin request refused") — and it beats a bare status code.
-  const bare = body && typeof body === 'object' && typeof body.detail === 'string' ? body.detail : '';
+  const bare =
+    body && typeof body === 'object' && typeof body.detail === 'string' ? body.detail : '';
   return { type: 'error', detail: sentence || bare || `HTTP ${status}` };
 }
 
@@ -1316,7 +1328,9 @@ export function createDraftClient(deps) {
       /** @type {Record<string, unknown>} */
       const subset = {};
       for (const key of changed) {
-        subset[key] = Object.prototype.hasOwnProperty.call(draftArgs, key) ? draftArgs[key] : undefined;
+        subset[key] = Object.prototype.hasOwnProperty.call(draftArgs, key)
+          ? draftArgs[key]
+          : undefined;
       }
       collector.applyValues(subset);
       // Last-writer-wins: a remote edit landing on a key the operator was

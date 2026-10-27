@@ -276,9 +276,7 @@ export function createPlansView({
   const rootErrorEl = /** @type {HTMLElement} */ (byId('root-error'));
   const planTreeEl = /** @type {HTMLElement} */ (byId('plan-tree'));
   const plansEmptyEl = /** @type {HTMLElement} */ (byId('plans-empty'));
-  const plansFilteredEmptyEl = /** @type {HTMLElement} */ (
-    byId('plans-filtered-empty')
-  );
+  const plansFilteredEmptyEl = /** @type {HTMLElement} */ (byId('plans-filtered-empty'));
   const searchEl = /** @type {HTMLInputElement} */ (byId('plan-search'));
   const detailEmptyEl = /** @type {HTMLElement} */ (byId('detail-empty'));
   const detailBodyEl = /** @type {HTMLElement} */ (byId('detail-body'));
@@ -289,12 +287,8 @@ export function createPlansView({
   const detailSourceEl = /** @type {HTMLElement} */ (byId('detail-source'));
   const paramFormEl = /** @type {HTMLFormElement} */ (byId('param-form'));
   const paramSummaryEl = /** @type {HTMLElement} */ (byId('param-summary'));
-  const launchOutcomeBannerEl = /** @type {HTMLElement} */ (
-    byId('launch-outcome-banner')
-  );
-  const capabilityBannerEl = /** @type {HTMLElement} */ (
-    byId('capability-banner')
-  );
+  const launchOutcomeBannerEl = /** @type {HTMLElement} */ (byId('launch-outcome-banner'));
+  const capabilityBannerEl = /** @type {HTMLElement} */ (byId('capability-banner'));
   const unvalidatedNoteEl = /** @type {HTMLElement} */ (byId('unvalidated-note'));
   const queueAddBtnEl = /** @type {HTMLButtonElement} */ (byId('queue-add-btn'));
   const queueFootnoteEl = /** @type {HTMLElement} */ (byId('queue-footnote'));
@@ -303,23 +297,13 @@ export function createPlansView({
   const tabSourceEl = /** @type {HTMLButtonElement} */ (byId('tab-source'));
   const panelParamsEl = /** @type {HTMLElement} */ (byId('panel-params'));
   const panelSourceEl = /** @type {HTMLElement} */ (byId('panel-source'));
-  const draftUnknownBannerEl = /** @type {HTMLElement} */ (
-    byId('draft-unknown-banner')
-  );
+  const draftUnknownBannerEl = /** @type {HTMLElement} */ (byId('draft-unknown-banner'));
   const draftIndicatorEl = /** @type {HTMLElement} */ (byId('draft-indicator'));
-  const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (
-    byId('draft-discard-btn')
-  );
-  const draftDiscardNoteEl = /** @type {HTMLElement} */ (
-    byId('draft-discard-note')
-  );
-  const draftAffordanceEl = /** @type {HTMLButtonElement} */ (
-    byId('draft-affordance')
-  );
+  const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (byId('draft-discard-btn'));
+  const draftDiscardNoteEl = /** @type {HTMLElement} */ (byId('draft-discard-note'));
+  const draftAffordanceEl = /** @type {HTMLButtonElement} */ (byId('draft-affordance'));
   const draftAgentNoteEl = /** @type {HTMLElement} */ (byId('draft-agent-note'));
-  const draftRejectedBannerEl = /** @type {HTMLElement} */ (
-    byId('draft-rejected-banner')
-  );
+  const draftRejectedBannerEl = /** @type {HTMLElement} */ (byId('draft-rejected-banner'));
   // The launched-banner has no static markup in index.html — it is a
   // transient, SSE-driven note, so build it once here and hang it beside the
   // launch-outcome banner (both live in the detail footer). Created via `h`
@@ -793,7 +777,6 @@ export function createPlansView({
         showQueueOutcome('err', `could not stage the draft: ${pinned.error}`);
         return;
       }
-
 
       const { status, body } = await fetchJson('/queue/items', {
         method: 'POST',

@@ -33,12 +33,24 @@ from click.testing import CliRunner
 
 from osprey.cli import build_cmd
 from osprey.cli.build_cmd import build
+from osprey.cli.build_environment import _ProjectVenvPlan
 from osprey.deployment import staleness
+from osprey_connectors.errors import BuildProfileError
+from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 # Every build in this module renders without a venv and without lifecycle
 # hooks: neither is what the atomic swap is about, and a real `uv` install per
 # test would dominate the runtime of the suite.
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
+
+# A plan with nothing to install, for builds whose environment step is faked.
+_EMPTY_PLAN = _ProjectVenvPlan(
+    base_python=None,
+    base_python_arg=sys.executable,
+    osprey_spec="osprey-framework",
+    osprey_label="test",
+    extra_deps=[],
+)
 
 
 @pytest.fixture
@@ -56,6 +68,18 @@ def _build(runner: CliRunner, cwd: Path, *args: str, flags: list[str] | None = N
         os.chdir(previous)
 
 
+@pytest.fixture(scope="module")
+def built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The exemplar after one default build, once per module; read only.
+
+    A test that edits the repo or varies the build uses its own ``lifecycle_repo``.
+    """
+    repo = build_exemplar_repo(tmp_path_factory.mktemp("built-exemplar") / EXEMPLAR_DIRNAME)
+    result = _build(CliRunner(), repo)
+    assert result.exit_code == 0, result.output
+    return repo
+
+
 def _rendered_config(repo: Path) -> dict:
     return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
@@ -67,31 +91,24 @@ def _manifest(repo: Path) -> dict:
 class TestRendersTheOutputZone:
     """What a successful zero-argument build puts on disk."""
 
-    def test_build_is_the_rendered_project_with_no_nested_directory(self, runner, lifecycle_repo):
-        result = _build(runner, lifecycle_repo)
-
-        assert result.exit_code == 0, result.output
-        build_dir = lifecycle_repo / "build"
+    def test_build_is_the_rendered_project_with_no_nested_directory(self, built_exemplar):
+        build_dir = built_exemplar / "build"
         assert (build_dir / "config.yml").is_file()
         assert (build_dir / ".mcp.json").is_file()
         assert (build_dir / ".claude").is_dir()
         # The deployment name is the repo's; it names the project, never a
         # directory inside build/.
-        assert not (build_dir / lifecycle_repo.name).exists()
-        assert _rendered_config(lifecycle_repo)["project_name"] == lifecycle_repo.name
+        assert not (build_dir / built_exemplar.name).exists()
+        assert _rendered_config(built_exemplar)["project_name"] == built_exemplar.name
 
-    def test_manifest_lands_where_the_drift_check_looks(self, runner, lifecycle_repo):
-        _build(runner, lifecycle_repo)
-
-        manifest_path = staleness.build_manifest_path(lifecycle_repo)
+    def test_manifest_lands_where_the_drift_check_looks(self, built_exemplar):
+        manifest_path = staleness.build_manifest_path(built_exemplar)
         assert manifest_path.is_file()
-        assert manifest_path.parent == lifecycle_repo / "build"
+        assert manifest_path.parent == built_exemplar / "build"
 
-    def test_compose_files_are_rendered_by_the_same_build(self, runner, lifecycle_repo):
+    def test_compose_files_are_rendered_by_the_same_build(self, built_exemplar):
         """One build does it all: build/ describes the whole deployment."""
-        _build(runner, lifecycle_repo)
-
-        rendered = list((lifecycle_repo / "build").rglob("docker-compose*.yml"))
+        rendered = list((built_exemplar / "build").rglob("docker-compose*.yml"))
         assert rendered, "no compose file was rendered"
 
     def test_state_zone_is_created_when_absent(self, runner, lifecycle_repo_factory, tmp_path):
@@ -114,20 +131,16 @@ class TestRendersTheOutputZone:
 
         assert keeper.read_text(encoding="utf-8") == '{"remembered": true}'
 
-    def test_no_staging_directory_survives_the_build(self, runner, lifecycle_repo):
-        _build(runner, lifecycle_repo)
+    def test_no_staging_directory_survives_the_build(self, built_exemplar):
+        assert not (built_exemplar / "build" / ".tmp").exists()
+        assert not (built_exemplar / "var" / ".osprey-build-incoming").exists()
+        assert not (built_exemplar / "var" / ".osprey-build-outgoing").exists()
 
-        assert not (lifecycle_repo / "build" / ".tmp").exists()
-        assert not (lifecycle_repo / "var" / ".osprey-build-incoming").exists()
-        assert not (lifecycle_repo / "var" / ".osprey-build-outgoing").exists()
-
-    def test_nothing_records_the_path_the_render_was_staged_at(self, runner, lifecycle_repo):
+    def test_nothing_records_the_path_the_render_was_staged_at(self, built_exemplar):
         """The swap moves the tree; anything naming ``build/.tmp`` would break on arrival."""
-        _build(runner, lifecycle_repo)
-
         offenders = [
             path
-            for path in (lifecycle_repo / "build").rglob("*")
+            for path in (built_exemplar / "build").rglob("*")
             if path.is_file()
             and path.suffix in {".yml", ".yaml", ".json", ".md", ".toml"}
             and "build/.tmp" in path.read_text(encoding="utf-8", errors="ignore")
@@ -138,10 +151,8 @@ class TestRendersTheOutputZone:
 class TestRepoIdentity:
     """``project_root`` is the repo, not the directory being written."""
 
-    def test_project_root_is_the_repo_not_the_render(self, runner, lifecycle_repo):
-        _build(runner, lifecycle_repo)
-
-        assert _rendered_config(lifecycle_repo)["project_root"] == str(lifecycle_repo)
+    def test_project_root_is_the_repo_not_the_render(self, built_exemplar):
+        assert _rendered_config(built_exemplar)["project_root"] == str(built_exemplar)
 
     def test_runtime_root_substitutes_the_path_a_container_sees(self, runner, lifecycle_repo):
         _build(runner, lifecycle_repo, "--runtime-root", "/app/als-exemplar")
@@ -194,20 +205,16 @@ class TestRepoIdentity:
 class TestFingerprint:
     """The stamp the drift check reads, and the detail that explains a refusal."""
 
-    def test_a_fresh_build_reads_as_clean(self, runner, lifecycle_repo):
-        _build(runner, lifecycle_repo)
-
-        report = staleness.check_drift(lifecycle_repo)
+    def test_a_fresh_build_reads_as_clean(self, built_exemplar):
+        report = staleness.check_drift(built_exemplar)
 
         assert report.state is staleness.DriftState.CLEAN
 
-    def test_the_stamp_is_the_existing_profile_hash(self, runner, lifecycle_repo):
+    def test_the_stamp_is_the_existing_profile_hash(self, built_exemplar):
         from osprey.cli.build_profile import compute_profile_hash
 
-        _build(runner, lifecycle_repo)
-
-        creation = _manifest(lifecycle_repo)["creation"]
-        assert creation["preset_hash"] == compute_profile_hash(lifecycle_repo / "profile.yml")
+        creation = _manifest(built_exemplar)["creation"]
+        assert creation["preset_hash"] == compute_profile_hash(built_exemplar / "profile.yml")
         assert creation["osprey_version"]
 
     def test_per_key_digests_are_stamped_so_a_refusal_can_name_the_change(
@@ -227,11 +234,9 @@ class TestFingerprint:
         assert report.state is staleness.DriftState.DRIFT
         assert "model" in report.changed_keys
 
-    def test_the_reproducible_command_is_the_zero_argument_one(self, runner, lifecycle_repo):
+    def test_the_reproducible_command_is_the_zero_argument_one(self, built_exemplar):
         """The repo IS the invocation — there is no name or path to replay."""
-        _build(runner, lifecycle_repo)
-
-        assert _manifest(lifecycle_repo)["reproducible_command"] == "osprey build"
+        assert _manifest(built_exemplar)["reproducible_command"] == "osprey build"
 
 
 class TestAFailedRenderPreservesThePreviousBuild:
@@ -602,16 +607,12 @@ class TestRunningDeploymentWarning:
 
 
 class TestCarriedOverFlags:
-    def test_skip_deps_renders_no_venv(self, runner, lifecycle_repo):
-        assert _build(runner, lifecycle_repo).exit_code == 0
+    def test_skip_deps_renders_no_venv(self, built_exemplar):
+        assert not (built_exemplar / "build" / ".venv").exists()
 
-        assert not (lifecycle_repo / "build" / ".venv").exists()
-
-    def test_skip_deps_records_the_interpreter_running_the_build(self, runner, lifecycle_repo):
+    def test_skip_deps_records_the_interpreter_running_the_build(self, built_exemplar):
         """No venv was made, so the only interpreter known to have osprey is this one."""
-        _build(runner, lifecycle_repo)
-
-        assert sys.executable in (lifecycle_repo / "build" / ".mcp.json").read_text(
+        assert sys.executable in (built_exemplar / "build" / ".mcp.json").read_text(
             encoding="utf-8"
         )
 
@@ -621,13 +622,14 @@ class TestCarriedOverFlags:
         """It records its own location, so it is created where it will be read from."""
         created: dict[str, Path] = {}
 
-        def fake_venv(project_path: Path, _profile, _requirements) -> None:
+        def fake_venv(project_path: Path, _plan) -> None:
             created["at"] = Path(project_path)
             bin_dir = Path(project_path) / ".venv" / "bin"
             bin_dir.mkdir(parents=True)
             (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
             (Path(project_path) / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
 
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         result = _build(runner, lifecycle_repo, flags=["--skip-lifecycle"])
 
@@ -640,12 +642,13 @@ class TestCarriedOverFlags:
     def test_a_venv_survives_a_failed_rebuild(self, runner, lifecycle_repo, monkeypatch):
         """It is the one artifact outside the atomic set — and not one `down` needs."""
 
-        def fake_venv(project_path: Path, _profile, _requirements) -> None:
+        def fake_venv(project_path: Path, _plan) -> None:
             (Path(project_path) / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
             (Path(project_path) / ".venv" / "bin" / "python").write_text(
                 "#!/bin/sh\n", encoding="utf-8"
             )
 
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
 
@@ -657,6 +660,36 @@ class TestCarriedOverFlags:
 
         assert (lifecycle_repo / "build" / ".venv" / "bin" / "python").is_file()
         assert (lifecycle_repo / "build" / "config.yml").is_file()
+
+    def test_an_unreproducible_base_leaves_the_venv_as_it_was(
+        self, runner, lifecycle_repo, monkeypatch
+    ):
+        """A build the plan refuses answers before the environment is touched."""
+
+        def fake_venv(project_path: Path, _plan) -> None:
+            (Path(project_path) / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
+            (Path(project_path) / ".venv" / "bin" / "python").write_text(
+                "#!/bin/sh\n", encoding="utf-8"
+            )
+
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
+        assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
+        python = lifecycle_repo / "build" / ".venv" / "bin" / "python"
+        before = (python.read_bytes(), python.stat().st_mtime_ns)
+
+        def refuse(_profile):
+            raise BuildProfileError("probe")
+
+        created: list[Path] = []
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", refuse)
+        monkeypatch.setattr(
+            build_cmd, "_create_project_venv", lambda path, _plan: created.append(path)
+        )
+        assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code != 0
+
+        assert created == []
+        assert (python.read_bytes(), python.stat().st_mtime_ns) == before
 
     def test_stream_is_accepted_as_the_short_flag(self, runner, lifecycle_repo):
         result = _build(runner, lifecycle_repo, "-s")

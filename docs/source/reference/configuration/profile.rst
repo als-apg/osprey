@@ -1115,9 +1115,9 @@ machine's alone — the stand-in's equivalent is the ``live_standin`` line itsel
   simulated nor the stand-in, since the recorder would sample one machine into a
   store the deployment reads as another's.
 
-On a laptop the second container is a real cost — the simulator image is
-amd64-only, so Apple Silicon emulates both — and deleting the line is the
-remedy; the how-to above says when that is worth it.
+On a laptop the second container is a real cost — a second simulator runs
+beside the first — and deleting the line is the remedy; the how-to above says
+when that is worth it.
 
 .. _profile-va-archiver:
 

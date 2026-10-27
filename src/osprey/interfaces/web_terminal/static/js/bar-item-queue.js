@@ -251,9 +251,8 @@ function readQueue(snap) {
   }
   const active = !QUEUE_IDLE_MANAGER_STATES.includes(state);
   const stopPending = status.queue_stop_pending === true;
-  const progress = running && running.progress && typeof running.progress === 'object'
-    ? running.progress
-    : null;
+  const progress =
+    running && running.progress && typeof running.progress === 'object' ? running.progress : null;
   let count = '';
   if (active && progress && typeof progress.rows_seen === 'number') {
     count =

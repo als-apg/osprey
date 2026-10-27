@@ -1372,7 +1372,7 @@ async def _check_started(
 
     Only a plan that ends the outgoing agent (``plan.teardown``) and does not
     carry the operator's agreement (``plan.end_started``) looks. *started*
-    runs ``ps``, so it runs in a worker thread. The look runs right before
+    reads the process table, so it runs in a worker thread. The look runs right before
     the door would act, so it is never stale; a command started between the
     question and the consent is ended with the rest. When *started* could not
     read the process table (``None``), what the agent started is unknown, and

@@ -2483,6 +2483,76 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
             page.close()
 
 
+def test_header_contribution_reaches_the_fallback_bar_without_dockview(tmp_path, chromium_browser):
+    """With no dockview, a panel's contributed controls still have a bar.
+
+    A panel on embed contract v2 hides its in-body copies of what it
+    contributes, so a hub whose dockview bundle failed to load (a firewalled
+    host, a blocked CDN) must still host the contribution, or the controls
+    (an Open session button) are reachable nowhere. The bundle is blocked for
+    this page, so the hub genuinely boots its fallback layout; the panel opens
+    in #panel-content, its contribution must render in the fallback tile bar,
+    and a bar click must round-trip into the iframe.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _contrib_panel_backend() as stub_url:
+        custom = {
+            "id": "contrib-demo",
+            "label": "CONTRIB",
+            "url": stub_url,
+            "healthEndpoint": None,
+            "path": "/",
+        }
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[custom],
+            artifact_url=f"http://127.0.0.1:{_free_port()}",
+        ) as (base_url, _app):
+            page = chromium_browser.new_page()
+            errors: list[str] = []
+            page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+            page.route("**/dockview-core*", lambda route: route.abort())
+            page.goto(base_url, wait_until="domcontentloaded")
+            rail = page.locator('button.panel-rail-button[data-panel-id="contrib-demo"]')
+            expect(rail).not_to_have_class(re.compile(r"\bdisabled\b"), timeout=15_000)
+            assert (
+                page.evaluate(
+                    "async () => { const m = await import('/static/js/dock-workspace.js');"
+                    " return m.getDockApi(); }"
+                )
+                is None
+            ), "the dock shell was supposed to be unavailable on this page"
+            assert any("dockview-core global unavailable" in e for e in errors), errors
+
+            rail.click()
+            frame_el = page.locator('#panel-content iframe[data-panel-id="contrib-demo"]')
+            expect(frame_el).to_be_visible(timeout=15_000)
+
+            bar = page.locator("#right-panel > .fallback-tile-bar")
+            expect(bar).to_have_count(1)
+            expect(bar).to_be_visible()
+            expect(bar.locator(".tile-tab-title")).to_have_text("CONTRIB")
+            expect(bar.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
+            refresh = bar.locator('[data-contrib-key="button:refresh"]')
+            expect(refresh).to_be_visible()
+
+            bar.locator(".contrib-nav-link", has_text="New Entry").click()
+            refresh.click()
+            frame = page.frame_locator('#panel-content iframe[data-panel-id="contrib-demo"]')
+            actions = None
+            for _ in range(50):
+                actions = frame.locator("body").evaluate("() => window.__actions")
+                if actions and len(actions) >= 2:
+                    break
+                page.wait_for_timeout(100)
+            assert actions == [["view", "create"], ["refresh", None]], actions
+
+            page.close()
+
+
 # A second contributing panel, this one exercising the `search` and `menu`
 # kinds — and, unlike the one above, behaving like a REAL panel: it re-sends
 # its whole contribution every time an action arrives. That is what makes this
@@ -2623,7 +2693,7 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
 # path parents its ghost to document.body too).
 #
 # So a tile's drag image is styled by whatever still matches once the bar is out
-# of #dock-root. Two things keep that honest, and this test guards both:
+# of #dock-root. Two things keep that honest, and this test guards both.
 #
 #   * The tile-bar rules in dockview-overrides.css anchor on `.tile-tab` — a
 #     class the clone carries — not on `.dock-root`. Anchoring on the dock root

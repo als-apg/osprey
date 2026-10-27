@@ -147,10 +147,13 @@ beforeEach(async () => {
   // session from a dropped connection. Nothing serves this environment, so the
   // probe is answered here with the signed-in status every test below assumes.
   // Any other URL is a dependency this file has not declared, and fails loudly.
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-    return { ok: true, status: 200, json: async () => ({}) };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
+      return { ok: true, status: 200, json: async () => ({}) };
+    })
+  );
   // xtermPalette() logs a console.error when the CSS custom properties it
   // reads are absent, which they are in this bare happy-dom document — this
   // suite doesn't touch theming and the noise isn't a signal here.
@@ -430,28 +433,31 @@ describe('transcript missing: an explicit state, never a dead PTY', () => {
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
   });
 
-  test.each([['expert'], ['simple']])('a refused switch leaves the live session untouched (%s view)', (mode) => {
-    // The server answers a switch_session to a missing id with the same frame
-    // but keeps the current PTY attached; the operator is still on it, in
-    // either view. The Simple view only reaches a connected terminal through
-    // the flip, so it connects the way the flip does.
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    terminal.initTerminal('terminal-container');
-    if (mode === 'simple') terminal.startExpert();
-    openSocket();
-    receive({ type: 'session_info', session_id: 'live-id' });
-    const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
+  test.each([['expert'], ['simple']])(
+    'a refused switch leaves the live session untouched (%s view)',
+    (mode) => {
+      // The server answers a switch_session to a missing id with the same frame
+      // but keeps the current PTY attached; the operator is still on it, in
+      // either view. The Simple view only reaches a connected terminal through
+      // the flip, so it connects the way the flip does.
+      document.documentElement.setAttribute('data-ui-mode', mode);
+      terminal.initTerminal('terminal-container');
+      if (mode === 'simple') terminal.startExpert();
+      openSocket();
+      receive({ type: 'session_info', session_id: 'live-id' });
+      const socket = /** @type {FakeWebSocket} */ (FakeWebSocket.last);
 
-    receive({ type: 'transcript_missing', session_id: 'other-id' });
+      receive({ type: 'transcript_missing', session_id: 'other-id' });
 
-    expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
-    expect(terminal.getCurrentSessionId()).toBe('live-id');
-    expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
-    expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
-    // Enter is ordinary input here, forwarded to the live PTY.
-    press('\r');
-    expect(socket.sent).toContain('\r');
-  });
+      expect(localStorage.getItem(STORAGE_KEY)).toBe('live-id');
+      expect(terminal.getCurrentSessionId()).toBe('live-id');
+      expect(socket.readyState).not.toBe(FakeWebSocket.CLOSED);
+      expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('other-id');
+      // Enter is ordinary input here, forwarded to the live PTY.
+      press('\r');
+      expect(socket.sent).toContain('\r');
+    }
+  );
 
   test('a fresh start from elsewhere disarms Enter', () => {
     localStorage.setItem(STORAGE_KEY, 'gone-id');

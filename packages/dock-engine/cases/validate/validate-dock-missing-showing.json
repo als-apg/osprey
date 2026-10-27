@@ -1,0 +1,10 @@
+{
+  "name": "validate-dock-missing-showing",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tile": "t1",
+    "tabs": ["a"]
+  },
+  "reason": "showing_not_in_tabs",
+  "where": "layout.showing"
+}

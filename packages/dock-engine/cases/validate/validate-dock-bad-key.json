@@ -1,0 +1,11 @@
+{
+  "name": "validate-dock-bad-key",
+  "rule": "C-LAYOUT",
+  "input": {
+    "tile": "t1",
+    "tabs": [3],
+    "showing": 3
+  },
+  "reason": "bad_key",
+  "where": "layout.tabs[0]"
+}

@@ -59,7 +59,7 @@ not inherit their state.
 Gating: needs Docker; the VA image builds natively for the host arch, so on
 Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) —
 slow (minutes) on a cold image cache. Lives in ``tests/e2e/`` (never
-collected by the fast lane, see ``ci_check.sh``/ci.yml).
+collected by the fast lane, see ``scripts/check.py``/ci.yml).
 
 Markers: ``pytest.mark.flaky(reruns=1, only_rerun=[AssertionError])`` is
 applied PER-FUNCTION to P1-P4 only, never at module level — P5 and P6 are the

@@ -15,7 +15,12 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
-import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from './session-views.js';
+import {
+  renderAgents,
+  renderToolLog,
+  renderArtifacts,
+  renderConversation,
+} from './session-views.js';
 import { withPrefix, createEventSource } from './api.js';
 import { bootActivityStrip } from './activity-strip.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
@@ -113,7 +118,9 @@ if (navEl) {
     activeView = view;
     const pills = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.pill'));
     pills.forEach((p) => p.classList.toggle('active', p.dataset.view === view));
-    document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + view));
+    document
+      .querySelectorAll('.view')
+      .forEach((v) => v.classList.toggle('active', v.id === 'view-' + view));
     refreshActive();
   });
 }
@@ -128,13 +135,18 @@ if (navEl) {
  */
 
 /** @type {Record<ViewName, (ctx: RenderCtx) => Promise<void>>} */
-const VIEWS = { agents: renderAgents, toollog: renderToolLog, artifacts: renderArtifacts, conversation: renderConversation };
+const VIEWS = {
+  agents: renderAgents,
+  toollog: renderToolLog,
+  artifacts: renderArtifacts,
+  conversation: renderConversation,
+};
 
 async function refreshActive() {
   const dot = document.getElementById('refresh-dot');
   if (!dot) return;
   dot.classList.remove('pulse');
-  void dot.offsetWidth;  // reflow
+  void dot.offsetWidth; // reflow
   dot.classList.add('pulse');
   try {
     await VIEWS[activeView]({ apiFetch, showToast, cache });

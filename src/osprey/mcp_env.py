@@ -21,8 +21,22 @@ import os
 from pathlib import Path
 
 
-def load_dotenv_from_project() -> None:
+def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     """Load the env chain from the repo derived from ``OSPREY_CONFIG``.
+
+    **Credentials are skipped.** The deployment mints its credentials -- the
+    terminal secret, the event-dispatcher token, every service's
+    ``*_LAUNCH_TOKEN`` -- into this same chain, and the processes that call
+    this loader are, apart from the terminal, MCP servers the agent spawned.
+    Every hand-off down to the agent strips those names
+    (:mod:`osprey.utils.sensitive_env`); a loader that read them back from the
+    file would hand them to an agent-spawned process anyway. So every name
+    :func:`~osprey.utils.sensitive_env.is_sensitive` accepts is left out of
+    ``os.environ``, whatever the chain holds for it.
+
+    The terminal is the one caller that holds those credentials by design --
+    it injects them on the hops it fronts and keeps them from its children --
+    and it alone passes ``include_sensitive=True``.
 
     There is one env chain per deployment and it lives at the repo root, beside
     ``profile.yml`` — never in the render, which every ``osprey build``
@@ -74,4 +88,15 @@ def load_dotenv_from_project() -> None:
     for key in empty_keys:
         os.environ.pop(key)
 
-    apply_env_chain(os.environ, chain, override=False)
+    written = apply_env_chain(os.environ, chain, override=False)
+    if include_sensitive:
+        return
+
+    from osprey.utils.sensitive_env import is_sensitive
+
+    # Taken back out rather than filtered on the way in, so the chain is read by
+    # exactly the loader every other key goes through. Only names this load
+    # set are removed: a value the shell exported outranks the chain here as
+    # everywhere, and stripping it is the spawning hand-off's job.
+    for key in [k for k in written if is_sensitive(k)]:
+        os.environ.pop(key)

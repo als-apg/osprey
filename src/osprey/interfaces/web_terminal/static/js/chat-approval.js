@@ -48,7 +48,7 @@ export function createApprovalCard(request, hooks) {
 
   const head = elem('div', 'op-card-head');
   const toolIcon = chatIcon(
-    isPlan ? 'read' : CATEGORY_ICON[toolCategory(request.tool_name_raw ?? request.tool_name)],
+    isPlan ? 'read' : CATEGORY_ICON[toolCategory(request.tool_name_raw ?? request.tool_name)]
   );
   toolIcon.classList.add('op-card-icon');
   const titleText = isPlan ? 'Ready to start on this plan?' : `Allow ${toolName}?`;
@@ -94,7 +94,8 @@ export function createApprovalCard(request, hooks) {
   error.hidden = true;
   const deny = button('op-btn', isPlan ? 'Keep planning' : 'Deny');
   const allow = button('op-btn op-btn-primary', isPlan ? 'Approve plan' : 'Allow');
-  const session = request.can_allow_session && !isPlan ? button('op-btn', 'Allow for this session') : null;
+  const session =
+    request.can_allow_session && !isPlan ? button('op-btn', 'Allow for this session') : null;
   const actions = elem('div', 'op-card-actions');
   actions.append(deny, ...(session ? [session] : []), allow);
   body.append(error, actions);
@@ -145,7 +146,11 @@ export function createApprovalCard(request, hooks) {
       if (allowed) fold('allowed', 'check', 'Plan approved');
       else fold('denied', 'x', 'Kept planning');
     } else if (allowed) {
-      fold('allowed', 'check', `${forSession ? 'Allowed for this session' : 'Allowed'} · ${toolName}`);
+      fold(
+        'allowed',
+        'check',
+        `${forSession ? 'Allowed for this session' : 'Allowed'} · ${toolName}`
+      );
     } else {
       fold('denied', 'x', `Denied · ${toolName}`);
     }
@@ -173,7 +178,10 @@ export function createApprovalCard(request, hooks) {
     for (const control of [allow, deny, session]) if (control) control.disabled = true;
     error.hidden = true;
 
-    const outcome = await deliver(hooks, { allow: allowed, ...(forSession ? { for_session: true } : {}) });
+    const outcome = await deliver(hooks, {
+      allow: allowed,
+      ...(forSession ? { for_session: true } : {}),
+    });
     if (state !== 'sending') return; // the turn ended while the answer was in flight
     if (outcome === 'answered') {
       foldOutcome(allowed, forSession);

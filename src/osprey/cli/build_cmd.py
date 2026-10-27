@@ -71,8 +71,8 @@ from osprey_connectors.workspace import (
 
 from .build_environment import (
     _create_project_venv,
+    _plan_project_venv,
     _resolve_osprey_spec,
-    _resolve_project_requirements,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -115,6 +115,7 @@ from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
+    from osprey.facility.render import WrittenViews
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -156,11 +157,11 @@ __all__ = [
     "_locate_pkg_services",
     "_persist_artifact_server",
     "_persist_mcp_servers",
+    "_plan_project_venv",
     "_profile_known_root_entries",
     "_register_convention_artifacts",
     "_resolve_context_roster",
     "_resolve_osprey_spec",
-    "_resolve_project_requirements",
     "_run_lifecycle_phase",
     "build",
     "report_provider_credentials",
@@ -1419,6 +1420,25 @@ class _SharedRenderInputs(NamedTuple):
     for a single render, which names each view it omits.
     """
 
+    views_built_databases: dict[str, Path] | None = None
+    """View databases this build has already written, by the sha256 of their source.
+
+    Every render pass of a build writes the same view bytes from the same
+    facility file, so a database derived from them is one artifact of the build
+    rather than one per render: the first pass imports it and later passes copy
+    it. ``None`` for a single render, which imports each one it writes.
+    """
+
+    views_written: WrittenViews | None = None
+    """Facility views this build has already written, by what they were written from.
+
+    Every render pass of a build writes the views of one facility file, and most
+    passes agree on the few config keys a view reads, so the first pass writes a
+    view and every later one that agrees copies its bytes: the pyAML view alone
+    is a design lattice per model. ``None`` for a single render, which writes
+    each view.
+    """
+
     runtime_interpreter: str | None = None
     """The interpreter this render's artifacts launch with, when it is KNOWN
     rather than derivable.
@@ -2414,6 +2434,8 @@ def _render_project(
             rendered,
             data_root / "facility",
             omitted_reported=shared.views_omitted_reported,
+            built_databases=shared.views_built_databases,
+            views_written=shared.views_written,
         )
         progress("  ✓ Wrote the facility file and its views")
 
@@ -2490,7 +2512,7 @@ def _render_project(
         # Reachability: with defer_unresolved_telemetry_creds=True, a sender's
         # gateway login or a collector token absent at build time does not
         # raise here — a build never carries the secret, so
-        # _gateway_auth_header and _bearer_header (claude_code_telemetry.py)
+        # the gateway and bearer header builders in claude_code_telemetry.py
         # omit the auth header instead. Only a malformed credential still
         # raises ObservabilityCredentialError into this ValueError catch.
         #
@@ -3673,18 +3695,19 @@ def _build_repo(
         # is written where it will be read from and joins the staged tree at
         # swap time. Its dependency record, which `_create_project_venv` writes
         # beside it, is copied into the staged tree — the record and the
-        # environment it describes must ship together. The requirement list is
-        # resolved first and in both modes, so a `--skip-deps` render's image
-        # installs what a full build's venv does.
-        requirements = _resolve_project_requirements(build_profile)
-        project_deps = list(requirements.extra_deps)
+        # environment it describes must ship together. The plan is judged first
+        # and in both modes, so a `--skip-deps` render's image installs what a
+        # full build's venv does, and a plan that refuses the build leaves the
+        # existing venv exactly as it was.
+        plan = _plan_project_venv(build_profile)
+        project_deps = plan.extra_deps
         if not skip_deps:
             # Reported on its own, not folded into the render below: it is the
             # longest thing a first build does by a wide margin, and a build
             # that looks stuck for two minutes is the moment an operator most
             # needs to be told what it is waiting on.
             with reporter.phase("Preparing the project environment"):
-                _create_project_venv(zones.build_dir, build_profile, requirements)
+                _create_project_venv(zones.build_dir, plan)
                 recorded = zones.build_dir / "pyproject.toml"
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")
@@ -3700,6 +3723,8 @@ def _build_repo(
             graph_facts_reported=set(),
             model_facts_reported=set(),
             views_omitted_reported=set(),
+            views_built_databases={},
+            views_written={},
             facility=facility,
             facility_sha256=facility_sha256,
             profile_overlays=profile_overlays,

@@ -79,12 +79,13 @@ function renderAttachmentCard(att) {
       </div>
     </div>`;
   }
-  const reason = typeof att.skip_reason_text === 'string' && att.skip_reason_text
-    ? `
-      <div class="text-xs text-muted" data-skip-reason style="margin-top: 4px; text-align: left; overflow-wrap: anywhere;">${
-        escapeHtml(`${att.copy_status === 'skipped' ? 'Not copied' : 'Not shown'}: ${att.skip_reason_text}`)
-      }</div>`
-    : '';
+  const reason =
+    typeof att.skip_reason_text === 'string' && att.skip_reason_text
+      ? `
+      <div class="text-xs text-muted" data-skip-reason style="margin-top: 4px; text-align: left; overflow-wrap: anywhere;">${escapeHtml(
+        `${att.copy_status === 'skipped' ? 'Not copied' : 'Not shown'}: ${att.skip_reason_text}`
+      )}</div>`
+      : '';
   const body = `
     <div class="card-body" style="padding: 12px; text-align: center;">
       <div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>
@@ -167,12 +168,15 @@ export async function openEntry(entryId, attachmentId = null) {
   const entry = await showEntry(entryId);
   if (!entry || !attachmentId) return false;
   const att = (entry.attachments || []).find(
-    (/** @type {any} */ a) => a && a.attachment_id === attachmentId,
+    (/** @type {any} */ a) => a && a.attachment_id === attachmentId
   );
   const href = att && att.viewable === true ? safeHref(att.display_url) : null;
   if (!href) return false;
   showImageLightbox(
-    href, att.filename || 'attachment', originalHref(att.display_url), att.attachment_id || null,
+    href,
+    att.filename || 'attachment',
+    originalHref(att.display_url),
+    att.attachment_id || null
   );
   return true;
 }
@@ -209,21 +213,29 @@ function renderEntryDetail(container, entry) {
             <div class="entry-detail-text">${escapeHtml(details)}</div>
           </div>
 
-          ${attachments.length > 0 ? `
+          ${
+            attachments.length > 0
+              ? `
             <div class="entry-detail-content" style="margin-top: 24px;">
               <h3>Attachments (${attachments.length})</h3>
               <div style="display: flex; flex-wrap: wrap; gap: 16px;">
                 ${attachments.map(renderAttachmentCard).join('')}
               </div>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
 
-          ${entry.summary ? `
+          ${
+            entry.summary
+              ? `
             <div class="entry-detail-content" style="margin-top: 24px;">
               <h3>AI Summary</h3>
               <div class="text-secondary">${escapeHtml(entry.summary)}</div>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
 
         <div class="entry-detail-sidebar">
@@ -246,54 +258,76 @@ function renderEntryDetail(container, entry) {
                 <span class="metadata-label">Timestamp</span>
                 <span class="metadata-value">${formatTimestamp(entry.timestamp)}</span>
               </div>
-              ${metadata.logbook ? `
+              ${
+                metadata.logbook
+                  ? `
                 <div class="metadata-item">
                   <span class="metadata-label">Logbook</span>
                   <span class="metadata-value">${escapeHtml(metadata.logbook)}</span>
                 </div>
-              ` : ''}
-              ${metadata.shift ? `
+              `
+                  : ''
+              }
+              ${
+                metadata.shift
+                  ? `
                 <div class="metadata-item">
                   <span class="metadata-label">Shift</span>
                   <span class="metadata-value">${escapeHtml(metadata.shift)}</span>
                 </div>
-              ` : ''}
+              `
+                  : ''
+              }
             </div>
           </div>
 
-          ${keywords.length > 0 ? `
+          ${
+            keywords.length > 0
+              ? `
             <div class="metadata-card">
               <h4>Keywords</h4>
               <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                 ${renderTags(keywords, 'accent')}
               </div>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
 
-          ${metadata.session_metadata ? (() => {
-            const sm = metadata.session_metadata;
-            const fields = [
-              ['Operator', sm.operator],
-              ['Session', sm.session_id, true],
-              ['Branch', sm.git_branch, true],
-              ['Model', sm.model_name || sm.model],
-              ['Source', sm.created_via],
-              ['Started', sm.session_start_time],
-            ].filter(([, v]) => v);
-            return fields.length > 0 ? `
+          ${
+            metadata.session_metadata
+              ? (() => {
+                  const sm = metadata.session_metadata;
+                  const fields = [
+                    ['Operator', sm.operator],
+                    ['Session', sm.session_id, true],
+                    ['Branch', sm.git_branch, true],
+                    ['Model', sm.model_name || sm.model],
+                    ['Source', sm.created_via],
+                    ['Started', sm.session_start_time],
+                  ].filter(([, v]) => v);
+                  return fields.length > 0
+                    ? `
               <div class="metadata-card">
                 <h4>Session Context</h4>
                 <div class="metadata-list">
-                  ${fields.map(([label, value, mono]) => `
+                  ${fields
+                    .map(
+                      ([label, value, mono]) => `
                     <div class="metadata-item">
                       <span class="metadata-label">${escapeHtml(label)}</span>
                       <span class="metadata-value${mono ? ' font-mono' : ''}">${escapeHtml(String(value))}</span>
                     </div>
-                  `).join('')}
+                  `
+                    )
+                    .join('')}
                 </div>
               </div>
-            ` : '';
-          })() : ''}
+            `
+                    : '';
+                })()
+              : ''
+          }
         </div>
       </div>
     </div>
@@ -304,10 +338,15 @@ function renderEntryDetail(container, entry) {
   // handled by the modal-body delegation above, but these <img> elements are
   // freshly created by the innerHTML assignment on every render, so binding
   // directly (once each) can never double-bind.
-  container.querySelectorAll('[data-lightbox-url] img').forEach(img => {
-    img.addEventListener('error', () => {
-      img.outerHTML = '<div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>';
-    }, { once: true });
+  container.querySelectorAll('[data-lightbox-url] img').forEach((img) => {
+    img.addEventListener(
+      'error',
+      () => {
+        img.outerHTML =
+          '<div style="font-size: var(--text-4xl); margin-bottom: 8px;">\u{1F4CE}</div>';
+      },
+      { once: true }
+    );
   });
 }
 
@@ -352,16 +391,24 @@ export function showImageLightbox(url, filename, originalUrl = null, attachmentI
       <span style="color: silver; font-size: var(--text-xl);">${escapeHtml(filename)}</span>
       <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
          style="color: var(--color-accent-secondary); font-size: var(--text-xl); text-decoration: none;">Open in new tab &#x2197;</a>
-      ${originalUrl ? `
+      ${
+        originalUrl
+          ? `
       <a href="${escapeHtml(originalUrl)}" target="_blank" rel="noopener" data-original
          title="The picture as stored, at full resolution"
          style="color: var(--color-accent-secondary); font-size: var(--text-xl); text-decoration: none;">Open original &#x2197;</a>
-      ` : ''}
-      ${attachmentId ? `
+      `
+          : ''
+      }
+      ${
+        attachmentId
+          ? `
       <button type="button" data-use-in-workspace data-attachment-id="${escapeHtml(attachmentId)}"
          style="color: var(--color-accent-secondary); background: transparent; border: 0; font: inherit; font-size: var(--text-xl); cursor: pointer;">Use in Workspace</button>
       <span data-workspace-status style="color: silver; font-size: var(--text-sm);" aria-live="polite"></span>
-      ` : ''}
+      `
+          : ''
+      }
     </div>
   `;
 
@@ -374,11 +421,18 @@ export function showImageLightbox(url, filename, originalUrl = null, attachmentI
   const lightboxImg = overlay.querySelector('img');
   if (lightboxImg) {
     lightboxImg.addEventListener('click', (e) => e.stopPropagation());
-    lightboxImg.addEventListener('error', () => {
-      lightboxImg.outerHTML = '<div style="color:white;font-size:var(--text-3xl);">Failed to load image</div>';
-    }, { once: true });
+    lightboxImg.addEventListener(
+      'error',
+      () => {
+        lightboxImg.outerHTML =
+          '<div style="color:white;font-size:var(--text-3xl);">Failed to load image</div>';
+      },
+      { once: true }
+    );
   }
-  overlay.querySelectorAll('a').forEach((a) => a.addEventListener('click', (e) => e.stopPropagation()));
+  overlay
+    .querySelectorAll('a')
+    .forEach((a) => a.addEventListener('click', (e) => e.stopPropagation()));
 
   const workspaceButton = /** @type {HTMLButtonElement|null} */ (
     overlay.querySelector('[data-use-in-workspace]')
@@ -393,10 +447,9 @@ export function showImageLightbox(url, filename, originalUrl = null, attachmentI
     workspaceButton.disabled = true;
     if (workspaceStatus) workspaceStatus.textContent = 'Copying…';
     try {
-      const response = await fetch(
-        apiUrl(`/attachments/${encodeURIComponent(id)}/artifact`),
-        { method: 'POST' },
-      );
+      const response = await fetch(apiUrl(`/attachments/${encodeURIComponent(id)}/artifact`), {
+        method: 'POST',
+      });
       if (!response.ok) throw new Error(`Workspace copy failed (${response.status})`);
       if (workspaceStatus) workspaceStatus.textContent = 'Copied to Workspace';
       // This is deliberately a local browser action. The host verifies that
@@ -404,7 +457,8 @@ export function showImageLightbox(url, filename, originalUrl = null, attachmentI
       // agent panel and sends no cross-client focus event.
       if (window.parent !== window) {
         window.parent.postMessage(
-          { type: 'osprey:activate', panel: 'artifacts' }, window.location.origin,
+          { type: 'osprey:activate', panel: 'artifacts' },
+          window.location.origin
         );
       }
     } catch (error) {

@@ -267,12 +267,7 @@ export function openOptions(shell, ctrl, how = {}) {
 
   pop.append(make(owner, 'div', 'bar-pop-eyebrow', entry.label));
   pop.append(
-    make(
-      owner,
-      'div',
-      'bar-pop-density',
-      `Density · ${DENSITY_LABEL[DENSITY_BY_HOST[place.host]]}`
-    )
+    make(owner, 'div', 'bar-pop-density', `Density · ${DENSITY_LABEL[DENSITY_BY_HOST[place.host]]}`)
   );
 
   const keys = Object.keys(entry.options);

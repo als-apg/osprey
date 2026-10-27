@@ -14,8 +14,8 @@ Two independent writers used to break that, and each has its own case below:
 * LiteLLM, which calls a bare ``dotenv.load_dotenv()`` at import when
   ``LITELLM_MODE`` is unset. That form searches *upward*, so it needs no
   ``.env`` in the working directory at all — a worktree inherited the parent
-  checkout's. ``osprey.models.providers.litellm_adapter`` pins the mode to
-  disable it.
+  checkout's. ``osprey._litellm_env`` pins the mode to disable it, and every
+  module that imports litellm imports it first.
 
 Every case runs in a subprocess. Import side effects fire once per interpreter,
 so they cannot be re-observed in-process, and a leaked ``os.environ`` write
@@ -24,6 +24,7 @@ would outlive ``monkeypatch`` and contaminate the rest of the session.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -369,3 +370,68 @@ def test_cli_entry_point_loads_dotenv(tmp_path):
     )
 
     assert seen == "leaked"
+
+
+def test_the_model_map_defaults_to_the_bundled_copy_but_respects_an_explicit_setting():
+    """LiteLLM fetches its model map from GitHub at import unless told not to.
+
+    Offline that fetch stalls every importing process, and the ids LiteLLM can
+    route would differ by host; an operator may still opt back in.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "LITELLM_LOCAL_MODEL_COST_MAP"}
+    probe = (
+        "import os; import osprey.models.providers.litellm_adapter; "
+        "print('MAP ' + os.environ['LITELLM_LOCAL_MODEL_COST_MAP'])"
+    )
+
+    default = subprocess.run(
+        [sys.executable, "-c", probe], env=env, capture_output=True, text=True, timeout=180
+    )
+    assert default.returncode == 0, default.stderr
+    assert "MAP True" in default.stdout
+
+    explicit = subprocess.run(
+        [sys.executable, "-c", probe],
+        env={**env, "LITELLM_LOCAL_MODEL_COST_MAP": "False"},
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert explicit.returncode == 0, explicit.stderr
+    assert "MAP False" in explicit.stdout
+
+
+def _first_import_line(tree: ast.Module, wanted) -> int | None:
+    lines = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        and any(wanted(alias.name) for alias in node.names)
+        or isinstance(node, ast.ImportFrom)
+        and node.level == 0
+        and wanted(node.module or "")
+    ]
+    return min(lines, default=None)
+
+
+def test_every_litellm_import_follows_the_litellm_environment():
+    """LiteLLM reads its settings while importing, so they must already be set.
+
+    Whichever OSPREY module a process imports litellm through first, that module
+    imports ``osprey._litellm_env`` above it.
+    """
+    src = Path(__file__).resolve().parents[2] / "src"
+    late: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "litellm" not in text:
+            continue
+        tree = ast.parse(text)
+        first = _first_import_line(tree, lambda name: name.split(".")[0] == "litellm")
+        if first is None:
+            continue
+        guard = _first_import_line(tree, lambda name: name == "osprey._litellm_env")
+        if guard is None or guard > first:
+            late.append(str(path.relative_to(src)))
+
+    assert not late, f"import osprey._litellm_env before litellm in: {late}"

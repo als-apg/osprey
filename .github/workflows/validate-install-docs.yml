@@ -7,7 +7,12 @@ name: Validate Install Docs
 #
 # `uv tool install` runs outside the uv workspace, so `[tool.uv.sources]` does
 # not apply and workspace siblings would otherwise be pulled from PyPI rather
-# than from the commit under test. `--find-links dist` keeps them local.
+# than from the commit under test. `--find-links dist` alone does not keep them
+# local: a resolver offered both prefers the higher version, and a stable PyPI
+# release sorts above a checkout's dev build of the pre-release it descends
+# from (osprey-connectors, on its own tag stream, is the one that gets there
+# first). So each member wheel is named as a requirement of its own (`--with`),
+# which pins that exact file.
 
 on:
   pull_request:
@@ -34,7 +39,10 @@ jobs:
         run: uv build --all-packages
 
       - name: Install osprey from built wheels (NOT PyPI)
-        run: uv tool install --find-links dist ./dist/osprey_framework-*.whl
+        run: |
+          uv tool install --find-links dist ./dist/osprey_framework-*.whl \
+            --with ./dist/osprey_connectors-*.whl \
+            --with ./dist/pyaml_cs_osprey-*.whl
 
       - name: Verify osprey on PATH
         run: osprey --version

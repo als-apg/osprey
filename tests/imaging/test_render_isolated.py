@@ -11,7 +11,8 @@ ready wait to write its ready line, since how long a fresh interpreter takes to
 start is the host's load, not the case; only the case that proves the ready wait
 scales it, against a worker that never writes the line in time. The cancellation
 cases hold their worker on a file the test controls and run on the shipped
-clocks, so only the cancel ends the render.
+clocks, so only the cancel ends the render. A test that waits for a state polls
+for it with :func:`_wait_for`.
 """
 
 from __future__ import annotations
@@ -127,6 +128,19 @@ async def _scaled(monkeypatch):
     await render.close_render_worker()
 
 
+async def _wait_for(predicate, label: str, *, ceiling: float = 30.0) -> None:
+    """Poll *predicate* until it is truthy; fail naming *label* past *ceiling* s.
+
+    Interim: this file's one async wait, the counterpart of
+    :func:`tests._container_support.wait_until_ready` for a test on a running
+    loop, until a shared async wait exists.
+    """
+    deadline = time.monotonic() + ceiling
+    while not predicate():
+        assert time.monotonic() < deadline, f"{label} within {ceiling:g} s"
+        await asyncio.sleep(0.01)
+
+
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -204,7 +218,7 @@ def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
 
 
 async def test_probe_reports_a_healthy_worker():
-    assert await render.probe_render_worker() is True
+    assert await render.probe_render_worker() is None
     # The probe never leaves a cached worker behind.
     assert render.worker_pid() is None
 
@@ -213,7 +227,9 @@ async def test_probe_reports_a_worker_that_dies_at_import(monkeypatch, tmp_path)
     path = tmp_path / "stub_worker.py"
     path.write_text("import sys\nsys.exit(1)\n")
     monkeypatch.setattr(render, "WORKER_ARGV", (sys.executable, "-I", str(path)))
-    assert await render.probe_render_worker() is False
+    reason = await render.probe_render_worker()
+    assert reason is not None
+    assert "exited before its ready line" in reason
 
 
 # -- stub workers: failures -----------------------------------------------------------
@@ -575,13 +591,14 @@ def _held(tmp_path: Path, payload: bytes) -> tuple[str, Path, Path]:
     return lines, started, release
 
 
-async def _until_held(task: asyncio.Task, started: Path, ceiling: float = 30.0) -> None:
+async def _until_held(task: asyncio.Task, started: Path) -> None:
     """Return once the worker holds the picture; fail if the render ends first."""
-    deadline = time.monotonic() + ceiling
-    while not started.exists():
+
+    def held() -> bool:
         assert not task.done(), f"the render ended before its worker held the picture: {task}"
-        assert time.monotonic() < deadline, f"no worker held the picture within {ceiling:g} s"
-        await asyncio.sleep(0.01)
+        return started.exists()
+
+    await _wait_for(held, "no worker held the picture")
 
 
 # -- cancellation -----------------------------------------------------------------------
@@ -607,11 +624,7 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
     assert outcome.rendition is not None
     assert outcome.rendition.width == 2
     assert render.worker_pid() not in (None, first_pid)
-    for _ in range(40):
-        if not _alive(first_pid):
-            break
-        await asyncio.sleep(0.05)
-    assert not _alive(first_pid)
+    await _wait_for(lambda: not _alive(first_pid), "the cancelled worker did not exit")
 
 
 async def test_a_cancel_is_not_counted_as_a_worker_death(monkeypatch, tmp_path):
@@ -649,20 +662,13 @@ async def test_a_cancel_during_the_ready_wait_leaves_no_child(monkeypatch, tmp_p
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_exec)
     pending = asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-    for _ in range(40):
-        await asyncio.sleep(0.05)
-        if spawned:
-            break
+    await _wait_for(lambda: spawned, "no worker was spawned")
     assert len(spawned) == 1
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert render.worker_pid() is None
-    for _ in range(40):
-        if not _alive(spawned[0]):
-            break
-        await asyncio.sleep(0.05)
-    assert not _alive(spawned[0])
+    await _wait_for(lambda: not _alive(spawned[0]), "the cancelled worker did not exit")
 
 
 async def test_kill_never_signals_a_reaped_worker(monkeypatch, tmp_path):

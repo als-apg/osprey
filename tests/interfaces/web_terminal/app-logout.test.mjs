@@ -31,21 +31,24 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 // static imports are evaluated and therefore before the GET is made. Any other
 // URL is a dependency this file has not declared, and fails loudly.
 vi.hoisted(() => {
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        version: 1,
-        rev: 0,
-        header: [],
-        status: [],
-        header_visible: true,
-        status_visible: true,
-      }),
-    };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          version: 1,
+          rev: 0,
+          header: [],
+          status: [],
+          header_visible: true,
+          status_visible: true,
+        }),
+      };
+    })
+  );
 });
 
 import { initLogoutButton } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
@@ -165,7 +168,12 @@ describe('initLogoutButton: click flow', () => {
       () =>
         new Promise((resolve) => {
           releaseFetch = () =>
-            resolve({ ok: true, status: 200, statusText: 'OK', json: async () => ({ status: 'ok' }) });
+            resolve({
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              json: async () => ({ status: 'ok' }),
+            });
         })
     );
     vi.stubGlobal('fetch', fetchMock);
@@ -225,7 +233,12 @@ describe('initLogoutButton: click flow', () => {
     localStorage.setItem(STORAGE_KEY, 'warm-session-id');
     const btn = renderLogoutButton('/landing');
 
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      })
+    );
     const assign = vi.fn();
     vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
     vi.spyOn(console, 'error').mockImplementation(() => {});

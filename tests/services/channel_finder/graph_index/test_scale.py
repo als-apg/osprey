@@ -30,7 +30,7 @@ thing in the same process to measure them against.
 Those four absolute budgets carry the ``wallclock`` marker, so the unit job
 times them alone, in a serial step after its parallel sweep. The ratio guards
 run in the parallel lane with everything else, where host load divides out.
-The module is ``slow``, so ``scripts/quick_check.sh`` skips it.
+The module is ``slow``, so the quick tier of ``scripts/check.py`` deselects it.
 
 :data:`PARITY_MATRIX` is exported for the parity lane, which replays the same
 filter shapes against the store and against the index and compares the answers.

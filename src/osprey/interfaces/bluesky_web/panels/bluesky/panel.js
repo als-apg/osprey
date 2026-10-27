@@ -42,7 +42,11 @@
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
-import { contributeHeader, isSimpleMode, onHeaderAction } from '/design-system/js/header-contrib.js';
+import {
+  contributeHeader,
+  isSimpleMode,
+  onHeaderAction,
+} from '/design-system/js/header-contrib.js';
 
 import {
   laneIsKnown,

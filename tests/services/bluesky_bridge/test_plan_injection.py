@@ -11,6 +11,7 @@ works in a bluesky-less bridge process.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -65,6 +66,12 @@ def _isolated_facility_plans(monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+def _legacy_module_name(path: Path) -> str:
+    """The synthetic `sys.modules` name of a legacy facility module at *path*."""
+    digest = hashlib.sha1(str(path.resolve()).encode(), usedforsecurity=False).hexdigest()[:16]
+    return f"_bluesky_bridge_facility_plans_{digest}"
 
 
 def _write_facility_module(tmp_path: Path) -> Path:
@@ -141,8 +148,8 @@ def test_load_facility_plans_registers_module_in_sys_modules(tmp_path: Path) -> 
     synthetic name, so intra-module self-references (dataclasses, pickling)
     resolve during import."""
     module_path = _write_facility_module(tmp_path)
-    synthetic_name = f"_bluesky_bridge_facility_plans_{module_path.stem}"
-    sys.modules.pop(synthetic_name, None)  # clean precondition (other tests share the stem)
+    synthetic_name = _legacy_module_name(module_path)
+    sys.modules.pop(synthetic_name, None)  # clean precondition
 
     plan_loader.load_facility_plans(str(module_path))
 
@@ -157,7 +164,7 @@ def test_load_facility_plans_does_not_leave_module_in_sys_modules_on_exec_failur
     entry behind in `sys.modules` to shadow a later, fixed load."""
     module_path = tmp_path / "explodes_on_import.py"
     module_path.write_text("raise RuntimeError('boom at import time')\n")
-    synthetic_name = f"_bluesky_bridge_facility_plans_{module_path.stem}"
+    synthetic_name = _legacy_module_name(module_path)
 
     with pytest.raises(RuntimeError, match="boom at import time"):
         plan_loader.load_facility_plans(str(module_path))

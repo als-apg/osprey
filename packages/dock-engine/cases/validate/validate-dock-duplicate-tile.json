@@ -1,0 +1,21 @@
+{
+  "name": "validate-dock-duplicate-tile",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a"
+      },
+      {
+        "tile": "t1",
+        "tabs": ["b"],
+        "showing": "b"
+      }
+    ]
+  },
+  "reason": "duplicate_tile",
+  "where": "layout.items[1].tile"
+}

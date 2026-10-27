@@ -35,7 +35,7 @@ def _stage_project(tmp_path: Path, control_system: dict) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# apply_scenarios (simulation/apply.py)
+# Tests of apply_scenarios in simulation/apply.py
 # ---------------------------------------------------------------------------
 
 

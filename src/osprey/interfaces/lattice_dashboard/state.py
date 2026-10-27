@@ -43,14 +43,14 @@ ALL_FIGURES = FAST_FIGURES + VERIFICATION_FIGURES
 PERIODIC = "periodic"
 
 #: The solve whose optics start from ``settings.pyat.twiss_in``.
-SINGLE_PASS = "single_pass"
+SINGLE_PASS = "single_pass"  # noqa: S105 -- names a lattice mode, holds no secret
 
 #: The only figure a ``single_pass`` model draws: it has no tune, so no figure
 #: built on tunes, chromaticity or turn-by-turn tracking applies to it.
 OPTICS_ONLY = ("optics",)
 
 #: The refusal a figure route gives a figure the selected model cannot draw.
-SINGLE_PASS_UNAVAILABLE = "not available for a single-pass model"
+SINGLE_PASS_UNAVAILABLE = "not available for a single-pass model"  # noqa: S105 -- names a status message, holds no secret
 
 #: The settings group each figure's worker reads; None for a figure with none.
 FIGURE_SETTINGS: dict[str, str | None] = {

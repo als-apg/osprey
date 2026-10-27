@@ -1,0 +1,1 @@
+check.py quick --changed: a changed script a check runs through selects tests/scripts/, and a changed file under a tests/<dir>/ that holds test modules selects that directory, instead of the whole suite.

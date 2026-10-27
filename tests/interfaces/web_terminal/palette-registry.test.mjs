@@ -87,7 +87,7 @@ describe('buildRegistry', () => {
     const settings = inGroup(items, 'Settings');
     const keys = settings.map((it) => it.label);
     expect(new Set(keys)).toEqual(
-      new Set(['control_system.type', 'control_system.writes_enabled', 'approval.enabled']),
+      new Set(['control_system.type', 'control_system.writes_enabled', 'approval.enabled'])
     );
 
     // Each navigable setting carries searchText === its dot-key, and run reveals it.
@@ -183,7 +183,8 @@ describe('buildRegistry', () => {
       openPanelBeside: (id) => besided.push(id),
     });
 
-    const byLabel = (/** @type {string} */ label) => inGroup(items, 'Panels').find((it) => it.label === label);
+    const byLabel = (/** @type {string} */ label) =>
+      inGroup(items, 'Panels').find((it) => it.label === label);
     byLabel('Open Facility in a new window').run();
     byLabel('Open Facility in a new tile').run();
     expect(poppedOut).toEqual(['okf']);
@@ -243,7 +244,8 @@ describe('buildRegistry', () => {
       openPanelBeside: () => {},
     });
 
-    const byLabel = (/** @type {string} */ label) => inGroup(items, 'Panels').find((it) => it.label === label);
+    const byLabel = (/** @type {string} */ label) =>
+      inGroup(items, 'Panels').find((it) => it.label === label);
     const popout = byLabel('Open Facility in a new window').searchText;
     for (const token of ['window', 'popout', 'standalone', 'tab']) {
       expect(popout).toContain(token);

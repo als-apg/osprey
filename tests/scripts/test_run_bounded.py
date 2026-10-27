@@ -1,4 +1,4 @@
-"""Tests for the wall-clock bound the local gate scripts put on each pytest run.
+"""Tests for the wall-clock bound the check command puts on each pytest run.
 
 The wrapper's ``main`` is only ever run as a subprocess, never called here: it
 installs signal handlers and exits the process, neither of which belongs in the
@@ -9,23 +9,45 @@ module installs no handler.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import importlib.util
 import os
-import re
 import shlex
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
-GATE_SCRIPTS = ("quick_check.sh", "premerge_check.sh", "ci_check.sh", "gate.sh")
+CHECK_SCRIPT = _REPO_ROOT / "scripts" / "check.py"
+WRAPPER = ["uv", "run", "python", "scripts/run_bounded.py"]
 
-_WRAPPER_PREFIX = re.compile(r"uv run python scripts/run_bounded\.py [0-9.]+ -- ")
+
+@pytest.fixture(scope="module")
+def check() -> Iterator[ModuleType]:
+    """``scripts/check.py`` loaded by path, since scripts/ is not a package.
+
+    The module is registered in sys.modules before exec so @dataclass can
+    resolve annotations through cls.__module__, under a name no import uses.
+    """
+    name = "_check_by_path_for_bounds"
+    spec = importlib.util.spec_from_file_location(name, CHECK_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+        yield module
+    finally:
+        sys.modules.pop(name, None)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -180,28 +202,47 @@ def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
             wrapper.wait(10)
 
 
-def _unbounded_pytest_lines(source: str) -> tuple[int, list[str]]:
-    """Count the pytest invocations in *source* and return the ones with no bound."""
-    invocations = [
-        line
-        for line in source.splitlines()
-        if "uv run pytest " in line and not line.strip().startswith(("#", "echo"))
+def _pytest_checks(checks: tuple[Any, ...]) -> list[Any]:
+    """The ``tests`` checks of *checks* whose command is a pytest run."""
+    return [c for c in checks if c.kind == "tests" and "pytest" in c.argv]
+
+
+def _unbounded_pytest_checks(check: ModuleType, checks: tuple[Any, ...]) -> list[str]:
+    """What leaves a pytest check of *checks* unbounded, one line per defect.
+
+    A check is bounded when it declares a bound and every tier that runs it
+    resolves its command through ``scripts/run_bounded.py`` with a bound.
+    """
+    problems = []
+    for declared in _pytest_checks(checks):
+        if declared.bound_s <= 0:
+            problems.append(f"{declared.id}: declares no bound")
+        for tier in sorted(declared.tiers):
+            context = check.Context(tier=tier)
+            for argv in check.commands(declared, check.Selection(check.WHOLE), context):
+                bounded = argv[:4] == WRAPPER and "--" in argv and float(argv[4]) > 0
+                if not bounded:
+                    problems.append(f"{declared.id}: {tier} runs it without {WRAPPER[-1]}")
+    return problems
+
+
+def test_every_pytest_check_resolves_through_the_bound(check):
+    assert [c.id for c in _pytest_checks(check.CHECKS)] == [
+        "pytest",
+        "pytest-pty",
+        "pytest-wallclock",
+        "pytest-wallclock-unit",
     ]
-    return len(invocations), [line for line in invocations if "scripts/run_bounded.py" not in line]
+    assert _unbounded_pytest_checks(check, check.CHECKS) == []
 
 
-@pytest.mark.parametrize("script", GATE_SCRIPTS)
-def test_every_gate_script_bounds_its_pytest_runs(script):
-    count, unbounded = _unbounded_pytest_lines((_REPO_ROOT / "scripts" / script).read_text())
-    assert count >= 1, f"{script} has no pytest invocation"
-    assert unbounded == [], f"{script} runs pytest without scripts/run_bounded.py"
-
-
-@pytest.mark.parametrize("script", GATE_SCRIPTS)
-def test_every_gate_script_bounds_its_pytest_runs__mutation_drops_the_wrapper(script):
-    source = (_REPO_ROOT / "scripts" / script).read_text()
-    mutated = _WRAPPER_PREFIX.sub("", source)
-    assert mutated != source, f"{script} carries no wrapper prefix to drop"
-    count, unbounded = _unbounded_pytest_lines(mutated)
-    assert count >= 1
-    assert unbounded, f"the check missed {script} with its wrapper removed"
+def test_every_pytest_check_resolves_through_the_bound__mutation_a_bound_of_zero_is_reported(
+    check,
+):
+    mutated = tuple(
+        dataclasses.replace(c, bound_s=0) if c.id == "pytest-pty" else c for c in check.CHECKS
+    )
+    assert _unbounded_pytest_checks(check, mutated) == [
+        "pytest-pty: declares no bound",
+        "pytest-pty: full runs it without scripts/run_bounded.py",
+    ]

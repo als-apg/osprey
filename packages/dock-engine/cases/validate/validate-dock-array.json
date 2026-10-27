@@ -1,0 +1,13 @@
+{
+  "name": "validate-dock-array",
+  "rule": "C-LAYOUT",
+  "input": [
+    {
+      "tile": "t1",
+      "tabs": ["a"],
+      "showing": "a"
+    }
+  ],
+  "reason": "not_layout",
+  "where": "layout"
+}

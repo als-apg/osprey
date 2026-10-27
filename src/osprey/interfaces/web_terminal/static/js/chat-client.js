@@ -14,6 +14,7 @@
  */
 
 import { fetchJSON, withPrefix } from './api.js';
+import { endsTurn } from './chat-frames.js';
 
 /** Base path for the chat REST + streaming endpoint (prefixed per-call via
  * `withPrefix` so multi-user `/u/<user>/` deployments reach this container). */
@@ -55,19 +56,6 @@ const COMMANDS_ENDPOINT = '/api/chat/commands';
  * A handle for cancelling an in-flight streaming turn.
  * @typedef {{ abort: () => void, readonly aborted: boolean }} ChatAbortHandle
  */
-
-/**
- * True when *event* ends the turn: a `result`, or an `error` whose `error_type`
- * is not `AssistantMessageError` (assistant-message errors are surfaced but the
- * turn keeps streaming).
- * @param {ChatEvent} event
- * @returns {boolean}
- */
-function isTerminal(event) {
-  if (event.type === 'result') return true;
-  if (event.type === 'error' && event.error_type !== 'AssistantMessageError') return true;
-  return false;
-}
 
 /**
  * Parse one raw SSE frame into an event, or `null` when the frame carries no
@@ -128,7 +116,7 @@ async function pump(reader, callbacks, untilClosed = false) {
       const event = parseSseFrame(frame);
       if (!event) continue;
       dispatch(callbacks, event);
-      if (!untilClosed && isTerminal(event)) return;
+      if (!untilClosed && endsTurn(event)) return;
     }
   }
   // Flush a trailing frame that arrived without its closing blank line.
@@ -181,9 +169,7 @@ async function transportError(res) {
   } catch {
     /* no body, or not the JSON error shape — the status carries the failure */
   }
-  const err = /** @type {TransportError} */ (
-    new Error(`HTTP ${res.status}: ${res.statusText}`)
-  );
+  const err = /** @type {TransportError} */ (new Error(`HTTP ${res.status}: ${res.statusText}`));
   err.status = res.status;
   err.slug = slug;
   if (commands) err.commands = commands;
@@ -340,10 +326,10 @@ export function followChat(chatId, callbacks) {
     controller = new AbortController();
     let next = delay;
     try {
-      const res = await fetch(
-        withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/events`),
-        { signal: controller.signal, cache: 'no-store' },
-      );
+      const res = await fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/events`), {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
       if (res.status === 204) {
         next = 10000;
       } else if (res.ok && res.body) {
@@ -491,7 +477,7 @@ export async function uploadChatAttachment(chatId, file, { name, batch, signal }
       },
       body: file,
       signal,
-    },
+    }
   );
   if (!res.ok) throw await transportError(res);
   return res.json();
@@ -510,13 +496,13 @@ export async function uploadChatAttachment(chatId, file, { name, batch, signal }
 export async function removeChatAttachment(chatId, storedName, { batch, keepalive } = {}) {
   const res = await fetch(
     withPrefix(
-      `${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(storedName)}`,
+      `${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/attachments/${encodeURIComponent(storedName)}`
     ),
     {
       method: 'DELETE',
       headers: batch ? { 'X-Osprey-Attachment-Batch': batch } : {},
       keepalive: Boolean(keepalive),
-    },
+    }
   );
   if (!res.ok) throw await transportError(res);
 }

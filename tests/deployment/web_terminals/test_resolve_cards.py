@@ -298,23 +298,22 @@ def test_an_app_named_like_a_projected_tier_is_refused() -> None:
 # ── Derived entries are never written ────────────────────────────────────────
 
 
-def test_a_built_repo_lists_people_only_in_config_and_profile(tmp_path: Path) -> None:
-    # Arrange: a real init, whose shipped roster lists people under users:
-    # and the apps under shared:.
-    from osprey.cli.build_cmd import build
+def test_a_built_repo_lists_people_only_in_config_and_profile(
+    tmp_path: Path, built_control_assistant
+) -> None:
+    # Arrange: the run's shared build (tests/_builds.py), whose shipped roster
+    # lists people under users: and the apps under shared:, and the profile a
+    # fresh init of the same name writes, which that build started from.
     from osprey.cli.init_cmd import init
 
-    runner = CliRunner()
-    target = tmp_path / "facility"
-    created = runner.invoke(init, [str(target), "--preset", "control-assistant", "--no-git"])
+    target = built_control_assistant.repo
+    fresh = tmp_path / target.name
+    created = CliRunner().invoke(init, [str(fresh), "--preset", "control-assistant", "--no-git"])
     assert created.exit_code == 0, created.output
-    profile_before = (target / "profile.yml").read_text(encoding="utf-8")
+    profile_before = (fresh / "profile.yml").read_text(encoding="utf-8")
 
-    # Act
-    built = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
-
-    # Assert: both files list people only.
-    assert built.exit_code == 0, built.output
+    # Assert: the build left the profile as init wrote it, and both files
+    # list people only.
     assert (target / "profile.yml").read_text(encoding="utf-8") == profile_before
     profile_roster = yaml.safe_load(profile_before)["config"]["modules.web_terminals"]
     config = yaml.safe_load((target / "build" / "config.yml").read_text(encoding="utf-8"))

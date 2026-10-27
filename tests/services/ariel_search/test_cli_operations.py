@@ -185,10 +185,14 @@ def _status_repo(
     return repo
 
 
+#: What the render probe answers for a worker that is unavailable.
+_PROBE_REASON = "render worker exited before its ready line (exit code 1)"
+
+
 @pytest.fixture(autouse=True)
 def render_probe(monkeypatch):
     """Answer the render probe ``ok`` without spawning a worker; tests may flip it."""
-    probe = AsyncMock(return_value=True)
+    probe = AsyncMock(return_value=None)
     monkeypatch.setattr("osprey.imaging.render.probe_render_worker", probe)
     return probe
 
@@ -490,6 +494,7 @@ class TestGetStatusAttachments:
             "pending",
             "skipped",
             "render",
+            "render_unavailable",
         ]
         assert attachments["copy_on_ingest"] == "images"
         assert "png" in attachments["formats"]["viewable"]
@@ -501,6 +506,7 @@ class TestGetStatusAttachments:
         assert attachments["pending"] == 3
         assert attachments["skipped"] == {"too_large": 2}
         assert attachments["render"] == "ok"
+        assert attachments["render_unavailable"] is None
 
     async def test_attachments_matches_the_capability_block(self, monkeypatch):
         from osprey.services.ariel_search.capabilities import attachments_capability
@@ -516,12 +522,13 @@ class TestGetStatusAttachments:
         assert out["attachments"]["copy_on_ingest"] == "all"
 
     async def test_attachments_render_unavailable_when_probe_fails(self, monkeypatch, render_probe):
-        render_probe.return_value = False
+        render_probe.return_value = _PROBE_REASON
         _patch_service(monkeypatch, _StubService(repository=_status_repo()))
 
         out = await ops.get_status(dict(_DB))
 
         assert out["attachments"]["render"] == "unavailable"
+        assert out["attachments"]["render_unavailable"] == _PROBE_REASON
         render_probe.assert_awaited_once()
 
     async def test_attachments_schema_behind_nulls_pending_and_skipped(self, monkeypatch):
@@ -583,9 +590,11 @@ class TestStatusTextAttachments:
         assert "schema behind code" not in text
 
     def test_attachments_text_render_unavailable(self, monkeypatch, render_probe):
-        render_probe.return_value = False
+        render_probe.return_value = _PROBE_REASON
 
-        assert "render: unavailable" in self._run(monkeypatch, _status_repo())
+        text = self._run(monkeypatch, _status_repo())
+
+        assert f"render: unavailable: {_PROBE_REASON}" in text
 
     def test_attachments_text_schema_behind_code(self, monkeypatch):
         text = self._run(monkeypatch, _status_repo(copy_state=False))

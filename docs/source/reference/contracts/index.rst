@@ -100,6 +100,14 @@ guides are the better starting point.
       fields of every record, who can read the files, and what the trail does
       not promise.
 
+   .. grid-item-card:: Dock Engine Contract
+      :link: dock-engine
+      :link-type: doc
+      :shadow: md
+
+      The dock layout engine OSPREY and CANOPY share: one case set, one JS
+      engine, one Python rule implementation, and where each is edited.
+
 .. toctree::
    :hidden:
 
@@ -113,3 +121,4 @@ guides are the better starting point.
    guarded-run
    audit-trail
    bridge-dispatch
+   dock-engine

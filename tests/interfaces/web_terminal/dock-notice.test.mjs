@@ -47,7 +47,9 @@ getDockApi.mockImplementation(() => state.api);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi,
   defaultServiceWidth: () => 600,
-  setServiceRedock: (/** @type {() => void} */ fn) => { redock.fn = fn; },
+  setServiceRedock: (/** @type {() => void} */ fn) => {
+    redock.fn = fn;
+  },
   onDragGesture: () => [],
 }));
 
@@ -112,7 +114,9 @@ function relayout(api) {
 
 /** @returns {HTMLElement[]} */
 function noticeEls() {
-  return /** @type {HTMLElement[]} */ ([...document.querySelectorAll('.dock-iframe-overlay > .tile-notice')]);
+  return /** @type {HTMLElement[]} */ ([
+    ...document.querySelectorAll('.dock-iframe-overlay > .tile-notice'),
+  ]);
 }
 
 /** @param {string} id @returns {HTMLElement} */
@@ -235,7 +239,11 @@ describe('setPanelReachable — the tile body says its backend stopped answering
     addTerminal(api);
     const mod = await freshAdapter(api);
     mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
-    api.addPanel({ id: 'iframe:artifacts', component: 'dock-iframe-placeholder', title: 'WORKSPACE' });
+    api.addPanel({
+      id: 'iframe:artifacts',
+      component: 'dock-iframe-placeholder',
+      title: 'WORKSPACE',
+    });
     mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
     stubTileRect(api, 'iframe:ariel', { left: 340, top: 90, width: 300, height: 480 });
     stubTileRect(api, 'iframe:artifacts', { left: 640, top: 90, width: 300, height: 480 });

@@ -37,6 +37,27 @@ class DegenerateVectorError(ValueError):
     """
 
 
+def declares(provider_class: type, flag: str) -> bool:
+    """Whether *provider_class* declares the capability *flag* as true.
+
+    An undeclared capability is not required and not supported. The
+    ``NotImplemented`` sentinel on :class:`BaseProvider` marks "the subclass
+    did not say", never a truth value, so the flag is compared ``is True``
+    and the sentinel is never converted to a bool. A registered class need
+    not subclass :class:`BaseProvider`, so a missing attribute reads as
+    undeclared.
+
+    Args:
+        provider_class: A provider class as the registry hands it out.
+        flag: One of ``requires_api_key``, ``requires_base_url``,
+            ``requires_model_id`` or ``supports_proxy``.
+
+    Returns:
+        True only when the class sets *flag* to ``True``.
+    """
+    return getattr(provider_class, flag, None) is True
+
+
 class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" default
     """Abstract base class for AI model providers.
 
@@ -233,6 +254,14 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
     health_check_embedding_model_id: str | None = None
 
     @classmethod
+    def declares(cls, flag: str) -> bool:
+        """Whether this provider declares the capability *flag* as true.
+
+        Delegates to the module-level :func:`declares`.
+        """
+        return declares(cls, flag)
+
+    @classmethod
     def _implements(cls, name: str) -> bool:
         """Whether this class overrides *name* somewhere below :class:`BaseProvider`.
 
@@ -319,7 +348,7 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
                 return override
         if is_unresolved_placeholder(base_url):
             base_url = None
-        if cls.requires_base_url and cls.default_base_url:
+        if cls.declares("requires_base_url") and cls.default_base_url:
             return base_url or cls.default_base_url
         return base_url
 
@@ -389,7 +418,7 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
             ValueError: When this provider requires an endpoint and no source
                 supplies one.
         """
-        if cls.requires_base_url:
+        if cls.declares("requires_base_url"):
             return cls.require_effective_base_url(base_url)
         return cls.effective_base_url(base_url)
 
@@ -412,7 +441,7 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
         """
         if api_key:
             return api_key
-        return None if cls.requires_api_key else KEYLESS_API_KEY_PLACEHOLDER
+        return None if cls.declares("requires_api_key") else KEYLESS_API_KEY_PLACEHOLDER
 
     def execute_completion(
         self,

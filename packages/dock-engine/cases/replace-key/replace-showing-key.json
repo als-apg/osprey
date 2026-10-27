@@ -1,0 +1,55 @@
+{
+  "name": "replace-showing-key",
+  "rule": "C-DROP",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b", "e"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  },
+  "op": {
+    "fn": "replaceKey",
+    "oldKey": "b",
+    "newKey": "x"
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["x", "e"],
+        "showing": "x",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  }
+}

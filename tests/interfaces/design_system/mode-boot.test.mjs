@@ -120,7 +120,7 @@ describe('mode-boot.js resolution ladder', () => {
       expect(currentMode()).toBe('expert');
     });
 
-    test("stamps the default even when the page rendered no data-ui-mode (artifacts)", () => {
+    test('stamps the default even when the page rendered no data-ui-mode (artifacts)', () => {
       // artifacts/static/index.html renders no data-ui-mode; boot must
       // still stamp the attribute so mode-scoped CSS has something to match.
       expect(document.documentElement.hasAttribute('data-ui-mode')).toBe(false);

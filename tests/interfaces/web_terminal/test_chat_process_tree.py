@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import shutil
 import signal
 import sys
 import time
@@ -48,7 +47,6 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
 ]
 
 
@@ -154,7 +152,7 @@ def _ended_pids(session: OperatorSession) -> set[int]:
 def _fail_first_reads(monkeypatch, failures: int) -> list[bool]:
     """Make the first *failures* process-table reads fail; return the log of reads.
 
-    Each entry says whether that read reached the real ``ps``.
+    Each entry says whether that read reached the real process table.
     """
     real = process_tree.snapshot
     reads: list[bool] = []

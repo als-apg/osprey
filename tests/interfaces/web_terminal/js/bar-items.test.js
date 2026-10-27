@@ -209,7 +209,12 @@ describe('clock item: renders per the option spec', () => {
     ['the default is the local wall clock, to the minute', {}, localTimeText(AT, false), null],
     ['the seconds option adds the seconds field', { seconds: true }, localTimeText(AT, true), null],
     ['zone utc reads UTC rather than the browser zone', { zone: 'utc' }, '14:32', 'UTC'],
-    ['zone utc with seconds carries the whole UTC field', { zone: 'utc', seconds: true }, '14:32:07', 'UTC'],
+    [
+      'zone utc with seconds carries the whole UTC field',
+      { zone: 'utc', seconds: true },
+      '14:32:07',
+      'UTC',
+    ],
     [
       'zone both shows local beside UTC, and marks which half is which',
       { zone: 'both' },
@@ -577,7 +582,6 @@ describe('clock item: the host lifecycle around the interval', () => {
     vi.advanceTimersByTime(60 * 60 * 1000);
     expect(parked.textContent).toBe('14:32:07');
   });
-
 });
 
 describe('stopwatch item', () => {
@@ -816,7 +820,6 @@ describe('space item: edit-mode furniture', () => {
     expect(partOf('space', '.bar-space-label').textContent).toBe('48 px');
     expect(shellOf('space').style.getPropertyValue('flex')).toBe('0 1 48px');
   });
-
 });
 
 describe('previewBarItem: a body outside the bars', () => {

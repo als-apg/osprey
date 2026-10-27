@@ -181,7 +181,10 @@ export function createActions(host) {
       const prefs = host.prefs();
       prefs.density = density;
       savePrefs(prefs);
-      host.pane()?.querySelector('.graph-explorer')?.classList.toggle('compact', density === 'compact');
+      host
+        .pane()
+        ?.querySelector('.graph-explorer')
+        ?.classList.toggle('compact', density === 'compact');
       for (const btn of host.pane()?.querySelectorAll('[data-density]') ?? []) {
         btn.setAttribute('aria-pressed', String(btn.getAttribute('data-density') === density));
       }
@@ -229,7 +232,9 @@ export function toggleFold(host, key) {
   const group = host.pane()?.querySelector(`.facet[data-facet-group="${CSS.escape(key)}"]`);
   if (group) {
     group.classList.toggle('collapsed', folded.has(key));
-    group.querySelector('[data-facet-toggle]')?.setAttribute('aria-expanded', String(!folded.has(key)));
+    group
+      .querySelector('[data-facet-toggle]')
+      ?.setAttribute('aria-expanded', String(!folded.has(key)));
   }
 }
 
@@ -241,7 +246,9 @@ export function toggleFold(host, key) {
  * @returns {void}
  */
 export function sortBy(host, key) {
-  if (!(/** @type {readonly string[]} */ (SORT_KEYS)).includes(key)) return;
+  /** @type {readonly string[]} */
+  const sortKeys = SORT_KEYS;
+  if (!sortKeys.includes(key)) return;
   cycleSort(host.finder(), /** @type {SortKey} */ (key));
   void host.runSearch();
 }
@@ -280,18 +287,31 @@ export function contributeHeader(host) {
   const prefs = host.prefs();
   state.setViewHeader({
     items: [
-      { kind: 'search', id: HEADER_SEARCH, placeholder: 'Search devices, addresses and descriptions', value: finder.q, priority: 2 },
+      {
+        kind: 'search',
+        id: HEADER_SEARCH,
+        placeholder: 'Search devices, addresses and descriptions',
+        value: finder.q,
+        priority: 2,
+      },
       {
         kind: 'menu',
         id: HEADER_MENU,
         label: 'Finder options',
         priority: 1,
         items: [
-          { id: 'density-comfortable', label: 'Comfortable rows', checked: prefs.density === 'comfortable' },
+          {
+            id: 'density-comfortable',
+            label: 'Comfortable rows',
+            checked: prefs.density === 'comfortable',
+          },
           { id: 'density-compact', label: 'Compact rows', checked: prefs.density === 'compact' },
           { id: 'columns', label: 'Choose columns…' },
           { id: 'reset-columns', label: 'Reset columns' },
-          { id: 'toggle-rail', label: host.railSplit()?.isCollapsed() ? 'Show filters' : 'Hide filters' },
+          {
+            id: 'toggle-rail',
+            label: host.railSplit()?.isCollapsed() ? 'Show filters' : 'Hide filters',
+          },
           { id: 'clear-filters', label: 'Clear all filters', disabled: !hasFilters(finder) },
           { id: 'clear-selection', label: 'Clear selection', disabled: finder.selected.size === 0 },
         ],
@@ -331,7 +351,10 @@ export function onHeaderAction(host, id, value) {
     const head = host.pane()?.querySelector('.result-table thead tr');
     const first = visibleColumns(COLUMN_SPECS, host.layout()).find((c) => !c.pin)?.key ?? 'device';
     if (head instanceof HTMLElement) {
-      openContextMenuAt(head, { ariaLabel: 'Columns', items: headerMenu(menuContext(host), first) });
+      openContextMenuAt(head, {
+        ariaLabel: 'Columns',
+        items: headerMenu(menuContext(host), first),
+      });
     }
   }
 }

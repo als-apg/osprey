@@ -802,7 +802,7 @@ class TestNoteTranscript:
 
 
 # ---------------------------------------------------------------------------
-# OperatorSession.cancel() / spawn_quiesce() / last_activity
+# Tests of OperatorSession.cancel(), spawn_quiesce() and last_activity
 # ---------------------------------------------------------------------------
 
 

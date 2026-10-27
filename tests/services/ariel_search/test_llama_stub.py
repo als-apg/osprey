@@ -171,7 +171,7 @@ class TestNoServerListening:
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", _create)
         monkeypatch.setattr(
-            "osprey.imaging.render.probe_render_worker", AsyncMock(return_value=True)
+            "osprey.imaging.render.probe_render_worker", AsyncMock(return_value=None)
         )
         config = {
             "database": {"uri": "postgresql://localhost/ariel"},

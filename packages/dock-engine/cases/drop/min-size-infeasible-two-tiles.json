@@ -1,0 +1,39 @@
+{
+  "name": "min-size-infeasible-two-tiles",
+  "rule": "min-size",
+  "before": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.5
+      }
+    ]
+  },
+  "op": {
+    "fn": "planDrop",
+    "source": {
+      "new": "d"
+    },
+    "target": {
+      "tile": "t2",
+      "edge": "right"
+    },
+    "dock": {
+      "px": {
+        "width": 100,
+        "height": 600
+      },
+      "minPx": 40
+    }
+  },
+  "after": "unchanged"
+}

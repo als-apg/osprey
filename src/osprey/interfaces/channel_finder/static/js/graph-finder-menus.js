@@ -76,16 +76,18 @@ function columnToggles(ctx) {
   const shown = visibleColumns(ctx.specs, ctx.layout).filter((c) => !c.pin);
   return [
     { heading: 'Columns' },
-    ...ctx.specs.filter((s) => !s.pin).map((s) => {
-      const visible = !ctx.layout.hidden.has(s.key);
-      return {
-        label: s.label,
-        checked: visible,
-        // The last visible column stays: a table of no columns is not a view.
-        disabled: visible && shown.length <= 1,
-        run: () => ctx.actions.setColumnHidden(s.key, visible),
-      };
-    }),
+    ...ctx.specs
+      .filter((s) => !s.pin)
+      .map((s) => {
+        const visible = !ctx.layout.hidden.has(s.key);
+        return {
+          label: s.label,
+          checked: visible,
+          // The last visible column stays: a table of no columns is not a view.
+          disabled: visible && shown.length <= 1,
+          run: () => ctx.actions.setColumnHidden(s.key, visible),
+        };
+      }),
   ];
 }
 
@@ -116,7 +118,11 @@ export function rowMenu(ctx, row) {
   /** @type {MenuItem[]} */
   const items = [
     many
-      ? { label: `Copy ${plural(n, 'address', 'addresses')}`, glyph: '⎘', run: () => actions.copy(targets.join('\n'), plural(n, 'address', 'addresses')) }
+      ? {
+          label: `Copy ${plural(n, 'address', 'addresses')}`,
+          glyph: '⎘',
+          run: () => actions.copy(targets.join('\n'), plural(n, 'address', 'addresses')),
+        }
       : { label: 'Copy address', glyph: '⎘', run: () => actions.copy(pv, pv) },
     { label: 'Copy device name', disabled: !device, run: () => actions.copy(device, device) },
     { label: 'Copy row as TSV', run: () => actions.copy(tsv, 'the row') },
@@ -129,14 +135,26 @@ export function rowMenu(ctx, row) {
     });
   }
   items.push({ divider: true });
-  items.push(ctx.openDevice === uri && uri
-    ? { label: 'Close device', run: () => actions.closeDevice() }
-    : { label: 'Open device', disabled: !uri, run: () => actions.openDevice(uri) });
+  items.push(
+    ctx.openDevice === uri && uri
+      ? { label: 'Close device', run: () => actions.closeDevice() }
+      : { label: 'Open device', disabled: !uri, run: () => actions.openDevice(uri) }
+  );
 
   /** @type {MenuItem[]} */
   const narrow = [];
-  if (row.section) narrow.push({ label: 'Only section', code: String(row.section), run: () => actions.onlyFacet('section', String(row.section)) });
-  if (row.system) narrow.push({ label: 'Only system', code: String(row.system), run: () => actions.onlyFacet('system', String(row.system)) });
+  if (row.section)
+    narrow.push({
+      label: 'Only section',
+      code: String(row.section),
+      run: () => actions.onlyFacet('section', String(row.section)),
+    });
+  if (row.system)
+    narrow.push({
+      label: 'Only system',
+      code: String(row.system),
+      run: () => actions.onlyFacet('system', String(row.system)),
+    });
   for (const name of signals.slice(0, 3)) {
     narrow.push({ label: 'Only signal', code: name, run: () => actions.onlyFacet('signal', name) });
   }
@@ -144,7 +162,12 @@ export function rowMenu(ctx, row) {
 
   items.push({ divider: true });
   items.push({ label: selected ? 'Deselect' : 'Select', run: () => actions.toggleSelected(pv) });
-  if (n > 0) items.push({ label: `Clear selection (${n.toLocaleString()})`, danger: true, run: () => actions.clearSelection() });
+  if (n > 0)
+    items.push({
+      label: `Clear selection (${n.toLocaleString()})`,
+      danger: true,
+      run: () => actions.clearSelection(),
+    });
   return items;
 }
 
@@ -159,11 +182,15 @@ export function bindingMenu(ctx, pv) {
   const { actions, finder } = ctx;
   /** @type {MenuItem[]} */
   const items = [{ label: 'Copy address', glyph: '⎘', run: () => actions.copy(pv, pv) }];
-  if (ctx.embedded) items.push({ label: 'Send to assistant', glyph: '➤', run: () => actions.send([pv]) });
-  items.push({ divider: true }, {
-    label: finder.selected.has(pv) ? 'Deselect' : 'Add to selection',
-    run: () => actions.toggleSelected(pv),
-  });
+  if (ctx.embedded)
+    items.push({ label: 'Send to assistant', glyph: '➤', run: () => actions.send([pv]) });
+  items.push(
+    { divider: true },
+    {
+      label: finder.selected.has(pv) ? 'Deselect' : 'Add to selection',
+      run: () => actions.toggleSelected(pv),
+    }
+  );
   return items;
 }
 
@@ -179,10 +206,21 @@ export function inspectorMenu(ctx, device, pvs) {
   const what = plural(pvs.length, 'address', 'addresses');
   /** @type {MenuItem[]} */
   const items = [
-    { label: `Copy ${what}`, glyph: '⎘', disabled: pvs.length === 0, run: () => actions.copy(pvs.join('\n'), what) },
+    {
+      label: `Copy ${what}`,
+      glyph: '⎘',
+      disabled: pvs.length === 0,
+      run: () => actions.copy(pvs.join('\n'), what),
+    },
     { label: 'Copy device name', disabled: !device, run: () => actions.copy(device, device) },
   ];
-  if (ctx.embedded) items.push({ label: `Send ${what} to assistant`, glyph: '➤', disabled: pvs.length === 0, run: () => actions.send(pvs) });
+  if (ctx.embedded)
+    items.push({
+      label: `Send ${what} to assistant`,
+      glyph: '➤',
+      disabled: pvs.length === 0,
+      run: () => actions.send(pvs),
+    });
   items.push({ divider: true }, { label: 'Close', glyph: '✕', run: () => actions.closeDevice() });
   return items;
 }
@@ -199,23 +237,46 @@ export function headerMenu(ctx, key) {
   if (!spec || spec.pin) return [];
   const sortKey = /** @type {SortKey} */ (key);
   const sorted = finder.sort && finder.sort.key === key ? finder.sort.dir : null;
-  const shown = visibleColumns(specs, layout).filter((c) => !c.pin).map((c) => c.key);
+  const shown = visibleColumns(specs, layout)
+    .filter((c) => !c.pin)
+    .map((c) => c.key);
   const at = shown.indexOf(key);
 
   return [
-    { label: 'Sort ascending', glyph: sorted === 'asc' ? '✓' : '▲', run: () => actions.sort(sortKey, 'asc') },
-    { label: 'Sort descending', glyph: sorted === 'desc' ? '✓' : '▼', run: () => actions.sort(sortKey, 'desc') },
+    {
+      label: 'Sort ascending',
+      glyph: sorted === 'asc' ? '✓' : '▲',
+      run: () => actions.sort(sortKey, 'asc'),
+    },
+    {
+      label: 'Sort descending',
+      glyph: sorted === 'desc' ? '✓' : '▼',
+      run: () => actions.sort(sortKey, 'desc'),
+    },
     { label: 'Clear sort', disabled: !finder.sort, run: () => actions.sort(sortKey, null) },
     { divider: true },
     { label: 'Move left', glyph: '←', disabled: at <= 0, run: () => actions.nudgeColumn(key, -1) },
-    { label: 'Move right', glyph: '→', disabled: at === -1 || at >= shown.length - 1, run: () => actions.nudgeColumn(key, 1) },
-    { label: `Hide ${spec.label}`, disabled: shown.length <= 1, run: () => actions.setColumnHidden(key, true) },
+    {
+      label: 'Move right',
+      glyph: '→',
+      disabled: at === -1 || at >= shown.length - 1,
+      run: () => actions.nudgeColumn(key, 1),
+    },
+    {
+      label: `Hide ${spec.label}`,
+      disabled: shown.length <= 1,
+      run: () => actions.setColumnHidden(key, true),
+    },
     { label: 'Fit column to content', run: () => actions.autosize(key) },
     { label: 'Fit all columns', run: () => actions.autosizeAll() },
     { divider: true },
     ...columnToggles(ctx),
     { divider: true },
-    { label: 'Reset columns', disabled: isDefaultLayout(specs, layout), run: () => actions.resetColumns() },
+    {
+      label: 'Reset columns',
+      disabled: isDefaultLayout(specs, layout),
+      run: () => actions.resetColumns(),
+    },
   ];
 }
 
@@ -235,12 +296,19 @@ export function facetValueMenu(ctx, facet, value, label) {
   // The class facet is single-select: a click already replaces, so there is
   // no "add" to offer beside "only".
   if (facet !== 'cls') {
-    items.push({ label: on ? 'Remove from filter' : 'Add to filter', run: () => actions.toggleFacet(facet, value) });
+    items.push({
+      label: on ? 'Remove from filter' : 'Add to filter',
+      run: () => actions.toggleFacet(facet, value),
+    });
   }
   items.push(
     { label: 'Copy value', glyph: '⎘', run: () => actions.copy(value, label) },
     { divider: true },
-    { label: 'Clear this facet', disabled: facetCount(finder, facet) === 0, run: () => actions.clearFacet(facet) },
+    {
+      label: 'Clear this facet',
+      disabled: facetCount(finder, facet) === 0,
+      run: () => actions.clearFacet(facet),
+    }
   );
   return items;
 }
@@ -254,8 +322,17 @@ export function facetValueMenu(ctx, facet, value, label) {
 export function facetHeadMenu(ctx, facet) {
   const { finder, actions } = ctx;
   return [
-    { label: 'Clear this facet', disabled: facetCount(finder, facet) === 0, run: () => actions.clearFacet(facet) },
-    { label: 'Clear all filters', danger: true, disabled: !hasFilters(finder), run: () => actions.clearFilters() },
+    {
+      label: 'Clear this facet',
+      disabled: facetCount(finder, facet) === 0,
+      run: () => actions.clearFacet(facet),
+    },
+    {
+      label: 'Clear all filters',
+      danger: true,
+      disabled: !hasFilters(finder),
+      run: () => actions.clearFilters(),
+    },
     { divider: true },
     { label: 'Collapse all facets', run: () => actions.collapseAllFacets(true) },
     { label: 'Expand all facets', run: () => actions.collapseAllFacets(false) },
@@ -284,15 +361,35 @@ export function moreMenu(ctx) {
   const { finder, actions } = ctx;
   return [
     { heading: 'Rows' },
-    { label: 'Comfortable', checked: ctx.density === 'comfortable', run: () => actions.setDensity('comfortable') },
-    { label: 'Compact', checked: ctx.density === 'compact', run: () => actions.setDensity('compact') },
+    {
+      label: 'Comfortable',
+      checked: ctx.density === 'comfortable',
+      run: () => actions.setDensity('comfortable'),
+    },
+    {
+      label: 'Compact',
+      checked: ctx.density === 'compact',
+      run: () => actions.setDensity('compact'),
+    },
     { divider: true },
     ...columnToggles(ctx),
-    { label: 'Reset columns', disabled: isDefaultLayout(ctx.specs, ctx.layout), run: () => actions.resetColumns() },
+    {
+      label: 'Reset columns',
+      disabled: isDefaultLayout(ctx.specs, ctx.layout),
+      run: () => actions.resetColumns(),
+    },
     { divider: true },
     { label: ctx.railCollapsed ? 'Show filters' : 'Hide filters', run: () => actions.toggleRail() },
-    { label: 'Clear all filters', disabled: !hasFilters(finder), run: () => actions.clearFilters() },
-    { label: 'Clear selection', disabled: finder.selected.size === 0, run: () => actions.clearSelection() },
+    {
+      label: 'Clear all filters',
+      disabled: !hasFilters(finder),
+      run: () => actions.clearFilters(),
+    },
+    {
+      label: 'Clear selection',
+      disabled: finder.selected.size === 0,
+      run: () => actions.clearSelection(),
+    },
   ];
 }
 
@@ -302,7 +399,12 @@ export function moreMenu(ctx) {
  * @returns {boolean}
  */
 export function hasFilters(finder) {
-  return finder.q.trim() !== '' || finder.cls !== null
-    || finder.section.size > 0 || finder.system.size > 0
-    || finder.signal.size > 0 || finder.dir.size > 0;
+  return (
+    finder.q.trim() !== '' ||
+    finder.cls !== null ||
+    finder.section.size > 0 ||
+    finder.system.size > 0 ||
+    finder.signal.size > 0 ||
+    finder.dir.size > 0
+  );
 }

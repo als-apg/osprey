@@ -358,7 +358,12 @@ export function createResultsView({
         return { ok: false, notFound: false, notStarted: true, message: 'no data yet' };
       }
       if (!response.ok) {
-        return { ok: false, notFound: false, notStarted: false, message: `data HTTP ${response.status}` };
+        return {
+          ok: false,
+          notFound: false,
+          notStarted: false,
+          message: `data HTTP ${response.status}`,
+        };
       }
       const body = await response.json();
       if (!body || !Array.isArray(body.columns) || !Array.isArray(body.rows)) {
@@ -703,11 +708,9 @@ export function createResultsView({
    */
   function drawFigure(figure) {
     try {
-      renderFigure(
-        { panels: elements.figurePanels, note: elements.figureNote },
-        figure,
-        { selection: figureSelection }
-      );
+      renderFigure({ panels: elements.figurePanels, note: elements.figureNote }, figure, {
+        selection: figureSelection,
+      });
     } catch (error) {
       console.error('osprey bluesky results: the figure renderer threw', error);
       return false;

@@ -1,0 +1,1 @@
+The settings drawer's warning gate, the logbook composer's modal builders and the graph finder's skeleton live in their own modules, so every production interface module is under the 450-line cap once formatted.

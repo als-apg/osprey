@@ -97,7 +97,7 @@ import os
 import uuid
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -258,26 +258,27 @@ def _token_is_valid(header: str) -> bool:
     return True
 
 
-def _require_arming_token(header: str, action: str) -> None:
-    """`verify_launch_token`, re-dressed in the queue surface's refusal shape.
+def _require_arming_token(header: str, action: str, extra: Mapping[str, Any] | None = None) -> None:
+    """`verify_launch_token`, with ``action`` named in the refusal's sentence.
 
-    `verify_launch_token` raises a bare-string detail; every refusal this
-    module puts on the wire is a dict whose ``code`` is the machine-readable
-    branch key (panels read ``body.detail.code``, MCP tools
-    ``body["detail"]["code"]``). The status code is passed through untouched —
-    503 when no token is configured at all, 403 on a missing/wrong header —
-    and ``action`` names the operation being refused so the sentence reads on
-    its own. The enqueue path has its own builder (`_refuse_unarmed`), which
-    additionally reports ``manager_state`` and any stranded item.
+    The shared check already raises the queue surface's refusal shape — a dict
+    whose ``code`` is the machine-readable branch key (panels read
+    ``body.detail.code``, MCP tools ``body["detail"]["code"]``). Its code and
+    status pass through untouched — 503 ``launch_token_required`` when no token
+    is configured at all, 403 ``launch_token_invalid`` on a missing/wrong
+    header — and only the sentence gains ``action``, so it reads on its own.
+    *extra* carries caller-side facts merged into the body after those two.
     """
     try:
         verify_launch_token(header)
     except HTTPException as exc:
+        refusal = cast(Mapping[str, Any], exc.detail)
         raise HTTPException(
             status_code=exc.status_code,
             detail={
-                "code": "launch_token_required",
-                "detail": f"{action} requires the launch token: {exc.detail}",
+                **refusal,
+                "detail": f"{action} requires the launch token: {refusal['detail']}",
+                **(extra or {}),
             },
         ) from exc
 
@@ -301,30 +302,24 @@ def _refuse_unarmed(
 ) -> NoReturn:
     """Raise the machine-readable enqueue-while-armed refusal (403 or 503).
 
-    Delegates the status-code choice to `verify_launch_token` (503 when no
-    token is configured at all, 403 on a missing/wrong header) and wraps its
-    message so clients can branch on ``code`` without parsing prose.
+    `_require_arming_token`, naming why this add was armed and carrying the
+    ``manager_state`` behind it: 503 ``launch_token_required`` when no token is
+    configured at all, 403 ``launch_token_invalid`` on a missing/wrong header.
 
     ``stranded_uid`` names an item this refusal tried and FAILED to withdraw
     (`_remove_item_best_effort` returned False): the refusal then carries
     ``item_left_behind: true`` + ``item_uid`` so the wire — not only a
     container log — witnesses that an unarmed item remains in an armed queue.
     """
-    try:
-        verify_launch_token(header)
-    except HTTPException as exc:
-        detail: dict[str, Any] = {
-            "code": "launch_token_required",
-            "detail": (
-                "the queue is running, starting, or set to autostart, so adding an "
-                f"item requires the launch token: {exc.detail}"
-            ),
-            "manager_state": status.get("manager_state"),
-        }
-        if stranded_uid is not None:
-            detail["item_left_behind"] = True
-            detail["item_uid"] = stranded_uid
-        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
+    extra: dict[str, Any] = {"manager_state": status.get("manager_state")}
+    if stranded_uid is not None:
+        extra["item_left_behind"] = True
+        extra["item_uid"] = stranded_uid
+    _require_arming_token(
+        header,
+        "the queue is running, starting, or set to autostart, so adding an item",
+        extra,
+    )
     raise RuntimeError("_refuse_unarmed called with a valid token")  # pragma: no cover
 
 
@@ -1447,10 +1442,10 @@ async def start_queue(
 ) -> dict[str, Any]:
     """Start draining the queue. Token-gated — this is the arming action.
 
-    `verify_launch_token` runs before ANY state is touched (503 unarmed, 403
-    mismatch). `ensure_environment_for_execute` runs next, OUTSIDE the lock:
-    it refuses browse-only deployments outright (capability record on the
-    wire) and brings the worker environment up when this deployment should be
+    `verify_launch_token` runs before ANY state is touched (503
+    ``launch_token_required`` unarmed, 403 ``launch_token_invalid`` mismatch).
+    `ensure_environment_for_execute` runs next, OUTSIDE the lock: it refuses
+    browse-only deployments outright (capability record on the wire) and brings the worker environment up when this deployment should be
     able to execute but the environment is closed — which can take tens of
     seconds on a cold worker, and opening an environment starts nothing, so
     holding the arming lock across it would only park every concurrent
@@ -1510,7 +1505,7 @@ async def start_queue(
         await backend.ensure_environment_for_execute()
         async with _arming_lock:
             # The approved queue, if the caller named one, before anything
-            # else: `reload=True` because a ~0.5 s cached uid could match a
+            # else, with `reload=True` because a ~0.5 s cached uid could match a
             # queue that has already moved, which is the one direction of
             # staleness this check must not have.
             expected_uid = body.expected_plan_queue_uid if body is not None else None

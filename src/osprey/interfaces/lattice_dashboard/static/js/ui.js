@@ -42,7 +42,7 @@ function _requireEl(scope, selector) {
 export function createUI(figureNames) {
   /** Plotly figures need to reflow after a layout/sidebar-width change. */
   function _reflowFigures() {
-    figureNames.forEach(name => {
+    figureNames.forEach((name) => {
       const plotEl = /** @type {any} */ (document.getElementById(`plot-${name}`));
       if (plotEl && plotEl.data) {
         Plotly.relayout(plotEl, { autosize: true });
@@ -155,7 +155,7 @@ export function createUI(figureNames) {
 
   function initSidebarTabs() {
     const tabs = document.querySelectorAll('.sidebar-tab');
-    tabs.forEach(tab => {
+    tabs.forEach((tab) => {
       tab.addEventListener('click', () => {
         const tabName = /** @type {HTMLElement} */ (tab).dataset.tab;
         // Picking a tab implies wanting to see it. Routed through the splitter
@@ -173,11 +173,14 @@ export function createUI(figureNames) {
   /** @param {string} tabName */
   function switchTab(tabName) {
     // Update tab buttons
-    document.querySelectorAll('.sidebar-tab').forEach(t => {
-      t.classList.toggle('sidebar-tab--active', /** @type {HTMLElement} */ (t).dataset.tab === tabName);
+    document.querySelectorAll('.sidebar-tab').forEach((t) => {
+      t.classList.toggle(
+        'sidebar-tab--active',
+        /** @type {HTMLElement} */ (t).dataset.tab === tabName
+      );
     });
     // Update tab content
-    document.querySelectorAll('.sidebar-tab-content').forEach(panel => {
+    document.querySelectorAll('.sidebar-tab-content').forEach((panel) => {
       panel.classList.toggle('sidebar-tab-content--active', panel.id === `tab-${tabName}`);
     });
     localStorage.setItem(scopedStorageKey(SIDEBAR_TAB_KEY), tabName);
@@ -204,7 +207,7 @@ export function createUI(figureNames) {
 
   function savePanelOrder() {
     const cells = document.querySelectorAll('.figure-cell');
-    const order = Array.from(cells).map(c => /** @type {HTMLElement} */ (c).dataset.figure);
+    const order = Array.from(cells).map((c) => /** @type {HTMLElement} */ (c).dataset.figure);
     localStorage.setItem(scopedStorageKey(PANEL_ORDER_KEY), JSON.stringify(order));
   }
 
@@ -213,7 +216,7 @@ export function createUI(figureNames) {
     /** @type {Element|null} */
     let draggedCell = null;
 
-    cells.forEach(cell => {
+    cells.forEach((cell) => {
       const header = cell.querySelector('.figure-header');
       if (!header) return;
 
@@ -269,7 +272,7 @@ export function createUI(figureNames) {
           draggedCell = null;
         }
         // Clean up any stale drag-over highlights
-        cells.forEach(c => c.classList.remove('drag-over'));
+        cells.forEach((c) => c.classList.remove('drag-over'));
       });
     });
   }
@@ -286,8 +289,8 @@ export function createUI(figureNames) {
       const containers = document.querySelectorAll('.figure-grid, .verification-row');
       /** @type {{container: Element, placeholder: Element}[]} */
       const allSlots = [];
-      containers.forEach(container => {
-        Array.from(container.children).forEach(child => {
+      containers.forEach((container) => {
+        Array.from(container.children).forEach((child) => {
           if (child.classList.contains('figure-cell')) {
             allSlots.push({ container, placeholder: child });
           }
@@ -297,7 +300,7 @@ export function createUI(figureNames) {
       // Build lookup of cells by figure name
       /** @type {Record<string, Element>} */
       const cellMap = {};
-      allSlots.forEach(slot => {
+      allSlots.forEach((slot) => {
         const figureName = /** @type {HTMLElement} */ (slot.placeholder).dataset.figure;
         if (figureName) cellMap[figureName] = slot.placeholder;
       });
@@ -306,19 +309,19 @@ export function createUI(figureNames) {
       // have changed (e.g. fma → lma), discard stale order
       const currentNames = new Set(Object.keys(cellMap));
       const savedNames = new Set(order);
-      if (order.length !== allSlots.length || ![...currentNames].every(n => savedNames.has(n))) {
+      if (order.length !== allSlots.length || ![...currentNames].every((n) => savedNames.has(n))) {
         localStorage.removeItem(scopedStorageKey(PANEL_ORDER_KEY));
         return;
       }
 
       // Reorder: place cells into slots according to saved order
-      const slotPositions = allSlots.map(s => ({
+      const slotPositions = allSlots.map((s) => ({
         container: s.container,
         nextSibling: s.placeholder.nextSibling,
       }));
 
       // Detach all cells
-      allSlots.forEach(s => s.placeholder.remove());
+      allSlots.forEach((s) => s.placeholder.remove());
 
       // Re-insert in saved order
       order.forEach((figureName, i) => {

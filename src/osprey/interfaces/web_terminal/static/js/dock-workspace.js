@@ -4,6 +4,7 @@ import { fitTerminal } from './terminal.js';
 import { fetchJSON } from './api.js';
 import { reconcile, PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { createTileTab, OSPREY_TAB_COMPONENT, setTerminalHeaderSource } from './dock-tab.js';
+import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
@@ -171,7 +172,12 @@ function adoptSubtree(subtree) {
   const host = document.createElement('div');
   host.className = 'dock-panel-host';
   host.appendChild(subtree);
-  return { element: host, init() { /* content is pre-rendered page DOM */ } };
+  return {
+    element: host,
+    init() {
+      /* content is pre-rendered page DOM */
+    },
+  };
 }
 
 /**
@@ -182,8 +188,10 @@ function adoptSubtree(subtree) {
  * docked — in the docked shell it is only the fallback iframe host, so it is
  * hidden here to keep its `display: contents` holder from laying it out
  * beside the grid. No-ops (leaving the rest of boot intact — fallback mode,
- * #right-panel visible) if the root or terminal subtree is missing, or if the
- * vendored dockview global failed to load.
+ * #right-panel visible) if the root or terminal subtree is missing; when only
+ * the vendored dockview global failed to load, the fallback host gets its
+ * tile bar ({@link initFallbackTileBar}) so embedded panels keep their one
+ * header.
  */
 export function initDockWorkspace() {
   // Idempotent: a second call is a no-op once the grid exists, so the follow-on
@@ -214,6 +222,7 @@ export function initDockWorkspace() {
   const dockview = /** @type {any} */ (window)['dockview-core'];
   if (!dockview || typeof dockview.createDockview !== 'function') {
     console.error('dockview-core global unavailable; workspace shell not initialized');
+    if (workspaceSource instanceof HTMLElement) initFallbackTileBar(workspaceSource);
     return;
   }
 
@@ -288,8 +297,11 @@ export function initDockWorkspace() {
  * @returns {boolean}
  */
 function isStackingDrop(e) {
-  return e.kind === 'tab' || e.kind === 'header_space'
-    || (e.kind === 'content' && e.position === 'center');
+  return (
+    e.kind === 'tab' ||
+    e.kind === 'header_space' ||
+    (e.kind === 'content' && e.position === 'center')
+  );
 }
 
 /**
@@ -578,7 +590,9 @@ function applyStoredLayout(api, mode) {
     console.error('dock: stored layout failed to apply; using the default', err);
     try {
       localStorage.removeItem(key);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
     return false;
   }
 }
@@ -603,7 +617,9 @@ async function initPersistence(api) {
     if (info && typeof info.project_key === 'string' && info.project_key) {
       projectKey = info.project_key;
     }
-  } catch { /* offline / endpoint error — no persistence this session */ }
+  } catch {
+    /* offline / endpoint error — no persistence this session */
+  }
   if (!projectKey) {
     announceLayoutRestored();
     return;
@@ -632,7 +648,9 @@ export function resetDockLayout() {
   if (key) {
     try {
       localStorage.removeItem(key);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
   if (!dockApi) return;
   if (mode === 'simple') applySimpleDefault(dockApi);
@@ -672,7 +690,9 @@ function stashLayout(api, mode) {
   if (!key) return;
   try {
     localStorage.setItem(key, JSON.stringify(api.toJSON()));
-  } catch { /* storage blocked/full — the layout still lives for this session */ }
+  } catch {
+    /* storage blocked/full — the layout still lives for this session */
+  }
 }
 
 /**
@@ -689,8 +709,10 @@ function stashLayout(api, mode) {
  */
 function applySimpleDefault(api) {
   const registered = currentRegisteredPanels(api);
-  const terminal = registered.find((p) => p.id === PANEL_TERMINAL)
-    ?? { id: PANEL_TERMINAL, contentComponent: PANEL_TERMINAL };
+  const terminal = registered.find((p) => p.id === PANEL_TERMINAL) ?? {
+    id: PANEL_TERMINAL,
+    contentComponent: PANEL_TERMINAL,
+  };
   const placeholders = registered.filter((p) => p.id.startsWith(PLACEHOLDER_PREFIX));
   const activeId = api.activePanel?.id;
   const service = placeholders.find((p) => p.id === activeId) ?? placeholders[0] ?? null;
@@ -702,7 +724,7 @@ function applySimpleDefault(api) {
       api,
       service,
       { referencePanel: PANEL_TERMINAL, direction: 'left' },
-      defaultServiceWidth(),
+      defaultServiceWidth()
     );
   }
 }
@@ -766,6 +788,91 @@ function addPanelFromDescriptor(api, descriptor, position, initialWidth) {
   if (position) opts.position = position;
   if (initialWidth != null && initialWidth > 0) opts.initialWidth = initialWidth;
   api.addPanel(opts);
+}
+
+/* ---- Fallback tile bar (no dockview) ---- */
+
+/**
+ * Give the fallback iframe host the tile bar a docked tile has. Embed contract
+ * v2 promises an embedded panel exactly one header — the hub's tile bar — and
+ * panels on it hide their in-body copies of whatever they contribute, so a
+ * host without a bar would leave those controls nowhere. The fallback shows
+ * one panel at a time (#right-panel's `data-active-panel`), so it carries one
+ * bar: the active panel's name and its contribution region, registered with
+ * tile-header-contrib.js exactly as a docked TileTab registers its own. The
+ * bar follows the active panel, and hides when none is active or in Simple
+ * mode, where the hub collapses every service tile's bar and panels keep
+ * their controls in the body.
+ *
+ * The bar reuses the docked bar's `.tile-tab` markup so it renders with the
+ * same styles; the inline layout only adapts that full-height tab to a row
+ * above #panel-content. Idempotent per host.
+ * @param {HTMLElement} host  the fallback iframe host (#right-panel)
+ * @returns {HTMLElement | null} the bar, or null when the host has no #panel-content
+ */
+export function initFallbackTileBar(host) {
+  const existing = host.querySelector(':scope > .fallback-tile-bar');
+  if (existing instanceof HTMLElement) return existing;
+  const content = host.querySelector('#panel-content, .panel-content');
+  if (!(content instanceof HTMLElement)) return null;
+
+  host.style.flexDirection = 'column';
+  const bar = document.createElement('div');
+  bar.className = 'tile-tab fallback-tile-bar';
+  bar.style.flex = '0 0 36px';
+  bar.style.height = '36px';
+  bar.style.cursor = 'default';
+  const title = document.createElement('span');
+  title.className = 'tile-tab-title';
+  bar.appendChild(title);
+  host.insertBefore(bar, content);
+
+  /** @type {{ panelId: string, el: HTMLElement } | null} */
+  let registered = null;
+
+  const sync = () => {
+    const panelId = host.dataset.activePanel || null;
+    if (registered && registered.panelId !== panelId) {
+      unregisterContribHost(registered.panelId, registered.el);
+      registered.el.remove();
+      registered = null;
+    }
+    if (panelId && !registered) {
+      // A fresh region per panel: registerContribHost wires its listeners on
+      // the element, so reusing one across panels would stack them.
+      const el = document.createElement('div');
+      el.className = 'tile-tab-contrib';
+      bar.appendChild(el);
+      registerContribHost(panelId, el);
+      registered = { panelId, el };
+    }
+    title.textContent = panelId ? panelLabel(panelId) : '';
+    // Inline display, not `hidden`: the .tile-tab rule's display:flex would
+    // outrank the attribute's user-agent display:none.
+    bar.style.display = !panelId || currentUiMode() === 'simple' ? 'none' : '';
+  };
+
+  sync();
+  new MutationObserver(sync).observe(host, {
+    attributes: true,
+    attributeFilter: ['data-active-panel'],
+  });
+  new MutationObserver(sync).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-ui-mode'],
+  });
+  return bar;
+}
+
+/**
+ * A panel's display name, read from its rail entry (the one place the hub
+ * renders it outside a tile); the id when the rail does not carry the panel.
+ * @param {string} panelId
+ * @returns {string}
+ */
+function panelLabel(panelId) {
+  const btn = document.querySelector(`.panel-rail-button[data-panel-id="${CSS.escape(panelId)}"]`);
+  return btn?.getAttribute('aria-label') || panelId;
 }
 
 /**

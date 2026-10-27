@@ -25,24 +25,33 @@ afterEach(() => {
 
 describe('apiFetch', () => {
   test('resolves with the parsed JSON body on a 200 response', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ base_lattice: 'sr.lat' }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ base_lattice: 'sr.lat' }),
+      })
+    );
 
     const result = await apiFetch('/api/state');
     expect(result).toEqual({ base_lattice: 'sr.lat' });
-    expect(fetch).toHaveBeenCalledWith('/api/state', expect.objectContaining({
-      headers: { 'Content-Type': 'application/json' },
-    }));
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/state',
+      expect.objectContaining({
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
   });
 
   test('propagates a non-OK response as a thrown Error carrying status and body text', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: () => Promise.resolve('lattice not loaded'),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: () => Promise.resolve('lattice not loaded'),
+      })
+    );
 
     await expect(apiFetch('/api/refresh', { method: 'POST' })).rejects.toThrow(
       'API /api/refresh: 500 lattice not loaded'
@@ -157,19 +166,31 @@ describe('handleSSEEvent dispatch table', () => {
 describe('figure fetch', () => {
   /** @param {any} body @param {number} status */
   function stubFigure(body, status) {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: status < 400,
-      status,
-      json: () => Promise.resolve(body),
-      text: () => Promise.resolve(JSON.stringify(body)),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: status < 400,
+          status,
+          json: () => Promise.resolve(body),
+          text: () => Promise.resolve(JSON.stringify(body)),
+        })
+      )
+    );
   }
 
   function makeCallbacks() {
     return {
-      onState: vi.fn(), onModels: vi.fn(), onParamSet: vi.fn(), onFigureData: vi.fn(),
-      onFigureUnavailable: vi.fn(), onFigureStatus: vi.fn(), onFigureReady: vi.fn(),
-      onFigureError: vi.fn(), onSettingsUpdated: vi.fn(), onBaselineSet: vi.fn(),
+      onState: vi.fn(),
+      onModels: vi.fn(),
+      onParamSet: vi.fn(),
+      onFigureData: vi.fn(),
+      onFigureUnavailable: vi.fn(),
+      onFigureStatus: vi.fn(),
+      onFigureReady: vi.fn(),
+      onFigureError: vi.fn(),
+      onSettingsUpdated: vi.fn(),
+      onBaselineSet: vi.fn(),
     };
   }
 
@@ -200,7 +221,8 @@ describe('figure fetch', () => {
     await createNetClient(cb).fetchAndRenderFigure('da');
 
     expect(cb.onFigureUnavailable).toHaveBeenCalledWith(
-      'da', 'not available for a single-pass model'
+      'da',
+      'not available for a single-pass model'
     );
     expect(cb.onFigureStatus).not.toHaveBeenCalled();
   });

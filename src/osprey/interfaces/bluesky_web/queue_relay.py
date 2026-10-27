@@ -27,8 +27,8 @@ reshape a refusal. The bridge owns all of that; every response -- success or
 refusal -- is relayed with its body AND status code untouched. Concretely,
 the bridge's refusal envelope ``{"detail": {"code": ..., "detail": ...,
 ...extras}}`` arrives at the panel exactly as the bridge minted it, so a panel
-classifies on ``detail.code`` (``launch_token_required``,
-``stale_draft_revision``, ``draft_revision_already_launched``,
+classifies on ``detail.code`` (``launch_token_invalid``,
+``launch_token_required``, ``stale_draft_revision``, ``draft_revision_already_launched``,
 ``session_plan_unvalidated``, ``browse_only_connector``, ``queue_request_rejected``,
 ...). Nothing here unwraps that envelope: the discriminator a panel branches on
 is the bridge's, and a relay that reshaped it would be a second, drifting copy
@@ -77,8 +77,9 @@ token means the header is simply omitted and the bridge answers for itself,
 because an unarmed enqueue onto an idle queue is a legitimate, bridge-permitted
 flow (compose and queue now, arm and start later) -- refusing it locally would
 break the intended browse-and-queue path AND put a second, drifting copy of the
-bridge's gating policy here. When the bridge does refuse, its ``503``/``403``
-``launch_token_required`` body reaches the panel intact -- a far better signal
+bridge's gating policy here. When the bridge does refuse, its ``503``
+``launch_token_required`` or ``403`` ``launch_token_invalid`` body reaches the
+panel intact -- a far better signal
 than a locally-synthesized one.
 
 The owner is the second thing this module adds to a write, and like the token
@@ -151,7 +152,7 @@ from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 router = APIRouter()
 
-_LAUNCH_TOKEN_HEADER = "X-Launch-Token"
+_LAUNCH_TOKEN_HEADER = "X-Launch-Token"  # noqa: S105 -- names a header, holds no secret
 
 #: Where the auth gate records who an admitted connection belongs to. Imported
 #: from the gate rather than retyped, and the contract is that constant's own
@@ -370,7 +371,8 @@ async def start_queue(request: Request) -> JSONResponse:
 
     The resolved launch token rides along; whether it is accepted, and what a
     rejection looks like, is entirely the bridge's answer (``503``
-    ``launch_token_required`` unarmed, ``403`` on a mismatch), relayed here
+    ``launch_token_required`` unarmed, ``403`` ``launch_token_invalid`` on a
+    mismatch), relayed here
     with its body intact.
     """
     return await _forward_write(request, "POST", "/queue/start")

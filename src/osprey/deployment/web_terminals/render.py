@@ -222,7 +222,7 @@ _AUTH_SIDECAR_CONTAINER_ROOT = "/app"
 #: from when the config doesn't name its own. The credentials themselves live
 #: in ``.env.auth`` and never enter config.yml.
 _DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
-_DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
+_DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: Label key the auth sidecar's service carries the sha256 digest of
 #: ``.env.auth``'s content under (repo label convention: dotted ``osprey.*``
@@ -241,7 +241,7 @@ AUTH_ENV_DIGEST_LABEL = "osprey.auth.env.digest"
 #: single origin in front of every terminal — is what turns "reached the proxy"
 #: into "is the operator". Spelled once here because the rendered snippet and
 #: the app's own middleware are the two ends of one contract.
-TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"  # noqa: S105 -- names a header, holds no secret
 
 #: Prefix of the per-user environment variable one user's operator secret is
 #: minted into (deploy ``.env``) and read back out of (nginx's envsubst pass).
@@ -271,8 +271,8 @@ NGINX_TEMPLATES_OUTPUT_DIR = "nginx/templates"
 #: How one per-user snippet is named. The user's own name, not its env-var
 #: suffix, so the include the nginx template emits inside that user's location
 #: can be spelled from the same ``svc.user`` the location itself is keyed by.
-_SECRET_TEMPLATE_PREFIX = "secret-"
-_SECRET_TEMPLATE_SUFFIX = ".conf.template"
+_SECRET_TEMPLATE_PREFIX = "secret-"  # noqa: S105 -- names a template file prefix, holds no secret
+_SECRET_TEMPLATE_SUFFIX = ".conf.template"  # noqa: S105 -- names a template file suffix, holds no secret
 
 #: What a roster name may look like once it is a FILENAME and an nginx
 #: ``include`` argument. Wider than
@@ -1257,7 +1257,7 @@ def render_web_terminals(
                 # dependencies into the deployment renderer's import closure to
                 # share a string is the worse trade. The spelling is pinned
                 # instead by a round-trip test that imports the sidecar's
-                # constant (tests/deployment/web_terminals/test_sidecar_role_env.py),
+                # constant in tests/deployment/web_terminals/test_sidecar_role_env.py,
                 # which is this repo's convention wherever an import would be a
                 # cycle or a weight.
                 #

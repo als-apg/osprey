@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from osprey.cli import build_environment
-from osprey.cli.build_environment import _create_project_venv, _resolve_project_requirements
+from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey_connectors.errors import BuildProfileError
 
@@ -98,7 +98,7 @@ def base_venv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def build(project_path: Path, profile: BuildProfile) -> dict:
     """Build into *project_path* and return the emitted record, parsed."""
     project_path.mkdir(parents=True, exist_ok=True)
-    _create_project_venv(project_path, profile, _resolve_project_requirements(profile))
+    _create_project_venv(project_path, _plan_project_venv(profile))
     return tomllib.loads((project_path / "pyproject.toml").read_text(encoding="utf-8"))
 
 

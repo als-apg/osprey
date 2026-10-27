@@ -17,8 +17,7 @@ rendered on the same platform):
   tolerance for AA noise.
 - Everywhere else (e.g. a contributor's macOS machine): screenshot capture
   is still exercised and asserted valid, but the byte-compare is skipped
-  with an explicit notice — see ``scripts/ci_check.sh`` for the analogous
-  local-dev notice pattern.
+  with an explicit notice.
 
 ``--regen-baselines`` (see ``conftest.py``) unconditionally overwrites the
 baseline with the freshly captured screenshot, for use on Linux (CI, or a

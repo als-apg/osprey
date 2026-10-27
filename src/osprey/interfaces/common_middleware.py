@@ -110,7 +110,9 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     """Control browser caching for static assets and API responses.
 
     Vendor assets (versioned filenames like plotly-3.3.1.min.js) are cached
-    aggressively — they never change without a filename bump.  All other
+    aggressively — they never change without a filename bump, but only for a
+    200: an error or redirect on a vendor path is uncached, so it cannot
+    outlive the deploy that produced it. All other
     static/API paths are uncached to avoid stale code after updates.
     """
 
@@ -118,7 +120,10 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         path = request.url.path
         if "/vendor/" in path and path.startswith("/static/"):
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            if response.status_code == 200:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         elif path.startswith("/static/") or path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
@@ -144,7 +149,7 @@ class ExceptionLoggingMiddleware(BaseHTTPMiddleware):
 #: the multi-user shape nginx forwards the deployment's value under this name;
 #: in the single-user shape it is what a script or a probe uses instead of a
 #: cookie. Lower-cased, because ASGI header names arrive lower-cased.
-OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"
+OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"  # noqa: S105 -- names a header, holds no secret
 
 #: The stem of the browser session cookie's name. The settled port is appended
 #: (see :func:`session_cookie_name`) so two OSPREY servers on the same host —

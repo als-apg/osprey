@@ -135,7 +135,12 @@ const viewOf = (o = {}) => ({
   last_posture_realign: null,
   targets: [
     rowOf(KINDS.live, { ...STATES.sandbox }),
-    rowOf(KINDS.standin, { active: true, is_baseline: true, available_now: false, reason: 'already_active' }),
+    rowOf(KINDS.standin, {
+      active: true,
+      is_baseline: true,
+      available_now: false,
+      reason: 'already_active',
+    }),
     rowOf(KINDS.va),
   ],
   ...o,
@@ -274,8 +279,7 @@ const confirmBtn = () =>
     confirmEl()?.querySelector('.posture-modal-confirm') ?? null
   );
 
-const pressEscape = () =>
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+const pressEscape = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
 beforeEach(async () => {
   vi.resetModules();
@@ -287,7 +291,7 @@ beforeEach(async () => {
   // another's.
   localStorage.clear();
   document.documentElement.removeAttribute('data-ui-mode');
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   chipModule = await import(CHIP);
   popoverModule = await import(POPOVER);
 });
@@ -554,7 +558,9 @@ describe('the banner', () => {
     // The write routes answer 409 here, so the banner says so before a click
     // does — and names where the change can actually be made.
     await bootOpen(viewOf({ owner: { kind: 'web_terminal', pid: 77, port: 8123, self: false } }));
-    expect(bannerEl()?.textContent).toBe('Another terminal on port 8123 holds the control context.');
+    expect(bannerEl()?.textContent).toBe(
+      'Another terminal on port 8123 holds the control context.'
+    );
     expect(bannerEl()?.dataset.tone).toBe('warn');
   });
 
@@ -645,9 +651,7 @@ describe('the verb locks, one reason at a time', () => {
       viewOf({
         store_available: false,
         readonly_run: true,
-        targets: [
-          rowOf(KINDS.va, { ...heldByTheRun, narrowing_refusal: 'selected_role_missing' }),
-        ],
+        targets: [rowOf(KINDS.va, { ...heldByTheRun, narrowing_refusal: 'selected_role_missing' })],
       }),
       'va'
     );
@@ -819,7 +823,12 @@ describe('turning writes off and on', () => {
     served = viewOf({
       targets: [
         rowOf(KINDS.live),
-        rowOf(KINDS.standin, { active: true, is_baseline: true, available_now: false, reason: 'already_active' }),
+        rowOf(KINDS.standin, {
+          active: true,
+          is_baseline: true,
+          available_now: false,
+          reason: 'already_active',
+        }),
         rowOf(KINDS.va),
       ],
     });
@@ -889,9 +898,9 @@ describe('Turn all writes off', () => {
         targets: [rowOf(KINDS.live, { ...STATES.sandbox }), rowOf(KINDS.va, { ...STATES.sandbox })],
       })
     );
-    expect(
-      /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).disabled
-    ).toBe(true);
+    expect(/** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).disabled).toBe(
+      true
+    );
   });
 
   test('the foot states the popover’s scope, once', async () => {
@@ -900,7 +909,9 @@ describe('Turn all writes off', () => {
     // the page it was made on.
     await bootOpen();
     expect(document.querySelector('.ctc-all-off')?.textContent).toBe('Turn all writes off');
-    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Applies to every session of this login');
+    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe(
+      'Applies to every session of this login'
+    );
   });
 });
 
@@ -952,7 +963,13 @@ describe('switching', () => {
     const recordAccepted = (applied) =>
       viewOf({
         generation: 4,
-        last_switch: { request_id: 'req-1', target: 'va', status: 'applied', generation: 4, age_s: 0 },
+        last_switch: {
+          request_id: 'req-1',
+          target: 'va',
+          status: 'applied',
+          generation: 4,
+          age_s: 0,
+        },
         servers: [{ pid: 4242, applied_generation: applied, last_switch: null }],
       });
     // The record accepted it, the server is still on 3: still switching.
@@ -991,9 +1008,7 @@ describe('switching', () => {
     switchEl('live')?.click();
     await flush();
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain(
-      'Writes are off there — nothing moves until you turn them on.'
-    );
+    expect(body).toContain('Writes are off there — nothing moves until you turn them on.');
     // Off means off: no hardware notice until writes are actually on there.
     expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
   });
@@ -1260,7 +1275,9 @@ describe("don't ask again", () => {
     );
   /** Click with Shift held — the waived dialog's re-show gesture. */
   const shiftClick = (/** @type {HTMLElement|null|undefined} */ node) =>
-    node?.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true }));
+    node?.dispatchEvent(
+      new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true })
+    );
 
   test('ticking it on a switch confirm mutes the NEXT switch to that machine only', async () => {
     await bootOpen();
@@ -1539,7 +1556,7 @@ describe('simple and expert are one DOM', () => {
 
 describe('request plumbing', () => {
   test('every request goes through the per-user mount prefix', async () => {
-    /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
+    Object.assign(window, { __OSPREY_PREFIX__: '/u/alice' });
     await bootOpen();
     postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
     toggleEl('va')?.click();

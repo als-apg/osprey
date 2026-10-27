@@ -1,3 +1,4 @@
+# ruff: noqa: T201 -- the DuckDB import command prints its statistics on stdout
 """Import Middle Layer JSON into a DuckDB database.
 
 Reads the MML JSON file via MiddleLayerDatabase (reusing all existing

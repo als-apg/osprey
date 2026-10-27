@@ -3,11 +3,7 @@
 import { WS_CLOSE_STARTED_COMMANDS, createWebSocket, wsUrl, withPrefix } from './api.js';
 import { clearPointer, getPointer, setPointer } from './session-pointer.js';
 import { askAboutStartedCommands } from './started-commands.js';
-import {
-  hideHandoffOverlay,
-  showHandoffPending,
-  showHandoffRefused,
-} from './terminal-handoff.js';
+import { hideHandoffOverlay, showHandoffPending, showHandoffRefused } from './terminal-handoff.js';
 import { pickUiMode } from '/design-system/js/frame-params.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
@@ -125,7 +121,9 @@ async function writeClipboard(text) {
     scratch.remove();
   }
   if (!copied) {
-    throw new Error('clipboard write refused: the page is not a secure context and the legacy copy command was rejected');
+    throw new Error(
+      'clipboard write refused: the page is not a secure context and the legacy copy command was rejected'
+    );
   }
 }
 
@@ -221,7 +219,7 @@ export function initTerminal(containerId) {
   // hang in the codec slot.
   const clipboardAddon = new ClipboardAddon.ClipboardAddon(
     new ClipboardAddon.Base64(),
-    agentClipboardProvider(),
+    agentClipboardProvider()
   );
 
   term.loadAddon(fitAddon);
@@ -268,7 +266,8 @@ export function initTerminal(containerId) {
 
   window.addEventListener('resize', () => doFit());
 
-  let lastObsW = 0, lastObsH = 0;
+  let lastObsW = 0,
+    lastObsH = 0;
   const resizeObserver = new ResizeObserver((entries) => {
     const { width, height } = entries[0].contentRect;
     if (Math.abs(width - lastObsW) < 2 && Math.abs(height - lastObsH) < 2) return;
@@ -318,7 +317,7 @@ export function initTerminal(containerId) {
 export function startTerminal(
   sessionId = null,
   mode = 'new',
-  { interrupt = false, endStarted = false } = {},
+  { interrupt = false, endStarted = false } = {}
 ) {
   if (wsConnection) return Promise.resolve();
   if (!term) return Promise.resolve();
@@ -336,7 +335,8 @@ export function startTerminal(
   // Is this specifically the page-load auto-resume attempt (as opposed to
   // e.g. an explicit resume from sessions.js)? Captured now, before any
   // async work, since autoResumeFailoverId can change out from under us.
-  const isAutoResumeAttempt = mode === 'resume' && sessionId != null && sessionId === autoResumeFailoverId;
+  const isAutoResumeAttempt =
+    mode === 'resume' && sessionId != null && sessionId === autoResumeFailoverId;
   if (mode === 'resume' && sessionId) {
     url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
     if (interrupt) url += '&interrupt=1';
@@ -371,11 +371,13 @@ export function startTerminal(
       // Send initial size FIRST — the server waits for this before
       // spawning the PTY, so the shell starts with correct dimensions.
       fitAddon.fit();
-      /** @type {NonNullable<typeof wsConnection>} */ (wsConnection).send(JSON.stringify({
-        type: 'resize',
-        cols: term.cols,
-        rows: term.rows,
-      }));
+      /** @type {NonNullable<typeof wsConnection>} */ (wsConnection).send(
+        JSON.stringify({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows,
+        })
+      );
     },
     onMessage(e) {
       if (typeof e.data === 'string') {
@@ -416,10 +418,13 @@ export function startTerminal(
             // on how long it sits here — show the wait, and the way to end it:
             // ask for the same session again with `interrupt=1`, which ends
             // that turn instead of waiting it out.
-            showHandoffPending(() => {
-              dropConnection();
-              startExpert({ interrupt: true });
-            }, { busy: msg.busy === true });
+            showHandoffPending(
+              () => {
+                dropConnection();
+                startExpert({ interrupt: true });
+              },
+              { busy: msg.busy === true }
+            );
           } else if (msg.type === 'handoff_refused') {
             refusal = msg;
           } else if (msg.type === 'session_info') {
@@ -487,7 +492,7 @@ export function startTerminal(
               if (!isSimpleView()) {
                 term.write(
                   `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed.\x1b[0m\r\n` +
-                  'Press Enter to start a new session.\r\n'
+                    'Press Enter to start a new session.\r\n'
                 );
                 freshStartArmed = true;
               }
@@ -618,7 +623,7 @@ export function startTerminal(
  */
 function askBeforeEndingStartedCommands(refusal, attempt) {
   const key = refusal?.session_id ?? attempt.sessionId;
-  askAboutStartedCommands(Array.isArray(refusal?.commands) ? refusal.commands : [], {
+  askAboutStartedCommands(refusal?.commands, {
     onStop: () =>
       void startTerminal(key, 'resume', { interrupt: attempt.interrupt, endStarted: true }),
     // Cancel abandons the hand-off and ends nothing: the chat holding the key
@@ -724,15 +729,18 @@ function notifyClosed() {
 export function stopTerminal() {
   const socket = wsConnection?.ws;
   // Registered before the drop, because a close can be reported synchronously.
-  const closed = socket && socket.readyState !== WebSocket.CLOSED
-    ? /** @type {Promise<void>} */ (new Promise((resolve) => {
-      const timer = setTimeout(resolve, CLOSE_ACK_TIMEOUT_MS);
-      closeWaiters.push(() => {
-        clearTimeout(timer);
-        resolve();
-      });
-    }))
-    : Promise.resolve();
+  const closed =
+    socket && socket.readyState !== WebSocket.CLOSED
+      ? /** @type {Promise<void>} */ (
+          new Promise((resolve) => {
+            const timer = setTimeout(resolve, CLOSE_ACK_TIMEOUT_MS);
+            closeWaiters.push(() => {
+              clearTimeout(timer);
+              resolve();
+            });
+          })
+        )
+      : Promise.resolve();
 
   dropConnection();
   hideHandoffOverlay();
@@ -862,13 +870,15 @@ export function onSessionChange(fn) {
  * @param {string} sessionId - The new session UUID.
  */
 export function notifySessionChange(sessionId) {
-  document.querySelectorAll('.panel-iframe').forEach(iframe => {
+  document.querySelectorAll('.panel-iframe').forEach((iframe) => {
     try {
       /** @type {Window} */ (/** @type {HTMLIFrameElement} */ (iframe).contentWindow).postMessage(
         { type: 'osprey-session-change', session_id: sessionId },
         window.location.origin
       );
-    } catch { /* cross-origin — ignore */ }
+    } catch {
+      /* cross-origin — ignore */
+    }
   });
   // One listener throwing must not cost the others their notification.
   for (const fn of sessionChangeListeners) {

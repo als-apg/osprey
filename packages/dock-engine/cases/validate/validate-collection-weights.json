@@ -1,0 +1,22 @@
+{
+  "name": "validate-collection-weights",
+  "rule": "C-LAYOUT",
+  "input": {
+    "split": "row",
+    "items": [
+      {
+        "tabs": [0],
+        "size": 2
+      },
+      {
+        "tabs": [1, 2],
+        "showing": 2
+      }
+    ]
+  },
+  "options": {
+    "form": "collection",
+    "members": 3
+  },
+  "valid": true
+}

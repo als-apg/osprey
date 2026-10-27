@@ -73,9 +73,7 @@ const SCOPE_COLORS = { bgPrimary: '#0a0f1a', textPrimary: '#f1f5f9' };
 
 // Both families at once: the accent-named tokens in tokens.css span both, so
 // scoring only one would leave the other's names looking undocumented.
-const derivedNames = new Set(
-  Object.keys(deriveThemeVars(STATE, SECONDARY, 'dark', SCOPE_COLORS))
-);
+const derivedNames = new Set(Object.keys(deriveThemeVars(STATE, SECONDARY, 'dark', SCOPE_COLORS)));
 
 test('every exclusion actually matches a token in tokens.css', () => {
   // Self-check: an exclusion for a name that no longer exists would let this
@@ -213,10 +211,7 @@ for (const [mode, selector] of THEME_BLOCKS) {
     const mismatches = [];
     for (const level of SECONDARY_TINT_LEVELS) {
       const key = `--accent-secondary-tint-${String(level).padStart(2, '0')}`;
-      const expected = rgbaCss(
-        /** @type {{r:number,g:number,b:number}} */ (base),
-        level / 100
-      );
+      const expected = rgbaCss(/** @type {{r:number,g:number,b:number}} */ (base), level / 100);
       if (block[key] !== expected) {
         mismatches.push(`${key}: tokens.css ${block[key]} but the lab derives ${expected}`);
       }

@@ -15,6 +15,7 @@ when docker is unavailable.
 from __future__ import annotations
 
 import subprocess
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -132,7 +133,6 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     """
     import time
     import uuid
-    from datetime import UTC, datetime
 
     from osprey.audit.envelope import AuditEnvelope
     from osprey.audit.writer import _encode
@@ -141,13 +141,16 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
     audit = tmp_path / "audit"
     for name in ("alice", "queueserver"):
         (audit / name).mkdir(parents=True)
+    # filter/clamp drops any time outside the retention window measured from the
+    # Collector's clock, so the writer lines carry a time just before now.
+    written = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=1)
 
-    # Inside the store's retention, so filter/clamp keeps every timed line.
-    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    def stamp(offset_s: int = 0) -> str:
+        return (written + timedelta(seconds=offset_s)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def envelope(**fields: object) -> bytes:
         base = {
-            "ts": now,
+            "ts": stamp(),
             "surface": "approval",
             "actor": "alice",
             "posture": "writes",
@@ -165,9 +168,7 @@ def test_the_ledger_chain_reads_real_lines(tmp_path: Path) -> None:
         envelope(surface="executor", on_behalf_of="bob", tool_use_id="toolu_1", source="x")
         + envelope(ts="garbage", surface="channel-finder")
         + b"not json\n"
-        + b'{"ts":"'
-        + now.encode()
-        + b'","surface":"approval","actor":"al\n'
+        + f'{{"ts":"{stamp(2)}","surface":"approval","actor":"al\n'.encode()
         + envelope(detail="d" * 4000).replace(b'"approval"', b'"over"').rstrip(b"}\n")
         + b"y" * cap
         + b"}\n"

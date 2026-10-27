@@ -257,7 +257,14 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError, onRe
   }
 
   connect();
-  return { send, stop, setUrl, get ws() { return ws; } };
+  return {
+    send,
+    stop,
+    setUrl,
+    get ws() {
+      return ws;
+    },
+  };
 }
 
 /**
@@ -423,7 +430,10 @@ export async function fetchJSON(url, { signal } = {}) {
  * @param {{method?: string, json?: any, errorPrefix?: string}} [opts]
  * @returns {Promise<any>}
  */
-export async function apiRequest(url, { method = 'POST', json, errorPrefix = 'Request failed' } = {}) {
+export async function apiRequest(
+  url,
+  { method = 'POST', json, errorPrefix = 'Request failed' } = {}
+) {
   /** @type {RequestInit} */
   const init = { method };
   if (json !== undefined) {

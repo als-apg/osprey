@@ -1,7 +1,7 @@
 """Gate: ``conf.py``'s ``linkcheck_ignore`` covers what no checker can reach, and
 nothing else.
 
-A broken link fails ``scripts/ci_check.sh``, which makes this list load-bearing in
+A broken link fails ``make linkcheck`` in ``docs/``, which makes this list load-bearing in
 two directions. Too narrow and a local run goes red over an address that answers
 only on the reader's own machine; too wide and the check cannot fail at all, which
 is the state a blocking check exists to replace. Both halves are asserted.

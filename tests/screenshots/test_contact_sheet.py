@@ -369,6 +369,8 @@ class _FakeLocator:
 
     def click(self, timeout: int | None = None) -> None:  # noqa: ARG002
         self.page.events.append("click")
+        if self.page.click_error is not None:
+            raise self.page.click_error
 
     def wait_for(self, state: str, timeout: int | None = None) -> None:  # noqa: ARG002
         self.page.events.append(f"plot:{state}")
@@ -418,6 +420,7 @@ class _FakeHubPage:
     """A stand-in Playwright page for :func:`capture_hub_view`, recording its steps in order.
 
     ``drawn`` holds one answer per plot wait: ``False`` makes that wait time out.
+    ``click_error`` is raised by the plot-row click.
     """
 
     def __init__(
@@ -425,6 +428,7 @@ class _FakeHubPage:
         *,
         drawn: list[bool],
         wait_error: Exception | None = None,
+        click_error: Exception | None = None,
         function_error: Exception | None = None,
         restart_ok: bool = True,
         restart_status: int = 200,
@@ -434,6 +438,7 @@ class _FakeHubPage:
         self.functions: list[tuple[str, object]] = []
         self.drawn = list(drawn)
         self.wait_error = wait_error
+        self.click_error = click_error
         self.function_error = function_error
         self.context = object()
         self.request = _FakeRequest(self.events, ok=restart_ok, status=restart_status)
@@ -781,8 +786,7 @@ def test_resumed_session_wait_reads_the_chat_in_simple() -> None:
     _wait_for_resumed_session(page, "simple", variant="theme=light, mode=simple")
     assert len(page.functions) == 1
     expression, arg = page.functions[0]
-    assert ".op-entry.operator" in expression
-    assert ".op-entry-body" in expression
+    assert ".op-entry.operator > .op-bubble" in expression
     assert ".xterm-rows" not in expression
     assert "terminal-label" not in expression
     assert arg == DEMO_OPENING_PROMPT
@@ -847,6 +851,22 @@ def test_hub_capture_stops_when_the_hub_keeps_its_terminal_pool(
     assert not (tmp_path / "shot.png").exists()
 
 
+def test_hub_capture_names_the_variant_when_the_plot_row_is_not_clickable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A row click that times out names theme and mode, and writes no image."""
+    timeout = PlaywrightTimeoutError("Timeout 30000ms exceeded.")
+    page = _FakeHubPage(drawn=[True, True], click_error=timeout)
+    with pytest.raises(RuntimeError) as info:
+        _drive(monkeypatch, tmp_path, page)
+    assert "theme=light, mode=expert" in str(info.value)
+    assert "plot row" in str(info.value)
+    assert info.value.__cause__ is timeout
+    assert "shot" not in page.events
+    assert "close" in page.events
+    assert not (tmp_path / "shot.png").exists()
+
+
 @pytest.mark.browser
 def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
     """Every mode captures in one hub, and a repeat Expert capture does not stall."""
@@ -863,7 +883,11 @@ def test_hub_capture_writes_every_mode_twice_in_one_hub(tmp_path: Path) -> None:
         with chromium_context() as browser, hermetic_hub() as hub:
             for index, (theme, mode) in enumerate(sequence):
                 dest = tmp_path / f"{index}_{theme}_{mode}.png"
-                capture_hub_view(browser, hub, theme, mode, dest)
+                try:
+                    capture_hub_view(browser, hub, theme, mode, dest)
+                except RuntimeError as exc:
+                    exc.add_note(f"capture {index} of {len(sequence)} ({theme}, {mode})")
+                    raise
                 assert dest.exists()
                 assert dest.read_bytes().startswith(b"\x89PNG")
     except ScreenshotSkip as exc:

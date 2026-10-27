@@ -25,7 +25,8 @@ const SCOPE_ATTR = 'data-osprey-storage-scope';
 beforeEach(async () => {
   vi.resetModules();
   localStorage.clear();
-  pointer = await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+  pointer =
+    await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
 });
 
 afterEach(() => {
@@ -137,7 +138,9 @@ describe('subscribers', () => {
 
   test('every subscriber hears the change, even when one throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const first = vi.fn(() => { throw new Error('listener blew up'); });
+    const first = vi.fn(() => {
+      throw new Error('listener blew up');
+    });
     const second = vi.fn();
     pointer.subscribe(first);
     pointer.subscribe(second);

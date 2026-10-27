@@ -388,9 +388,7 @@ function onChipClick() {
   if (!chip) return;
   const expanded = chip.getAttribute('aria-expanded') !== 'true';
   chip.setAttribute('aria-expanded', String(expanded));
-  chip.dispatchEvent(
-    new CustomEvent(CHIP_TOGGLE_EVENT, { bubbles: true, detail: { expanded } })
-  );
+  chip.dispatchEvent(new CustomEvent(CHIP_TOGGLE_EVENT, { bubbles: true, detail: { expanded } }));
 }
 
 /* ---- the read ---- */
@@ -823,9 +821,16 @@ function activeRow(state) {
  * @returns {string}
  */
 export function kindAttr(row) {
-  const published = KIND_ATTR[String(row.kind || '').trim().toLowerCase()];
+  const published =
+    KIND_ATTR[
+      String(row.kind || '')
+        .trim()
+        .toLowerCase()
+    ];
   if (published) return published;
-  const label = String(row.label || '').trim().toLowerCase();
+  const label = String(row.label || '')
+    .trim()
+    .toLowerCase();
   if (row.real_machine) return label.includes('(stand-in)') ? 'standin' : 'live';
   return 'va';
 }

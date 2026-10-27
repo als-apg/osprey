@@ -110,7 +110,7 @@ class ValidationRule(StrEnum):
 
     #: A theme (or an interface's per-mode group) is missing a token that
     #: a sibling theme/mode defines.
-    MISSING_TOKEN = "missing_token"
+    MISSING_TOKEN = "missing_token"  # noqa: S105 -- names an error code, holds no secret
     #: An alias reference does not resolve to anything in the tree.
     DANGLING_ALIAS = "dangling_alias"
     #: An alias reference resolves to another alias (a second hop).

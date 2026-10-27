@@ -5240,6 +5240,7 @@ dependencies = [
     { name = "pillow" },
     { name = "playwright" },
     { name = "plotly" },
+    { name = "psutil" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
     { name = "pyaml-cs-osprey" },
@@ -5376,7 +5377,7 @@ teams = [
 ]
 virtual-accelerator = [
     { name = "aioca" },
-    { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 
 [package.metadata]
@@ -5434,7 +5435,7 @@ requires-dist = [
     { name = "linkml", marker = "extra == 'dev'", specifier = "==1.11.1" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "lume-base", specifier = "==0.5.0" },
-    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.5" },
+    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'virtual-accelerator') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator')", specifier = "==0.1.5" },
     { name = "lume-pyat", specifier = "==0.2.0" },
     { name = "markdown", specifier = ">=3.5" },
     { name = "markupsafe", specifier = ">=3.0.2" },
@@ -5465,6 +5466,7 @@ requires-dist = [
     { name = "plotly", specifier = ">=6.9.0" },
     { name = "pre-commit", marker = "extra == 'all'" },
     { name = "pre-commit", marker = "extra == 'dev'" },
+    { name = "psutil", specifier = ">=7.2" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.4,<4.0.0" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'all'", specifier = ">=3.3.4,<4.0.0" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'dev'", specifier = ">=3.3.4,<4.0.0" },
@@ -6281,10 +6283,14 @@ name = "pyaml-cs-osprey"
 source = { editable = "packages/pyaml-cs-osprey" }
 dependencies = [
     { name = "accelerator-middle-layer-apg" },
+    { name = "osprey-connectors" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post1" }]
+requires-dist = [
+    { name = "accelerator-middle-layer-apg", specifier = "==0.3.1.post1" },
+    { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+]
 
 [[package]]
 name = "pyaml-test-lattice"

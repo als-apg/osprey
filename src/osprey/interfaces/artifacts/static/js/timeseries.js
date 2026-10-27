@@ -43,15 +43,15 @@ import {
   chartRelayout,
   chartSeries,
   monoFontStack,
-} from "/design-system/js/theme-manager.js";
-import { escapeHtml } from "/design-system/js/dom.js";
-import { isoToDate } from "./types.js";
+} from '/design-system/js/theme-manager.js';
+import { escapeHtml } from '/design-system/js/dom.js';
+import { isoToDate } from './types.js';
 import {
   facilityWallClock,
   facilityZoneLabel,
   formatFacilityTime,
   viewerSharesFacilityClock,
-} from "/design-system/js/facility-time.js";
+} from '/design-system/js/facility-time.js';
 
 // ---- Lazy Plotly Loader ---- //
 
@@ -64,16 +64,19 @@ function ensurePlotlyLoaded() {
   if (_plotlyLoaded) return Promise.resolve();
   if (_plotlyLoading) return _plotlyLoading;
   _plotlyLoading = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
+    const script = document.createElement('script');
     // Resolved server-side by vendor_url() and handed over via index.html's
     // meta tag (see the module docstring). The vendored path is the fallback
     // for any page without the meta, preserving prior offline behavior.
     const meta = document.querySelector('meta[name="osprey-vendor-plotly"]');
-    script.src = (meta && meta.getAttribute("content")) || "/static/js/vendor/plotly-3.3.1.min.js";
-    script.onload = () => { _plotlyLoaded = true; resolve(); };
+    script.src = (meta && meta.getAttribute('content')) || '/static/js/vendor/plotly-3.3.1.min.js';
+    script.onload = () => {
+      _plotlyLoaded = true;
+      resolve();
+    };
     script.onerror = () => {
       _plotlyLoading = null;
-      reject(new Error("Failed to load Plotly"));
+      reject(new Error('Failed to load Plotly'));
     };
     document.head.appendChild(script);
   });
@@ -87,11 +90,11 @@ function ensurePlotlyLoaded() {
  * @returns {string}
  */
 function _tsShortChannelName(name) {
-  if (!name) return "";
+  if (!name) return '';
   if (name.length <= 24) return name;
-  const parts = name.split(":");
-  if (parts.length >= 3) return parts[0] + ":...:" + parts[parts.length - 1];
-  return name.slice(0, 10) + "..." + name.slice(-10);
+  const parts = name.split(':');
+  if (parts.length >= 3) return parts[0] + ':...:' + parts[parts.length - 1];
+  return name.slice(0, 10) + '...' + name.slice(-10);
 }
 
 /**
@@ -104,9 +107,9 @@ function _tsShortChannelName(name) {
  * @returns {string}
  */
 function _tsFormatValue(num) {
-  if (num === null || num === undefined) return "--";
-  if (typeof num !== "number" || Number.isNaN(num)) return String(num);
-  if (num === 0) return "0";
+  if (num === null || num === undefined) return '--';
+  if (typeof num !== 'number' || Number.isNaN(num)) return String(num);
+  if (num === 0) return '0';
   const abs = Math.abs(num);
   if (abs >= 1e6 || abs < 0.001) return num.toExponential(3);
   return num.toPrecision(5);
@@ -124,15 +127,15 @@ function _tsFormatValue(num) {
  * @returns {string}
  */
 function _tsShortTime(iso) {
-  if (iso === null || iso === undefined) return "--";
+  if (iso === null || iso === undefined) return '--';
   const d = isoToDate(iso);
   if (!d) return String(iso);
   return formatFacilityTime(d, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
@@ -183,7 +186,7 @@ function _tsLatestInstant(channels) {
  */
 function _tsCsvField(value) {
   // `??`, not `||`: only null/undefined become empty; 0 and "" survive.
-  const str = String(value ?? "");
+  const str = String(value ?? '');
   if (/["\n\r,]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -200,15 +203,15 @@ function _tsExportCSV(chartData) {
   const channels = chartData.channels || [];
   const rows = channels.flatMap((/** @type {any} */ ch) =>
     (ch.timestamps || []).map((/** @type {any} */ ts, /** @type {number} */ i) =>
-      [ch.channel, ts, (ch.values || [])[i]].map(_tsCsvField).join(",")
+      [ch.channel, ts, (ch.values || [])[i]].map(_tsCsvField).join(',')
     )
   );
-  _tsDownloadBlob(["channel,timestamp,value", ...rows].join("\n"), "text/csv", "csv");
+  _tsDownloadBlob(['channel,timestamp,value', ...rows].join('\n'), 'text/csv', 'csv');
 }
 
 /** @param {any} chartData */
 function _tsExportJSON(chartData) {
-  _tsDownloadBlob(JSON.stringify(chartData, null, 2), "application/json", "json");
+  _tsDownloadBlob(JSON.stringify(chartData, null, 2), 'application/json', 'json');
 }
 
 /**
@@ -219,7 +222,7 @@ function _tsExportJSON(chartData) {
  */
 function _tsDownloadBlob(content, mime, ext) {
   const url = URL.createObjectURL(new Blob([content], { type: mime }));
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
   a.download = `timeseries_${Date.now()}.${ext}`;
   a.click();
@@ -263,7 +266,7 @@ export async function renderTimeseriesView(container, artifact) {
     // client-side.
     const summary = chartData.summary;
     html += `<span class="ts-badge ts-badge-points"><span class="badge-label">Points</span> ${summary.total_points.toLocaleString()}</span>`;
-    if (typeof summary.row_count === "number") {
+    if (typeof summary.row_count === 'number') {
       html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${summary.row_count.toLocaleString()}</span>`;
     }
     if (summary.downsampled) {
@@ -278,7 +281,9 @@ export async function renderTimeseriesView(container, artifact) {
     channels.forEach((/** @type {any} */ ch, /** @type {number} */ ci) => {
       const color = _tsPalette[ci % _tsPalette.length];
       const isNonNumeric = _tsIsNonNumeric(ch);
-      const title = isNonNumeric ? `${ch.channel} (status/enum -- plotted on right axis)` : ch.channel;
+      const title = isNonNumeric
+        ? `${ch.channel} (status/enum -- plotted on right axis)`
+        : ch.channel;
       // aria-label carries the full PV name plus the axis note; `title` alone
       // is often unannounced once a button has content.
       html += `<button class="ts-ch-toggle" type="button" aria-pressed="true" data-ch-name="${escapeHtml(ch.channel)}" aria-label="${escapeHtml(title)}" title="${escapeHtml(title)}">`;
@@ -290,9 +295,12 @@ export async function renderTimeseriesView(container, artifact) {
     html += '</div>';
     html += '<span class="ts-toolbar-divider"></span>';
     html += '<div class="ts-toolbar-group">';
-    html += '<button class="ts-action-btn" data-action="zoom-reset" title="Reset zoom">Reset Zoom</button>';
-    html += '<button class="ts-action-btn ts-export-btn" data-action="export-csv" title="Export CSV">CSV</button>';
-    html += '<button class="ts-action-btn ts-export-btn" data-action="export-json" title="Export JSON">JSON</button>';
+    html +=
+      '<button class="ts-action-btn" data-action="zoom-reset" title="Reset zoom">Reset Zoom</button>';
+    html +=
+      '<button class="ts-action-btn ts-export-btn" data-action="export-csv" title="Export CSV">CSV</button>';
+    html +=
+      '<button class="ts-action-btn ts-export-btn" data-action="export-json" title="Export JSON">JSON</button>';
     html += '</div>';
     html += '</div>';
 
@@ -305,21 +313,21 @@ export async function renderTimeseriesView(container, artifact) {
     container.innerHTML = html;
 
     // Wire events
-    const chartEl = container.querySelector("[data-ts-chart]");
+    const chartEl = container.querySelector('[data-ts-chart]');
 
-    container.querySelectorAll(".ts-ch-toggle").forEach((btn) => {
-      btn.addEventListener("click", () => {
+    container.querySelectorAll('.ts-ch-toggle').forEach((btn) => {
+      btn.addEventListener('click', () => {
         const col = /** @type {string} */ (/** @type {HTMLElement} */ (btn).dataset.chName);
         if (visible.has(col)) {
           if (visible.size <= 1) return;
           visible.delete(col);
-          btn.classList.add("ts-ch-off");
+          btn.classList.add('ts-ch-off');
         } else {
           visible.add(col);
-          btn.classList.remove("ts-ch-off");
+          btn.classList.remove('ts-ch-off');
         }
         // Keep the exposed state in step with the class.
-        btn.setAttribute("aria-pressed", String(visible.has(col)));
+        btn.setAttribute('aria-pressed', String(visible.has(col)));
         if (chartEl && /** @type {any} */ (chartEl).data) {
           // `columns` matches the trace build order, so this boolean array
           // lines up positionally with Plotly's trace array.
@@ -328,7 +336,7 @@ export async function renderTimeseriesView(container, artifact) {
           // Plotly.update keeps the toggle a single redraw.
           const layoutUpdate = hasNonNumeric
             ? {
-                "yaxis2.visible": channels.some(
+                'yaxis2.visible': channels.some(
                   (/** @type {any} */ ch) => _tsIsNonNumeric(ch) && visible.has(ch.channel)
                 ),
               }
@@ -338,21 +346,21 @@ export async function renderTimeseriesView(container, artifact) {
       });
     });
 
-    container.querySelectorAll(".ts-action-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
+    container.querySelectorAll('.ts-action-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
         const action = /** @type {HTMLElement} */ (btn).dataset.action;
-        if (action === "zoom-reset" && chartEl) {
+        if (action === 'zoom-reset' && chartEl) {
           // yaxis2 needs its own autorange key; `yaxis.autorange` alone never
           // touches it.
           const resetLayout = {
-            "xaxis.autorange": true,
-            "yaxis.autorange": true,
-            ...(hasNonNumeric ? { "yaxis2.autorange": true } : {}),
+            'xaxis.autorange': true,
+            'yaxis.autorange': true,
+            ...(hasNonNumeric ? { 'yaxis2.autorange': true } : {}),
           };
           Plotly.relayout(chartEl, resetLayout);
-        } else if (action === "export-csv") {
+        } else if (action === 'export-csv') {
           _tsExportCSV(chartData);
-        } else if (action === "export-json") {
+        } else if (action === 'export-json') {
           _tsExportJSON(chartData);
         }
       });
@@ -360,10 +368,10 @@ export async function renderTimeseriesView(container, artifact) {
 
     await renderTimeseriesChart(/** @type {any} */ (chartEl), chartData);
 
-    const tableEl = container.querySelector("[data-ts-table]");
+    const tableEl = container.querySelector('[data-ts-table]');
     await renderTimeseriesTable(/** @type {any} */ (tableEl), artifact.id, 0);
   } catch (err) {
-    console.error("Timeseries render failed:", err);
+    console.error('Timeseries render failed:', err);
     container.innerHTML = '<span class="text-muted">Failed to load timeseries data</span>';
   }
 }
@@ -378,8 +386,15 @@ export async function renderTimeseriesView(container, artifact) {
  */
 export function _tsChartTheme() {
   const base = chartTheme();
-  const line = getComputedStyle(document.documentElement).getPropertyValue("--chart-axis-line").trim();
-  return { ...base, line: line || base.xaxis.gridcolor, legendBg: base.paper_bgcolor, legendBorder: line };
+  const line = getComputedStyle(document.documentElement)
+    .getPropertyValue('--chart-axis-line')
+    .trim();
+  return {
+    ...base,
+    line: line || base.xaxis.gridcolor,
+    legendBg: base.paper_bgcolor,
+    legendBorder: line,
+  };
 }
 
 /**
@@ -398,9 +413,9 @@ export function _tsChartTheme() {
  * @returns {void}
  */
 export function restyleMountedCharts() {
-  if (typeof Plotly === "undefined") return;
+  if (typeof Plotly === 'undefined') return;
   // Target the actual Plotly graph divs, not the outer viewport wrappers.
-  const charts = document.querySelectorAll(".ts-viewport-container [data-ts-chart]");
+  const charts = document.querySelectorAll('.ts-viewport-container [data-ts-chart]');
   if (!charts.length) return;
   const series = chartSeries();
   charts.forEach((tsChart) => {
@@ -413,10 +428,12 @@ export function restyleMountedCharts() {
       // line+marker to the current series palette so they re-theme live too.
       const traces = /** @type {any} */ (tsChart).data || [];
       if (series.length && traces.length) {
-        const colors = traces.map((/** @type {any} */ _t, /** @type {number} */ i) => series[i % series.length]);
-        Plotly.restyle(tsChart, { "line.color": colors, "marker.color": colors });
+        const colors = traces.map(
+          (/** @type {any} */ _t, /** @type {number} */ i) => series[i % series.length]
+        );
+        Plotly.restyle(tsChart, { 'line.color': colors, 'marker.color': colors });
       }
-    // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
+      // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
     } catch {}
   });
 }
@@ -442,30 +459,34 @@ export async function renderTimeseriesChart(el, chartData) {
   const traces = channels.map((/** @type {any} */ ch) => {
     const numeric = !_tsIsNonNumeric(ch);
     return {
-      x: ch.timestamps?.map((/** @type {any} */ ts) => (isoToDate(ts) ? facilityWallClock(ts) : ts)),
+      x: ch.timestamps?.map((/** @type {any} */ ts) =>
+        isoToDate(ts) ? facilityWallClock(ts) : ts
+      ),
       y: ch.values,
       name: ch.channel,
       // scattergl (WebGL) is faster for the common numeric case; a
       // categorical y-axis is safer on the plain SVG "scatter" renderer.
-      type: numeric ? "scattergl" : "scatter",
-      mode: numeric ? "lines" : "lines+markers",
+      type: numeric ? 'scattergl' : 'scatter',
+      mode: numeric ? 'lines' : 'lines+markers',
       ...(numeric
         ? {}
         : {
-            yaxis: "y2",
-            line: { shape: "hv" },
+            yaxis: 'y2',
+            line: { shape: 'hv' },
             // All enum channels share one category axis, so each value is
             // prefixed with its channel to keep its rungs in a contiguous
             // block; `customdata` carries the unprefixed value for the hover
             // label. A `null` gap is NOT prefixed -- "CH: null" would become a
             // real rung, while a bare null breaks the step line like a
             // numeric-branch gap.
-            y: (ch.values || []).map((/** @type {any} */ v) => (v == null ? null : `${ch.channel}: ${v}`)),
+            y: (ch.values || []).map((/** @type {any} */ v) =>
+              v == null ? null : `${ch.channel}: ${v}`
+            ),
             customdata: ch.values,
           }),
       hovertemplate: numeric
-        ? "%{y:.4g}<extra>%{fullData.name}</extra>"
-        : "%{customdata}<extra>%{fullData.name}</extra>",
+        ? '%{y:.4g}<extra>%{fullData.name}</extra>'
+        : '%{customdata}<extra>%{fullData.name}</extra>',
     };
   });
 
@@ -479,7 +500,7 @@ export async function renderTimeseriesChart(el, chartData) {
     // sets the family from the same token.
     font: { family: monoFontStack(), size: 11, color: t.font.color },
     margin: { t: 30, r: 20, b: 50, l: 60 },
-    hovermode: "x unified",
+    hovermode: 'x unified',
     // zerolinecolor too: chartRelayout() sets it on a live re-theme, so the
     // first render must as well or the zero line changes color on the
     // first theme flip.
@@ -491,13 +512,18 @@ export async function renderTimeseriesChart(el, chartData) {
       title: { text: `Time (${zoneLabel})`, font: { size: 10 } },
       automargin: true,
     },
-    yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, zerolinecolor: t.line, tickfont: { size: 10 } },
+    yaxis: {
+      gridcolor: t.yaxis.gridcolor,
+      linecolor: t.line,
+      zerolinecolor: t.line,
+      tickfont: { size: 10 },
+    },
     ...(hasNonNumeric
       ? {
           yaxis2: {
-            overlaying: "y",
-            side: "right",
-            type: "category",
+            overlaying: 'y',
+            side: 'right',
+            type: 'category',
             linecolor: t.line,
             tickfont: { size: 10 },
             // The namespaced rung labels are long and drawn on the right;
@@ -508,14 +534,19 @@ export async function renderTimeseriesChart(el, chartData) {
           },
         }
       : {}),
-    legend: { bgcolor: t.legendBg, bordercolor: t.legendBorder, borderwidth: 1, font: { size: 10 } },
+    legend: {
+      bgcolor: t.legendBg,
+      bordercolor: t.legendBorder,
+      borderwidth: 1,
+      font: { size: 10 },
+    },
     colorway: chartSeries(),
   };
 
   Plotly.newPlot(el, traces, layout, {
     responsive: true,
     displaylogo: false,
-    modeBarButtonsToRemove: ["lasso2d", "select2d"],
+    modeBarButtonsToRemove: ['lasso2d', 'select2d'],
   });
 }
 
@@ -544,37 +575,41 @@ export async function renderTimeseriesTable(el, artifactId, offset) {
     // Header must come from THIS response: names from a separate format=chart
     // request can disagree for an artifact being written while it is viewed.
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
-    const indexHeader = viewerSharesFacilityClock() ? "Index" : `Index (${facilityZoneLabel()})`;
+    const indexHeader = viewerSharesFacilityClock() ? 'Index' : `Index (${facilityZoneLabel()})`;
     html += `<thead><tr><th>${escapeHtml(indexHeader)}</th>`;
-    tableData.columns.forEach((/** @type {string} */ c) => { html += `<th>${escapeHtml(c)}</th>`; });
+    tableData.columns.forEach((/** @type {string} */ c) => {
+      html += `<th>${escapeHtml(c)}</th>`;
+    });
     html += '</tr></thead><tbody>';
 
     tableData.index.forEach((/** @type {any} */ idx, /** @type {number} */ i) => {
       html += '<tr>';
       html += `<td class="ts-index-cell">${escapeHtml(_tsShortTime(idx))}</td>`;
       const row = tableData.data[i] || [];
-      row.forEach((/** @type {any} */ val) => { html += `<td>${escapeHtml(_tsFormatValue(val))}</td>`; });
+      row.forEach((/** @type {any} */ val) => {
+        html += `<td>${escapeHtml(_tsFormatValue(val))}</td>`;
+      });
       html += '</tr>';
     });
 
     html += '</tbody></table></div>';
 
     html += '<div class="ts-pagination">';
-    html += `<button class="btn btn-secondary btn-sm" data-ts-prev ${offset === 0 ? "disabled" : ""}>Prev</button>`;
+    html += `<button class="btn btn-secondary btn-sm" data-ts-prev ${offset === 0 ? 'disabled' : ''}>Prev</button>`;
     html += `<span class="ts-page-info">Page ${currentPage} of ${totalPages}</span>`;
-    html += `<button class="btn btn-secondary btn-sm" data-ts-next ${offset + TS_TABLE_PAGE_SIZE >= tableData.total_rows ? "disabled" : ""}>Next</button>`;
+    html += `<button class="btn btn-secondary btn-sm" data-ts-next ${offset + TS_TABLE_PAGE_SIZE >= tableData.total_rows ? 'disabled' : ''}>Next</button>`;
     html += '</div>';
 
     el.innerHTML = html;
 
-    el.querySelector("[data-ts-prev]")?.addEventListener("click", () => {
+    el.querySelector('[data-ts-prev]')?.addEventListener('click', () => {
       renderTimeseriesTable(el, artifactId, Math.max(0, offset - TS_TABLE_PAGE_SIZE));
     });
-    el.querySelector("[data-ts-next]")?.addEventListener("click", () => {
+    el.querySelector('[data-ts-next]')?.addEventListener('click', () => {
       renderTimeseriesTable(el, artifactId, offset + TS_TABLE_PAGE_SIZE);
     });
   } catch (err) {
-    console.error("Table render failed:", err);
+    console.error('Table render failed:', err);
     el.innerHTML = '<span class="text-muted">Failed to load table data</span>';
   }
 }

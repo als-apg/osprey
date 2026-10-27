@@ -169,7 +169,7 @@ def _scan_relations(normalized: str) -> list[str]:
         upper = token.upper()
         scope = scopes[-1]
 
-        if token == "(":
+        if token == "(":  # noqa: S105 -- names a grammar token, holds no secret
             if previous in ("FROM", "JOIN"):
                 following = tokens[index + 1].upper() if index + 1 < len(tokens) else ""
                 if following not in ("SELECT", "WITH"):
@@ -178,13 +178,13 @@ def _scan_relations(normalized: str) -> list[str]:
                         "with SELECT or WITH."
                     )
             scopes.append(_Scope())
-        elif token == ")":
+        elif token == ")":  # noqa: S105 -- names a grammar token, holds no secret
             if len(scopes) > 1:
                 scopes.pop()
                 if scopes[-1].pending:  # the CTE body just closed; its name binds now
                     scopes[-1].ctes.add(scopes[-1].pending)
                     scopes[-1].pending = None
-        elif token == ",":
+        elif token == ",":  # noqa: S105 -- names a grammar token, holds no secret
             if scope.in_from:
                 raise ValueError("comma-separated FROM lists are not allowed; use JOIN")
         elif token.startswith("'"):

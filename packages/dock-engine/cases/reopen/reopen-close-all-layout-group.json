@@ -1,0 +1,67 @@
+{
+  "name": "reopen-close-all-layout-group",
+  "rule": "rule-8",
+  "before": null,
+  "op": {
+    "fn": "reopen",
+    "record": {
+      "kind": "layout",
+      "layout": {
+        "split": "row",
+        "items": [
+          {
+            "tile": "t1",
+            "tabs": ["a"],
+            "showing": "a",
+            "size": 0.5
+          },
+          {
+            "tile": "t2",
+            "tabs": ["b"],
+            "showing": "b",
+            "size": 0.3
+          },
+          {
+            "tile": "t3",
+            "tabs": ["c"],
+            "showing": "c",
+            "size": 0.2
+          }
+        ]
+      }
+    },
+    "context": {
+      "focusedTile": null,
+      "dock": {
+        "px": {
+          "width": 1000,
+          "height": 600
+        },
+        "minPx": 40
+      }
+    }
+  },
+  "after": {
+    "split": "row",
+    "items": [
+      {
+        "tile": "t1",
+        "tabs": ["a"],
+        "showing": "a",
+        "size": 0.5
+      },
+      {
+        "tile": "t2",
+        "tabs": ["b"],
+        "showing": "b",
+        "size": 0.3
+      },
+      {
+        "tile": "t3",
+        "tabs": ["c"],
+        "showing": "c",
+        "size": 0.2
+      }
+    ]
+  }
+}

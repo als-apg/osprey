@@ -55,7 +55,7 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_graphdb_password,
     renders_needing_launch_token_by_lane,
     renders_needing_phoebus_handles,
-    renders_not_denying_bash,
+    renders_with_open_shell,
     roster_entries,
     settings_json_deny_entries,
     settings_json_is_rendered,
@@ -154,7 +154,7 @@ class BashLaunchTokenConflictError(DeploymentError):
     Args:
         tiers: The offending render names, across every lane — every render
             that is both entitled to some lane's launch token and shipping a
-            settings artifact that does not deny ``Bash``. All of them are named in the message; an
+            settings artifact that leaves a shell (``Bash`` or ``Monitor``) open. All of them are named in the message; an
             operator fixing one at a time would otherwise redeploy once per
             offender to discover the next.
         by_lane: The same offenders split by the lane that entitles them, so the
@@ -202,13 +202,13 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"Each named render is entitled to that lane's token — its rendered "
             f"config.yml arms writes for the control target the lane drives AND leaves "
             f"the bluesky MCP server enabled — and its shipped "
-            f'.claude/settings.json does not list "Bash" in permissions.deny (a '
-            f"missing or unparseable settings.json counts the same — it is not "
+            f'.claude/settings.json does not list both "Bash" and "Monitor" in '
+            f"permissions.deny (Monitor runs shell commands too; a missing or unparseable settings.json counts the same — it is not "
             f"evidence of a deny). The token arms a queue start on that lane, which "
             f"moves accelerator hardware; the chat approval gates only the queue_start "
             f"tool, so an agent with a shell can read the token out of its own "
             f"environment and arm a queue with no approval at all. Fix either half "
-            f'of the conflict: restore "Bash" to permissions.deny for that render '
+            f'of the conflict: restore "Bash" and "Monitor" to permissions.deny for that render '
             f"and REBUILD its image (or republish and re-pull it in registry mode) "
             f"— a re-render alone is not enough, because the settings.json read here "
             f"is the one baked into the image, and the per-user services declare only "
@@ -220,7 +220,7 @@ class BashLaunchTokenConflictError(DeploymentError):
 
 
 def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> dict[str, set[str]]:
-    """Refuse the deploy if any launch-token render's shipped settings permit ``Bash``.
+    """Refuse the deploy if any launch-token render's shipped settings leave a shell (``Bash`` or ``Monitor``) open.
 
     The whole guard in one callable, because it runs at **three** points and the
     three must never be able to disagree about what a conflict is:
@@ -272,7 +272,8 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
 
     Raises:
         BashLaunchTokenConflictError: One or more renders entitled on SOME lane
-            ship a ``.claude/settings.json`` that does not deny ``Bash``.
+            ship a ``.claude/settings.json`` that does not deny both ``Bash`` and
+            ``Monitor``.
             Any lane's token is enough: a shell reads whichever one the container
             holds, and every lane arms real hardware motion on its own target.
     """
@@ -280,7 +281,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
     # conflict to waive.
     waived = dangerously_allow_bash(config)
     entitled_by_lane = renders_needing_launch_token_by_lane(config, project_root)
-    permitting = renders_not_denying_bash(config, project_root)
+    permitting = renders_with_open_shell(config, project_root)
     offenders_by_lane = {
         lane: conflicted
         for lane, tiers in entitled_by_lane.items()
@@ -327,7 +328,7 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
 
     Returns:
         Every render both entitled to SOME lane's launch token and shipping
-        settings that do not deny ``Bash`` — the union across lanes, because one
+        settings that leave a shell open — the union across lanes, because one
         token in the container's environment is one shell away from arming its
         lane. Empty when there is no conflict.
     """
@@ -359,7 +360,7 @@ def dangerously_allowed_bash_renders(config: Any, project_root: Path | str) -> s
 def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set[str]:
     """The conflict set with :data:`DANGEROUSLY_ALLOW_BASH_KEY` left out of it."""
     entitled = set().union(*renders_needing_launch_token_by_lane(config, project_root).values())
-    return entitled & renders_not_denying_bash(config, project_root)
+    return entitled & renders_with_open_shell(config, project_root)
 
 
 # ---------------------------------------------------------------------------
@@ -857,7 +858,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
 
     Fails closed BEFORE any render, so a refused deploy leaves no half-written
     artifacts behind: a render holding ``BLUESKY_LAUNCH_TOKEN`` whose shipped
-    settings still permit ``Bash`` can arm a queue start from a shell, with none
+    settings still leave a shell open can arm a queue start from a shell, with none
     of the chat approval the token exists to make sufficient. ``osprey up`` and
     ``decommission_user`` each already refused this earlier, where refusing is
     cheaper and cannot half-apply; ``force_recreate_auth_sidecar``'s
@@ -991,7 +992,7 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
     Raises:
         BashLaunchTokenConflictError: A render is entitled to
             ``BLUESKY_LAUNCH_TOKEN`` and its shipped ``.claude/settings.json``
-            does not deny ``Bash``. Raised before the render, so a refused
+            leaves a shell open. Raised before the render, so a refused
             deploy writes nothing. Every writer routes through here, so every
             path that could put such a stack on disk — bring-up, the roster
             verbs' re-render, the pre-recreate re-render — refuses it. Two of

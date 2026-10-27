@@ -58,7 +58,6 @@ describe('utf8Length', () => {
     expect(utf8Length('😀')).toBe(4);
     expect(utf8Length('—')).toBe(3);
   });
-
 });
 
 describe('buildGitLabIssueUrl', () => {
@@ -67,13 +66,16 @@ describe('buildGitLabIssueUrl', () => {
   test.each([
     ['gitlab.com', 'https://gitlab.com/group/project'],
     ['a self-hosted instance', BASE],
-  ])('builds the /-/issues/new form with issue[title] and issue[description] on %s', (_name, base) => {
-    const result = buildGitLabIssueUrl(base, 'Feedback', 'hello world');
-    expect(result.needsPaste).toBe(false);
-    expect(result.url.startsWith(`${base}/-/issues/new?issue[title]=`)).toBe(true);
-    expect(param(result.url, 'issue\\[title\\]')).toBe('Feedback');
-    expect(param(result.url, 'issue\\[description\\]')).toBe('hello world');
-  });
+  ])(
+    'builds the /-/issues/new form with issue[title] and issue[description] on %s',
+    (_name, base) => {
+      const result = buildGitLabIssueUrl(base, 'Feedback', 'hello world');
+      expect(result.needsPaste).toBe(false);
+      expect(result.url.startsWith(`${base}/-/issues/new?issue[title]=`)).toBe(true);
+      expect(param(result.url, 'issue\\[title\\]')).toBe('Feedback');
+      expect(param(result.url, 'issue\\[description\\]')).toBe('hello world');
+    }
+  );
 
   test('a trailing slash on the base URL does not double up', () => {
     const result = buildGitLabIssueUrl(`${BASE}/`, 'T', 'b');
@@ -86,7 +88,6 @@ describe('buildGitLabIssueUrl', () => {
     expect(result.url.length).toBeLessThanOrEqual(GITLAB_URL_LIMIT);
     expect(param(result.url, 'issue\\[description\\]')).toBe(PASTE_POINTER);
   });
-
 });
 
 describe('buildGitHubIssueUrl', () => {
@@ -143,7 +144,6 @@ describe('buildGitHubIssueUrl', () => {
     const result = buildGitHubIssueUrl('als apg/osprey', 'T', 'b');
     expect(result.url.startsWith('https://github.com/als%20apg/osprey/issues/new?')).toBe(true);
   });
-
 });
 
 describe('buildMailto', () => {
@@ -232,8 +232,16 @@ describe('lone surrogates', () => {
   const BASE = 'https://git.example.org/controls/osprey';
 
   test.each([
-    ['buildGitHubIssueUrl', (/** @type {string} */ b) => buildGitHubIssueUrl('als-apg/osprey', 'T', b), 'body'],
-    ['buildGitLabIssueUrl', (/** @type {string} */ b) => buildGitLabIssueUrl(BASE, 'T', b), 'issue\\[description\\]'],
+    [
+      'buildGitHubIssueUrl',
+      (/** @type {string} */ b) => buildGitHubIssueUrl('als-apg/osprey', 'T', b),
+      'body',
+    ],
+    [
+      'buildGitLabIssueUrl',
+      (/** @type {string} */ b) => buildGitLabIssueUrl(BASE, 'T', b),
+      'issue\\[description\\]',
+    ],
     ['buildMailto', (/** @type {string} */ b) => buildMailto('a@example.org', 'T', b), 'body'],
   ])('%s replaces a lone surrogate instead of throwing', (_name, build, bodyParam) => {
     expect(param(build('ok\uD800tail').url, bodyParam)).toBe('ok\uFFFDtail');

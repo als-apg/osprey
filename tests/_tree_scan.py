@@ -14,9 +14,26 @@ that got collected would report its imports as test failures.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = TESTS_ROOT.parent
+
+
+def tracked_files() -> list[str]:
+    """Every path git tracks, repository-relative with forward slashes.
+
+    The listing is NUL-separated, so a path with a space or a newline in it
+    comes back whole.
+
+    Returns:
+        The tracked paths in git's order.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout
+    return [path for path in out.split("\0") if path]
 
 
 def python_sources(exempt: Path) -> list[tuple[str, str]]:

@@ -34,6 +34,10 @@ _HANG_S = 60
 #: Upper bound on a call that must not wait for the hang.
 _PROMPT_S = 20
 
+#: The limit a hung child is killed at: room for an interpreter to start and
+#: print on a loaded host, and still far inside :data:`_PROMPT_S`.
+_KILL_LIMIT_S = 5
+
 
 def _alive(pid: int) -> bool:
     """Whether ``pid`` still names a process."""
@@ -89,7 +93,7 @@ def test_a_child_that_outlives_its_limit_is_killed_and_its_output_so_far_is_retu
     ]
 
     started = time.monotonic()
-    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, 1)
+    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, _KILL_LIMIT_S)
     elapsed = time.monotonic() - started
 
     assert timed_out is True

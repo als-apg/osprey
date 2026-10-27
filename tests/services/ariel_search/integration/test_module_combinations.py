@@ -266,7 +266,7 @@ def _status_json(config: dict[str, Any]) -> dict[str, Any]:
 
     with (
         patch("osprey.cli.ariel.get_config_value", return_value=config),
-        patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=True)),
+        patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=None)),
     ):
         result = CliRunner().invoke(ariel_group, ["status", "--json"])
     assert result.exit_code == 0, result.output

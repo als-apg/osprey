@@ -203,7 +203,11 @@ describe('what the screen reader is told', () => {
 
   test('an assistant-message error is spoken, and the turn it sits in still speaks its reply', async () => {
     r.beginTurn();
-    r.handleEvent({ type: 'error', message: 'Partial message', error_type: 'AssistantMessageError' });
+    r.handleEvent({
+      type: 'error',
+      message: 'Partial message',
+      error_type: 'AssistantMessageError',
+    });
     expect(await spoken()).toEqual(['Error: Partial message']);
 
     r.handleEvent({ type: 'text', content: 'Recovered.' });
@@ -236,7 +240,14 @@ describe('what the screen reader is told', () => {
     askLive();
     await spoken();
 
-    const expired = { type: 'permission_resolved', request_id: 'req-1', allow: false, for_session: false, answers: null, expired: true };
+    const expired = {
+      type: 'permission_resolved',
+      request_id: 'req-1',
+      allow: false,
+      for_session: false,
+      answers: null,
+      expired: true,
+    };
     r.handleEvent(expired);
     const said = await spoken();
     expect(said).toHaveLength(1);
@@ -253,7 +264,14 @@ describe('what the screen reader is told', () => {
     askLive();
     await spoken();
 
-    r.handleEvent({ type: 'permission_resolved', request_id: 'req-1', allow: true, for_session: false, answers: null, expired: false });
+    r.handleEvent({
+      type: 'permission_resolved',
+      request_id: 'req-1',
+      allow: true,
+      for_session: false,
+      answers: null,
+      expired: false,
+    });
     expect(await spoken()).toEqual([]);
   });
 
@@ -343,24 +361,40 @@ describe('roles and labels', () => {
 
   test.each([
     ['a tool row', '.op-tool-head', '.op-tool-detail', () => {}],
-    ['a collapsed group of tool rows', '.op-tools-head', '.op-tools-list', () => r.handleEvent({ type: 'result' })],
-  ])('%s opens from the keyboard: its head is a button that reports whether it is open', (_name, headSel, bodySel, finish) => {
-    r.beginTurn();
-    r.handleEvent(call('t1'));
-    finish();
-    const head = qs(container, headSel);
-    expect(head.tagName).toBe('BUTTON');
-    expect(head.getAttribute('aria-expanded')).toBe('false');
+    [
+      'a collapsed group of tool rows',
+      '.op-tools-head',
+      '.op-tools-list',
+      () => r.handleEvent({ type: 'result' }),
+    ],
+  ])(
+    '%s opens from the keyboard: its head is a button that reports whether it is open',
+    (_name, headSel, bodySel, finish) => {
+      r.beginTurn();
+      r.handleEvent(call('t1'));
+      finish();
+      const head = qs(container, headSel);
+      expect(head.tagName).toBe('BUTTON');
+      expect(head.getAttribute('aria-expanded')).toBe('false');
 
-    // What Enter or Space does on a focused button: a click.
-    head.click();
-    expect(head.getAttribute('aria-expanded')).toBe('true');
-    expect(qs(container, bodySel).hidden).toBe(false);
-  });
+      // What Enter or Space does on a focused button: a click.
+      head.click();
+      expect(head.getAttribute('aria-expanded')).toBe('true');
+      expect(qs(container, bodySel).hidden).toBe(false);
+    }
+  );
 
   test.each([
-    ['the error block carries no alert role, so the error is spoken once', '.op-error-block', { type: 'error', message: 'boom' }],
-    ['the loader is not a live status, so each step of its label stays silent', '.op-loader', { type: 'tool_use', tool_name: 'Read', tool_use_id: 't1', input: {} }],
+    [
+      'the error block carries no alert role, so the error is spoken once',
+      '.op-error-block',
+      { type: 'error', message: 'boom' },
+    ],
+    [
+      'the loader is not a live status, so each step of its label stays silent',
+      '.op-loader',
+      { type: 'tool_use', tool_name: 'Read', tool_use_id: 't1', input: {} },
+    ],
   ])('%s', (_name, selector, event) => {
     r.beginTurn();
     r.handleEvent(event);
@@ -465,8 +499,16 @@ describe('the keyboard path', () => {
 describe('focus', () => {
   test.each([
     ['stays in the composer while it is typed in', { focused: true, disabled: false }, 'composer'],
-    ['goes to the card when the composer is not in use', { focused: false, disabled: false }, 'card'],
-    ['goes to the card when the composer is disabled for the turn', { focused: true, disabled: true }, 'card'],
+    [
+      'goes to the card when the composer is not in use',
+      { focused: false, disabled: false },
+      'card',
+    ],
+    [
+      'goes to the card when the composer is disabled for the turn',
+      { focused: true, disabled: true },
+      'card',
+    ],
   ])('a new card: focus %s', (_name, composer, owner) => {
     if (composer.focused) textarea.focus();
     else textarea.blur();

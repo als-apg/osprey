@@ -303,7 +303,7 @@ class TestBuildPhases:
     @pytest.fixture
     def build_stubs(self, monkeypatch, tmp_path: Path, seen):
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
-        from osprey.cli.build_environment import _ProjectRequirements
+        from osprey.cli.build_environment import _ProjectVenvPlan
 
         class _Lifecycle:
             pre_build = None
@@ -353,8 +353,14 @@ class TestBuildPhases:
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
         monkeypatch.setattr(
             build_cmd,
-            "_resolve_project_requirements",
-            lambda *a, **k: _ProjectRequirements(base_python_arg=sys.executable, extra_deps=[]),
+            "_plan_project_venv",
+            lambda *a, **k: _ProjectVenvPlan(
+                base_python=None,
+                base_python_arg=sys.executable,
+                osprey_spec="osprey-framework",
+                osprey_label="test",
+                extra_deps=[],
+            ),
         )
         monkeypatch.setattr(build_cmd, "_create_project_venv", lambda *a, **k: None)
 

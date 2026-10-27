@@ -62,7 +62,7 @@ from .config import TeamsBridgeConfig
 
 logger = logging.getLogger(__name__)
 
-TOKEN_URL_TEMPLATE = "https://{login_host}/{tenant}/oauth2/v2.0/token"
+TOKEN_URL_TEMPLATE = "https://{login_host}/{tenant}/oauth2/v2.0/token"  # noqa: S105 -- names a token endpoint URL, holds no secret
 """AAD's v2.0 client-credentials endpoint. The host varies by cloud and the tenant
 segment by deployment; the path is the same everywhere."""
 

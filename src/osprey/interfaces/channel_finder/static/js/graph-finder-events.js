@@ -16,7 +16,11 @@
  * on Enter/Space and moves on Alt+←/→.
  */
 
-import { isContextMenuKey, openContextMenu, openContextMenuAt } from '/design-system/js/context-menu.js';
+import {
+  isContextMenuKey,
+  openContextMenu,
+  openContextMenuAt,
+} from '/design-system/js/context-menu.js';
 import { nudgeColumn } from '/design-system/js/table-columns.js';
 import { setQuery, togglePageSelection, toggleSelection } from './graph-finder-state.js';
 import { deviceAddresses } from './graph-finder-render.js';
@@ -30,7 +34,14 @@ import {
   moreMenu,
   rowMenu,
 } from './graph-finder-menus.js';
-import { contributeHeader, createActions, menuContext, runAction, sortBy, toggleFold } from './graph-finder-verbs.js';
+import {
+  contributeHeader,
+  createActions,
+  menuContext,
+  runAction,
+  sortBy,
+  toggleFold,
+} from './graph-finder-verbs.js';
 
 /** @typedef {import('./graph-finder-verbs.js').FinderHost} FinderHost */
 /** @typedef {import('./graph-finder-state.js').Facet} Facet */
@@ -55,16 +66,20 @@ export function bindFinderEvents(pane, host) {
   const controller = new AbortController();
   const { signal } = controller;
 
-  pane.addEventListener('input', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement) || target.id !== host.searchInputId) return;
-    const value = target.value;
-    window.clearTimeout(debounce);
-    debounce = window.setTimeout(() => {
-      setQuery(host.finder(), value);
-      void host.runSearch();
-    }, SEARCH_DEBOUNCE_MS);
-  }, { signal });
+  pane.addEventListener(
+    'input',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.id !== host.searchInputId) return;
+      const value = target.value;
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => {
+        setQuery(host.finder(), value);
+        void host.runSearch();
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    { signal }
+  );
 
   pane.addEventListener('change', (event) => onChange(event, host), { signal });
   pane.addEventListener('click', (event) => onClick(event, host), { signal });
@@ -92,7 +107,11 @@ function onChange(event, host) {
   const finder = host.finder();
   if (target.hasAttribute('data-select-page')) {
     const rows = Array.isArray(host.results()?.rows) ? host.results().rows : [];
-    togglePageSelection(finder, rows.map((/** @type {any} */ r) => String(r.fullPv ?? '')), target.checked);
+    togglePageSelection(
+      finder,
+      rows.map((/** @type {any} */ r) => String(r.fullPv ?? '')),
+      target.checked
+    );
   } else if (target.type === 'checkbox' && target.hasAttribute('data-pv')) {
     toggleSelection(finder, target.getAttribute('data-pv') || '');
   } else {
@@ -116,7 +135,10 @@ function onClick(event, host) {
 
   const facet = target.closest('button.facet-item[data-facet][data-value]');
   if (facet) {
-    return act.toggleFacet(/** @type {Facet} */ (facet.getAttribute('data-facet')), facet.getAttribute('data-value') || '');
+    return act.toggleFacet(
+      /** @type {Facet} */ (facet.getAttribute('data-facet')),
+      facet.getAttribute('data-value') || ''
+    );
   }
   const fold = target.closest('button[data-facet-toggle]');
   if (fold) return toggleFold(host, fold.getAttribute('data-facet-toggle') || '');
@@ -127,7 +149,10 @@ function onClick(event, host) {
   if (target.closest('[data-clear-all]')) return act.clearFilters();
 
   const density = target.closest('button[data-density]');
-  if (density) return act.setDensity(density.getAttribute('data-density') === 'compact' ? 'compact' : 'comfortable');
+  if (density)
+    return act.setDensity(
+      density.getAttribute('data-density') === 'compact' ? 'compact' : 'comfortable'
+    );
 
   const more = target.closest('button[data-more]');
   if (more instanceof HTMLElement) {
@@ -143,11 +168,16 @@ function onClick(event, host) {
   }
 
   const copy = target.closest('button.copy-btn[data-copy]');
-  if (copy) return void host.copy(copy.getAttribute('data-copy') || '', copy.getAttribute('data-copy') || '');
+  if (copy)
+    return void host.copy(
+      copy.getAttribute('data-copy') || '',
+      copy.getAttribute('data-copy') || ''
+    );
   const dev = target.closest('button.dev[data-uri]');
   if (dev) return void host.toggleDevice(dev.getAttribute('data-uri') || '');
   const head = target.closest(DATA_HEADS);
-  if (head && !target.closest('.col-resize')) return sortBy(host, head.getAttribute('data-col') || '');
+  if (head && !target.closest('.col-resize'))
+    return sortBy(host, head.getAttribute('data-col') || '');
   const pager = target.closest('[data-page]');
   if (pager) return host.turnPage(pager.getAttribute('data-page'));
   const action = target.closest('[data-action]');
@@ -192,7 +222,9 @@ export function menuFor(target, host) {
   const row = target.closest(ROWS);
   if (row) {
     const pv = row.getAttribute('data-pv') || '';
-    const data = (host.results()?.rows || []).find((/** @type {any} */ r) => String(r.fullPv ?? '') === pv);
+    const data = (host.results()?.rows || []).find(
+      (/** @type {any} */ r) => String(r.fullPv ?? '') === pv
+    );
     if (data) return { ariaLabel: `${pv} actions`, items: rowMenu(ctx, data) };
   }
   const binding = target.closest('.device-card .sig-table tr[data-pv]');
@@ -203,7 +235,10 @@ export function menuFor(target, host) {
   const card = host.card();
   if (target.closest('.device-card-head') && card) {
     const name = String(card.data?.device ?? '');
-    return { ariaLabel: `${name || 'Device'} actions`, items: inspectorMenu(ctx, name, deviceAddresses(card.data)) };
+    return {
+      ariaLabel: `${name || 'Device'} actions`,
+      items: inspectorMenu(ctx, name, deviceAddresses(card.data)),
+    };
   }
   const facet = target.closest('button.facet-item[data-facet][data-value]');
   if (facet) {
@@ -214,11 +249,14 @@ export function menuFor(target, host) {
   }
   const facetHead = target.closest('.facet-head');
   if (facetHead) {
-    const key = /** @type {Facet} */ (facetHead.closest('.facet')?.getAttribute('data-facet-group') || 'section');
+    const key = /** @type {Facet} */ (
+      facetHead.closest('.facet')?.getAttribute('data-facet-group') || 'section'
+    );
     return { ariaLabel: 'Filter group', items: facetHeadMenu(ctx, key) };
   }
   const chip = target.closest('button.active-filter[data-chip]');
-  if (chip) return { ariaLabel: 'Filter', items: chipMenu(ctx, chip.getAttribute('data-chip') || '') };
+  if (chip)
+    return { ariaLabel: 'Filter', items: chipMenu(ctx, chip.getAttribute('data-chip') || '') };
   return null;
 }
 
@@ -249,7 +287,10 @@ function onKeydown(event, host) {
       event.preventDefault();
       if (nudgeColumn(host.layout(), key, event.key === 'ArrowLeft' ? -1 : 1)) {
         host.commitColumns();
-        /** @type {HTMLElement|null} */ (host.pane()?.querySelector(`.result-table thead th[data-col="${CSS.escape(key)}"]`) ?? null)?.focus();
+        /** @type {HTMLElement|null} */ (
+          host.pane()?.querySelector(`.result-table thead th[data-col="${CSS.escape(key)}"]`) ??
+            null
+        )?.focus();
       }
     }
     return;
@@ -267,8 +308,12 @@ function onKeydown(event, host) {
   else if (event.key === 'End') go(rows.length - 1);
   else if (event.key === ' ') createActions(host).toggleSelected(pv);
   else if (event.key === 'Enter') void host.toggleDevice(target.getAttribute('data-uri') || '');
-  else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c'
-    && !String(window.getSelection?.() ?? '')) void host.copy(pv, pv);
+  else if (
+    (event.metaKey || event.ctrlKey) &&
+    event.key.toLowerCase() === 'c' &&
+    !String(window.getSelection?.() ?? '')
+  )
+    void host.copy(pv, pv);
   else return;
   event.preventDefault();
 }
@@ -299,7 +344,11 @@ function onFocusIn(event, host) {
 function onDocKeydown(event, host) {
   if (!host.pane() || event.defaultPrevented) return;
   const active = document.activeElement;
-  if (active instanceof HTMLElement && (active.matches('input, textarea, select') || active.isContentEditable)) return;
+  if (
+    active instanceof HTMLElement &&
+    (active.matches('input, textarea, select') || active.isContentEditable)
+  )
+    return;
   if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
     const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
     // Hidden when the hub's tile bar carries the search box instead.

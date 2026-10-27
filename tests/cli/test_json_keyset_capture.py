@@ -449,7 +449,7 @@ def build_ariel_status_repository(stats: dict[str, Any]) -> MagicMock:
 
 def patch_render_probe_ok() -> Any:
     """Return a patch context answering the render probe ``ok`` without a worker."""
-    return patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=True))
+    return patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=None))
 
 
 @pytest.fixture

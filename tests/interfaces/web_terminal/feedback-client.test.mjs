@@ -129,7 +129,9 @@ function makeDeps(opts = {}) {
     order.push('fetch');
     requests.push({ url, body: JSON.parse(init.body) });
     if (opts.fetchPromise) return opts.fetchPromise;
-    return Promise.resolve(opts.response ?? jsonResponse({ id: 'fb-1', payload: 'SERVER PAYLOAD' }));
+    return Promise.resolve(
+      opts.response ?? jsonResponse({ id: 'fb-1', payload: 'SERVER PAYLOAD' })
+    );
   });
 
   const clipboard = opts.clipboard ?? {
@@ -498,10 +500,7 @@ describe('outbound prefill — title, subject and body mode', () => {
   test('an explicit title still wins', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback(
-      { ...BASE_FORM, ...GITHUB, title: 'Rail button dead in top mode' },
-      deps
-    );
+    await sendFeedback({ ...BASE_FORM, ...GITHUB, title: 'Rail button dead in top mode' }, deps);
 
     expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe('Rail button dead in top mode');
   });
@@ -509,16 +508,19 @@ describe('outbound prefill — title, subject and body mode', () => {
   test.each([
     ['issue', { ...GITHUB }, 'windowOpen'],
     ['email', { channel: /** @type {const} */ ('email') }, 'navigate'],
-  ])('with context attached the %s body is the pointer line alone', async (_name, channel, handoff) => {
-    const { deps } = makeDeps();
+  ])(
+    'with context attached the %s body is the pointer line alone',
+    async (_name, channel, handoff) => {
+      const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
+      await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
 
-    // No text, no metadata block: the whole report travels on the clipboard,
-    // so anything prefilled here would be duplicated by the paste.
-    const url = /** @type {any} */ (deps)[handoff].mock.calls[0][0];
-    expect(param(url, 'body')).toBe(PASTE_POINTER);
-  });
+      // No text, no metadata block: the whole report travels on the clipboard,
+      // so anything prefilled here would be duplicated by the paste.
+      const url = /** @type {any} */ (deps)[handoff].mock.calls[0][0];
+      expect(param(url, 'body')).toBe(PASTE_POINTER);
+    }
+  );
 
   test('without context the body carries the text and metadata, no pointer', async () => {
     const { deps } = makeDeps();
@@ -554,9 +556,7 @@ describe('sendFeedback — tracker identity', () => {
 
     const pending = sendFeedback({ ...BASE_FORM, ...GITLAB, contextOn: true }, deps);
     expect(order).toEqual(['fetch', 'write', 'open']);
-    expect(param(deps.windowOpen.mock.calls[0][0], 'issue\\[description\\]')).toBe(
-      PASTE_POINTER
-    );
+    expect(param(deps.windowOpen.mock.calls[0][0], 'issue\\[description\\]')).toBe(PASTE_POINTER);
 
     gate.resolve(jsonResponse({ id: 'fb-3', payload: 'SERVER PAYLOAD' }));
     const result = await pending;
@@ -606,14 +606,17 @@ describe('outbound notices — the paste step is announced', () => {
   test.each([
     ['GitHub', { ...GITHUB }, NOTICE_PASTE_ISSUE],
     ['email', { channel: /** @type {const} */ ('email') }, NOTICE_PASTE_EMAIL],
-  ])('a successful %s send with context points at the clipboard paste', async (_name, channel, hint) => {
-    const { deps } = makeDeps();
+  ])(
+    'a successful %s send with context points at the clipboard paste',
+    async (_name, channel, hint) => {
+      const { deps } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
+      const result = await sendFeedback({ ...BASE_FORM, ...channel, contextOn: true }, deps);
 
-    expect(result.notice.kind).toBe('success');
-    expect(result.notice.message).toBe(`Recorded on this deployment (fb-1) — ${hint}`);
-  });
+      expect(result.notice.kind).toBe('success');
+      expect(result.notice.message).toBe(`Recorded on this deployment (fb-1) — ${hint}`);
+    }
+  );
 
   test('a truncated body earns the paste hint even without context', async () => {
     const { deps } = makeDeps();

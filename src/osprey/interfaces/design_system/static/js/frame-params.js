@@ -96,7 +96,9 @@ export function stripQueryMode() {
     const query = params.toString();
     const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
     window.history.replaceState(window.history.state, '', url);
-  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
+  } catch {
+    /* non-browser environment or a blocked history API — non-fatal */
+  }
 }
 
 /**
@@ -123,7 +125,9 @@ export function pickUiMode(mode) {
     // Key resolved at write time, not at module load: the scope attribute is
     // a property of the document this call ended up in.
     window.localStorage.setItem(scopedStorageKey(MODE_STORAGE_KEY), mode);
-  } catch { /* storage blocked — the mode still applies for this session */ }
+  } catch {
+    /* storage blocked — the mode still applies for this session */
+  }
   stripQueryMode();
   if (document.documentElement.getAttribute('data-ui-mode') === mode) return;
   window.postMessage({ type: 'osprey-mode-change', mode }, window.location.origin);

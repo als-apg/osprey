@@ -60,7 +60,7 @@ _DEFAULT_DB_NAME = "ariel"
 #: Matches the ``${ARIEL_DB_PASSWORD:-ariel}`` fallback the compose service
 #: uses, so the agent stays launchable before the first `osprey up`
 #: mints a real password into the project ``.env``.
-_DEFAULT_DB_PASSWORD = "ariel"
+_DEFAULT_DB_PASSWORD = "ariel"  # noqa: S105 -- local development default; a deployment sets ARIEL_DB_PASSWORD
 
 #: Appended to the Postgres username to name the SELECT-only role the store's
 #: init script creates. Derived rather than configured: the owner is declared
@@ -78,7 +78,7 @@ READONLY_URI_KEY = "ariel.database.readonly_uri"
 #: in before a deploy mints one -- mirroring ``ARIEL_DB_PASSWORD`` and the
 #: ``${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}`` fallback the compose service and
 #: the init script both carry.
-_DB_READONLY_PASSWORD_ENV_VAR = "ARIEL_DB_READONLY_PASSWORD"
+_DB_READONLY_PASSWORD_ENV_VAR = "ARIEL_DB_READONLY_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
 _DEFAULT_DB_READONLY_PASSWORD = _DEFAULT_DB_PASSWORD + _READONLY_ROLE_SUFFIX
 
 #: Store-address overrides for the *derived* DSN. A process inside the compose

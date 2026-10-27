@@ -5,7 +5,7 @@
  * commands still running: ending the agent ends them too, so the operator
  * agrees to that or keeps both running. When the server could not read what
  * the agent started, it asks the same question about what it could not see.
- * The wording is DOM-free
+ * Anything other than a list asks as an empty list. The wording is DOM-free
  * (`startedCommandsQuestion`) so it can be asserted without a dialog on
  * screen; `askAboutStartedCommands` raises it through the shared confirm.
  */
@@ -33,9 +33,7 @@ function isCut(label) {
  */
 function nameable(commands) {
   const labels = commands.map((c) => c.label);
-  return (
-    labels.length <= 2 && new Set(labels).size === labels.length && !labels.some(isCut)
-  );
+  return labels.length <= 2 && new Set(labels).size === labels.length && !labels.some(isCut);
 }
 
 /**
@@ -44,7 +42,8 @@ function nameable(commands) {
  * `unread` is the refusal's word that the server could not read what the
  * agent started: anything it did is unknown, so the question says so instead
  * of listing commands.
- * @param {StartedCommandJson[]} commands
+ * @param {unknown} commands - The list of started commands; anything else, a
+ *   list that did not arrive, asks as an empty list.
  * @param {{unread?: boolean}} [options]
  * @returns {{title: string,
  *            body: (import('./control-target-facts.js').ConfirmRun)[][],
@@ -58,7 +57,8 @@ export function startedCommandsQuestion(commands, { unread = false } = {}) {
       confirmLabel: 'Stop all',
     };
   }
-  if (commands.length === 0) {
+  const listed = Array.isArray(commands) ? /** @type {StartedCommandJson[]} */ (commands) : [];
+  if (listed.length === 0) {
     // A refusal whose list did not arrive still asks.
     return {
       title: 'This also ends the commands the agent started.',
@@ -67,23 +67,23 @@ export function startedCommandsQuestion(commands, { unread = false } = {}) {
     };
   }
   let title;
-  if (!nameable(commands)) {
+  if (!nameable(listed)) {
     title =
-      commands.length === 1
+      listed.length === 1
         ? 'This also ends the command the agent started.'
-        : `This also ends ${commands.length} commands the agent started.`;
-  } else if (commands.length === 1) {
-    title = `This also ends ${commands[0].label}.`;
+        : `This also ends ${listed.length} commands the agent started.`;
+  } else if (listed.length === 1) {
+    title = `This also ends ${listed[0].label}.`;
   } else {
-    title = `This also ends ${commands[0].label} and ${commands[1].label}.`;
+    title = `This also ends ${listed[0].label} and ${listed[1].label}.`;
   }
   const lead =
-    commands.length === 1
+    listed.length === 1
       ? 'The agent started it and it is still running:'
       : 'The agent started them and they are still running:';
   /** @type {(import('./control-target-facts.js').ConfirmRun)[][]} */
   const body = [[lead]];
-  for (const { label, command } of commands) {
+  for (const { label, command } of listed) {
     // A command line that begins with its label — the label is the program, or
     // the command line cut short — is listed once, whole.
     const head = isCut(label) ? label.slice(0, -1) : label;
@@ -93,7 +93,7 @@ export function startedCommandsQuestion(commands, { unread = false } = {}) {
         : [{ em: command || label }]
     );
   }
-  return { title, body, confirmLabel: commands.length === 1 ? 'Stop both' : 'Stop all' };
+  return { title, body, confirmLabel: listed.length === 1 ? 'Stop both' : 'Stop all' };
 }
 
 /**
@@ -103,7 +103,8 @@ export function startedCommandsQuestion(commands, { unread = false } = {}) {
  * Cancel, Escape, another dialog replacing this one — runs `onCancel`. Exactly
  * one of the two runs, once. `unread` asks about what could not be read, as
  * in {@link startedCommandsQuestion}.
- * @param {StartedCommandJson[]} commands
+ * @param {unknown} commands - The list of started commands; anything else, a
+ *   list that did not arrive, asks as an empty list.
  * @param {{onStop: () => void, onCancel: () => void, unread?: boolean}} handlers
  */
 export function askAboutStartedCommands(commands, { onStop, onCancel, unread = false }) {
