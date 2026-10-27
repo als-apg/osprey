@@ -76,20 +76,31 @@ if importlib.util.find_spec("aioca") is None:
 #: stub view again for a start-up pass that fails.
 SERVERS = ("names", "demo", "stub", "first_pass")
 
-# import-time required because libca latches the EPICS_CA_* environment when
-# the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Each server listens on a Channel Access port of its
-# own, so the client searches them all; the pairing of server and port is fixed
-# here, once, in the pytest process alone, and the ports stay held for the
-# process's life. A spawned server process imports this module again, inherits
-# this environment, and takes its port from the spec its parent passes.
+# Each server listens on a Channel Access port of its own, so the client
+# searches them all; the pairing of server and port is fixed here, once, in the
+# pytest process alone, and the ports stay held for the process's life. A
+# spawned server process imports this module again and takes its port from the
+# spec its parent passes.
+# What this module's client searches with. libca reads its settings once, when
+# the process's CA context is created, and other modules collected into the same
+# process write their own at import (test_apply_fault.py names a port of its own).
+# So these are not written into os.environ at import: `_served` hands them to
+# CaLoop.point_at before it starts a server, which writes them and drops a
+# context already created under different ones, whichever module ran first.
+# import-time required because libca reads the repeater port when the first CA
+# context in the process is created, which may be another module's, before any
+# of this module's fixtures run; point_at does not carry it.
 if multiprocessing.parent_process() is None:
     *_server_ports, _repeater_port = hold_ports(len(SERVERS) + 1)
     CA_PORTS: dict[str, str] = {
         server: str(port) for server, port in zip(SERVERS, _server_ports, strict=True)
     }
-    os.environ["EPICS_CA_ADDR_LIST"] = " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS)
-    os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
+    CA_CLIENT_ENV: dict[str, str | None] = {
+        "EPICS_CA_ADDR_LIST": " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS),
+        "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        "EPICS_CA_SERVER_PORT": None,
+        "EPICS_CA_NAME_SERVERS": None,
+    }
     os.environ.setdefault("EPICS_CA_REPEATER_PORT", str(_repeater_port))
 
 # Found, never imported: pcaspy's extension bundles its own EPICS base, and
@@ -733,6 +744,9 @@ def _served(
             "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
         }
         view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
+        from osprey_connectors.control_system._ca_loop import get_ca_loop
+
+        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
         served = _Server(spec, view, state_dir)
         try:
             yield served

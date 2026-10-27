@@ -123,7 +123,7 @@ def kernel_id_from_argv(argv: Sequence[str] | None) -> str | None:
 #: not enough on its own: the provisioner merges the kernelspec env OVER
 #: ``os.environ``, so an empty value keeps the KEY. :func:`main` pops the name
 #: outright, and a cell's environment then holds no ``JUPYTER_TOKEN`` at all.
-JUPYTER_TOKEN_ENV_VAR = "JUPYTER_TOKEN"
+JUPYTER_TOKEN_ENV_VAR = "JUPYTER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The config path the sidecar passes down, and the one the config loader
 #: reads. They are different names: the web terminal resolves its deployment
@@ -661,7 +661,7 @@ def _refusal_handler(
     _record_refusal(value)
     hint = _hint_for(value)
     if hint is not None:
-        print(hint)
+        print(hint)  # noqa: T201 -- the hint is cell output
     shell.showtraceback((etype, value, tb), tb_offset=tb_offset)
 
 

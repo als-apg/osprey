@@ -90,7 +90,10 @@ beforeEach(() => {
   setArtifacts([]);
   setSelectedArtifact(null);
   setFocusedArtifact(null);
-  vi.stubGlobal('confirm', vi.fn(() => true));
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true)
+  );
   Object.defineProperty(window.navigator, 'clipboard', {
     value: { writeText: vi.fn(() => Promise.resolve()) },
     configurable: true,
@@ -121,10 +124,13 @@ describe('renderPreview: per-type viewport dispatch', () => {
   // what lands inside it. Any other URL is a dependency these cases have not
   // declared, and fails loudly.
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/files/a1/beam_profile.png') throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url !== '/files/a1/beam_profile.png') throw new Error(`unstubbed fetch: ${url}`);
+        return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
+      })
+    );
   });
 
   test.each([
@@ -170,7 +176,9 @@ describe('renderPreview: per-type viewport dispatch', () => {
   });
 
   test('an unrecognized type with mime_type application/pdf renders a light iframe of the file', () => {
-    setSelectedArtifact(makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' }));
+    setSelectedArtifact(
+      makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' })
+    );
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.renderPreview();
 
@@ -231,10 +239,12 @@ describe('renderPreview: header/meta content', () => {
     setSelectedArtifact(makeArtifact());
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    expect(Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)).not.toContain('Source');
+    expect(
+      Array.from(document.querySelectorAll('.preview-meta-label')).map((el) => el.textContent)
+    ).not.toContain('Source');
   });
 
-  test('pin button reflects the artifact\'s pinned state', () => {
+  test("pin button reflects the artifact's pinned state", () => {
     setSelectedArtifact(makeArtifact({ pinned: true }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
@@ -279,7 +289,10 @@ describe('renderPreview: delete flow', () => {
   });
 
   test('does nothing when the confirm dialog is declined', () => {
-    vi.stubGlobal('confirm', vi.fn(() => false));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false)
+    );
     setArtifacts([makeArtifact()]);
     setSelectedArtifact(makeArtifact());
     const callbacks = makeCallbacks();
@@ -305,11 +318,17 @@ describe('renderPreview: copy path', () => {
       setSelectedArtifact(makeArtifact());
       createPreviewRenderer(makeCallbacks()).renderPreview();
 
-      expect(qs(document, '.preview-path-text').textContent).toBe('state/agent/artifacts/beam_profile.png');
+      expect(qs(document, '.preview-path-text').textContent).toBe(
+        'state/agent/artifacts/beam_profile.png'
+      );
 
       const btn = byId('preview-copy-path');
       btn.click();
-      await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('state/agent/artifacts/beam_profile.png'));
+      await vi.waitFor(() =>
+        expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
+          'state/agent/artifacts/beam_profile.png'
+        )
+      );
 
       expect(btn.classList.contains('copied')).toBe(true);
       vi.advanceTimersByTime(1500);

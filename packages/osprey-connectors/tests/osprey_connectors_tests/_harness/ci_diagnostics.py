@@ -35,10 +35,12 @@ A third record is written only when a test fails:
     has a health check, for the containers this run's tests started, by label.
     Written at the first failing report of each test module in each process,
     from ``pytest_runtest_makereport`` — before that module's fixtures tear its
-    stack down — with the test's timeout alarm suspended and within one total
-    deadline, so the snapshot is charged to no test's budget. The workflow's
-    capture step cannot take it: that teardown happens inside the pytest step,
-    so by the time any later step runs, the stack's containers are gone.
+    stack down — with the test's pytest-timeout timer paused and within one
+    total deadline, so the snapshot is charged to no test's budget. The
+    workflow's capture step cannot take it: that teardown happens inside the
+    pytest step, so by the time any later step runs, the stack's containers are
+    gone. A snapshot that could not finish says ``capture incomplete`` in its
+    ``state.txt``.
 
 All three are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means
 this module installs nothing at all.
@@ -122,11 +124,9 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -345,26 +345,6 @@ def snapshot_label_filters() -> list[str]:
     return filters
 
 
-@contextlib.contextmanager
-def _alarm_suspended() -> Iterator[None]:
-    """Suspend the real-time interval timer, then re-arm what was left of it.
-
-    pytest-timeout's signal method arms that timer for the running test; a
-    diagnostic run inside it would be charged to the test and interrupted by
-    its alarm. Off the main thread no alarm is delivered here, so nothing is
-    touched.
-    """
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
-    remaining, interval = signal.setitimer(signal.ITIMER_REAL, 0)
-    try:
-        yield
-    finally:
-        if remaining > 0:
-            signal.setitimer(signal.ITIMER_REAL, remaining, interval)
-
-
 def _safe(name: str) -> str:
     """``name`` with every character outside ``[A-Za-z0-9._-]`` replaced by ``_``."""
     return _UNSAFE.sub("_", name)
@@ -375,7 +355,7 @@ class ContainerSnapshots:
 
     The containers are the ones this run's tests started, by label
     (:func:`snapshot_label_filters`). The whole snapshot stays within
-    :data:`SNAPSHOT_DEADLINE` and runs with the test's timeout alarm suspended.
+    :data:`SNAPSHOT_DEADLINE` and runs with the test's pytest-timeout timer paused.
 
     A module fixture that brings a stack up removes it in its own teardown,
     which runs inside the pytest process right after the module's last test.
@@ -396,14 +376,25 @@ class ContainerSnapshots:
         self.worker = worker
         self.engine = engine
         self._modules: set[str] = set()
+        #: Why the capture in progress stopped short; ``None`` while it has not.
+        self._incomplete: str | None = None
 
     def _run(
         self, deadline: float, *args: str
     ) -> tuple[subprocess.CompletedProcess[str] | None, str]:
-        """Run one engine call within ``deadline``; a failure is returned as text, never raised."""
+        """Run one engine call within ``deadline``; a failure is returned as text, never raised.
+
+        A call the deadline cuts short marks the capture incomplete, and every
+        later call of that capture is skipped: an engine that stopped answering
+        costs the one deadline, not one bound per call.
+        """
+        if self._incomplete is not None:
+            return None, ""
         remaining = deadline - time.monotonic()
+        call = " ".join([self.engine, args[0], *args[1:][-1:]])
         if remaining <= 0:
-            return None, "(snapshot deadline reached)\n"
+            self._incomplete = f"snapshot deadline reached before {call}"
+            return None, ""
         try:
             done = subprocess.run(
                 [self.engine, *args],
@@ -411,59 +402,76 @@ class ContainerSnapshots:
                 text=True,
                 timeout=remaining,
             )
+        except subprocess.TimeoutExpired:
+            self._incomplete = f"{call} exceeded the {SNAPSHOT_DEADLINE:g} s snapshot deadline"
+            return None, f"({self._incomplete})\n"
         except (OSError, subprocess.SubprocessError) as exc:
             return None, f"({self.engine} {args[0]} failed: {exc})\n"
         return done, done.stdout + done.stderr
 
     def capture(self, nodeid: str, when: str) -> Path | None:
-        """Write one module's snapshot; ``None`` when there is nothing to record."""
+        """Write one module's snapshot; ``None`` when there is nothing to record.
+
+        ``state.txt`` is written whatever happens once a container is listed or
+        the capture stopped short, and ends with a ``capture incomplete:
+        <reason>`` line when a call, the listing included, timed out or the
+        capture raised.
+        """
         module = nodeid.split("::", 1)[0]
         if module in self._modules:
             return None
         self._modules.add(module)
+        self._incomplete = None
 
         if shutil.which(self.engine) is None:
             return None
         deadline = time.monotonic() + SNAPSHOT_DEADLINE
-        filters = snapshot_label_filters()
-        ids: list[str] = []
-        for label in filters:
-            listed, _ = self._run(deadline, "ps", "-aq", "--filter", label)
-            if listed is None or listed.returncode != 0:
-                return None
-            ids.extend(cid for cid in listed.stdout.split() if cid not in ids)
-        if not ids:
-            return None
-
         target = self.root / f"{self.worker}--{_safe(module)}"
-        target.mkdir(parents=True, exist_ok=True)
-        utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
-        (target / "ps.txt").write_text(
-            "".join(self._run(deadline, "ps", "-a", "--filter", label)[1] for label in filters)
-        )
+        state: list[str] = []
+        ids: list[str] = []
+        try:
+            filters = snapshot_label_filters()
+            for label in filters:
+                listed, _ = self._run(deadline, "ps", "-aq", "--filter", label)
+                if listed is not None and listed.returncode == 0:
+                    ids.extend(cid for cid in listed.stdout.split() if cid not in ids)
+            if not ids:
+                return None if self._incomplete is None else target
+            target.mkdir(parents=True, exist_ok=True)
+            utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
+            (target / "ps.txt").write_text(
+                "".join(self._run(deadline, "ps", "-a", "--filter", label)[1] for label in filters)
+            )
 
-        state = []
-        for index, cid in enumerate(ids):
-            if time.monotonic() >= deadline:
-                missed = len(ids) - index
-                state.append(f"(snapshot deadline reached; {missed} containers not captured)\n")
-                break
-            named, _ = self._run(deadline, "inspect", "--format", "{{.Name}}", cid)
-            raw = named.stdout.strip() if named is not None and named.returncode == 0 else ""
-            name = _safe(raw.lstrip("/")) or cid
+            for cid in ids:
+                if self._incomplete is not None:
+                    break
+                named, _ = self._run(deadline, "inspect", "--format", "{{.Name}}", cid)
+                raw = named.stdout.strip() if named is not None and named.returncode == 0 else ""
+                name = _safe(raw.lstrip("/")) or cid
 
-            logs = self._run(deadline, "logs", "--timestamps", cid)[1]
-            (target / f"{name}.log").write_text(logs)
-            state.append(self._run(deadline, "inspect", "--format", _STATE_FORMAT, cid)[1])
+                logs = self._run(deadline, "logs", "--timestamps", cid)[1]
+                (target / f"{name}.log").write_text(logs)
+                state.append(self._run(deadline, "inspect", "--format", _STATE_FORMAT, cid)[1])
 
-            health, _ = self._run(deadline, "inspect", "--format", "{{json .State.Health}}", cid)
-            if health is not None and health.returncode == 0:
-                text = health.stdout.strip()
-                if text and text != "null":
-                    (target / f"{name}.health.json").write_text(text + "\n")
-
-        (target / "state.txt").write_text("".join(state))
+                health, _ = self._run(
+                    deadline, "inspect", "--format", "{{json .State.Health}}", cid
+                )
+                if health is not None and health.returncode == 0:
+                    text = health.stdout.strip()
+                    if text and text != "null":
+                        (target / f"{name}.health.json").write_text(text + "\n")
+        except BaseException as exc:
+            if self._incomplete is None:
+                self._incomplete = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if self._incomplete is not None:
+                state.append(f"capture incomplete: {self._incomplete}\n")
+            if ids or self._incomplete is not None:
+                target.mkdir(parents=True, exist_ok=True)
+                (target / "state.txt").write_text("".join(state))
         return target
 
     @pytest.hookimpl(hookwrapper=True)
@@ -472,12 +480,22 @@ class ContainerSnapshots:
         report = outcome.get_result()
         if not report.failed:
             return
-        # a diagnostic must never replace the failure it observes
-        with (
-            contextlib.suppress(Exception, pytest.fail.Exception, pytest.skip.Exception),
-            _alarm_suspended(),
-        ):
+        # The capture is not test time: an armed pytest-timeout timer is paused
+        # around it, so it can neither fire mid-capture nor spend the test's
+        # budget. A func_only timer is already cancelled once the call phase
+        # has returned, and re-arming it would leave a timer nothing cancels.
+        timer = item.config.pluginmanager.get_plugin("timeout")
+        settings = timer._get_item_settings(item) if timer is not None else None
+        armed = bool(settings is not None and settings.timeout and not settings.func_only)
+        if armed:
+            item.config.hook.pytest_timeout_cancel_timer(item=item)
+        try:
             self.capture(item.nodeid, report.when)
+        except (Exception, pytest.fail.Exception, pytest.skip.Exception):
+            pass  # a diagnostic must never replace the failure it observes
+        finally:
+            if armed:
+                item.config.hook.pytest_timeout_set_timer(item=item, settings=settings)
 
 
 def register_container_snapshots(

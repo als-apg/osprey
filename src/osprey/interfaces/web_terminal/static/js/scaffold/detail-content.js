@@ -21,7 +21,12 @@
 
 import { fetchJSON } from '../api.js';
 import { renderMarkdownInto } from '../chat-markdown.js';
-import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from '../diff-utils.js';
+import {
+  tokenize,
+  computeWordDiff,
+  groupChangeBlocks,
+  renderWordsIntoLine,
+} from '../diff-utils.js';
 import { renderSettingsJson, renderMcpJson } from '../config-renderers.js';
 import {
   parseFrontMatter,
@@ -55,7 +60,9 @@ export function createScaffoldGalleryDetailContent(gallery) {
     // scaffold/detail.js's renderDetailContent).
     const render = gallery.detailRenderSeq;
 
-    const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`); // fetchJSON prefixes internally
+    const data = await fetchJSON(
+      `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`
+    ); // fetchJSON prefixes internally
     const content = data.content || '';
     const language = data.language || gallery.selectedArtifact.language || 'text';
     const artifactName = gallery.selectedArtifact.name || '';
@@ -142,7 +149,8 @@ export function createScaffoldGalleryDetailContent(gallery) {
     gallery.detailContentEl.innerHTML = '';
 
     if (!data.has_diff) {
-      gallery.detailContentEl.innerHTML = '<div class="prompts-no-diff">No differences from framework default.</div>';
+      gallery.detailContentEl.innerHTML =
+        '<div class="prompts-no-diff">No differences from framework default.</div>';
       return;
     }
 

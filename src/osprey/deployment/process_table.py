@@ -78,7 +78,7 @@ def snapshot() -> dict[int, ProcessRow]:
                 continue
             try:
                 pgid = os.getpgid(pid)
-            except ProcessLookupError:
+            except OSError:
                 continue
             cmdline = info["cmdline"]
             command = " ".join(cmdline) if cmdline else info["name"] or ""

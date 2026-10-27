@@ -228,6 +228,59 @@ class TestThresholdResolution:
         assert result == []
 
 
+class TestEmbeddingTimeout:
+    """A query embedding that does not answer is reported as a timeout."""
+
+    @pytest.mark.asyncio
+    async def test_semantic_search_never_waits_past_its_embedding_timeout(
+        self, monkeypatch, mock_repository, mock_embedder, search_calls
+    ):
+        from osprey.services.ariel_search.exceptions import SearchTimeoutError
+        from osprey.services.ariel_search.search import semantic
+
+        monkeypatch.setattr(semantic, "QUERY_EMBEDDING_TIMEOUT_S", 0.2)
+        release = threading.Event()
+        mock_embedder.execute_embedding = MagicMock(side_effect=lambda **_: release.wait(30.0))
+        try:
+            with pytest.raises(SearchTimeoutError) as raised:
+                await semantic_search(
+                    "beam",
+                    mock_repository,
+                    make_wired_config(),
+                    mock_embedder,
+                    search_calls=search_calls,
+                )
+        finally:
+            release.set()
+
+        assert raised.value.operation == "query embedding"
+        mock_repository.semantic_search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_saturation_reaches_the_caller_as_a_timeout(
+        self, monkeypatch, mock_repository, mock_embedder, search_calls
+    ):
+        from osprey.services.ariel_search.exceptions import SearchTimeoutError
+        from osprey.services.ariel_search.search import semantic
+
+        async def saturated(*_args, **_kwargs):
+            raise TimeoutError("search calls saturated: 4 calls still running")
+
+        monkeypatch.setattr(semantic, "run_search_call", saturated)
+
+        with pytest.raises(SearchTimeoutError, match="search calls saturated") as raised:
+            await semantic_search(
+                "beam",
+                mock_repository,
+                make_wired_config(),
+                mock_embedder,
+                search_calls=search_calls,
+            )
+
+        assert raised.value.operation == "query embedding"
+        mock_repository.semantic_search.assert_not_called()
+
+
 # --------------------------------------------------------------------------
 # Parameter descriptors
 # --------------------------------------------------------------------------
@@ -678,16 +731,3 @@ class TestReachableQueryServer:
         await search
 
         assert elapsed < 0.5
-
-    @pytest.mark.asyncio
-    async def test_run_search_call_times_out(self):
-        from concurrent.futures import ThreadPoolExecutor
-
-        from osprey.services.ariel_search.search._offload import run_search_call
-
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ariel-search-call")
-        try:
-            with pytest.raises(TimeoutError):
-                await run_search_call(executor, time.sleep, 0.5, timeout_s=0.05)
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)

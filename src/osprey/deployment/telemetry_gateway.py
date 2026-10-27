@@ -142,7 +142,7 @@ LEDGER_PIPELINE = "logs/ledger"
 LEDGER_PROCESSORS: tuple[str, ...] = (LEDGER_TRANSFORM, LEDGER_PATH_FILTER, CLAMP)
 
 #: What a stored session token may look like; anything else is deleted.
-_SESSION_TOKEN_RE = "^[A-Za-z0-9._-]{1,128}$"
+_SESSION_TOKEN_RE = "^[A-Za-z0-9._-]{1,128}$"  # noqa: S105 -- a token pattern, holds no secret
 _SESSION_KEYS = ("session.id", "terminal.session")
 _USER = 'otelcol.client.auth.attributes["username"]'
 _RESERVED = '"^osprey\\\\."'

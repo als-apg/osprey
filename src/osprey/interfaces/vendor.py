@@ -1,3 +1,4 @@
+# ruff: noqa: T201 -- the osprey vendor fetch reports its progress on stdout
 """Vendor asset management — CDN-by-default with opt-in offline bundling.
 
 All vendor assets (JS libraries, CSS, fonts) are declared in

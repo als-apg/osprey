@@ -11,7 +11,15 @@ import { contributeHeader, onHeaderAction } from '/design-system/js/header-contr
 import { capabilitiesApi } from './api.js';
 import { applyFacilityTimezone } from './components.js';
 import { initSearch, performSearch, clearSearch, onUiModeChange } from './search.js';
-import { initEntries, loadEntries, showEntry, openEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
+import {
+  initEntries,
+  loadEntries,
+  showEntry,
+  openEntry,
+  closeEntryModal,
+  loadDraft,
+  showImageLightbox,
+} from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -97,7 +105,7 @@ function publishHeaderContribution() {
     {
       kind: 'nav',
       id: 'view',
-      items: headerViews().map(v => ({ id: v.id, label: v.label, active: v.id === currentView })),
+      items: headerViews().map((v) => ({ id: v.id, label: v.label, active: v.id === currentView })),
     },
   ]);
 }
@@ -159,7 +167,7 @@ async function init() {
  */
 function setupNavigation() {
   // Handle nav link clicks
-  document.querySelectorAll('.nav-link[data-view]').forEach(link => {
+  document.querySelectorAll('.nav-link[data-view]').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const view = /** @type {HTMLElement} */ (link).dataset.view;
@@ -188,9 +196,7 @@ function setupNavigation() {
 function setupCreateFormReset() {
   const cancelBtn = document.getElementById('create-cancel-btn');
   cancelBtn?.addEventListener('click', () => {
-    /** @type {HTMLFormElement|null} */ (
-      document.getElementById('create-entry-form')
-    )?.reset();
+    /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
     const preview = document.getElementById('file-preview');
     if (preview) preview.innerHTML = '';
   });
@@ -277,12 +283,12 @@ function navigateTo(hash) {
   window.location.hash = hash;
 
   // Update nav links (match on view name only, not query params)
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
   // Hide all views
-  document.querySelectorAll('.view').forEach(v => {
+  document.querySelectorAll('.view').forEach((v) => {
     v.classList.remove('active');
   });
 

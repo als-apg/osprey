@@ -4,7 +4,16 @@ import noTsNocheck from './tools/eslint/no-ts-nocheck.js';
 
 export default [
   // (1) Leading SOLE-KEY global ignore — must be the ONLY key in this object so it applies globally.
-  { ignores: ['**/vendor/**', '**/*.min.js', 'docs/**', '**/.venv/**', '.claude/**', 'packages/dock-engine/dist/**'] },
+  {
+    ignores: [
+      '**/vendor/**',
+      '**/*.min.js',
+      'docs/**',
+      '**/.venv/**',
+      '.claude/**',
+      'packages/dock-engine/dist/**',
+    ],
+  },
 
   // (2) Base recommended rules.
   js.configs.recommended,

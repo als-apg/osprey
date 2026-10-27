@@ -236,7 +236,10 @@ describe('reduceFrame — revision rules', () => {
       revision: 5,
       run_id: 'run-abc',
     });
-    expect(action).toEqual({ type: 'launched', frame: expect.objectContaining({ run_id: 'run-abc' }) });
+    expect(action).toEqual({
+      type: 'launched',
+      frame: expect.objectContaining({ run_id: 'run-abc' }),
+    });
     expect(next.launchBanner).toEqual({ runId: 'run-abc', revision: 5 });
     // A launch is an event, not a draft mutation: baseline and draft are
     // untouched, so a later change frame still applies against revision 5.
@@ -264,7 +267,12 @@ describe('reduceFrame — revision rules', () => {
 
 describe('shouldShowAffordance', () => {
   test('false while bound', () => {
-    const state = { ...createInitialState('t'), bound: true, draftPlanName: 'orm', selectedName: 'orm' };
+    const state = {
+      ...createInitialState('t'),
+      bound: true,
+      draftPlanName: 'orm',
+      selectedName: 'orm',
+    };
     expect(shouldShowAffordance(state)).toBe(false);
   });
 
@@ -404,7 +412,12 @@ describe('shouldAutoSwitch / shouldShowAgentDraftBanner', () => {
     prev = reduceReset(prev, { draft: agentDraft(T1), revision: 6 });
     expect(shouldShowAgentDraftBanner(prev)).toBe(true);
 
-    const cleared = reduceFrame(prev, { type: 'clear', draft: null, revision: 7, origin: 'mcp-agent' });
+    const cleared = reduceFrame(prev, {
+      type: 'clear',
+      draft: null,
+      revision: 7,
+      origin: 'mcp-agent',
+    });
     expect(shouldShowAgentDraftBanner(cleared.state)).toBe(false);
     expect(shouldAutoSwitch(prev, cleared)).toEqual({ switch: false, banner: false });
 
@@ -504,7 +517,11 @@ function makeHarness(overrides = {}, schema = ORM_SCHEMA) {
     getDraft: vi.fn(async () => /** @type {any} */ ({ draft: null, revision: 0 })),
     patchDraft: vi.fn(
       async () =>
-        /** @type {any} */ ({ ok: true, status: 200, body: { revision: 1, changed: [], plan_name: 'orm' } })
+        /** @type {any} */ ({
+          ok: true,
+          status: 200,
+          body: { revision: 1, changed: [], plan_name: 'orm' },
+        })
     ),
     deleteDraft: vi.fn(async () => {}),
     onBoundChange: vi.fn(),
@@ -547,7 +564,11 @@ describe('createDraftClient — binding transitions', () => {
 
   test('selecting a plan that matches the existing draft binds and seeds from GET /draft', async () => {
     // hello establishes the draft's plan_name/args before any selection.
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 5 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 5 } },
+      revision: 1,
+    });
 
     harness.deps.getDraft.mockResolvedValueOnce({
       draft: { plan_name: 'orm', plan_args: { num: 7, span_a: 2.5 } },
@@ -625,8 +646,15 @@ describe('createDraftClient — binding transitions', () => {
   });
 
   test('a frame while already bound applies changed[] and flashes only those fields', async () => {
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
@@ -648,8 +676,15 @@ describe('createDraftClient — binding transitions', () => {
   });
 
   test('own-origin (echo) frames advance the baseline but skip apply and flash', async () => {
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
 
     const numEl = harness.getCollector().fields.num.el;
@@ -670,12 +705,25 @@ describe('createDraftClient — binding transitions', () => {
   });
 
   test('a clear frame while bound unbinds the form', async () => {
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
-    harness.push({ type: 'clear', draft: null, changed: ['num'], revision: 2, origin: 'mcp-agent' });
+    harness.push({
+      type: 'clear',
+      draft: null,
+      changed: ['num'],
+      revision: 2,
+      origin: 'mcp-agent',
+    });
     await flushMicrotasks();
 
     expect(harness.client.isBound()).toBe(false);
@@ -683,8 +731,15 @@ describe('createDraftClient — binding transitions', () => {
   });
 
   test('discard-draft unbinds and calls DELETE /draft', async () => {
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
@@ -695,8 +750,15 @@ describe('createDraftClient — binding transitions', () => {
   });
 
   test('a failed DELETE /draft (sidecar-unreachable) leaves bound state consistent and surfaces the failure', async () => {
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
@@ -748,8 +810,15 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
   });
 
@@ -760,7 +829,9 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
   });
 
   test('a real user input event marks the field pending and debounces a PATCH', async () => {
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '9';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -798,7 +869,9 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
   });
 
   test('rapid successive edits to the same field debounce into a single PATCH', async () => {
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     for (const v of ['2', '3', '4']) {
       numInput.value = v;
       numInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -821,7 +894,9 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
       revision: 2,
     });
 
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '5';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -834,7 +909,9 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
   });
 
   test('a remote change frame on a still-pending key clears its pending status (no redundant echo PATCH)', async () => {
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '2';
     numInput.dispatchEvent(new Event('input', { bubbles: true })); // marks 'num' pending; debounce scheduled.
 
@@ -859,8 +936,15 @@ describe('createDraftClient — launch pin resolution via flushNow', () => {
   test('a flush with pending edits pins the PATCH response revision', async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
 
     harness.deps.patchDraft.mockResolvedValueOnce({
@@ -868,7 +952,9 @@ describe('createDraftClient — launch pin resolution via flushNow', () => {
       status: 200,
       body: { revision: 55, changed: ['num'], plan_name: 'orm' },
     });
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '2';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -882,8 +968,15 @@ describe('createDraftClient — launch pin resolution via flushNow', () => {
 
   test('a flush with nothing pending falls back to the last-applied baseline', async () => {
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 7 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 7 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 7,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 7,
+    });
     await harness.client.onPlanSelected('orm');
 
     const flushResult = await harness.client.flushNow();
@@ -955,7 +1048,10 @@ describe('createDraftClient — structural edits (form-change) mark pending, app
     vi.useFakeTimers();
     const harness = makeHarness({}, TABLE_SCHEMA);
     harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: {} }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: {} }, revision: 1 });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: {} },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
@@ -990,7 +1086,10 @@ describe('createDraftClient — structural edits (form-change) mark pending, app
     vi.useFakeTimers();
     const harness = makeHarness({}, TABLE_SCHEMA);
     harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: {} }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: {} }, revision: 1 });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: {} },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
 
     harness.getCollector().applyValues({ axes: [{ setpoint: 'QD1', num_points: 3 }] });
@@ -1059,7 +1158,9 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
       revision: 2,
     });
 
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '6';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -1077,8 +1178,15 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
 describe('createDraftClient — flush coalesces edits added mid-flight', () => {
   test('an edit landing while a PATCH is in flight is drained by the same flush, and pins its revision', async () => {
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
 
     /** @type {(value: any) => void} */
@@ -1086,11 +1194,15 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
     const firstPatch = new Promise((resolve) => {
       resolveFirstPatch = resolve;
     });
-    harness.deps.patchDraft
-      .mockReturnValueOnce(firstPatch)
-      .mockResolvedValueOnce({ ok: true, status: 200, body: { revision: 20, changed: ['span_a'], plan_name: 'orm' } });
+    harness.deps.patchDraft.mockReturnValueOnce(firstPatch).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: { revision: 20, changed: ['span_a'], plan_name: 'orm' },
+    });
 
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '2';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -1103,7 +1215,11 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
     spanInput.value = '3';
     spanInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-    resolveFirstPatch({ ok: true, status: 200, body: { revision: 10, changed: ['num'], plan_name: 'orm' } });
+    resolveFirstPatch({
+      ok: true,
+      status: 200,
+      body: { revision: 10, changed: ['num'], plan_name: 'orm' },
+    });
     const result = await flushPromise;
 
     expect(harness.deps.patchDraft).toHaveBeenCalledTimes(2);
@@ -1120,8 +1236,15 @@ describe('createDraftClient — 422 keeps the value and surfaces the rejection, 
   test('a 422 does not resync and reports the field-scoped detail', async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
 
     harness.deps.patchDraft.mockResolvedValueOnce({
@@ -1130,13 +1253,18 @@ describe('createDraftClient — 422 keeps the value and surfaces the rejection, 
       body: { detail: { field: 'num', error: 'value is not a valid integer' } },
     });
 
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '999';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
 
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(harness.deps.onPatchRejected).toHaveBeenCalledWith({ field: 'num', error: 'value is not a valid integer' });
+    expect(harness.deps.onPatchRejected).toHaveBeenCalledWith({
+      field: 'num',
+      error: 'value is not a valid integer',
+    });
     // No resync: getDraft was only ever called once, for the initial bind.
     expect(harness.deps.getDraft).toHaveBeenCalledTimes(1);
     // The operator's typed value is left exactly as-is.
@@ -1165,8 +1293,15 @@ describe('createDraftClient — cross-plan rebind reuses selectPlan (reentrancy)
     // Not a once-mock: the first-open hello below legitimately auto-switches
     // (shouldAutoSwitch's first-ever-reset rule), whose re-entrant selectPlan
     // performs its own bind fetch alongside the explicit selection's.
-    harness.deps.getDraft.mockResolvedValue({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.deps.getDraft.mockResolvedValue({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await settleAsyncWork();
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
@@ -1218,7 +1353,12 @@ describe('createDraftClient — agent auto-switch wiring', () => {
     await harness.client.onPlanSelected('grid_scan');
     expect(harness.deps.selectPlan).not.toHaveBeenCalled();
 
-    const draft = { plan_name: 'orm', plan_args: { num: 4, span_a: 1.5 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = {
+      plan_name: 'orm',
+      plan_args: { num: 4, span_a: 1.5 },
+      updated_by: 'mcp-agent',
+      updated_at: T1,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
     harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
     await settleAsyncWork();
@@ -1271,13 +1411,20 @@ describe('createDraftClient — agent auto-switch wiring', () => {
     expect(harness.client.getAgentDraftBannerPlan()).toBeNull();
 
     // Unbound manual edit: dirties the form, never schedules a PATCH.
-    const numInput = /** @type {HTMLInputElement} */ (harness.getCollector().fields.num.el.querySelector('input'));
+    const numInput = /** @type {HTMLInputElement} */ (
+      harness.getCollector().fields.num.el.querySelector('input')
+    );
     numInput.value = '7';
     numInput.dispatchEvent(new Event('input', { bubbles: true }));
     await settleAsyncWork();
     expect(harness.deps.patchDraft).not.toHaveBeenCalled();
 
-    const draft = { plan_name: 'orm', plan_args: { num: 4 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = {
+      plan_name: 'orm',
+      plan_args: { num: 4 },
+      updated_by: 'mcp-agent',
+      updated_at: T1,
+    };
     harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
     await settleAsyncWork();
 
@@ -1290,9 +1437,20 @@ describe('createDraftClient — agent auto-switch wiring', () => {
     harness.deps.getDraft.mockResolvedValue({ draft: null, revision: 1 });
     await harness.client.onPlanSelected('grid_scan');
     expect(harness.client.getAgentDraftBannerPlan()).toBeNull();
-    const draft2 = { plan_name: 'orm', plan_args: { num: 5 }, updated_by: 'mcp-agent', updated_at: T2 };
+    const draft2 = {
+      plan_name: 'orm',
+      plan_args: { num: 5 },
+      updated_by: 'mcp-agent',
+      updated_at: T2,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft: draft2, revision: 2 });
-    harness.push({ type: 'change', draft: draft2, changed: ['num'], revision: 2, origin: 'mcp-agent' });
+    harness.push({
+      type: 'change',
+      draft: draft2,
+      changed: ['num'],
+      revision: 2,
+      origin: 'mcp-agent',
+    });
     await settleAsyncWork();
     expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
     expect(harness.client.isBound()).toBe(true);
@@ -1302,7 +1460,12 @@ describe('createDraftClient — agent auto-switch wiring', () => {
 
   test('a first-open hello with a draft present auto-switches and flashes the applied args', async () => {
     const harness = makeReentrantHarness();
-    const draft = { plan_name: 'orm', plan_args: { num: 3 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = {
+      plan_name: 'orm',
+      plan_args: { num: 3 },
+      updated_by: 'mcp-agent',
+      updated_at: T1,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft, revision: 2 });
     harness.push({ type: 'hello', draft, revision: 2 });
     await settleAsyncWork();
@@ -1317,7 +1480,12 @@ describe('createDraftClient — agent auto-switch wiring', () => {
 
   test('a reconnect hello repeating an already-seen updated_at does not re-switch', async () => {
     const harness = makeReentrantHarness();
-    const draft = { plan_name: 'orm', plan_args: { num: 3 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = {
+      plan_name: 'orm',
+      plan_args: { num: 3 },
+      updated_by: 'mcp-agent',
+      updated_at: T1,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft, revision: 2 });
     harness.push({ type: 'hello', draft, revision: 2 });
     await settleAsyncWork();
@@ -1405,7 +1573,12 @@ describe('createDraftClient — agent-draft banner (declarative UI)', () => {
     );
     numInput.value = '7';
     numInput.dispatchEvent(new Event('input', { bubbles: true })); // formDirty
-    const draft = { plan_name: 'orm', plan_args: { num: 4 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = {
+      plan_name: 'orm',
+      plan_args: { num: 4 },
+      updated_by: 'mcp-agent',
+      updated_at: T1,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
     harness.push({ type: 'change', draft, changed: ['num'], revision: 1, origin: 'mcp-agent' });
     await settleAsyncWork();
@@ -1434,9 +1607,20 @@ describe('createDraftClient — agent-draft banner (declarative UI)', () => {
     const { harness, bannerEl } = makeBannerHarness();
     await armBanner(harness);
 
-    const draft2 = { plan_name: 'orm', plan_args: { num: 5 }, updated_by: 'mcp-agent', updated_at: T2 };
+    const draft2 = {
+      plan_name: 'orm',
+      plan_args: { num: 5 },
+      updated_by: 'mcp-agent',
+      updated_at: T2,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft: draft2, revision: 2 });
-    harness.push({ type: 'change', draft: draft2, changed: ['num'], revision: 2, origin: 'mcp-agent' });
+    harness.push({
+      type: 'change',
+      draft: draft2,
+      changed: ['num'],
+      revision: 2,
+      origin: 'mcp-agent',
+    });
     await settleAsyncWork();
 
     expect(harness.deps.onAgentDraftBanner).toHaveBeenLastCalledWith('orm');
@@ -1515,7 +1699,12 @@ describe('createDraftClient — agent-draft banner (declarative UI)', () => {
     // Agent draft exists on orm, but the operator navigates to grid_scan
     // with a clean form (a navigate-away after the auto-switch already
     // happened) — no banner yet.
-    const draft = { plan_name: 'orm', plan_args: { num: 4 }, updated_by: 'mcp-agent', updated_at: T1 };
+    const draft = {
+      plan_name: 'orm',
+      plan_args: { num: 4 },
+      updated_by: 'mcp-agent',
+      updated_at: T1,
+    };
     harness.deps.getDraft.mockResolvedValue({ draft, revision: 1 });
     harness.push({ type: 'hello', draft, revision: 1 });
     await settleAsyncWork();
@@ -1545,7 +1734,9 @@ describe('buildAgentDraftBanner', () => {
     host.appendChild(frag);
 
     expect(host.textContent).toContain('agent drafted orm');
-    const btn = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.agent-draft-banner-view'));
+    const btn = /** @type {HTMLButtonElement|null} */ (
+      host.querySelector('button.agent-draft-banner-view')
+    );
     expect(btn).not.toBeNull();
     if (!btn) throw new Error('unreachable: button asserted non-null');
     expect(btn.dataset.planName).toBe('orm');
@@ -1561,7 +1752,9 @@ describe('buildAgentDraftBanner', () => {
 
     expect(host.querySelector('img')).toBeNull();
     expect(host.textContent).toContain(`agent drafted ${evil}`);
-    const btn = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.agent-draft-banner-view'));
+    const btn = /** @type {HTMLButtonElement|null} */ (
+      host.querySelector('button.agent-draft-banner-view')
+    );
     expect(btn).not.toBeNull();
     if (!btn) throw new Error('unreachable: button asserted non-null');
     expect(btn.dataset.planName).toBe(evil);
@@ -1571,12 +1764,22 @@ describe('buildAgentDraftBanner', () => {
 describe('createDraftClient — orchestrator-level revision gap', () => {
   test('a frame arriving at last+3 triggers a GET /draft resync and resets the baseline to the snapshot', async () => {
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.deps.getDraft).toHaveBeenCalledTimes(1);
 
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 9 } }, revision: 4 });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 9 } },
+      revision: 4,
+    });
     harness.push({
       type: 'change',
       draft: { plan_name: 'orm', plan_args: { num: 9 } },
@@ -1597,8 +1800,15 @@ describe('createDraftClient — orchestrator-level revision gap', () => {
 describe('createDraftClient — resync epoch guards a late-resolving fetch', () => {
   test('a slow resync that resolves after a newer one does not clobber the newer state', async () => {
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
@@ -1632,8 +1842,15 @@ describe('createDraftClient — resync epoch guards a late-resolving fetch', () 
 
   test('a hello frame arriving mid-fetch invalidates an in-flight fetch (bridge-restart-safe)', async () => {
     const harness = makeHarness();
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
-    harness.deps.getDraft.mockResolvedValueOnce({ draft: { plan_name: 'orm', plan_args: { num: 1 } }, revision: 1 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
+    harness.deps.getDraft.mockResolvedValueOnce({
+      draft: { plan_name: 'orm', plan_args: { num: 1 } },
+      revision: 1,
+    });
     await harness.client.onPlanSelected('orm');
     expect(harness.client.isBound()).toBe(true);
 
@@ -1652,7 +1869,11 @@ describe('createDraftClient — resync epoch guards a late-resolving fetch', () 
     // A hello is itself a baseline reset and must invalidate the earlier
     // in-flight fetch's epoch, even though that fetch was never routed
     // through reduceFrame at all.
-    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: { num: 7 } }, revision: 2 });
+    harness.push({
+      type: 'hello',
+      draft: { plan_name: 'orm', plan_args: { num: 7 } },
+      revision: 2,
+    });
     await flushMicrotasks();
 
     expect(harness.client.getLastAppliedRevision()).toBe(2);
@@ -1693,7 +1914,10 @@ describe('createSSEConnection', () => {
   test('reconnects with capped exponential backoff on repeated errors', () => {
     vi.useFakeTimers();
     const { FakeES, instances } = makeFakeEventSource();
-    const conn = createSSEConnection('/draft/events', { onFrame: vi.fn(), EventSourceCtor: FakeES });
+    const conn = createSSEConnection('/draft/events', {
+      onFrame: vi.fn(),
+      EventSourceCtor: FakeES,
+    });
 
     expect(instances).toHaveLength(1);
     instances[0].onerror();
@@ -1723,7 +1947,10 @@ describe('createSSEConnection', () => {
   test('backoff caps at 15s', () => {
     vi.useFakeTimers();
     const { FakeES, instances } = makeFakeEventSource();
-    const conn = createSSEConnection('/draft/events', { onFrame: vi.fn(), EventSourceCtor: FakeES });
+    const conn = createSSEConnection('/draft/events', {
+      onFrame: vi.fn(),
+      EventSourceCtor: FakeES,
+    });
 
     // Walk the uncapped doubling sequence (1s, 2s, 4s, 8s) — each iteration
     // errors the latest instance and advances exactly that step's delay so
@@ -1748,7 +1975,10 @@ describe('createSSEConnection', () => {
   test('backoff resets after a successful frame', () => {
     vi.useFakeTimers();
     const { FakeES, instances } = makeFakeEventSource();
-    const conn = createSSEConnection('/draft/events', { onFrame: vi.fn(), EventSourceCtor: FakeES });
+    const conn = createSSEConnection('/draft/events', {
+      onFrame: vi.fn(),
+      EventSourceCtor: FakeES,
+    });
 
     instances[0].onerror();
     vi.advanceTimersByTime(1000);
@@ -1768,7 +1998,10 @@ describe('createSSEConnection', () => {
   test('close() during a pending retry cancels the reconnect', () => {
     vi.useFakeTimers();
     const { FakeES, instances } = makeFakeEventSource();
-    const conn = createSSEConnection('/draft/events', { onFrame: vi.fn(), EventSourceCtor: FakeES });
+    const conn = createSSEConnection('/draft/events', {
+      onFrame: vi.fn(),
+      EventSourceCtor: FakeES,
+    });
 
     instances[0].onerror();
     conn.close();
@@ -1928,7 +2161,9 @@ describe('queueRefusalDetail', () => {
 describe('classifyQueueAddResponse', () => {
   test('any 2xx with a run_id is a queued outcome carrying the pinned revision', () => {
     for (const status of [200, 201, 202]) {
-      expect(classifyQueueAddResponse(status, { run_id: 'run-123', revision: 4, item: {} })).toEqual({
+      expect(
+        classifyQueueAddResponse(status, { run_id: 'run-123', revision: 4, item: {} })
+      ).toEqual({
         type: 'queued',
         runId: 'run-123',
         revision: 4,
@@ -2046,7 +2281,10 @@ describe('classifyQueueAddResponse', () => {
   test('cannot_execute falls back to the refusal sentence when no capability rides along', () => {
     expect(
       classifyQueueAddResponse(409, {
-        detail: { code: 'browse_only_connector', detail: 'This deployment serves the simulator in process, which speaks no Channel Access' },
+        detail: {
+          code: 'browse_only_connector',
+          detail: 'This deployment serves the simulator in process, which speaks no Channel Access',
+        },
       })
     ).toEqual({
       type: 'cannot_execute',
@@ -2328,7 +2566,11 @@ describe('capabilityBanner', () => {
   });
 
   test('manager reasons and an unreadable health surface warn', () => {
-    for (const reason of ['manager_not_configured', 'manager_unreachable', REASON_BRIDGE_UNREACHABLE]) {
+    for (const reason of [
+      'manager_not_configured',
+      'manager_unreachable',
+      REASON_BRIDGE_UNREACHABLE,
+    ]) {
       expect(capabilityBanner(cannot(reason))?.kind).toBe('warn');
     }
   });
@@ -2389,7 +2631,9 @@ describe('buildLaunchBanner', () => {
     const host = document.createElement('div');
     host.appendChild(frag);
     expect(host.textContent).toBe('revision 9 queued → run run-77Open results');
-    const open = /** @type {HTMLButtonElement|null} */ (host.querySelector('button.launch-run-link'));
+    const open = /** @type {HTMLButtonElement|null} */ (
+      host.querySelector('button.launch-run-link')
+    );
     expect(open).not.toBeNull();
     if (!open) throw new Error('unreachable: button asserted non-null');
     expect(open.dataset.runId).toBe('run-77');

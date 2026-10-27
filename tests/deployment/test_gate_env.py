@@ -1,5 +1,5 @@
-"""The gate environment step: every gate script runs on the tree's pins or names
-what to install.
+"""The gate environment step: a gate runs on the tree's pins or names what to
+install.
 
 ``scripts/pinned_claude.py`` finds the pinned Claude Code, ``scripts/js_deps_current.py``
 decides whether ``node_modules`` matches the lockfile, and ``scripts/_gate_env.sh``
@@ -21,16 +21,14 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
-from tests.deployment.test_ci_workflow_wiring import (
-    GATE_SCRIPT,
-    LANE_SCRIPTS,
-    _gate_commands,
-    _script_source,
-)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = REPO_ROOT / "scripts"
 PIN = _DEFAULT_CLAUDE_CLI_VERSION
+
+
+def _script_source(path: str) -> str:
+    return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
 def _stub(path: Path, body: str) -> Path:
@@ -260,53 +258,8 @@ def test_gate_env_fails_when_no_claude_reports_the_pin(tmp_path: Path) -> None:
     assert "no claude reports the pin" in completed.stderr
 
 
-#: The two spellings of the source line: relative to the script, or from the
-#: repository root once the script has changed into it.
-_SOURCE_LINES = (
-    'source "$(dirname "${BASH_SOURCE[0]}")/_gate_env.sh"',
-    "source scripts/_gate_env.sh",
-)
-
-
-def _assert_sources_the_env_step(script: str, source: str) -> None:
-    lines = [line.strip() for line in source.splitlines()]
-    assert any(line in _SOURCE_LINES for line in lines), f"{script} never sources _gate_env.sh"
-
-
-@pytest.mark.parametrize("script", LANE_SCRIPTS)
-def test_every_gate_script_sources_the_env_step(script: str) -> None:
-    _assert_sources_the_env_step(script, _script_source(script))
-
-
-@pytest.mark.parametrize("script", LANE_SCRIPTS)
-def test_every_gate_script_sources_the_env_step__mutation_drops_the_line(script: str) -> None:
-    kept = [
-        line for line in _script_source(script).splitlines() if line.strip() not in _SOURCE_LINES
-    ]
-    with pytest.raises(AssertionError):
-        _assert_sources_the_env_step(script, "\n".join(kept))
-
-
-def test_gate_sources_env_after_the_lock_check(gate_source: str | None = None) -> None:
-    """The env step runs ``uv run``, which re-locks a stale lockfile, so it comes
-    after ``uv lock --check``."""
-    commands = _gate_commands(_script_source(GATE_SCRIPT) if gate_source is None else gate_source)
-    sourced = [i for i, command in enumerate(commands) if command in _SOURCE_LINES]
-    assert sourced, f"{GATE_SCRIPT} never sources _gate_env.sh"
-    assert commands.index("uv lock --check") < sourced[0]
-
-
-def test_gate_sources_env_after_the_lock_check__mutation_sources_it_first() -> None:
-    lines = _script_source(GATE_SCRIPT).splitlines()
-    lines = [line for line in lines if line.strip() not in _SOURCE_LINES]
-    lines.insert(lines.index("uv lock --check"), _SOURCE_LINES[1])
-    with pytest.raises(AssertionError):
-        test_gate_sources_env_after_the_lock_check("\n".join(lines))
-
-
 #: Every file that provisions or verifies the pinned CLI outside the resolver.
 _PIN_READERS = (
-    *LANE_SCRIPTS,
     "scripts/_gate_env.sh",
     ".github/actions/install-pinned-claude-code/action.yml",
 )

@@ -257,13 +257,17 @@ find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 # Containerfile.
 
 # osprey's version comes from git (hatch-vcs) and the staged context has no
-# .git, so the host resolves it and passes it in; see the Containerfile.
+# .git, so the host resolves it and passes it in; see the Containerfile. The
+# connectors package has its own tag stream, so its number is resolved
+# separately, with the package's own describe glob.
 OSPREY_VERSION="$("${VENV_PY}" -c 'import osprey; print(osprey.__version__)')"
+OSPREY_CONNECTORS_VERSION="$("${VENV_PY}" "${WORKTREE_ROOT}/scripts/va/connectors_version.py" --fallback "${OSPREY_VERSION}")"
 
 echo "--- Building ${IMAGE} (linux/amd64) ---"
 "${RUNTIME}" build \
     --platform linux/amd64 \
     --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
+    --build-arg "OSPREY_CONNECTORS_VERSION=${OSPREY_CONNECTORS_VERSION}" \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 
 # The data root the container mounts: a copy of the view, so the gate never

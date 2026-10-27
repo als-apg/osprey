@@ -100,10 +100,10 @@ describe('entry times in the facility zone', () => {
   test('without a stamp the time names the viewer zone', () => {
     const viewer = new Intl.DateTimeFormat().resolvedOptions().timeZone;
     expect(formatTimestamp(ENTRY_AT)).toBe(
-      intl(ENTRY_AT, { ...DISPLAY, timeZoneName: 'short' }, viewer),
+      intl(ENTRY_AT, { ...DISPLAY, timeZoneName: 'short' }, viewer)
     );
     expect(formatHumanTimestamp(ENTRY_AT)).toBe(
-      intl(ENTRY_AT, { ...SIMPLE, timeZoneName: 'short' }, viewer),
+      intl(ENTRY_AT, { ...SIMPLE, timeZoneName: 'short' }, viewer)
     );
   });
 
@@ -125,7 +125,7 @@ describe('entry times in the facility zone', () => {
   test('no locale is pinned in the ARIEL formatters', () => {
     const source = readFileSync(
       join(import.meta.dirname, '../../../src/osprey/interfaces/ariel/static/js/components.js'),
-      'utf8',
+      'utf8'
     );
     expect(source).not.toMatch(/['"]en-US['"]/);
   });

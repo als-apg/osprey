@@ -29,7 +29,13 @@ export const CASES = fileURLToPath(new URL('../cases/', import.meta.url));
 export const DIST = fileURLToPath(new URL('../dist/', import.meta.url));
 
 /** Every dist file, in write order; the manifest hashes the ones before it. */
-export const FILES = ['dock-engine.mjs', 'dock-engine.d.mts', 'cases.mjs', 'cases.d.mts', 'manifest.json'];
+export const FILES = [
+  'dock-engine.mjs',
+  'dock-engine.d.mts',
+  'cases.mjs',
+  'cases.d.mts',
+  'manifest.json',
+];
 
 /** The only import specifiers dist/cases.mjs may carry (D34, C-ENGINE). */
 const CASES_IMPORTS = ['./dock-engine.mjs', 'node:fs', 'node:module', 'node:path'];
@@ -65,7 +71,9 @@ export async function buildJs() {
     },
     load(id) {
       if (id !== ENTRY) return null;
-      return MODULES.map((m) => `export * from ${JSON.stringify(join(TS_DIR, `${m}.ts`))};`).join('\n');
+      return MODULES.map((m) => `export * from ${JSON.stringify(join(TS_DIR, `${m}.ts`))};`).join(
+        '\n'
+      );
     },
   };
   const result = await build({
@@ -97,7 +105,9 @@ export async function buildJs() {
     return `//#region ${m}`;
   });
   assertNoAbsolutePath('the bundle', code);
-  return banner('the dock layout engine, one dependency-free ESM file') + code.replace(/\s*$/, '\n');
+  return (
+    banner('the dock layout engine, one dependency-free ESM file') + code.replace(/\s*$/, '\n')
+  );
 }
 
 let tsApi;
@@ -149,7 +159,12 @@ export async function buildDts() {
   const seen = new Map(); // name -> [module, text]
   const parts = [];
   for (const m of MODULES) {
-    const source = ts.createSourceFile(`${m}.d.ts`, emitDeclaration(ts, m), ts.ScriptTarget.ES2023, true);
+    const source = ts.createSourceFile(
+      `${m}.d.ts`,
+      emitDeclaration(ts, m),
+      ts.ScriptTarget.ES2023,
+      true
+    );
     const kept = [];
     const local = new Set();
     for (const statement of source.statements) {
@@ -160,10 +175,14 @@ export async function buildDts() {
       }
       const name = declName(ts, statement);
       if (name === null) continue; // `export {};`
-      const text = statement.getFullText(source).replace(/^\s*\n/, '').replace(/\s+$/, '');
+      const text = statement
+        .getFullText(source)
+        .replace(/^\s*\n/, '')
+        .replace(/\s+$/, '');
       const prior = seen.get(name);
       if (prior && prior[0] !== m) {
-        if (prior[1] !== text) throw new Error(`dock-engine: ${name} differs in ${prior[0]}.ts and ${m}.ts`);
+        if (prior[1] !== text)
+          throw new Error(`dock-engine: ${name} differs in ${prior[0]}.ts and ${m}.ts`);
         continue; // declared identically upstream: keep the first
       }
       if (!local.has(name)) seen.set(name, [m, text]);
@@ -220,10 +239,14 @@ export async function buildCasesJs() {
   const code = rewriteEngineImports('cases.mjs', out.outputText, 1);
   const specs = importSpecifiers(ts, 'cases.mjs', code);
   if (JSON.stringify(specs) !== JSON.stringify(CASES_IMPORTS)) {
-    throw new Error(`dock-engine: cases.mjs imports ${specs.join(', ')}, expected ${CASES_IMPORTS.join(', ')}`);
+    throw new Error(
+      `dock-engine: cases.mjs imports ${specs.join(', ')}, expected ${CASES_IMPORTS.join(', ')}`
+    );
   }
   assertNoAbsolutePath('cases.mjs', code);
-  return banner('the golden-case runner (cases.ts) over dock-engine.mjs') + code.replace(/\s*$/, '\n');
+  return (
+    banner('the golden-case runner (cases.ts) over dock-engine.mjs') + code.replace(/\s*$/, '\n')
+  );
 }
 
 /** dist/cases.d.mts: cases.ts declarations, type imports pointed at the bundle. */
@@ -245,7 +268,7 @@ export function casePaths() {
     .flatMap((d) =>
       readdirSync(join(CASES, d.name))
         .filter((f) => f.endsWith('.json'))
-        .map((f) => `${d.name}/${f}`),
+        .map((f) => `${d.name}/${f}`)
     )
     .sort();
 }
@@ -259,7 +282,9 @@ export function casePaths() {
 export function rulesDigest(layoutReasons, paths = casePaths()) {
   const hash = createHash('sha256');
   hash.update(Buffer.from(`${JSON.stringify(Object.values(layoutReasons))}\n`, 'utf8'));
-  for (const p of paths.filter((q) => q.startsWith('normalize/') || q.startsWith('validate/')).sort()) {
+  for (const p of paths
+    .filter((q) => q.startsWith('normalize/') || q.startsWith('validate/'))
+    .sort()) {
     hash.update(Buffer.from(`${p}\n`, 'utf8'));
     hash.update(readFileSync(join(CASES, p)));
   }
@@ -279,7 +304,11 @@ export async function buildManifest(dist) {
   }
   const paths = casePaths();
   const manifest = {
-    files: Object.fromEntries(FILES.filter((f) => f !== 'manifest.json').sort().map((f) => [f, sha256(Buffer.from(dist[f], 'utf8'))])),
+    files: Object.fromEntries(
+      FILES.filter((f) => f !== 'manifest.json')
+        .sort()
+        .map((f) => [f, sha256(Buffer.from(dist[f], 'utf8'))])
+    ),
     cases: Object.fromEntries(paths.map((p) => [p, sha256(readFileSync(join(CASES, p)))])),
     rules_digest: rulesDigest(engine.LAYOUT_REASONS, paths),
     exports: exportNames,
@@ -310,7 +339,8 @@ async function main() {
         return true;
       }
     });
-    for (const f of stale) console.error(`dock-engine: stale ${rel(f)} (rebuild with \`npm run build:dock-engine\`)`);
+    for (const f of stale)
+      console.error(`dock-engine: stale ${rel(f)} (rebuild with \`npm run build:dock-engine\`)`);
     process.exit(stale.length ? 1 : 0);
   }
   mkdirSync(DIST, { recursive: true });

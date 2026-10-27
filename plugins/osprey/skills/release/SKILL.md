@@ -439,8 +439,9 @@ means a PR slipped past the gate and needs `python scripts/plugin_version.py
 bump` on this branch.
 
 Now hand off to `/osprey:contribute` for the rest of the PR mechanics:
-`quick_check.sh` → commit (`release: notes for vYYYY.M.P`) →
-`ci_check.sh` → push → `premerge_check.sh main` → `gh pr create`.
+`scripts/check.py quick` → commit (`release: notes for vYYYY.M.P`) →
+`scripts/check.py full` → push → `scripts/check.py quick --changed origin/main` →
+`gh pr create`.
 
 The PR title should be `release: vYYYY.M.P — <theme>`. The PR body should
 include the CHANGELOG entries verbatim so reviewers see exactly what's being
@@ -493,10 +494,13 @@ Verify the latest commit on `main` is the release-notes merge.
 
 ## Step 6: Tag and push
 
-Before the first tag whose tree contains a new workspace member: register a
-PyPI pending trusted publisher for it (this repository, workflow `release.yml`,
-environment `pypi`) — without it PyPI refuses that wheel and the tag lands
-half-published.
+Before the first tag whose tree contains a new lockstep workspace member (one
+that rides the framework's v-tag, as `pyaml-cs-osprey` does): register a PyPI
+pending trusted publisher for it (this repository, workflow `release.yml`,
+environment `pypi`) and add its `uv build --package` line to `release.yml` —
+without the publisher PyPI refuses that wheel and the tag lands half-published.
+`osprey-connectors` is not one: a framework tag never builds it (see
+"Releasing osprey-connectors" below).
 
 Tags can be pushed directly; branch protection covers branches, not tags:
 
@@ -509,7 +513,9 @@ The tag must point at the merge commit on `main`. The `release.yml` workflow
 triggers on `v*.*.*` and:
 
 1. Verifies a full CI run covered this tree, before anything is built.
-2. Builds the wheel and sdist.
+2. Builds the framework's and its lockstep members' wheels and sdists — not
+   `osprey-connectors`, which `verify-pypi-resolvable` then resolves from PyPI,
+   proving the framework's `osprey-connectors>=` floor is already published.
 3. Verifies the built version matches the tag. A checkout without full history
    builds `0.1.devN` instead of the tagged version; this gate catches that.
 4. Validates the install docs and that the dependencies resolve from PyPI.
@@ -573,6 +579,64 @@ green.
 
 ---
 
+## Releasing osprey-connectors
+
+`osprey-connectors` releases on its own, from its own tag, through its own
+workflow (`.github/workflows/release-connectors.yml`) — never with a framework
+tag, and the framework's `release.yml` never builds it.
+
+**Tag format:** `osprey-connectors-vYYYY.M.P` (`osprey-connectors-v2026.10.0`).
+The workflow fires on `osprey-connectors-v2*` pushes and nothing else — there is
+no dispatch — and a connectors release is never marked "Latest" (that stays the
+framework's). **Connectors releases are stable by default.** The tooling would
+accept a `bN` / `rcN` tag (it becomes a GitHub pre-release), but do not cut one
+without a reason: a beta framework is installed with pre-releases admitted for
+the whole resolve (`--prerelease=allow`), so it would absorb any connectors
+beta on PyPI.
+
+**Preconditions:**
+
+- The tagged commit is on `main` and its `ci.yml` run is green in every lane
+  the `verify-ci` job's `REQUIRED_LANES` names: `test`, `lint`, `package`,
+  `connectors-standalone`, plus the backward-compatibility lanes
+  (`connectors-compat`, `framework-at-connectors-floor`) once ci.yml carries
+  them. These are always-on lanes — no `full-ci` label is involved — but a
+  `main` run superseded by a later merge is `cancelled`, not green; then
+  `gh workflow run ci.yml --ref osprey-connectors-vYYYY.M.P` and re-push the tag.
+- The package's changelog is folded and rotated on `main`: run
+  `python scripts/changelog_fragments.py apply --root packages/osprey-connectors`,
+  rotate `## [Unreleased]` in `packages/osprey-connectors/CHANGELOG.md` to
+  `## [YYYY.M.P] - YYYY-MM-DD`, and merge that PR first. The GitHub Release body
+  is that section. Connectors changes carry their fragments in
+  `packages/osprey-connectors/changelog.d/`, not the root `changelog.d/`.
+- PyPI's trusted publisher for `osprey-connectors` names this repository,
+  workflow `release-connectors.yml`, environment `pypi-connectors`, and the
+  GitHub environment `pypi-connectors` exists.
+
+**What the tag runs:** `verify-ci` (the shared `scripts/ci/require_green_lanes.py`
+gate) → `build` (`uv build --package osprey-connectors`; the wheel and sdist must
+carry exactly the tag's PEP 440-normalized number; `twine check`) →
+`verify-install` (a bare venv, dependencies from PyPI, the same lean import-walk
+the `package` CI job runs) → `publish-to-pypi` → the GitHub Release
+`osprey-connectors vYYYY.M.P`. A re-pushed tag resumes a half-finished publish
+(`skip-existing`).
+
+```bash
+git tag osprey-connectors-vYYYY.M.P <main merge commit>
+git push origin osprey-connectors-vYYYY.M.P
+gh run watch                     # follow the release-connectors.yml run
+```
+
+**Raising the framework's floor** — only after the connectors release is on
+PyPI, and only when the framework starts needing what it carries:
+
+1. Confirm `https://pypi.org/project/osprey-connectors/YYYY.M.P/` exists.
+2. Raise `osprey-connectors>=` in the root `pyproject.toml` to that release, run
+   `uv lock`, and confirm `uv lock --check` passes.
+3. Land it in a normal PR (with a root `changelog.d/` fragment). The next
+   framework tag's `verify-pypi-resolvable` resolves the floor from PyPI and
+   fails if it is not there, so the order cannot be inverted silently.
+
 ## Manual Publish Fallback (only if Actions is broken)
 
 If `release.yml` is broken and the release is time-sensitive:
@@ -597,7 +661,7 @@ This is a fallback. The default path is the automated workflow.
 | PyPI rejects the upload as a duplicate | This version was already published | CalVer means version numbers are unique; you cannot republish. Bump the patch counter and try again |
 | `gh pr merge` fails with "not mergeable" | Stale checks because `main` moved | Merge or rebase `origin/main` into the release branch, push, wait for CI to re-run |
 | CI "plugin tree changed without a version bump" | A PR touched `plugins/osprey/` without `plugin_version.py bump` | Run the bump on that branch and push |
-| GitHub Release body is empty or wrong | CHANGELOG section heading didn't match the regex `release.yml` uses | Make sure the CHANGELOG heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` |
+| GitHub Release body is just "See CHANGELOG.md for details.", or wrong | `scripts/ci/release_notes.py` found no line starting with `## [<version>]` (matched literally, the tag's version without the `v` / `osprey-connectors-v` prefix) in `CHANGELOG.md`, or in `packages/osprey-connectors/CHANGELOG.md` for a connectors tag | Make sure the released section's heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` (pre-release: `## [YYYY.M.PbN] - …`) in that tree's `CHANGELOG.md` |
 | `uv lock --check` fails on the release PR | The connectors floor (or any `pyproject.toml` edit) changed without regenerating the lockfile | Run `uv lock`, commit `uv.lock` in the same commit |
 | `changelog_fragments.py apply` exits 1 | A fragment filename is malformed or carries an unrecognized type | Rename it `<name>.<type>.md` using one of added/changed/deprecated/removed/fixed/security/internal |
 | Released section is missing entries, or fragments are still on `main` after the release | `apply` was not run before the rotation, or its deletions were not staged | Fold the leftover fragments into the released section by hand, delete them, and open a PR carrying just `CHANGELOG.md` and the fragment deletions (`git add -A changelog.d/ CHANGELOG.md`) |

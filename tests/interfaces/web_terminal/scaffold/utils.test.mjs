@@ -2,13 +2,13 @@
  * Unit tests for the Scaffold Gallery pure utilities (scaffold/utils.js).
  *
  * Pure-logic/DOM guard, happy-dom environment (configured globally):
- *   npx vitest run tests/interfaces/web_terminal/scaffold-utils.test.mjs
+ *   npx vitest run tests/interfaces/web_terminal/scaffold/utils.test.mjs
  *
  * Covers YAML front-matter parsing (valid/missing/malformed), Python
  * docstring front-matter + flow-diagram extraction, the category-help table's
  * alignment with the displayed categories, and the rendering helpers. Which
  * tab each artifact lands on is pinned at initScaffoldGallery in
- * scaffold-view.test.mjs.
+ * scaffold/view.test.mjs.
  *
  * NOTE: imported by RELATIVE path, not an absolute `/design-system/js/*`-style
  * specifier — this module lives under web_terminal, not design-system, so no
@@ -17,7 +17,7 @@
 
 import { test, expect, describe } from 'vitest';
 
-import { qs } from '../_support/dom.mjs';
+import { qs } from '../../_support/dom.mjs';
 
 import {
   CATEGORY_HELP,
@@ -32,28 +32,41 @@ import {
   renderFlowDiagram,
   renderSourceToggle,
   renderFrontMatterTable,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/utils.js';
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/utils.js';
 
 describe('parseFrontMatter', () => {
   test.each([
-    ['valid front matter is split from the body',
+    [
+      'valid front matter is split from the body',
       '---\nname: my-agent\nmodel: sonnet\n---\n# Body\n\nSome content here.',
-      { name: 'my-agent', model: 'sonnet' }, '# Body\n\nSome content here.'],
-    ['single and double quotes are stripped from values',
+      { name: 'my-agent', model: 'sonnet' },
+      '# Body\n\nSome content here.',
+    ],
+    [
+      'single and double quotes are stripped from values',
       '---\ndescription: "a quoted value"\nlabel: \'single quoted\'\n---\nbody',
-      { description: 'a quoted value', label: 'single quoted' }, 'body'],
-    ['no --- delimiters: null front matter, content as-is',
+      { description: 'a quoted value', label: 'single quoted' },
+      'body',
+    ],
+    [
+      'no --- delimiters: null front matter, content as-is',
       '# Just a markdown file\n\nNo front matter here.',
-      null, '# Just a markdown file\n\nNo front matter here.'],
-    ['an unterminated block: null front matter, content as-is',
+      null,
+      '# Just a markdown file\n\nNo front matter here.',
+    ],
+    [
+      'an unterminated block: null front matter, content as-is',
       '---\nname: broken\nThere is no closing delimiter.',
-      null, '---\nname: broken\nThere is no closing delimiter.'],
-    ['a block with no key: value line: null front matter',
+      null,
+      '---\nname: broken\nThere is no closing delimiter.',
+    ],
+    [
+      'a block with no key: value line: null front matter',
       '---\njust some prose, not a yaml key\n---\nbody text',
-      null, 'body text'],
-    ['a block with nothing after it: empty body',
-      '---\nname: solo\n---\n',
-      { name: 'solo' }, ''],
+      null,
+      'body text',
+    ],
+    ['a block with nothing after it: empty body', '---\nname: solo\n---\n', { name: 'solo' }, ''],
   ])('%s', (_label, content, expectedFrontMatter, expectedBody) => {
     const { frontMatter, body } = parseFrontMatter(content);
     expect(frontMatter).toEqual(expectedFrontMatter);
@@ -81,14 +94,30 @@ describe('extractPythonDocstringFrontMatter', () => {
   ].join('\n');
 
   test.each([
-    ['front matter and a Flow diagram from a module docstring', WITH_FLOW,
-      { frontMatter: { name: 'my_hook', event: 'PreToolUse' }, flowDiagram: 'A -> B -> C', body: 'Some docstring prose.' }],
-    ['a docstring with no Flow section', '"""\n---\nname: plain\n---\nJust prose, no flow.\n"""\n',
-      { frontMatter: { name: 'plain' }, flowDiagram: null, body: 'Just prose, no flow.' }],
-    ['a leading shebang line', '#!/usr/bin/env python3\n"""\n---\nname: shebanged\n---\nbody\n"""\n',
-      { frontMatter: { name: 'shebanged' } }],
-    ['no docstring at all', 'def main():\n    pass\n',
-      { frontMatter: null, flowDiagram: null, body: '' }],
+    [
+      'front matter and a Flow diagram from a module docstring',
+      WITH_FLOW,
+      {
+        frontMatter: { name: 'my_hook', event: 'PreToolUse' },
+        flowDiagram: 'A -> B -> C',
+        body: 'Some docstring prose.',
+      },
+    ],
+    [
+      'a docstring with no Flow section',
+      '"""\n---\nname: plain\n---\nJust prose, no flow.\n"""\n',
+      { frontMatter: { name: 'plain' }, flowDiagram: null, body: 'Just prose, no flow.' },
+    ],
+    [
+      'a leading shebang line',
+      '#!/usr/bin/env python3\n"""\n---\nname: shebanged\n---\nbody\n"""\n',
+      { frontMatter: { name: 'shebanged' } },
+    ],
+    [
+      'no docstring at all',
+      'def main():\n    pass\n',
+      { frontMatter: null, flowDiagram: null, body: '' },
+    ],
   ])('%s', (_label, content, expected) => {
     const result = extractPythonDocstringFrontMatter(content);
     expect(result).toMatchObject(expected);

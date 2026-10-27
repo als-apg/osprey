@@ -71,7 +71,7 @@ describe('classifyAgentLink', () => {
     ).toEqual({ kind: 'window', url: 'http://hub.test/u/bob/panel/okf' });
   });
 
-  test('a root panel link under a per-user mount is this hub\'s panel, prefixed', () => {
+  test("a root panel link under a per-user mount is this hub's panel, prefixed", () => {
     // A tool spells the route it knows, `/panel/ariel/#entry-27`; only the hub
     // knows the mount it is served under.
     expect(

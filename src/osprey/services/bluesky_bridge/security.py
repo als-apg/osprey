@@ -51,7 +51,7 @@ import secrets
 
 from fastapi import HTTPException
 
-_LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
+_LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 
 def require_armed() -> str:

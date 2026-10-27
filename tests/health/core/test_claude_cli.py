@@ -28,7 +28,7 @@ def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
 
 
 # --------------------------------------------------------------------------- #
-# claude_cli (poll)
+# Tests of claude_cli, polled
 # --------------------------------------------------------------------------- #
 
 
@@ -69,7 +69,7 @@ class TestClaudeCliPoll:
 
 
 # --------------------------------------------------------------------------- #
-# claude_cli_pinned (on_demand)
+# Tests of claude_cli_pinned, on demand
 # --------------------------------------------------------------------------- #
 
 

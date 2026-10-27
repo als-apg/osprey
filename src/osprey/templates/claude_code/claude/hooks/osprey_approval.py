@@ -220,7 +220,7 @@ _FALLBACK_WRITE_PATTERNS = [
     r"\bRpcClient\s*\(",
     r"\bpvaccess\b[\s\S]*?\.invoke\s*\(",
     r"\b(?:PvaServer|PvaMirrorServer|RpcServer|CaIoc)\b",
-    # Tango (PyTango)
+    # Tango through PyTango
     r"DeviceProxy\([^)]*\)\.write_attribute\(",
     r"\.write_attribute\s*\(",
     r"\.write_attribute_asynch\s*\(",

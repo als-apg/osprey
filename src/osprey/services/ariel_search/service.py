@@ -17,7 +17,6 @@ import copy
 import dataclasses
 import tempfile
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -46,7 +45,7 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     SyncStatus,
 )
-from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS
+from osprey.services.ariel_search.search._offload import SearchCallPool
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -167,10 +166,8 @@ class ARIELSearchService:
         self._validated_search_model = False
         # Search-time provider calls (query embedding, reachability) run here,
         # never on the event loop or its default executor. Threads start on
-        # the first call; aclose() ends them.
-        self._search_calls = ThreadPoolExecutor(
-            max_workers=SEARCH_CALL_WORKERS, thread_name_prefix="ariel-search-call"
-        )
+        # the first call; aclose() closes the pool.
+        self._search_calls = SearchCallPool()
         self._closed = False
 
     def _get_embedder(self) -> BaseProvider:
@@ -1149,8 +1146,8 @@ class ARIELSearchService:
     async def aclose(self) -> None:
         """Release everything the service holds; every shutdown path calls this.
 
-        In order: the search-call pool (idle workers end, queued calls are
-        cancelled), then the read-only pool when there is one, then the
+        In order: the search-call pool (it admits no new call, queued calls are
+        refused, idle workers end), then the read-only pool when there is one, then the
         ingestion pool. Each step runs even when an earlier one raised; the
         first error propagates. A second call does nothing.
         """
@@ -1159,7 +1156,7 @@ class ARIELSearchService:
         self._closed = True
         first_error: BaseException | None = None
         try:
-            self._search_calls.shutdown(wait=False, cancel_futures=True)
+            self._search_calls.close()
         except BaseException as exc:
             first_error = exc
         for pool in (self.readonly_pool, self.pool):

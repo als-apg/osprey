@@ -261,7 +261,7 @@ class SearchToolDescriptor:
         needs_embedder: Whether this tool requires an embedding provider
         needs_search_calls: Whether this module makes blocking search-time
             provider calls. When true, the service passes its search-call pool
-            as ``search_calls=``, the executor those calls run on.
+            as ``search_calls=``, the bounded pool those calls run on.
         accepts_expansion: Whether this module accepts a resolved vocabulary
             expansion. When true, the service passes `query_expansion=`, a
             `QueryExpansion`, but only when an expansion was actually resolved

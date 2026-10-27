@@ -9,7 +9,7 @@
  * so this module has no dependency on the DOM-rendering code in render.js.
  */
 
-const API_BASE = '';  // Same origin (served by dashboard server)
+const API_BASE = ''; // Same origin (served by dashboard server)
 
 /** A non-OK dashboard API response: its status and its body text. */
 export class ApiError extends Error {

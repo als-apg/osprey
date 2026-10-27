@@ -39,7 +39,7 @@ import json
 import re
 import shlex
 import shutil
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -448,8 +448,39 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
     }
 
 
-def drive_served_recipe(tree: str, root: Path) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export of ``tree``, in ``root/<tree>``.
+@pytest.fixture(scope="module")
+def served_recipe(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], dict[str, Any]]:
+    """Each tree's control-assistant recipe, driven at most once in the module.
+
+    Some cases narrow ``served_repo`` to a subset of the trees, and pytest orders
+    those apart from the cases that take every tree, so the cases on one tree are
+    not adjacent. A module-scoped fixture keeps only its latest value, so on its
+    own it would drive a tree's recipe again each time the order came back to it.
+    Every case only reads the result, so one run per tree serves them all. The
+    trees are built under one directory this fixture makes as it is set up, so
+    they last as long as the module does.
+    """
+    root = tmp_path_factory.mktemp("recipe-served")
+    results: dict[str, dict[str, Any]] = {}
+
+    def result(tree: str) -> dict[str, Any]:
+        if tree not in results:
+            results[tree] = drive_served_recipe(tree, root / tree)
+        return results[tree]
+
+    return result
+
+
+@pytest.fixture(scope="module", params=BUILT_TREES)
+def served_repo(
+    request: pytest.FixtureRequest, served_recipe: Callable[[str], dict[str, Any]]
+) -> dict[str, Any]:
+    """The control-assistant recipe over a 2.0 export, for one supported tree."""
+    return served_recipe(request.param)
+
+
+def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
+    """The control-assistant recipe over a 2.0 export, driven for one supported tree.
 
     The exports enter the facility description through ``facility import
     mml``, past the stop it makes over the preset's authored sources. The
@@ -466,8 +497,7 @@ def drive_served_recipe(tree: str, root: Path) -> dict[str, Any]:
     assert exports, f"{tree} commits no export"
 
     runner = CliRunner()
-    (root / tree).mkdir()
-    repo = root / tree / "demo"
+    repo = workdir / "demo"
 
     invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
     cleared = clear_authored(runner, repo, exports)
@@ -508,42 +538,6 @@ def drive_served_recipe(tree: str, root: Path) -> dict[str, Any]:
         "first": first,
         "first_view": first_view,
     }
-
-
-@pytest.fixture(scope="module")
-def served_recipes_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The directory the driven recipes live in, removed when the module ends.
-
-    Made here rather than per tree in ``served_repo``: that fixture is set up
-    again on every parameter change, and what its setup made would go with
-    each teardown while ``served_recipes`` still hands the tree out.
-    """
-    return tmp_path_factory.mktemp("recipe-served")
-
-
-@pytest.fixture(scope="module")
-def served_recipes() -> dict[str, dict[str, Any]]:
-    """The driven recipe of each tree this module has requested, by tree."""
-    return {}
-
-
-@pytest.fixture(scope="module", params=BUILT_TREES)
-def served_repo(
-    request: pytest.FixtureRequest,
-    served_recipes_root: Path,
-    served_recipes: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export, driven once per supported tree.
-
-    Each tree's recipe is driven once per module whatever order pytest runs
-    the tests in: the tree-specific tests re-parametrize this fixture
-    indirectly, and pytest sets a module-scoped fixture up again whenever its
-    parameter changes, so the driven recipe is kept in ``served_recipes``.
-    """
-    tree = str(request.param)
-    if tree not in served_recipes:
-        served_recipes[tree] = drive_served_recipe(tree, served_recipes_root)
-    return served_recipes[tree]
 
 
 class TestHelloWorldMiddleLayer:

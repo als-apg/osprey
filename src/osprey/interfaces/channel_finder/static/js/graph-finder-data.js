@@ -160,5 +160,5 @@ export function classNameIn(forest, uri) {
  * @returns {number} Negative, zero or positive per `Array.prototype.sort`.
  */
 function cmp(a, b) {
-  return a === b ? 0 : (a < b ? -1 : 1);
+  return a === b ? 0 : a < b ? -1 : 1;
 }

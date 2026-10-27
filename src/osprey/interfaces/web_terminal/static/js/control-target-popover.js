@@ -578,7 +578,11 @@ function renderSwitch(row, state, word, lock) {
     });
   }
   wrap.append(toggle);
-  const stateWordEl = el('span', 'ctc-switch-state', on ? 'on' : word === 'sandbox' ? 'off' : 'locked');
+  const stateWordEl = el(
+    'span',
+    'ctc-switch-state',
+    on ? 'on' : word === 'sandbox' ? 'off' : 'locked'
+  );
   if (lock) stateWordEl.title = lock;
   wrap.append(stateWordEl);
   return wrap;
@@ -616,7 +620,8 @@ function renderAction(row, state) {
   const code = row.reason || contextRefusalCode(state);
   const phrase = row.reason ? reasonPhrase(code) : contextRefusalPhrase(state);
   const reason = el('span', 'ctc-reason', phrase);
-  const detail = typeof row.reason_detail === 'string' && row.reason_detail ? row.reason_detail : '';
+  const detail =
+    typeof row.reason_detail === 'string' && row.reason_detail ? row.reason_detail : '';
   if (detail || code) reason.title = detail || String(code);
   action.append(reason);
   return action;

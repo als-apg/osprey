@@ -18,6 +18,10 @@ from docs.screenshots import video_probes, video_take
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
+# How long a test waits for the state it asserts: far above a healthy browser's
+# reaction, so only a page that never gets there fails.
+_DEADLINE_MS = 10_000
+
 
 def _chromium_available() -> bool:
     try:
@@ -68,8 +72,13 @@ def test_a_drag_released_over_the_colorbar_still_reads_as_rotation(tmp_path):
             for step in range(1, video_take.DRAG_STEPS + 1):
                 page.mouse.move(300 + 490 * step / video_take.DRAG_STEPS, 400)
             page.mouse.up()
-            page.wait_for_timeout(video_take.DRAG_SETTLE_MS)
-            after = video_probes.camera_azimuth(page.main_frame)
+            waited = 0
+            while True:
+                page.wait_for_timeout(video_take.DRAG_SETTLE_MS)
+                waited += video_take.DRAG_SETTLE_MS
+                after = video_probes.camera_azimuth(page.main_frame)
+                if video_probes.azimuth_change(before, after) >= 45 or waited >= _DEADLINE_MS:
+                    break
         finally:
             browser.close()
     assert video_probes.azimuth_change(before, after) >= 45
@@ -143,7 +152,11 @@ def test_the_preview_probe_waits_for_the_clicked_artifact_to_render(
         try:
             page = browser.new_page()
             page.set_content(html)
-            page.wait_for_timeout(200)
+            page.wait_for_function(
+                f"(id) => ({video_probes._PREVIEW_SHOWS_JS})(id) === {str(expected).lower()}",
+                arg="abc123",
+                timeout=_DEADLINE_MS,
+            )
             frame = page.main_frame
             assert frame.evaluate(video_probes._CARD_SHOWN_JS, "abc123") is True
             assert frame.evaluate(video_probes._CARD_SHOWN_JS, "zzz") is False
@@ -170,11 +183,11 @@ def test_the_closing_hold_scrolls_the_attachment_into_view():
             page = browser.new_page(viewport={"width": 800, "height": 600})
             page.set_content(html)
             assert page.evaluate(video_probes._REVEAL_ATTACHMENT_JS) is True
-            page.wait_for_timeout(800)
-            top = page.evaluate(
-                "() => document.querySelector('#file-preview img').getBoundingClientRect().top"
+            page.wait_for_function(
+                "() => { const t = document.querySelector('#file-preview img')"
+                ".getBoundingClientRect().top; return t >= 0 && t < 600; }",
+                timeout=_DEADLINE_MS,
             )
-            assert 0 <= top < 600
             page.set_content("<div>no draft</div>")
             assert page.evaluate(video_probes._REVEAL_ATTACHMENT_JS) is False
         finally:

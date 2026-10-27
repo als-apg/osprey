@@ -84,7 +84,10 @@ export function summarizeInput(input) {
  * @returns {string}
  */
 export function toolKey(name) {
-  return (name ?? '').replace(/^mcp__.+?__/, '').replace(/[\s_-]+/g, '').toLowerCase();
+  return (name ?? '')
+    .replace(/^mcp__.+?__/, '')
+    .replace(/[\s_-]+/g, '')
+    .toLowerCase();
 }
 
 /**

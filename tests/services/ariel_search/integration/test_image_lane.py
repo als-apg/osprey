@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Callable
-from concurrent.futures import Executor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -33,6 +32,7 @@ from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_en
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import image_lane
+from osprey.services.ariel_search.search._offload import SearchCallPool
 from osprey.services.ariel_search.search.qmd import hybrid_search
 from osprey.services.qmd import QMDSearchResult
 from tests.services.ariel_search.llama_stub import FIXTURES, LlamaStub
@@ -115,7 +115,7 @@ class Lane:
     config: ARIELConfig
     repository: ARIELRepository
     vectors: dict[str, list[float]]
-    search_calls: Executor
+    search_calls: SearchCallPool
 
     @property
     def table(self) -> str:
@@ -196,7 +196,7 @@ async def lane(
     server: str,  # noqa: ARG001 - requested for its version guard
     scratch_database: str,
     llama_stub: Callable[[], LlamaStub],
-    search_calls: Executor,
+    search_calls: SearchCallPool,
 ) -> AsyncIterator[Lane]:
     """A migrated scratch database, the stub server and the recorded picture vectors."""
     from osprey.services.ariel_search.database.connection import create_connection_pool

@@ -127,7 +127,7 @@ class TestAttachmentResponse:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/attachments/{id}
+# Tests of GET /api/attachments/{id}
 # ---------------------------------------------------------------------------
 
 
@@ -226,7 +226,7 @@ class TestOriginalRoute:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/attachments/{id}/rendition
+# Tests of GET /api/attachments/{id}/rendition
 # ---------------------------------------------------------------------------
 
 
@@ -287,7 +287,7 @@ class TestRenditionRoute:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/attachments/{id}/artifact
+# Tests of the attachment-to-artifact route, POST /api/attachments/{id}/artifact
 # ---------------------------------------------------------------------------
 
 

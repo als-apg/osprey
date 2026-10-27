@@ -23,9 +23,10 @@ let originalRaw = '';
  * has nothing left to open.
  */
 function removeConfigPanel() {
-  document.querySelectorAll('.display-menu-settings').forEach(btn => btn.remove());
-  document.querySelectorAll('osprey-display-menu[settings-drawer]')
-    .forEach(menu => menu.removeAttribute('settings-drawer'));
+  document.querySelectorAll('.display-menu-settings').forEach((btn) => btn.remove());
+  document
+    .querySelectorAll('osprey-display-menu[settings-drawer]')
+    .forEach((menu) => menu.removeAttribute('settings-drawer'));
   const drawer = document.getElementById('settings-drawer');
   if (drawer) drawer.remove();
 }
@@ -48,7 +49,7 @@ export function initSettings(capabilities) {
   const modeBtns = /** @type {NodeListOf<HTMLElement>} */ (
     document.querySelectorAll('.settings-mode-btn')
   );
-  modeBtns.forEach(btn => {
+  modeBtns.forEach((btn) => {
     btn.addEventListener('click', () => {
       if (btn.dataset.mode) switchMode(btn.dataset.mode);
     });
@@ -94,7 +95,7 @@ function switchMode(mode) {
   const modeBtns = /** @type {NodeListOf<HTMLElement>} */ (
     document.querySelectorAll('.settings-mode-btn')
   );
-  modeBtns.forEach(b => {
+  modeBtns.forEach((b) => {
     b.classList.toggle('active', b.dataset.mode === mode);
   });
   const formView = document.getElementById('config-form-view');
@@ -215,9 +216,7 @@ function createField(label, value, path) {
       <input type="checkbox" ${value ? 'checked' : ''} data-path="${path.join('.')}">
       <span class="toggle-slider"></span>
     `;
-    const toggleInput = /** @type {HTMLInputElement | null} */ (
-      toggle.querySelector('input')
-    );
+    const toggleInput = /** @type {HTMLInputElement | null} */ (toggle.querySelector('input'));
     if (toggleInput) {
       toggleInput.addEventListener('change', () => {
         configDirty = true;

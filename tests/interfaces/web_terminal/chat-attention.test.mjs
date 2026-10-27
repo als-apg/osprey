@@ -105,7 +105,7 @@ beforeEach(() => {
 afterEach(() => {
   dispose();
   messages.remove();
-  delete (/** @type {any} */ (document)).visibilityState;
+  Reflect.deleteProperty(document, 'visibilityState');
   vi.unstubAllGlobals();
   vi.useRealTimers();
   localStorage.clear();
@@ -169,7 +169,14 @@ describe('tab title count', () => {
     ['answering the card', resolved('a')],
     [
       'the server declining it for want of an answer',
-      { type: 'permission_resolved', request_id: 'a', allow: false, for_session: false, answers: null, expired: true },
+      {
+        type: 'permission_resolved',
+        request_id: 'a',
+        allow: false,
+        for_session: false,
+        answers: null,
+        expired: true,
+      },
     ],
   ])('%s clears the badge and closes its notification', (_name, resolution) => {
     turnBellOn();

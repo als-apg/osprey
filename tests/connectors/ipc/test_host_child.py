@@ -52,11 +52,17 @@ from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
 from osprey_connectors_tests._harness import write_control_context
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PYTHONPATH = os.pathsep.join(
-    [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
+    [
+        # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+        str(CHILD_STUBS),
+        str(REPO_ROOT / "src"),
+        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+    ]
 )
 
 #: The mock connector by dotted path, so ``live`` resolves to it.
@@ -1286,6 +1292,7 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         cwd=tmp_path,
         env_extra={
             host.START_MARKS_FD_ENV: str(write_fd),
+            # Neither test root has a beamphysics package, so the stand-in still applies.
             "PYTHONPATH": os.pathsep.join(
                 [
                     str(REPO_ROOT),
@@ -1303,6 +1310,10 @@ def test_a_child_stuck_in_connect_has_marked_everything_before_it(tmp_path):
         marks = _marks_until(read_fd, "imports")
         assert [name for name, _ in marks] == ["main", "init", "imports"]
     finally:
+        # Killed, not closed: a child inside connect() never reads its stdin, so
+        # close() would wait out REPLY_TIMEOUT_S before killing it anyway. How a
+        # child stuck there ends is not what this test checks.
+        spawned.proc.kill()
         spawned.close()
         os.close(read_fd)
 

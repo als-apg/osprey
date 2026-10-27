@@ -97,9 +97,8 @@ const net = createNetClient({
     hideSpinner(name);
     showFigureError(name, error);
   },
-  onSettingsUpdated: (settings) => renderSettingsForm(
-    /** @type {Record<string, Record<string, number|null>>} */ (settings)
-  ),
+  onSettingsUpdated: (settings) =>
+    renderSettingsForm(/** @type {Record<string, Record<string, number|null>>} */ (settings)),
   onBaselineSet: (summary) => updateSummaryStats(summary),
 });
 

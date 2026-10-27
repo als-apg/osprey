@@ -36,6 +36,7 @@ from osprey.services.python_executor.execution.wrapper import (
     READONLY_REFUSAL_MARKER,
     ExecutionWrapper,
 )
+from tests.runtime._patch_restore import drop_guard_finders
 
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
@@ -113,7 +114,7 @@ def _restore_patched_targets():
     yield
     for target, attr, value in saved:
         setattr(target, attr, value)
-    sys.meta_path[:] = [f for f in sys.meta_path if not getattr(f, "_osprey_readonly_guard", False)]
+    drop_guard_finders()
 
 
 class _RecordingContext:

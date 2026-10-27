@@ -136,6 +136,7 @@ def provider_base_url_entries() -> list[dict[str, str]]:
         ships an endpoint.
     """
     from osprey.models.provider_registry import get_provider_registry
+    from osprey.models.providers.base import declares
 
     registry = get_provider_registry()
     entries: list[dict[str, str]] = []
@@ -148,7 +149,7 @@ def provider_base_url_entries() -> list[dict[str, str]]:
             continue
         if cls is None:
             continue
-        if not cls.requires_base_url or cls.default_base_url:
+        if not declares(cls, "requires_base_url") or cls.default_base_url:
             continue
         if not cls.base_url_env_var:
             continue

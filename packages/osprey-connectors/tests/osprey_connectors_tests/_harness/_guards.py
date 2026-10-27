@@ -81,6 +81,12 @@ os.environ.pop("CLICOLOR_FORCE", None)
 if os.environ.get("TERM", "").lower() in {"dumb", "unknown"}:
     os.environ["TERM"] = "xterm-256color"
 
+# LiteLLM's model map decides which model ids it can route. osprey._litellm_env
+# defaults it to the copy LiteLLM ships; here it is assigned, not defaulted, so
+# no developer export can make a run fetch the live map from GitHub and the
+# routing every test sees is the same on a laptop, on CI, and offline.
+os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+
 _PRE_COLLECTION_ENV = dict(os.environ)
 
 

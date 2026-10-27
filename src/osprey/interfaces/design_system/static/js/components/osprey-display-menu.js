@@ -109,7 +109,6 @@ import {
 
 const STYLE_ID = 'osprey-display-menu-style';
 
-
 /**
  * The UI mode currently stamped on `<html>` by mode-boot.js (pre-paint) or by
  * a since-applied `osprey-mode-change`. Anything other than `'simple'` reads
@@ -119,9 +118,7 @@ const STYLE_ID = 'osprey-display-menu-style';
  * @returns {'expert'|'simple'}
  */
 function _currentUiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple'
-    ? 'simple'
-    : 'expert';
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
 }
 
 /**
@@ -413,17 +410,13 @@ export class OspreyDisplayMenu extends HTMLElement {
     const projected = Array.from(this.children);
     this.innerHTML = _renderTemplate();
 
-    this._trigger = /** @type {HTMLButtonElement} */ (
-      this.querySelector('.display-menu-trigger')
-    );
+    this._trigger = /** @type {HTMLButtonElement} */ (this.querySelector('.display-menu-trigger'));
     this._card = /** @type {HTMLElement} */ (this.querySelector('.display-menu-card'));
     this._appearanceSeg = /** @type {HTMLElement} */ (
       this.querySelector('.display-menu-appearance')
     );
     this._viewSeg = /** @type {HTMLElement} */ (this.querySelector('.display-menu-view'));
-    this._familyPicker = /** @type {HTMLElement} */ (
-      this.querySelector('.display-menu-families')
-    );
+    this._familyPicker = /** @type {HTMLElement} */ (this.querySelector('.display-menu-families'));
 
     this._buildFamilyPills();
     this._buildActions(projected);

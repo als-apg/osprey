@@ -6,10 +6,11 @@ launched exactly like the real worker (``-I``, ``env={}``, ``cwd='/'``), so they
 can import nothing from the test environment and carry their reply bytes inline.
 
 Timing constants are scaled (a 1 s task clock against a 3 s sleeper, a 0.5 s
-idle close), so each case keeps its production meaning; the ready wait runs on
-its shipped clock except in the one test that proves it fires. The
-cancellation cases hold their worker on a file the test controls and run on the
-shipped clocks, so only the cancel ends the render.
+idle close), so each case keeps its production meaning. The ready wait stays
+long by default so a loaded host never trips it; a case about the ready wait
+sets its own. The cancellation cases hold their worker on a file the test
+controls and run on the shipped clocks, so only the cancel ends the render. A
+test that waits for a state polls for it with :func:`_until`.
 """
 
 from __future__ import annotations
@@ -118,9 +119,27 @@ async def _scaled(monkeypatch):
     """
     monkeypatch.setattr(render, "RENDER_TASK_TIMEOUT_S", 1.0)
     monkeypatch.setattr(render, "RENDER_WORKER_IDLE_S", 30.0)
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
     render._forget_worker()
     yield
     await render.close_render_worker()
+
+
+async def _until(predicate, *, within: float = 10.0, step: float = 0.02):
+    """Poll *predicate* until it is truthy and return that value.
+
+    Fails the test, naming the predicate, when *within* seconds pass first.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + within
+    while True:
+        value = predicate()
+        if value:
+            return value
+        if loop.time() >= deadline:
+            name = getattr(predicate, "__qualname__", repr(predicate))
+            pytest.fail(f"{name} stayed false for {within} s")
+        await asyncio.sleep(step)
 
 
 def _alive(pid: int) -> bool:
@@ -196,8 +215,9 @@ def test_two_consecutive_asyncio_runs_both_succeed(monkeypatch):
     assert first_pid != second_pid
 
 
-async def test_probe_reports_a_healthy_worker():
-    assert await render.probe_render_worker() is True
+async def test_probe_reports_a_healthy_worker(monkeypatch):
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
+    assert await render.probe_render_worker() is None
     # The probe never leaves a cached worker behind.
     assert render.worker_pid() is None
 
@@ -206,7 +226,9 @@ async def test_probe_reports_a_worker_that_dies_at_import(monkeypatch, tmp_path)
     path = tmp_path / "stub_worker.py"
     path.write_text("import sys\nsys.exit(1)\n")
     monkeypatch.setattr(render, "WORKER_ARGV", (sys.executable, "-I", str(path)))
-    assert await render.probe_render_worker() is False
+    reason = await render.probe_render_worker()
+    assert reason is not None
+    assert "exited before its ready line" in reason
 
 
 # -- stub workers: failures -----------------------------------------------------------
@@ -607,11 +629,7 @@ async def test_a_cancelled_render_never_leaks_its_reply_into_the_next_call(monke
     assert outcome.rendition is not None
     assert outcome.rendition.width == 2
     assert render.worker_pid() not in (None, first_pid)
-    for _ in range(40):
-        if not _alive(first_pid):
-            break
-        await asyncio.sleep(0.05)
-    assert not _alive(first_pid)
+    await _until(lambda: not _alive(first_pid))
 
 
 async def test_a_cancel_is_not_counted_as_a_worker_death(monkeypatch, tmp_path):
@@ -648,20 +666,13 @@ async def test_a_cancel_during_the_ready_wait_leaves_no_child(monkeypatch, tmp_p
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", recording_exec)
     pending = asyncio.create_task(render.render_isolated(PNG, task_id="x"))
-    for _ in range(40):
-        await asyncio.sleep(0.05)
-        if spawned:
-            break
+    await _until(lambda: spawned)
     assert len(spawned) == 1
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert render.worker_pid() is None
-    for _ in range(40):
-        if not _alive(spawned[0]):
-            break
-        await asyncio.sleep(0.05)
-    assert not _alive(spawned[0])
+    await _until(lambda: not _alive(spawned[0]))
 
 
 async def test_kill_never_signals_a_reaped_worker(monkeypatch, tmp_path):

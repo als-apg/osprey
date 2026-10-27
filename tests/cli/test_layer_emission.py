@@ -617,30 +617,30 @@ def test_data_copy_ignore_drops_only_the_named_subtree(tmp_path: Path) -> None:
 
 
 def test_benchmark_results_in_a_source_checkout_are_not_materialized(
-    runner: CliRunner, tmp_path: Path
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A source checkout that has run the channel-finder benchmark holds
     ``data/benchmarks/results/``; a wheel install never does (hatch excludes
-    it). Emission must be the same tree either way, so the copy drops it."""
+    it). Emission must be the same tree either way, so the copy drops it.
+
+    The checkout is a copy of the shipped template tree: other tests read the
+    real one while this runs beside them."""
     import shutil
 
     from osprey.cli.templates.manager import TemplateManager
 
-    results = (
-        TemplateManager().template_root / "apps" / "control_assistant" / "data" / "benchmarks"
-    ) / "results"
-    created_dir = not results.exists()
+    root = tmp_path / "templates"
+    shutil.copytree(
+        TemplateManager().template_root, root, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    results = root / "apps" / "control_assistant" / "data" / "benchmarks" / "results"
     results.mkdir(parents=True, exist_ok=True)
-    exhaust = results / "run-from-a-test.json"
-    exhaust.write_text("{}", encoding="utf-8")
-    try:
-        target = tmp_path / "my-facility"
-        assert _new(runner, target, "control-assistant").exit_code == 0
+    (results / "run-from-a-test.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(TemplateManager, "_get_template_root", lambda self: root)
 
-        assert not (target / "data" / "benchmarks" / "results").exists()
-        # The sibling staging dir the bundle really ships still comes across.
-        assert (target / "data" / "benchmarks" / "cross_paradigm").is_dir()
-    finally:
-        exhaust.unlink(missing_ok=True)
-        if created_dir:
-            shutil.rmtree(results, ignore_errors=True)
+    target = tmp_path / "my-facility"
+    assert _new(runner, target, "control-assistant").exit_code == 0
+
+    assert not (target / "data" / "benchmarks" / "results").exists()
+    # The sibling staging dir the bundle really ships still comes across.
+    assert (target / "data" / "benchmarks" / "cross_paradigm").is_dir()

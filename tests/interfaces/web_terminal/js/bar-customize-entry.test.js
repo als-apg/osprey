@@ -169,7 +169,8 @@ describe('a teardown while the display menu is still upgrading', () => {
     // What the component's own connectedCallback builds: the card, and the
     // action row the Customize row projects itself into.
     const menu = /** @type {any} */ (document.querySelector('osprey-display-menu'));
-    menu.innerHTML = '<div class="display-menu-card"><div class="display-menu-actions"></div></div>';
+    menu.innerHTML =
+      '<div class="display-menu-card"><div class="display-menu-actions"></div></div>';
     return { entry, upgrade };
   }
 

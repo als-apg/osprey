@@ -27,7 +27,8 @@ import { withPrefix } from './api.js';
  * @returns {Promise<boolean>}
  */
 export async function setPanelVisibility(panelId, visible, index) {
-  const body = index === undefined ? { panel: panelId, visible } : { panel: panelId, visible, index };
+  const body =
+    index === undefined ? { panel: panelId, visible } : { panel: panelId, visible, index };
   try {
     const resp = await fetch(withPrefix('/api/panel-visibility'), {
       method: 'POST',

@@ -60,7 +60,9 @@ export function createScaffoldGalleryEditForm(gallery) {
     // scaffold/detail.js's renderDetailContent).
     const render = gallery.detailRenderSeq;
 
-    const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`); // fetchJSON prefixes internally
+    const data = await fetchJSON(
+      `/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`
+    ); // fetchJSON prefixes internally
     const content = data.content || '';
 
     if (!gallery.detailContentEl || gallery.detailRenderSeq !== render) return;

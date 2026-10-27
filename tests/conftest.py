@@ -1404,3 +1404,32 @@ def dispatcher_route_registry():
         yield build
     finally:
         dispatch_server.mcp._additional_http_routes = baseline_routes
+
+
+# ===================================================================
+# Packaged-template tree guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_writes_into_the_packaged_templates():
+    """Fail the session if a test added or removed a path in the shipped templates.
+
+    Tests that copy the template tree read it while other tests run beside them,
+    so a test that writes into it and cleans up again surfaces as a copy error
+    somewhere else. This names the directories instead, including one where an
+    entry came and went before the session ended. A test that needs a changed
+    tree copies it to ``tmp_path`` and points ``TemplateManager._get_template_root``
+    at the copy. Under xdist each worker checks its own session.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+
+    root = Path(TemplateManager().template_root)
+    before = _repo_cleanliness.tree_snapshot(root)
+    yield
+    clauses = _repo_cleanliness.what_this_run_did_to_tree(before, root)
+    if clauses:
+        raise AssertionError(
+            f"the test run {'; '.join(clauses)}. "
+            "A test that needs a changed tree writes into a tmp_path copy of it."
+        )

@@ -102,7 +102,10 @@ function makeTableData(overrides = {}) {
   return {
     columns: ['SR:MAG:QF1:I', 'SR:MAG:QF2:I'],
     index: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
-    data: [[1.0, 2.0], [1.5, 2.5]],
+    data: [
+      [1.0, 2.0],
+      [1.5, 2.5],
+    ],
     total_rows: 2,
     offset: 0,
     limit: 50,
@@ -118,15 +121,22 @@ function makeTableData(overrides = {}) {
  * @param {{ chartResp?: Promise<FakeResponse>, tableResp?: Promise<FakeResponse> }} [opts]
  */
 function stubFetchRouting({ chartResp, tableResp } = {}) {
-  vi.stubGlobal('fetch', vi.fn((url) => {
-    if (url.includes('format=chart')) {
-      return chartResp ?? Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
-    }
-    if (url.includes('format=table')) {
-      return tableResp ?? Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
-    }
-    return Promise.reject(new Error('unexpected fetch URL: ' + url));
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url) => {
+      if (url.includes('format=chart')) {
+        return (
+          chartResp ?? Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) })
+        );
+      }
+      if (url.includes('format=table')) {
+        return (
+          tableResp ?? Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) })
+        );
+      }
+      return Promise.reject(new Error('unexpected fetch URL: ' + url));
+    })
+  );
 }
 
 /**
@@ -135,7 +145,9 @@ function stubFetchRouting({ chartResp, tableResp } = {}) {
  * for tests that assert on fetched URLs.
  */
 function stubTableFetch(overrides = {}) {
-  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData(overrides)) });
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData(overrides)) });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
@@ -177,7 +189,9 @@ function setChartVars({ bgPrimary = '#000', paperBg, plotBg, axisText, grid, bor
 
 beforeEach(() => {
   vi.stubGlobal('Plotly', {
-    newPlot: vi.fn((el) => { el.data = []; }),
+    newPlot: vi.fn((el) => {
+      el.data = [];
+    }),
     restyle: vi.fn(),
     relayout: vi.fn(),
     update: vi.fn(),
@@ -188,13 +202,25 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  ['--bg-primary', '--chart-paper-bg', '--chart-plot-bg', '--chart-axis-text', '--chart-grid', '--chart-axis-line']
-    .forEach((v) => document.documentElement.style.removeProperty(v));
+  [
+    '--bg-primary',
+    '--chart-paper-bg',
+    '--chart-plot-bg',
+    '--chart-axis-text',
+    '--chart-grid',
+    '--chart-axis-line',
+  ].forEach((v) => document.documentElement.style.removeProperty(v));
 });
 
 describe('_tsChartTheme', () => {
   test('reflects a dark-theme set of chart CSS custom properties', () => {
-    setChartVars({ paperBg: '#0b0f14', plotBg: '#11161d', axisText: '#e6edf3', grid: '#232a33', border: '#2d3542' });
+    setChartVars({
+      paperBg: '#0b0f14',
+      plotBg: '#11161d',
+      axisText: '#e6edf3',
+      grid: '#232a33',
+      border: '#2d3542',
+    });
 
     const t = _tsChartTheme();
 
@@ -209,7 +235,13 @@ describe('_tsChartTheme', () => {
   });
 
   test('reflects a light-theme set of chart CSS custom properties', () => {
-    setChartVars({ paperBg: '#ffffff', plotBg: '#f6f8fa', axisText: '#1f2328', grid: '#d0d7de', border: '#c9d1d9' });
+    setChartVars({
+      paperBg: '#ffffff',
+      plotBg: '#f6f8fa',
+      axisText: '#1f2328',
+      grid: '#d0d7de',
+      border: '#c9d1d9',
+    });
 
     const t = _tsChartTheme();
 
@@ -222,7 +254,13 @@ describe('_tsChartTheme', () => {
   });
 
   test('falls back to the grid color for the line when --border-default is unset', () => {
-    setChartVars({ paperBg: '#0b0f14', plotBg: '#11161d', axisText: '#e6edf3', grid: '#232a33', border: '' });
+    setChartVars({
+      paperBg: '#0b0f14',
+      plotBg: '#11161d',
+      axisText: '#e6edf3',
+      grid: '#232a33',
+      border: '',
+    });
 
     const t = _tsChartTheme();
 
@@ -246,9 +284,12 @@ describe('renderTimeseriesView', () => {
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeChartData({
-          summary: { total_points: 999, returned_points: 40, downsampled: true, row_count: 7 },
-        })),
+        json: () =>
+          Promise.resolve(
+            makeChartData({
+              summary: { total_points: 999, returned_points: 40, downsampled: true, row_count: 7 },
+            })
+          ),
       }),
     });
 
@@ -283,12 +324,15 @@ describe('renderTimeseriesView', () => {
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeChartData({
-          channels: [
-            makeChartChannel({ channel: 'A', returned_points: 500, total_points: 5000 }),
-            makeChartChannel({ channel: 'B', returned_points: 2, total_points: 2 }),
-          ],
-        })),
+        json: () =>
+          Promise.resolve(
+            makeChartData({
+              channels: [
+                makeChartChannel({ channel: 'A', returned_points: 500, total_points: 5000 }),
+                makeChartChannel({ channel: 'B', returned_points: 2, total_points: 2 }),
+              ],
+            })
+          ),
       }),
     });
 
@@ -323,15 +367,18 @@ describe('renderTimeseriesView', () => {
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeChartData({
-          channels: [
-            makeChartChannel({
-              channel: 'SR:RF:INTERLOCK_STATE',
-              values: [0, 1],
-              numeric: false,
-            }),
-          ],
-        })),
+        json: () =>
+          Promise.resolve(
+            makeChartData({
+              channels: [
+                makeChartChannel({
+                  channel: 'SR:RF:INTERLOCK_STATE',
+                  values: [0, 1],
+                  numeric: false,
+                }),
+              ],
+            })
+          ),
       }),
     });
 
@@ -348,18 +395,27 @@ describe('renderTimeseriesView', () => {
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeChartData({
-          channels: [
-            makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: undefined }),
-            makeChartChannel({ channel: 'SR:MAG:QF2:I', values: [2.0, 2.5], numeric: undefined }),
-          ],
-        })),
+        json: () =>
+          Promise.resolve(
+            makeChartData({
+              channels: [
+                makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: undefined }),
+                makeChartChannel({
+                  channel: 'SR:MAG:QF2:I',
+                  values: [2.0, 2.5],
+                  numeric: undefined,
+                }),
+              ],
+            })
+          ),
       }),
     });
 
     await renderTimeseriesView(container, { id: 'ts1' });
 
-    const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+    const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+      container.querySelectorAll('.ts-ch-toggle')
+    );
     // Site: the toolbar marker/title.
     expect(container.querySelector('.ts-ch-axis-tag')).toBeNull();
     expect(toggles[0].getAttribute('aria-label')).toBe('SR:MAG:QF1:I');
@@ -375,10 +431,10 @@ describe('renderTimeseriesView', () => {
     expect(Plotly.relayout).not.toHaveBeenCalled();
     // ...and the same answer drives Reset Zoom's per-axis autorange keys.
     qs(container, '[data-action="zoom-reset"]').click();
-    expect(Plotly.relayout).toHaveBeenLastCalledWith(
-      container.querySelector('[data-ts-chart]'),
-      { 'xaxis.autorange': true, 'yaxis.autorange': true }
-    );
+    expect(Plotly.relayout).toHaveBeenLastCalledWith(container.querySelector('[data-ts-chart]'), {
+      'xaxis.autorange': true,
+      'yaxis.autorange': true,
+    });
   });
 
   test('the enum axis marker is kept out of the accessible name, which comes from aria-label', async () => {
@@ -388,12 +444,19 @@ describe('renderTimeseriesView', () => {
     stubFetchRouting({
       chartResp: Promise.resolve({
         ok: true,
-        json: () => Promise.resolve(makeChartData({
-          channels: [
-            makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
-            makeChartChannel({ channel: 'SR:RF:INTERLOCK_STATE', values: [0, 1], numeric: false }),
-          ],
-        })),
+        json: () =>
+          Promise.resolve(
+            makeChartData({
+              channels: [
+                makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+                makeChartChannel({
+                  channel: 'SR:RF:INTERLOCK_STATE',
+                  values: [0, 1],
+                  numeric: false,
+                }),
+              ],
+            })
+          ),
       }),
     });
 
@@ -406,7 +469,9 @@ describe('renderTimeseriesView', () => {
     const tag = qs(enumToggle, '.ts-ch-axis-tag');
     expect(tag.getAttribute('aria-hidden')).toBe('true');
     // Full PV plus the explanation -- not the display text with a stray "R".
-    expect(enumToggle.getAttribute('aria-label')).toBe('SR:RF:INTERLOCK_STATE (status/enum -- plotted on right axis)');
+    expect(enumToggle.getAttribute('aria-label')).toBe(
+      'SR:RF:INTERLOCK_STATE (status/enum -- plotted on right axis)'
+    );
     // A numeric channel has no marker, so its name is just the full PV.
     expect(toggles[0].getAttribute('aria-label')).toBe('SR:MAG:QF1:I');
     // type="button" so these never act as submit buttons inside a form.
@@ -419,8 +484,13 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
-      expect(Array.from(toggles).map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+        container.querySelectorAll('.ts-ch-toggle')
+      );
+      expect(Array.from(toggles).map((b) => b.getAttribute('aria-pressed'))).toEqual([
+        'true',
+        'true',
+      ]);
 
       toggles[0].click(); // hide
 
@@ -436,7 +506,9 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+        container.querySelectorAll('.ts-ch-toggle')
+      );
       toggles[0].click(); // hide channel 1, leaving channel 2 the only visible one
 
       toggles[1].click(); // refused
@@ -450,7 +522,9 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+        container.querySelectorAll('.ts-ch-toggle')
+      );
       const chartEl = container.querySelector('[data-ts-chart]');
 
       toggles[0].click();
@@ -463,7 +537,9 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+        container.querySelectorAll('.ts-ch-toggle')
+      );
       toggles[0].click(); // hide channel 1, leaving channel 2 visible
       Plotly.update.mockClear();
 
@@ -477,32 +553,43 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+        container.querySelectorAll('.ts-ch-toggle')
+      );
       toggles[0].click(); // hide
       toggles[0].click(); // show again
 
       expect(toggles[0].classList.contains('ts-ch-off')).toBe(false);
-      expect(Plotly.update).toHaveBeenLastCalledWith(expect.anything(), { visible: [true, true] }, {});
+      expect(Plotly.update).toHaveBeenLastCalledWith(
+        expect.anything(),
+        { visible: [true, true] },
+        {}
+      );
     });
 
     test('toggles are keyed by channel name (data-ch-name), not by a column index', async () => {
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeChartData({
-            channels: [
-              makeChartChannel({ channel: 'SR:MAG:QF1:I' }),
-              makeChartChannel({ channel: 'SR:MAG:QF2:I' }),
-              makeChartChannel({ channel: 'SR:BPM:X:1' }),
-            ],
-          })),
+          json: () =>
+            Promise.resolve(
+              makeChartData({
+                channels: [
+                  makeChartChannel({ channel: 'SR:MAG:QF1:I' }),
+                  makeChartChannel({ channel: 'SR:MAG:QF2:I' }),
+                  makeChartChannel({ channel: 'SR:BPM:X:1' }),
+                ],
+              })
+            ),
         }),
       });
       await renderTimeseriesView(container, { id: 'ts1' });
 
       const toggles = Array.from(container.querySelectorAll('.ts-ch-toggle'));
       expect(toggles.map((b) => /** @type {HTMLElement} */ (b).dataset.chName)).toEqual([
-        'SR:MAG:QF1:I', 'SR:MAG:QF2:I', 'SR:BPM:X:1',
+        'SR:MAG:QF1:I',
+        'SR:MAG:QF2:I',
+        'SR:BPM:X:1',
       ]);
       // The old `data-ch-index` key must not be relied on any more.
       expect(/** @type {HTMLElement} */ (toggles[0]).dataset.chIndex).toBeUndefined();
@@ -517,12 +604,19 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeChartData({
-            channels: [
-              makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
-              makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false }),
-            ],
-          })),
+          json: () =>
+            Promise.resolve(
+              makeChartData({
+                channels: [
+                  makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+                  makeChartChannel({
+                    channel: 'SR:RF:STATE',
+                    values: ['STANDBY', 'CW'],
+                    numeric: false,
+                  }),
+                ],
+              })
+            ),
         }),
       });
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -539,13 +633,17 @@ describe('renderTimeseriesView', () => {
       // nothing plotted against it. One call: trace and layout deltas are
       // applied together so a toggle costs a single redraw.
       expect(Plotly.update).toHaveBeenLastCalledWith(
-        chartEl, { visible: [true, false] }, { 'yaxis2.visible': false }
+        chartEl,
+        { visible: [true, false] },
+        { 'yaxis2.visible': false }
       );
 
       enumToggle.click(); // show it again
 
       expect(Plotly.update).toHaveBeenLastCalledWith(
-        chartEl, { visible: [true, true] }, { 'yaxis2.visible': true }
+        chartEl,
+        { visible: [true, true] },
+        { 'yaxis2.visible': true }
       );
     });
 
@@ -553,7 +651,9 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (
+        container.querySelectorAll('.ts-ch-toggle')
+      );
       toggles[0].click();
 
       expect(Plotly.relayout).not.toHaveBeenCalled();
@@ -572,7 +672,9 @@ describe('renderTimeseriesView', () => {
       const names = [];
       vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
         /** @this {HTMLAnchorElement} */
-        function () { names.push(this.download); }
+        function () {
+          names.push(this.download);
+        }
       );
       return names;
     }
@@ -583,22 +685,29 @@ describe('renderTimeseriesView', () => {
 
       qs(container, '[data-action="zoom-reset"]').click();
 
-      expect(Plotly.relayout).toHaveBeenCalledWith(
-        container.querySelector('[data-ts-chart]'),
-        { 'xaxis.autorange': true, 'yaxis.autorange': true }
-      );
+      expect(Plotly.relayout).toHaveBeenCalledWith(container.querySelector('[data-ts-chart]'), {
+        'xaxis.autorange': true,
+        'yaxis.autorange': true,
+      });
     });
 
     test('zoom-reset also autoranges yaxis2 when a non-numeric channel is present', async () => {
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeChartData({
-            channels: [
-              makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
-              makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false }),
-            ],
-          })),
+          json: () =>
+            Promise.resolve(
+              makeChartData({
+                channels: [
+                  makeChartChannel({ channel: 'SR:MAG:QF1:I', numeric: true }),
+                  makeChartChannel({
+                    channel: 'SR:RF:STATE',
+                    values: ['STANDBY', 'CW'],
+                    numeric: false,
+                  }),
+                ],
+              })
+            ),
         }),
       });
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -607,10 +716,11 @@ describe('renderTimeseriesView', () => {
 
       // Otherwise Reset Zoom leaves the enum channel's secondary axis clipped,
       // reading as "that channel has no data".
-      expect(Plotly.relayout).toHaveBeenCalledWith(
-        container.querySelector('[data-ts-chart]'),
-        { 'xaxis.autorange': true, 'yaxis.autorange': true, 'yaxis2.autorange': true }
-      );
+      expect(Plotly.relayout).toHaveBeenCalledWith(container.querySelector('[data-ts-chart]'), {
+        'xaxis.autorange': true,
+        'yaxis.autorange': true,
+        'yaxis2.autorange': true,
+      });
     });
 
     test('export-csv builds a long-format CSV blob (channel,timestamp,value per sample) and triggers a download', async () => {
@@ -644,16 +754,19 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeChartData({
-            channels: [
-              makeChartChannel({
-                channel: 'SR:RF:STATE',
-                timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
-                values: ['OFF, LOCAL', 'STANDBY "armed"'],
-                numeric: false,
-              }),
-            ],
-          })),
+          json: () =>
+            Promise.resolve(
+              makeChartData({
+                channels: [
+                  makeChartChannel({
+                    channel: 'SR:RF:STATE',
+                    timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
+                    values: ['OFF, LOCAL', 'STANDBY "armed"'],
+                    numeric: false,
+                  }),
+                ],
+              })
+            ),
         }),
       });
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -675,16 +788,19 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeChartData({
-            channels: [
-              makeChartChannel({
-                channel: 'SR:RF:STATE',
-                timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
-                values: ['ON', null],
-                numeric: false,
-              }),
-            ],
-          })),
+          json: () =>
+            Promise.resolve(
+              makeChartData({
+                channels: [
+                  makeChartChannel({
+                    channel: 'SR:RF:STATE',
+                    timestamps: ['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z'],
+                    values: ['ON', null],
+                    numeric: false,
+                  }),
+                ],
+              })
+            ),
         }),
       });
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -706,12 +822,21 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting({
         chartResp: Promise.resolve({
           ok: true,
-          json: () => Promise.resolve(makeChartData({
-            channels: [
-              makeChartChannel({ channel: 'EMPTY', timestamps: [], values: [], total_points: 0, returned_points: 0 }),
-              makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
-            ],
-          })),
+          json: () =>
+            Promise.resolve(
+              makeChartData({
+                channels: [
+                  makeChartChannel({
+                    channel: 'EMPTY',
+                    timestamps: [],
+                    values: [],
+                    total_points: 0,
+                    returned_points: 0,
+                  }),
+                  makeChartChannel({ channel: 'SR:MAG:QF1:I', values: [1.0, 1.5] }),
+                ],
+              })
+            ),
         }),
       });
       await renderTimeseriesView(container, { id: 'ts1' });
@@ -761,7 +886,10 @@ describe('renderTimeseriesView', () => {
       const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
       expect(blob.type).toBe('application/json');
       const parsed = JSON.parse(await blob.text());
-      expect(parsed.channels.map((/** @type {any} */ ch) => ch.channel)).toEqual(['SR:MAG:QF1:I', 'SR:MAG:QF2:I']);
+      expect(parsed.channels.map((/** @type {any} */ ch) => ch.channel)).toEqual([
+        'SR:MAG:QF1:I',
+        'SR:MAG:QF2:I',
+      ]);
       expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:fake-json');
     });
   });
@@ -778,8 +906,22 @@ describe('renderTimeseriesChart', () => {
     const [plotEl, traces, layout, config] = Plotly.newPlot.mock.calls[0];
     expect(plotEl).toBe(el);
     expect(traces).toEqual([
-      { x: chartData.channels[0].timestamps.map(facilityWallClock), y: [1.0, 1.5], name: 'SR:MAG:QF1:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
-      { x: chartData.channels[1].timestamps.map(facilityWallClock), y: [2.0, 2.5], name: 'SR:MAG:QF2:I', type: 'scattergl', mode: 'lines', hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>' },
+      {
+        x: chartData.channels[0].timestamps.map(facilityWallClock),
+        y: [1.0, 1.5],
+        name: 'SR:MAG:QF1:I',
+        type: 'scattergl',
+        mode: 'lines',
+        hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>',
+      },
+      {
+        x: chartData.channels[1].timestamps.map(facilityWallClock),
+        y: [2.0, 2.5],
+        name: 'SR:MAG:QF2:I',
+        type: 'scattergl',
+        mode: 'lines',
+        hovertemplate: '%{y:.4g}<extra>%{fullData.name}</extra>',
+      },
     ]);
     expect(layout.hovermode).toBe('x unified');
     expect(layout.margin).toEqual({ t: 30, r: 20, b: 50, l: 60 });
@@ -801,7 +943,10 @@ describe('renderTimeseriesChart', () => {
     try {
       const el = document.createElement('div');
       const chartData = makeChartData();
-      expect(chartData.channels[0].timestamps).toEqual(['2026-07-01T00:00:00Z', '2026-07-01T00:01:00Z']);
+      expect(chartData.channels[0].timestamps).toEqual([
+        '2026-07-01T00:00:00Z',
+        '2026-07-01T00:01:00Z',
+      ]);
 
       await renderTimeseriesChart(el, chartData);
 
@@ -831,8 +976,11 @@ describe('renderTimeseriesChart', () => {
         makeChartChannel({
           channel: 'SR:BPM:X:1',
           timestamps: [
-            '2026-07-01T00:00:00Z', '2026-07-01T00:02:00Z', '2026-07-01T00:04:00Z',
-            '2026-07-01T00:06:00Z', '2026-07-01T00:08:00Z',
+            '2026-07-01T00:00:00Z',
+            '2026-07-01T00:02:00Z',
+            '2026-07-01T00:04:00Z',
+            '2026-07-01T00:06:00Z',
+            '2026-07-01T00:08:00Z',
           ],
           values: [0.1, 0.2, 0.3, 0.4, 0.5],
           total_points: 5,
@@ -987,9 +1135,18 @@ describe('renderTimeseriesChart', () => {
     // without it the labels are drawn past the paper edge and clipped.
     const el = document.createElement('div');
 
-    await renderTimeseriesChart(el, makeChartData({
-      channels: [makeChartChannel({ channel: 'SR:C03:BPM:STATUS', values: ['OPERATIONAL', 'FAULT'], numeric: false })],
-    }));
+    await renderTimeseriesChart(
+      el,
+      makeChartData({
+        channels: [
+          makeChartChannel({
+            channel: 'SR:C03:BPM:STATUS',
+            values: ['OPERATIONAL', 'FAULT'],
+            numeric: false,
+          }),
+        ],
+      })
+    );
 
     const [, , layout] = Plotly.newPlot.mock.calls[0];
     expect(layout.yaxis2.automargin).toBe(true);
@@ -1003,9 +1160,14 @@ describe('renderTimeseriesChart', () => {
     // --chart-* tokens in both themes.
     const el = document.createElement('div');
 
-    await renderTimeseriesChart(el, makeChartData({
-      channels: [makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false })],
-    }));
+    await renderTimeseriesChart(
+      el,
+      makeChartData({
+        channels: [
+          makeChartChannel({ channel: 'SR:RF:STATE', values: ['STANDBY', 'CW'], numeric: false }),
+        ],
+      })
+    );
 
     const [, , layout] = Plotly.newPlot.mock.calls[0];
     expect(layout.yaxis2.showgrid).toBe(false);
@@ -1063,7 +1225,9 @@ describe('renderTimeseriesTable', () => {
     expect(indexCellText).not.toMatch(/\b(19|20)\d{2}\b/);
     expect(indexCellText).toMatch(/\d{1,2}:\d{2}:\d{2}/);
     // Value cells go through _tsFormatValue: <=5 significant figures.
-    const valueCells = Array.from(rows[0].querySelectorAll('td')).slice(1).map((td) => td.textContent);
+    const valueCells = Array.from(rows[0].querySelectorAll('td'))
+      .slice(1)
+      .map((td) => td.textContent);
     expect(valueCells).toEqual(['1.0000', '2.0000']);
   });
 
@@ -1087,7 +1251,9 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', 0);
 
-      const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
+      const cells = Array.from(el.querySelectorAll('tbody tr td'))
+        .map((td) => td.textContent)
+        .slice(1);
       expect(cells).toEqual(['--', '0', '1.2346']);
     });
 
@@ -1100,7 +1266,9 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', 0);
 
-      const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
+      const cells = Array.from(el.querySelectorAll('tbody tr td'))
+        .map((td) => td.textContent)
+        .slice(1);
       expect(cells).toEqual([(1e7).toExponential(3), (0.000123).toExponential(3)]);
     });
 
@@ -1113,7 +1281,9 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', 0);
 
-      const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
+      const cells = Array.from(el.querySelectorAll('tbody tr td'))
+        .map((td) => td.textContent)
+        .slice(1);
       expect(cells).toEqual(['not-a-number', 'NaN']);
     });
   });
@@ -1220,7 +1390,9 @@ describe('renderTimeseriesTable', () => {
       expect(qs(el, '[data-ts-prev]', HTMLButtonElement).disabled).toBe(true);
 
       nextBtn.click();
-      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('offset=50')));
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('offset=50'))
+      );
     });
 
     test('Prev clamps to offset 0 rather than going negative', async () => {
@@ -1230,7 +1402,9 @@ describe('renderTimeseriesTable', () => {
       fetchMock.mockClear();
 
       qs(el, '[data-ts-prev]', HTMLButtonElement).click();
-      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('offset=0')));
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('offset=0'))
+      );
     });
   });
 
@@ -1283,7 +1457,11 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
   });
 
   test('a script load failure does not permanently poison the loader: the next render re-injects a fresh <script> and can succeed', async () => {
-    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    vi.stubGlobal('Plotly', {
+      newPlot: vi.fn((el) => {
+        el.data = [];
+      }),
+    });
     stubFetchRouting();
 
     /** @type {InjectedScript[]} */
@@ -1327,7 +1505,11 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
   });
 
   test('concurrent renderTimeseriesChart calls coalesce onto one _plotlyLoading promise (exactly one <script> injected)', async () => {
-    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    vi.stubGlobal('Plotly', {
+      newPlot: vi.fn((el) => {
+        el.data = [];
+      }),
+    });
     /** @type {InjectedScript[]} */
     const scriptAppends = [];
     vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
@@ -1340,8 +1522,12 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
     });
 
     const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
-    const elA = /** @type {HTMLDivElement & { data?: unknown[] }} */ (document.createElement('div'));
-    const elB = /** @type {HTMLDivElement & { data?: unknown[] }} */ (document.createElement('div'));
+    const elA = /** @type {HTMLDivElement & { data?: unknown[] }} */ (
+      document.createElement('div')
+    );
+    const elB = /** @type {HTMLDivElement & { data?: unknown[] }} */ (
+      document.createElement('div')
+    );
     const chartData = makeChartData();
 
     // Two callers racing the same not-yet-loaded Plotly: both start before
@@ -1366,7 +1552,11 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
   // the meta wins when present, the vendored spelling survives without it.
 
   test('the injected <script> src comes from the osprey-vendor-plotly meta when the page carries one', async () => {
-    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    vi.stubGlobal('Plotly', {
+      newPlot: vi.fn((el) => {
+        el.data = [];
+      }),
+    });
     stubFetchRouting();
 
     const meta = document.createElement('meta');
@@ -1387,7 +1577,8 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
     });
 
     try {
-      const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
+      const fresh =
+        await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
       const container = document.createElement('div');
       await fresh.renderTimeseriesView(container, { id: 'ts1' });
 
@@ -1399,7 +1590,11 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
   });
 
   test('without the meta the loader falls back to the vendored path', async () => {
-    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    vi.stubGlobal('Plotly', {
+      newPlot: vi.fn((el) => {
+        el.data = [];
+      }),
+    });
     stubFetchRouting();
 
     /** @type {InjectedScript[]} */

@@ -34,7 +34,9 @@ function rows() {
 
 /** The rendered label text of every row, in order. @returns {string[]} */
 function rowLabels() {
-  return rows().map((r) => /** @type {string} */ (r.querySelector('.rail-context-label')?.textContent));
+  return rows().map(
+    (r) => /** @type {string} */ (r.querySelector('.rail-context-label')?.textContent)
+  );
 }
 
 /**
@@ -138,7 +140,12 @@ describe('openContextMenu — DOM contract', () => {
 
   test('only one menu is open at a time — a second replaces the first', () => {
     openServiceMenu();
-    openContextMenu({ x: 0, y: 0, ariaLabel: 'Lattice actions', items: [{ label: 'Focus Lattice' }] });
+    openContextMenu({
+      x: 0,
+      y: 0,
+      ariaLabel: 'Lattice actions',
+      items: [{ label: 'Focus Lattice' }],
+    });
 
     expect(document.querySelectorAll('.rail-context-menu')).toHaveLength(1);
     expect(menu()?.getAttribute('aria-label')).toBe('Lattice actions');
@@ -306,7 +313,6 @@ describe('dismissal', () => {
 
     expect(document.activeElement).toBe(other);
   });
-
 });
 
 describe('focus hand-back', () => {
@@ -366,7 +372,6 @@ describe('focus hand-back', () => {
       expect(document.activeElement).not.toBe(entry);
     }
   });
-
 });
 
 describe('running an item', () => {
@@ -379,7 +384,12 @@ describe('running an item', () => {
       y: 0,
       anchorEl: entry,
       ariaLabel: 'ARIEL actions',
-      items: [{ label: 'Focus ARIEL', run: () => seen.push({ open: isContextMenuOpen(), focus: document.activeElement }) }],
+      items: [
+        {
+          label: 'Focus ARIEL',
+          run: () => seen.push({ open: isContextMenuOpen(), focus: document.activeElement }),
+        },
+      ],
     });
 
     rows()[0].click();
@@ -404,5 +414,4 @@ describe('running an item', () => {
 
     expect(document.activeElement).toBe(target);
   });
-
 });

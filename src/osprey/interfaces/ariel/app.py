@@ -600,7 +600,7 @@ def run_web(
     announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
     login_url = mint_and_announce(host, port)
     if announce:
-        print(f"Open: {login_url}")
+        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
 
     if reload:
         # Reload mode requires a string import path (uvicorn re-imports on

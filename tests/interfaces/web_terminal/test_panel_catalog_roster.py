@@ -118,5 +118,5 @@ def test_every_rail_glyph_is_a_basic_plane_codepoint() -> None:
 
 
 def test_the_vitest_label_fixture_matches_the_registry() -> None:
-    pairs = dict(re.findall(r"'([\w-]+)': '([A-Z-]+)'", _FIXTURE.read_text()))
+    pairs = dict(re.findall(r"'?([\w-]+)'?: '([A-Z-]+)'", _FIXTURE.read_text()))
     assert pairs == BUILTIN_PANEL_LABELS

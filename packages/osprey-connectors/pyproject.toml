@@ -1,5 +1,7 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+# setuptools-scm >= 9.2 for `scm.git.describe_command` below (the 8.x line hatch-vcs
+# still admits has no `scm` table and refuses the keyword).
+requires = ["hatchling", "hatch-vcs", "setuptools-scm>=9.2"]
 build-backend = "hatchling.build"
 
 [project]
@@ -51,18 +53,36 @@ source = "vcs"
 # this package's calendar tags: the framework's v-tags start with `v`, and the
 # `2[0-9][0-9][0-9]` year skips the retired osprey-connectors-v0.1.0 (PyPI
 # already carries 0.1.0, so a dev build rebased onto it would sort below every
-# calendar release). `tag_regex` then strips the prefix the default regex would
-# choke on. With no matching tag reachable the backend yields 0.0.postN+g…,
-# which the framework's floor refuses — so a fresh clone needs the tags fetched,
-# and a fork or mirror must sync the osprey-connectors-v* tags.
-# tests/osprey_connectors_tests/test_version.py pins the glob and the regex.
-raw-options = { root = "../..", version_scheme = "post-release", tag_regex = '^osprey-connectors-v(?P<version>2[0-9]{3}\..+)$', git_describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-connectors-v2[0-9][0-9][0-9].*" }
+# calendar release). The backend's default tag regex then parses what the glob
+# found: its optional dashed-words prefix (`osprey-connectors-`) and leading `v`
+# are stripped, leaving the calendar version. With no matching tag reachable
+# the backend yields 0.0.postN+g…, which the framework's floor refuses — so a
+# fresh clone needs the tags fetched, and a fork or mirror must sync the
+# osprey-connectors-v* tags.
+#
+# The describe command sits in the `scm.git` table, not the flat
+# `git_describe_command` key, and there is no `tag_regex`: setuptools-scm 10
+# (vcs-versioning 2) deprecates both flat keys, in favour of `scm.git.describe_command`
+# and `tag.regex`, and warns on every build that passes them. hatch-vcs 0.5 hands
+# raw-options to setuptools-scm's get_version(), which takes the `scm` table but
+# has no `tag` parameter, so a non-default regex cannot be passed without the
+# deprecated key — and none is needed. (The warnings read "Configuration field
+# 'git_describe_command' is deprecated. Use 'scm.git.describe_command' instead."
+# and "get_version() parameter 'tag_regex' is deprecated.")
+# tests/osprey_connectors_tests/test_version.py pins the glob, the absence of a
+# regex override, and a warning-free derivation.
+raw-options = { root = "../..", version_scheme = "post-release", scm = { git = { describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-connectors-v2[0-9][0-9][0-9].*" } } }
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/osprey_connectors/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey_connectors"]
+
+# Unreleased changelog fragments are repository workflow, not package content:
+# the release fold empties the directory into CHANGELOG.md, which does ship.
+[tool.hatch.build.targets.sdist]
+exclude = ["changelog.d"]
 
 # The package suite's test dependencies: a group, not an extra, so they never
 # reach the wheel's metadata. `uv sync --package osprey-connectors` installs it.

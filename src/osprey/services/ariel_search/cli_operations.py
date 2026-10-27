@@ -558,8 +558,9 @@ async def _attachments_status(config: ARIELConfig, repository: ARIELRepository) 
     status call can know: ``bytes`` (the on-disk size of ``attachment_files``,
     ``None`` when the store cannot size it), ``pending`` and ``skipped`` (the
     copy-state counts, ``{code: count}`` for skips; both ``None`` while the
-    schema predates the copy state) and ``render`` (``ok`` when a render worker
-    can be spawned, else ``unavailable``).
+    schema predates the copy state), ``render`` (``ok`` when a render worker
+    can be spawned, else ``unavailable``) and ``render_unavailable`` (why no
+    worker could be spawned, ``None`` when ``render`` is ``ok``).
     """
     from osprey.imaging.render import probe_render_worker
     from osprey.services.ariel_search.capabilities import attachments_capability
@@ -575,12 +576,14 @@ async def _attachments_status(config: ARIELConfig, repository: ARIELRepository) 
     if (await repository.schema_facts()).has_copy_state:
         pending, skipped = await repository.get_attachment_copy_counts()
 
+    render_reason = await probe_render_worker()
     return {
         **attachments_capability(config),
         "bytes": size,
         "pending": pending,
         "skipped": skipped,
-        "render": "ok" if await probe_render_worker() else "unavailable",
+        "render": "ok" if render_reason is None else "unavailable",
+        "render_unavailable": render_reason,
     }
 
 

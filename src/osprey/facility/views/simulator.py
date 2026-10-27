@@ -150,6 +150,23 @@ _WIRING_ENTRY_KEYS = (
 #: The file a model record comes from when no source states it.
 _MODELS_FILE = "models.yaml"
 
+#: The channels and models last wired and each model's wiring of them, keyed on
+#: the model and the ``describe`` that described it: every render of one build
+#: hands in the same document and asks for the same models from several views,
+#: so each model is described by its engine once per build. Keyed on the two
+#: lists the wiring reads rather than on the document, because the pyAML view
+#: hands in a shallow copy of it, which shares them. Two slots: a render's views
+#: wire the build's document while its approval hook wires the render's own
+#: ``facility.json``, and the two alternate in every render.
+_wired: list[tuple[Any, Any, dict[tuple[str, Any], list[dict[str, Any]]]]] = []
+_WIRED_SLOTS = 2
+
+#: The ``entry_points`` last asked for the engine group and its answer. Reading
+#: the group scans every installed distribution's metadata, so it is read once
+#: per ``entry_points``: a replaced one (a test registering an engine) is asked
+#: again.
+_engines: tuple[Callable[..., Any], Any] | None = None
+
 
 def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, Any]]:
     """The wiring entries of one model, in the facility file's record order.
@@ -179,31 +196,46 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
             registered; ``engine-invalid`` when it has no ``describe``, or a
             description contradicts the facility file.
     """
-    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
     for entry in facility.get("models", []):
         if entry["name"] == model:
-            records = entry.get("wiring", [])
-            describe = _describer(entry) if records and entry.get("engine") != TEXTURE else None
-            pairs = _setpoint_pairs(channels.values())
-            wiring: list[dict[str, Any]] = []
-            for record in records:
-                source = dict(record)
-                if describe is not None:
-                    description = describe(record)
-                    _check_description(entry, record, description, pairs)
-                    source.update({key: description[key] for key in _DESCRIPTION_KEYS})
-                wiring.append(
-                    {
-                        **{
-                            key: copy.deepcopy(source[key])
-                            for key in _WIRING_ENTRY_KEYS
-                            if key in source
-                        },
-                        **_waveform(channels.get(str(record["address"]), {})),
-                    }
-                )
-            return wiring
-    raise KeyError(f"the facility file has no model {model!r}")
+            break
+    else:
+        raise KeyError(f"the facility file has no model {model!r}")
+    records = entry.get("wiring", [])
+    describe = _describer(entry) if records and entry.get("engine") != TEXTURE else None
+    channels, models = facility.get("channels"), facility.get("models")
+    slot = next((s for s in _wired if s[0] is channels and s[1] is models), None)
+    if slot is None:
+        slot = (channels, models, {})
+        _wired[:] = [slot, *_wired[: _WIRED_SLOTS - 1]]
+    wiring = slot[2].get((model, describe))
+    if wiring is None:
+        wiring = slot[2][(model, describe)] = _wire(facility, entry, describe)
+    return copy.deepcopy(wiring)
+
+
+def _wire(
+    facility: FacilityDocument,
+    entry: Mapping[str, Any],
+    describe: Callable[[Any], Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
+    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
+    pairs = _setpoint_pairs(channels.values())
+    wiring: list[dict[str, Any]] = []
+    for record in entry.get("wiring", []):
+        source = dict(record)
+        if describe is not None:
+            description = describe(record)
+            _check_description(entry, record, description, pairs)
+            source.update({key: description[key] for key in _DESCRIPTION_KEYS})
+        wiring.append(
+            {
+                **{key: copy.deepcopy(source[key]) for key in _WIRING_ENTRY_KEYS if key in source},
+                **_waveform(channels.get(str(record["address"]), {})),
+            }
+        )
+    return wiring
 
 
 #: The keys an engine's description gives a wiring entry.
@@ -217,8 +249,11 @@ def _describer(model: Mapping[str, Any]) -> Callable[[Any], Mapping[str, Any]]:
     from osprey.facility.validate import stating_files
     from osprey.simulation.engines import ENTRY_POINT_GROUP
 
+    global _engines
     name = str(model["name"])
-    engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
+    if _engines is None or _engines[0] is not metadata.entry_points:
+        _engines = (metadata.entry_points, metadata.entry_points(group=ENTRY_POINT_GROUP))
+    engines = _engines[1]
     engine = model.get("engine")
     if engine not in engines.names:
         raise FacilityBuildError(
@@ -229,7 +264,7 @@ def _describer(model: Mapping[str, Any]) -> Callable[[Any], Mapping[str, Any]]:
             record_kind="model",
             detail=f"engine {engine} is not registered under {ENTRY_POINT_GROUP}",
         )
-    describe = getattr(engines[engine].load(), "describe", None)
+    describe = getattr(engines[str(engine)].load(), "describe", None)
     if describe is None:
         raise FacilityBuildError(
             "engine-invalid",

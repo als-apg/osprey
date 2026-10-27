@@ -4,7 +4,7 @@
 constant sized like the Python lane's per-test cap (``pytest --timeout=600``).
 It detects a hang; it is never a speed budget, so nothing may lower it: not a
 test's own timeout argument, not ``vi.setConfig``, not a CLI flag in an npm
-script, a CI step or a shell script.
+script, a CI step or a command scripts/check.py declares.
 
 Each check is a pure function over source text, run once on the real tree and
 once per mutation on an in-memory edited copy that must make it fail. Nothing
@@ -15,10 +15,12 @@ are read with ``yaml.safe_load``, never by a text match over the YAML.
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import re
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -362,10 +364,22 @@ def _workflows() -> dict[str, Any]:
     }
 
 
-def _shell_scripts() -> dict[str, str]:
-    return {
-        path.name: path.read_text(encoding="utf-8") for path in sorted(SCRIPTS_DIR.glob("*.sh"))
-    }
+CHECK_SCRIPT = SCRIPTS_DIR / "check.py"
+
+
+def _check_commands() -> dict[str, str]:
+    """The commands the check command declares, one line per check, keyed by
+    the script's name: the local callers of vitest run through it."""
+    name = "_check_by_path_for_hang_bound"
+    spec = importlib.util.spec_from_file_location(name, CHECK_SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    # Registered before it runs, so its dataclasses resolve their module.
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    lines = [shlex.join(check.argv) for check in module.CHECKS if check.argv]
+    assert any("vitest" in line for line in lines), "check.py declares no vitest command"
+    return {CHECK_SCRIPT.name: "\n".join(lines) + "\n"}
 
 
 # --------------------------------------------------------------------------- #
@@ -466,13 +480,13 @@ def test_no_js_test_lowers_the_hang_bound_reads_only_test_calls(path: str, snipp
 
 
 def test_no_invocation_lowers_the_hang_bound() -> None:
-    assert invocation_problems(_package(), _workflows(), _shell_scripts()) == []
+    assert invocation_problems(_package(), _workflows(), _check_commands()) == []
 
 
 def test_no_invocation_lowers_the_hang_bound_refuses_an_npm_script() -> None:
     package = copy.deepcopy(_package())
     package["scripts"]["test:js"] = "vitest run --testTimeout=5000"
-    assert invocation_problems(package, _workflows(), _shell_scripts()) != []
+    assert invocation_problems(package, _workflows(), _check_commands()) != []
 
 
 def test_no_invocation_lowers_the_hang_bound_refuses_a_ci_step() -> None:
@@ -485,9 +499,10 @@ def test_no_invocation_lowers_the_hang_bound_refuses_a_ci_step() -> None:
     ]
     assert len(steps) == 1
     steps[0]["run"] += " -- --hook-timeout 5000"
-    assert invocation_problems(_package(), workflows, _shell_scripts()) != []
+    assert invocation_problems(_package(), workflows, _check_commands()) != []
 
 
-def test_no_invocation_lowers_the_hang_bound_refuses_a_shell_script() -> None:
-    scripts = {**_shell_scripts(), "gate.sh": "npx vitest run --test-timeout=1000\n"}
+def test_no_invocation_lowers_the_hang_bound_refuses_a_check() -> None:
+    ((name, text),) = _check_commands().items()
+    scripts = {name: text + "npx vitest run --test-timeout=1000\n"}
     assert invocation_problems(_package(), _workflows(), scripts) != []

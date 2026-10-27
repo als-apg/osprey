@@ -44,21 +44,36 @@ import pytest
 
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
 
-# import-time required because libca latches the EPICS_CA_* environment when
-# the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Loopback only, on ports reserved for the process
-# unless the environment pins them, with the server and CAS ports equal -- a
-# search reply carries the server's own port, so a server listening anywhere
-# else hands clients a dead address. The spawned server inherits the same
-# values and reserves nothing.
-os.environ.setdefault("EPICS_CA_ADDR_LIST", "127.0.0.1")
-os.environ.setdefault("EPICS_CA_AUTO_ADDR_LIST", "NO")
-if multiprocessing.parent_process() is None:
-    for _name in ("EPICS_CA_SERVER_PORT", "EPICS_CA_REPEATER_PORT"):
-        if _name not in os.environ:
-            (_port,) = hold_ports(1)
-            os.environ[_name] = str(_port)
-os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"])
+# Loopback only, on a Channel Access port of this module's own -- an inherited
+# EPICS_CA_SERVER_PORT may be one another module's server already listens on --
+# with the server and CAS ports equal: a search reply carries the server's own
+# port, so a server listening anywhere else hands clients a dead address. The
+# port is reserved in the pytest process alone and held for the process's life;
+# a spawned server process imports this module again and takes the port from
+# the environment its parent hands it.
+CA_PORT = (
+    str(hold_ports(1)[0])
+    if multiprocessing.parent_process() is None
+    else os.environ["EPICS_CA_SERVER_PORT"]
+)
+# What this module's client searches with. libca reads its settings once, when
+# the process's CA context is created, and other modules collected into the same
+# process write their own at import (test_lume_pva_seam.py names an address list
+# of its own servers). So these are not written into os.environ at import: `live`
+# hands them to CaLoop.point_at just before its first CA call, which writes them
+# and drops a context already created under different ones, whichever module ran
+# first.
+CA_CLIENT_ENV: dict[str, str | None] = {
+    "EPICS_CA_ADDR_LIST": f"127.0.0.1:{CA_PORT}",
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_SERVER_PORT": CA_PORT,
+    "EPICS_CA_NAME_SERVERS": None,
+}
+# import-time required because libca reads the repeater port when the first CA
+# context in the process is created, which may be another module's, before any
+# of this module's fixtures run; point_at does not carry it.
+if multiprocessing.parent_process() is None and "EPICS_CA_REPEATER_PORT" not in os.environ:
+    os.environ["EPICS_CA_REPEATER_PORT"] = str(hold_ports(1)[0])
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -432,9 +447,14 @@ def live(tmp_path_factory: pytest.TempPathFactory) -> Iterator[_Served]:
             "EPICS_PVAS_BROADCAST_PORT": str(pvas_broadcast_port),
             "EPICS_PVAS_AUTO_BEACON_ADDR_LIST": "NO",
             "EPICS_PVAS_BEACON_ADDR_LIST": "127.0.0.1",
+            "EPICS_CA_SERVER_PORT": CA_PORT,
+            "EPICS_CAS_SERVER_PORT": CA_PORT,
             "EPICS_CAS_AUTO_BEACON_ADDR_LIST": "NO",
             "EPICS_CAS_BEACON_ADDR_LIST": "127.0.0.1",
         }
+        from osprey_connectors.control_system._ca_loop import get_ca_loop
+
+        _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
         served = _Served(env)
         try:
             deadline = time.monotonic() + STARTUP_TIMEOUT_S

@@ -171,7 +171,12 @@ function adoptSubtree(subtree) {
   const host = document.createElement('div');
   host.className = 'dock-panel-host';
   host.appendChild(subtree);
-  return { element: host, init() { /* content is pre-rendered page DOM */ } };
+  return {
+    element: host,
+    init() {
+      /* content is pre-rendered page DOM */
+    },
+  };
 }
 
 /**
@@ -288,8 +293,11 @@ export function initDockWorkspace() {
  * @returns {boolean}
  */
 function isStackingDrop(e) {
-  return e.kind === 'tab' || e.kind === 'header_space'
-    || (e.kind === 'content' && e.position === 'center');
+  return (
+    e.kind === 'tab' ||
+    e.kind === 'header_space' ||
+    (e.kind === 'content' && e.position === 'center')
+  );
 }
 
 /**
@@ -578,7 +586,9 @@ function applyStoredLayout(api, mode) {
     console.error('dock: stored layout failed to apply; using the default', err);
     try {
       localStorage.removeItem(key);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
     return false;
   }
 }
@@ -603,7 +613,9 @@ async function initPersistence(api) {
     if (info && typeof info.project_key === 'string' && info.project_key) {
       projectKey = info.project_key;
     }
-  } catch { /* offline / endpoint error — no persistence this session */ }
+  } catch {
+    /* offline / endpoint error — no persistence this session */
+  }
   if (!projectKey) {
     announceLayoutRestored();
     return;
@@ -632,7 +644,9 @@ export function resetDockLayout() {
   if (key) {
     try {
       localStorage.removeItem(key);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
   if (!dockApi) return;
   if (mode === 'simple') applySimpleDefault(dockApi);
@@ -672,7 +686,9 @@ function stashLayout(api, mode) {
   if (!key) return;
   try {
     localStorage.setItem(key, JSON.stringify(api.toJSON()));
-  } catch { /* storage blocked/full — the layout still lives for this session */ }
+  } catch {
+    /* storage blocked/full — the layout still lives for this session */
+  }
 }
 
 /**
@@ -689,8 +705,10 @@ function stashLayout(api, mode) {
  */
 function applySimpleDefault(api) {
   const registered = currentRegisteredPanels(api);
-  const terminal = registered.find((p) => p.id === PANEL_TERMINAL)
-    ?? { id: PANEL_TERMINAL, contentComponent: PANEL_TERMINAL };
+  const terminal = registered.find((p) => p.id === PANEL_TERMINAL) ?? {
+    id: PANEL_TERMINAL,
+    contentComponent: PANEL_TERMINAL,
+  };
   const placeholders = registered.filter((p) => p.id.startsWith(PLACEHOLDER_PREFIX));
   const activeId = api.activePanel?.id;
   const service = placeholders.find((p) => p.id === activeId) ?? placeholders[0] ?? null;
@@ -702,7 +720,7 @@ function applySimpleDefault(api) {
       api,
       service,
       { referencePanel: PANEL_TERMINAL, direction: 'left' },
-      defaultServiceWidth(),
+      defaultServiceWidth()
     );
   }
 }

@@ -23,9 +23,9 @@ function isBlock(value) {
  * @returns {string[]}
  */
 function leafKeys(obj, prefix) {
-  return Object.entries(obj).flatMap(([key, value]) => (
+  return Object.entries(obj).flatMap(([key, value]) =>
     isBlock(value) ? leafKeys(value, `${prefix}.${key}`) : [`${prefix}.${key}`]
-  ));
+  );
 }
 
 /** @returns {HTMLElement} */

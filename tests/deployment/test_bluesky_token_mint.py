@@ -356,7 +356,7 @@ def test_deploy_up_routes_each_var_through_its_own_generator(
 # ---------------------------------------------------------------------------
 # _VAR_VALIDATORS — deploy-boundary validation of the effective value (F1/F3)
 #
-# _ensure_service_tokens(config, expose_network=False, env_path=...) is the
+# Calling _ensure_service_tokens with expose_network=False is the
 # DEFAULT loopback deploy path: a build that publishes only on 127.0.0.1. These
 # tests call it directly, mirroring test_ensure_service_tokens_writes_an_
 # alphanumeric_tiled_key_every_time above, to prove the boundary check fires

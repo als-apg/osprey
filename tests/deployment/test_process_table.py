@@ -68,7 +68,8 @@ class _FakeProcess:
         return dict(self.info)
 
 
-def test_a_process_vanishing_mid_read_is_absent_not_fatal(monkeypatch):
+@pytest.mark.parametrize("refusal", [ProcessLookupError, PermissionError])
+def test_a_process_vanishing_mid_read_is_absent_not_fatal(monkeypatch, refusal):
     processes = [
         _FakeProcess(4201, 1, ["python", "magnet_scan.py"]),
         _FakeProcess(4202, 1, ["sleep", "60"]),
@@ -77,7 +78,7 @@ def test_a_process_vanishing_mid_read_is_absent_not_fatal(monkeypatch):
 
     def getpgid(pid: int) -> int:
         if pid == 4202:
-            raise ProcessLookupError(pid)
+            raise refusal(pid)
         return pid
 
     monkeypatch.setattr(process_table.psutil, "process_iter", lambda *a, **k: iter(processes))

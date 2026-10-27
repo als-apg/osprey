@@ -35,6 +35,7 @@ from osprey.services.ariel_search.search.qmd import (
     MAX_FETCH_LIMIT,
     OVERFETCH_FACTOR,
     RRF_K,
+    SEMANTIC_UNAVAILABLE_MESSAGE,
     HybridSearchSettings,
     _RankedTextHit,
     _rrf_hits,
@@ -1160,6 +1161,45 @@ class TestReciprocalRankFusion:
         assert [call["search_types"] for call in client.calls] == [("lex",)]
         assert repository.semantic_calls[0]["model_name"] == "nomic-embed-text"
         assert repository.semantic_calls[0]["similarity_threshold"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_a_timed_out_semantic_lane_keeps_the_keyword_hits(
+        self, monkeypatch, search_calls
+    ):
+        """A hung embedding provider costs hybrid its semantic lane, not its answer."""
+        from osprey.services.ariel_search.exceptions import SearchTimeoutError
+        from osprey.services.ariel_search.search import semantic
+
+        async def timed_out(*_args: Any, **_kwargs: Any) -> Any:
+            raise SearchTimeoutError(
+                message="query embedding exceeded 5s",
+                timeout_seconds=5,
+                operation="query embedding",
+            )
+
+        monkeypatch.setattr(semantic, "semantic_search", timed_out)
+        entries = [make_entry(entry_id) for entry_id in ("first", "second")]
+        client = StubClient([make_hit("first"), make_hit("second")])
+
+        output = await hybrid_search(
+            "beam problem",
+            SemanticRepository(entries, []),
+            make_semantic_config({"strategy": "rrf"}),
+            StubEmbedder(),
+            client=client,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(output, ModuleOutput)
+        assert [entry["entry_id"] for entry, _score, _snippet in output.entries] == [
+            "first",
+            "second",
+        ]
+        (diagnostic,) = output.diagnostics
+        assert diagnostic.level is DiagnosticLevel.WARNING
+        assert diagnostic.source == "hybrid"
+        assert diagnostic.category == "semantic_search"
+        assert diagnostic.message == SEMANTIC_UNAVAILABLE_MESSAGE
 
 
 class TestRerankFallback:

@@ -21,6 +21,8 @@ import {
   directionOf,
   fmt,
   deviceAddresses,
+  FINDER_IDS,
+  skeletonHtml,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-render.js';
 
 const PAYLOAD = '<img src=x onerror=alert(1)>';
@@ -52,8 +54,8 @@ function assertInert(html, label) {
   const container = parse(html);
   expect(container.querySelector('img'), `${label}: no live <img> node`).toBeNull();
   expect(container.querySelector('script'), `${label}: no live <script> node`).toBeNull();
-  const hasOnAttr = [...container.querySelectorAll('*')].some(el =>
-    [...el.attributes].some(attr => attr.name.startsWith('on'))
+  const hasOnAttr = [...container.querySelectorAll('*')].some((el) =>
+    [...el.attributes].some((attr) => attr.name.startsWith('on'))
   );
   expect(hasOnAttr, `${label}: no on* event-handler attribute`).toBe(false);
   // Nothing named onerror survived as an attribute anywhere.
@@ -80,26 +82,35 @@ function makeState(over = {}) {
 /** A facets payload covering all five groups. */
 function makeFacets() {
   return {
-    section: [{ value: 'SR', count: 12 }, { value: 'BR', count: 3 }],
+    section: [
+      { value: 'SR', count: 12 },
+      { value: 'BR', count: 3 },
+    ],
     system: [{ value: 'MAG', count: 9 }],
     class: [{ value: 'http://x/Quadrupole', count: 4 }],
     signal: [{ value: 'current', count: 7 }],
-    dir: [{ value: 'R', count: 5 }, { value: 'W', count: 2 },
-      { value: 'RW', count: 1 }, { value: 'none', count: 6 }],
+    dir: [
+      { value: 'R', count: 5 },
+      { value: 'W', count: 2 },
+      { value: 'RW', count: 1 },
+      { value: 'none', count: 6 },
+    ],
   };
 }
 
 /** A two-level ontology forest. */
 function makeTree() {
-  return [{
-    uri: 'http://x/Magnet',
-    name: 'Magnet',
-    abstract: true,
-    children: [
-      { uri: 'http://x/Quadrupole', name: 'Quadrupole', abstract: false, children: [] },
-      { uri: 'http://x/Dipole', name: 'Dipole', abstract: false, children: [] },
-    ],
-  }];
+  return [
+    {
+      uri: 'http://x/Magnet',
+      name: 'Magnet',
+      abstract: true,
+      children: [
+        { uri: 'http://x/Quadrupole', name: 'Quadrupole', abstract: false, children: [] },
+        { uri: 'http://x/Dipole', name: 'Dipole', abstract: false, children: [] },
+      ],
+    },
+  ];
 }
 
 /**
@@ -159,7 +170,7 @@ test('facetRailHtml renders every facet group as buttons carrying the click cont
     expect(el.hasAttribute('data-value')).toBe(true);
   }
 
-  const facetsUsed = new Set(items.map(el => el.getAttribute('data-facet')));
+  const facetsUsed = new Set(items.map((el) => el.getAttribute('data-facet')));
   expect(facetsUsed).toEqual(new Set(['section', 'system', 'cls', 'signal', 'dir']));
 
   const section = container.querySelector('[data-facet="section"][data-value="SR"]');
@@ -188,8 +199,7 @@ test('facetRailHtml marks the active multi-select values with .on', () => {
   });
   const container = parse(facetRailHtml(makeFacets(), makeTree(), state));
 
-  const on = (/** @type {string} */ sel) =>
-    container.querySelector(sel)?.classList.contains('on');
+  const on = (/** @type {string} */ sel) => container.querySelector(sel)?.classList.contains('on');
 
   expect(on('[data-facet="section"][data-value="SR"]')).toBe(true);
   expect(on('[data-facet="section"][data-value="BR"]')).toBe(false);
@@ -213,8 +223,10 @@ test('facetRailHtml renders the ontology tree indented, merged with the class co
 
   const clsItems = [...container.querySelectorAll('[data-facet="cls"]')];
   // Forest order is pre-order: parent first, then its children.
-  expect(clsItems.map(el => el.getAttribute('data-value'))).toEqual([
-    'http://x/Magnet', 'http://x/Quadrupole', 'http://x/Dipole',
+  expect(clsItems.map((el) => el.getAttribute('data-value'))).toEqual([
+    'http://x/Magnet',
+    'http://x/Quadrupole',
+    'http://x/Dipole',
   ]);
   expect(clsItems[0].getAttribute('data-depth')).toBe('0');
   expect(clsItems[1].getAttribute('data-depth')).toBe('1');
@@ -293,14 +305,16 @@ test('facetRailHtml escapes every store-sourced facet value and tree name', () =
 // ---------------------------------------------------------------------------
 
 test('chipsHtml renders one removal button per active filter', () => {
-  const container = parse(chipsHtml([
-    { key: 'q', label: '"qfa current"' },
-    { key: 'section:SR', label: 'section SR' },
-  ]));
+  const container = parse(
+    chipsHtml([
+      { key: 'q', label: '"qfa current"' },
+      { key: 'section:SR', label: 'section SR' },
+    ])
+  );
 
   const chips = [...container.querySelectorAll('.active-filter')];
   expect(chips.length).toBe(2);
-  expect(chips.map(el => el.getAttribute('data-chip'))).toEqual(['q', 'section:SR']);
+  expect(chips.map((el) => el.getAttribute('data-chip'))).toEqual(['q', 'section:SR']);
   for (const chip of chips) {
     expect(chip.tagName).toBe('BUTTON');
     expect(chip.getAttribute('type')).toBe('button');
@@ -368,8 +382,10 @@ test('resultsHtml reflects the selection in the row checkboxes', () => {
 
   const boxes = [...container.querySelectorAll('tbody input[type="checkbox"]')];
   expect(boxes.length).toBe(2);
-  expect(boxes.map(el => el.getAttribute('data-pv')))
-    .toEqual(['SR:QF1:current', 'SR:QF2:current']);
+  expect(boxes.map((el) => el.getAttribute('data-pv'))).toEqual([
+    'SR:QF1:current',
+    'SR:QF2:current',
+  ]);
   expect(/** @type {HTMLInputElement} */ (boxes[0]).checked).toBe(false);
   expect(/** @type {HTMLInputElement} */ (boxes[1]).checked).toBe(true);
 });
@@ -392,7 +408,8 @@ test('resultsHtml checks the header box only when every row on the page is selec
 test('resultsHtml leaves the header box unchecked on an empty page', () => {
   const container = parse(resultsHtml([], makeState()));
   const box = /** @type {HTMLInputElement | null} */ (
-    container.querySelector('thead input[data-select-page]'));
+    container.querySelector('thead input[data-select-page]')
+  );
   expect(box?.checked).toBe(false);
   expect(container.querySelector('tbody')?.textContent).toContain('No channels match');
 });
@@ -422,7 +439,8 @@ test('footerHtml disables every selection action at zero selection', () => {
 
   for (const action of ['copy', 'send', 'clear']) {
     const btn = /** @type {HTMLButtonElement | null} */ (
-      container.querySelector(`[data-action="${action}"]`));
+      container.querySelector(`[data-action="${action}"]`)
+    );
     expect(btn, `${action} button present`).not.toBeNull();
     expect(btn?.disabled, `${action} disabled at zero selection`).toBe(true);
     expect(btn?.getAttribute('type')).toBe('button');
@@ -434,7 +452,8 @@ test('footerHtml enables the selection actions once something is selected', () =
 
   for (const action of ['copy', 'send', 'clear']) {
     const btn = /** @type {HTMLButtonElement} */ (
-      container.querySelector(`[data-action="${action}"]`));
+      container.querySelector(`[data-action="${action}"]`)
+    );
     expect(btn.disabled, `${action} enabled with a selection`).toBe(false);
   }
   expect(container.textContent).toContain('2 selected');
@@ -451,10 +470,10 @@ test('footerHtml renders Send only when embedded', () => {
 });
 
 test('footerHtml disables the pager at both bounds', () => {
-  const prevOf = (/** @type {HTMLElement} */ c) => /** @type {HTMLButtonElement} */ (
-    c.querySelector('[data-page="prev"]'));
-  const nextOf = (/** @type {HTMLElement} */ c) => /** @type {HTMLButtonElement} */ (
-    c.querySelector('[data-page="next"]'));
+  const prevOf = (/** @type {HTMLElement} */ c) =>
+    /** @type {HTMLButtonElement} */ (c.querySelector('[data-page="prev"]'));
+  const nextOf = (/** @type {HTMLElement} */ c) =>
+    /** @type {HTMLButtonElement} */ (c.querySelector('[data-page="next"]'));
 
   const first = parse(footerHtml(120, 30, 1, 3, 0, true));
   expect(prevOf(first).disabled).toBe(true);
@@ -542,7 +561,8 @@ test('deviceCardHtml renders the device fields and a close control', () => {
   expect(container.querySelector('.device-card-head .name')?.textContent).toContain('QF1');
 
   const close = /** @type {HTMLButtonElement | null} */ (
-    container.querySelector('[data-action="close-card"]'));
+    container.querySelector('[data-action="close-card"]')
+  );
   expect(close).not.toBeNull();
   expect(close?.tagName).toBe('BUTTON');
   expect(close?.getAttribute('type')).toBe('button');
@@ -565,7 +585,7 @@ test('deviceCardHtml draws each signal group as the endpoint sends it', () => {
   expect(rows.length).toBe(3);
 
   // The signal name is written once per group, on the group's first row.
-  const sigCells = rows.map(r => r.querySelector('td.sig')?.textContent?.trim());
+  const sigCells = rows.map((r) => r.querySelector('td.sig')?.textContent?.trim());
   expect(sigCells).toEqual(['current', '', 'status']);
 
   // Each binding keeps its own direction and address.
@@ -600,9 +620,13 @@ test('resultsHtml keeps the copy control hover-revealed', () => {
 });
 
 test('deviceCardHtml omits absent optional fields rather than printing undefined', () => {
-  const container = parse(deviceCardHtml({
-    device: 'QF1', section: 'SR', signals: [],
-  }));
+  const container = parse(
+    deviceCardHtml({
+      device: 'QF1',
+      section: 'SR',
+      signals: [],
+    })
+  );
   const text = container.textContent ?? '';
   expect(text).not.toContain('undefined');
   expect(text).not.toContain('null');
@@ -610,25 +634,31 @@ test('deviceCardHtml omits absent optional fields rather than printing undefined
 });
 
 test('deviceCardHtml escapes every store-sourced device field', () => {
-  const html = deviceCardHtml(makeDevice({
-    device: PAYLOAD,
-    device_uri: PAYLOAD,
-    section: PAYLOAD,
-    system: PAYLOAD,
-    class: PAYLOAD,
-    rawType: PAYLOAD,
-    systemDescription: PAYLOAD,
-    familyDescription: PAYLOAD,
-    signals: [{
-      uri: PAYLOAD,
-      name: PAYLOAD,
-      bindings: [{
-        fullPv: PAYLOAD,
-        edges: ['READSSIGNAL'],
-        description: PAYLOAD,
-      }],
-    }],
-  }));
+  const html = deviceCardHtml(
+    makeDevice({
+      device: PAYLOAD,
+      device_uri: PAYLOAD,
+      section: PAYLOAD,
+      system: PAYLOAD,
+      class: PAYLOAD,
+      rawType: PAYLOAD,
+      systemDescription: PAYLOAD,
+      familyDescription: PAYLOAD,
+      signals: [
+        {
+          uri: PAYLOAD,
+          name: PAYLOAD,
+          bindings: [
+            {
+              fullPv: PAYLOAD,
+              edges: ['READSSIGNAL'],
+              description: PAYLOAD,
+            },
+          ],
+        },
+      ],
+    })
+  );
 
   assertInert(html, 'deviceCardHtml');
   expect(parse(html).textContent).toContain(PAYLOAD);
@@ -641,7 +671,8 @@ test('deviceCardErrorHtml shows the server detail and keeps the close control', 
   expect(container.textContent).toContain('Device not found in the store.');
 
   const close = /** @type {HTMLButtonElement | null} */ (
-    container.querySelector('[data-action="close-card"]'));
+    container.querySelector('[data-action="close-card"]')
+  );
   expect(close).not.toBeNull();
   expect(close?.getAttribute('type')).toBe('button');
 });
@@ -662,14 +693,25 @@ const COLS = [
   { key: 'act', label: 'Copy', width: 36, pin: /** @type {'end'} */ ('end') },
 ];
 const ROW = {
-  fullPv: 'SR01C:QF1:SP', description: 'setpoint', device: 'QF1', device_uri: 'urn:QF1',
-  section: 'SR01C', system: 'MG', edges: ['WRITESSIGNAL'], signals: [{ uri: 'urn:s', name: 'current' }],
+  fullPv: 'SR01C:QF1:SP',
+  description: 'setpoint',
+  device: 'QF1',
+  device_uri: 'urn:QF1',
+  section: 'SR01C',
+  system: 'MG',
+  edges: ['WRITESSIGNAL'],
+  signals: [{ uri: 'urn:s', name: 'current' }],
 };
 
 test('the table draws the columns it is given, in order, with their cells', () => {
   const el = parse(resultsHtml([ROW], { selected: new Set() }, COLS));
-  expect([...el.querySelectorAll('thead th')].map((th) => th.getAttribute('data-col')))
-    .toEqual(['chk', 'address', 'device', 'system', 'act']);
+  expect([...el.querySelectorAll('thead th')].map((th) => th.getAttribute('data-col'))).toEqual([
+    'chk',
+    'address',
+    'device',
+    'system',
+    'act',
+  ]);
   const cells = [...el.querySelectorAll('tbody tr td')].map((td) => td.className);
   expect(cells).toEqual(['chk', 'pv', 'dev', 'sys', 'act']);
   expect(el.querySelector('td.sys')?.textContent).toBe('MG');
@@ -678,7 +720,13 @@ test('the table draws the columns it is given, in order, with their cells', () =
 test('the colgroup carries every width but the last data column, which fills', () => {
   const el = parse(resultsHtml([ROW], { selected: new Set() }, COLS));
   const cols = [...el.querySelectorAll('col')];
-  expect(cols.map((c) => /** @type {HTMLElement} */ (c).style.width)).toEqual(['30px', '200px', '150px', '', '36px']);
+  expect(cols.map((c) => /** @type {HTMLElement} */ (c).style.width)).toEqual([
+    '30px',
+    '200px',
+    '150px',
+    '',
+    '36px',
+  ]);
   expect(cols[3].hasAttribute('data-fill')).toBe(true);
   expect(/** @type {HTMLElement} */ (el.querySelector('table')).style.minWidth).toBe('486px');
 });
@@ -697,20 +745,30 @@ test('pinned headers are inert chrome; data headers sort, focus and carry a grip
 });
 
 test('the sorted column says so, to the eye and to assistive tech', () => {
-  const up = parse(resultsHtml([ROW], { selected: new Set(), sort: { key: 'device', dir: 'asc' } }, COLS));
+  const up = parse(
+    resultsHtml([ROW], { selected: new Set(), sort: { key: 'device', dir: 'asc' } }, COLS)
+  );
   expect(up.querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe('ascending');
   expect(up.querySelector('th[data-col="device"] .sort-mark')?.textContent).toBe('▲');
   expect(up.querySelector('th[data-col="address"] .sort-mark')).toBeNull();
-  const down = parse(resultsHtml([ROW], { selected: new Set(), sort: { key: 'device', dir: 'desc' } }, COLS));
+  const down = parse(
+    resultsHtml([ROW], { selected: new Set(), sort: { key: 'device', dir: 'desc' } }, COLS)
+  );
   expect(down.querySelector('th[data-col="device"]')?.getAttribute('aria-sort')).toBe('descending');
 });
 
 test('the table is one Tab stop: the named row, else the first', () => {
   const rows = [ROW, { ...ROW, fullPv: 'SR01C:QF1:RB' }];
   const first = parse(resultsHtml(rows, { selected: new Set() }, COLS));
-  expect([...first.querySelectorAll('tbody tr')].map((r) => r.getAttribute('tabindex'))).toEqual(['0', '-1']);
+  expect([...first.querySelectorAll('tbody tr')].map((r) => r.getAttribute('tabindex'))).toEqual([
+    '0',
+    '-1',
+  ]);
   const second = parse(resultsHtml(rows, { selected: new Set() }, COLS, 'SR01C:QF1:RB'));
-  expect([...second.querySelectorAll('tbody tr')].map((r) => r.getAttribute('tabindex'))).toEqual(['-1', '0']);
+  expect([...second.querySelectorAll('tbody tr')].map((r) => r.getAttribute('tabindex'))).toEqual([
+    '-1',
+    '0',
+  ]);
   const stale = parse(resultsHtml(rows, { selected: new Set() }, COLS, 'gone'));
   expect(stale.querySelector('tbody tr')?.getAttribute('tabindex')).toBe('0');
 });
@@ -732,11 +790,15 @@ const FACETS = { section: [{ value: 'SR01C', count: 3 }], system: [{ value: 'MG'
 test('a facet heading folds its group and shows a clear only while it filters', () => {
   const idle = parse(facetRailHtml(FACETS, [], { section: new Set(), system: new Set() }));
   const head = idle.querySelector('.facet[data-facet-group="section"] .facet-head');
-  expect(head?.querySelector('button[data-facet-toggle="section"]')?.getAttribute('aria-expanded')).toBe('true');
+  expect(
+    head?.querySelector('button[data-facet-toggle="section"]')?.getAttribute('aria-expanded')
+  ).toBe('true');
   expect(head?.querySelector('.facet-active')).toBeNull();
   expect(head?.querySelector('[data-clear-facet]')).toBeNull();
 
-  const busy = parse(facetRailHtml(FACETS, [], { section: new Set(['SR01C']), system: new Set() }, ['system']));
+  const busy = parse(
+    facetRailHtml(FACETS, [], { section: new Set(['SR01C']), system: new Set() }, ['system'])
+  );
   const section = busy.querySelector('.facet[data-facet-group="section"]');
   expect(section?.querySelector('.facet-active')?.textContent).toBe('1');
   expect(section?.querySelector('button[data-clear-facet="section"]')).not.toBeNull();
@@ -747,7 +809,9 @@ test('a facet heading folds its group and shows a clear only while it filters', 
 
 test('the class facet is keyed cls and counts its one selection', () => {
   const tree = [{ uri: 'urn:Dipole', name: 'Dipole', children: [] }];
-  const el = parse(facetRailHtml({ class: [{ value: 'urn:Dipole', count: 4 }] }, tree, { cls: 'urn:Dipole' }));
+  const el = parse(
+    facetRailHtml({ class: [{ value: 'urn:Dipole', count: 4 }] }, tree, { cls: 'urn:Dipole' })
+  );
   const group = el.querySelector('.facet[data-facet-group="cls"]');
   expect(group?.querySelector('.facet-active')?.textContent).toBe('1');
 });
@@ -755,8 +819,18 @@ test('the class facet is keyed cls and counts its one selection', () => {
 // ---- inspector ----
 
 const DEVICE = {
-  uri: 'urn:QF1', device: 'QF1', section: 'SR01C',
-  signals: [{ name: 'current', bindings: [{ fullPv: 'A', edges: ['READSSIGNAL'] }, { fullPv: 'B', edges: ['WRITESSIGNAL'] }] }],
+  uri: 'urn:QF1',
+  device: 'QF1',
+  section: 'SR01C',
+  signals: [
+    {
+      name: 'current',
+      bindings: [
+        { fullPv: 'A', edges: ['READSSIGNAL'] },
+        { fullPv: 'B', edges: ['WRITESSIGNAL'] },
+      ],
+    },
+  ],
 };
 
 test('the inspector heading carries copy and close, and send only when embedded', () => {
@@ -777,7 +851,10 @@ test('a device with no channels offers nothing to copy or send', () => {
 
 test('inspector rows carry their address for the right-click menu', () => {
   const el = parse(deviceCardHtml(DEVICE));
-  expect([...el.querySelectorAll('.sig-table tr')].map((r) => r.getAttribute('data-pv'))).toEqual(['A', 'B']);
+  expect([...el.querySelectorAll('.sig-table tr')].map((r) => r.getAttribute('data-pv'))).toEqual([
+    'A',
+    'B',
+  ]);
 });
 
 test('deviceAddresses lists every binding in card order and tolerates junk', () => {
@@ -789,4 +866,20 @@ test('deviceAddresses lists every binding in card order and tolerates junk', () 
 test('the inspector heading and meta stay inert under a hostile payload', () => {
   const el = parse(deviceCardHtml({ ...DEVICE, device: PAYLOAD, section: PAYLOAD }));
   expect(el.querySelector('img')).toBeNull();
+});
+
+test('the skeleton carries every region the panel redraws, each once', () => {
+  const el = parse(skeletonHtml('comfortable'));
+  for (const id of Object.values(FINDER_IDS)) {
+    expect(el.querySelectorAll(`#${id}`)).toHaveLength(1);
+  }
+  expect(el.querySelector(`#${FINDER_IDS.search}`)?.tagName).toBe('INPUT');
+});
+
+test('the density toggle presses the density it is given and no other', () => {
+  for (const density of /** @type {const} */ (['comfortable', 'compact'])) {
+    const el = parse(skeletonHtml(density));
+    const pressed = [...el.querySelectorAll('[data-density][aria-pressed="true"]')];
+    expect(pressed.map((b) => b.getAttribute('data-density'))).toEqual([density]);
+  }
 });

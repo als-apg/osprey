@@ -33,12 +33,23 @@ from click.testing import CliRunner
 
 from osprey.cli import build_cmd
 from osprey.cli.build_cmd import build
+from osprey.cli.build_environment import _ProjectVenvPlan
 from osprey.deployment import staleness
+from osprey_connectors.errors import BuildProfileError
 
 # Every build in this module renders without a venv and without lifecycle
 # hooks: neither is what the atomic swap is about, and a real `uv` install per
 # test would dominate the runtime of the suite.
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
+
+# A plan with nothing to install, for builds whose environment step is faked.
+_EMPTY_PLAN = _ProjectVenvPlan(
+    base_python=None,
+    base_python_arg=sys.executable,
+    osprey_spec="osprey-framework",
+    osprey_label="test",
+    extra_deps=[],
+)
 
 
 @pytest.fixture
@@ -621,14 +632,14 @@ class TestCarriedOverFlags:
         """It records its own location, so it is created where it will be read from."""
         created: dict[str, Path] = {}
 
-        def fake_venv(project_path: Path, _profile) -> list[str]:
+        def fake_venv(project_path: Path, _plan) -> None:
             created["at"] = Path(project_path)
             bin_dir = Path(project_path) / ".venv" / "bin"
             bin_dir.mkdir(parents=True)
             (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
             (Path(project_path) / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
-            return []
 
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         result = _build(runner, lifecycle_repo, flags=["--skip-lifecycle"])
 
@@ -641,13 +652,13 @@ class TestCarriedOverFlags:
     def test_a_venv_survives_a_failed_rebuild(self, runner, lifecycle_repo, monkeypatch):
         """It is the one artifact outside the atomic set — and not one `down` needs."""
 
-        def fake_venv(project_path: Path, _profile) -> list[str]:
+        def fake_venv(project_path: Path, _plan) -> None:
             (Path(project_path) / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
             (Path(project_path) / ".venv" / "bin" / "python").write_text(
                 "#!/bin/sh\n", encoding="utf-8"
             )
-            return []
 
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
 
@@ -659,6 +670,36 @@ class TestCarriedOverFlags:
 
         assert (lifecycle_repo / "build" / ".venv" / "bin" / "python").is_file()
         assert (lifecycle_repo / "build" / "config.yml").is_file()
+
+    def test_an_unreproducible_base_leaves_the_venv_as_it_was(
+        self, runner, lifecycle_repo, monkeypatch
+    ):
+        """A build the plan refuses answers before the environment is touched."""
+
+        def fake_venv(project_path: Path, _plan) -> None:
+            (Path(project_path) / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
+            (Path(project_path) / ".venv" / "bin" / "python").write_text(
+                "#!/bin/sh\n", encoding="utf-8"
+            )
+
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
+        assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
+        python = lifecycle_repo / "build" / ".venv" / "bin" / "python"
+        before = (python.read_bytes(), python.stat().st_mtime_ns)
+
+        def refuse(_profile):
+            raise BuildProfileError("probe")
+
+        created: list[Path] = []
+        monkeypatch.setattr(build_cmd, "_plan_project_venv", refuse)
+        monkeypatch.setattr(
+            build_cmd, "_create_project_venv", lambda path, _plan: created.append(path)
+        )
+        assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code != 0
+
+        assert created == []
+        assert (python.read_bytes(), python.stat().st_mtime_ns) == before
 
     def test_stream_is_accepted_as_the_short_flag(self, runner, lifecycle_repo):
         result = _build(runner, lifecycle_repo, "-s")

@@ -15,17 +15,17 @@ import { groupFieldChannels, placeChips } from './explore-grouping.js';
 let selectedSystem = null;
 let showDescriptions = false;
 /** @type {any} */
-let currentDeviceInfo = null;  // device arrangement info for current family
+let currentDeviceInfo = null; // device arrangement info for current family
 /** @type {Set<string>} */
-let activePlaces = new Set();    // selected place filter chips, by group key
+let activePlaces = new Set(); // selected place filter chips, by group key
 /** @type {Set<string>} */
-let activeDevices = new Set();   // selected device filter chips
+let activeDevices = new Set(); // selected device filter chips
 /** @type {string[]} */
-let cachedFieldNames = [];       // save fieldNames for re-render on chip toggle
+let cachedFieldNames = []; // save fieldNames for re-render on chip toggle
 /** @type {string[]} */
-let allPlaceValues = [];         // all place group keys for "all" action
+let allPlaceValues = []; // all place group keys for "all" action
 /** @type {string[]} */
-let allDeviceValues = [];        // all device strings for "all" action
+let allDeviceValues = []; // all device strings for "all" action
 
 /**
  * Toggle full description visibility and re-render loaded panels.
@@ -34,7 +34,7 @@ let allDeviceValues = [];        // all device strings for "all" action
 export function setShowDescriptions(val) {
   showDescriptions = val;
   // Re-render descriptions in place via CSS class toggle
-  document.querySelectorAll('.column-item-desc').forEach(el => {
+  document.querySelectorAll('.column-item-desc').forEach((el) => {
     el.classList.toggle('column-item-desc-full', val);
   });
 }
@@ -92,20 +92,25 @@ async function loadSystems() {
     const data = await fetchJSON('/api/explore/systems');
     const systems = data.systems || [];
 
-    body.innerHTML = systems.map((/** @type {any} */ sys) => {
-      const name = typeof sys === 'string' ? sys : (sys.name || sys.system || '');
-      const desc = typeof sys === 'object' ? (sys.description || '') : '';
-      const fullCls = showDescriptions ? ' column-item-desc-full' : '';
-      return `
+    body.innerHTML =
+      systems
+        .map((/** @type {any} */ sys) => {
+          const name = typeof sys === 'string' ? sys : sys.name || sys.system || '';
+          const desc = typeof sys === 'object' ? sys.description || '' : '';
+          const fullCls = showDescriptions ? ' column-item-desc-full' : '';
+          return `
         <div class="column-item" data-system="${esc(name)}">
           <div class="column-item-name">${esc(name)}</div>
           ${desc ? `<div class="column-item-desc${fullCls}">${esc(desc)}</div>` : ''}
         </div>
       `;
-    }).join('') || '<div class="empty-state">No systems found</div>';
+        })
+        .join('') || '<div class="empty-state">No systems found</div>';
 
-    body.querySelectorAll('.column-item').forEach(item => {
-      item.addEventListener('click', () => selectSystem(/** @type {HTMLElement} */ (item).dataset.system ?? null));
+    body.querySelectorAll('.column-item').forEach((item) => {
+      item.addEventListener('click', () =>
+        selectSystem(/** @type {HTMLElement} */ (item).dataset.system ?? null)
+      );
     });
   } catch (e) {
     body.innerHTML = `<div class="empty-state">Failed: ${esc(messageOf(e))}</div>`;
@@ -119,7 +124,7 @@ async function selectSystem(system) {
   selectedSystem = system;
 
   // Highlight
-  document.querySelectorAll('#ml-systems-body .column-item').forEach(el => {
+  document.querySelectorAll('#ml-systems-body .column-item').forEach((el) => {
     el.classList.toggle('selected', /** @type {HTMLElement} */ (el).dataset.system === system);
   });
 
@@ -137,22 +142,27 @@ async function loadFamilies() {
   body.innerHTML = '<div class="loading-center"><div class="loading-spinner"></div></div>';
 
   try {
-    const data = await fetchJSON(`/api/explore/families?system=${encodeURIComponent(selectedSystem)}`);
+    const data = await fetchJSON(
+      `/api/explore/families?system=${encodeURIComponent(selectedSystem)}`
+    );
     const families = data.families || [];
 
-    body.innerHTML = families.map((/** @type {any} */ fam) => {
-      const name = typeof fam === 'string' ? fam : (fam.name || fam.family || '');
-      const desc = typeof fam === 'object' ? (fam.description || '') : '';
-      const fullCls = showDescriptions ? ' column-item-desc-full' : '';
-      return `
+    body.innerHTML =
+      families
+        .map((/** @type {any} */ fam) => {
+          const name = typeof fam === 'string' ? fam : fam.name || fam.family || '';
+          const desc = typeof fam === 'object' ? fam.description || '' : '';
+          const fullCls = showDescriptions ? ' column-item-desc-full' : '';
+          return `
         <div class="column-item" data-family="${esc(name)}">
           <div class="column-item-name">${esc(name)}</div>
           ${desc ? `<div class="column-item-desc${fullCls}">${esc(desc)}</div>` : ''}
         </div>
       `;
-    }).join('') || '<div class="empty-state">No families</div>';
+        })
+        .join('') || '<div class="empty-state">No families</div>';
 
-    body.querySelectorAll('.column-item').forEach(item => {
+    body.querySelectorAll('.column-item').forEach((item) => {
       item.addEventListener('click', () => {
         selectFamily(/** @type {HTMLElement} */ (item).dataset.family ?? null);
       });
@@ -173,7 +183,7 @@ async function selectFamily(family) {
   if (!selectedSystem || !family) return;
 
   // Highlight
-  document.querySelectorAll('#ml-families-body .column-item').forEach(el => {
+  document.querySelectorAll('#ml-families-body .column-item').forEach((el) => {
     el.classList.toggle('selected', /** @type {HTMLElement} */ (el).dataset.family === family);
   });
 
@@ -185,8 +195,12 @@ async function selectFamily(family) {
   try {
     // Fetch fields and device info in parallel
     const [fieldsData, deviceInfo] = await Promise.all([
-      fetchJSON(`/api/explore/fields?system=${encodeURIComponent(selectedSystem)}&family=${encodeURIComponent(family)}`),
-      fetchJSON(`/api/explore/device-info?system=${encodeURIComponent(selectedSystem)}&family=${encodeURIComponent(family)}`).catch(() => null)
+      fetchJSON(
+        `/api/explore/fields?system=${encodeURIComponent(selectedSystem)}&family=${encodeURIComponent(family)}`
+      ),
+      fetchJSON(
+        `/api/explore/device-info?system=${encodeURIComponent(selectedSystem)}&family=${encodeURIComponent(family)}`
+      ).catch(() => null),
     ]);
     currentDeviceInfo = deviceInfo;
     activePlaces = new Set();
@@ -229,27 +243,33 @@ async function selectFamily(family) {
  */
 function renderChannelsPanel(body, fieldNames) {
   const deviceInfo = currentDeviceInfo;
-  const hasDeviceList = deviceInfo && Array.isArray(deviceInfo.device_list) && deviceInfo.device_list.length > 0;
+  const hasDeviceList =
+    deviceInfo && Array.isArray(deviceInfo.device_list) && deviceInfo.device_list.length > 0;
 
   let html = '';
 
   // Filter chip bar
   if (hasDeviceList) {
     const places = placeChips(deviceInfo.device_list, deviceInfo.place_list);
-    const placeChipsHtml = places.map(place => {
-      const cls = activePlaces.has(place.key) ? ' active' : '';
-      return `<span class="filter-chip${cls}" data-filter-type="place" data-value="${esc(place.key)}">${esc(place.label)}</span>`;
-    }).join('');
+    const placeChipsHtml = places
+      .map((place) => {
+        const cls = activePlaces.has(place.key) ? ' active' : '';
+        return `<span class="filter-chip${cls}" data-filter-type="place" data-value="${esc(place.key)}">${esc(place.label)}</span>`;
+      })
+      .join('');
 
-    const uniqueDevices = [...new Set(deviceInfo.device_list.map((/** @type {any} */ e) => e[1]))]
-      .sort((/** @type {any} */ a, /** @type {any} */ b) => a - b);
-    const deviceChips = uniqueDevices.map((/** @type {any} */ d) => {
-      const dv = String(d);
-      const cls = activeDevices.has(dv) ? ' active' : '';
-      return `<span class="filter-chip${cls}" data-filter-type="device" data-value="${esc(dv)}">${esc(dv)}</span>`;
-    }).join('');
+    const uniqueDevices = [
+      ...new Set(deviceInfo.device_list.map((/** @type {any} */ e) => e[1])),
+    ].sort((/** @type {any} */ a, /** @type {any} */ b) => a - b);
+    const deviceChips = uniqueDevices
+      .map((/** @type {any} */ d) => {
+        const dv = String(d);
+        const cls = activeDevices.has(dv) ? ' active' : '';
+        return `<span class="filter-chip${cls}" data-filter-type="device" data-value="${esc(dv)}">${esc(dv)}</span>`;
+      })
+      .join('');
 
-    allPlaceValues = places.map(place => place.key);
+    allPlaceValues = places.map((place) => place.key);
     allDeviceValues = uniqueDevices.map(String);
 
     html += `
@@ -283,20 +303,28 @@ function renderChannelsPanel(body, fieldNames) {
     if (hasDeviceList) {
       // Positional device alignment + place grouping/ordering/truncation (pure).
       const { places, visibleCount } = groupFieldChannels(
-        channels, deviceInfo.device_list, deviceInfo.place_list, deviceInfo.common_names, activePlaces, activeDevices
+        channels,
+        deviceInfo.device_list,
+        deviceInfo.place_list,
+        deviceInfo.common_names,
+        activePlaces,
+        activeDevices
       );
 
       let innerHtml = '';
       for (const group of places) {
         innerHtml += `<div class="place-group-header">${esc(group.label)} (${group.total})</div>`;
 
-        innerHtml += group.shown.map(item =>
-          `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
+        innerHtml += group.shown
+          .map(
+            (item) =>
+              `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
             <span class="pv-name" style="font-size: var(--text-base);">${esc(item.name)}</span>${
               item.commonName ? `<span class="common-name">${esc(item.commonName)}</span>` : ''
             }
           </div>`
-        ).join('');
+          )
+          .join('');
 
         if (group.hidden > 0) {
           innerHtml += `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--text-sm);">... and ${group.hidden} more</div>`;
@@ -316,16 +344,20 @@ function renderChannelsPanel(body, fieldNames) {
       `;
     } else {
       // Fallback: flat display (no device info)
-      const channelItems = channels.slice(0, 50).map((/** @type {any} */ ch) => {
-        const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
-        return `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
+      const channelItems = channels
+        .slice(0, 50)
+        .map((/** @type {any} */ ch) => {
+          const name = typeof ch === 'string' ? ch : ch.name || ch.channel || '';
+          return `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
           <span class="pv-name" style="font-size: var(--text-base);">${esc(name)}</span>
         </div>`;
-      }).join('');
+        })
+        .join('');
 
-      const overflow = channels.length > 50
-        ? `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--text-sm);">... and ${channels.length - 50} more</div>`
-        : '';
+      const overflow =
+        channels.length > 50
+          ? `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--text-sm);">... and ${channels.length - 50} more</div>`
+          : '';
 
       html += `
         <div class="field-group" style="margin-bottom: var(--cf-space-3);">
@@ -345,7 +377,7 @@ function renderChannelsPanel(body, fieldNames) {
   // Snapshot which field groups are open before replacing DOM
   /** @type {Set<string>} */
   const openFields = new Set();
-  body.querySelectorAll('.field-group.open .field-group-header').forEach(h => {
+  body.querySelectorAll('.field-group.open .field-group-header').forEach((h) => {
     const f = /** @type {HTMLElement} */ (h).dataset.field;
     if (f) openFields.add(f);
   });
@@ -353,7 +385,7 @@ function renderChannelsPanel(body, fieldNames) {
   body.innerHTML = html || '<div class="empty-state">No channels</div>';
 
   // Restore open state and wire up collapsible field group headers
-  body.querySelectorAll('.field-group-header').forEach(header => {
+  body.querySelectorAll('.field-group-header').forEach((header) => {
     const f = /** @type {HTMLElement} */ (header).dataset.field;
     if (f && openFields.has(f)) {
       header.parentElement?.classList.add('open');
@@ -364,27 +396,32 @@ function renderChannelsPanel(body, fieldNames) {
   });
 
   // Wire up filter chip toggles
-  body.querySelectorAll('.filter-chip').forEach(chip => {
+  body.querySelectorAll('.filter-chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       const el = /** @type {HTMLElement} */ (chip);
       const type = el.dataset.filterType;
       const val = el.dataset.value;
       if (!val) return;
       const set = type === 'place' ? activePlaces : activeDevices;
-      if (set.has(val)) set.delete(val); else set.add(val);
+      if (set.has(val)) set.delete(val);
+      else set.add(val);
       renderChannelsPanel(body, cachedFieldNames);
     });
   });
 
   // Wire up all/none actions
-  body.querySelectorAll('.filter-chip-action').forEach(btn => {
+  body.querySelectorAll('.filter-chip-action').forEach((btn) => {
     btn.addEventListener('click', () => {
       const el = /** @type {HTMLElement} */ (btn);
       const type = el.dataset.filterType;
       const action = el.dataset.action;
       const set = type === 'place' ? activePlaces : activeDevices;
       const vals = type === 'place' ? allPlaceValues : allDeviceValues;
-      if (action === 'all') { vals.forEach(v => set.add(v)); } else { set.clear(); }
+      if (action === 'all') {
+        vals.forEach((v) => set.add(v));
+      } else {
+        set.clear();
+      }
       renderChannelsPanel(body, cachedFieldNames);
     });
   });

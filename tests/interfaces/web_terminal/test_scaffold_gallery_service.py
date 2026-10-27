@@ -7,16 +7,12 @@ import logging
 import os
 import re
 import shutil
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
-from osprey.cli.build_cmd import build
-from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.interfaces.web_terminal import ownership as ownership_module
 from osprey.interfaces.web_terminal.ownership import (
@@ -31,6 +27,7 @@ from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     restore_scaffold_bodies,
 )
 from osprey_connectors.workspace import APPS_DIRNAME, TIERS_DIRNAME
+from tests._builds import copy_build
 
 from .conftest import bare_route_app
 
@@ -51,92 +48,44 @@ WRITABLE_ARTIFACT = "agents/channel-finder"
 
 
 @pytest.fixture(scope="session")
-def _baked_repo(tmp_path_factory) -> Path:
-    """A real render of the control-assistant preset, through the real verbs.
+def _baked_repo(built_control_assistant) -> Path:
+    """The run's shared build of the control-assistant preset (``tests/_builds.py``).
 
-    ``osprey init`` materializes the deployment repo, ``osprey build`` renders
-    its build zone, and that RENDER is what the gallery service reads — it is
-    the directory holding config.yml, the manifest and the ``.claude/`` tree.
-
-    The control-assistant preset specifically: the gallery tests assert the
-    channel-finder and data-visualizer agents and the diagnose skill, none of
-    which ship with hello-world.
-
-    Session-scoped: a render is expensive, and under coverage measurement it is
-    expensive enough that one render per test blows the CI job budget. Tests
-    get an isolated copy via ``project_dir``, never this tree itself.
+    Its build zone is the RENDER the gallery service reads: config.yml, the
+    manifest and the ``.claude/`` tree. The control-assistant preset because
+    the tests assert the channel-finder and data-visualizer agents and the
+    diagnose skill, none of which ship with hello-world. Tests get an isolated
+    copy via ``project_dir``, never this tree itself.
     """
-    runner = CliRunner()
-    repo = tmp_path_factory.mktemp("gallery-bake") / "gallery-test"
-
-    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
-    assert created.exit_code == 0, created.output
-
-    result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
-    assert result.exit_code == 0, result.output
-    return repo
+    return built_control_assistant.repo
 
 
-def _outside_the_gallery(build_zone: Path, names: list[str]) -> set[str]:
-    """Build-zone entries no gallery path reads: the image context and the role renders.
+def _role_renders(build_zone: Path, names: list[str]) -> set[str]:
+    """The build zone's sibling renders, which no gallery path reads.
 
     The gallery reads one render, ``build/`` itself -- its config.yml, manifest,
-    ``.claude/`` and service templates. ``build/.image/`` is the container build
-    context and every ``build/<name>/`` holding its own manifest is a sibling
-    render for another role; together they are most of the bake's bytes and
-    none of what a gallery test reads or writes.
+    ``.claude/`` and service templates. Every ``build/<name>/`` holding its own
+    manifest is a sibling render for another role, which no gallery test reads
+    or writes; :func:`copy_build` already leaves out the image context.
     """
-    return {
-        name
-        for name in names
-        if name == ".image" or (build_zone / name / ".osprey-manifest.json").is_file()
-    }
+    return {name for name in names if (build_zone / name / ".osprey-manifest.json").is_file()}
 
 
-@pytest.fixture(scope="session")
-def _baked_copy_plan(_baked_repo) -> tuple[Callable[[str, list[str]], set[str]], tuple[Path, ...]]:
-    """What ``project_dir`` skips and which files it re-anchors, read once off the bake.
+@pytest.fixture()
+def project_dir(_baked_repo, tmp_path):
+    """A private copy of the baked render, free for the test to mutate.
 
-    The bake never changes after the session fixture returns, so which files
-    carry its absolute path is a property of the bake, not of each copy.
+    Re-anchored by :func:`copy_build`: a render records absolute paths —
+    ``project_root`` in config.yml, ``build_args.profile_path_abs`` in the
+    manifest — and a copy that kept them would resolve every path back to the
+    shared bake and mutate it.
     """
     build_zone = _baked_repo / "build"
 
     def ignore(src: str, names: list[str]) -> set[str]:
-        return _outside_the_gallery(build_zone, names) if Path(src) == build_zone else set()
+        return _role_renders(build_zone, names) if Path(src) == build_zone else set()
 
-    old = str(_baked_repo).encode()
-    skipped = {build_zone / name for name in ignore(str(build_zone), os.listdir(build_zone))}
-    carriers = tuple(
-        path.relative_to(_baked_repo)
-        for path in _baked_repo.rglob("*")
-        if not path.is_symlink()
-        and path.is_file()
-        and not any(path.is_relative_to(s) for s in skipped)
-        and old in path.read_bytes()
-    )
-    return ignore, carriers
-
-
-@pytest.fixture()
-def project_dir(_baked_repo, _baked_copy_plan, tmp_path):
-    """A private copy of the baked render, free for the test to mutate.
-
-    A render records absolute paths — ``project_root`` in config.yml,
-    ``build_args.profile_path_abs`` in the manifest — and the baked tree still
-    exists while tests run, so a copy that kept those bytes would resolve
-    every path back to the shared bake and mutate it. Re-anchoring them to the
-    copy is what makes each test's repo genuinely its own.
-    """
-    ignore, carriers = _baked_copy_plan
-    repo = tmp_path / "gallery-test"
-    shutil.copytree(_baked_repo, repo, symlinks=True, ignore=ignore)
-
-    old, new = str(_baked_repo).encode(), str(repo).encode()
-    for rel in carriers:
-        path = repo / rel
-        path.write_bytes(path.read_bytes().replace(old, new))
-    return repo / "build"
+    return copy_build(_baked_repo, tmp_path, ignore=ignore) / "build"
 
 
 @pytest.fixture()
@@ -546,7 +495,7 @@ class TestComputeDiff:
 
 
 # ===========================================================================
-# Scaffold (Claim)
+# Tests of scaffolding a claim
 # ===========================================================================
 
 

@@ -196,7 +196,11 @@ describe('attachSlashComplete', () => {
     type('');
     /** @type {(v: any) => void} */
     let settle = () => {};
-    load.mockReturnValueOnce(new Promise((resolve) => { settle = resolve; }));
+    load.mockReturnValueOnce(
+      new Promise((resolve) => {
+        settle = resolve;
+      })
+    );
     type('/');
     expect(load).toHaveBeenCalledTimes(2);
     // The previous list is shown while the new one is on its way.

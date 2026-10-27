@@ -28,14 +28,16 @@ import { reconcile } from '../../../src/osprey/interfaces/web_terminal/static/js
 function singleGroupLayout(ids) {
   return {
     grid: {
-      root: { type: 'leaf', data: { views: [...ids], activeView: ids[0], id: 'group-1' }, size: 1000 },
+      root: {
+        type: 'leaf',
+        data: { views: [...ids], activeView: ids[0], id: 'group-1' },
+        size: 1000,
+      },
       width: 1000,
       height: 800,
       orientation: 'HORIZONTAL',
     },
-    panels: Object.fromEntries(
-      ids.map((id) => [id, { id, contentComponent: id, title: id }]),
-    ),
+    panels: Object.fromEntries(ids.map((id) => [id, { id, contentComponent: id, title: id }])),
     activeGroup: 'group-1',
   };
 }
@@ -54,8 +56,16 @@ function twoGroupLayout(left, right) {
       root: {
         type: 'branch',
         data: [
-          { type: 'leaf', data: { views: [...left], activeView: left[0], id: 'group-left' }, size: 600 },
-          { type: 'leaf', data: { views: [...right], activeView: right[0], id: 'group-right' }, size: 400 },
+          {
+            type: 'leaf',
+            data: { views: [...left], activeView: left[0], id: 'group-left' },
+            size: 600,
+          },
+          {
+            type: 'leaf',
+            data: { views: [...right], activeView: right[0], id: 'group-right' },
+            size: 400,
+          },
         ],
         size: 800,
       },
@@ -64,7 +74,7 @@ function twoGroupLayout(left, right) {
       orientation: 'HORIZONTAL',
     },
     panels: Object.fromEntries(
-      [...left, ...right].map((id) => [id, { id, contentComponent: id, title: id }]),
+      [...left, ...right].map((id) => [id, { id, contentComponent: id, title: id }])
     ),
     activeGroup: 'group-left',
   };

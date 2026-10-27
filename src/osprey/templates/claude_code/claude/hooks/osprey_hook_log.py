@@ -519,7 +519,7 @@ def log_hook(hook_name, hook_input, status="ok", detail=""):
     line = f"{ts} [{hook_name}] tool={tool} status={status}"
     if detail:
         line += f" {detail}"
-    print(line, file=sys.stderr)
+    print(line, file=sys.stderr)  # noqa: T201 -- stderr carries the hook log line
 
     # JSONL file (always available for tail -f)
     project_dir = get_project_dir(hook_input)

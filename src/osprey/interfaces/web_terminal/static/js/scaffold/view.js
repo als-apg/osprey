@@ -178,7 +178,7 @@ export function createScaffoldGalleryView(gallery) {
     renderFilterChips();
     bindSearch();
     renderFilterToggle();
-    renderCategories();  // ends with renderSummary()
+    renderCategories(); // ends with renderSummary()
   }
 
   /**
@@ -336,7 +336,8 @@ export function createScaffoldGalleryView(gallery) {
       chipsEl.appendChild(sep);
 
       const ownedChip = document.createElement('button');
-      ownedChip.className = 'prompts-chip prompts-chip-toggle' + (gallery.filterProjectOwned ? ' active' : '');
+      ownedChip.className =
+        'prompts-chip prompts-chip-toggle' + (gallery.filterProjectOwned ? ' active' : '');
       ownedChip.textContent = 'Project-owned';
       ownedChip.addEventListener('click', () => {
         gallery.filterProjectOwned = !gallery.filterProjectOwned;
@@ -374,8 +375,7 @@ export function createScaffoldGalleryView(gallery) {
     if (gallery.filterProjectOwned) active.push('project-owned');
     if (gallery.searchQuery) active.push(`"${gallery.searchQuery}"`);
 
-    gallery.summaryEl.textContent =
-      `${boundGetFilteredArtifacts().length} of ${total} · ${active.join(' · ')}`;
+    gallery.summaryEl.textContent = `${boundGetFilteredArtifacts().length} of ${total} · ${active.join(' · ')}`;
 
     if (gallery.clearFilterEl) {
       gallery.clearFilterEl.style.display = '';
@@ -517,9 +517,7 @@ export function createScaffoldGalleryView(gallery) {
       // "+" create button — use original category (not display-remapped).
       // No 'commands': no gallery's categoryFilter admits that category, so a
       // commands section can never render and the branch was unreachable.
-      const creatableCategories = new Set([
-        'agents', 'rules', 'hooks', 'skills', 'output-styles'
-      ]);
+      const creatableCategories = new Set(['agents', 'rules', 'hooks', 'skills', 'output-styles']);
       const originalCat = groups[cat][0]?.category || cat;
       // POST /api/scaffold/create is gated server-side, so a deployment that
       // withdrew gallery writes gets no "+" — the dialog behind it could only

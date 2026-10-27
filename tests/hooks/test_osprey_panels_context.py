@@ -62,7 +62,7 @@ def temp_snapshot_dir(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _build_inventory (pure)
+# Tests of _build_inventory, pure
 # ---------------------------------------------------------------------------
 
 
@@ -122,7 +122,7 @@ def test_inventory_mentions_control_tools():
 
 
 # ---------------------------------------------------------------------------
-# _read_session_id (pure)
+# Tests of _read_session_id, pure
 # ---------------------------------------------------------------------------
 
 
@@ -161,7 +161,7 @@ def test_session_id_unreadable_stream_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# _workspace_state / _snapshot_path / _write_snapshot (pure)
+# Tests of _workspace_state, _snapshot_path and _write_snapshot, pure
 # ---------------------------------------------------------------------------
 
 
@@ -269,7 +269,7 @@ def test_write_snapshot_returns_false_when_unwritable(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _build_tile_line (pure)
+# Tests of _build_tile_line, pure
 # ---------------------------------------------------------------------------
 
 

@@ -277,7 +277,7 @@ def test_edit_dirty_guard_blocks_close_and_discard_restores_clean(
 
     Switching to Edit on a still-framework artifact claims it first
     (handleEditFramework's confirm + POST /claim) -- this pins that flow
-    end-to-end, not just the dirty-flag bookkeeping scaffold-edit.test.mjs's
+    end-to-end, not just the dirty-flag bookkeeping scaffold/edit.test.mjs's
     fake-host unit tests already cover.
 
     Runs on output-styles/control-operator rather than rules/safety: the

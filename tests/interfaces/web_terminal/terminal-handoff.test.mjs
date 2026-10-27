@@ -137,9 +137,7 @@ function overlayText() {
 
 /** The overlay's action button, or null when no overlay is up. */
 function overlayAction() {
-  return /** @type {HTMLButtonElement|null} */ (
-    document.querySelector('.terminal-handoff-action')
-  );
+  return /** @type {HTMLButtonElement|null} */ (document.querySelector('.terminal-handoff-action'));
 }
 
 beforeEach(async () => {
@@ -165,10 +163,13 @@ beforeEach(async () => {
   // session from a dropped connection. Nothing serves this environment, so the
   // probe is answered here with the signed-in status every test below assumes.
   // Any other URL is a dependency this file has not declared, and fails loudly.
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
-    return { ok: true, status: 200, json: async () => ({}) };
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
+      return { ok: true, status: 200, json: async () => ({}) };
+    })
+  );
   // xtermPalette() logs a console.error when the CSS custom properties it
   // reads are absent, which they are in this bare happy-dom document.
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -269,10 +270,7 @@ describe('startExpert settles when the acquire has an answer', () => {
     openSocket();
     receive({ type: 'handoff_pending', busy: true });
 
-    const race = await Promise.race([
-      settled.then(() => 'settled'),
-      Promise.resolve('pending'),
-    ]);
+    const race = await Promise.race([settled.then(() => 'settled'), Promise.resolve('pending')]);
     expect(race).toBe('pending');
 
     // Leave nothing dangling for the next test.
@@ -405,7 +403,7 @@ describe('handoff_pending: the transitional state', () => {
     expect(/** @type {FakeTerminal} */ (FakeTerminal.last).written).toContain('no capacity');
   });
 
-  test('it disarms the page-load failover, so the outgoing agent\'s exit is not read as a dead key', () => {
+  test("it disarms the page-load failover, so the outgoing agent's exit is not read as a dead key", () => {
     // This connection IS the page-load auto-resume, so the failover is armed:
     // an early exit would ordinarily mean "that id is gone". A handoff_pending
     // says the opposite — the key is alive in the other view — and the exit
@@ -435,17 +433,20 @@ describe('handoff_pending on an idle chat: a restart, not a wait', () => {
     receive({ type: 'handoff_pending', busy: false });
   }
 
-  test.each([[{ busy: false }], [{}]])('says the agent is restarting here, with no clock and no way out (%o)', (frame) => {
-    localStorage.setItem(STORAGE_KEY, 'shared-key');
-    terminal.initTerminal('terminal-container');
-    openSocket();
-    // A frame that says nothing about the turn is read as idle too.
-    receive({ type: 'handoff_pending', ...frame });
+  test.each([[{ busy: false }], [{}]])(
+    'says the agent is restarting here, with no clock and no way out (%o)',
+    (frame) => {
+      localStorage.setItem(STORAGE_KEY, 'shared-key');
+      terminal.initTerminal('terminal-container');
+      openSocket();
+      // A frame that says nothing about the turn is read as idle too.
+      receive({ type: 'handoff_pending', ...frame });
 
-    expect(overlayText()).toBe('Restarting the agent in this view…');
-    expect(document.querySelector('.terminal-handoff-elapsed')).toBeNull();
-    expect(overlayAction()?.hidden).toBe(true);
-  });
+      expect(overlayText()).toBe('Restarting the agent in this view…');
+      expect(document.querySelector('.terminal-handoff-elapsed')).toBeNull();
+      expect(overlayAction()?.hidden).toBe(true);
+    }
+  );
 
   test('a restart that outlasts its budget becomes the wait, clocked from the flip', () => {
     vi.useFakeTimers();
@@ -562,9 +563,7 @@ describe('stopTerminal reports when the channel is actually gone', () => {
     openSocket();
 
     await expect(terminal.stopTerminal()).resolves.toBeUndefined();
-    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).readyState).toBe(
-      FakeWebSocket.CLOSED,
-    );
+    expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).readyState).toBe(FakeWebSocket.CLOSED);
   });
 
   test('resolves at once when there is nothing open to drop', async () => {
@@ -639,7 +638,7 @@ describe('a refused connection', () => {
     expect(FakeWebSocket.created).toBe(socketsBefore + 1);
     expect(document.querySelector('.terminal-handoff')).toBeNull();
     expect(/** @type {FakeWebSocket} */ (FakeWebSocket.last).url).toContain(
-      'session_id=shared-key',
+      'session_id=shared-key'
     );
   });
 
@@ -719,9 +718,8 @@ describe('started commands in the other view', () => {
   afterEach(async () => {
     // A question left up would answer the next test's Escape: take it down
     // through the module instance this test's terminal.js raised it with.
-    const confirm = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js'
-    );
+    const confirm =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js');
     confirm.dismissConfirm();
   });
 
@@ -759,7 +757,7 @@ describe('started commands in the other view', () => {
     asked();
 
     expect(document.querySelector('.posture-modal-title')?.textContent).toBe(
-      'This also ends magnet_scan.py.',
+      'This also ends magnet_scan.py.'
     );
     expect(document.querySelector('.terminal-handoff')).toBeNull();
     expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
@@ -773,7 +771,7 @@ describe('started commands in the other view', () => {
     refuseForStartedCommands('shared-key', { unread: true });
 
     expect(document.querySelector('.posture-modal-title')?.textContent).toBe(
-      'Could not check what the agent started.',
+      'Could not check what the agent started.'
     );
     dialogButton('.posture-modal-confirm').click();
 
@@ -806,7 +804,7 @@ describe('started commands in the other view', () => {
 
     expect(post).toHaveBeenCalledWith(
       { type: 'osprey-mode-change', mode: 'simple' },
-      expect.anything(),
+      expect.anything()
     );
     expect(FakeWebSocket.created).toBe(socketsBefore);
   });
@@ -820,7 +818,7 @@ describe('started commands in the other view', () => {
 
     expect(post).toHaveBeenCalledWith(
       { type: 'osprey-mode-change', mode: 'simple' },
-      expect.anything(),
+      expect.anything()
     );
     expect(post).toHaveBeenCalledTimes(1);
     expect(FakeWebSocket.created).toBe(socketsBefore);

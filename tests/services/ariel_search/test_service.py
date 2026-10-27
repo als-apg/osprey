@@ -200,10 +200,10 @@ class TestARIELSearchService:
         """Search-time provider calls run on the service's own small pool."""
         service = self._create_mock_service()
         try:
-            assert service._search_calls._max_workers == SEARCH_CALL_WORKERS
+            assert service._search_calls._size == SEARCH_CALL_WORKERS
             assert service._search_calls._thread_name_prefix == "ariel-search-call"
         finally:
-            service._search_calls.shutdown(wait=False, cancel_futures=True)
+            service._search_calls.close()
 
     @pytest.mark.asyncio
     async def test_aclose_releases_the_search_calls_then_both_pools_and_a_second_call_does_nothing(
@@ -212,13 +212,13 @@ class TestARIELSearchService:
         """One close, in order: search-call pool, read-only pool, ingestion pool."""
         service = self._create_mock_service()
         order: list[str] = []
-        real_shutdown = service._search_calls.shutdown
+        real_close = service._search_calls.close
 
-        def _shutdown(*args, **kwargs):
+        def _close() -> None:
             order.append("search_calls")
-            real_shutdown(*args, **kwargs)
+            real_close()
 
-        service._search_calls.shutdown = _shutdown  # type: ignore[method-assign]
+        service._search_calls.close = _close  # type: ignore[method-assign]
         service.readonly_pool = MagicMock()
         service.readonly_pool.close = AsyncMock(side_effect=lambda: order.append("readonly"))
         service.pool.close = AsyncMock(side_effect=lambda: order.append("pool"))
@@ -241,7 +241,7 @@ class TestARIELSearchService:
             await service.aclose()
 
         service.pool.close.assert_awaited_once()
-        assert service._search_calls._shutdown is True
+        assert service._search_calls._closed is True
 
     @pytest.mark.asyncio
     async def test_a_closed_service_leaves_no_search_call_thread(self):

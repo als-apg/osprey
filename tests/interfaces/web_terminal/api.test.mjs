@@ -83,9 +83,7 @@ describe('fetchJSON: success and error paths', () => {
       }))
     );
 
-    await expect(api.fetchJSON('/api/state')).rejects.toThrow(
-      'HTTP 503: Service Unavailable'
-    );
+    await expect(api.fetchJSON('/api/state')).rejects.toThrow('HTTP 503: Service Unavailable');
   });
 });
 
@@ -144,7 +142,9 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
       vi.fn(async () => ({
         ok: false,
         status: 502,
-        json: async () => { throw new SyntaxError('not JSON'); },
+        json: async () => {
+          throw new SyntaxError('not JSON');
+        },
       }))
     );
 
@@ -154,7 +154,12 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
   });
 
   test('a network failure names the action too', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      })
+    );
 
     await expect(
       api.apiRequest('/api/config', { method: 'PUT', errorPrefix: 'Save failed' })
@@ -167,7 +172,9 @@ describe('apiRequest: mutating-verb helper (method/body wiring and detail extrac
       vi.fn(async () => ({
         ok: true,
         status: 204,
-        json: async () => { throw new SyntaxError('empty body'); },
+        json: async () => {
+          throw new SyntaxError('empty body');
+        },
       }))
     );
 
@@ -221,16 +228,15 @@ describe('URL prefix: window.__OSPREY_PREFIX__ (multi-user prefix contract)', ()
     expect(fetchMock).toHaveBeenCalledWith('/api/state', { cache: 'no-store' });
   });
 
-  test.each([
-    'https://other.example/api',
-    'http://other.example/api',
-    '//cdn.example/api',
-  ])('fetchJSON leaves the already-absolute URL %s untouched', async (url) => {
-    window.__OSPREY_PREFIX__ = '/u/alice';
-    const fetchMock = stubFetchOk();
-    await api.fetchJSON(url);
-    expect(fetchMock).toHaveBeenCalledWith(url, { cache: 'no-store' });
-  });
+  test.each(['https://other.example/api', 'http://other.example/api', '//cdn.example/api'])(
+    'fetchJSON leaves the already-absolute URL %s untouched',
+    async (url) => {
+      window.__OSPREY_PREFIX__ = '/u/alice';
+      const fetchMock = stubFetchOk();
+      await api.fetchJSON(url);
+      expect(fetchMock).toHaveBeenCalledWith(url, { cache: 'no-store' });
+    }
+  );
 
   test('fetchJSON does not double-prefix a path that already carries the prefix', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
@@ -261,7 +267,6 @@ describe('URL prefix: window.__OSPREY_PREFIX__ (multi-user prefix contract)', ()
       source.stop();
     }
   });
-
 });
 
 describe('reconnect: session-expiry probe (reload-on-401)', () => {
@@ -342,29 +347,37 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
   });
 
   test.each([
-    ['the per-user mount', '/u/alice', 'ws://localhost:5000/u/alice/ws/terminal', '/u/alice/api/session'],
+    [
+      'the per-user mount',
+      '/u/alice',
+      'ws://localhost:5000/u/alice/ws/terminal',
+      '/u/alice/api/session',
+    ],
     ['single-origin/dev (no prefix)', undefined, 'ws://localhost:5000/ws/terminal', '/api/session'],
-  ])('a closed WebSocket probes the app\'s own /api/session route with a JSON Accept header: %s', async (_name, prefix, socketUrl, probeUrl) => {
-    if (prefix === undefined) delete window.__OSPREY_PREFIX__;
-    else window.__OSPREY_PREFIX__ = prefix;
-    stubLocation();
-    const sockets = stubWebSocket();
-    const fetchMock = stubFetchStatus(200);
+  ])(
+    "a closed WebSocket probes the app's own /api/session route with a JSON Accept header: %s",
+    async (_name, prefix, socketUrl, probeUrl) => {
+      if (prefix === undefined) delete window.__OSPREY_PREFIX__;
+      else window.__OSPREY_PREFIX__ = prefix;
+      stubLocation();
+      const sockets = stubWebSocket();
+      const fetchMock = stubFetchStatus(200);
 
-    api.createWebSocket(socketUrl);
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
+      api.createWebSocket(socketUrl);
+      sockets[0].onclose({ code: 1006 });
+      await flushProbe();
 
-    // Never the exempt /health (it answers 200 uncredentialed): the probe hits
-    // /api/session, which sits behind the app's auth gate, at the per-user mount.
-    // The exact headers object also keeps the probe on the JSON side of the
-    // gates' content negotiation, never text/html.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(probeUrl, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-  });
+      // Never the exempt /health (it answers 200 uncredentialed): the probe hits
+      // /api/session, which sits behind the app's auth gate, at the per-user mount.
+      // The exact headers object also keeps the probe on the JSON side of the
+      // gates' content negotiation, never text/html.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(probeUrl, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
+    }
+  );
 
   test('a 401 probe stops the reconnect loop and reloads', async () => {
     vi.useFakeTimers();
@@ -387,23 +400,35 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
   });
 
   test.each([
-    ['a network error', () => vi.fn(async () => { throw new TypeError('Failed to fetch'); })],
+    [
+      'a network error',
+      () =>
+        vi.fn(async () => {
+          throw new TypeError('Failed to fetch');
+        }),
+    ],
     ['a healthy 200', () => vi.fn(async () => ({ ok: true, status: 200 }))],
-    ['a 503 (server restarting, session intact)', () => vi.fn(async () => ({ ok: false, status: 503 }))],
-  ])('a probe answered by %s keeps the existing reconnect/backoff and never reloads', async (_name, makeFetch) => {
-    vi.useFakeTimers();
-    const loc = stubLocation();
-    const sockets = stubWebSocket();
-    vi.stubGlobal('fetch', makeFetch());
+    [
+      'a 503 (server restarting, session intact)',
+      () => vi.fn(async () => ({ ok: false, status: 503 })),
+    ],
+  ])(
+    'a probe answered by %s keeps the existing reconnect/backoff and never reloads',
+    async (_name, makeFetch) => {
+      vi.useFakeTimers();
+      const loc = stubLocation();
+      const sockets = stubWebSocket();
+      vi.stubGlobal('fetch', makeFetch());
 
-    api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
-    sockets[0].onclose({ code: 1006 });
-    await flushProbe();
+      api.createWebSocket('ws://localhost:5000/u/alice/ws/terminal');
+      sockets[0].onclose({ code: 1006 });
+      await flushProbe();
 
-    expect(loc.reload).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1000);
-    expect(sockets).toHaveLength(2);
-  });
+      expect(loc.reload).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1000);
+      expect(sockets).toHaveLength(2);
+    }
+  );
 
   test('concurrent closes share a single in-flight probe', async () => {
     stubLocation();
@@ -469,7 +494,6 @@ describe('reconnect: session-expiry probe (reload-on-401)', () => {
     expect(loc.reload).not.toHaveBeenCalled();
     source.stop();
   });
-
 });
 
 describe('createWebSocket: refusal close codes are terminal', () => {
@@ -498,7 +522,10 @@ describe('createWebSocket: refusal close codes are terminal', () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000', reload: vi.fn() });
     // A refusal must not reach the expiry probe at all; every test here fails
     // loudly if it does.
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200 }))
+    );
   });
 
   afterEach(() => {
@@ -622,7 +649,10 @@ describe('createEventSource: reconnection and resync hook', () => {
     vi.useFakeTimers();
     vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000', reload: vi.fn() });
     // Health probe answers 200 so the reload-on-401 path stays quiet here.
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200 }))
+    );
   });
 
   afterEach(() => {
@@ -645,7 +675,7 @@ describe('createEventSource: reconnection and resync hook', () => {
     expect(instances).toHaveLength(2);
   });
 
-  test('a CONNECTING stream is left to the browser\'s own retry (no duplicate connection)', () => {
+  test("a CONNECTING stream is left to the browser's own retry (no duplicate connection)", () => {
     const instances = stubEventSourceRich();
     api.createEventSource('/events');
 
@@ -656,7 +686,7 @@ describe('createEventSource: reconnection and resync hook', () => {
     expect(instances).toHaveLength(1);
   });
 
-  test('onOpen fires on every open — the caller\'s state-resync hook', () => {
+  test("onOpen fires on every open — the caller's state-resync hook", () => {
     const instances = stubEventSourceRich();
     const onOpen = vi.fn();
     api.createEventSource('/events', { onOpen });
@@ -722,7 +752,10 @@ describe('createEventSource: one connection per URL, shared by every subscriber'
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000', reload: vi.fn() });
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200 }))
+    );
   });
 
   afterEach(() => {

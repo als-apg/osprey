@@ -332,7 +332,16 @@ describe('splitSegments', () => {
 
   test('polylinePoints emits scaled "x,y" pairs', () => {
     const identity = linearScale(0, 10, 0, 10);
-    expect(polylinePoints(points([[0, 1], [10, 9]]), identity, identity)).toBe('0.0,1.0 10.0,9.0');
+    expect(
+      polylinePoints(
+        points([
+          [0, 1],
+          [10, 9],
+        ]),
+        identity,
+        identity
+      )
+    ).toBe('0.0,1.0 10.0,9.0');
   });
 });
 
@@ -422,11 +431,7 @@ describe('panel grouping and selection', () => {
 
   test('a selection with nothing left falls back to the default, never to empty', () => {
     // An empty plot reads as "no data", which would be a lie about the run.
-    expect(resolveSeriesSelection(['gone'], ['c1', 'c2', 'c3', 'c4'])).toEqual([
-      'c1',
-      'c2',
-      'c3',
-    ]);
+    expect(resolveSeriesSelection(['gone'], ['c1', 'c2', 'c3', 'c4'])).toEqual(['c1', 'c2', 'c3']);
     expect(resolveSeriesSelection(undefined, ['c1', 'c2'])).toEqual(['c1', 'c2']);
     expect(resolveSeriesSelection(undefined, [])).toEqual([]);
   });
@@ -463,7 +468,19 @@ describe('heatmap geometry', () => {
   });
 
   test('shape falls back to the values when labels are absent', () => {
-    expect(heatmapShape(heatmapMark([], [], [[1, 2], [3, 4], [5, 6]]))).toEqual({
+    expect(
+      heatmapShape(
+        heatmapMark(
+          [],
+          [],
+          [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+          ]
+        )
+      )
+    ).toEqual({
       rows: 3,
       cols: 2,
     });
@@ -536,9 +553,7 @@ describe('heatmap geometry', () => {
   });
 
   test('a cell with no reading keeps its slot and carries a null value', () => {
-    const missing = heatmapCells(mark, plotBox()).find(
-      (cell) => cell.row === 1 && cell.col === 1
-    );
+    const missing = heatmapCells(mark, plotBox()).find((cell) => cell.row === 1 && cell.col === 1);
     expect(missing?.value).toBeNull();
   });
 
@@ -589,9 +604,17 @@ describe('bar geometry', () => {
 
 describe('annotations', () => {
   test('shownPointCount counts what each mark kind actually draws', () => {
-    expect(shownPointCount(linesMark([series('a', [[0, 1]]), series('b', [[0, 1], [1, 2]])]))).toBe(
-      3
-    );
+    expect(
+      shownPointCount(
+        linesMark([
+          series('a', [[0, 1]]),
+          series('b', [
+            [0, 1],
+            [1, 2],
+          ]),
+        ])
+      )
+    ).toBe(3);
     expect(shownPointCount(barsMark(['a', 'b'], [1, 2]))).toBe(2);
     expect(shownPointCount(heatmapMark(['x0', 'x1'], ['y0'], [[1, 2]]))).toBe(2);
   });
@@ -601,15 +624,34 @@ describe('annotations', () => {
   });
 
   test('a thinned mark names how many of its source points are shown', () => {
-    const mark = linesMark([series('bpm3', [[0, 1], [1, 2]], { decimated: true, source_points: 500 })], {
-      decimated: true,
-      source_points: 500,
-    });
+    const mark = linesMark(
+      [
+        series(
+          'bpm3',
+          [
+            [0, 1],
+            [1, 2],
+          ],
+          { decimated: true, source_points: 500 }
+        ),
+      ],
+      {
+        decimated: true,
+        source_points: 500,
+      }
+    );
     expect(decimationAnnotations(mark)).toEqual(['showing 2 of 500 points']);
   });
 
   test('a multi-series mark also names each thinned series', () => {
-    const thinned = series('bpm3', [[0, 1], [1, 2]], { decimated: true, source_points: 400 });
+    const thinned = series(
+      'bpm3',
+      [
+        [0, 1],
+        [1, 2],
+      ],
+      { decimated: true, source_points: 400 }
+    );
     const whole = series('bpm4', [[0, 1]]);
     const mark = linesMark([thinned, whole], { decimated: true, source_points: 401 });
     expect(decimationAnnotations(mark)).toEqual([
@@ -630,21 +672,47 @@ describe('annotations', () => {
   });
 
   test('gaps are disclosed in words, not only as a break in the line', () => {
-    expect(gapAnnotations(linesMark([series('a', [[0, 1], [1, null]])]))).toEqual([
-      '1 sample had no reading (drawn as gaps)',
-    ]);
     expect(
-      gapAnnotations(linesMark([series('a', [[0, null], [1, null]])]))
+      gapAnnotations(
+        linesMark([
+          series('a', [
+            [0, 1],
+            [1, null],
+          ]),
+        ])
+      )
+    ).toEqual(['1 sample had no reading (drawn as gaps)']);
+    expect(
+      gapAnnotations(
+        linesMark([
+          series('a', [
+            [0, null],
+            [1, null],
+          ]),
+        ])
+      )
     ).toEqual(['2 samples had no reading (drawn as gaps)']);
     expect(gapAnnotations(linesMark([series('a', [[0, 1]])]))).toEqual([]);
     expect(gapAnnotations(barsMark(['a'], [null]))).toEqual([]);
   });
 
   test("the panel's own annotations come first, then what the drawing discloses", () => {
-    const mark = linesMark([series('a', [[0, 1], [1, null]], { decimated: true, source_points: 9 })], {
-      decimated: true,
-      source_points: 9,
-    });
+    const mark = linesMark(
+      [
+        series(
+          'a',
+          [
+            [0, 1],
+            [1, null],
+          ],
+          { decimated: true, source_points: 9 }
+        ),
+      ],
+      {
+        decimated: true,
+        source_points: 9,
+      }
+    );
     expect(panelAnnotations(panel(mark, { annotations: ['fit failed on 2 correctors'] }))).toEqual([
       'fit failed on 2 correctors',
       'showing 2 of 9 points',
@@ -778,10 +846,24 @@ describe('renderFigure', () => {
       figure([
         panel(
           linesMark([
-            series('bpm3', [[0, 1], [1, 2], [2, 3]]),
-            series('bpm4', [[0, 3], [1, 2], [2, 1]]),
+            series('bpm3', [
+              [0, 1],
+              [1, 2],
+              [2, 3],
+            ]),
+            series('bpm4', [
+              [0, 3],
+              [1, 2],
+              [2, 1],
+            ]),
           ]),
-          { title: 'Orbit response', x_label: 'corrector', x_units: 'A', y_label: 'orbit', y_units: 'mm' }
+          {
+            title: 'Orbit response',
+            x_label: 'corrector',
+            x_units: 'A',
+            y_label: 'orbit',
+            y_units: 'mm',
+          }
         ),
       ])
     );
@@ -808,7 +890,16 @@ describe('renderFigure', () => {
 
   test('the same lines panel re-renders in the dark palette after a theme flip', () => {
     const elements = mount();
-    const fig = figure([panel(linesMark([series('bpm3', [[0, 1], [1, 2]])]))]);
+    const fig = figure([
+      panel(
+        linesMark([
+          series('bpm3', [
+            [0, 1],
+            [1, 2],
+          ]),
+        ])
+      ),
+    ]);
 
     renderFigure(elements, fig);
     expect(elements.panels.querySelector('polyline.figure-line')?.getAttribute('stroke')).toBe(
@@ -880,10 +971,9 @@ describe('renderFigure', () => {
 
       // A heatmap gets a colorbar carrying its numbers, not a flat legend chip.
       expect(elements.panels.querySelectorAll('ul.figure-legend'), name).toHaveLength(0);
-      expect(
-        elements.panels.querySelector('.figure-colorbar-label')?.textContent,
-        name
-      ).toBe('response (mm/A)');
+      expect(elements.panels.querySelector('.figure-colorbar-label')?.textContent, name).toBe(
+        'response (mm/A)'
+      );
       expect(textsOf(elements.panels, '.figure-colorbar-tick'), name).toEqual(['-6', '6', '0']);
       expect(
         elements.panels.querySelector('section.figure-panel')?.getAttribute('data-mark'),
@@ -899,12 +989,10 @@ describe('renderFigure', () => {
       elements,
       figure([
         panel(
-          heatmapMark(
-            ['c1', 'c2'],
-            ['b1'],
-            [[-5, 0]],
-            { value_label: 'slope', value_units: 'mm/A' }
-          )
+          heatmapMark(['c1', 'c2'], ['b1'], [[-5, 0]], {
+            value_label: 'slope',
+            value_units: 'mm/A',
+          })
         ),
       ])
     );
@@ -925,9 +1013,9 @@ describe('renderFigure', () => {
 
     const mixed = mount();
     renderFigure(mixed, figure([panel(heatmapMark(['x0', 'x1'], ['y0'], [[1, null]]))]));
-    expect(
-      mixed.panels.querySelector('rect.figure-cell-missing title')?.textContent
-    ).toBe('No reading');
+    expect(mixed.panels.querySelector('rect.figure-cell-missing title')?.textContent).toBe(
+      'No reading'
+    );
   });
 
   test('a series picker filters what is drawn and remembers the choice across a redraw', () => {
@@ -993,9 +1081,7 @@ describe('renderFigure', () => {
     // The inline finding comes first; the evidence is a closed disclosure.
     const details = disclosure(elements.panels);
     expect(details.open).toBe(false);
-    const inline = /** @type {Element} */ (
-      elements.panels.querySelector('section.figure-panel')
-    );
+    const inline = /** @type {Element} */ (elements.panels.querySelector('section.figure-panel'));
     expect(details.compareDocumentPosition(inline)).toBe(Node.DOCUMENT_POSITION_PRECEDING);
     expect(elements.panels.querySelector('.figure-section-count')?.textContent).toBe('2 panels');
 
@@ -1111,10 +1197,22 @@ describe('renderFigure', () => {
       elements,
       figure([
         panel(
-          linesMark([series('bpm3', [[0, 1], [1, 2]], { decimated: true, source_points: 20000 })], {
-            decimated: true,
-            source_points: 20000,
-          }),
+          linesMark(
+            [
+              series(
+                'bpm3',
+                [
+                  [0, 1],
+                  [1, 2],
+                ],
+                { decimated: true, source_points: 20000 }
+              ),
+            ],
+            {
+              decimated: true,
+              source_points: 20000,
+            }
+          ),
           { annotations: ['fit converged in 3 iterations'] }
         ),
       ])
@@ -1130,9 +1228,17 @@ describe('renderFigure', () => {
     renderFigure(
       elements,
       figure([
-        panel(linesMark([series('bpm3', [[0, null], [1, null]])]), {
-          annotations: ['readback offline'],
-        }),
+        panel(
+          linesMark([
+            series('bpm3', [
+              [0, null],
+              [1, null],
+            ]),
+          ]),
+          {
+            annotations: ['readback offline'],
+          }
+        ),
       ])
     );
     expect(elements.panels.querySelector('svg.figure-plot')).toBeNull();
@@ -1168,7 +1274,15 @@ describe('renderFigure', () => {
     renderFigure(
       elements,
       figure([
-        panel(linesMark([series('a', [[0, 1], [1, 2]])]), { title: 'first' }),
+        panel(
+          linesMark([
+            series('a', [
+              [0, 1],
+              [1, 2],
+            ]),
+          ]),
+          { title: 'first' }
+        ),
         panel(barsMark(['x'], [1]), { title: 'second' }),
       ])
     );
@@ -1189,10 +1303,18 @@ describe('renderFigure', () => {
     renderFigure(
       elements,
       figure([
-        panel(linesMark([series(hostile, [[0, 1], [1, 2]])]), {
-          title: hostile,
-          annotations: [hostile],
-        }),
+        panel(
+          linesMark([
+            series(hostile, [
+              [0, 1],
+              [1, 2],
+            ]),
+          ]),
+          {
+            title: hostile,
+            annotations: [hostile],
+          }
+        ),
       ])
     );
     expect(elements.panels.querySelector('img')).toBeNull();
@@ -1204,7 +1326,19 @@ describe('renderFigure', () => {
   test('rendering reads real theme tokens — the bridge never logs an untrusted read', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const elements = mount();
-    renderFigure(elements, figure([panel(linesMark([series('a', [[0, 1], [1, 2]])]))]));
+    renderFigure(
+      elements,
+      figure([
+        panel(
+          linesMark([
+            series('a', [
+              [0, 1],
+              [1, 2],
+            ]),
+          ])
+        ),
+      ])
+    );
     expect(errors).not.toHaveBeenCalled();
   });
 });

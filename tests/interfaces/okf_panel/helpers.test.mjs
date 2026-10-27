@@ -157,9 +157,7 @@ describe('hashChangeTarget', () => {
   });
 
   test('the structure marker with a null state yields the marker', () => {
-    expect(hashChangeTarget(paramsFor(`#${STRUCTURE_MARKER}`), null, known)).toBe(
-      STRUCTURE_MARKER
-    );
+    expect(hashChangeTarget(paramsFor(`#${STRUCTURE_MARKER}`), null, known)).toBe(STRUCTURE_MARKER);
   });
 
   test('a listed concept id with a null state yields that id', () => {

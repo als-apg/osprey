@@ -104,11 +104,11 @@ PW_PLAINTEXT_VAR_PREFIX = "OSPREY_AUTH_PW_"
 
 #: The sidecar's cookie-signing secret, required in EVERY auth method — an
 #: empty one takes the whole sidecar to 503.
-SESSION_SECRET_VAR = "OSPREY_AUTH_SESSION_SECRET"
+SESSION_SECRET_VAR = "OSPREY_AUTH_SESSION_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: Secret for the short-lived OIDC state cookie. Required by the sidecar only
 #: in ``oidc`` mode, but minted alongside the session secret regardless.
-STATE_SECRET_VAR = "OSPREY_AUTH_STATE_SECRET"
+STATE_SECRET_VAR = "OSPREY_AUTH_STATE_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: Both signing secrets, in a fixed order so an appended block is byte-stable.
 SESSION_SECRET_VARS = (SESSION_SECRET_VAR, STATE_SECRET_VAR)
@@ -127,7 +127,7 @@ TERMINAL_SECRET_VAR_PREFIX = ROSTER_SECRET_ENV_PREFIX
 #: mint runs in EVERY auth method, so this message reaches operators who
 #: configured no authentication at all; naming the secrets rather than the auth
 #: credentials is what keeps such a refusal about something they can find.
-TERMINAL_SECRET_SUBJECT = "secrets"
+TERMINAL_SECRET_SUBJECT = "secrets"  # noqa: S105 -- names a credential subject, holds no secret
 
 #: Every spelling each ``.env.auth`` block header has been written under, oldest
 #: first. A header is matched against the file already on the operator's disk

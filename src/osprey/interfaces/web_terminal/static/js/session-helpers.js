@@ -20,11 +20,16 @@ import { formatFacilityTime } from '/design-system/js/facility-time.js';
  * the registry; a facility-declared custom server takes the neutral badge.
  * @type {Record<string, string>} */
 const SERVER_COLORS = {
-  controls: 'srv-controls', python: 'srv-python', osprey_workspace: 'srv-workspace',
-  ariel: 'srv-ariel', 'channel-finder': 'srv-channel-finder',
-  osprey_facility_knowledge: 'srv-facility-knowledge', graph: 'srv-graph',
+  controls: 'srv-controls',
+  python: 'srv-python',
+  osprey_workspace: 'srv-workspace',
+  ariel: 'srv-ariel',
+  'channel-finder': 'srv-channel-finder',
+  osprey_facility_knowledge: 'srv-facility-knowledge',
+  graph: 'srv-graph',
   phoebus: 'srv-phoebus',
-  bluesky: 'srv-bluesky', health: 'srv-health',
+  bluesky: 'srv-bluesky',
+  health: 'srv-health',
   event_dispatcher: 'srv-event-dispatcher',
 };
 
@@ -75,9 +80,17 @@ export function emptyState(title, sub) {
 
 /** @type {Record<string, string>} */
 const TYPE_ICONS = {
-  plot: '\u{1F4C8}', table: '\u{1F4CA}', text: '\u{1F4C4}', code: '\u{1F4BB}',
-  json: '\u{1F4CB}', csv: '\u{1F4C3}', image: '\u{1F5BC}', notebook: '\u{1F4D3}',
-  markdown: '\u{270F}', html: '\u{1F310}', log: '\u{1F4DC}',
+  plot: '\u{1F4C8}',
+  table: '\u{1F4CA}',
+  text: '\u{1F4C4}',
+  code: '\u{1F4BB}',
+  json: '\u{1F4CB}',
+  csv: '\u{1F4C3}',
+  image: '\u{1F5BC}',
+  notebook: '\u{1F4D3}',
+  markdown: '\u{270F}',
+  html: '\u{1F310}',
+  log: '\u{1F4DC}',
 };
 /**
  * @param {string|null|undefined} t

@@ -114,10 +114,7 @@ describe('the shipped default on a deployment without the SYSTEM panel', () => {
       'clock',
       'search',
     ]);
-    expect(bodies[0].status.map((/** @type {any} */ i) => i.type)).not.toContain(
-      'system-health'
-    );
+    expect(bodies[0].status.map((/** @type {any} */ i) => i.type)).not.toContain('system-health');
     expect(rendered('status')).toEqual(['space', 'clock', 'search']);
   });
-
 });

@@ -12,12 +12,12 @@
 
 /** @type {Readonly<Record<string, string>>} */
 export const BUILTIN_PANEL_LABELS = Object.freeze({
-  'artifacts': 'WORKSPACE',
-  'ariel': 'ARIEL',
+  artifacts: 'WORKSPACE',
+  ariel: 'ARIEL',
   'channel-finder': 'CHANNELS',
-  'lattice': 'LATTICE',
-  'jupyter': 'JUPYTER',
-  'okf': 'KNOWLEDGE',
+  lattice: 'LATTICE',
+  jupyter: 'JUPYTER',
+  okf: 'KNOWLEDGE',
   'system-health': 'SYSTEM',
 });
 

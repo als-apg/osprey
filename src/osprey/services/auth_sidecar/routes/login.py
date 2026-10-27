@@ -156,7 +156,7 @@ TEMPLATE_NAME = "login.html"
 
 FIELD_USER = "user"
 FIELD_NEXT = "next"
-FIELD_PASSWORD = "password"
+FIELD_PASSWORD = "password"  # noqa: S105 -- names a form field, holds no secret
 """Form field names, matching the hidden inputs and the password input in
 ``login.html``. The browser test and the composed-stack test drive these."""
 

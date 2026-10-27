@@ -149,12 +149,10 @@ function chatMarkedParse() {
       const instance = new marked.Marked({ gfm: true, breaks: false });
       chatParse = (text) => instance.parse(text);
     } catch {
-      chatParse =
-        typeof marked.parse === 'function' ? (text) => marked.parse(text) : null;
+      chatParse = typeof marked.parse === 'function' ? (text) => marked.parse(text) : null;
     }
   } else {
-    chatParse =
-      typeof marked.parse === 'function' ? (text) => marked.parse(text) : null;
+    chatParse = typeof marked.parse === 'function' ? (text) => marked.parse(text) : null;
   }
   return chatParse;
 }

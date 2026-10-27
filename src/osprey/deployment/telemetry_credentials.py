@@ -116,9 +116,9 @@ _TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 
 #: The store's bootstrap account.
 ADMIN_USER = "osprey_admin"
-INGEST_PASSWORD_ENV = "OSPREY_TELEMETRY_INGEST_PASSWORD"
-ARCHIVE_PASSWORD_ENV = "OSPREY_TELEMETRY_ARCHIVE_PASSWORD"
-HISTORY_PASSWORD_ENV = "OSPREY_TELEMETRY_HISTORY_PASSWORD"
+INGEST_PASSWORD_ENV = "OSPREY_TELEMETRY_INGEST_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
+ARCHIVE_PASSWORD_ENV = "OSPREY_TELEMETRY_ARCHIVE_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
+HISTORY_PASSWORD_ENV = "OSPREY_TELEMETRY_HISTORY_PASSWORD"  # noqa: S105 -- names an environment variable, holds no secret
 #: Spelled so the proxy's ``^OSPREY_TERMINAL_SECRET_`` substitution filter
 #: passes it and the history app's roster-secret seam accepts it.
 HISTORY_GATE_ENV = "OSPREY_TERMINAL_SECRET_HISTORY"

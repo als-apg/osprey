@@ -35,7 +35,6 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
-from starlette.staticfiles import StaticFiles
 
 from osprey.bluesky_bridge_connection import (
     LANE_ONE,
@@ -44,6 +43,7 @@ from osprey.bluesky_bridge_connection import (
     resolve_lane_bridge_urls,
 )
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces._media_types import PinnedTypeStaticFiles
 from osprey.interfaces.bluesky_web import channels, draft_relay, queue_relay, read_proxy
 from osprey.interfaces.vendor import vendor_url
 
@@ -209,7 +209,7 @@ for _mount_path, _panel_name in _PANEL_MOUNTS:
     # sharing one bundle would otherwise collide on a single name.
     app.mount(
         _mount_path,
-        StaticFiles(directory=_panel_dir, html=True),
+        PinnedTypeStaticFiles(directory=_panel_dir, html=True),
         name=f"panel{_mount_path.replace('/', '-')}",
     )
 

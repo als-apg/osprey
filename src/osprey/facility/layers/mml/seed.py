@@ -134,7 +134,7 @@ _OFFSET_ABS_TOL = 1.0e-12
 #: The mapping key that holds the identity block.
 _FACILITY_KEY = "facility"
 
-_SINGLE_PASS = "single_pass"
+_SINGLE_PASS = "single_pass"  # noqa: S105 -- names a lattice mode, holds no secret
 
 #: Each tuning group role and the MML tag of the families the export lists for it.
 _TAGGED_ROLES: tuple[tuple[str, str], ...] = (

@@ -44,12 +44,12 @@
  * derives it through that module, so the two must stay byte-identical.
  */
 (function () {
-  "use strict";
+  'use strict';
 
-  const STORAGE_KEY_BASE = "osprey-rail-position";
-  const SCOPE_ATTRIBUTE = "data-osprey-storage-scope";
-  const VALID_POSITIONS = ["left", "top"];
-  const DEFAULT_POSITION = "left";
+  const STORAGE_KEY_BASE = 'osprey-rail-position';
+  const SCOPE_ATTRIBUTE = 'data-osprey-storage-scope';
+  const VALID_POSITIONS = ['left', 'top'];
+  const DEFAULT_POSITION = 'left';
 
   /** @param {string|null} value @returns {value is string} */
   function isValidPosition(value) {
@@ -58,7 +58,7 @@
 
   function readQueryPosition() {
     try {
-      return new URLSearchParams(window.location.search).get("rail");
+      return new URLSearchParams(window.location.search).get('rail');
     } catch {
       return null;
     }
@@ -71,7 +71,7 @@
   function storageKey() {
     try {
       const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);
-      return scope ? STORAGE_KEY_BASE + "--" + scope : STORAGE_KEY_BASE;
+      return scope ? STORAGE_KEY_BASE + '--' + scope : STORAGE_KEY_BASE;
     } catch {
       return STORAGE_KEY_BASE;
     }
@@ -90,7 +90,7 @@
   // below and the no-clobber check at the end use the exact same value.
   function readServerPosition() {
     try {
-      return document.documentElement.getAttribute("data-rail-position");
+      return document.documentElement.getAttribute('data-rail-position');
     } catch {
       return null;
     }
@@ -113,6 +113,6 @@
   // differs from what's already there, so a correct server-rendered
   // attribute causes neither a flash nor a redundant write.
   if (resolved !== serverPosition) {
-    document.documentElement.setAttribute("data-rail-position", resolved);
+    document.documentElement.setAttribute('data-rail-position', resolved);
   }
 })();

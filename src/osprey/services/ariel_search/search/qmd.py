@@ -69,7 +69,10 @@ from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE, coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
-from osprey.services.ariel_search.exceptions import SearchConfigurationError
+from osprey.services.ariel_search.exceptions import (
+    SearchConfigurationError,
+    SearchTimeoutError,
+)
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
     START_BOUND_DESCRIPTION,
@@ -88,12 +91,11 @@ from osprey.services.qmd import QMDClient, QMDUnavailableError
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
-    from concurrent.futures import Executor
-
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.base import QueryExpansion
     from osprey.services.qmd import QMDSearchResult
 
@@ -306,7 +308,7 @@ async def hybrid_search(
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
     include_images: bool | None = None,
-    search_calls: Executor | None = None,
+    search_calls: SearchCallPool | None = None,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute the configured qmd or RRF hybrid strategy.
@@ -473,6 +475,12 @@ PICTURE_UNAVAILABLE_MESSAGE = (
     "known only by their pictures are missing."
 )
 
+#: Message of the diagnostic a timed-out semantic lane adds to a hybrid answer.
+SEMANTIC_UNAVAILABLE_MESSAGE = (
+    "Semantic ranking unavailable — the query embedding timed out, so results "
+    "are ranked on keywords only."
+)
+
 #: Opening of the diagnostic an image-only answer to a sidecar outage carries;
 #: :func:`_text_unavailable_message` completes it with the sidecar dialled.
 TEXT_UNAVAILABLE_MESSAGE = "Text ranking unavailable — picture matches only"
@@ -513,7 +521,7 @@ async def _ranked_search(
     embedder: BaseProvider | None,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
-    search_calls: Executor | None,
+    search_calls: SearchCallPool | None,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Run the text lane, join the picture lane when it ran, and shape the result.
 
@@ -618,7 +626,23 @@ async def _ranked_search(
 
     ranked = _decode_hits(hits)
     if semantic_task is not None:
-        ranked = _rrf_hits(ranked, await semantic_task)
+        try:
+            semantic = await semantic_task
+        except SearchTimeoutError as e:
+            # A hung or saturated embedding provider costs hybrid its semantic
+            # lane, never the keyword answer the sidecar already gave.
+            logger.warning(f"hybrid_search: semantic lane skipped: {e}")
+            semantic = []
+            diagnostics = (
+                *diagnostics,
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="hybrid",
+                    message=SEMANTIC_UNAVAILABLE_MESSAGE,
+                    category="semantic_search",
+                ),
+            )
+        ranked = _rrf_hits(ranked, semantic)
 
     if image_hits is not None:
         results = await _fused_results(
@@ -887,7 +911,7 @@ async def _semantic_hits(
     limit: int,
     filters: _Filters,
     query_expansion: QueryExpansion | None,
-    search_calls: Executor,
+    search_calls: SearchCallPool,
 ) -> list[_RankedTextHit]:
     """Run the existing Nomic/pgvector search and reduce it to an RRF lane."""
     if not config.get_search_model():

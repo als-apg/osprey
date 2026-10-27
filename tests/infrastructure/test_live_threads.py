@@ -20,6 +20,7 @@ import sys
 import textwrap
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -136,6 +137,49 @@ def test_a_thread_that_finishes_within_the_grace_is_not_reported():
         assert "'finishing-by-test'" not in buf.getvalue()
     finally:
         thread.join(10)
+
+
+def _wait_until_idle(name: str) -> None:
+    """Return once the executor worker *name* is parked on its empty queue."""
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        frames = sys._current_frames()
+        for thread in threading.enumerate():
+            if thread.name == name and _live_threads._idle_executor_worker(thread, frames):
+                return
+        time.sleep(0.01)
+    raise AssertionError(f"executor worker {name!r} never went idle")
+
+
+def test_an_idle_executor_worker_is_not_counted():
+    executor = ThreadPoolExecutor(1, thread_name_prefix="idle-by-test")
+    before = _already_running()
+    try:
+        assert executor.submit(int, "1").result(10) == 1
+        _wait_until_idle("idle-by-test_0")
+        buf = io.StringIO()
+        assert report_live_threads(buf, grace=0.0) == before
+        trailing = buf.getvalue().splitlines()[-1]
+        assert "idle executor worker(s) not counted" in trailing
+        assert "idle-by-test_0" in trailing
+    finally:
+        executor.shutdown(wait=True)
+
+
+def test_a_busy_executor_worker_is_a_holder():
+    release = threading.Event()
+    executor = ThreadPoolExecutor(1, thread_name_prefix="busy-by-test")
+    before = _already_running()
+    try:
+        executor.submit(_hold, release)
+        buf = io.StringIO()
+        assert report_live_threads(buf, grace=0.0) == before + 1
+        out = buf.getvalue()
+        assert "'busy-by-test_0'" in out
+        assert "in _hold" in out
+    finally:
+        release.set()
+        executor.shutdown(wait=True)
 
 
 def test_a_non_daemon_child_process_is_named():

@@ -22,28 +22,28 @@ pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests -m "not pty an
 pytest tests/ --ignore=tests/e2e packages/osprey-connectors/tests
 ```
 
-The `pty` and `wallclock` markers are run serially by `scripts/ci_check.sh`,
-by `scripts/gate.sh` and by their own CI steps.
-
-`scripts/gate.sh` is the one local spelling of the merge gate: anything that
-gates a branch calls it and adds nothing to its marker expression. It runs every
-CI step that needs no secret or Docker, and `--base <ref>` (default
-`origin/main`) is what its changelog and plugin-version checks compare against.
+The `pty` and `wallclock` markers are run serially by the full tier of
+`scripts/check.py` (its `pytest-pty` and `pytest-wallclock` checks) and by their
+own CI steps.
 
 Both must pass. Parallel is the real gate; serial is the one that gives you
 readable output when something is wrong.
 
-The four helper scripts already use the parallel invocation, so you normally
-just run one of them:
+`scripts/check.py` is the one declaration of the merge gate: every check is
+declared there once, CI's lint, test, docs, package and frontend-js jobs call it,
+and its `pytest` check already uses the parallel invocation, so you normally
+just run a tier:
 
-| Script | What it is for |
+| Command | What it is for |
 |---|---|
-| `scripts/quick_check.sh` | Fast loop while working; skips `@pytest.mark.slow` |
-| `scripts/premerge_check.sh` | Quiet pass/fail before opening a PR |
-| `scripts/ci_check.sh` | Full CI mirror, with coverage |
-| `scripts/gate.sh full` | The merge gate: lint, lockfile, config keys, changelog, plugin version, types, the parallel sweep, each serial step, JS typecheck/lint/tests, and the docs build. `fast [--base <ref>] <paths>` sends `.py` paths to pytest and `*.test.js`/`*.test.mjs` to vitest |
+| `scripts/check.py quick` | Every commit: the fast checks and the parallel sweep; skips `@pytest.mark.slow` |
+| `scripts/check.py quick --changed origin/main` | Before a PR: the checks and tests the diff touches, plus the changelog and plugin-version checks against the base; names the CI lanes the diff touches |
+| `scripts/check.py full` | Before a push: adds the slow tests, each serial suite, and the builds (docs, packages) |
+| `scripts/check.py run <id>` | One check as declared; what each CI step calls |
 
-Each script bounds its pytest runs with `scripts/run_bounded.py`, which exits
+`scripts/check.py list` prints every check and the tiers that run it.
+
+The check bounds its pytest runs with `scripts/run_bounded.py`, which exits
 124 when a run passes its bound, after naming any process of its group that
 SIGKILL did not end, or saying the process table could not be read. A run stopped by its bound prints every
 process's Python stacks before it is killed. Every pytest process the suite
@@ -280,7 +280,7 @@ than scroll past in the warnings summary. Four groups matter day to day:
   turns it into a real skip when the resource is missing. To add a resource,
   append a zero-argument, side-effect-free predicate to `_RESOURCE_CHECKS` there
   and declare the marker in `pyproject.toml`.
-- **`slow`** — deselected by `scripts/quick_check.sh` (`-m "not slow"`). Mark a
+- **`slow`** — deselected by `scripts/check.py quick` (`-m "not slow"`). Mark a
   test slow if it would make the fast loop annoying to run; it still runs in CI.
 - **`xdist_group`** — the worker pin from section 1. Self-registered by xdist, so
   it needs no declaration.

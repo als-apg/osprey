@@ -160,9 +160,11 @@ export function initFeedback(options = {}) {
     config.email = trimmedString(panels == null ? undefined : panels.feedback_email);
     // Rendered server-side and echoed verbatim: the browser cannot know which
     // preset this deployment was built from, and must not guess.
-    config.deployment = normalizeDeployment(panels == null ? undefined : panels.feedback_deployment);
+    config.deployment = normalizeDeployment(
+      panels == null ? undefined : panels.feedback_deployment
+    );
     config.escalationUrl = trimmedString(
-      panels == null ? undefined : panels.feedback_escalation_url,
+      panels == null ? undefined : panels.feedback_escalation_url
     );
     // Handed to the dialog as well as kept here: the radios are built from
     // the list, and the dialog may already be open when it lands.
@@ -428,9 +430,7 @@ function normalizeTrackers(value) {
  * @returns {Record<string, unknown>}
  */
 function buildMetadata(config) {
-  const escalate = config.escalationUrl
-    ? { 'Escalate to OSPREY': config.escalationUrl }
-    : {};
+  const escalate = config.escalationUrl ? { 'Escalate to OSPREY': config.escalationUrl } : {};
   return {
     'OSPREY version': config.version,
     ...config.deployment,

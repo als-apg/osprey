@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
 logger = logging.getLogger(__name__)
 
@@ -906,20 +907,18 @@ def seed_entry_factory():
 
 
 @pytest.fixture
-def search_calls() -> Iterator[ThreadPoolExecutor]:
-    """A search-call pool shaped like the service's, for tests that call a search module directly.
+def search_calls() -> Iterator[SearchCallPool]:
+    """A search-call pool of the service's type, for tests that call a search module directly.
 
-    Shut down at teardown, so no ``ariel-search-call`` worker outlives the test.
+    Closed at teardown, so no queued call outlives the test.
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
-    from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS
-
-    executor = ThreadPoolExecutor(
-        max_workers=SEARCH_CALL_WORKERS, thread_name_prefix="ariel-search-call"
-    )
-    yield executor
-    executor.shutdown(wait=False, cancel_futures=True)
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        pool.close()
 
 
 @pytest.fixture

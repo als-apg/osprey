@@ -106,10 +106,10 @@ class TestCalibration:
             physics.append(bare)
             scaled = copy.deepcopy(bare)
             if _is_monitor(record):
-                # hardware = monitor_gain * metres
+                # The hardware reading is monitor_gain times metres.
                 scaled["calibration"] = _linear(1.0 / monitor_gain, 0.0)
             elif record["address"] == CORRECTOR_X:
-                # hardware = corrector_gain * radians
+                # The hardware setting is corrector_gain times radians.
                 scaled["calibration"] = _linear(1.0 / corrector_gain, 0.0)
             calibrated.append(scaled)
         physics_step = 1.0e-5

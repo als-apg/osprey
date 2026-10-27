@@ -367,7 +367,6 @@ export const BAR_CATALOG = Object.freeze({
     available: ALWAYS,
   },
 
-
   separator: {
     type: 'separator',
     label: 'Separator',

@@ -504,10 +504,12 @@ def expand_entry_text(
         canonical_to_acronym=canonical_to_acronym,
         canonical_to_shorthand=canonical_to_shorthand,
     )
-    norms = [token.norm for token in tokens]
     visible = len(tokens)
     if limit is not None:
         visible = sum(1 for token in tokens if token.end <= limit)
+    # Cut once here: slicing per span would copy every visible norm for each
+    # span, quadratic in a long entry's token count.
+    norms = [token.norm for token in tokens[:visible]]
 
     insertions = [
         Insertion(
@@ -516,7 +518,7 @@ def expand_entry_text(
             concepts=span.concepts,
         )
         for span in _scan(tokens, vocabulary, gates, limit=limit)
-        if span.alternatives and not _spelled_out_nearby(span, norms[:visible], vocabulary)
+        if span.alternatives and not _spelled_out_nearby(span, norms, vocabulary)
     ]
     if not insertions:
         return EntryExpansion(text=text, insertions=())

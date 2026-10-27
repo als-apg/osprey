@@ -41,6 +41,7 @@ from osprey_connectors.factory import (
     isolated_connector_registries,
     register_builtin_connectors,
 )
+from tests._builds import BuiltProject
 from tests.facility.served_tree import in_process_config
 
 # The epics block a scaffolded Control Assistant renders: the app template's
@@ -70,15 +71,25 @@ def _build(runner: CliRunner, repo: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
-@pytest.fixture
-def scaffolded_repo(runner: CliRunner, tmp_path: Path) -> Path:
-    """A fresh Control Assistant deployment repo, built once."""
-    repo = tmp_path / "smoke"
+def _scaffold(runner: CliRunner, repo: Path) -> Path:
+    """Scaffold a Control Assistant deployment repo at *repo* and build it once."""
     result = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
     assert result.exit_code == 0, result.output
     _build(runner, repo)
     assert (repo / "build" / "config.yml").exists()
     return repo
+
+
+@pytest.fixture
+def scaffolded_repo(runner: CliRunner, tmp_path: Path) -> Path:
+    """A fresh Control Assistant deployment repo, built once, for a test that edits it."""
+    return _scaffold(runner, tmp_path / "smoke")
+
+
+@pytest.fixture
+def stock_repo(built_control_assistant: BuiltProject) -> Path:
+    """The run's shared build of the stock Control Assistant preset, which tests only read."""
+    return built_control_assistant.repo
 
 
 #: The documented flip to the simulator in process.
@@ -101,6 +112,20 @@ def _load_config(repo: Path) -> dict:
     return yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
 
 
+@pytest.fixture(scope="module")
+def served_in_process_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A freshly scaffolded repo after the documented flip, which tests only read.
+
+    Module-scoped: every case reads the same scaffold, build, set and re-build,
+    and driving that sequence again per case would say nothing the first run
+    did not.
+    """
+    runner = CliRunner()
+    repo = _scaffold(runner, tmp_path_factory.mktemp("served-in-process") / "smoke")
+    _serve_in_process(runner, repo)
+    return repo
+
+
 @pytest.fixture(autouse=True)
 def clean_connector_factory():
     """Isolate ConnectorFactory global state across tests.
@@ -116,15 +141,15 @@ def clean_connector_factory():
 class TestFreshProjectDefaultsToTheSimulator:
     """State 1: a freshly scaffolded project starts on the sandbox simulator."""
 
-    def test_default_control_system_type_is_the_simulator(self, scaffolded_repo: Path):
-        config = _load_config(scaffolded_repo)
+    def test_default_control_system_type_is_the_simulator(self, stock_repo: Path):
+        config = _load_config(stock_repo)
         assert config["control_system"]["type"] == "virtual_accelerator"
 
-    def test_virtual_accelerator_and_epics_blocks_present(self, scaffolded_repo: Path):
+    def test_virtual_accelerator_and_epics_blocks_present(self, stock_repo: Path):
         """The authored connector blocks are fully materialized even though
         neither is the active type — each is ready to flip to. The simulator
         is served from its container until the profile says otherwise."""
-        connector = _load_config(scaffolded_repo)["control_system"]["connector"]
+        connector = _load_config(stock_repo)["control_system"]["connector"]
         assert "serving" not in connector["virtual_accelerator"]
         assert "virtual_accelerator" in connector
         assert "epics" in connector
@@ -135,10 +160,8 @@ class TestServingInProcessEngagesTheConnector:
     the documented fallback flip for environments with no containers to depend
     on."""
 
-    def test_cli_switch_updates_config_serving(self, runner: CliRunner, scaffolded_repo: Path):
-        _serve_in_process(runner, scaffolded_repo)
-
-        config = _load_config(scaffolded_repo)
+    def test_cli_switch_updates_config_serving(self, served_in_process_repo: Path):
+        config = _load_config(served_in_process_repo)
         assert config["control_system"]["type"] == "virtual_accelerator"
         assert config["control_system"]["connector"]["virtual_accelerator"]["serving"] == (
             "in_process"
@@ -160,7 +183,7 @@ class TestServingInProcessEngagesTheConnector:
 
     @pytest.mark.asyncio
     async def test_scaffolded_in_process_section_resolves_to_the_in_process_connector(
-        self, runner: CliRunner, scaffolded_repo: Path, monkeypatch
+        self, served_in_process_repo: Path, monkeypatch
     ):
         """The scaffolded project's control_system section, fed through the
         real ConnectorFactory, produces a VAInProcessConnector instance — not just a
@@ -172,14 +195,12 @@ class TestServingInProcessEngagesTheConnector:
         reads build/config.yml directly, so it hands the connector that view
         itself, from the repo root.
         """
-        _serve_in_process(runner, scaffolded_repo)
-
         register_builtin_connectors()
-        cs_config = _load_config(scaffolded_repo)["control_system"]
+        cs_config = _load_config(served_in_process_repo)["control_system"]
         assert cs_config["type"] == "virtual_accelerator"
 
-        monkeypatch.chdir(scaffolded_repo)
-        render_view = scaffolded_repo / "build" / "data" / "simulator"
+        monkeypatch.chdir(served_in_process_repo)
+        render_view = served_in_process_repo / "build" / "data" / "simulator"
         cs_config["connector"]["virtual_accelerator"].update(in_process_config(render_view))
         connector = await ConnectorFactory.create_control_system_connector(cs_config)
         try:
@@ -199,18 +220,14 @@ class TestEpicsBlockRemainsUntouched:
     own, and the one edit that points this repo at a real facility is the one
     the template invites."""
 
-    def test_epics_block_unchanged_before_switch(self, scaffolded_repo: Path):
+    def test_epics_block_unchanged_before_switch(self, stock_repo: Path):
         """A build of the shipped preset leaves the authored gateways alone."""
-        epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
+        epics = _load_config(stock_repo)["control_system"]["connector"]["epics"]
         assert epics == SCAFFOLDED_EPICS_BLOCK
 
-    def test_epics_block_unchanged_after_serving_in_process(
-        self, runner: CliRunner, scaffolded_repo: Path
-    ):
+    def test_epics_block_unchanged_after_serving_in_process(self, served_in_process_repo: Path):
         """Switching the connector must not perturb the epics block — the write
         reaches exactly one key, and the re-render carries the rest through
         unchanged."""
-        _serve_in_process(runner, scaffolded_repo)
-
-        epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
+        epics = _load_config(served_in_process_repo)["control_system"]["connector"]["epics"]
         assert epics == SCAFFOLDED_EPICS_BLOCK

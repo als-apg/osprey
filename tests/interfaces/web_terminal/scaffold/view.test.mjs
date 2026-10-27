@@ -2,7 +2,7 @@
  * Unit tests for the Scaffold Gallery view layer (scaffold/view.js).
  *
  * Pure-logic + DOM guard, happy-dom environment (configured globally):
- *   npx vitest run tests/interfaces/web_terminal/scaffold-view.test.mjs
+ *   npx vitest run tests/interfaces/web_terminal/scaffold/view.test.mjs
  *
  * Covers getFilteredArtifacts' search/category/project-owned filter
  * combinations (pure, no gallery instance needed), the card templates'
@@ -18,16 +18,16 @@
 
 import { test, expect, describe, vi, afterEach } from 'vitest';
 
-import { qs } from '../_support/dom.mjs';
+import { qs } from '../../_support/dom.mjs';
 
 import {
   getFilteredArtifacts,
   createScaffoldGalleryView,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js';
-import { createScaffoldGalleryCards } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js';
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js';
+import { createScaffoldGalleryCards } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js';
 
 /**
- * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js').ScaffoldGalleryHost} ScaffoldGalleryHost
+ * @typedef {import('../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js').ScaffoldGalleryHost} ScaffoldGalleryHost
  */
 
 /**
@@ -96,30 +96,79 @@ function makeGallery(overrides = {}) {
 
 describe('getFilteredArtifacts', () => {
   const ARTIFACTS = [
-    { name: 'claude-md', displayCategory: 'system prompt', status: 'framework', description: 'Root instructions' },
-    { name: 'safety-check', displayCategory: 'hooks', status: 'user-owned', description: 'Blocks unsafe writes' },
-    { name: 'channel-finder', displayCategory: 'agents', status: 'framework', summary: 'Finds beamline channels' },
-    { name: 'lattice-agent', displayCategory: 'agents', status: 'user-owned', description: 'Lattice analysis' },
+    {
+      name: 'claude-md',
+      displayCategory: 'system prompt',
+      status: 'framework',
+      description: 'Root instructions',
+    },
+    {
+      name: 'safety-check',
+      displayCategory: 'hooks',
+      status: 'user-owned',
+      description: 'Blocks unsafe writes',
+    },
+    {
+      name: 'channel-finder',
+      displayCategory: 'agents',
+      status: 'framework',
+      summary: 'Finds beamline channels',
+    },
+    {
+      name: 'lattice-agent',
+      displayCategory: 'agents',
+      status: 'user-owned',
+      description: 'Lattice analysis',
+    },
   ];
   const SPARSE = [{ name: 'bare', displayCategory: 'config', status: 'framework' }];
   const NONE = { filterProjectOwned: false, filterCategory: null, searchQuery: '' };
 
   test.each([
-    ['no filters returns every artifact', ARTIFACTS, {},
-      ['claude-md', 'safety-check', 'channel-finder', 'lattice-agent']],
-    ['project-owned keeps only user-owned artifacts', ARTIFACTS, { filterProjectOwned: true },
-      ['safety-check', 'lattice-agent']],
-    ['a category keeps only that displayCategory', ARTIFACTS, { filterCategory: 'agents' },
-      ['channel-finder', 'lattice-agent']],
-    ['search matches the name, case-insensitively', ARTIFACTS, { searchQuery: 'CLAUDE' }, ['claude-md']],
+    [
+      'no filters returns every artifact',
+      ARTIFACTS,
+      {},
+      ['claude-md', 'safety-check', 'channel-finder', 'lattice-agent'],
+    ],
+    [
+      'project-owned keeps only user-owned artifacts',
+      ARTIFACTS,
+      { filterProjectOwned: true },
+      ['safety-check', 'lattice-agent'],
+    ],
+    [
+      'a category keeps only that displayCategory',
+      ARTIFACTS,
+      { filterCategory: 'agents' },
+      ['channel-finder', 'lattice-agent'],
+    ],
+    [
+      'search matches the name, case-insensitively',
+      ARTIFACTS,
+      { searchQuery: 'CLAUDE' },
+      ['claude-md'],
+    ],
     ['search matches the description', ARTIFACTS, { searchQuery: 'unsafe' }, ['safety-check']],
     ['search matches the summary', ARTIFACTS, { searchQuery: 'beamline' }, ['channel-finder']],
-    ['all three filters intersect', ARTIFACTS,
-      { filterProjectOwned: true, filterCategory: 'agents', searchQuery: 'lattice' }, ['lattice-agent']],
-    ['a combination with no match is empty', ARTIFACTS,
-      { filterProjectOwned: true, filterCategory: 'system prompt' }, []],
-    ['artifacts without description or summary still match by name', SPARSE, { searchQuery: 'bare' },
-      ['bare']],
+    [
+      'all three filters intersect',
+      ARTIFACTS,
+      { filterProjectOwned: true, filterCategory: 'agents', searchQuery: 'lattice' },
+      ['lattice-agent'],
+    ],
+    [
+      'a combination with no match is empty',
+      ARTIFACTS,
+      { filterProjectOwned: true, filterCategory: 'system prompt' },
+      [],
+    ],
+    [
+      'artifacts without description or summary still match by name',
+      SPARSE,
+      { searchQuery: 'bare' },
+      ['bare'],
+    ],
   ])('%s', (_label, artifacts, filters, expected) => {
     const result = getFilteredArtifacts(artifacts, { ...NONE, ...filters });
     expect(result.map((a) => a.name)).toEqual(expected);
@@ -138,7 +187,11 @@ describe('renderArtifactCard / renderSkillGroup escaping', () => {
     const { renderArtifactCard } = createScaffoldGalleryCards({ openDetail: () => {} });
     const section = document.createElement('div');
 
-    renderArtifactCard(section, { name: HOSTILE_NAME, status: 'framework', description: HOSTILE_DESC }, 'agents');
+    renderArtifactCard(
+      section,
+      { name: HOSTILE_NAME, status: 'framework', description: HOSTILE_DESC },
+      'agents'
+    );
 
     const nameEl = qs(section, '.prompts-card-name');
     expect(nameEl.textContent).toBe(HOSTILE_NAME);
@@ -199,7 +252,11 @@ describe('createScaffoldGalleryView', () => {
       qs(s, '.prompts-category-label').textContent,
       qs(s, '.prompts-category-body').classList.contains('collapsed'),
     ]);
-    expect(state).toEqual([['HOOKS', false], ['AGENTS', true], ['SYSTEM PROMPT', true]]);
+    expect(state).toEqual([
+      ['HOOKS', false],
+      ['AGENTS', true],
+      ['SYSTEM PROMPT', true],
+    ]);
   });
 
   test('a single-category gallery never seeds its only section collapsed', () => {
@@ -213,8 +270,9 @@ describe('createScaffoldGalleryView', () => {
 
     view.renderGallery();
 
-    expect(qs(gallery.categoriesEl, '.prompts-category-body').classList.contains('collapsed'))
-      .toBe(false);
+    expect(qs(gallery.categoriesEl, '.prompts-category-body').classList.contains('collapsed')).toBe(
+      false
+    );
   });
 
   test('collapsed sections still render their cards (hidden, not skipped)', () => {
@@ -224,7 +282,9 @@ describe('createScaffoldGalleryView', () => {
     view.renderGallery();
 
     // Every section collapsed, yet all three cards exist in the DOM.
-    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(3);
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(
+      3
+    );
     expect(gallery.categoriesEl.querySelectorAll('.prompts-card').length).toBe(3);
   });
 
@@ -246,13 +306,17 @@ describe('createScaffoldGalleryView', () => {
     const gallery = makeGallery({ artifacts: ARTIFACTS, pinnedCategories: [] });
     const view = createScaffoldGalleryView(gallery);
 
-    view.renderGallery();  // unfiltered: everything seeded collapsed
-    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(3);
+    view.renderGallery(); // unfiltered: everything seeded collapsed
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(
+      3
+    );
 
     gallery.searchQuery = 'a';
     view.renderGallery();
 
-    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(0);
+    expect(gallery.categoriesEl.querySelectorAll('.prompts-category-body.collapsed').length).toBe(
+      0
+    );
   });
 
   test('the Filter disclosure opens and closes the panel holding search + chips', () => {
@@ -286,8 +350,9 @@ describe('createScaffoldGalleryView', () => {
     const view = createScaffoldGalleryView(gallery);
 
     view.renderGallery();
-    const chip = [...gallery.filterChipsEl.querySelectorAll('.prompts-chip')]
-      .find((c) => c.textContent === 'agents');
+    const chip = [...gallery.filterChipsEl.querySelectorAll('.prompts-chip')].find(
+      (c) => c.textContent === 'agents'
+    );
     expect(chip).toBeTruthy();
     if (chip === undefined) throw new Error('agents chip not found');
 
@@ -313,7 +378,9 @@ describe('createScaffoldGalleryView', () => {
   });
 
   test('the project-owned toggle is absent when every artifact is framework-owned', () => {
-    const gallery = makeGallery({ artifacts: ARTIFACTS.map((a) => ({ ...a, status: 'framework' })) });
+    const gallery = makeGallery({
+      artifacts: ARTIFACTS.map((a) => ({ ...a, status: 'framework' })),
+    });
     const view = createScaffoldGalleryView(gallery);
 
     view.renderGallery();
@@ -349,7 +416,7 @@ describe('createScaffoldGalleryView', () => {
     expect(gallery.clearFilterEl.style.display).not.toBe('none');
   });
 
-  test('the meta line\'s clear button drops every filter and re-renders', () => {
+  test("the meta line's clear button drops every filter and re-renders", () => {
     const gallery = makeGallery({
       artifacts: ARTIFACTS,
       summary: { total: 3, framework: 2, userOwned: 1 },
@@ -382,8 +449,14 @@ describe('createScaffoldGalleryView', () => {
     let deleted = null;
     const gallery = makeGallery({
       untrackedFiles: [{ canonical_name: 'stray.md', output_path: '.claude/stray.md' }],
-      registerUntracked: (name) => { registered = name; return Promise.resolve(); },
-      deleteUntracked: (name) => { deleted = name; return Promise.resolve(); },
+      registerUntracked: (name) => {
+        registered = name;
+        return Promise.resolve();
+      },
+      deleteUntracked: (name) => {
+        deleted = name;
+        return Promise.resolve();
+      },
     });
     const view = createScaffoldGalleryView(gallery);
 
@@ -412,7 +485,12 @@ describe('createScaffoldGalleryView', () => {
 
   test('clicking a card calls gallery.openDetail with that artifact', () => {
     let opened = null;
-    const gallery = makeGallery({ artifacts: ARTIFACTS, openDetail: (a) => { opened = a; } });
+    const gallery = makeGallery({
+      artifacts: ARTIFACTS,
+      openDetail: (a) => {
+        opened = a;
+      },
+    });
     const view = createScaffoldGalleryView(gallery);
 
     view.renderGallery();
@@ -463,26 +541,33 @@ describe('initScaffoldGallery tab routing', () => {
     /** @type {any} */ (document.getElementById('settings-drawer')).registerUnsavedGuard = vi.fn();
 
     const artifacts = ROUTED.map(([name, category, , output_path]) => ({
-      name, category, output_path, status: 'framework',
+      name,
+      category,
+      output_path,
+      status: 'framework',
     }));
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => ({
-      ok: true,
-      status: 200,
-      json: async () => (url.endsWith('/untracked') ? { untracked: [] } : { artifacts }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => ({
+        ok: true,
+        status: 200,
+        json: async () => (url.endsWith('/untracked') ? { untracked: [] } : { artifacts }),
+      }))
+    );
 
     vi.resetModules();
-    const { initScaffoldGallery } = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js'
-    );
+    const { initScaffoldGallery } =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js');
     initScaffoldGallery();
     for (const tab of ['tab-behavior', 'tab-safety', 'tab-config']) {
       document.getElementById(tab)?.dispatchEvent(new Event('drawer:tab-activate'));
     }
 
     /** @param {string} id */
-    const namesIn = (id) => [...document.querySelectorAll(`#${id} .prompts-card`)]
-      .map((c) => /** @type {HTMLElement} */ (c).dataset.name);
+    const namesIn = (id) =>
+      [...document.querySelectorAll(`#${id} .prompts-card`)].map(
+        (c) => /** @type {HTMLElement} */ (c).dataset.name
+      );
     await vi.waitFor(() => {
       expect(namesIn('safety-gallery-section').length).toBeGreaterThan(0);
       expect(namesIn('config-gallery-section').length).toBeGreaterThan(0);
@@ -494,7 +579,9 @@ describe('initScaffoldGallery tab routing', () => {
       config: namesIn('config-gallery-section'),
     };
     for (const [name, , tab] of ROUTED) {
-      const tabsShowing = Object.entries(shown).filter(([, names]) => names.includes(name)).map(([t]) => t);
+      const tabsShowing = Object.entries(shown)
+        .filter(([, names]) => names.includes(name))
+        .map(([t]) => t);
       expect(tabsShowing, `${name} should show only on ${tab}`).toEqual([tab]);
     }
   });

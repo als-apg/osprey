@@ -367,7 +367,7 @@ def _module(provider_configs, monkeypatch, model: FakeModel | None = None, **set
 
 
 # ---------------------------------------------------------------------------
-# configure()
+# Tests of configure()
 # ---------------------------------------------------------------------------
 
 

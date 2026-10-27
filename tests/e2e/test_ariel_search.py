@@ -21,7 +21,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -333,14 +332,14 @@ async def seeded_ariel_db(
 
 @pytest.fixture
 def search_calls():
-    """A search-call pool for the direct ``semantic_search`` calls, shut down after the test."""
-    from osprey.services.ariel_search.search._offload import SEARCH_CALL_WORKERS
+    """A search-call pool for the direct ``semantic_search`` calls, closed after the test."""
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
-    executor = ThreadPoolExecutor(
-        max_workers=SEARCH_CALL_WORKERS, thread_name_prefix="ariel-search-call"
-    )
-    yield executor
-    executor.shutdown(wait=False, cancel_futures=True)
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        pool.close()
 
 
 class TestSemanticSearchE2E:

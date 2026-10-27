@@ -36,22 +36,22 @@ function setStatValue(chipId, value, formatter) {
   if (!chip) return;
   const valueEl = chip.querySelector('.stat-value');
   if (!valueEl) return;
-  valueEl.textContent = (value != null && !isNaN(value)) ? formatter(value) : '—';
+  valueEl.textContent = value != null && !isNaN(value) ? formatter(value) : '—';
 }
 
 /** @param {any} summary */
 export function updateSummaryStats(summary) {
-  setStatValue('stat-energy', summary.energy_gev, v => v.toFixed(2));
-  setStatValue('stat-circumference', summary.circumference_m, v => v.toFixed(1));
+  setStatValue('stat-energy', summary.energy_gev, (v) => v.toFixed(2));
+  setStatValue('stat-circumference', summary.circumference_m, (v) => v.toFixed(1));
 
   // Tunes and chromaticity come from the optics figure of the inputs on
   // screen; until it exists, or for a model with no tune, the chips say "—".
   const tunes = summary.tunes || [];
   const chromaticity = summary.chromaticity || [];
-  setStatValue('stat-nux', tunes[0], v => v.toFixed(4));
-  setStatValue('stat-nuy', tunes[1], v => v.toFixed(4));
-  setStatValue('stat-chrom-x', chromaticity[0], v => v.toFixed(2));
-  setStatValue('stat-chrom-y', chromaticity[1], v => v.toFixed(2));
+  setStatValue('stat-nux', tunes[0], (v) => v.toFixed(4));
+  setStatValue('stat-nuy', tunes[1], (v) => v.toFixed(4));
+  setStatValue('stat-chrom-x', chromaticity[0], (v) => v.toFixed(2));
+  setStatValue('stat-chrom-y', chromaticity[1], (v) => v.toFixed(2));
 }
 
 // ── LED Status ──────────────────────────────────────────
@@ -332,7 +332,9 @@ export function createRenderer(figureNames, callbacks) {
     if (container.dataset.familyKeys === familyKeys) {
       // Just update values
       for (const [name, info] of Object.entries(families)) {
-        const slider = /** @type {HTMLInputElement|null} */ (document.getElementById(`slider-${name}`));
+        const slider = /** @type {HTMLInputElement|null} */ (
+          document.getElementById(`slider-${name}`)
+        );
         if (slider && document.activeElement !== slider) {
           const overrideVal = callbacks.getOverrides()?.[name];
           slider.value = overrideVal ?? info.value;

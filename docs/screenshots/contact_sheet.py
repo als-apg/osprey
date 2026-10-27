@@ -1076,7 +1076,8 @@ def capture_hub_view(
 
     The view is shot only with its plot drawn; a plot that never draws raises
     :class:`RuntimeError` instead of writing *dest*. A resumed session that never
-    appears in the active view raises :class:`RuntimeError` without writing *dest*.
+    appears in the active view raises :class:`RuntimeError` without writing *dest*,
+    and so does a plot row that is not clickable.
     """
     # Publish the fake session BEFORE the page loads. The terminal's session id
     # has to be DEMO_SESSION_ID — the seeded artifacts are tagged with it and
@@ -1149,8 +1150,16 @@ def capture_hub_view(
         # the latest-result card. The workspace panel is a same-origin iframe and
         # each row carries ``data-id``; select the plot by its stable id, scoped
         # to the active view so a hidden twin row can't swallow the click.
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
         panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
-        panel.locator(_plot_row_selector(mode)).first.click(timeout=_NAV_TIMEOUT_MS)
+        try:
+            panel.locator(_plot_row_selector(mode)).first.click(timeout=_NAV_TIMEOUT_MS)
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError(
+                f"hub {variant}: the plot row was not clickable within "
+                f"{_NAV_TIMEOUT_MS // 1000} s; no image was written."
+            ) from exc
 
         _wait_for_plot_drawn(page, mode, variant=variant, moment="after its row was clicked")
 

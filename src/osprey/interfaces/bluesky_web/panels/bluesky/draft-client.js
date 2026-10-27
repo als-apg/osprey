@@ -311,7 +311,8 @@ export function shouldAutoSwitch(prevState, reduced) {
   if (action.type === 'reset') {
     const firstEver = prevState.lastAppliedRevision === null;
     const agentAdvanced =
-      next.lastUpdatedBy === AGENT_ORIGIN && updatedAtAdvanced(prevState.lastUpdatedAt, next.lastUpdatedAt);
+      next.lastUpdatedBy === AGENT_ORIGIN &&
+      updatedAtAdvanced(prevState.lastUpdatedAt, next.lastUpdatedAt);
     return { switch: firstEver || agentAdvanced, banner };
   }
   return { switch: false, banner };
@@ -411,9 +412,7 @@ export function buildQueueAddBody({ revision }) {
  * @returns {Record<string, unknown>}
  */
 export function buildDraftReplaceBody({ planName, planArgs, draftArgKeys, clientId }) {
-  const remove = draftArgKeys.filter(
-    (key) => !Object.prototype.hasOwnProperty.call(planArgs, key)
-  );
+  const remove = draftArgKeys.filter((key) => !Object.prototype.hasOwnProperty.call(planArgs, key));
   return { plan_name: planName, plan_args_patch: planArgs, remove, client_id: clientId };
 }
 
@@ -565,7 +564,8 @@ export function classifyQueueAddResponse(status, body) {
   // A bare-string `detail` is not a refusal record, but it is still the
   // answer's own sentence — the sidecar's web gate speaks that way
   // ("cross-origin request refused") — and it beats a bare status code.
-  const bare = body && typeof body === 'object' && typeof body.detail === 'string' ? body.detail : '';
+  const bare =
+    body && typeof body === 'object' && typeof body.detail === 'string' ? body.detail : '';
   return { type: 'error', detail: sentence || bare || `HTTP ${status}` };
 }
 
@@ -1334,7 +1334,9 @@ export function createDraftClient(deps) {
       /** @type {Record<string, unknown>} */
       const subset = {};
       for (const key of changed) {
-        subset[key] = Object.prototype.hasOwnProperty.call(draftArgs, key) ? draftArgs[key] : undefined;
+        subset[key] = Object.prototype.hasOwnProperty.call(draftArgs, key)
+          ? draftArgs[key]
+          : undefined;
       }
       collector.applyValues(subset);
       // Last-writer-wins: a remote edit landing on a key the operator was

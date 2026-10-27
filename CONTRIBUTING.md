@@ -50,9 +50,11 @@ ruff check .
 ruff format --check .
 ```
 
-**Changelog.** If your change touches `src/` or `packages/`, add a fragment — a
-small file such as `changelog.d/1234.fixed.md` describing the change for users.
-CI checks for it; see [`changelog.d/README.md`](changelog.d/README.md). Don't
+**Changelog.** If your change touches a directory the changelog gate covers,
+add a fragment — a small file such as `changelog.d/1234.fixed.md` describing
+the change for users. `uv run python scripts/changelog_fragments.py check --base origin/main`
+says which directories those are, and CI runs it; see
+[`changelog.d/README.md`](changelog.d/README.md). Don't
 add entries to `CHANGELOG.md` by hand — fragments are folded in when a release
 is cut.
 
