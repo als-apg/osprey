@@ -25,6 +25,7 @@ from osprey.bridges.core.drain import (
     run_drain_thread,
 )
 from osprey.bridges.core.errors import UndeliverableError
+from tests._live import wait_until
 
 NOW = 1_000_000.0
 PAST_MIN = 2000.0  # > retry_min_age (1200)
@@ -592,11 +593,7 @@ def test_run_drain_thread_runs_and_stops(tmp_path):
     deps = _deps(store, calls)
     stop = threading.Event()
     thread = run_drain_thread(deps, stop=stop)
-    # Poll until the fresh entry gets dispatched, then stop.
-    for _ in range(200):
-        if calls.dispatched:
-            break
-        time.sleep(0.01)
+    wait_until(lambda: calls.dispatched, timeout=2.0, interval=0.01, what="a redispatch")
     stop.set()
     thread.join(timeout=2.0)
     assert calls.dispatched == ["m1"]

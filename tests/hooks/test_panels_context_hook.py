@@ -14,11 +14,12 @@ behavior for sessions with no surface marker. No parts → silent exit 0.
 """
 
 import json
-import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+
+from tests._live import free_port
 
 HOOK = "osprey_panels_context.py"
 
@@ -57,13 +58,6 @@ def panels_server():
         server.server_close()
 
 
-def _closed_port() -> int:
-    """A port with nothing listening (bound momentarily, then released)."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _context(result):
     assert result is not None, "expected additionalContext output"
     out = result["hookSpecificOutput"]
@@ -96,7 +90,7 @@ def test_expert_surface_with_inventory(hook_runner, monkeypatch, panels_server):
 
 
 def test_simple_surface_survives_down_web_terminal(hook_runner, monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_closed_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
     monkeypatch.setenv("OSPREY_WEB_UX", "simple")
 
     context = _context(hook_runner(HOOK, "", {}))
@@ -105,7 +99,7 @@ def test_simple_surface_survives_down_web_terminal(hook_runner, monkeypatch):
 
 
 def test_no_marker_and_down_web_terminal_is_silent(hook_runner, monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_closed_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
     monkeypatch.delenv("OSPREY_WEB_UX", raising=False)
 
     assert hook_runner(HOOK, "", {}) is None
@@ -121,7 +115,7 @@ def test_no_marker_keeps_inventory_only_behavior(hook_runner, monkeypatch, panel
 
 
 def test_unknown_marker_is_ignored(hook_runner, monkeypatch):
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(_closed_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
     monkeypatch.setenv("OSPREY_WEB_UX", "bogus")
 
     assert hook_runner(HOOK, "", {}) is None

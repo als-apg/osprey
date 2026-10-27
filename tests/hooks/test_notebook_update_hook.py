@@ -13,13 +13,13 @@ whether a web terminal is listening.
 """
 
 import json
-import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._live import free_port
 
 HOOK_NAME = "osprey_notebook_update.py"
 
@@ -277,13 +277,6 @@ def activity_server():
         server.server_close()
 
 
-def closed_port():
-    """A port with nothing listening (bound momentarily, then released)."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 def make_notebook(tmp_path, relpath, subdir=NOTEBOOKS_SUBDIR):
     """Create an empty notebook at ``<agent-data root>/<subdir>/<relpath>``."""
     path = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / subdir / relpath
@@ -359,7 +352,7 @@ def test_badge_survives_down_web_terminal(tmp_path, monkeypatch, run_notebook_up
     The invalidation runs before the emit, so the one observable effect the
     hook owns unconditionally still happens with nothing listening.
     """
-    monkeypatch.setenv("OSPREY_WEB_PORT", str(closed_port()))
+    monkeypatch.setenv("OSPREY_WEB_PORT", str(free_port()))
     nb_path = make_notebook(tmp_path, "scan.ipynb")
     cached_html = nb_path.parent / "_notebook_cache" / "scan_rendered.html"
     cached_html.parent.mkdir()
