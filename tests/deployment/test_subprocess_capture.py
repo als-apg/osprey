@@ -26,6 +26,7 @@ from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeou
 from osprey.deployment.process_table import ProcessTableUnreadable
 from osprey.deployment.subprocess_capture import (
     SPOOL_RETENTION,
+    StopOutcome,
     _mismatched_volumes,
     group_is_gone,
     run_captured,
@@ -677,6 +678,31 @@ class TestBoundedRun:
 # ---------------------------------------------------------------------------
 # Stopping a process group and proving it gone. Real processes: the property
 # under test is what the kernel and the process table report.
+class TestStopOutcome:
+    def test_a_gone_outcome_is_truthy_and_gone(self):
+        outcome: StopOutcome[int] = StopOutcome()
+        assert bool(outcome) is True
+        assert outcome.gone
+        assert outcome.describe() == "gone"
+
+    def test_survivors_or_unknown_are_not_gone(self):
+        assert not StopOutcome(ended=(1,), survivors=(2,)).gone
+        assert not StopOutcome(ended=(1,), unknown=(1,)).gone
+
+    def test_describe_names_survivors_and_unknown_apart(self):
+        outcome = StopOutcome(ended=(123,), survivors=(4242,), unknown=(123,))
+        assert outcome.describe() == (
+            "still running after SIGKILL: pid 4242; "
+            "process table unreadable: group 123 may still be running"
+        )
+
+    def test_describe_takes_one_renderer_per_set(self):
+        outcome = StopOutcome(ended=("a",), survivors=("b", "c"), unknown=("d",))
+        assert outcome.describe(survivor=str.upper, unknown=lambda x: f"<{x}>") == (
+            "still running after SIGKILL: B, C; process table unreadable: <d> may still be running"
+        )
+
+
 # ---------------------------------------------------------------------------
 
 
