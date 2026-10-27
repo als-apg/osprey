@@ -25,11 +25,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from tests._preset_data import create_project_as_built
+from tests.cli._lifecycle_build import invoke_build
 
 
 class _Capture(logging.Handler):
@@ -109,7 +108,7 @@ def build_records(tmp_path_factory: pytest.TempPathFactory) -> _Capture:
     # puts `build` on — and its lines are captured beside the log records.
     previous_reporter = install_reporter(_RecordingReporter(capture.lines))
     try:
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+        result = invoke_build()
     finally:
         install_reporter(previous_reporter)
         os.chdir(previous_cwd)

@@ -44,9 +44,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build as build_command
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.workspace import (
@@ -57,6 +55,7 @@ from osprey_connectors.workspace import (
     repo_root_for_config,
 )
 from tests._preset_data import create_project_as_built
+from tests.cli._lifecycle_build import invoke_build
 
 #: The env keys every OSPREY MCP server reads its config path from. Both names
 #: appear because the servers were wired at different times; the value is the
@@ -211,7 +210,7 @@ def built_repo(tmp_path_factory) -> Path:
     previous = Path.cwd()
     os.chdir(repo)
     try:
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+        result = invoke_build()
     finally:
         os.chdir(previous)
     assert result.exit_code == 0, result.output

@@ -58,6 +58,7 @@ from osprey.deployment.web_terminals import (
 from osprey.simulation import apply
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import invoke_build
 from tests.cli.conftest import TerminalProbe
 
 # The witness logger and its marker. An ERROR is above the altitude gate on
@@ -1219,7 +1220,7 @@ def built_exemplar(tmp_path_factory: pytest.TempPathFactory) -> _BuildRun:
     os.chdir(repo)
     previous_reporter = install_reporter(_CaptureReporter(console))
     try:
-        result = CliRunner().invoke(build_cmd.build, ["--skip-deps", "--skip-lifecycle"])
+        result = invoke_build()
     finally:
         install_reporter(previous_reporter)
         os.chdir(previous_cwd)

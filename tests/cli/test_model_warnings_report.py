@@ -26,10 +26,10 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli import build_cmd
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import status_display
+from tests.cli._lifecycle_build import invoke_build
 from tests.cli.conftest import TerminalProbe
 
 SUBSTITUTION = "haiku, sonnet, opus aliases run the main model gpt-6-sol"
@@ -105,7 +105,7 @@ def openai_build(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
     try:
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(styles, "err_console", console)
-            result = CliRunner().invoke(build_cmd.build, ["--skip-deps", "--skip-lifecycle"])
+            result = invoke_build()
     finally:
         install_reporter(previous_reporter)
         os.chdir(previous_cwd)

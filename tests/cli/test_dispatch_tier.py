@@ -22,6 +22,7 @@ from osprey.cli.build_profile_schema import (
 )
 from osprey.deployment.web_terminals.roster import DEPLOYMENT_EDIT_DOORS
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._lifecycle_build import invoke_build
 
 _READONLY = """\
 name: Read-Only
@@ -325,9 +326,6 @@ def _built_exemplar(tmp_path_factory) -> Path:
     """The exemplar repo after one real ``osprey build`` (no venv, no hooks)."""
     import os
 
-    from click.testing import CliRunner
-
-    from osprey.cli.build_cmd import build as build_command
     from tests.fixtures.lifecycle_repo import (
         EXEMPLAR_DIRNAME,
         build_exemplar_repo,
@@ -340,7 +338,7 @@ def _built_exemplar(tmp_path_factory) -> Path:
     os.chdir(repo)
     try:
         with preserved_environ():
-            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+            result = invoke_build()
     finally:
         os.chdir(previous)
     assert result.exit_code == 0, result.output
