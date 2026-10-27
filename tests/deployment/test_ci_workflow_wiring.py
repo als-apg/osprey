@@ -473,21 +473,6 @@ def _find_named_step(wf: dict[str, Any], job_name: str, step_name: str) -> dict[
 
 
 # ---------------------------------------------------------------------------
-# (b) tiled-roundtrip-e2e declares no ALS_APG_API_KEY secret anywhere in it
-# ---------------------------------------------------------------------------
-
-
-def test_tiled_roundtrip_job_has_no_llm_secret__mutation_survives_lookalike() -> None:
-    """A differently-spelled secret expression must NOT trip the assertion —
-    proves the check matches the real token, not any 'secrets.' substring."""
-    mutated = copy.deepcopy(_load_workflow())
-    mutated["jobs"][TILED_JOB]["steps"].append(
-        {"name": "unrelated", "env": {"CODECOV_TOKEN": "${{ secrets.CODECOV_TOKEN }}"}}
-    )
-    assert not _job_declares_secret(mutated, TILED_JOB, SECRET_TOKEN)
-
-
-# ---------------------------------------------------------------------------
 # (c) e2e-tests' run step --ignores both new-lane files
 # ---------------------------------------------------------------------------
 
@@ -12259,6 +12244,16 @@ def test_secret_free_lane_has_no_llm_secret__mutation_adds_secret(job: str) -> N
     )
     with pytest.raises(AssertionError):
         test_secret_free_lane_has_no_llm_secret(mutated, job)
+
+
+def test_secret_free_lane_has_no_llm_secret__mutation_survives_lookalike() -> None:
+    """A differently-spelled secret expression must NOT trip the assertion —
+    proves the check matches the real token, not any 'secrets.' substring."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][TILED_JOB]["steps"].append(
+        {"name": "unrelated", "env": {"CODECOV_TOKEN": "${{ secrets.CODECOV_TOKEN }}"}}
+    )
+    assert not _job_declares_secret(mutated, TILED_JOB, SECRET_TOKEN)
 
 
 #: Lanes pinned on the ``needs:`` entry alone.
