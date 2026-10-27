@@ -49,16 +49,13 @@ import shutil
 import socket
 import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
-from tests.e2e._deploy_support import format_failure
+from tests.e2e._deploy_support import format_failure, wait_for_health
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
@@ -660,23 +657,6 @@ def minted_launch_token(project_dir: Path) -> str:
         "mints it for every deployed service that declares it"
     )
     return token
-
-
-def wait_for_health(url: str, timeout: float) -> None:
-    """Poll ``url`` until it answers HTTP 200, or fail after ``timeout``
-    seconds with the last error seen."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 #: The bridge's compose SERVICE name -- the key under ``services:`` in

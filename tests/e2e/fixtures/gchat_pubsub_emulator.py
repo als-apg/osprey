@@ -54,7 +54,6 @@ import base64
 import json
 import os
 import shutil
-import socket
 import subprocess
 import time
 from collections.abc import Iterator, Mapping
@@ -64,6 +63,7 @@ from typing import Any
 import httpx
 import pytest
 
+from tests._live import free_port
 from tests.e2e._deploy_support import RUNTIME
 
 __all__ = [
@@ -133,13 +133,6 @@ def image_available() -> bool:
     if _runtime("image", "inspect", IMAGE, check=False).returncode == 0:
         return True
     return _runtime("pull", IMAGE, check=False, timeout=PULL_TIMEOUT_SEC).returncode == 0
-
-
-def _free_port() -> int:
-    """Bind to :0, read the assigned port, release it (standard free-port trick)."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _container_logs(name: str, tail: int = 60) -> str:
@@ -261,7 +254,7 @@ class PubSubEmulator:
         died without teardown does not block this one.
         """
         _remove_container(PUBSUB_CONTAINER)
-        port = _free_port()
+        port = free_port()
         _runtime(
             "run",
             "-d",

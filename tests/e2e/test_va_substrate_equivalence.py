@@ -75,7 +75,6 @@ import contextlib
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
@@ -87,6 +86,7 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from tests._live import free_port
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
@@ -136,15 +136,11 @@ SP_ECHO_BAND = (280.0, 360.0)
 # the operator is running — `port_layout.CA_DEFAULT_PORT` keeps VA instance 1
 # there on purpose. The shipped 5064 default is covered at render level by
 # tests/cli/test_va_default_config.py and tests/cli/test_rendered_va_block.py.
-def _reserve_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 # import-time required because VA_CA_PORT seeds module-level constants
 # (_VA_GATEWAY, the fixture's --set args) built while the module imports.
-VA_CA_PORT = _reserve_free_port()
+VA_CA_PORT = free_port()
 # The deployment repo's directory name IS the deployment's name; the compose
 # templates render each service's container_name AND its locally-built image as
 # ``<project>-<service>`` (services/*/docker-compose.yml.j2), so derive both

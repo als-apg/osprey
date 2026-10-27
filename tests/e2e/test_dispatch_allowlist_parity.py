@@ -43,7 +43,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import time
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -51,7 +50,7 @@ from pathlib import Path
 import pytest
 
 from osprey.agent_runner.tool_policy import PASSTHROUGH_TOOLS
-from tests._live import free_port
+from tests._live import free_port, wait_until
 from tests.e2e._dispatch_harness import build_repo, start_worker, terminate
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.test_dispatch_tutorial import HEALTH_TIMEOUT_SEC
@@ -182,13 +181,14 @@ def dispatch_and_wait(worker_url: str, prompt: str, allowed_tools: list[str]) ->
         {"prompt": prompt, "allowed_tools": allowed_tools, "max_turns": 15},
     )
     run_id = accepted["run_id"]
-    deadline = time.monotonic() + RUN_TIMEOUT_SEC
-    while time.monotonic() < deadline:
+
+    def finished() -> dict | None:
         run = _http_json(f"{worker_url}/dispatch/{run_id}")
-        if run.get("status") not in ("running", "pending"):
-            return run
-        time.sleep(3.0)
-    pytest.fail(f"dispatch run {run_id} did not finish within {RUN_TIMEOUT_SEC}s")
+        return run if run.get("status") not in ("running", "pending") else None
+
+    return wait_until(
+        finished, timeout=RUN_TIMEOUT_SEC, interval=3.0, what=f"dispatch run {run_id} to finish"
+    )
 
 
 def _calls(run: dict, prefix: str) -> list[dict]:

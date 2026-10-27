@@ -71,6 +71,7 @@ from osprey.deployment.telemetry_store.stage import (
     stage_store,
 )
 from osprey.history import queries
+from tests._live import wait_until
 from tests.e2e._deploy_support import find_osprey_console_script, format_failure
 from tests.e2e._otlp_replay import rebase_otlp_times
 from tests.e2e._volumes import remove_project_volumes
@@ -1763,12 +1764,12 @@ def _spawn(pool: Any, stack: Stack, reader: str, query: str) -> Any:
 
 
 def _wait_running(reader: str, count: int, timeout: float = 15.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if _scalar(f"SELECT count() FROM system.processes WHERE user = '{reader}'") >= count:
-            return
-        time.sleep(0.2)
-    raise AssertionError(f"{reader} never had {count} queries running")
+    wait_until(
+        lambda: _scalar(f"SELECT count() FROM system.processes WHERE user = '{reader}'") >= count,
+        timeout=timeout,
+        interval=0.2,
+        what=f"{reader} having {count} queries running",
+    )
 
 
 def test_a_third_query_is_refused_per_reader_while_another_reader_holds_a_slot(
