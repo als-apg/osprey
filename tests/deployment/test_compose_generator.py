@@ -3574,8 +3574,8 @@ def test_service_build_args_carry_the_prerelease_flag_only_for_a_prerelease_pin(
     suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """A beta pin renders ``OSPREY_PIP_PRE: "1"`` beside ``OSPREY_VERSION`` so
-    the recipe's pip resolve admits the paired connectors beta; a stable pin
-    renders nothing, keeping the resolve strict. The context key comes from
+    the recipe's pip resolve admits a connectors pre-release for the
+    framework's floor; a stable pin renders nothing, keeping the resolve strict. The context key comes from
     ``_inject_project_metadata`` (see :class:`TestImagePinVersion`)."""
     beta = yaml.safe_load(
         _render_service_template(
