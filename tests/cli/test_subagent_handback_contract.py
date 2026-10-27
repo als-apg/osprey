@@ -29,7 +29,7 @@ import pytest
 
 from osprey.cli.templates.manager import TemplateManager
 from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
-from tests.cli._template_projects import create_project_with_facility_views
+from tests._preset_data import create_project_as_built
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 _OPEN_ENDED_ELLIPSIS = re.compile(r"\(artifact_id: \d+\): \.\.\.")
@@ -40,8 +40,9 @@ _LABELS = {"channel-finder": "Channels found"}
 
 @pytest.fixture(scope="module")
 def rendered_project(tmp_path_factory) -> Path:
-    return create_project_with_facility_views(
+    return create_project_as_built(
         TemplateManager(),
+        facility_views=True,
         project_name="handback-contract",
         output_dir=tmp_path_factory.mktemp("render"),
         data_bundle="control_assistant",

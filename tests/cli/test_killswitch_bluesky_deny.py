@@ -40,7 +40,7 @@ import yaml
 from osprey import bluesky_tool_names as bsky
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from tests.cli._template_projects import create_project_with_facility_views
+from tests._preset_data import create_project_as_built
 
 #: The project every ``_build_ctx`` call reads, built once per module.
 _BASE_PROJECT: Path | None = None
@@ -50,8 +50,9 @@ _BASE_PROJECT: Path | None = None
 def _base_project(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """The render every test reads, made once; ``_build_ctx`` edits a copy of its config only."""
     global _BASE_PROJECT
-    _BASE_PROJECT = create_project_with_facility_views(
+    _BASE_PROJECT = create_project_as_built(
         TemplateManager(),
+        facility_views=True,
         project_name="killswitch-bluesky-base",
         output_dir=tmp_path_factory.mktemp("killswitch-base"),
         data_bundle="control_assistant",
