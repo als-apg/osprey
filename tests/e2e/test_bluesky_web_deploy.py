@@ -207,7 +207,11 @@ def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> t
 
 def _get_html(path: str) -> tuple[int, str]:
     resp = httpx.get(  # localhost only
-        f"{BLUESKY_WEB_URL}{path}", headers=_auth_headers(), timeout=10.0, trust_env=False
+        f"{BLUESKY_WEB_URL}{path}",
+        headers=_auth_headers(),
+        timeout=10.0,
+        trust_env=False,
+        follow_redirects=True,
     )
     return resp.status_code, resp.text
 

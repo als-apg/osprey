@@ -228,6 +228,7 @@ def _post_raw(path: str, data: bytes, content_type: str) -> tuple[int, Any]:
         headers={"Content-Type": content_type},
         timeout=20.0,
         trust_env=False,
+        follow_redirects=True,
     )
     return resp.status_code, resp.json()
 

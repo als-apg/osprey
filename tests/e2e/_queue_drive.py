@@ -103,6 +103,7 @@ def request(
         headers=headers,
         timeout=timeout,
         trust_env=False,
+        follow_redirects=True,
     )
     try:
         return resp.status_code, resp.json()
