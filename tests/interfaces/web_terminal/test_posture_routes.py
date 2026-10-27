@@ -31,12 +31,12 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context
 from osprey_connectors_tests._harness import owner, state_dir_under, write_control_context
+from tests.interfaces.web_terminal._control_context import only_alive, read_record
 from tests.interfaces.web_terminal._started_app import app_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -121,28 +121,6 @@ def write_config(tmp_path, section=None, *, name="config.yml"):
 
 
 @pytest.fixture
-def agent_data_root(tmp_path, monkeypatch):
-    """Point every resolver at one throwaway agent-data root.
-
-    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
-    ``posture_store`` both prefer — the stamp this feature puts in every
-    session child's environment. Patching ``resolve_shared_data_root`` instead
-    would redirect only one of them: ``posture_store`` binds the resolver at
-    import, so the other half would write into the repository's own
-    ``var/agent_data``.
-    """
-    root = tmp_path / "agent_data"
-    state_dir_under(root).mkdir(parents=True)
-    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-    yield root
-    posture_store.invalidate_cache()
-    control_context.invalidate_cache()
-
-
-@pytest.fixture
 def workspace_dir(tmp_path):
     ws = tmp_path / "_watch"
     ws.mkdir()
@@ -182,25 +160,6 @@ def client(make_client):
         yield c
 
 
-@pytest.fixture
-def ledger():
-    """Capture every audit record this request would have written.
-
-    Patches ``osprey.audit.writer.record``, which BOTH recorders resolve at
-    call time — the route's ``record_and_mark`` and
-    ``HttpAuditMiddleware._emit_audit_record`` — so the count is the true
-    number of ledger lines one POST produces.
-    """
-    records: list[dict] = []
-
-    def _record(**fields):
-        records.append(fields)
-        return Path("/dev/null/ledger.jsonl")
-
-    with patch.object(audit_writer, "record", side_effect=_record):
-        yield records
-
-
 class _RecordingChatPool:
     """An operator registry that remembers what was asked of it."""
 
@@ -231,11 +190,6 @@ def recorded_posture():
     return {} if record is None else dict(record.posture)
 
 
-def read_record():
-    control_context.invalidate_cache()
-    return control_context.read_record()
-
-
 def write_inflight_marker(root: Path, *, pid, target="standin"):
     """Plant one execution marker, as the python executor writes it.
 
@@ -263,26 +217,6 @@ def write_inflight_marker(root: Path, *, pid, target="standin"):
         encoding="utf-8",
     )
     return path
-
-
-@contextmanager
-def only_alive(*pids):
-    """Report exactly *pids* as running processes.
-
-    One patch reaches every reader in the request: ``control_context`` owns the
-    predicate, and ``target_state.is_process_alive`` — which the marker sweep
-    calls — delegates to it at call time.
-    """
-    wanted = {int(p) for p in pids}
-
-    def alive(pid):
-        try:
-            return int(pid) in wanted
-        except (TypeError, ValueError):
-            return False
-
-    with patch.object(control_context, "is_process_alive", side_effect=alive):
-        yield
 
 
 #: The 400's sentence for a target this render does not configure, spelled

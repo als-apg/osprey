@@ -62,7 +62,9 @@ unset.
 ``workspace_dir`` is the empty watched directory most app tests boot over;
 ``_started_app.app_client`` is the boot itself. ``app`` and ``sessions_dir``
 are the unstarted app and the transcript directory the ``/ws/terminal`` suites
-drive through the harness in ``_ws``.
+drive through the harness in ``_ws``. ``agent_data_root`` and ``ledger`` are
+the throwaway record root and the captured audit ledger of the posture and
+target route suites (``_control_context`` holds their helpers).
 
 Two non-autouse builders serve the tests that ask for them:
 :func:`bar_items_app` boots the whole app with both agent-data stores on
@@ -261,6 +263,52 @@ def sessions_dir(tmp_path, monkeypatch) -> Path:
     sessions.mkdir()
     monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions)
     return sessions
+
+
+@pytest.fixture
+def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
+    """Point every resolver at one throwaway agent-data root, with the record's state dir.
+
+    ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
+    ``posture_store`` both prefer — the stamp this feature puts in every
+    session child's environment. Patching ``resolve_shared_data_root`` instead
+    would redirect only one of them: ``posture_store`` binds the resolver at
+    import, so the other half would write into the repository's own
+    ``var/agent_data``. Both caches are dropped on the way in and out.
+    """
+    from osprey_connectors import control_context, posture_store
+    from osprey_connectors_tests._harness import state_dir_under
+
+    root = tmp_path / "agent_data"
+    state_dir_under(root).mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+    yield root
+    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
+
+
+@pytest.fixture
+def ledger() -> Iterator[list[dict]]:
+    """Capture every audit record a request would have written.
+
+    Patches ``osprey.audit.writer.record``, which BOTH recorders resolve at
+    call time — a route's ``record_and_mark`` and
+    ``HttpAuditMiddleware._emit_audit_record`` — so the count is the true
+    number of ledger lines one request produces, not just the route's own.
+    """
+    from osprey.audit import writer as audit_writer
+
+    records: list[dict] = []
+
+    def _record(**fields):
+        records.append(fields)
+        return Path("/dev/null/ledger.jsonl")
+
+    with patch.object(audit_writer, "record", side_effect=_record):
+        yield records
 
 
 @pytest.fixture

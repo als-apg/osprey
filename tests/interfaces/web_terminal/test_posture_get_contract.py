@@ -61,6 +61,7 @@ from osprey_connectors_tests._harness import (
     write_control_context,
     write_server_report,
 )
+from tests.interfaces.web_terminal._control_context import only_alive
 from tests.interfaces.web_terminal._started_app import app_client
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -313,26 +314,6 @@ def client(make_client):
 
 
 # -- harness ----------------------------------------------------------------
-
-
-@contextmanager
-def only_alive(*pids):
-    """Report exactly *pids* as running processes.
-
-    One patch reaches every reader in the request: ``control_context`` owns the
-    predicate, and ``target_state.is_process_alive`` — which the marker sweep
-    calls — delegates to it at call time.
-    """
-    wanted = {int(p) for p in pids}
-
-    def alive(pid):
-        try:
-            return int(pid) in wanted
-        except (TypeError, ValueError):
-            return False
-
-    with patch.object(control_context, "is_process_alive", side_effect=alive):
-        yield
 
 
 def stamp(age_s=0.0):
