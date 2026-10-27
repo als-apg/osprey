@@ -245,10 +245,9 @@ async def test_the_mcp_context_builds_the_service_that_hosts_the_sql_tool(monkey
 
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
-    context = ARIELContext.__new__(ARIELContext)
-    context._service = None
+    context = ARIELContext()
     context._ariel_config = _config()
-    create = AsyncMock(return_value=object())
+    create = AsyncMock(return_value=AsyncMock())
     monkeypatch.setattr("osprey.services.ariel_search.service.create_ariel_service", create)
 
     await context.service()
