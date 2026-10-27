@@ -373,19 +373,19 @@ class PtySession:
                         )
 
         if groups and self._process is not None:
-            ended, survivors = process_tree.end_groups(groups)
-            if ended:
+            ending = process_tree.end_groups(groups)
+            if ending.ended:
                 logger.info(
                     "Ended %d process group(s) the PTY child %d started: %s",
-                    len(ended),
+                    len(ending.ended),
                     self._process.pid,
-                    process_tree.describe(ended),
+                    process_tree.describe(ending.ended),
                 )
-            if survivors:
+            if ending.survivors:
                 logger.warning(
                     "Process group(s) the PTY child %d started survived SIGKILL: %s",
                     self._process.pid,
-                    process_tree.describe(survivors),
+                    process_tree.describe(ending.survivors),
                 )
 
     def started_commands(self) -> list[process_tree.ProcessGroup] | None:

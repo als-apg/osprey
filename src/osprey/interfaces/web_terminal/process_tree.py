@@ -12,8 +12,9 @@ listed by :func:`server_group_members` and ended one by one with
 The tree is read in-process with psutil, so a read never forks and has no
 timeout: a busy host makes it slower, never unknown. A read that fails raises
 :class:`ProcessTableUnreadable`. A reader that decides to end or keep something
-never takes an unreadable table for an empty one, and the liveness checks count
-an unknown member as alive.
+never takes an unreadable table for an empty one, and an ending never signals
+what it could not re-identify: what an unreadable table hides is reported as
+unknown, never as gone and never as a survivor.
 
 A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
@@ -36,8 +37,9 @@ import re
 import signal
 import time
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from osprey.deployment import process_table
 from osprey.deployment.process_table import ProcessRow, ProcessTableUnreadable
@@ -189,6 +191,25 @@ class ProcessGroup:
         return {"label": self.label, "command": _truncate(self.command, _COMMAND_MAX)}
 
 
+_T = TypeVar("_T", ProcessGroup, ProcessRow)
+
+
+@dataclass(frozen=True)
+class Ending(Generic[_T]):
+    """What an ending did about the groups or processes it was given.
+
+    ``ended`` holds those that were signalled. ``survivors`` holds those a
+    read of the process table still found after SIGKILL. ``unknown`` holds
+    those that could not be re-identified because the table could not be
+    read: they were not signalled again and may still be running. Unknown is
+    never folded into survivors, since nobody looked.
+    """
+
+    ended: tuple[_T, ...] = ()
+    survivors: tuple[_T, ...] = ()
+    unknown: tuple[_T, ...] = ()
+
+
 def _group(pgid: int, rows: Sequence[ProcessRow]) -> ProcessGroup:
     """Return the group *rows* make up, named by what the agent launched.
 
@@ -309,14 +330,12 @@ def still_running(
     running as PID 1 without an init leaves behind) no longer counts.
 
     *rows* defaults to a fresh :func:`~osprey.deployment.process_table.snapshot`.
-    When the table cannot be read every group is returned: an unknown group is
-    never claimed gone.
+
+    Raises:
+        ProcessTableUnreadable: *rows* was not given and the table could not be read.
     """
     if rows is None:
-        try:
-            rows = process_table.snapshot()
-        except ProcessTableUnreadable:
-            return list(groups)
+        rows = process_table.snapshot()
     alive = []
     for group in groups:
         for pid, started in group.members:
@@ -341,49 +360,93 @@ def _signal_groups(groups: Sequence[ProcessGroup], signum: int) -> None:
             os.killpg(group.pgid, signum)
 
 
-def _wait_gone(groups: list[ProcessGroup], within: float) -> list[ProcessGroup]:
-    deadline = time.monotonic() + within
-    while groups and time.monotonic() < deadline:
-        time.sleep(_POLL_S)
-        groups = still_running(groups)
-    return groups
+def _wait_gone(
+    items: list[_T],
+    within: float,
+    alive: Callable[[Sequence[_T], dict[int, ProcessRow]], list[_T]],
+) -> tuple[list[_T], bool]:
+    """Poll the table until *items* are gone or *within* seconds have passed.
 
-
-def end_groups(
-    groups: Sequence[ProcessGroup],
-) -> tuple[list[ProcessGroup], list[ProcessGroup]]:
-    """End *groups*: SIGTERM, then SIGKILL what remains. Never raises.
-
-    Only groups that still hold a snapshotted member are signalled, never the
-    server's own group and never group 0 or 1.
+    A failed poll keeps the last known set. When the wait ends on a failed
+    poll with something left, one verdict read is taken, retried for up to
+    :data:`TEARDOWN_READ_WAIT_S`.
 
     Returns:
-        ``(ended, survivors)``: the groups that were signalled, and those the
-        last look still found after SIGKILL.
+        ``(remaining, read)``: what the latest successful read still found,
+        and whether *remaining* comes from a read at all; when it does not,
+        *remaining* could not be re-identified.
+    """
+    deadline = time.monotonic() + within
+    read = True
+    while items and time.monotonic() < deadline:
+        time.sleep(_POLL_S)
+        try:
+            rows = process_table.snapshot()
+        except ProcessTableUnreadable:
+            read = False
+            continue
+        read = True
+        items = alive(items, rows)
+    if items and not read:
+        try:
+            rows = process_table.snapshot_within(TEARDOWN_READ_WAIT_S)
+        except ProcessTableUnreadable:
+            return items, False
+        return alive(items, rows), True
+    return items, read
+
+
+def _end(
+    items: Sequence[_T],
+    alive: Callable[[Sequence[_T], dict[int, ProcessRow]], list[_T]],
+    send: Callable[[Sequence[_T], int], None],
+) -> Ending[_T]:
+    """SIGTERM what a read re-identifies in *items*, then SIGKILL what a read still finds.
+
+    Nothing a read did not re-identify is signalled; it is reported as unknown.
     """
     try:
-        live = still_running(groups)
-        _signal_groups(live, signal.SIGTERM)
-        remaining = _wait_gone(list(live), END_TERM_WAIT_S)
-        if remaining:
-            _signal_groups(remaining, signal.SIGKILL)
-            remaining = _wait_gone(remaining, END_KILL_WAIT_S)
-        return live, remaining
+        rows = process_table.snapshot_within(TEARDOWN_READ_WAIT_S)
+    except ProcessTableUnreadable:
+        return Ending(unknown=tuple(items))
+    live = alive(items, rows)
+    send(live, signal.SIGTERM)
+    remaining, read = _wait_gone(list(live), END_TERM_WAIT_S, alive)
+    if remaining and read:
+        send(remaining, signal.SIGKILL)
+        remaining, read = _wait_gone(remaining, END_KILL_WAIT_S, alive)
+    if read:
+        return Ending(ended=tuple(live), survivors=tuple(remaining))
+    return Ending(ended=tuple(live), unknown=tuple(remaining))
+
+
+def end_groups(groups: Sequence[ProcessGroup]) -> Ending[ProcessGroup]:
+    """End *groups*: SIGTERM, then SIGKILL what remains. Never raises.
+
+    Only groups a read of the process table re-identifies (they still hold a
+    snapshotted member) are signalled, never the server's own group and never
+    group 0 or 1. A group the table could not be read to re-identify is not
+    signalled. Each read that decides a step is retried for up to
+    :data:`TEARDOWN_READ_WAIT_S`.
+
+    Returns:
+        The :class:`Ending`: ``ended`` the groups that were signalled,
+        ``survivors`` those a read still found after SIGKILL, and ``unknown``
+        those that could not be re-identified because the table could not be
+        read.
+    """
+    try:
+        return _end(groups, still_running, _signal_groups)
     except Exception:  # teardown finishes whatever the process table reports
         logger.warning("Ending the PTY child's process groups failed", exc_info=True)
-        return [], list(groups)
+        return Ending(unknown=tuple(groups))
 
 
-def _live_rows(rows: Sequence[ProcessRow]) -> list[ProcessRow]:
-    """The *rows* whose process is still the one snapshotted: same start time and group.
+def _live_rows(rows: Sequence[ProcessRow], current: dict[int, ProcessRow]) -> list[ProcessRow]:
+    """The *rows* whose process *current* still shows as the one snapshotted.
 
-    Every row is returned when the table cannot be read: an unknown process is
-    never claimed gone.
+    That is the same pid, start time and group, not yet exited.
     """
-    try:
-        current = process_table.snapshot()
-    except ProcessTableUnreadable:
-        return list(rows)
     live = []
     for row in rows:
         now = current.get(row.pid)
@@ -406,38 +469,31 @@ def _signal_processes(rows: Sequence[ProcessRow], signum: int) -> None:
             os.kill(row.pid, signum)
 
 
-def _wait_processes_gone(rows: list[ProcessRow], within: float) -> list[ProcessRow]:
-    deadline = time.monotonic() + within
-    while rows and time.monotonic() < deadline:
-        time.sleep(_POLL_S)
-        rows = _live_rows(rows)
-    return rows
+def _signallable_rows(
+    rows: Sequence[ProcessRow], current: dict[int, ProcessRow]
+) -> list[ProcessRow]:
+    own = os.getpid()
+    return [row for row in _live_rows(rows, current) if row.pid > 1 and row.pid != own]
 
 
-def end_processes(
-    rows: Sequence[ProcessRow],
-) -> tuple[list[ProcessRow], list[ProcessRow]]:
+def end_processes(rows: Sequence[ProcessRow]) -> Ending[ProcessRow]:
     """End the processes *rows* name, one by one: SIGTERM, then SIGKILL. Never raises.
 
-    The per-process twin of :func:`end_groups`, with the same waits. Only a
-    process still the one snapshotted (same pid, start time and group) is
+    The per-process twin of :func:`end_groups`, with the same reads and waits.
+    Only a process a read re-identifies (same pid, start time and group) is
     signalled, never the server and never pid 0 or 1.
 
     Returns:
-        ``(ended, survivors)``: the processes that were signalled, and those
-        the last look still found after SIGKILL.
+        The :class:`Ending`: ``ended`` the processes that were signalled,
+        ``survivors`` those a read still found after SIGKILL, and ``unknown``
+        those that could not be re-identified because the table could not be
+        read.
     """
     try:
-        live = [row for row in _live_rows(rows) if row.pid > 1 and row.pid != os.getpid()]
-        _signal_processes(live, signal.SIGTERM)
-        remaining = _wait_processes_gone(list(live), END_TERM_WAIT_S)
-        if remaining:
-            _signal_processes(remaining, signal.SIGKILL)
-            remaining = _wait_processes_gone(remaining, END_KILL_WAIT_S)
-        return live, remaining
+        return _end(rows, _signallable_rows, _signal_processes)
     except Exception:  # teardown finishes whatever the process table reports
         logger.warning("Ending the agent's processes failed", exc_info=True)
-        return [], list(rows)
+        return Ending(unknown=tuple(rows))
 
 
 def describe_processes(rows: Sequence[ProcessRow]) -> str:
