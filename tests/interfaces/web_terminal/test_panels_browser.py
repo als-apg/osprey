@@ -79,6 +79,7 @@ from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
+from tests.interfaces.web_terminal._hub import hub_app
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -198,27 +199,12 @@ def _live_server(
         (base_url: str, app: FastAPI) — live server address and the FastAPI app
         object for post-startup state manipulation.
     """
-    if custom_panels is None:
-        custom_panels = []
-
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled_panels, custom_panels, None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(artifact_url),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-
+    with hub_app(
+        workspace_dir,
+        enabled_panels=enabled_panels,
+        custom_panels=custom_panels or [],
+        launch=publish_artifact_url(artifact_url),
+    ) as app:
         if artifact_config_delay:
 
             @app.middleware("http")

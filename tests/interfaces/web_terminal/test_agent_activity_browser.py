@@ -52,17 +52,15 @@ import os
 import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 import requests
 
-from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
-    _apply_all,
     _run_app_server,
     use_process_web_credentials,
 )
+from tests.interfaces.web_terminal._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -194,33 +192,14 @@ _CUSTOM_DATA_VIZ: dict = {
 def _hub_server(workspace_dir: Path) -> Iterator[str]:
     """Launch a real web-terminal hub with artifacts + the data-viz panel.
 
-    The companion backends are bypassed via the same three patches every hub
-    browser suite uses; the artifacts panel reports the standard fallback URL
-    so it loads-and-activates without a real backend process.
+    The artifacts panel reports the standard fallback URL so it
+    loads-and-activates without a real backend process.
 
     Yields:
         The hub's base URL.
     """
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [_CUSTOM_DATA_VIZ], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-    ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url
+    with hub_server(workspace_dir, custom_panels=[_CUSTOM_DATA_VIZ]) as (base_url, _app):
+        yield base_url
 
 
 def _open_hub_page(browser: Browser, base_url: str) -> Page:

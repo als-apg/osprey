@@ -73,7 +73,7 @@ from fastapi import Request
 from osprey.agent_runner.project_paths import claude_project_dir
 from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_panel_urls
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.conftest import _run_app_server
 
 # The shared SDK-message builders, so the fake yields the real messages the
 # agent runner translates.
@@ -82,6 +82,7 @@ from tests.interfaces.web_terminal._fakes import (
     result_message,
     system_message,
 )
+from tests.interfaces.web_terminal._hub import hub_app
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -435,18 +436,6 @@ def _live_chat_server(
                 "OSPREY_AGENT_DATA_ROOT": str(tmp_path / "agent_data"),
             },
         ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(set(enabled_panels), [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_panel_urls(panel_urls or {}),
-        ),
         # ---- Claude Agent SDK seam ----
         patch(f"{_SEAM}.HAS_SDK", True),
         patch("osprey.interfaces.web_terminal.routes.chat.HAS_SDK", True),
@@ -457,10 +446,14 @@ def _live_chat_server(
         ),
         patch(f"{_SEAM}.get_facility_timezone", return_value=None),
     ]
-    with _apply_all(patches):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=_LONG_LIVED_SHELL, project_dir=project_dir)
+    with hub_app(
+        workspace,
+        *patches,
+        enabled_panels=enabled_panels,
+        launch=publish_panel_urls(panel_urls or {}),
+        shell_command=_LONG_LIVED_SHELL,
+        project_dir=project_dir,
+    ) as app:
         _install_test_routes(app)
         with _run_app_server(app) as base_url:
             app.state.web_ui_mode = ui_mode

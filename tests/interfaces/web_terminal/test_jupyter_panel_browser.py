@@ -80,8 +80,7 @@ from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
-from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.web_terminal._hub import hub_server
 
 # The control-target render, the chip's selectors and the waits are the sibling
 # browser suite's, imported rather than restated: two suites disagreeing about
@@ -201,25 +200,8 @@ def _live_server(workspace_dir: Path):
     Yields:
         ``(base_url, app)`` — the live server address and the FastAPI app.
     """
-    with (
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace_dir)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts", "jupyter"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
-        ),
-    ):
-        from osprey.interfaces.web_terminal.app import create_app
-
-        app = create_app(shell_command=["echo", "hello"])
-        with _run_app_server(app) as base_url:
-            yield base_url, app
+    with hub_server(workspace_dir, enabled_panels={"artifacts", "jupyter"}) as served:
+        yield served
 
 
 # ---------------------------------------------------------------------------
@@ -543,32 +525,19 @@ def _control_target_lab(
     _reset_process_memos()
     write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
 
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts", "jupyter"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(DEFAULT_ARTIFACT_URL),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
-            ".snapshot_session_ids",
-            side_effect=lambda *_args, **_kwargs: set(),
-        ),
-    ]
     try:
-        with _apply_all(patches):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
-            with _run_app_server(app) as base_url:
-                yield base_url, app, root
+        with hub_server(
+            workspace,
+            patch(
+                "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
+                ".snapshot_session_ids",
+                side_effect=lambda *_args, **_kwargs: set(),
+            ),
+            enabled_panels={"artifacts", "jupyter"},
+            shell_command=_LONG_LIVED_SHELL,
+            config_path=config,
+        ) as (base_url, app):
+            yield base_url, app, root
     finally:
         _reset_process_memos()
 

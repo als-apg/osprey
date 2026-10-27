@@ -96,8 +96,7 @@ import yaml
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
-from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.web_terminal._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -330,33 +329,19 @@ def _chip_hub(
     _reset_process_memos()
     write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
 
-    patches = [
-        patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value={"watch_dir": str(workspace)},
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=({"artifacts"}, [], None),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.app._launch_panel_server",
-            side_effect=publish_artifact_url(),
-        ),
-        patch(
-            "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
-            ".snapshot_session_ids",
-            side_effect=lambda *_args, **_kwargs: set(),
-        ),
-    ]
     try:
-        with _apply_all(patches):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=list(_LONG_LIVED_SHELL), config_path=config)
-            with _run_app_server(app) as base_url:
-                app.state.web_ui_mode = ui_mode
-                yield base_url, app, root
+        with hub_server(
+            workspace,
+            patch(
+                "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery"
+                ".snapshot_session_ids",
+                side_effect=lambda *_args, **_kwargs: set(),
+            ),
+            shell_command=_LONG_LIVED_SHELL,
+            config_path=config,
+        ) as (base_url, app):
+            app.state.web_ui_mode = ui_mode
+            yield base_url, app, root
     finally:
         _reset_process_memos()
 

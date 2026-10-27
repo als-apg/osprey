@@ -42,12 +42,12 @@ from __future__ import annotations
 import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _apply_all, _run_app_server
+from tests.interfaces.conftest import _run_app_server
+from tests.interfaces.web_terminal._hub import hub_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -134,28 +134,10 @@ def _hub_with_artifacts(tmp_path: Path, ui_mode: str) -> Iterator[tuple[str, obj
     (workspace / "seed_artifact.txt").write_text("hub-with-artifacts seed\n")
 
     with _run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
-        patches = [
-            patch(
-                "osprey.interfaces.web_terminal.app._load_web_config",
-                return_value={"watch_dir": str(workspace)},
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.app._load_panel_config",
-                return_value=({"artifacts"}, [], None),
-            ),
-            patch(
-                "osprey.interfaces.web_terminal.app._launch_panel_server",
-                side_effect=publish_artifact_url(artifact_url),
-            ),
-        ]
-        with _apply_all(patches):
-            from osprey.interfaces.web_terminal.app import create_app
-
-            app = create_app(shell_command=["echo", "hello"])
-            with _run_app_server(app) as base_url:
-                # Override the lifespan-resolved mode; root() re-reads it per request.
-                app.state.web_ui_mode = ui_mode
-                yield base_url, app
+        with hub_server(workspace, launch=publish_artifact_url(artifact_url)) as (base_url, app):
+            # Override the lifespan-resolved mode; root() re-reads it per request.
+            app.state.web_ui_mode = ui_mode
+            yield base_url, app
 
 
 # ---------------------------------------------------------------------------
