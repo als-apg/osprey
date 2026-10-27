@@ -19,9 +19,6 @@ from osprey.stores.artifact_manifest import collect_artifacts
 from tests.mcp_server._zones import zone_away_from_host
 
 
-# ---------------------------------------------------------------------------
-# validate_sandbox_code tests
-# ---------------------------------------------------------------------------
 async def _run_in_sandbox(code, execution_folder, workspace_root, *, timeout=30):
     """Execute ``code`` in the sandbox with the agent-data root at ``workspace_root``."""
     with patch(
@@ -33,6 +30,9 @@ async def _run_in_sandbox(code, execution_folder, workspace_root, *, timeout=30)
         )
 
 
+# ---------------------------------------------------------------------------
+# validate_sandbox_code tests
+# ---------------------------------------------------------------------------
 class TestValidateSandboxCode:
     """Tests for the AST-level code validation."""
 
