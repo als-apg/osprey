@@ -87,12 +87,12 @@ class TestStampFormat:
         stamp = posture_store.launch_posture_stamp(None, "sandbox")
 
         assert stamp == f"{posture_store.LAUNCH_POSTURE_ALL_TARGETS}=sandbox"
-        assert set(posture_store.parse_launch_posture(stamp)) == set(posture_store.CONTROL_TARGETS)
+        assert set(posture_store._parse_launch_posture(stamp)) == set(posture_store.CONTROL_TARGETS)
 
     def test_writes_narrows_nothing(self):
         """Recorded for the marker, inert for the decision — nothing may widen."""
-        assert posture_store.parse_launch_posture("standin=writes") == {}
-        assert posture_store.parse_launch_posture("*=writes") == {}
+        assert posture_store._parse_launch_posture("standin=writes") == {}
+        assert posture_store._parse_launch_posture("*=writes") == {}
 
     @pytest.mark.parametrize(
         "raw",
@@ -109,7 +109,7 @@ class TestStampFormat:
     )
     def test_an_unparseable_stamp_is_inert(self, raw):
         """Every process that is not an executor sandbox is untouched by this term."""
-        assert posture_store.parse_launch_posture(raw) == {}
+        assert posture_store._parse_launch_posture(raw) == {}
 
 
 # ---------------------------------------------------------------------------

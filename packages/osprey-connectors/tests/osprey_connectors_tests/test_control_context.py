@@ -78,7 +78,7 @@ def _payload(**overrides):
 
 
 def _write_raw(root: Path, payload, *, encoding: str = "utf-8") -> Path:
-    path = control_context.record_path_under(root)
+    path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_bytes(text.encode(encoding))
@@ -105,7 +105,7 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
         control_context.record_path()
         == data_root / "control_target" / identity / "control_context.json"
     )
-    assert control_context.record_path() == control_context.record_path_under(data_root)
+    assert control_context.record_path() == control_context._record_path_under(data_root)
     assert control_context.state_dir() == posture_store.state_dir()
 
 
@@ -334,7 +334,7 @@ def test_non_object_record_reads_as_none(data_root):
 
 
 def test_non_utf8_record_reads_as_none(data_root):
-    path = control_context.record_path_under(data_root)
+    path = control_context._record_path_under(data_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\xff\xfe{}")
     assert control_context.read_record() is None
@@ -343,7 +343,7 @@ def test_non_utf8_record_reads_as_none(data_root):
 def test_unreadable_record_reads_as_none(data_root):
     # A directory where the file belongs: the read fails with OSError, which
     # must arrive as "no record" like every other degraded outcome.
-    control_context.record_path_under(data_root).mkdir(parents=True)
+    control_context._record_path_under(data_root).mkdir(parents=True)
     assert control_context.read_record() is None
 
 
@@ -660,7 +660,7 @@ def _report_payload(pid, **overrides):
 
 
 def _write_report(root: Path, pid, payload=None) -> Path:
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = payload if isinstance(payload, str) else json.dumps(payload)
     path.write_text(text, encoding="utf-8")
@@ -672,14 +672,14 @@ def test_reports_live_beside_the_record(data_root):
     expected = control_context.state_dir() / "server_4321.json"
     assert control_context.REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
-    assert control_context.report_path(4321) == expected
-    assert control_context.report_path_under(data_root, 4321) == expected
+    assert control_context._report_path(4321) == expected
+    assert control_context._report_path_under(data_root, 4321) == expected
     assert expected.parent == control_context.record_path().parent
 
 
 @pytest.mark.usefixtures("rootless")
 def test_report_path_is_none_without_a_root():
-    assert control_context.report_path(4321) is None
+    assert control_context._report_path(4321) is None
     assert control_context.report_paths() == []
 
 
@@ -737,11 +737,11 @@ def test_a_degraded_report_field_degrades_alone(field, value, expected):
 
 
 def test_an_absent_or_degraded_report_file_reads_as_none(data_root):
-    assert control_context.read_report(control_context.report_path(4321)) is None
+    assert control_context.read_report(control_context._report_path(4321)) is None
     _write_report(data_root, 4322, "{not json")
-    assert control_context.read_report(control_context.report_path(4322)) is None
+    assert control_context.read_report(control_context._report_path(4322)) is None
     _write_report(data_root, 4323, "[1, 2, 3]")
-    assert control_context.read_report(control_context.report_path(4323)) is None
+    assert control_context.read_report(control_context._report_path(4323)) is None
 
 
 def test_an_unchanged_report_signature_is_not_re_parsed(data_root):
@@ -770,7 +770,7 @@ def test_caching_a_report_does_not_evict_the_record(data_root):
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     record = control_context.read_record()
     _write_report(data_root, 4321, _report_payload(4321))
-    control_context.read_report(control_context.report_path(4321))
+    control_context.read_report(control_context._report_path(4321))
     assert control_context.read_record() is record
 
 
@@ -792,7 +792,7 @@ def test_live_reports_ask_the_liveness_predicate_they_are_given(data_root):
 def test_live_report_payloads_keep_the_keys_this_version_does_not_know(data_root):
     _write_report(data_root, os.getpid(), _report_payload(os.getpid(), owner_ppid=os.getppid()))
 
-    payloads = control_context.live_report_payloads(control_context.report_paths())
+    payloads = control_context._live_report_payloads(control_context.report_paths())
 
     assert [p["owner_ppid"] for p in payloads] == [os.getppid()]
 
@@ -805,7 +805,7 @@ def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
-    assert control_context.live_report_payloads(control_context.report_paths()) == []
+    assert control_context._live_report_payloads(control_context.report_paths()) == []
 
 
 # --- sweeping --------------------------------------------------------------
@@ -1282,7 +1282,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         updated_at="2026-01-01T00:00:01Z",
     )
 
-    assert path == control_context.report_path(4321)
+    assert path == control_context._report_path(4321)
     report = control_context.read_report(path)
     assert report == control_context.ServerReport(
         server_pid=4321,
@@ -1304,7 +1304,7 @@ def test_the_report_fixture_defaults_to_a_server_that_has_answered_nothing(data_
 
     write_server_report(data_root, 4321)
 
-    report = control_context.read_report(control_context.report_path(4321))
+    report = control_context.read_report(control_context._report_path(4321))
     assert report is not None
     assert report.applied_target is None
     assert report.applied_generation is None
@@ -1364,6 +1364,6 @@ def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data
     """A record too broken to build from the dataclass still has to be writable."""
     from osprey_connectors_tests._harness import write_payload
 
-    write_payload(control_context.record_path_under(data_root), {"target": "va"})
+    write_payload(control_context._record_path_under(data_root), {"target": "va"})
 
     assert control_context.read_record() is None

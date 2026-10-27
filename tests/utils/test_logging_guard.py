@@ -27,7 +27,7 @@ import logging
 import pytest
 from rich.logging import RichHandler
 
-from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS, configure_logging
+from osprey_connectors.logger import _QUIET_THIRD_PARTY_LOGGERS, configure_logging
 
 # Private by name, but this is the module that tests it.
 from osprey_connectors_tests._harness._guards import _PRISTINE_LOGGING
@@ -40,7 +40,7 @@ def _rich_handler_count() -> int:
 
 
 def _assert_third_party_pristine() -> None:
-    for name in QUIET_THIRD_PARTY_LOGGERS:
+    for name in _QUIET_THIRD_PARTY_LOGGERS:
         assert logging.getLogger(name).level == _PRISTINE_LOGGING["third_party"][name]
 
 
@@ -63,7 +63,7 @@ def test_configure_logging_mutates_global_state():
 
     assert _rich_handler_count() == 1
     assert root.level == logging.DEBUG
-    for name in QUIET_THIRD_PARTY_LOGGERS:
+    for name in _QUIET_THIRD_PARTY_LOGGERS:
         assert logging.getLogger(name).level == logging.WARNING
 
 

@@ -1187,7 +1187,7 @@ async def _connected_reader(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The agent's archive connector, connected to the collection ``settings`` names."""
-    from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
@@ -1266,11 +1266,11 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     manifest beside it in the collection is never read as a channel's history.
     """
     from osprey_connectors.archiver._field_names import field_name
-    from osprey_connectors.simulation.archive import SeedReport, write_manifest
+    from osprey_connectors.simulation.archive import SeedReport, _write_manifest
 
     settings, collection, password = archive_collection
     timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
-    write_manifest(
+    _write_manifest(
         collection,
         {"schema_version": 2},
         seeded_at=timestamp - timedelta(hours=1),

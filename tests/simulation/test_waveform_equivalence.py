@@ -205,7 +205,7 @@ def store(mongodb_container):  # noqa: F811
 @pytest.fixture
 def connector_config(mongodb_container, store, monkeypatch):  # noqa: F811
     """The connector config of the store, password by environment name."""
-    from osprey_connectors.archiver import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
     monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
