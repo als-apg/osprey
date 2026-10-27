@@ -24,6 +24,7 @@ import duckdb
 import pytest
 from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
+from tests.services.channel_finder.graph_index._index import read_rows
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
 from osprey.services.channel_finder.graph_index import schema as schema_module
@@ -64,15 +65,6 @@ def _build(parsed: ParsedCorpus, index_path: Path, **overrides) -> IndexBuildRep
     )
 
 
-def _read(index_path: Path, sql: str) -> list[tuple]:
-    """Run ``sql`` against a fresh read-only connection, as the reader will."""
-    con = duckdb.connect(str(index_path), read_only=True)
-    try:
-        return con.execute(sql).fetchall()
-    finally:
-        con.close()
-
-
 def _temp_files(directory: Path) -> list[Path]:
     """Every build temporary left in ``directory`` — none may survive a build."""
     return sorted(p for p in directory.iterdir() if ".tmp-" in p.name)
@@ -101,7 +93,7 @@ class TestRoundTrip:
         assert names == {"bindings", "classes", "meta"}
 
     def test_binding_rows_round_trip_in_column_order(self, index_path: Path, chain: ParsedCorpus):
-        read_back = _read(index_path, "SELECT * FROM bindings")
+        read_back = read_rows(index_path, "SELECT * FROM bindings")
         expected = [
             (
                 row.binding_uri,
@@ -127,11 +119,11 @@ class TestRoundTrip:
     def test_rows_are_written_in_the_order_given(self, index_path: Path, chain: ParsedCorpus):
         # parse_corpus sorts by (full_pv, device_uri, binding_uri); the writer
         # must not reorder, so the reader's ORDER BY is the only sort in play.
-        read_back = _read(index_path, "SELECT full_pv FROM bindings")
+        read_back = read_rows(index_path, "SELECT full_pv FROM bindings")
         assert [pv for (pv,) in read_back] == [row.full_pv for row in chain.binding_rows]
 
     def test_list_columns_survive_as_lists(self, index_path: Path):
-        rows = _read(
+        rows = read_rows(
             index_path,
             "SELECT edges, signal_uris, signal_names, class_uris FROM bindings "
             "WHERE full_pv = 'SR:MAG:QF1:CURRENT:SP'",
@@ -143,7 +135,7 @@ class TestRoundTrip:
         assert class_uris == sorted(class_uris) and len(class_uris) == 3
 
     def test_an_empty_list_column_is_an_empty_list_not_null(self, index_path: Path):
-        rows = _read(
+        rows = read_rows(
             index_path,
             "SELECT edges, signal_uris FROM bindings WHERE full_pv = 'SR:MAG:QF1:NOTE'",
         )
@@ -153,12 +145,12 @@ class TestRoundTrip:
         parsed = parse_corpus(corpora.DEVICE_WITHOUT_SECTION_OR_SYSTEM)
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
-        assert _read(path, "SELECT device_name, section, system FROM bindings") == [
+        assert read_rows(path, "SELECT device_name, section, system FROM bindings") == [
             (None, None, None)
         ]
 
     def test_class_rows_round_trip_with_their_counts(self, index_path: Path, chain: ParsedCorpus):
-        read_back = _read(index_path, "SELECT * FROM classes")
+        read_back = read_rows(index_path, "SELECT * FROM classes")
         assert read_back == [
             (
                 row.uri,
@@ -172,7 +164,7 @@ class TestRoundTrip:
         ]
 
     def test_the_meta_row_is_exact(self, index_path: Path, chain: ParsedCorpus):
-        row = _read(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
+        row = read_rows(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
         assert row == [
             (
                 SCHEMA_VERSION,
@@ -187,7 +179,7 @@ class TestRoundTrip:
         ]
 
     def test_exactly_one_meta_row(self, index_path: Path):
-        assert _read(index_path, "SELECT count(*) FROM meta") == [(1,)]
+        assert read_rows(index_path, "SELECT count(*) FROM meta") == [(1,)]
 
     def test_no_temporary_file_survives(self, index_path: Path):
         assert _temp_files(index_path.parent) == []
@@ -196,7 +188,7 @@ class TestRoundTrip:
         # The reader keeps one read-only connection per process; a lock left by
         # the build would make the second process fail.
         for _ in range(2):
-            assert _read(index_path, "SELECT count(*) FROM bindings") == [(3,)]
+            assert read_rows(index_path, "SELECT count(*) FROM bindings") == [(3,)]
 
 
 class TestReport:
@@ -216,7 +208,7 @@ class TestReport:
     def test_the_counts_are_what_the_meta_row_carries(self, chain: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
         report = _build(chain, path)
-        stated = _read(
+        stated = read_rows(
             path,
             "SELECT binding_count, device_count, class_count, signal_count, section_count "
             "FROM meta",
@@ -260,12 +252,12 @@ class TestEmptyCorpus:
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
         assert path.exists()
-        assert _read(path, "SELECT count(*) FROM bindings") == [(0,)]
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(0,)]
 
     def test_the_meta_row_says_zero_bindings(self, parsed: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
-        assert _read(path, "SELECT binding_count FROM meta") == [(0,)]
+        assert read_rows(path, "SELECT binding_count FROM meta") == [(0,)]
 
     def test_it_warns(self, parsed: ParsedCorpus, tmp_path: Path, caplog):
         path = tmp_path / "graph.duckdb"
@@ -343,7 +335,7 @@ class TestAtomicity:
         stale = tmp_path / f"graph.duckdb.tmp-{os.getpid()}"
         stale.write_bytes(b"not a database")
         _build(chain, path)
-        assert _read(path, "SELECT count(*) FROM bindings") == [(3,)]
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(3,)]
         assert _temp_files(tmp_path) == []
 
     def test_the_temporary_is_named_beside_the_target_with_the_pid(
@@ -369,8 +361,8 @@ class TestOverwrite:
         _build(chain, path)
         smaller = parse_corpus(corpora.DEVICE_WITHOUT_SECTION_OR_SYSTEM)
         report = _build(smaller, path, corpus_filename="second.ttl")
-        assert _read(path, "SELECT full_pv FROM bindings") == [("NOWHERE:RB",)]
-        assert _read(path, "SELECT corpus_filename FROM meta") == [("second.ttl",)]
+        assert read_rows(path, "SELECT full_pv FROM bindings") == [("NOWHERE:RB",)]
+        assert read_rows(path, "SELECT corpus_filename FROM meta") == [("second.ttl",)]
         assert report.binding_count == 1
         assert _temp_files(tmp_path) == []
 
@@ -381,7 +373,7 @@ class TestOverwrite:
         path = tmp_path / "graph.duckdb"
         path.write_bytes(b"junk")
         _build(chain, path)
-        assert _read(path, "SELECT count(*) FROM bindings") == [(3,)]
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(3,)]
 
 
 class TestMetaValidation:
@@ -410,7 +402,9 @@ class TestMetaValidation:
     def test_the_written_schema_version_is_the_modules(self, chain: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
         _build(chain, path)
-        assert _read(path, "SELECT schema_version FROM meta") == [(schema_module.SCHEMA_VERSION,)]
+        assert read_rows(path, "SELECT schema_version FROM meta") == [
+            (schema_module.SCHEMA_VERSION,)
+        ]
 
     def test_a_binding_count_that_miscounts_the_rows_is_refused(
         self, chain: ParsedCorpus, tmp_path: Path
@@ -445,7 +439,7 @@ class TestPlacedDevices:
         parsed = parse_corpus(corpora.PLACED_DEVICES)
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
-        rows = _read(
+        rows = read_rows(
             path,
             "SELECT full_pv, place_path, s_position_m, ordinal_in_place FROM bindings "
             "WHERE place_path = 'SR/SECT1' ORDER BY s_position_m NULLS LAST",
@@ -464,7 +458,7 @@ class TestSharedFullPvAndTwoDevices:
         parsed = parse_corpus(corpora.BINDING_UNDER_TWO_DEVICES)
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
-        rows = _read(path, "SELECT binding_uri, section FROM bindings ORDER BY section")
+        rows = read_rows(path, "SELECT binding_uri, section FROM bindings ORDER BY section")
         assert [section for _, section in rows] == ["BR", "SR"]
         assert len({uri for uri, _ in rows}) == 1
 
@@ -472,7 +466,7 @@ class TestSharedFullPvAndTwoDevices:
         parsed = parse_corpus(corpora.SHARED_FULL_PV)
         path = tmp_path / "graph.duckdb"
         _build(parsed, path)
-        assert _read(path, "SELECT count(*) FROM bindings") == [(2,)]
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(2,)]
 
 
 class TestImportIsolation:
@@ -521,13 +515,13 @@ class TestDemoCorpus:
 
         assert report.binding_count == 3338
         assert report.class_count == 30
-        assert _read(path, "SELECT count(*) FROM bindings") == [(3338,)]
-        assert _read(path, "SELECT count(*) FROM classes") == [(30,)]
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(3338,)]
+        assert read_rows(path, "SELECT count(*) FROM classes") == [(30,)]
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"
         _build(demo, path)
-        read_back = _read(path, "SELECT binding_uri, edges, class_uris, haystack FROM bindings")
+        read_back = read_rows(path, "SELECT binding_uri, edges, class_uris, haystack FROM bindings")
         expected = [
             (row.binding_uri, row.edges, row.class_uris, row.haystack) for row in demo.binding_rows
         ]

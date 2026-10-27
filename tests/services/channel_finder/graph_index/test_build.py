@@ -18,10 +18,9 @@ import hashlib
 import logging
 from pathlib import Path
 
-import duckdb
 import pytest
-from tests._builds import BuiltProject
 from tests.services.channel_finder.graph_index import corpora
+from tests.services.channel_finder.graph_index._index import read_rows
 
 from osprey.services.channel_finder.core.exceptions import GraphIndexBuildError
 from osprey.services.channel_finder.graph_index.builder import (
@@ -53,24 +52,9 @@ DEMO_SIGNALS = 46
 DEMO_SECTIONS = 19
 
 
-@pytest.fixture(scope="module")
-def demo_path(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes."""
-    return built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
-
-
-def _read(index_path: Path, sql: str) -> list[tuple]:
-    """Run ``sql`` against a fresh read-only connection, as the reader will."""
-    con = duckdb.connect(str(index_path), read_only=True)
-    try:
-        return con.execute(sql).fetchall()
-    finally:
-        con.close()
-
-
 def _meta_row(index_path: Path) -> dict:
     """The written ``meta`` row, keyed by column name."""
-    row = _read(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
+    row = read_rows(index_path, f"SELECT {', '.join(META_KEYS)} FROM meta")
     assert len(row) == 1, row
     return dict(zip(META_KEYS, row[0], strict=True))
 
@@ -118,9 +102,9 @@ class TestDemoCorpus:
     def test_the_tables_hold_the_rows_the_report_counted(self, built):
         _, index_path = built
 
-        assert _read(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
-        assert _read(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
-        assert _read(index_path, "SELECT count(DISTINCT device_uri) FROM bindings") == [
+        assert read_rows(index_path, "SELECT count(*) FROM bindings") == [(DEMO_BINDINGS,)]
+        assert read_rows(index_path, "SELECT count(*) FROM classes") == [(DEMO_CLASSES,)]
+        assert read_rows(index_path, "SELECT count(DISTINCT device_uri) FROM bindings") == [
             (DEMO_DEVICES,)
         ]
 
@@ -253,7 +237,7 @@ class TestCorpusWithoutBindings:
         assert index_path.exists()
         assert report.binding_count == 0
         assert report.device_count == 0
-        assert _read(index_path, "SELECT count(*) FROM bindings") == [(0,)]
+        assert read_rows(index_path, "SELECT count(*) FROM bindings") == [(0,)]
         assert any("bound no channels" in record.getMessage() for record in caplog.records)
 
     def test_the_meta_row_is_still_written(self, tmp_path: Path):
