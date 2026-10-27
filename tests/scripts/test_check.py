@@ -146,12 +146,15 @@ def test_the_check_ids_are_the_public_names() -> None:
         "changelog",
         "plugin-version",
         "tracked-ignored",
+        "gitleaks",
+        "invariant-tests",
         "mypy",
         "import-contracts",
         "private-imports",
         "tsc",
         "eslint",
         "prettier",
+        "actionlint",
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
@@ -160,6 +163,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "dock-engine-tests",
         "dock-engine-bundle",
         "docs",
+        "linkcheck",
         "package",
     ]
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
@@ -167,6 +171,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "pytest-wallclock",
         "live-ca",
         "docs",
+        "linkcheck",
         "package",
     ]
 
@@ -355,6 +360,53 @@ def _reads_the_tests_tree(path: Path) -> bool:
     )
 
 
+def test_every_invariant_test_exists() -> None:
+    assert [p for p in fw.INVARIANT_TESTS if not (REPO_ROOT / p).is_file()] == []
+    assert "tests/scripts/test_check.py" in fw.INVARIANT_TESTS
+
+
+def _tree_readers_outside(invariant: Sequence[str]) -> list[str]:
+    """The test modules that read the whole tests tree and are not in *invariant*."""
+    listed = set(invariant)
+    found = []
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if relative not in listed and _reads_the_tests_tree(path):
+            found.append(relative)
+    return found
+
+
+def test_every_module_that_reads_the_tests_tree_is_an_invariant_test() -> None:
+    """A test that reads the whole tests tree can break on a change anywhere in
+    it, so the invariant-tests check, which no change selection leaves out,
+    runs it."""
+    assert _tree_readers_outside(fw.INVARIANT_TESTS) == []
+
+
+def test_a_tree_reader_left_out_of_the_invariant_tests_is_named() -> None:
+    reader = "tests/test_no_legacy_symbols.py"
+    assert _tree_readers_outside(tuple(p for p in fw.INVARIANT_TESTS if p != reader)) == [reader]
+
+
+def test_the_need_probes_of_the_new_toolchains_name_their_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The secret scan needs gitleaks on PATH and the workflow lint needs
+    shellcheck in the venv: actionlint passes over every ``run:`` block without
+    a word when shellcheck is absent, so its absence is a refusal."""
+    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
+    assert "brew install gitleaks" in (fw._need_gitleaks() or "")
+    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert fw._need_gitleaks() is None
+    monkeypatch.setattr(kit, "capture", lambda argv: (127, ""))
+    assert "uv sync --extra dev" in (fw._need_workflow_linters() or "")
+    monkeypatch.setattr(kit, "capture", lambda argv: (0, "ShellCheck"))
+    assert fw._need_workflow_linters() is None
+    assert "--frozen" in fw.WORKFLOW_LINT_PROBE
+
+
 _PREAMBLE = (
     "from pathlib import Path\nROOT = Path(__file__).resolve().parents[1]\n"
     'ROOTS = ("src", "tests")\n'
@@ -538,6 +590,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     private = ["uv", "run", "ruff", "check", "--preview", "--select=PLC2701", "."]
     assert run("private-imports") == [private]
     assert run("tracked-ignored") == []
+    assert run("gitleaks", "--base", "origin/main") == [
+        ["gitleaks", "git", "--log-opts=origin/main..HEAD", "--no-banner", "--redact"]
+    ]
+    assert run("invariant-tests") == [
+        ["uv", "run", "pytest", *fw.INVARIANT_TESTS, *pytest_report("invariant-tests")]
+    ]
+    assert run("actionlint") == [["uv", "run", "actionlint"]]
 
     assert run("ruff") == [["uv", "run", "ruff", "check", "."]]
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -585,7 +644,9 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert run("live-ca") == [["uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
     assert run("docs") == [["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"]]
-    assert [c.id for c in check.CHECKS if c.workdir] == ["docs"]
+    assert run("linkcheck") == [["uv", "run", "make", "linkcheck"]]
+    assert [c.id for c in check.CHECKS if c.workdir] == ["docs", "linkcheck"]
+    assert BY_ID["linkcheck"].workdir == BY_ID["docs"].workdir
     assert (REPO_ROOT / BY_ID["docs"].workdir / "Makefile").is_file()
     assert (REPO_ROOT / fw.DOCS_HTML).parent.parent == REPO_ROOT / BY_ID["docs"].workdir
 
@@ -834,7 +895,7 @@ def test_an_image_selects_the_invariants_only() -> None:
     invariants = {c.id for c in check.CHECKS if c.kind == "invariant"}
     got = selected("full", "docs/source/_static/logo.png")
     ran = {name for name, selection in got.items() if selection.state != check.NOT_TOUCHED}
-    assert ran == invariants | {"docs"}
+    assert ran == invariants | {"docs", "linkcheck"}
     got = selected("full", WT + "img/icon.png")
     ran = {name for name, selection in got.items() if selection.state != check.NOT_TOUCHED}
     assert ran == invariants | {"package"}
@@ -1078,7 +1139,7 @@ def test_a_clean_full_run_names_what_it_did_not_run(
     verdict = last_line(capsys)
     assert verdict.startswith(
         "check: clean; "
-        "not run, no base given: changelog, plugin-version; "
+        "not run, no base given: changelog, plugin-version, gitleaks; "
         "run on CI, never run here: dependency-floor, "
     )
     assert all(lane.job in verdict for lane in check.LANES)
@@ -1095,7 +1156,7 @@ def test_every_check_runs_after_a_failure_and_the_verdict_names_them(
     assert "check: mypy: ran" in out
     assert out[-1] == (
         f"check: not clean: failed: ruff (fix: {check.FIX_HINT}), vitest; "
-        "not run, no base given: changelog, plugin-version"
+        "not run, no base given: changelog, plugin-version, gitleaks"
     )
 
 
@@ -1116,6 +1177,7 @@ def test_full_with_a_base_arms_every_range_check_and_runs_whole(
     assert check.main(["full", "--base", "B"]) == 0
     assert recorder.ran("changelog_fragments.py check --base B")
     assert recorder.ran("plugin_version.py check --base B")
+    assert recorder.ran("gitleaks git --log-opts=B..HEAD")
     verdict = last_line(capsys)
     assert "no base given" not in verdict
     assert "run on CI, never run here" in verdict
@@ -1146,6 +1208,13 @@ def test_a_new_range_check_is_armed_by_the_base_alone(
     assert ["echo", "B"] in recorder.calls
 
 
+GITLEAKS_WORKTREE = [
+    ["gitleaks", "git", "--log-opts=B..HEAD", "--no-banner", "--redact"],
+    ["gitleaks", "git", "--staged", "--no-banner", "--redact"],
+    ["gitleaks", "git", "--pre-commit", "--no-banner", "--redact"],
+]
+
+
 @pytest.mark.usefixtures("any_base")
 @pytest.mark.parametrize("untracked", [[], ["new.py", "a b.txt"]])
 def test_the_working_tree_reaches_every_range_check(
@@ -1159,6 +1228,11 @@ def test_the_working_tree_reaches_every_range_check(
         argvs
     )
     assert ["python3", "scripts/plugin_version.py", "check", "--base", "B", "--worktree"] in argvs
+    scans = [argv for argv in argvs if argv[:1] == ["gitleaks"]]
+    assert scans == [
+        *GITLEAKS_WORKTREE,
+        *(["gitleaks", "dir", path, "--no-banner", "--redact"] for path in untracked),
+    ]
     # A worktree line holding {untracked} runs once per untracked path, none when there is none.
     lines = (("scan", "--since={base}"), ("scan", "{untracked}"))
     assert check._worktree_lines(lines, "B") == [
@@ -1168,14 +1242,16 @@ def test_the_working_tree_reaches_every_range_check(
 
 
 def test_every_range_check_declares_its_working_tree_form() -> None:
+    """A range check under ``--worktree`` still judges the range: one of its
+    working-tree lines carries the base, beside the lines that read the index,
+    the unstaged diff and the untracked files."""
     ranged = [c for c in check.CHECKS if "base" in c.needs]
-    assert {c.id for c in ranged} == {"changelog", "plugin-version"}
+    assert {c.id for c in ranged} == {"changelog", "plugin-version", "gitleaks"}
     for declared in ranged:
         assert declared.worktree, f"{declared.id} judges a range but not the working tree"
-        for line in declared.worktree:
-            assert any("{base}" in part for part in line), (
-                f"{declared.id}: {line} judges neither the range nor the working tree"
-            )
+        assert any("{base}" in part for line in declared.worktree for part in line), (
+            f"{declared.id}: its working-tree form no longer judges the range"
+        )
 
 
 def test_a_pytest_run_stopped_at_its_bound_is_a_failure(
@@ -1281,9 +1357,10 @@ def test_a_refusal_names_every_unmet_need(
         f"check: dock-engine-tests: refused ({node})",
         f"check: dock-engine-bundle: refused ({node})",
         f"check: docs: refused ({docs})",
+        f"check: linkcheck: refused ({docs})",
         f"check: refused: tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle "
         f"({node}); "
-        f"refused: docs ({docs})",
+        f"refused: docs, linkcheck ({docs})",
     ]
 
 
@@ -1663,7 +1740,10 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     install = "the Node toolchain is not installed: install Node, then run npm ci"
     refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
-    probes = {shlex.join(probe[1:]) for probe in (fw.DOCS_EXTRA_PROBE, fw.LIVE_CA_PROBE)}
+    probes = {
+        shlex.join(probe[1:])
+        for probe in (fw.DOCS_EXTRA_PROBE, fw.LIVE_CA_PROBE, fw.WORKFLOW_LINT_PROBE)
+    }
     log = tmp_path / "uv.log"
     logged = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     assert set(logged) <= probes, logged

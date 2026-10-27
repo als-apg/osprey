@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import dataclasses
 import functools
 import importlib.util
 import json
@@ -2465,9 +2466,10 @@ def test_serial_runs_reach_every_per_pr_marked_file__mutation_gates_the_on_deman
 
 
 # The full tier is held tighter than the quick one: every pytest line it runs
-# is either the lane's sweep, with exactly the lane's marker expression, or one
-# table row's serial run, with no workers. A line that is neither (a
-# hand-added term, a dropped expression, a parallelized serial run) is drift.
+# is the lane's sweep, with exactly the lane's marker expression, one table
+# row's serial run, with no workers, or the invariant tests, named file by file
+# with no marker and no workers. A line that is none of these (a hand-added
+# term, a dropped expression, a parallelized serial run) is drift.
 
 #: A ``-m`` expression on a command line, double-quoted or a bare word.
 _MARKER_EXPR_RE = re.compile(r'(?<!\S)-m\s+("[^"]*"|\S+)')
@@ -2485,7 +2487,12 @@ def _gate_lines_off_the_table(source: str) -> list[str]:
         serial = (
             len(exprs) == 1 and exprs[0] in selects and not has_workers and "--dist" not in line
         )
-        if not (sweep or serial):
+        invariant = (
+            not exprs
+            and not has_workers
+            and all(f" {path} " in f"{line} " for path in framework_checks.INVARIANT_TESTS)
+        )
+        if not (sweep or serial or invariant):
             off.append(line.strip())
     return off
 
@@ -11019,46 +11026,170 @@ def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_gre
 
 
 # ---------------------------------------------------------------------------
-# the link check is advisory: a CI step that cannot fail, and no check
+# a broken documentation link fails the run, by the checker's own status
 # ---------------------------------------------------------------------------
 #
-# External links break for reasons no change controls, so the docs job reports
-# them without failing, and the check command declares no link check whose
-# verdict a local run would then treat as binding.
+# A check can fail open in three independent ways: the status a pipeline
+# reports is its LAST command's, so a verdict read through a grep or an
+# `|| true` is not the checker's; a step marked `continue-on-error` reports a
+# failure and passes the job; and a check that is in no tier a contributor runs
+# cannot reach the verdict at all.
 
+LINKCHECK_CHECK = "linkcheck"
+LINKCHECK_COMMAND = "uv run make linkcheck"
 LINKCHECK_STEP = "Check for broken links"
+DOCS_BUILD_STEP = "Build documentation"
+DOCS_UPLOAD_STEP = "Upload documentation artifact"
+_SHELLS = frozenset({"sh", "bash", "zsh"})
 
 
-def _linkcheck_problems(wf: dict[str, Any], checks: tuple[Any, ...]) -> list[str]:
+def _linkcheck_verdict_missing(commands: list[list[str]]) -> list[str]:
+    """What the full tier's link check is missing (empty = sphinx's own status decides).
+
+    *commands* are the argument vectors the tier resolves to. The check
+    command runs each one without a shell and fails the run on any non-zero
+    exit, so the checker's status decides exactly when it is its own command.
+    """
+    checks = [argv for argv in commands if LINKCHECK_COMMAND in shlex.join(argv)]
+    if not checks:
+        return ["a link check"]
+    return [
+        f"the checker's own status on {shlex.join(argv)!r}"
+        for argv in checks
+        if argv[0] in _SHELLS or shlex.join(argv) != LINKCHECK_COMMAND
+    ]
+
+
+def _full_tier_commands() -> list[list[str]]:
+    return check_set.resolve(["full"])
+
+
+def test_the_full_tier_blocks_on_a_broken_documentation_link() -> None:
+    """A link the docs publish and no reader can follow fails the run a push
+    needs, by the checker's own status and in the checker's own words."""
+    assert _linkcheck_verdict_missing(_full_tier_commands()) == []
+    linkcheck = {check.id: check for check in check_set.CHECKS}[LINKCHECK_CHECK]
+    assert linkcheck.workdir == "docs"
+
+
+def test_the_full_tier_blocks_on_a_broken_documentation_link__mutation_restores_the_grep() -> None:
+    piped = f'{LINKCHECK_COMMAND} 2>&1 | grep -q "build succeeded"'
+    mutated = [
+        ["sh", "-c", piped] if shlex.join(argv) == LINKCHECK_COMMAND else argv
+        for argv in _full_tier_commands()
+    ]
+    assert _linkcheck_verdict_missing(mutated) == [
+        f"the checker's own status on {shlex.join(['sh', '-c', piped])!r}"
+    ]
+
+
+def test_the_full_tier_blocks_on_a_broken_documentation_link__mutation_drops_the_check() -> None:
+    """A link check no tier runs is advisory, whatever its verdict says."""
+    commands = _full_tier_commands()
+    mutated = [argv for argv in commands if shlex.join(argv) != LINKCHECK_COMMAND]
+    assert mutated != commands, "no link check in the full tier; mutation is stale"
+    assert _linkcheck_verdict_missing(mutated) == ["a link check"]
+
+
+def _linkcheck_step_problems(wf: dict[str, Any]) -> list[str]:
+    """What lets the docs job's link check pass over a broken link (empty = nothing)."""
     step = _find_named_step(wf, DOCS_JOB, LINKCHECK_STEP)
     problems = []
-    if step.get("continue-on-error") is not True:
-        problems.append("the link-check step can fail the docs job")
-    problems += [
-        f"{check.id}: a check runs the link check" for check in checks if "linkcheck" in check.argv
-    ]
+    if "continue-on-error" in step:
+        problems.append("the link-check step carries continue-on-error")
+    if str(step.get("run", "")).strip() != f"python3 {CHECK_SCRIPT} run {LINKCHECK_CHECK}":
+        problems.append(f"the link-check step is not exactly a call of {CHECK_SCRIPT}")
     return problems
 
 
-def test_the_link_check_is_advisory(workflow: dict[str, Any]) -> None:
-    assert _linkcheck_problems(workflow, check_set.CHECKS) == []
+def test_the_link_check_can_fail_the_docs_job(raw_workflow: dict[str, Any]) -> None:
+    """The docs job runs the link check as the check command declares it, and
+    its failure fails the job."""
+    assert _linkcheck_step_problems(raw_workflow) == []
 
 
-def test_the_link_check_is_advisory__mutation_declares_a_check() -> None:
-    extra = check_set.Check(
-        "linkcheck", "build", check_set.FULL, ("uv", "run", "make", "linkcheck")
-    )
-    assert _linkcheck_problems(_load_workflow(), (*check_set.CHECKS, extra)) == [
-        "linkcheck: a check runs the link check"
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ({"continue-on-error": True}, "the link-check step carries continue-on-error"),
+        (
+            {"run": f"python3 {CHECK_SCRIPT} run {LINKCHECK_CHECK} || true"},
+            f"the link-check step is not exactly a call of {CHECK_SCRIPT}",
+        ),
+    ],
+)
+def test_the_link_check_can_fail_the_docs_job__mutation(
+    change: dict[str, Any], problem: str
+) -> None:
+    mutated = _load_raw_workflow()
+    _find_named_step(mutated, DOCS_JOB, LINKCHECK_STEP).update(change)
+    assert _linkcheck_step_problems(mutated) == [problem]
+
+
+def test_docs_preview_uploads_before_the_link_check(workflow: dict[str, Any]) -> None:
+    """A broken link must not cost the reader the preview that shows it: the
+    built pages are uploaded after the build and before the link check, so a
+    red link check still fails the job and the preview is still published."""
+    names = _step_names(workflow, DOCS_JOB)
+    for step in (DOCS_BUILD_STEP, DOCS_UPLOAD_STEP, LINKCHECK_STEP):
+        assert step in names, f"no {step!r} step in the {DOCS_JOB} job; got {names}"
+    assert (
+        names.index(DOCS_BUILD_STEP) < names.index(DOCS_UPLOAD_STEP) < names.index(LINKCHECK_STEP)
+    ), "the documentation preview must upload after the build and BEFORE the link check"
+
+
+def test_docs_preview_uploads_before_the_link_check__mutation_moves_it_last() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[DOCS_JOB]["steps"]
+    upload = next(s for s in steps if s.get("name") == DOCS_UPLOAD_STEP)
+    steps.remove(upload)
+    steps.append(upload)
+    with pytest.raises(AssertionError, match="BEFORE the link check"):
+        test_docs_preview_uploads_before_the_link_check(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the secret scan runs the gitleaks the pre-commit hook pins
+# ---------------------------------------------------------------------------
+
+PRE_COMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
+GITLEAKS_HOOK_REPO = "https://github.com/gitleaks/gitleaks"
+#: The lint job's two steps for the secret scan: the binary, then the call.
+GITLEAKS_INSTALL_STEP = "Install gitleaks"
+GITLEAKS_SCAN_STEP = "Run gitleaks (secret scan)"
+
+
+def _hook_gitleaks_rev(config: dict[str, Any]) -> str:
+    """The ``rev`` of the gitleaks hook repository in a parsed pre-commit config."""
+    revs = [repo["rev"] for repo in config["repos"] if repo.get("repo") == GITLEAKS_HOOK_REPO]
+    assert len(revs) == 1, f"expected one {GITLEAKS_HOOK_REPO} entry; got {revs}"
+    return str(revs[0])
+
+
+def _hook_and_ci_gitleaks_disagree(config: dict[str, Any], wf: dict[str, Any]) -> list[str]:
+    step = _find_named_step(wf, LINT_JOB, GITLEAKS_INSTALL_STEP)
+    hook, installed = _hook_gitleaks_rev(config), f"v{step['env']['GITLEAKS_VERSION']}"
+    return [] if hook == installed else [f"the hook runs gitleaks {hook}; CI installs {installed}"]
+
+
+def test_ci_installs_the_gitleaks_the_hook_pins(workflow: dict[str, Any]) -> None:
+    """The secret scan CI runs and the pre-commit hook's scan use one gitleaks.
+    Two versions carry different rules, so a commit the hook passed can fail
+    the scan. The hook's ``rev`` is the repository's statement of the version:
+    CI installs that release, and raising gitleaks moves both together."""
+    config = yaml.safe_load(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    assert _hook_and_ci_gitleaks_disagree(config, workflow) == []
+
+
+def test_ci_installs_the_gitleaks_the_hook_pins__mutation_the_hook_moves_ahead() -> None:
+    wf = _load_workflow()
+    installed = _find_named_step(wf, LINT_JOB, GITLEAKS_INSTALL_STEP)["env"]["GITLEAKS_VERSION"]
+    config = {"repos": [{"repo": GITLEAKS_HOOK_REPO, "rev": "v99.0.0"}, {"repo": "x", "rev": "v1"}]}
+    assert _hook_and_ci_gitleaks_disagree(config, wf) == [
+        f"the hook runs gitleaks v99.0.0; CI installs v{installed}"
     ]
-
-
-def test_the_link_check_is_advisory__mutation_lets_it_fail() -> None:
-    mutated = _load_workflow()
-    del _find_named_step(mutated, DOCS_JOB, LINKCHECK_STEP)["continue-on-error"]
-    assert _linkcheck_problems(mutated, check_set.CHECKS) == [
-        "the link-check step can fail the docs job"
-    ]
+    config["repos"][0]["rev"] = f"v{installed}"
+    assert _hook_and_ci_gitleaks_disagree(config, wf) == []
 
 
 # ---------------------------------------------------------------------------
@@ -12475,20 +12606,27 @@ _SETUP_RUN_RES = (
     re.compile(
         r"python3 scripts/ci/diag_summary\.py ci-diag >> \"\$GITHUB_STEP_SUMMARY\" \|\| true"
     ),
+    re.compile(
+        r'curl -sSfL -o "\$RUNNER_TEMP/gitleaks\.tar\.gz" '
+        r'"https://github\.com/gitleaks/gitleaks/releases/download/v\$\{GITLEAKS_VERSION\}/'
+        r'gitleaks_\$\{GITLEAKS_VERSION\}_linux_x64\.tar\.gz"\n'
+        r'echo "\$\{GITLEAKS_SHA256\}  \$RUNNER_TEMP/gitleaks\.tar\.gz" \| sha256sum -c -\n'
+        r'sudo tar -C /usr/local/bin -xzf "\$RUNNER_TEMP/gitleaks\.tar\.gz" gitleaks'
+    ),
 )
 #: The steps of a caller job that prepare or report in ways no pattern above
-#: states, by job and step name; each has its own tests above. The docs job's
-#: link check reports and cannot fail (test_the_link_check_is_advisory).
-CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {DOCS_JOB: (LINKCHECK_STEP,)}
+#: states, by job and step name; each has its own tests above. None on main: a
+#: caller job a branch adds names its own here.
+CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {}
 #: The commands the checks run. One of these in a caller step is a check
-#: spelled a second time. The link check is not one: it is advisory and no
-#: check declares it.
+#: spelled a second time.
 LEAF_COMMANDS = (
     "ruff ",
     "mypy",
     "pytest",
     "tsc",
     "eslint",
+    "actionlint",
     "vitest",
     "lint-imports",
     "npm run ",
@@ -12500,12 +12638,17 @@ LEAF_COMMANDS = (
     "uv lock --check",
     "git ls-files -ci",
     "make html",
+    "make linkcheck",
     "twine",
     "uv build",
+    "gitleaks git",
 )
 #: Full-tier checks no caller step names, each with the reason CI needs no step
 #: for it.
 CHECKS_WITHOUT_A_CI_STEP = {
+    # Its files are test modules inside the parallel sweep, so the `pytest`
+    # caller runs them on every CI run; a step of its own would run them twice.
+    "invariant-tests": "its files are inside the parallel sweep the pytest caller runs",
     # The wall-clock budgets run alone in the lane that hosts their marker
     # (LANE_LEAVING_MARKERS), on a runner with no xdist workers beside them.
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
@@ -12701,6 +12844,28 @@ def test_no_caller_step_spells_a_check__mutation_restores_the_bundle_check() -> 
     ]
 
 
+def test_no_caller_step_spells_a_check__mutation_spells_actionlint() -> None:
+    mutated = _load_raw_workflow()
+    _find_named_step(mutated, LINT_JOB, "Run actionlint (workflow lint)")["run"] = (
+        "uv run actionlint"
+    )
+    assert _spelled_checks(mutated) == [
+        f"lint: 'Run actionlint (workflow lint)' is neither a setup step nor a call of "
+        f"{CHECK_SCRIPT}",
+        "lint: 'Run actionlint (workflow lint)' spells ['actionlint']",
+    ]
+
+
+def test_no_caller_step_spells_a_check__mutation_spells_the_secret_scan() -> None:
+    mutated = _load_raw_workflow()
+    step = _find_named_step(mutated, LINT_JOB, GITLEAKS_SCAN_STEP)
+    step["run"] = 'gitleaks git --log-opts="origin/$BASE_REF..HEAD" --no-banner --redact'
+    assert _spelled_checks(mutated) == [
+        f"lint: '{GITLEAKS_SCAN_STEP}' is neither a setup step nor a call of {CHECK_SCRIPT}",
+        f"lint: '{GITLEAKS_SCAN_STEP}' spells ['gitleaks git']",
+    ]
+
+
 def test_no_caller_step_spells_a_check__mutation_spells_one_beside_a_call() -> None:
     mutated = _load_raw_workflow()
     step = _find_named_step(mutated, FRONTEND_JS_JOB, "Run JS tests (vitest)")
@@ -12755,8 +12920,18 @@ def _called_checks(wf: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     return called
 
 
-def _checks_missing_from_ci(wf: dict[str, Any]) -> list[str]:
+def _swept(path: str, unit: Any) -> bool:
+    """Whether the parallel sweep collects the test module at *path*."""
+    ignored = any(
+        path == entry or path.startswith(entry.rstrip("/") + "/") for entry, _host in unit.ignores
+    )
+    rooted = any(path.startswith(root.rstrip("/") + "/") for root in unit.roots)
+    return rooted and not path.startswith(TERMINAL_HOST.path) and not ignored
+
+
+def _checks_missing_from_ci(wf: dict[str, Any], unit: Any = None) -> list[str]:
     """What is wrong with CI as a caller of the full tier, one line per defect."""
+    unit = unit or framework_checks.UNIT_SELECTION
     called = _called_checks(wf)
     problems = []
     for check in check_set.CHECKS:
@@ -12778,15 +12953,33 @@ def _checks_missing_from_ci(wf: dict[str, Any]) -> list[str]:
         f"{name}: exempted and not declared"
         for name in sorted(set(CHECKS_WITHOUT_A_CI_STEP) - declared)
     ]
+    problems += [
+        f"invariant-tests: {path} is outside the parallel sweep"
+        for path in framework_checks.INVARIANT_TESTS
+        if not _swept(path, unit)
+    ]
     return problems
 
 
 def test_every_full_check_is_called_on_ci(raw_workflow: dict[str, Any]) -> None:
     """A check the full tier runs and CI does not is a check a pushed change
     passes without. Every full-tier check is named by a caller step, and a
-    check bound to a venue by a step held to runners that meet it; the one
-    exemption is named beside its reason in ``CHECKS_WITHOUT_A_CI_STEP``."""
+    check bound to a venue by a step held to runners that meet it; each
+    exemption is named beside its reason in ``CHECKS_WITHOUT_A_CI_STEP``, and
+    the reason of ``invariant-tests`` is a fact this test holds: every file of
+    it is collected by the parallel sweep."""
     assert _checks_missing_from_ci(raw_workflow) == []
+
+
+def test_every_full_check_is_called_on_ci__mutation_the_sweep_ignores_an_invariant_test() -> None:
+    """The exemption of ``invariant-tests`` holds only while the sweep runs
+    its files: an ignore over one of them leaves it run by nothing on CI."""
+    unit = framework_checks.UNIT_SELECTION
+    path = "tests/deployment/test_ci_workflow_wiring.py"
+    narrowed = dataclasses.replace(unit, ignores=(*unit.ignores, (path, "none")))
+    assert _checks_missing_from_ci(_load_raw_workflow(), narrowed) == [
+        f"invariant-tests: {path} is outside the parallel sweep"
+    ]
 
 
 def test_every_full_check_is_called_on_ci__mutation_drops_the_mypy_step() -> None:

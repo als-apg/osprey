@@ -26,13 +26,15 @@ Four kinds of check:
 
 * ``invariant`` -- holds for the repository as a whole and always runs: the
   lockfile, ruff, the config-key guard, the changelog and plugin-version gates,
-  and the rule that no tracked file is gitignored.
+  the rule that no tracked file is gitignored, the secret scan, and the tests
+  that pin this declaration.
 * ``static`` -- one per language or rule: mypy, the import contracts, the
-  private-name imports, tsc, eslint, prettier.
+  private-name imports, tsc, eslint, prettier, actionlint.
 * ``tests`` -- one per runner: the parallel pytest sweep, the serial
   real-terminal and wall-clock suites, the live Channel Access gate, Vitest,
   and the dock-engine's own Vitest suite.
-* ``build`` -- the documentation, the dock-engine bundle, and the packages.
+* ``build`` -- the documentation and its links, the dock-engine bundle, and the
+  packages.
 
 Two tiers. ``quick`` is what a commit needs, ``full`` is what a push needs and
 adds the serial suites and the builds. ``run`` runs named checks as declared and

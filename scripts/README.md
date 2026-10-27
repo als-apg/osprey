@@ -48,7 +48,10 @@ kind, its tiers and its command.
 
 **Requirements**:
 - `uv sync --extra dev --extra docs` and graphviz (`dot`) on PATH (the full
-  tier refuses the docs build without them)
+  tier refuses the docs build and the link check without them; the dev extra
+  carries actionlint and the shellcheck it runs)
+- `gitleaks` on PATH for the secret scan, which runs whenever a base is given
+- network access for the full tier's link check
 - `uv sync --extra virtual-accelerator` on Linux x86_64 (the full tier refuses
   there without it; elsewhere the live Channel Access gate does not run)
 - `npm ci` (the TypeScript, ESLint, Vitest and dock-engine checks refuse without

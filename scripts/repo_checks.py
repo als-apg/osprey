@@ -58,6 +58,27 @@ class UnitSelection:
     dist: tuple[str, ...]
 
 
+#: The tests that pin this declaration and the repository-wide rules, and
+#: every test that reads the whole tests tree: a change anywhere in the tree
+#: can break them, so no change selection may leave them out.
+INVARIANT_TESTS = (
+    "tests/docs/test_shipped_identity_literals.py",
+    "tests/scripts/test_ruff_file_selection.py",
+    "tests/scripts/test_check.py",
+    "tests/scripts/test_changelog_fragments.py",
+    "tests/interfaces/test_js_module_tests.py",
+    "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/deployment/test_retired_spellings_at_parse_point.py",
+    "tests/deployment/web_terminals/test_roster_entries.py",
+    "tests/infrastructure/test_import_time_audit.py",
+    "tests/infrastructure/test_stand_in_canaries.py",
+    "tests/test_offline_build_env.py",
+    "tests/test_api_marker_placement.py",
+    "tests/test_graphdb_container.py",
+    "tests/test_mongo_container.py",
+    "tests/test_no_legacy_symbols.py",
+)
+
 LIVE_CA_VENUE = "linux-x86_64"
 
 #: The dock-engine package: its TypeScript sources, the bundle built from them,
@@ -503,11 +524,33 @@ DOCS_EXTRA_PROBE = ("uv", "run", "python", "-c", "import myst_parser")
 #: platform. The modules are the ones the live gate requires.
 LIVE_CA_PROBE = ("uv", "run", "python", "-c", "import pcaspy, p4p, lume_pva_apg")
 
+#: Runs only in a venv synced with the dev extra. actionlint disables its
+#: shellcheck rule without a word when shellcheck is absent and still exits 0, so
+#: this probe is what keeps the check from passing over unread ``run:`` blocks.
+#: ``--frozen``: the need probes run before the lockfile check, and a plain
+#: ``uv run`` would re-lock a stale lockfile and hand that check a current one.
+WORKFLOW_LINT_PROBE = ("uv", "run", "--frozen", "shellcheck", "--version")
+
 
 def _need_uv() -> str | None:
     if shutil.which("uv"):
         return None
     return "uv is not on PATH: install uv, then run uv sync --extra dev"
+
+
+def _need_gitleaks() -> str | None:
+    if shutil.which("gitleaks"):
+        return None
+    return (
+        "gitleaks is not on PATH: run brew install gitleaks, "
+        "or install a release from https://github.com/gitleaks/gitleaks/releases"
+    )
+
+
+def _need_workflow_linters() -> str | None:
+    if kit.capture(WORKFLOW_LINT_PROBE)[0] == 0:
+        return None
+    return "the workflow linters are not installed: run uv sync --extra dev"
 
 
 def _need_node() -> str | None:
@@ -543,10 +586,12 @@ def _need_va_extra() -> str | None:
 #: Each need to its probe: ``None`` when met, else the refusal.
 NEEDS = {
     "uv": _need_uv,
+    "gitleaks": _need_gitleaks,
     "node": _need_node,
     "history": _need_history,
     "docs-extra": _need_docs_extra,
     "graphviz": _need_graphviz,
+    "workflow-linters": _need_workflow_linters,
     "va-extra": _need_va_extra,
 }
 
@@ -618,6 +663,30 @@ CHECKS: tuple[Check, ...] = (
     # Implemented in Python: git lists what is both tracked and ignored.
     Check("tracked-ignored", "invariant", BOTH, (), builtin=_check_tracked_ignored),
     Check(
+        "gitleaks",
+        "invariant",
+        BOTH,
+        ("gitleaks", "git", "--log-opts={base}..HEAD", "--no-banner", "--redact"),
+        needs=("base", "gitleaks"),
+        # ``git --staged`` scans the index, ``git --pre-commit`` the unstaged
+        # diff, and ``dir`` one untracked path: ``dir`` given several paths or
+        # none scans the whole directory.
+        worktree=(
+            ("gitleaks", "git", "--log-opts={base}..HEAD", "--no-banner", "--redact"),
+            ("gitleaks", "git", "--staged", "--no-banner", "--redact"),
+            ("gitleaks", "git", "--pre-commit", "--no-banner", "--redact"),
+            ("gitleaks", "dir", "{untracked}", "--no-banner", "--redact"),
+        ),
+    ),
+    Check(
+        "invariant-tests",
+        "invariant",
+        BOTH,
+        ("uv", "run", "pytest", *INVARIANT_TESTS),
+        needs=("uv",),
+        report="junit-pytest",
+    ),
+    Check(
         "mypy",
         "static",
         BOTH,
@@ -659,6 +728,14 @@ CHECKS: tuple[Check, ...] = (
         scope=("*.js", "*.mjs", ".prettierrc.json", ".prettierignore", "package*.json"),
         needs=("node",),
         fix=(("npm", "run", "format"),),
+    ),
+    Check(
+        "actionlint",
+        "static",
+        BOTH,
+        ("uv", "run", "actionlint"),
+        scope=(".github/workflows/**",),
+        needs=("uv", "workflow-linters"),
     ),
     # The parallel sweep: its selection is UNIT_SELECTION, a range picks its
     # tests through TEST_MIRRORS, and a run whose paths the marker expression
@@ -765,6 +842,17 @@ CHECKS: tuple[Check, ...] = (
         workdir=DOCS_DIR,
         prepare=_clean_docs_build,
         builtin=_check_redirect_stubs,
+    ),
+    # A link no reader can follow fails the run; an address that answers a
+    # reader and not a checker is in `linkcheck_ignore` in docs/source/conf.py.
+    Check(
+        "linkcheck",
+        "build",
+        FULL,
+        ("uv", "run", "make", "linkcheck"),
+        scope=("docs/**",),
+        needs=("uv", "docs-extra"),
+        workdir=DOCS_DIR,
     ),
     # Implemented in Python: PACKAGE_STEPS, run in order.
     Check(
@@ -965,4 +1053,7 @@ LANES: tuple[Lane, ...] = (
 )
 
 #: What ``list --json`` prints beside the checks and the lanes.
-LISTED = {"unit_selection": dataclasses.asdict(UNIT_SELECTION)}
+LISTED = {
+    "unit_selection": dataclasses.asdict(UNIT_SELECTION),
+    "invariant_tests": list(INVARIANT_TESTS),
+}
