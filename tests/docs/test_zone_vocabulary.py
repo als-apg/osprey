@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, text_files
+
 #: "three" followed by up to four intervening tokens (or none, for the adjacent
 #: "three-zone" / "three zones" spellings) and then "zone"/"zones". Tokens are
 #: any non-whitespace run — not just letters — so a wrapped comment's leading
@@ -52,27 +54,6 @@ _FOUR_ZONES_PATTERN = re.compile(r"\bfour[\s-]+zones?\b", re.IGNORECASE)
 
 # plugins/ holds the shipped skills.
 ROOTS = ("src/osprey", "docs/source", "plugins")
-SCAN_SUFFIXES = (
-    ".py",
-    ".md",
-    ".rst",
-    ".txt",
-    ".j2",
-    ".yml",
-    ".yaml",
-    ".json",
-    ".toml",
-    ".sh",
-)
-
-#: Shipped files that carry no extension at all, admitted by name instead — the
-#: same clause as ``test_env_production_retired.py``, and for the same reason:
-#: an extension-only rule cannot see them, and the two files that actually
-#: narrate the zones to an operator both live in that class (the project
-#: ``gitignore`` and ``dockerignore`` templates, emitted verbatim into every
-#: scaffolded repo). Matched with any leading dot stripped, because the same
-#: kind of file ships both ways.
-SCAN_STEMS = frozenset({"gitignore", "dockerignore", "Dockerfile"})
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -88,21 +69,16 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
 }
 
 
-def _shipped_sources() -> list[Path]:
-    files: list[Path] = []
-    for root in ROOTS:
-        base = _REPO_ROOT / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            files.append(path)
-    return files
+def _shipped_sources(root_dir: Path | None = None) -> list[Path]:
+    """The swept files, extensionless shipped ones admitted by name.
+
+    The two files that actually narrate the zones to an operator are in that
+    class (the project ``gitignore`` and ``dockerignore`` templates, emitted
+    verbatim into every scaffolded repo), and an extension-only rule cannot
+    see them.
+    """
+    base_root = root_dir if root_dir is not None else _REPO_ROOT
+    return text_files(base_root, ROOTS, names=EXTENSIONLESS_SHIPPED_NAMES)
 
 
 def _collapsed(text: str) -> str:
@@ -114,28 +90,17 @@ def _stale_count_hits(root_dir: Path | None = None) -> list[tuple[str, str]]:
     """Every ``(repo-relative path, matched snippet)`` still naming a bare "three" zone count."""
     found: list[tuple[str, str]] = []
     base_root = root_dir if root_dir is not None else _REPO_ROOT
-    for root in ROOTS:
-        base = base_root / root
-        if not base.exists():
+    for path in _shipped_sources(base_root):
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:  # pragma: no cover - defensive, no such file today
             continue
-        for path in base.rglob("*"):
-            if not path.is_file():
+        relative = str(path.relative_to(base_root))
+        for match in _ZONE_COUNT_PATTERN.finditer(_collapsed(content)):
+            snippet = match.group(0)
+            if snippet.lower() == _PERMITTED_PHRASE:
                 continue
-            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            try:
-                content = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:  # pragma: no cover - defensive, no such file today
-                continue
-            collapsed = _collapsed(content)
-            relative = str(path.relative_to(base_root))
-            for match in _ZONE_COUNT_PATTERN.finditer(collapsed):
-                snippet = match.group(0)
-                if snippet.lower() == _PERMITTED_PHRASE:
-                    continue
-                found.append((relative, snippet))
+            found.append((relative, snippet))
     return found
 
 

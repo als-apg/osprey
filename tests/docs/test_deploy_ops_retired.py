@@ -14,9 +14,12 @@ be worse than the grep failing.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
+
+from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
 
 # Spelled once. This file is not itself swept — the roots below are the shipped
 # package and the docs tree, not tests/ — so the literal is safe here.
@@ -24,61 +27,14 @@ RETIRED_SKILL = "osprey-deploy-ops"
 
 # plugins/ holds the shipped skills.
 ROOTS = ("src/osprey", "docs/source", "plugins")
-SCAN_SUFFIXES = (
-    ".py",
-    ".md",
-    ".rst",
-    ".txt",
-    ".j2",
-    ".yml",
-    ".yaml",
-    ".json",
-    ".toml",
-    ".sh",
-)
-
-#: Shipped files with no extension, admitted by name — the same clause as the
-#: sibling gates (``test_env_production_retired.py``, ``test_zone_vocabulary``):
-#: a suffix-only rule cannot see the ``gitignore``/``dockerignore``/
-#: ``Dockerfile`` templates the scaffold emits verbatim. Matched with any
-#: leading dot stripped, because the same kind of file ships both ways.
-SCAN_STEMS = frozenset({"gitignore", "dockerignore", "Dockerfile"})
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _shipped_sources() -> list[Path]:
-    files: list[Path] = []
-    for root in ROOTS:
-        base = _REPO_ROOT / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            files.append(path)
-    return files
-
-
 def test_no_live_reference_to_the_retired_skill() -> None:
-    offenders: list[str] = []
-    for path in _shipped_sources():
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        if RETIRED_SKILL not in content:
-            continue
-        hits = [
-            f"{i}: {line.strip()}"
-            for i, line in enumerate(content.splitlines(), start=1)
-            if RETIRED_SKILL in line
-        ][:3]
-        offenders.append(f"{path.relative_to(_REPO_ROOT)}\n  " + "\n  ".join(hits))
+    files = text_files(_REPO_ROOT, ROOTS, names=EXTENSIONLESS_SHIPPED_NAMES)
+    hits = matching_lines(_REPO_ROOT, files, re.compile(re.escape(RETIRED_SKILL)))
+    offenders = [f"{path}:{number}: {line.strip()}" for path, number, line in hits]
 
     assert not offenders, (
         f"The {RETIRED_SKILL} skill was removed — operating a deployment is the "

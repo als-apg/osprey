@@ -36,6 +36,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
 
+from tests._tree_scan import text_files
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Shipped sources only.  ``tests/`` and each package's own ``tests/`` are
@@ -198,21 +200,15 @@ def _is_excluded(rel_path: str) -> bool:
 
 
 def _scan_files() -> list[Path]:
-    files: list[Path] = []
-    for root in SCAN_ROOTS:
-        base = _REPO_ROOT / root
-        if not base.exists():
-            continue
-        for path in sorted(base.rglob("*")):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
-                continue
-            if "__pycache__" in path.parts or path.name.endswith(".bak"):
-                continue
-            rel_path = path.relative_to(_REPO_ROOT).as_posix()
-            if _is_excluded(rel_path):
-                continue
-            files.append(path)
-    return files
+    files = text_files(
+        _REPO_ROOT,
+        SCAN_ROOTS,
+        suffixes=SCAN_SUFFIXES,
+        skip=lambda path: (
+            path.name.endswith(".bak") or _is_excluded(path.relative_to(_REPO_ROOT).as_posix())
+        ),
+    )
+    return sorted(files)
 
 
 @dataclass(frozen=True)

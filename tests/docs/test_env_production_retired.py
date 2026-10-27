@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
+
 #: The artifact and the verb, in one pattern. ``[.-]`` and not ``.``: an
 #: unescaped dot would condemn ``env_production.py`` and every function named
 #: after it, which are live Python names rather than retired operator-facing
@@ -35,31 +37,6 @@ RETIRED_NAME = re.compile(r"env[.-]production")
 
 # plugins/ holds the shipped skills.
 ROOTS = ("src/osprey", "docs/source", "plugins")
-SCAN_SUFFIXES = (
-    ".py",
-    ".md",
-    ".rst",
-    ".txt",
-    ".j2",
-    ".yml",
-    ".yaml",
-    ".json",
-    ".toml",
-    ".sh",
-)
-
-#: Shipped files that carry no extension at all, admitted by name instead.
-#: An extension-only rule cannot see them — and the two files this rename was
-#: most likely to be reverted in are both in that class: the auth sidecar's
-#: ``.dockerignore``, which listed the old name outright, and the project
-#: ``gitignore`` template, which explains in a comment which env files carry
-#: secrets. ``Dockerfile`` joins them because a ``COPY`` of the old name would
-#: bake a stale artifact into an image.
-#:
-#: Matched with any leading dot stripped, because the same kind of file ships
-#: both ways: ``templates/project/gitignore`` has no dot (it is renamed on
-#: emit) while ``auth_sidecar/.dockerignore`` keeps one.
-SCAN_STEMS = frozenset({"gitignore", "dockerignore", "Dockerfile"})
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -92,37 +69,24 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
 
 
 def _shipped_sources() -> list[Path]:
-    files: list[Path] = []
-    for root in ROOTS:
-        base = _REPO_ROOT / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in SCAN_SUFFIXES and path.name.lstrip(".") not in SCAN_STEMS:
-                continue
-            if "__pycache__" in path.parts:
-                continue
-            files.append(path)
-    return files
+    """The swept files, extensionless shipped ones admitted by name.
+
+    An extension-only rule cannot see them — and the two files this rename was
+    most likely to be reverted in are both in that class: the auth sidecar's
+    ``.dockerignore``, which listed the old name outright, and the project
+    ``gitignore`` template, which explains in a comment which env files carry
+    secrets. ``Dockerfile`` joins them because a ``COPY`` of the old name would
+    bake a stale artifact into an image.
+    """
+    return text_files(_REPO_ROOT, ROOTS, names=EXTENSIONLESS_SHIPPED_NAMES)
 
 
 def _hits() -> list[tuple[str, int, str]]:
     """Every ``(repo-relative path, line number, stripped line)`` still naming it."""
-    found: list[tuple[str, int, str]] = []
-    for path in _shipped_sources():
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:  # pragma: no cover - defensive, no such file today
-            continue
-        if not RETIRED_NAME.search(content):
-            continue
-        relative = str(path.relative_to(_REPO_ROOT))
-        for number, line in enumerate(content.splitlines(), start=1):
-            if RETIRED_NAME.search(line):
-                found.append((relative, number, line.strip()))
-    return found
+    return [
+        (path, number, line.strip())
+        for path, number, line in matching_lines(_REPO_ROOT, _shipped_sources(), RETIRED_NAME)
+    ]
 
 
 def test_no_shipped_text_still_names_the_old_env_file_or_verb() -> None:

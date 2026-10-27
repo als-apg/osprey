@@ -29,6 +29,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._tree_scan import EXTENSIONLESS_SHIPPED_NAMES, matching_lines, text_files
+
 #: Every retired name, spelled once, as a single alternation.
 #:
 #: The guided setup is ``/osprey:setup``. Its three earlier names are all here:
@@ -48,7 +50,7 @@ RETIRED_PATTERN = re.compile(
     r"|templates/skills"
 )
 
-#: Directory roots and file roots, mixed. ``_collect`` admits either.
+#: Directory roots and file roots, mixed.
 ROOTS = (
     "src/osprey",
     "docs/source",
@@ -58,73 +60,22 @@ ROOTS = (
     ".github",
 )
 
-SCAN_SUFFIXES = (
-    ".py",
-    ".md",
-    ".rst",
-    ".txt",
-    ".j2",
-    ".yml",
-    ".yaml",
-    ".json",
-    ".toml",
-    ".sh",
-)
-
-#: Shipped files with no extension, admitted by name --- the same clause as the
-#: sibling gates: a suffix-only rule cannot see the ``gitignore``/
-#: ``dockerignore``/``Dockerfile`` templates the scaffold emits verbatim.
-#: Matched with any leading dot stripped, because the same kind of file ships
-#: both ways.
-SCAN_STEMS = frozenset({"gitignore", "dockerignore", "Dockerfile"})
-
-#: ``__pycache__`` is the only directory pruned by name. There is no ``build/``
-#: skip on purpose: ``src/osprey/build/`` is a real shipped package, and the
-#: Sphinx output tree is ``docs/build``, which sits outside ``docs/source``.
-#: Binary files are excluded by the suffix allowlist, not by a name rule.
-PRUNED_DIRS = frozenset({"__pycache__"})
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _admits(path: Path) -> bool:
-    if any(part in PRUNED_DIRS for part in path.parts):
-        return False
-    return path.suffix in SCAN_SUFFIXES or path.name.lstrip(".") in SCAN_STEMS
-
-
-def _collect(repo_root: Path, roots: tuple[str, ...]) -> list[Path]:
-    """Every scannable file under ``roots``, which may name files or directories."""
-    files: list[Path] = []
-    for root in roots:
-        base = repo_root / root
-        if not base.exists():
-            continue
-        if base.is_file():
-            # A file root is named explicitly, so it is admitted as named.
-            # ``rglob`` on a file yields nothing, which would silently drop
-            # README.md and CONTRIBUTING.md from the sweep.
-            files.append(base)
-            continue
-        for path in base.rglob("*"):
-            if path.is_file() and _admits(path):
-                files.append(path)
-    return files
-
-
 def _sweep(repo_root: Path, roots: tuple[str, ...]) -> list[str]:
-    """Report ``path:line:token`` for every retired name still present."""
-    offenders: list[str] = []
-    for path in _collect(repo_root, roots):
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        rel = path.relative_to(repo_root)
-        for lineno, line in enumerate(content.splitlines(), start=1):
-            for match in RETIRED_PATTERN.finditer(line):
-                offenders.append(f"{rel}:{lineno}:{match.group(0)}")
-    return offenders
+    """Report ``path:line:token`` for every retired name still present.
+
+    There is no ``build/`` skip on purpose: ``src/osprey/build/`` is a real
+    shipped package, and the Sphinx output tree is ``docs/build``, which sits
+    outside ``docs/source``.
+    """
+    files = text_files(repo_root, roots, names=EXTENSIONLESS_SHIPPED_NAMES)
+    return [
+        f"{rel}:{lineno}:{match.group(0)}"
+        for rel, lineno, line in matching_lines(repo_root, files, RETIRED_PATTERN)
+        for match in RETIRED_PATTERN.finditer(line)
+    ]
 
 
 def _assert_clean(repo_root: Path, roots: tuple[str, ...]) -> None:
@@ -146,7 +97,7 @@ def test_no_live_reference_to_the_retired_skills_cli() -> None:
     [
         # A directory root, swept recursively.
         ("docs/source/regress.rst", "docs/source"),
-        # A file root, admitted directly by ``_collect``.
+        # A file root, admitted as named.
         ("README.md", "README.md"),
     ],
 )

@@ -47,6 +47,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._tree_scan import matching_lines, text_files
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _THIS_FILE = Path(__file__).resolve()
 
@@ -322,37 +324,24 @@ def _sources(repo_root: Path, roots: tuple[str, ...]) -> tuple[Path, ...]:
     test that repoints :data:`_REPO_ROOT` at a fixture tree gets its own
     listing rather than the repository's.
     """
-    files: list[Path] = []
-    for root in roots:
-        base = repo_root / root
-        if not base.exists():
-            continue
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if path.suffix not in SCAN_SUFFIXES and path.name not in SCAN_NAMES:
-                continue
-            if "__pycache__" in path.parts or path == _THIS_FILE:
-                continue
-            files.append(path)
+    files = text_files(
+        repo_root,
+        roots,
+        suffixes=SCAN_SUFFIXES,
+        names=SCAN_NAMES,
+        skip=lambda path: path == _THIS_FILE,
+    )
     return tuple(files)
 
 
 def _hits(denied: Denied) -> list[tuple[str, int, str]]:
     """Every ``(repo-relative path, line number, stripped line)`` naming it."""
-    found: list[tuple[str, int, str]] = []
-    for path in _sources(_REPO_ROOT, denied.roots):
-        try:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:  # pragma: no cover - defensive
-            continue
-        if not denied.pattern.search(content):
-            continue
-        relative = str(path.relative_to(_REPO_ROOT))
-        for number, line in enumerate(content.splitlines(), start=1):
-            if denied.pattern.search(line):
-                found.append((relative, number, line.strip()))
-    return found
+    return [
+        (path, number, line.strip())
+        for path, number, line in matching_lines(
+            _REPO_ROOT, _sources(_REPO_ROOT, denied.roots), denied.pattern
+        )
+    ]
 
 
 @pytest.mark.parametrize("denied", DENIED, ids=lambda d: d.name)
