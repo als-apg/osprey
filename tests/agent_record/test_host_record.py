@@ -110,6 +110,20 @@ def project(tmp_path, claude_dir) -> Iterator[Project]:
         hr.stop_host_process(proj.state_dir, wait_s=10)
 
 
+def _health_once_the_jobs_ran(url: str, wait_s: float = 30.0) -> dict:
+    """The ``/health`` body once the jobs' start-up run has finished.
+
+    The jobs start after the first ingest pass, so ``jobs_ready`` may still be
+    false the moment the record turns ready.
+    """
+    deadline = time.monotonic() + wait_s
+    body = httpx.get(url, trust_env=False).json()
+    while body.get("jobs_ready") is False and time.monotonic() < deadline:
+        time.sleep(0.05)
+        body = httpx.get(url, trust_env=False).json()
+    return body
+
+
 def _gone(pid: int, start: str, wait_s: float = 10.0) -> bool:
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
@@ -170,9 +184,10 @@ def test_the_process_is_gone_when_the_last_holder_returns(project):
         assert record.started
         running = project.process()
         assert running is not None
-        assert httpx.get(f"{record.url}/health", trust_env=False).json() == {
+        assert _health_once_the_jobs_ran(f"{record.url}/health") == {
             "status": "ok",
             "ready": True,
+            "jobs_ready": True,
         }
     assert _gone(*running, wait_s=0.5), "the stop must be synchronous"
     assert not (project.state_dir / hr.PROCESS_FILE_NAME).exists()
@@ -435,7 +450,8 @@ def test_serve_without_a_lease_dir_keeps_running(project):
                 break
             except httpx.ConnectError:
                 time.sleep(0.1)
-        assert body == {"status": "ok"}
+        assert body is not None
+        assert _health_once_the_jobs_ran(url) == {"status": "ok", "jobs_ready": True}
         time.sleep(service.LEASE_POLL_S * 3)
         assert child.poll() is None
     finally:
@@ -668,7 +684,12 @@ def test_shutdown_waits_for_the_first_pass_before_closing_the_backend(
     app = service.create_app(config=project.config, env=env, lease_dir=lease_dir, stop=lambda: None)
     with TestClient(app) as client:
         assert started.wait(10)
-        assert client.get("/health").json() == {"status": "ok", "ready": False}
+        # The jobs start only after the first pass, so neither is ready yet.
+        assert client.get("/health").json() == {
+            "status": "ok",
+            "ready": False,
+            "jobs_ready": False,
+        }
     assert events == ["first pass done", "closed"]
 
 
