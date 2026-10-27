@@ -35,63 +35,56 @@ class TestARIELCLIGroup:
         assert result.exit_code == 0
         assert "ARIEL search service commands" in result.output
 
-    def test_status_command_exists(self, runner):
-        """status subcommand exists."""
-        result = runner.invoke(ariel_group, ["status", "--help"])
+    @pytest.mark.parametrize(
+        ("command", "summary"),
+        [
+            ("status", "ARIEL service status"),
+            ("migrate", "database migrations"),
+            ("search", "Search the logbook"),
+            ("sync", "Sync ARIEL database"),
+            ("reembed", "Re-embed entries"),
+        ],
+    )
+    def test_subcommand_exists(self, runner, command, summary):
+        """Each subcommand answers ``--help`` with its summary."""
+        result = runner.invoke(ariel_group, [command, "--help"])
         assert result.exit_code == 0
-        assert "ARIEL service status" in result.output
+        assert summary in result.output
 
-    def test_migrate_command_exists(self, runner):
-        """migrate subcommand exists."""
-        result = runner.invoke(ariel_group, ["migrate", "--help"])
+    @pytest.mark.parametrize(
+        ("command", "summary"),
+        [
+            ("ingest", "source file"),
+            ("enhance", "enhancement modules"),
+            ("models", "embedding"),
+        ],
+    )
+    def test_subcommand_exists_case_insensitive_summary(self, runner, command, summary):
+        """Each subcommand answers ``--help`` with its summary, in any case."""
+        result = runner.invoke(ariel_group, [command, "--help"])
         assert result.exit_code == 0
-        assert "database migrations" in result.output
+        assert summary in result.output.lower()
 
-    def test_ingest_command_exists(self, runner):
-        """ingest subcommand exists."""
-        result = runner.invoke(ariel_group, ["ingest", "--help"])
-        assert result.exit_code == 0
-        assert "source file" in result.output.lower()
-
-    def test_enhance_command_exists(self, runner):
-        """enhance subcommand exists."""
-        result = runner.invoke(ariel_group, ["enhance", "--help"])
-        assert result.exit_code == 0
-        assert "enhancement modules" in result.output.lower()
-
-    def test_models_command_exists(self, runner):
-        """models subcommand exists."""
-        result = runner.invoke(ariel_group, ["models", "--help"])
-        assert result.exit_code == 0
-        assert "embedding" in result.output.lower()
-
-    def test_search_command_exists(self, runner):
-        """search subcommand exists."""
-        result = runner.invoke(ariel_group, ["search", "--help"])
-        assert result.exit_code == 0
-        assert "Search the logbook" in result.output
-
-    def test_sync_command_exists(self, runner):
-        """sync subcommand exists."""
-        result = runner.invoke(ariel_group, ["sync", "--help"])
-        assert result.exit_code == 0
-        assert "Sync ARIEL database" in result.output
-
-    def test_sync_has_limit_option(self, runner):
-        """sync has --limit option."""
-        result = runner.invoke(ariel_group, ["sync", "--help"])
-        assert "--limit" in result.output
+    @pytest.mark.parametrize(
+        ("command", "text"),
+        [
+            ("sync", "--limit"),
+            ("ingest", "file path or URL"),
+            ("reembed", "--dry-run"),
+            ("reembed", "--force"),
+            ("reembed", "--batch-size"),
+        ],
+    )
+    def test_help_mentions(self, runner, command, text):
+        """A subcommand's ``--help`` names the options and inputs it takes."""
+        result = runner.invoke(ariel_group, [command, "--help"])
+        assert text in result.output
 
     def test_ingest_requires_source(self, runner):
         """ingest command requires --source option."""
         result = runner.invoke(ariel_group, ["ingest"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "required" in result.output.lower()
-
-    def test_ingest_help_shows_url_support(self, runner):
-        """ingest --help mentions file path or URL."""
-        result = runner.invoke(ariel_group, ["ingest", "--help"])
-        assert "file path or URL" in result.output
 
     def test_ingest_adapter_choices(self, runner):
         """ingest command validates adapter choices."""
@@ -113,12 +106,6 @@ class TestARIELCLIGroup:
         assert "keyword" in result.output
         assert "semantic" in result.output
 
-    def test_reembed_command_exists(self, runner):
-        """reembed subcommand exists."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert result.exit_code == 0
-        assert "Re-embed entries" in result.output
-
     def test_reembed_requires_model(self, runner):
         """reembed command requires --model option."""
         result = runner.invoke(ariel_group, ["reembed", "--dimension", "768"])
@@ -130,21 +117,6 @@ class TestARIELCLIGroup:
         result = runner.invoke(ariel_group, ["reembed", "--model", "nomic-embed-text"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "--dimension" in result.output
-
-    def test_reembed_has_dry_run_option(self, runner):
-        """reembed command has --dry-run option."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert "--dry-run" in result.output
-
-    def test_reembed_has_force_option(self, runner):
-        """reembed command has --force option."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert "--force" in result.output
-
-    def test_reembed_has_batch_size_option(self, runner):
-        """reembed command has --batch-size option."""
-        result = runner.invoke(ariel_group, ["reembed", "--help"])
-        assert "--batch-size" in result.output
 
     def test_ingest_tracks_runs(self, runner, tmp_path, monkeypatch):
         """ingest command calls start_ingestion_run and complete_ingestion_run."""

@@ -945,14 +945,35 @@ class TestKeywordPatternSettings:
         assert settings.patterns_enabled is False
         assert settings.pattern_timeout_seconds == 2.5
 
-    def test_patterns_enabled_rejects_a_string(self) -> None:
-        """A quoted ``yes`` is refused, never defaulted."""
+    @pytest.mark.parametrize(
+        ("settings", "message"),
+        [
+            # A quoted ``yes`` is refused, never defaulted.
+            pytest.param(
+                {"patterns_enabled": "yes"},
+                "search_modules.keyword.settings.patterns_enabled must be a boolean, got 'yes'",
+                id="patterns_enabled_rejects_a_string",
+            ),
+            # ``0`` is below the floor and is named rather than clamped up to 10.
+            pytest.param(
+                {"pattern_timeout_seconds": 0},
+                "search_modules.keyword.settings.pattern_timeout_seconds must be a number "
+                ">= 0.001, got 0",
+                id="pattern_timeout_seconds_rejects_zero",
+            ),
+            # A quoted ``10`` is YAML text, not a number, and is refused.
+            pytest.param(
+                {"pattern_timeout_seconds": "10"},
+                "search_modules.keyword.settings.pattern_timeout_seconds must be a number "
+                ">= 0.001, got '10'",
+                id="pattern_timeout_seconds_rejects_a_string",
+            ),
+        ],
+    )
+    def test_malformed_setting_is_refused_by_name(self, settings: dict, message: str) -> None:
         with pytest.raises(ValueError) as exc_info:
-            KeywordSearchSettings.from_ariel_config(_keyword_config({"patterns_enabled": "yes"}))
-        assert (
-            str(exc_info.value)
-            == "search_modules.keyword.settings.patterns_enabled must be a boolean, got 'yes'"
-        )
+            KeywordSearchSettings.from_ariel_config(_keyword_config(settings))
+        assert str(exc_info.value) == message
 
     def test_patterns_enabled_rejects_an_integer(self) -> None:
         """``1`` is not a boolean here; the YAML spelling is ``true``."""
@@ -968,16 +989,6 @@ class TestKeywordPatternSettings:
         assert (
             "search_modules.keyword.settings.patterns_enabled must be a boolean, got 'yes'"
             in errors
-        )
-
-    def test_pattern_timeout_seconds_rejects_zero(self) -> None:
-        """``0`` is below the floor and is named rather than clamped up to 10."""
-        with pytest.raises(ValueError) as exc_info:
-            KeywordSearchSettings.from_ariel_config(_keyword_config({"pattern_timeout_seconds": 0}))
-        assert (
-            str(exc_info.value)
-            == "search_modules.keyword.settings.pattern_timeout_seconds must be a number "
-            ">= 0.001, got 0"
         )
 
     def test_pattern_timeout_seconds_rejects_a_negative_number(self) -> None:
@@ -1001,18 +1012,6 @@ class TestKeywordPatternSettings:
             _keyword_config({"pattern_timeout_seconds": 5})
         )
         assert settings.pattern_timeout_seconds == 5.0
-
-    def test_pattern_timeout_seconds_rejects_a_string(self) -> None:
-        """A quoted ``10`` is YAML text, not a number, and is refused."""
-        with pytest.raises(ValueError) as exc_info:
-            KeywordSearchSettings.from_ariel_config(
-                _keyword_config({"pattern_timeout_seconds": "10"})
-            )
-        assert (
-            str(exc_info.value)
-            == "search_modules.keyword.settings.pattern_timeout_seconds must be a number "
-            ">= 0.001, got '10'"
-        )
 
     def test_pattern_timeout_seconds_rejects_a_boolean(self) -> None:
         """``True`` is an int subclass in Python but means nothing as a timeout."""
