@@ -19,7 +19,7 @@ from osprey.services.ariel_search.attachments import copy as copy_mod
 from osprey.services.ariel_search.attachments.copy import record_and_compose, record_rows
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
-from tests.services.ariel_search.fake_adapters import HttpStubAdapter, StubAdapter
+from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter, StubAdapter
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -447,7 +447,6 @@ class TestRecordAndCompose:
 
 # --- copy_entry ------------------------------------------------------------------
 
-ORIGINS = frozenset({("https", "h.example", 443)})
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 PDF = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
 HTML = b"<!DOCTYPE html><html><head><title>Login</title></head><body>sign in</body></html>"

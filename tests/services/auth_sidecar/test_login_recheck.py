@@ -93,8 +93,6 @@ ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)
 BOB_SUBJECT = "idp|bob"
 
-SIDECAR_IDENTITY = "sidecar"
-
 GROUP_CLAIM = "groups"
 OPERATOR_GROUP = "als-operators"
 CLAIM_MAP = {OPERATOR_GROUP: "operator"}

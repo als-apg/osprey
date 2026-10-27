@@ -28,7 +28,7 @@ from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
-from tests.services.ariel_search.fake_adapters import HttpStubAdapter
+from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA as RENDITION_SHA
 from tests.services.ariel_search.integration._support import fake_prepare, migrate
 
@@ -36,7 +36,6 @@ from tests.services.ariel_search.integration._support import fake_prepare, migra
 # run has a single testcontainers session and the shared database is serialized.
 pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker"), pytest.mark.timeout(120)]
 
-ORIGINS = frozenset({("https", "h.example", 443)})
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 PDF = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
 BASE_TS = datetime(2026, 9, 1, tzinfo=UTC)

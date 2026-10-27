@@ -40,6 +40,7 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.enhancement.availability import HEALTH_TIMEOUT_S
 from osprey.services.ariel_search.enhancement.image_embedding import module as embed_mod
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from tests.services.ariel_search.fake_adapters import ORIGINS
 from tests.services.ariel_search.integration._support import fake_prepare_as_own_rendition
 from tests.services.ariel_search.llama_stub import FIXTURES
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
@@ -50,7 +51,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker"), pytest.mar
 
 DIMS = 1024
 EMBED = "image_embedding"
-ORIGINS = frozenset({("https", "h.example", 443)})
 TS = datetime(2026, 9, 1, tzinfo=UTC)
 PICTURES = ("orbit_kick", "tunnel_temp")
 EMBED_TIMEOUT_S = 2

@@ -50,7 +50,7 @@ from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_en
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
-from tests.services.ariel_search.fake_adapters import HttpStubAdapter
+from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter
 from tests.services.ariel_search.integration._support import (
     FakeQMDClient,
     fake_prepare_as_own_rendition,
@@ -67,7 +67,6 @@ EMBED = "image_embedding"
 CAPTION = "image_caption"
 PICTURE_MODULES = (CAPTION, EMBED)
 CAPTION_MODEL = "vis-caption-1"
-ORIGINS = frozenset({("https", "h.example", 443)})
 TS = datetime(2026, 9, 1, tzinfo=UTC)
 ENTRY_ID = "combo-1"
 RAW_TEXT = "beam lost at 14:02"

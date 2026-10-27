@@ -47,7 +47,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker"), pytest.mar
 
 MODEL = "vis-caption-1"
 CAPTION = "image_caption"
-ORIGINS = frozenset({("https", "h.example", 443)})
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 RENDITION = CopyRendition(data=b"png", mime_type="image/png", width=1, height=1, sha256="cd" * 32)
 TS = datetime(2026, 9, 1, tzinfo=UTC)

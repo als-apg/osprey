@@ -7,6 +7,9 @@ from collections.abc import AsyncIterator
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 
+#: The one origin ``HttpStubAdapter``'s pictures are served from.
+ORIGINS = frozenset({("https", "h.example", 443)})
+
 
 class StubAdapter(FacilityAdapter):
     """A source whose entries the tests hand to ``ingest_one`` directly; it never yields."""
@@ -28,7 +31,7 @@ class HttpStubAdapter(StubAdapter):
         self.entries = entries or []
 
     def attachment_origins(self) -> frozenset:
-        return frozenset({("https", "h.example", 443)})
+        return ORIGINS
 
     async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
         for entry in list(self.entries):

@@ -31,7 +31,7 @@ from osprey.services.ariel_search.ingestion.ingest import (
     EntryIngestOutcome,
     ingest_one,
 )
-from tests.services.ariel_search.fake_adapters import StubAdapter
+from tests.services.ariel_search.fake_adapters import ORIGINS, StubAdapter
 from tests.services.ariel_search.integration._support import fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -41,7 +41,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 #: Rows this file seeds, one family recorded before any write.
 PREFIX = "ingestone-"
 
-ORIGINS = frozenset({("https", "h.example", 443)})
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 MODEL = "vision-x"
 
