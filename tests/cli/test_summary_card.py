@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from osprey.cli import output, phase_reporter, summary_card
+from osprey.cli import phase_reporter, summary_card
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
     NullReporter,
@@ -147,17 +147,7 @@ def _nothing_is_unhealthy(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture(autouse=True)
-def empty_ledger():
-    """Start and leave every test with no collected rows.
-
-    The ledger is process-scoped and the card flushes it before printing, so a
-    row some earlier test left behind would print above the card and shift
-    every line index asserted here.
-    """
-    output.clear_ledger()
-    yield
-    output.clear_ledger()
+pytestmark = pytest.mark.usefixtures("empty_ledger")
 
 
 #: A scenario carrying a logbook narrative, as the simulator view writes it.

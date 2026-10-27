@@ -14,9 +14,9 @@ reaches `osprey build` at all.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-import os
 import subprocess
 from pathlib import Path
 
@@ -574,12 +574,8 @@ class TestVariantDrift:
 
 def _run_validate(runner: CliRunner, repo: Path):
     """Run ``osprey validate`` from *repo*, zero-argument, as an operator would."""
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
+    with contextlib.chdir(repo):
         return runner.invoke(validate, [])
-    finally:
-        os.chdir(previous)
 
 
 class TestValidateHonorsTheVariant:
@@ -686,12 +682,8 @@ class TestValidateHonorsTheVariant:
         _write_variant(lifecycle_repo, "teststand", "name: demo-teststand\n")
         write_setting(lifecycle_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
-        previous = Path.cwd()
-        os.chdir(lifecycle_repo)
-        try:
+        with contextlib.chdir(lifecycle_repo):
             result = runner.invoke(validate, [str(renders[0])])
-        finally:
-            os.chdir(previous)
 
         assert result.exit_code == 0, result.output
         assert "host variant" not in result.output

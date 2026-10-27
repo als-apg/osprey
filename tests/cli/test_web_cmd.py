@@ -1490,22 +1490,6 @@ class TestDetachSkipsPreflightInChild:
 # failure rather than a coincidence.
 
 
-@pytest.fixture
-def restore_env_and_cwd():
-    """Undo the process-global state a launch legitimately mutates.
-
-    The command chdirs into the render and bulk-loads the deployment `.env`
-    into os.environ, both of which outlive the CliRunner invocation and would
-    leak into later tests.
-    """
-    saved_cwd = os.getcwd()
-    saved_env = dict(os.environ)
-    yield
-    os.chdir(saved_cwd)
-    os.environ.clear()
-    os.environ.update(saved_env)
-
-
 def _deployment_with_secret(repo: Path, port: int) -> Path:
     """Give *repo* a render whose provider key comes from the repo-root `.env`.
 
@@ -1575,7 +1559,7 @@ class TestRepoFlagIsAuthoritative:
         )
         return result, observed, repo, port
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("process_state_restored")
     def test_repo_dotenv_is_loaded(self, tmp_path, lifecycle_repo, runner, monkeypatch):
         """The deployment's .env reaches os.environ before the server starts.
 
@@ -1591,7 +1575,7 @@ class TestRepoFlagIsAuthoritative:
         assert result.exit_code == 0
         assert observed["key"] == "sk-from-project-dotenv"
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("process_state_restored")
     def test_the_render_becomes_the_working_directory(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1606,7 +1590,7 @@ class TestRepoFlagIsAuthoritative:
 
         assert Path(observed["cwd"]).resolve() == (repo / "build").resolve()
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("process_state_restored")
     def test_render_web_terminal_port_is_honored(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1617,7 +1601,7 @@ class TestRepoFlagIsAuthoritative:
 
         assert observed["kwargs"]["port"] == port
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("process_state_restored")
     def test_osprey_config_points_at_the_render(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
@@ -1629,7 +1613,7 @@ class TestRepoFlagIsAuthoritative:
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
 
-    @pytest.mark.usefixtures("restore_env_and_cwd")
+    @pytest.mark.usefixtures("process_state_restored")
     def test_explicit_flag_beats_stale_osprey_config_export(
         self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):

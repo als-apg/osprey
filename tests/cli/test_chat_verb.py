@@ -53,20 +53,7 @@ class Launch:
     env: dict[str, str] = field(default_factory=dict)
 
 
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo what an in-process launch does to the interpreter's globals.
-
-    ``chat`` chdirs into ``build/`` and overlays the deployment's ``.env`` onto
-    ``os.environ`` — both deliberate, both process-global, and both able to
-    reach every test that runs after this one in the same worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    yield
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
+pytestmark = pytest.mark.usefixtures("process_state_restored")
 
 
 @pytest.fixture(autouse=True)

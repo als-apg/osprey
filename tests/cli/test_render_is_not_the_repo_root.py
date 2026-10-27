@@ -37,7 +37,6 @@ writes and what a regen writes; only the real renderer can show that.
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -55,7 +54,7 @@ from osprey_connectors.workspace import (
     repo_root_for_config,
 )
 from tests._preset_data import create_project_as_built
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build_in
 
 #: The env keys every OSPREY MCP server reads its config path from. Both names
 #: appear because the servers were wired at different times; the value is the
@@ -207,12 +206,7 @@ def built_repo(tmp_path_factory) -> Path:
     repo = build_exemplar_repo(
         tmp_path_factory.mktemp("regenroot") / EXEMPLAR_DIRNAME, seed_env=True
     )
-    previous = Path.cwd()
-    os.chdir(repo)
-    try:
-        result = invoke_build()
-    finally:
-        os.chdir(previous)
+    result = invoke_build_in(repo)
     assert result.exit_code == 0, result.output
     return repo
 

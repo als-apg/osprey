@@ -187,21 +187,7 @@ def test_declared_env_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo what an in-process launch does to the interpreter's globals.
-
-    ``web()`` chdirs into the render and writes ``os.environ`` directly (the
-    port publication, the operator secret, and now the session lifetime). All
-    three outlive a ``CliRunner`` invocation and would otherwise reach every
-    test that runs after this one in the same worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    yield
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
+pytestmark = pytest.mark.usefixtures("process_state_restored")
 
 
 @pytest.fixture(autouse=True)

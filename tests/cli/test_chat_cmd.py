@@ -28,21 +28,7 @@ from osprey.cli.chat_cmd import _launch_companion_servers, chat
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
 
-
-@pytest.fixture(autouse=True)
-def _restore_process_state():
-    """Undo the process-global state a launch mutates.
-
-    ``chat`` chdirs into ``build/`` and overlays env; ``_launch_companion_servers``
-    and ``mint_and_announce`` publish credential vars into ``os.environ``. All are
-    process-global and would otherwise reach every later test in the worker.
-    """
-    cwd = Path.cwd()
-    environ = dict(os.environ)
-    yield
-    os.chdir(cwd)
-    os.environ.clear()
-    os.environ.update(environ)
+pytestmark = pytest.mark.usefixtures("process_state_restored")
 
 
 @pytest.fixture(autouse=True)

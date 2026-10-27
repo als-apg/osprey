@@ -32,7 +32,7 @@ import pytest
 from rich.console import Console
 from rich.text import Text
 
-from osprey.cli import output, phase_reporter, styles
+from osprey.cli import output, styles
 from osprey.cli.altitude import PRINTED
 from osprey.cli.output import (
     fail,
@@ -48,7 +48,6 @@ from osprey.cli.phase_reporter import (
     LiveReporter,
     NullReporter,
     PhaseReporter,
-    current_reporter,
     install_reporter,
 )
 from osprey.cli.styles import data_table, osprey_theme, panel
@@ -73,12 +72,7 @@ _OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _SGR = re.compile(r"\x1b\[[0-9;]*m")
 
 
-@pytest.fixture(autouse=True)
-def restore_installed_reporter():
-    """Leave the module singleton exactly as the test found it."""
-    original = current_reporter()
-    yield
-    install_reporter(original)
+pytestmark = pytest.mark.usefixtures("restore_installed_reporter", "parked_monitor", "empty_ledger")
 
 
 @pytest.fixture(autouse=True)
@@ -86,16 +80,6 @@ def machine_mode_off():
     """Prove no test leaks the process-scoped redirect into the next one."""
     yield
     assert output._machine_mode is False
-
-
-@pytest.fixture(autouse=True)
-def parked_monitor(monkeypatch):
-    """Park the monitor's tick: these tests drive the region by hand.
-
-    A real tick landing mid-test repaints the region and writes cursor control
-    into the buffer the assertions read.
-    """
-    monkeypatch.setattr(phase_reporter, "_MONITOR_INTERVAL", 3600.0)
 
 
 def recording_console(*, width: int = 100, terminal: bool = True) -> tuple[Console, io.StringIO]:
@@ -944,14 +928,6 @@ class _RecordingLogger:
     def warning(self, message: str, **kwargs: Any) -> None:
         self.warnings.append(message)
         self.warning_extras.append(kwargs.get("extra"))
-
-
-@pytest.fixture(autouse=True)
-def empty_ledger():
-    """Start and leave every test with no collected rows."""
-    output.clear_ledger()
-    yield
-    output.clear_ledger()
 
 
 def test_report_fact_prints_one_line_in_the_step_column(capsys):
