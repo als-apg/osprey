@@ -72,6 +72,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import requests
 
+from osprey.interfaces._serving import free_port, run_app_server
+
 # Aliased to the historical private names: the shared helpers are the same
 # two waits this module used to spell itself, and the alias keeps its fifty
 # call sites reading as they did.
@@ -79,7 +81,6 @@ from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
-from tests.interfaces.conftest import _free_port, _run_app_server
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -147,7 +148,7 @@ def _stub_backend(hits: list[str] | None = None, *, down: threading.Event | None
         def log_message(self, *args):  # silence per-request stderr logging
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", free_port()), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -213,10 +214,10 @@ def _live_server(
                     await asyncio.sleep(artifact_config_delay)
                 return await call_next(request)
 
-        # _run_app_server yields only after the port accepts connections (lifespan
+        # run_app_server yields only after the port accepts connections (lifespan
         # done), so app.state is safe to mutate here; and it joins the server
         # thread while the patches above are still live, avoiding timing races.
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             # These are set AFTER the server is up: lifespan startup assigns both
             # project_cwd and web_ui_mode from config, so a pre-startup value would
             # be clobbered. root() re-reads them per request, so setting them here
@@ -2397,7 +2398,7 @@ def _contrib_panel_backend():
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", free_port()), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -2438,7 +2439,7 @@ def test_header_contribution_renders_and_round_trips(tmp_path, chromium_browser)
             # would load for real and contribute its own nav items — turning
             # that assertion into a report about the machine. A free port keeps
             # the panel dead by construction.
-            artifact_url=f"http://127.0.0.1:{_free_port()}",
+            artifact_url=f"http://127.0.0.1:{free_port()}",
         ) as (base_url, _app):
             page = _open_page(chromium_browser, base_url)
             _open_second_tile(page, base_url, "contrib-demo", "CONTRIB")
@@ -2495,7 +2496,7 @@ def test_header_contribution_reaches_the_fallback_bar_without_dockview(tmp_path,
             workspace,
             enabled_panels={"artifacts"},
             custom_panels=[custom],
-            artifact_url=f"http://127.0.0.1:{_free_port()}",
+            artifact_url=f"http://127.0.0.1:{free_port()}",
         ) as (base_url, _app):
             page = chromium_browser.new_page()
             errors: list[str] = []
@@ -2587,7 +2588,7 @@ def _search_menu_panel_backend():
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    server = HTTPServer(("127.0.0.1", free_port()), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

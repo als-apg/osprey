@@ -30,7 +30,7 @@ import pytest
 
 from osprey.history import queries, viewer
 from osprey.history.app import create_app
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -260,7 +260,7 @@ def _history_page() -> Iterator[str]:
         max_days=30,
         transport=httpx.MockTransport(_store_handler),
     )
-    with _run_app_server(_nginx_stand_in(app)) as base_url:
+    with run_app_server(_nginx_stand_in(app)) as base_url:
         yield base_url
 
 

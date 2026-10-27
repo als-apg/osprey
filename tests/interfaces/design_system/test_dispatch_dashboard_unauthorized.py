@@ -38,7 +38,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces.design_system._dispatch_dashboard import mount_design_system
 
 if TYPE_CHECKING:
@@ -97,7 +97,7 @@ def _create_unauthorized_dashboard_app() -> FastAPI:
 
 @pytest.fixture
 def dashboard_url() -> Iterator[str]:
-    with _run_app_server(_create_unauthorized_dashboard_app()) as base_url:
+    with run_app_server(_create_unauthorized_dashboard_app()) as base_url:
         yield base_url
 
 

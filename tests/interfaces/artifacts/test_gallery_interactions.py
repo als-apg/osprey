@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -141,7 +141,7 @@ def _launch_artifacts(tmp_path, monkeypatch) -> Iterator[str]:
     from osprey.interfaces.artifacts.app import create_app
 
     app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 
@@ -176,7 +176,7 @@ def _launch_many_artifacts(
     from osprey.interfaces.artifacts.app import create_app
 
     app = create_app(workspace_root=tmp_path)
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 

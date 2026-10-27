@@ -37,7 +37,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -157,7 +157,7 @@ def _launch_ariel_with_config(
 
     with patch("osprey.services.ariel_search.create_ariel_service", create_service):
         app = create_app(config_file)
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             yield base_url
 
 

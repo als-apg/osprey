@@ -58,7 +58,6 @@ import asyncio
 import json
 import os
 import re
-import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -71,10 +70,10 @@ from claude_agent_sdk import TextBlock, ThinkingBlock, ToolUseBlock
 from fastapi import Request
 
 from osprey.agent_runner.project_paths import claude_project_dir
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import wait_for_dock_settled
-from tests.interfaces._hub import hub_app
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app
 from tests.interfaces._panel_launch import publish_panel_urls
-from tests.interfaces.conftest import _run_app_server
 
 # The shared SDK-message builders, so the fake yields the real messages the
 # agent runner translates.
@@ -282,13 +281,6 @@ def _install_test_routes(app) -> None:
 # The project the server serves: PTY child, turn hook, transcripts
 # ---------------------------------------------------------------------------
 
-# A PTY command that outlives the test AND tolerates the ``--resume <id>`` /
-# ``--session-id <id>`` (and any ``--effort <level>``) arguments the websocket
-# route appends. ``sleep``/``cat``/``echo`` each exit or error on the extra
-# args, which would trip terminal.js's auto-resume failover and clear the
-# stored pointer mid-test.
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
-
 
 def _write_turn_hook_settings(project_dir: Path) -> None:
     """Render the turn-state hook registrations a deployment's settings carry.
@@ -451,11 +443,11 @@ def _live_chat_server(
         *patches,
         enabled_panels=enabled_panels,
         launch=publish_panel_urls(panel_urls or {}),
-        shell_command=_LONG_LIVED_SHELL,
+        shell_command=LONG_LIVED_SHELL,
         project_dir=project_dir,
     ) as app:
         _install_test_routes(app)
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             app.state.web_ui_mode = ui_mode
             _record_pty_spawns(app)
             yield base_url, app
@@ -1385,7 +1377,7 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
     from osprey.interfaces.okf_panel.app import create_app as create_okf_app
 
     with (
-        _run_app_server(create_okf_app(str(_OKF_BUNDLE))) as okf_url,
+        run_app_server(create_okf_app(str(_OKF_BUNDLE))) as okf_url,
         _live_chat_server(
             tmp_path, enabled_panels=frozenset({"artifacts", "okf"}), panel_urls={"okf": okf_url}
         ) as (base_url, _app),

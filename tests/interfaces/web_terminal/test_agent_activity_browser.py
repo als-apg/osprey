@@ -56,9 +56,9 @@ from typing import TYPE_CHECKING
 import pytest
 import requests
 
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._hub import hub_server
 from tests.interfaces.conftest import (
-    _run_app_server,
     use_process_web_credentials,
 )
 
@@ -417,14 +417,14 @@ def _plan_panel_stack(tmp_path: Path) -> Iterator[str]:
         plan_loader.reset_facility_plans()
         bridge_draft._clear()
 
-        with _run_app_server(bridge_app) as bridge_url:
+        with run_app_server(bridge_app) as bridge_url:
             os.environ["BLUESKY_BRIDGE_URL"] = bridge_url
             # `sidecar_app` is a module-level singleton, so its cached
             # credential holder goes stale the moment the root conftest
             # resets the process one; without this the browser's minted
             # session cookie is refused and /bluesky/ never renders.
             use_process_web_credentials(sidecar_app)
-            with _run_app_server(sidecar_app) as sidecar_url:
+            with run_app_server(sidecar_app) as sidecar_url:
                 yield sidecar_url
     finally:
         for k, v in saved.items():

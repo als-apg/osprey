@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -131,7 +131,7 @@ HISTORY_URL = "https://readers.example.org:10002/history/"
 @pytest.fixture
 def dashboard_url_with_history() -> Iterator[str]:
     """The dashboard of a deployment that serves the history page."""
-    with _run_app_server(create_dispatch_dashboard_app(history_url=HISTORY_URL)) as base_url:
+    with run_app_server(create_dispatch_dashboard_app(history_url=HISTORY_URL)) as base_url:
         yield base_url
 
 

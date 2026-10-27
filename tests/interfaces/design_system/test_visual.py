@@ -44,11 +44,11 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from PIL import Image
 
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._hub import hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
-    _run_app_server,
     launch_graph_channel_finder,
     use_process_web_credentials,
 )
@@ -223,7 +223,7 @@ class VisualTarget:
 def _artifacts_server(tmp_path: Path):
     from osprey.interfaces.artifacts.app import create_app
 
-    return _run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
+    return run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
 
 
 def _ariel_server(_tmp_path: Path):
@@ -231,13 +231,13 @@ def _ariel_server(_tmp_path: Path):
 
     # No config.yml passed: the app gracefully degrades to a DB-less mode
     # (search/browse disabled, UI still renders) rather than failing to boot.
-    return _run_app_server(create_app())
+    return run_app_server(create_app())
 
 
 def _channel_finder_server(tmp_path: Path):
     from osprey.interfaces.channel_finder.app import create_app
 
-    return _run_app_server(create_app(project_cwd=str(tmp_path / "cf_ws")))
+    return run_app_server(create_app(project_cwd=str(tmp_path / "cf_ws")))
 
 
 def _channel_finder_graph_server(tmp_path: Path):
@@ -259,15 +259,15 @@ def _channel_finder_graph_server(tmp_path: Path):
 def _lattice_dashboard_server(tmp_path: Path):
     from osprey.interfaces.lattice_dashboard.app import create_app
 
-    return _run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
+    return run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
 
 
 def _dispatch_dashboard_server(_tmp_path: Path):
-    return _run_app_server(create_dispatch_dashboard_app())
+    return run_app_server(create_dispatch_dashboard_app())
 
 
 def _multi_user_landing_server(_tmp_path: Path):
-    return _run_app_server(_create_multi_user_landing_app())
+    return run_app_server(_create_multi_user_landing_app())
 
 
 def _okf_panel_server(_tmp_path: Path):
@@ -276,7 +276,7 @@ def _okf_panel_server(_tmp_path: Path):
     # Reuse the okf_panel suite's on-disk fixture bundle so the baseline shows
     # a populated tree + document instead of the guarded not-configured shell.
     bundle = Path(__file__).parents[1] / "okf_panel" / "fixtures" / "bundle"
-    return _run_app_server(create_app(str(bundle)))
+    return run_app_server(create_app(str(bundle)))
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +285,7 @@ def _okf_panel_server(_tmp_path: Path):
 # FastAPI singleton (see ``osprey.interfaces.bluesky_web.app``) that mounts both
 # panel bundles (plan/results) plus the shared design-system
 # assets in one process. Import the app object directly and hand it to
-# ``_run_app_server`` the same way the other targets hand it a freshly
+# ``run_app_server`` the same way the other targets hand it a freshly
 # constructed app. No bridge is running behind it here, so each panel renders
 # its genuine no-bridge shell/empty state — a legitimate, stable baseline
 # (mirrors the dispatch-dashboard no-data rationale above).
@@ -300,7 +300,7 @@ def _bluesky_web_server(_tmp_path: Path):
     # every test after that one, so the session cookie the browser fixture mints
     # is refused. Re-point it at this test's holder before serving.
     use_process_web_credentials(bluesky_web_app)
-    return _run_app_server(bluesky_web_app)
+    return run_app_server(bluesky_web_app)
 
 
 @contextmanager
@@ -310,7 +310,7 @@ def _web_terminal_hub_server(tmp_path: Path) -> Iterator[str]:
 
     workspace = tmp_path / "hub_ws"
     workspace.mkdir(exist_ok=True)
-    with _run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
+    with run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
         with _hub_live_server(workspace, artifact_url) as base_url:
             yield base_url
 

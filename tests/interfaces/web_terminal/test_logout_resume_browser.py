@@ -41,7 +41,6 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import os
-import sys
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -49,8 +48,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from tests.interfaces._hub import hub_app
-from tests.interfaces.conftest import _authorize_browser_context, _run_app_server
+from osprey.interfaces._serving import authorize_browser_context, run_app_server
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -63,13 +62,6 @@ try:
     _PLAYWRIGHT_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
-
-
-# A PTY command that stays alive AND tolerates the ``--resume <id>`` (and any
-# ``--effort <level>``) args the websocket route appends on a resume connection.
-# ``sleep``/``cat``/``echo`` would each exit or error on the extra args, which
-# would trip terminal.js's auto-resume failover and clear the stored id mid-test.
-_LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
 
 
 # ---------------------------------------------------------------------------
@@ -121,13 +113,13 @@ def _launch_terminal(
         "OSPREY_TERMINAL_USER": terminal_user,
         "OSPREY_TERMINAL_LANDING_URL": landing_url,
     }
-    with hub_app(tmp_path, patch.dict(os.environ, env), shell_command=_LONG_LIVED_SHELL) as app:
+    with hub_app(tmp_path, patch.dict(os.environ, env), shell_command=LONG_LIVED_SHELL) as app:
         if terminal_user:
             prefix = f"/u/{terminal_user}"
-            with _run_app_server(_nginx_stand_in(app, prefix)) as server_url:
+            with run_app_server(_nginx_stand_in(app, prefix)) as server_url:
                 yield f"{server_url}{prefix}"
         else:
-            with _run_app_server(app) as base_url:
+            with run_app_server(app) as base_url:
                 yield base_url
 
 
@@ -145,7 +137,7 @@ def _launch_landing() -> Iterator[str]:
             "<!doctype html><html><body><h1 id='landing-marker'>OSPREY LANDING</h1></body></html>"
         )
 
-    with _run_app_server(app) as base_url:
+    with run_app_server(app) as base_url:
         yield base_url
 
 
@@ -258,7 +250,7 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         # ``new_page()`` and cannot re-mint mid-test, so the perimeter's re-issue
         # is stood in for here. Without it the navigation below is refused 401
         # and never opens a socket — which would say nothing about resume.
-        _authorize_browser_context(page.context)
+        authorize_browser_context(page.context)
 
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")

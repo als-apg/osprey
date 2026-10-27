@@ -77,17 +77,17 @@ import requests
 import yaml
 
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry
-from tests.interfaces._hub import hub_server
+from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
+from tests.interfaces.web_terminal._control_context import read_record
 
-# The control-target render, the chip's selectors and the waits are the sibling
-# browser suite's, imported rather than restated: two suites disagreeing about
+# The control-target render, the chip's selectors and the waits are the chip
+# suites' own, imported rather than restated: two suites disagreeing about
 # what a switchable deployment looks like is exactly the drift this feature
 # exists to remove.
-from tests.interfaces.web_terminal.test_posture_toggle_browser import (
-    _LONG_LIVED_SHELL,
+from tests.interfaces.web_terminal._posture_chip import (
     ACTIVE_TARGET,
     CHIP,
     MODAL_CONFIRM,
@@ -98,9 +98,9 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     RECORD_GENERATION,
     SWITCH_TARGET,
     TIMEOUT,
-    _reachability_sweep,
-    _reset_process_memos,
-    _write_config,
+    reachability_sweep,
+    reset_process_memos,
+    write_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -482,7 +482,7 @@ def _control_target_lab(
     one process, which is what the two lanes below need and what neither file
     has on its own:
 
-    * the three-target render comes from ``_write_config`` — imported, so the
+    * the three-target render comes from ``write_config`` — imported, so the
       roster the Lab bar shows is the same roster the hub's own chip shows;
     * ``agent_data.base_dir`` is pointed INTO *tmp_path* in that same config,
       rather than by patching a resolver. Everything downstream of this process
@@ -510,7 +510,7 @@ def _control_target_lab(
     root = tmp_path / "agent_data"
     (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
 
-    config = _write_config(tmp_path / "config.yml")
+    config = write_config(tmp_path / "config.yml")
     document = yaml.safe_load(config.read_text(encoding="utf-8"))
     document["agent_data"] = {"base_dir": str(root)}
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
@@ -522,7 +522,7 @@ def _control_target_lab(
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
 
-    _reset_process_memos()
+    reset_process_memos()
     write_control_context(root, target=ACTIVE_TARGET, generation=RECORD_GENERATION)
 
     try:
@@ -534,12 +534,12 @@ def _control_target_lab(
                 side_effect=lambda *_args, **_kwargs: set(),
             ),
             enabled_panels={"artifacts", "jupyter"},
-            shell_command=_LONG_LIVED_SHELL,
+            shell_command=LONG_LIVED_SHELL,
             config_path=config,
         ) as (base_url, app):
             yield base_url, app, root
     finally:
-        _reset_process_memos()
+        reset_process_memos()
 
 
 def _restart_the_kernel_from_the_notebook(page: Page) -> None:
@@ -602,14 +602,8 @@ def _publish_fleet(root: Path, *, applied_target: str, applied_generation: int) 
         applied_target=applied_target,
         applied_generation=applied_generation,
         children=[4242],
-        reachability=_reachability_sweep(),
+        reachability=reachability_sweep(),
     )
-
-
-def _record() -> Any:
-    """The deployment's control-context record, re-read from disk."""
-    control_context.invalidate_cache()
-    return control_context.read_record()
 
 
 def _standalone_notebook(browser, base_url: str) -> Page:
@@ -733,7 +727,7 @@ def test_a_popped_out_notebook_follows_a_switch_made_from_its_own_bar(
 
             _switch_from_the_lab_bar(notebook, SWITCH_TARGET)
 
-            moved = _record()
+            moved = read_record()
             assert moved is not None, "the switch left no record"
             assert moved.target == SWITCH_TARGET, moved
             assert moved.generation == RECORD_GENERATION + 1, moved

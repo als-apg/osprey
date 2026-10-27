@@ -45,9 +45,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._hub import hub_server
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -133,7 +133,7 @@ def _hub_with_artifacts(tmp_path: Path, ui_mode: str) -> Iterator[tuple[str, obj
     # workspace is the subject here, so the workspace must be present.
     (workspace / "seed_artifact.txt").write_text("hub-with-artifacts seed\n")
 
-    with _run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
+    with run_app_server(create_artifacts_app(workspace_root=workspace)) as artifact_url:
         with hub_server(workspace, launch=publish_artifact_url(artifact_url)) as (base_url, app):
             # Override the lifespan-resolved mode; root() re-reads it per request.
             app.state.web_ui_mode = ui_mode

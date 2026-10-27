@@ -21,14 +21,9 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
 from tests.interfaces._hub import hub_server
-
-if TYPE_CHECKING:
-    pass
 
 try:
     from playwright.sync_api import Browser, Page, expect

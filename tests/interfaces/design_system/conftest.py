@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -37,5 +37,5 @@ def pytest_addoption(parser):
 @pytest.fixture
 def dashboard_url() -> Iterator[str]:
     """The dispatch dashboard with no state route; suites that need one override this."""
-    with _run_app_server(create_dispatch_dashboard_app()) as base_url:
+    with run_app_server(create_dispatch_dashboard_app()) as base_url:
         yield base_url

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from tests.interfaces.conftest import _run_app_server
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
@@ -74,7 +74,7 @@ def dashboard() -> Iterator[tuple[str, str]]:
     24-hour window whatever the wall clock.
     """
     mark_iso = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
-    with _run_app_server(create_dispatch_dashboard_app(lambda: _state(mark_iso))) as base_url:
+    with run_app_server(create_dispatch_dashboard_app(lambda: _state(mark_iso))) as base_url:
         yield base_url, mark_iso
 
 

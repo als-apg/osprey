@@ -1,14 +1,17 @@
 """A real web-terminal hub for the browser suites, its companion backends bypassed.
 
-Every hub browser suite boots ``create_app`` under the same three patches: the
-watched directory, a fixed panel roster, and a ``_launch_panel_server`` that
-publishes a URL instead of starting a backend process. :func:`hub_app` applies
-them and hands back the app before it is served, for a suite that installs
-middleware or wraps it first; :func:`hub_server` also serves it.
+The browser suites that serve the hub in-process boot ``create_app`` here,
+under three patches: the watched directory, a fixed panel roster, and a
+``_launch_panel_server`` that publishes a URL instead of starting a backend
+process. :func:`hub_app` applies them and hands back the app before it is
+served, for a suite that installs middleware or wraps it first;
+:func:`hub_server` also serves it. A suite may add patches of its own, or
+replace the launcher with ``launch``.
 """
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager
 from pathlib import Path
@@ -23,6 +26,14 @@ from tests.interfaces._panel_launch import publish_artifact_url
 
 #: The shell a hub that never reads its terminal is launched with.
 HUB_SHELL = ("echo", "hello")
+
+#: The shell a hub whose terminal must stay up is launched with. It outlives the
+#: test AND tolerates the ``--session-id <id>`` / ``--resume <id>`` (and any
+#: ``--effort <level>``) arguments the websocket route appends: ``echo``,
+#: ``sleep`` and ``cat`` each exit or error on them, and an exit trips
+#: terminal.js's auto-resume failover, which clears the stored session id
+#: mid-test.
+LONG_LIVED_SHELL = (sys.executable, "-c", "import time; time.sleep(3600)")
 
 
 @contextmanager

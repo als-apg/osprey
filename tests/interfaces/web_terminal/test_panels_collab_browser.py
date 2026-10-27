@@ -41,8 +41,8 @@ from contextlib import contextmanager
 import pytest
 import requests
 
+from osprey.interfaces._serving import free_port, run_app_server
 from tests.interfaces._hub import hub_app
-from tests.interfaces.conftest import _free_port, _run_app_server
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -97,7 +97,7 @@ def _unhealthy_panel(panel_id: str = "beam-cam") -> dict:
     return {
         "id": panel_id,
         "label": panel_id.upper(),
-        "url": f"http://127.0.0.1:{_free_port()}",
+        "url": f"http://127.0.0.1:{free_port()}",
         "healthEndpoint": "/health",
         "path": "/",
     }
@@ -146,7 +146,7 @@ def _live_server(
                     await asyncio.sleep(panels_delay)
                 return await call_next(request)
 
-        with _run_app_server(app) as base_url:
+        with run_app_server(app) as base_url:
             # Set AFTER startup: the lifespan assigns project_cwd and the preset
             # list from config, so a pre-startup value would be clobbered.
             if project_cwd is not None:

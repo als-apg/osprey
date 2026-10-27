@@ -19,8 +19,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces.conftest import _run_app_server
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -40,7 +40,7 @@ def _serve(html: str) -> AbstractContextManager[str]:
     def _index() -> str:
         return html
 
-    return _run_app_server(app)
+    return run_app_server(app)
 
 
 def test_missing_module_subresource_is_caught(chromium_browser) -> None:
