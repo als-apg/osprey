@@ -25,7 +25,7 @@ from osprey.services.ariel_search.enhancement.provider_resolver import (
     resolve_reachable_base_url,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
-from tests._live import free_port
+from tests._live import free_port, wait_until
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 KEY = "ariel.enhancement_modules.text_embedding.provider"
@@ -397,10 +397,9 @@ class TestResolveReachableBaseUrl:
 
         assert resolve_reachable_base_url(cls, configured, deadline_s=0.05) == configured
 
-        deadline = time.monotonic() + 5
-        while not _cached_entries() and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert _cached_entries() == [f"http://host.docker.internal:{port}"]
+        assert wait_until(_cached_entries, timeout=5, interval=0.02) == [
+            f"http://host.docker.internal:{port}"
+        ]
         walked = len(probes.calls)
 
         assert resolve_reachable_base_url(cls, configured) == (
