@@ -56,6 +56,7 @@ from typing import Any
 
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 
+from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
@@ -238,6 +239,30 @@ REASON_ABORT_PAUSE_TIMEOUT = "abort_pause_timeout"
 REASON_FUNCTION_TIMEOUT = "function_timeout"
 REASON_FUNCTION_FAILED = "function_failed"
 
+# The codes the bridge's routes mint themselves, declared here beside the
+# backend's because every surface — panels, the JS queue client, the MCP tools —
+# branches on these strings, and a code minted in one layer but unknown to the
+# others is a code nobody can answer.
+REASON_INTERRUPTED_ITEM_IN_QUEUE = "interrupted_item_in_queue"
+REASON_MANAGER_NOT_IDLE = "manager_not_idle"
+REASON_QUEUE_CHANGED_SINCE_APPROVAL = "queue_changed_since_approval"
+REASON_UNKNOWN_DEVICE = "unknown_device"
+REASON_STALE_DRAFT_REVISION = "stale_draft_revision"
+REASON_DRAFT_REVISION_ALREADY_LAUNCHED = "draft_revision_already_launched"
+REASON_SESSION_PLAN_UNVALIDATED = "session_plan_unvalidated"
+REASON_SESSION_PLAN_NOT_IN_NAMESPACE = "session_plan_not_in_namespace"
+REASON_PLAN_NAME_MISMATCH = "plan_name_mismatch"
+REASON_NO_DRAFT = "no_draft"
+REASON_USE_THE_QUEUE = "use_the_queue"
+REASON_RUN_NOT_FINISHED = "run_not_finished"
+REASON_UNSUPPORTED_FORMAT = "unsupported_format"
+REASON_TILED_NOT_CONFIGURED = "tiled_not_configured"
+REASON_TILED_UNAVAILABLE = "tiled_unavailable"
+REASON_UNKNOWN_RUN = "unknown_run"
+REASON_NOTHING_STORED = "nothing_stored"
+REASON_AMBIGUOUS_TABLE = "ambiguous_table"
+REASON_EXPORT_FAILED = "export_failed"
+
 
 @dataclass(frozen=True)
 class ReasonRecord:
@@ -253,10 +278,11 @@ class ReasonRecord:
 
 
 # Every refusal reason has exactly one row: each `REASON_*` constant except
-# `REASON_EXECUTABLE`, which is not a refusal, and the `reason` of every
+# `REASON_EXECUTABLE`, which is not a refusal, the `reason` of every
 # `QueueBackendError` subclass except `ExecutionUnavailableError`, whose
-# instances carry their capability's reason. Every surface that answers a
-# refusal reads its status and retryability here.
+# instances carry their capability's reason, every code the routes mint, and
+# the two launch-token codes `osprey.utils.launch_token` owns. Every surface
+# that answers a refusal reads its status and retryability here.
 REFUSAL_REASONS: Mapping[str, ReasonRecord] = MappingProxyType(
     {
         REASON_BROWSE_ONLY_CONNECTOR: ReasonRecord(409, False),
@@ -273,6 +299,27 @@ REFUSAL_REASONS: Mapping[str, ReasonRecord] = MappingProxyType(
         REASON_FUNCTION_TIMEOUT: ReasonRecord(500, False),
         REASON_FUNCTION_FAILED: ReasonRecord(500, False),
         REASON_QUEUE_BACKEND_ERROR: ReasonRecord(500, False),
+        LAUNCH_TOKEN_REQUIRED: ReasonRecord(503, False),
+        LAUNCH_TOKEN_INVALID: ReasonRecord(403, False),
+        REASON_INTERRUPTED_ITEM_IN_QUEUE: ReasonRecord(409, False),
+        REASON_MANAGER_NOT_IDLE: ReasonRecord(409, False),
+        REASON_QUEUE_CHANGED_SINCE_APPROVAL: ReasonRecord(409, False),
+        REASON_UNKNOWN_DEVICE: ReasonRecord(400, False),
+        REASON_STALE_DRAFT_REVISION: ReasonRecord(409, False),
+        REASON_DRAFT_REVISION_ALREADY_LAUNCHED: ReasonRecord(409, False),
+        REASON_SESSION_PLAN_UNVALIDATED: ReasonRecord(409, False),
+        REASON_SESSION_PLAN_NOT_IN_NAMESPACE: ReasonRecord(409, False),
+        REASON_PLAN_NAME_MISMATCH: ReasonRecord(409, False),
+        REASON_NO_DRAFT: ReasonRecord(409, False),
+        REASON_USE_THE_QUEUE: ReasonRecord(410, False),
+        REASON_RUN_NOT_FINISHED: ReasonRecord(409, False),
+        REASON_UNSUPPORTED_FORMAT: ReasonRecord(400, False),
+        REASON_TILED_NOT_CONFIGURED: ReasonRecord(409, False),
+        REASON_TILED_UNAVAILABLE: ReasonRecord(503, True),
+        REASON_UNKNOWN_RUN: ReasonRecord(404, False),
+        REASON_NOTHING_STORED: ReasonRecord(409, False),
+        REASON_AMBIGUOUS_TABLE: ReasonRecord(409, False),
+        REASON_EXPORT_FAILED: ReasonRecord(502, False),
     }
 )
 
