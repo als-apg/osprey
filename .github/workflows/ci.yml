@@ -1053,7 +1053,7 @@ jobs:
     # wheel and import-walks it on a bare venv, asserts the framework wheel
     # carries dock_engine and its package data, and builds pyaml-cs-osprey and
     # import-walks it beside the other two wheels. The order is declared once,
-    # in PACKAGE_STEPS of scripts/check.py.
+    # in PACKAGE_STEPS of scripts/repo_checks.py.
     - name: Build and check the packages
       run: python3 scripts/check.py run package
 

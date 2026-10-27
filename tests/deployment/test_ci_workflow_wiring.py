@@ -84,8 +84,11 @@ def _load_by_path(relative: str, name: str) -> ModuleType:
     return module
 
 
-#: The one declaration of the repository's checks, which the caller jobs run.
+#: The one declaration of the repository's checks, which the caller jobs run:
+#: what every checks module declares, collected.
 check_set = _load_by_path(CHECK_SCRIPT, "_check_set_by_path")
+#: The framework's checks module: the unit sweep's selection and the package build.
+framework_checks = check_set.FRAMEWORK
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
@@ -10317,7 +10320,7 @@ def test_both_lean_wheel_checks_run_the_shared_walk(
     """The wheel a tag publishes passes the check every PR runs, isolated from the
     checkout. Every PR runs it through the package check, whose steps are
     declared once, in ``PACKAGE_STEPS`` of scripts/check.py."""
-    steps = check_set.PACKAGE_STEPS if package_steps is None else package_steps
+    steps = framework_checks.PACKAGE_STEPS if package_steps is None else package_steps
     walks = [step for step in steps if LEAN_WALK_SCRIPT in step]
     assert walks == [("{scratch}/lean/bin/python", "-I", LEAN_WALK_SCRIPT)], (
         f"the package check must run {LEAN_WALK_SCRIPT} once, in isolated mode from the "
@@ -10350,7 +10353,7 @@ def test_both_lean_wheel_checks_run_the_shared_walk__mutation_inline_probe() -> 
         ("{scratch}/lean/bin/python", "-c", "import osprey_connectors")
         if LEAN_WALK_SCRIPT in step
         else step
-        for step in check_set.PACKAGE_STEPS
+        for step in framework_checks.PACKAGE_STEPS
     )
     with pytest.raises(AssertionError, match="must run scripts/ci/connectors_lean_import_walk"):
         test_both_lean_wheel_checks_run_the_shared_walk(steps)
@@ -10944,9 +10947,9 @@ def _package_events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         events.append(" ".join(argv))
         return 0
 
-    monkeypatch.setattr(check_set, "shutil", _Shutil)
-    monkeypatch.setattr(check_set, "_run", _run)
-    assert check_set._check_package(check_set.Context()) == 0
+    monkeypatch.setattr(framework_checks, "shutil", _Shutil)
+    monkeypatch.setattr(check_set.kit, "run", _run)
+    assert framework_checks._check_package(check_set.Context()) == 0
     return events
 
 
@@ -11004,11 +11007,11 @@ def test_the_package_check_reports_twines_own_verdict() -> None:
     status, so anything downstream of twine answers for it — and twine reports
     per artifact, so a downstream match on a passing line is satisfied by one
     good artifact beside a broken one."""
-    assert _twine_verdict_missing(check_set.PACKAGE_STEPS) == []
+    assert _twine_verdict_missing(framework_checks.PACKAGE_STEPS) == []
 
 
 def test_the_package_check_reports_twines_own_verdict__mutation_restores_the_grep() -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     piped = ("sh", "-c", 'uvx twine check dist/* 2>&1 | grep -q "PASSED"')
     mutated = tuple(piped if step == TWINE_CHECK_STEP else step for step in steps)
     assert mutated != steps, "the twine step moved; this mutation is stale"
@@ -11670,7 +11673,7 @@ def test_the_package_job_import_walks_the_pyaml_wheel(
     by design -- while the lean check keeps the connectors wheel alone. The
     package check runs it after twine has judged the framework-only dist/, and
     the job uploads the framework's artifacts alone."""
-    steps = check_set.PACKAGE_STEPS if steps is None else steps
+    steps = framework_checks.PACKAGE_STEPS if steps is None else steps
     twine = _step_index(steps, lambda step: step == TWINE_CHECK_STEP, "runs twine")
     build = _step_index(steps, lambda step: step == PYAML_BUILD_STEP, "builds the pyAML wheel")
     lean = _step_index(steps, lambda step: step[0] == LEAN_PYTHON, "runs the lean probe")
@@ -11702,13 +11705,13 @@ def _replace_step(steps: PackageSteps, index: int, new: tuple[str, ...]) -> Pack
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_drops_the_step() -> None:
-    steps = tuple(s for s in check_set.PACKAGE_STEPS if s[0] != PYAML_PYTHON)
+    steps = tuple(s for s in framework_checks.PACKAGE_STEPS if s[0] != PYAML_PYTHON)
     with pytest.raises(AssertionError, match="no step that"):
         test_the_package_job_import_walks_the_pyaml_wheel(_load_workflow(), steps)
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_walks_without_framework() -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     index = _step_index(steps, _installs_into(PYAML_PYTHON), "fills the pyAML venv")
     narrowed = tuple(word for word in steps[index] if word != "dist/osprey_framework-*.whl")
     with pytest.raises(AssertionError, match="does not install dist/osprey_framework"):
@@ -11718,7 +11721,7 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_walks_without_fr
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_lean_venv_gets_framework() -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     index = _step_index(steps, _installs_into(LEAN_PYTHON), "fills the lean venv")
     widened = (*steps[index], "dist/osprey_framework-*.whl")
     with pytest.raises(AssertionError, match="connectors wheel alone"):
@@ -11728,7 +11731,7 @@ def test_the_package_job_import_walks_the_pyaml_wheel__mutation_lean_venv_gets_f
 
 
 def test_the_package_job_import_walks_the_pyaml_wheel__mutation_built_before_twine() -> None:
-    steps = [s for s in check_set.PACKAGE_STEPS if s != PYAML_BUILD_STEP]
+    steps = [s for s in framework_checks.PACKAGE_STEPS if s != PYAML_BUILD_STEP]
     steps.insert(steps.index(TWINE_CHECK_STEP), PYAML_BUILD_STEP)
     with pytest.raises(AssertionError, match="framework-only dist/"):
         test_the_package_job_import_walks_the_pyaml_wheel(_load_workflow(), tuple(steps))
@@ -11752,7 +11755,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
     so the package check reads the framework wheel's file list for the module and
     the package data ``dock_engine._data`` needs. No dock-engine wheel is built
     anywhere in the check or the job."""
-    steps = check_set.PACKAGE_STEPS if steps is None else steps
+    steps = framework_checks.PACKAGE_STEPS if steps is None else steps
     check = _step_index(steps, _checks_dock_engine, "checks the framework wheel for dock_engine")
     assert "dist/osprey_framework-*.whl" in steps[check], (
         "the check does not read the framework wheel"
@@ -11769,7 +11772,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine(
 def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_drops_the_step() -> (
     None
 ):
-    steps = tuple(s for s in check_set.PACKAGE_STEPS if not _checks_dock_engine(s))
+    steps = tuple(s for s in framework_checks.PACKAGE_STEPS if not _checks_dock_engine(s))
     with pytest.raises(AssertionError, match="no step that"):
         test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
 
@@ -11778,7 +11781,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_dr
 def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_skips_data(
     member: str,
 ) -> None:
-    steps = check_set.PACKAGE_STEPS
+    steps = framework_checks.PACKAGE_STEPS
     index = _step_index(steps, _checks_dock_engine, "checks the framework wheel")
     step = steps[index]
     assert member in step[2], f"the check no longer names {member}; mutation is stale"
@@ -11790,7 +11793,7 @@ def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_sk
 def test_the_package_job_checks_the_framework_wheel_for_dock_engine__mutation_builds_a_wheel() -> (
     None
 ):
-    steps = (*check_set.PACKAGE_STEPS, ("uv", "build", "--package", "osprey-dock-engine"))
+    steps = (*framework_checks.PACKAGE_STEPS, ("uv", "build", "--package", "osprey-dock-engine"))
     with pytest.raises(AssertionError, match="no distribution of its own"):
         test_the_package_job_checks_the_framework_wheel_for_dock_engine(_load_workflow(), steps)
 
@@ -12034,7 +12037,7 @@ def _unit_shards(unit: Any = None) -> dict[str, str]:
     """Each shard's own pytest selection, its paths and its own ignores, keyed
     by its name. The ignores every shard shares are left out: they narrow the
     lane, not the partition."""
-    unit = unit or check_set.UNIT_SELECTION
+    unit = unit or framework_checks.UNIT_SELECTION
     return {
         name: " ".join(["pytest", *paths, *(f"--ignore={path}" for path in ignores)])
         for name, (paths, ignores) in unit.shards.items()
@@ -12105,14 +12108,14 @@ def test_the_unit_shards_cover_the_test_tree_exactly_once(
 
 def _with_shard(shard: str, paths: tuple[str, ...], ignores: tuple[str, ...]) -> Any:
     """The declared selection with *shard* redefined."""
-    unit = check_set.UNIT_SELECTION
+    unit = framework_checks.UNIT_SELECTION
     assert shard in unit.shards, f"no '{shard}' shard declared; mutation is stale"
     return replace(unit, shards={**unit.shards, shard: (paths, ignores)})
 
 
 def _last_shard() -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     """The shard spelled by exclusion: its name, paths and ignored directories."""
-    for name, (paths, ignores) in check_set.UNIT_SELECTION.shards.items():
+    for name, (paths, ignores) in framework_checks.UNIT_SELECTION.shards.items():
         if ignores:
             return name, paths, ignores
     raise AssertionError("no unit shard is spelled by exclusion")
@@ -12154,7 +12157,7 @@ def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_s
     """The case's directory leaves the shard the pin names, so the pinned
     shard name no longer says where the case runs."""
     directory = "/".join(TWO_UID_LOG_FILE.split("/")[:2])
-    paths, ignores = check_set.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
+    paths, ignores = framework_checks.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
     kept = tuple(path for path in paths if path != directory)
     assert len(kept) == len(paths) - 1, (
         f"{directory} not named by '{TWO_UID_LOG_SHARD}'; mutation is stale"
@@ -12167,7 +12170,7 @@ def test_the_unit_lane_runs_the_two_uid_log_case__mutation_moves_it_to_another_s
 def test_the_unit_shards_cover_the_test_tree__mutation_ignores_below_the_top_level() -> None:
     """A shard ignores a subdirectory of a directory it names: those files run in
     no shard, and a top-level check alone would still see the directory once."""
-    paths, ignores = check_set.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
+    paths, ignores = framework_checks.UNIT_SELECTION.shards[TWO_UID_LOG_SHARD]
     deeper = "tests/deployment/web_terminals"
     assert "tests/deployment" in paths, "rest-a no longer names tests/deployment"
     mutated = _with_shard(TWO_UID_LOG_SHARD, paths, (*ignores, deeper))
@@ -12508,7 +12511,7 @@ CHECKS_WITHOUT_A_CI_STEP = {
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
 }
 #: The `if:` clause that puts a step on the runners that meet the venue.
-VENUE_RUNNER_CLAUSES = {check_set.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
+VENUE_RUNNER_CLAUSES = {framework_checks.LIVE_CA_VENUE: "matrix.os == 'ubuntu-latest'"}
 
 
 @pytest.fixture()

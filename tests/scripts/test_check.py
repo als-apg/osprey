@@ -50,8 +50,27 @@ def _load(relative: str, name: str) -> ModuleType:
 
 
 check = _load("scripts/check.py", "_check_by_path")
+fw = check.FRAMEWORK
+kit = check.kit
 
 BY_ID = {c.id: c for c in check.CHECKS}
+
+
+def _replace(monkeypatch: pytest.MonkeyPatch, check_id: str, **changes: Any) -> None:
+    """The declaration with *check_id*'s record changed by *changes*, for one test."""
+    changed = tuple(
+        dataclasses.replace(c, **changes) if c.id == check_id else c for c in check.CHECKS
+    )
+    monkeypatch.setattr(check, "CHECKS", changed)
+
+
+def _on_venue(monkeypatch: pytest.MonkeyPatch, here: bool) -> None:
+    """This machine is, or is not, the live Channel Access venue, for one test."""
+    venue = check.VENUES[fw.LIVE_CA_VENUE]
+    monkeypatch.setitem(
+        check.VENUES, fw.LIVE_CA_VENUE, dataclasses.replace(venue, probe=lambda: here)
+    )
+
 
 WT = "src/osprey/interfaces/web_terminal/static/js/"
 TW = "tests/interfaces/web_terminal/"
@@ -78,12 +97,12 @@ def malformed(checks: tuple[Any, ...]) -> list[str]:
             for need in c.needs
             if need != "base" and need not in check.NEED_PROBES
         ]
-        if c.venue and c.venue not in check.VENUE_PROBES:
+        if c.venue and c.venue not in check.VENUES:
             problems.append(f"{c.id}: unknown venue {c.venue}")
         if c.report is not None and c.report not in check.REPORT_FLAGS:
             problems.append(f"{c.id}: unknown report {c.report}")
-        if not c.argv and c.id not in check.BUILTINS:
-            problems.append(f"{c.id}: neither a command nor implemented in check.py")
+        if not c.argv and not c.builtin:
+            problems.append(f"{c.id}: neither a command nor a builtin")
     return problems
 
 
@@ -394,21 +413,19 @@ def test_every_literal_scope_path_exists() -> None:
 
 
 def test_every_ignored_path_exists_and_has_a_host() -> None:
-    assert [p for p, _ in check.UNIT_SELECTION.ignores if not (REPO_ROOT / p).exists()] == []
-    assert unhosted(check.UNIT_SELECTION, check.CHECKS, check.LANES) == []
+    assert [p for p, _ in fw.UNIT_SELECTION.ignores if not (REPO_ROOT / p).exists()] == []
+    assert unhosted(fw.UNIT_SELECTION, check.CHECKS, check.LANES) == []
 
 
 def test_an_ignore_whose_host_is_gone_is_reported() -> None:
     without = tuple(lane for lane in check.LANES if lane.job != "channel-finder-benchmarks")
-    assert unhosted(check.UNIT_SELECTION, check.CHECKS, without) == [
+    assert unhosted(fw.UNIT_SELECTION, check.CHECKS, without) == [
         "tests/services/channel_finder/graph_index/test_scale.py"
     ]
 
 
 def test_an_ignore_outside_its_hosts_scope_is_reported() -> None:
-    moved = dataclasses.replace(
-        check.UNIT_SELECTION, ignores=(("tests/cli/test_main.py", "live-ca"),)
-    )
+    moved = dataclasses.replace(fw.UNIT_SELECTION, ignores=(("tests/cli/test_main.py", "live-ca"),))
     assert unhosted(moved, check.CHECKS, check.LANES) == ["tests/cli/test_main.py"]
 
 
@@ -568,9 +585,9 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert run("live-ca") == [["uv", "run", "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
     assert run("docs") == [["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"]]
-    assert check.WORKDIRS == {"docs": "docs"}
-    assert (REPO_ROOT / check.WORKDIRS["docs"] / "Makefile").is_file()
-    assert (REPO_ROOT / check.DOCS_HTML).parent.parent == REPO_ROOT / check.WORKDIRS["docs"]
+    assert [c.id for c in check.CHECKS if c.workdir] == ["docs"]
+    assert (REPO_ROOT / BY_ID["docs"].workdir / "Makefile").is_file()
+    assert (REPO_ROOT / fw.DOCS_HTML).parent.parent == REPO_ROOT / BY_ID["docs"].workdir
 
     lean, pyaml = "{scratch}/lean/bin/python", "{scratch}/pyaml/bin/python"
     assert run("package") == [
@@ -579,28 +596,28 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ["uv", "build", "--package", "osprey-connectors"],
         ["uv", "venv", "{scratch}/lean", "--python", "3.11"],
         ["uv", "pip", "install", "--python", lean, "dist/osprey_connectors-*.whl"],
-        [lean, "-I", check.LEAN_IMPORT_WALK],
-        ["python3", "-c", check.DOCK_ENGINE_WHEEL_PROBE, "dist/osprey_framework-*.whl"],
+        [lean, "-I", fw.LEAN_IMPORT_WALK],
+        ["python3", "-c", fw.DOCK_ENGINE_WHEEL_PROBE, "dist/osprey_framework-*.whl"],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
             *("uv", "pip", "install", "--python", pyaml, "dist/osprey_framework-*.whl"),
             *("dist/osprey_connectors-*.whl", "dist/pyaml_cs_osprey-*.whl"),
         ],
-        [pyaml, "-c", check.PYAML_WHEEL_PROBE],
+        [pyaml, "-c", fw.PYAML_WHEEL_PROBE],
     ]
 
 
 def test_a_dropped_ignore_changes_the_sweep() -> None:
-    kept = check.UNIT_SELECTION.ignores[:-1]
-    narrowed = dataclasses.replace(check.UNIT_SELECTION, ignores=kept)
+    kept = fw.UNIT_SELECTION.ignores[:-1]
+    narrowed = dataclasses.replace(fw.UNIT_SELECTION, ignores=kept)
     rest = SHARD_SELECTIONS["rest-b"]
-    assert check.unit_argv("full", shard="rest-b") == [*rest, *SWEEP_MARKER]
-    assert check.unit_argv("full", shard="rest-b", unit=narrowed) == [*rest[:-1], *SWEEP_MARKER]
+    assert fw.unit_argv("full", shard="rest-b") == [*rest, *SWEEP_MARKER]
+    assert fw.unit_argv("full", shard="rest-b", unit=narrowed) == [*rest[:-1], *SWEEP_MARKER]
 
 
 def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
-    unit = check.UNIT_SELECTION
+    unit = fw.UNIT_SELECTION
     tops = sorted(
         {path.as_posix() for path in (REPO_ROOT / "tests").iterdir() if path.is_dir()}
         | {(REPO_ROOT / "packages/osprey-connectors/tests").as_posix()}
@@ -616,17 +633,17 @@ def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
         ]
 
     assert {top: owners(top) for top in tops if len(owners(top)) != 1} == {}
-    assert check.unit_argv("full") == [*unit.roots, *SWEEP_IGNORES, *SWEEP_MARKER]
+    assert fw.unit_argv("full") == [*unit.roots, *SWEEP_IGNORES, *SWEEP_MARKER]
 
 
 def test_the_shards_cover_the_sweep_roots__mutation_drops_an_ignore() -> None:
-    unit = check.UNIT_SELECTION
+    unit = fw.UNIT_SELECTION
     paths, ignores = unit.shards["rest-b"]
     assert "tests/cli" in ignores
     kept = tuple(i for i in ignores if i != "tests/cli")
     shards = {**unit.shards, "rest-b": (paths, kept)}
     narrowed = dataclasses.replace(unit, shards=shards)
-    selection = check.unit_argv("full", shard="rest-b", unit=narrowed)
+    selection = fw.unit_argv("full", shard="rest-b", unit=narrowed)
     assert "--ignore=tests/cli" not in selection
 
 
@@ -665,16 +682,16 @@ def selected(tier: str, *paths: str, named: tuple[str, ...] = ()) -> dict[str, A
 #: The JavaScript module-to-test mapping arrives with the JS module splits;
 #: until then Vitest cannot be narrowed and these cases have nothing to read.
 needs_mapping = pytest.mark.skipif(
-    not (REPO_ROOT / check.GUARD_MODULE).is_file(),
-    reason=f"{check.GUARD_MODULE} is not in this tree",
+    not (REPO_ROOT / fw.GUARD_MODULE).is_file(),
+    reason=f"{fw.GUARD_MODULE} is not in this tree",
 )
 
 
 def test_without_the_mapping_any_javascript_change_widens_vitest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(check, "ROOT", tmp_path)
-    assert check._guard() is None
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    assert fw._guard() is None
     got = selected("quick", WT + "settings.js")
     assert got["vitest"].state == check.WHOLE
     assert selected("quick", "src/osprey/cli/main.py")["vitest"].state == check.NOT_TOUCHED
@@ -684,8 +701,8 @@ def test_without_the_mapping_any_javascript_change_widens_vitest(
 def test_without_the_mapping__mutation_a_python_change_reaches_vitest(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(check, "ROOT", tmp_path)
-    monkeypatch.setattr(check, "JS_SUFFIXES", (".js", ".mjs", ".cjs", ".py"))
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    monkeypatch.setattr(fw, "JS_SUFFIXES", (".js", ".mjs", ".cjs", ".py"))
     assert selected("quick", "src/osprey/cli/main.py")["vitest"].state == check.WHOLE
 
 
@@ -925,7 +942,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "added.py").write_text("y = 1\n", encoding="utf-8")
     git(tmp_path, "add", "-A")
     git(tmp_path, "commit", "--no-gpg-sign", "-m", "work")
-    monkeypatch.setattr(check, "ROOT", tmp_path)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
     return tmp_path
 
 
@@ -1031,13 +1048,13 @@ def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
     """An empty root, every need met, the venue met, every install proven, and
     no process started."""
     recorder = Recorder()
-    monkeypatch.setattr(check, "ROOT", tmp_path)
-    monkeypatch.setattr(check, "_run", recorder)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    monkeypatch.setattr(kit, "run", recorder)
     monkeypatch.setattr(check, "probe_install", lambda install: recorder.install)
-    monkeypatch.setattr(check, "_capture", lambda argv: (0, ""))
+    monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
     for need in check.NEED_PROBES:
         monkeypatch.setitem(check.NEED_PROBES, need, lambda: None)
-    monkeypatch.setitem(check.VENUE_PROBES, check.LIVE_CA_VENUE, lambda: True)
+    _on_venue(monkeypatch, True)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     return recorder
 
@@ -1115,7 +1132,7 @@ def test_changed_and_a_different_base_are_refused(
     assert recorder.calls == []
     monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: [])
     monkeypatch.setattr(check, "repository_files", lambda worktree=False: [])
-    monkeypatch.setattr(check, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
     assert check.main(["quick", "--changed", "B", "--base", "B"]) == 0
 
 
@@ -1136,7 +1153,7 @@ def test_the_working_tree_reaches_every_range_check(
 ) -> None:
     monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: [])
     monkeypatch.setattr(check, "repository_files", lambda worktree=False: [])
-    monkeypatch.setattr(check, "_git_paths", lambda *args: untracked if "--others" in args else [])
+    monkeypatch.setattr(kit, "git_paths", lambda *args: untracked if "--others" in args else [])
     argvs = check.resolve(["quick", "--changed", "B", "--worktree"])
     assert ["python3", "scripts/changelog_fragments.py", "check", "--base", "B", "--worktree"] in (
         argvs
@@ -1174,7 +1191,7 @@ def test_named_paths_whose_tests_are_all_deselected_are_named_as_not_run(
 ) -> None:
     monkeypatch.setattr(check, "repository_files", lambda worktree=False: [])
     # A check whose scope is derived hosts the tests under tests/hosted/.
-    monkeypatch.setitem(check.DERIVED_SCOPES, "live-ca", lambda files: ("tests/hosted/**",))
+    _replace(monkeypatch, "live-ca", derive_scope=lambda files: ("tests/hosted/**",))
     recorder.failing = {"scripts/run_bounded.py": 5}
     context = check.Context(tier="quick")
     pytest_check = BY_ID["pytest"]
@@ -1211,9 +1228,9 @@ def test_a_fixture_change_under_a_hosted_directory_names_its_host(
         "tests/hosted/suite/fixtures/ir-map.json",
     ]
     monkeypatch.setattr(check, "repository_files", lambda worktree=False: files)
-    monkeypatch.setitem(check.DERIVED_SCOPES, "live-ca", lambda files: ("tests/hosted/suite/**",))
+    _replace(monkeypatch, "live-ca", derive_scope=lambda files: ("tests/hosted/suite/**",))
     recorder.failing = {"scripts/run_bounded.py": 5}
-    selection = check._select_pytest(["tests/hosted/suite/fixtures/ir-map.json"], files)
+    selection = fw._select_pytest(["tests/hosted/suite/fixtures/ir-map.json"], files)
     assert selection == check.Selection(check.PATHS, ("tests/hosted",))
     (outcome,) = check.execute([(BY_ID["pytest"], selection)], check.Context(tier="quick"))
     assert (outcome.reason, outcome.hosts) == (check.DESELECTED, ("live-ca",))
@@ -1245,10 +1262,10 @@ def test_an_outcome_outside_the_model_is_rejected(fields: dict[str, Any]) -> Non
 def test_a_refusal_names_every_unmet_need(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setitem(check.NEED_PROBES, "node", check._need_node)
-    monkeypatch.setitem(check.NEED_PROBES, "docs-extra", check._need_docs_extra)
-    monkeypatch.setattr(check, "_capture", lambda argv: (1, ""))
-    monkeypatch.setattr(check.shutil, "which", lambda name: None)
+    monkeypatch.setitem(check.NEED_PROBES, "node", fw._need_node)
+    monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
+    monkeypatch.setattr(kit, "capture", lambda argv: (1, ""))
+    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
     assert check.main(["full"]) == 2
     assert recorder.calls == []
     captured = capsys.readouterr()
@@ -1287,11 +1304,11 @@ def test_a_check_off_its_venue_has_its_needs_left_unprobed(
         probed.append("uv")
         return "uv is not on PATH"
 
-    monkeypatch.setitem(check.VENUE_PROBES, check.LIVE_CA_VENUE, lambda: False)
+    _on_venue(monkeypatch, False)
     monkeypatch.setitem(check.NEED_PROBES, "uv", uv_probe)
     assert check.main(["run", "live-ca"]) == 0
     assert probed == [] and recorder.calls == []
-    needs = check.VENUE_NEEDS[check.LIVE_CA_VENUE]
+    needs = check.VENUES[fw.LIVE_CA_VENUE].words
     assert f"check: not run here: live-ca ({needs})" in capsys.readouterr().out.splitlines()
 
 
@@ -1485,9 +1502,7 @@ def test_a_failed_check_without_a_fix_names_none() -> None:
 
 
 def test_dropping_the_fix_from_the_row_drops_the_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(
-        check._BY_ID, "ruff-format", dataclasses.replace(check._BY_ID["ruff-format"], fix=())
-    )
+    _replace(monkeypatch, "ruff-format", fix=())
     outcome = check.Outcome("ruff-format", check.FAILED, status=1)
     assert check._line(outcome) == "ruff-format: failed (exit 1)"
     assert check.verdict([outcome], (), scoped=False) == "not clean: failed: ruff-format"
@@ -1496,7 +1511,7 @@ def test_dropping_the_fix_from_the_row_drops_the_hint(monkeypatch: pytest.Monkey
 def test_a_check_off_its_venue_is_named_and_not_run(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setitem(check.VENUE_PROBES, check.LIVE_CA_VENUE, lambda: False)
+    _on_venue(monkeypatch, False)
     assert check.main(["full"]) == 0
     assert not recorder.ran("live_ca/gate.py")
     named = "not run here: live-ca (needs linux x86_64 or aarch64)"
@@ -1511,17 +1526,17 @@ def test_the_live_channel_access_venue_is_linux_x86_64_or_aarch64(
     def no_probe(*_args: Any) -> tuple[int, str]:
         raise AssertionError("the venue is the platform alone and probes nothing")
 
-    monkeypatch.setattr(check, "_capture", no_probe)
+    monkeypatch.setattr(kit, "capture", no_probe)
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr(check.platform, "machine", lambda: "x86_64")
-    assert check._on_live_ca_venue() is False
+    monkeypatch.setattr(fw.platform, "machine", lambda: "x86_64")
+    assert fw._on_live_ca_venue() is False
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(check.platform, "machine", lambda: "armv7l")
-    assert check._on_live_ca_venue() is False
-    monkeypatch.setattr(check.platform, "machine", lambda: "aarch64")
-    assert check._on_live_ca_venue() is True
-    monkeypatch.setattr(check.platform, "machine", lambda: "x86_64")
-    assert check._on_live_ca_venue() is True
+    monkeypatch.setattr(fw.platform, "machine", lambda: "armv7l")
+    assert fw._on_live_ca_venue() is False
+    monkeypatch.setattr(fw.platform, "machine", lambda: "aarch64")
+    assert fw._on_live_ca_venue() is True
+    monkeypatch.setattr(fw.platform, "machine", lambda: "x86_64")
+    assert fw._on_live_ca_venue() is True
 
 
 def test_the_venue_is_the_platform_the_virtual_accelerator_extra_installs_on(
@@ -1536,21 +1551,21 @@ def test_the_venue_is_the_platform_the_virtual_accelerator_extra_installs_on(
         found.setdefault(key, set()).add(value)
     assert set(found) == {"sys_platform", "platform_machine"}, found
     (system,) = found["sys_platform"]
-    monkeypatch.setattr(check, "_capture", lambda argv: (1, ""))
+    monkeypatch.setattr(kit, "capture", lambda argv: (1, ""))
     monkeypatch.setattr(sys, "platform", system)
     for machine in found["platform_machine"]:
-        monkeypatch.setattr(check.platform, "machine", lambda machine=machine: machine)
-        assert check._on_live_ca_venue() is True, machine
-    monkeypatch.setattr(check.platform, "machine", lambda: "amd64")
-    assert check._on_live_ca_venue() is False
+        monkeypatch.setattr(fw.platform, "machine", lambda machine=machine: machine)
+        assert fw._on_live_ca_venue() is True, machine
+    monkeypatch.setattr(fw.platform, "machine", lambda: "amd64")
+    assert fw._on_live_ca_venue() is False
 
 
 def test_live_ca_on_its_platform_without_the_extra_is_refused(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setitem(check.VENUE_PROBES, check.LIVE_CA_VENUE, lambda: True)
-    monkeypatch.setitem(check.NEED_PROBES, "va-extra", check._need_va_extra)
-    monkeypatch.setattr(check, "_capture", lambda argv: (1, ""))
+    _on_venue(monkeypatch, True)
+    monkeypatch.setitem(check.NEED_PROBES, "va-extra", fw._need_va_extra)
+    monkeypatch.setattr(kit, "capture", lambda argv: (1, ""))
     assert check.main(["run", "live-ca"]) == 2
     assert "uv sync --extra virtual-accelerator" in capsys.readouterr().err
     assert check.main(["full"]) == 2
@@ -1562,13 +1577,13 @@ def test_live_ca_off_its_platform_probes_nothing(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def capture(argv: Sequence[str]) -> tuple[int, str]:
-        if tuple(argv) == check.LIVE_CA_PROBE:
+        if tuple(argv) == fw.LIVE_CA_PROBE:
             raise AssertionError("the extra is probed only where live-ca runs")
         return 0, ""
 
-    monkeypatch.setitem(check.VENUE_PROBES, check.LIVE_CA_VENUE, lambda: False)
-    monkeypatch.setitem(check.NEED_PROBES, "va-extra", check._need_va_extra)
-    monkeypatch.setattr(check, "_capture", capture)
+    _on_venue(monkeypatch, False)
+    monkeypatch.setitem(check.NEED_PROBES, "va-extra", fw._need_va_extra)
+    monkeypatch.setattr(kit, "capture", capture)
     assert check.main(["full"]) == 0
     assert not recorder.ran("live_ca/gate.py")
 
@@ -1581,7 +1596,7 @@ def test_the_need_probe_imports_what_the_live_gate_requires() -> None:
         if isinstance(node, ast.Assign)
         and any(getattr(t, "id", None) == "PVA_REQUIRED_MODULES" for t in node.targets)
     )
-    statement = ast.parse(check.LIVE_CA_PROBE[-1]).body
+    statement = ast.parse(fw.LIVE_CA_PROBE[-1]).body
     assert len(statement) == 1 and isinstance(statement[0], ast.Import)
     assert tuple(alias.name for alias in statement[0].names) == tuple(required)
 
@@ -1595,8 +1610,8 @@ def test_full_without_the_docs_extra_is_refused(
         probed.append(tuple(argv))
         return 1, ""
 
-    monkeypatch.setattr(check, "_capture", failing)
-    monkeypatch.setitem(check.NEED_PROBES, "docs-extra", check._need_docs_extra)
+    monkeypatch.setattr(kit, "capture", failing)
+    monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     assert check.main(["full"]) == 2
     assert "uv sync --extra docs" in capsys.readouterr().err
     assert probed == [("uv", "run", "python", "-c", "import myst_parser")]
@@ -1606,7 +1621,7 @@ def test_full_without_the_docs_extra_is_refused(
 def test_full_with_the_docs_extra_plans_the_docs_build(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setitem(check.NEED_PROBES, "docs-extra", check._need_docs_extra)
+    monkeypatch.setitem(check.NEED_PROBES, "docs-extra", fw._need_docs_extra)
     assert check.main(["full"]) == 0
     assert ["uv", "run", "make", "html", "SPHINXOPTS=-W --keep-going"] in recorder.calls
 
@@ -1631,7 +1646,7 @@ def stub_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     stub(bin_dir, "uv", f'echo "$@" >> "{tmp_path}/uv.log"\necho stub uv says hello')
     stub(bin_dir, "git", "echo false")
     (tmp_path / "node_modules").mkdir()
-    monkeypatch.setattr(check, "ROOT", tmp_path)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
     monkeypatch.setenv("PATH", str(bin_dir))
     return bin_dir
 
@@ -1643,21 +1658,21 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     recorder = Recorder()
-    monkeypatch.setattr(check, "_run", recorder)
+    monkeypatch.setattr(kit, "run", recorder)
     assert check.main(["quick"]) == 2
     install = "the Node toolchain is not installed: install Node, then run npm ci"
     refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
-    probes = {shlex.join(probe[1:]) for probe in (check.DOCS_EXTRA_PROBE, check.LIVE_CA_PROBE)}
+    probes = {shlex.join(probe[1:]) for probe in (fw.DOCS_EXTRA_PROBE, fw.LIVE_CA_PROBE)}
     log = tmp_path / "uv.log"
     logged = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     assert set(logged) <= probes, logged
     assert recorder.calls == []
     stub(stub_path, "node", "exit 0")
     stub(stub_path, "npm", "exit 0")
-    assert check._need_node() is None
+    assert fw._need_node() is None
     (tmp_path / "node_modules").rmdir()
-    assert "npm ci" in (check._need_node() or "")
+    assert "npm ci" in (fw._need_node() or "")
 
 
 def test_a_run_without_uv_is_refused(stub_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1730,7 +1745,7 @@ def test_the_full_tier_does_not_double_the_configured_verbosity() -> None:
     assert configured, "addopts states no verbosity; this test pins nothing"
     repeated = {
         check_id: sorted(configured.intersection(flags))
-        for check_id, flags in check.TIER_EXEC_FLAGS["full"].items()
+        for check_id, flags in check._tier_flags("full").items()
         if configured.intersection(flags)
     }
     assert repeated == {}
@@ -1776,7 +1791,7 @@ def test_fix_lets_ruff_write_before_the_checks_and_only_in_quick(
 def test_fix_runs_only_the_fixes_of_the_checks_the_range_touches(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(check, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
     monkeypatch.setattr(
         check, "touched", lambda base, worktree=False, scope=False: ["scripts/check.py"]
     )
@@ -1820,16 +1835,16 @@ def test_the_working_tree_flag_needs_a_changed_range(
 def test_a_redirect_without_its_stub_page_is_reported(tmp_path: Path) -> None:
     (tmp_path / "guides").mkdir()
     (tmp_path / "guides" / "old.html").write_text("", encoding="utf-8")
-    assert check.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
+    assert fw.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
 
 
 @pytest.mark.usefixtures("recorder")
 def test_the_docs_check_fails_when_a_redirect_stub_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(check, "_capture", lambda argv: (0, "old/page\n"))
+    monkeypatch.setattr(kit, "capture", lambda argv: (0, "old/page\n"))
     assert check.main(["run", "docs"]) == 1
-    stub_page = tmp_path / check.DOCS_HTML / "old" / "page.html"
+    stub_page = tmp_path / fw.DOCS_HTML / "old" / "page.html"
     stub_page.parent.mkdir(parents=True)
     stub_page.write_text("", encoding="utf-8")
     assert check.main(["run", "docs"]) == 0
@@ -1844,7 +1859,7 @@ def test_the_docs_check_cleans_the_build_tree_before_it_builds(
         where.append(cwd)
         return recorder(argv, cwd)
 
-    monkeypatch.setattr(check, "_run", placed)
+    monkeypatch.setattr(kit, "run", placed)
     assert check.main(["run", "docs"]) == 0
     assert recorder.calls == [
         ["uv", "run", "make", "clean"],
@@ -1876,7 +1891,7 @@ def test_a_pytest_check_prunes_stale_bytecode_before_it_runs(
         seen.append((package / "removed").exists())
         return recorder(argv, cwd)
 
-    monkeypatch.setattr(check, "_run", running)
+    monkeypatch.setattr(kit, "run", running)
     assert check.main(["run", check_id]) == 0
     assert seen == [False]
     assert (kept / "module.py").is_file() and not (kept / "__pycache__").exists()
@@ -1908,7 +1923,7 @@ def test_the_package_check_builds_into_an_empty_dist(
             (tmp_path / "dist" / "osprey_connectors-1.0-py3-none-any.whl").write_text("")
         return recorder(argv, cwd)
 
-    monkeypatch.setattr(check, "_run", building)
+    monkeypatch.setattr(kit, "run", building)
     assert check.main(["run", "package"]) == 0
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
@@ -1932,18 +1947,18 @@ def test_the_package_check_builds_into_an_empty_dist(
         python,
         "dist/osprey_connectors-1.0-py3-none-any.whl",
     ]
-    assert probe == [python, "-I", check.LEAN_IMPORT_WALK]
+    assert probe == [python, "-I", fw.LEAN_IMPORT_WALK]
     # A glob no built file matches is passed on as written, for the step to fail on.
     assert wheel_probe == [
         "python3",
         "-c",
-        check.DOCK_ENGINE_WHEEL_PROBE,
+        fw.DOCK_ENGINE_WHEEL_PROBE,
         "dist/osprey_framework-*.whl",
     ]
     assert pyaml_build == ["uv", "build", "--package", "pyaml-cs-osprey"]
     pyaml_python = f"{pyaml_venv[2]}/bin/python"
     assert pyaml_install[:5] == ["uv", "pip", "install", "--python", pyaml_python]
-    assert pyaml_probe == [pyaml_python, "-c", check.PYAML_WHEEL_PROBE]
+    assert pyaml_probe == [pyaml_python, "-c", fw.PYAML_WHEEL_PROBE]
 
 
 def test_the_package_check_stops_at_the_first_failing_step(recorder: Recorder) -> None:
@@ -1977,7 +1992,7 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
         )
 
     derived = {
-        item["id"]: item["scope"] for item in data["checks"] if item["id"] in check.DERIVED_SCOPES
+        item["id"]: item["scope"] for item in data["checks"] if BY_ID[item["id"]].derive_scope
     }
     assert derived == {}
     declared = [{**item, "scope": []} if item["id"] in derived else item for item in data["checks"]]
@@ -1988,8 +2003,8 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     )
     assert data["tiers"] == ["quick", "full"]
     unit = data["unit_selection"]
-    assert [tuple(pair) for pair in unit["ignores"]] == list(check.UNIT_SELECTION.ignores)
-    assert unit["marker"] == check.UNIT_SELECTION.marker
+    assert [tuple(pair) for pair in unit["ignores"]] == list(fw.UNIT_SELECTION.ignores)
+    assert unit["marker"] == fw.UNIT_SELECTION.marker
 
 
 @pytest.mark.usefixtures("any_base")
@@ -2053,10 +2068,10 @@ def test_a_tracked_file_that_is_gitignored_fails_and_is_named(
         listings.append(tuple(argv))
         return 0, "build/kept.txt\n"
 
-    monkeypatch.setattr(check, "_capture", listing)
+    monkeypatch.setattr(kit, "capture", listing)
     assert check.main(["run", "tracked-ignored"]) == 1
-    assert listings == [check.TRACKED_IGNORED]
-    assert check.TRACKED_IGNORED == ("git", "ls-files", "-ci", "--exclude-standard")
+    assert listings == [fw.TRACKED_IGNORED]
+    assert fw.TRACKED_IGNORED == ("git", "ls-files", "-ci", "--exclude-standard")
     assert "build/kept.txt" in capsys.readouterr().out
     assert recorder.calls == []
 
@@ -2065,21 +2080,21 @@ def test_a_tracked_file_that_is_gitignored_fails_and_is_named(
 def test_a_tracked_file_that_is_gitignored__mutation_nothing_listed_is_clean(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(check, "_capture", lambda argv: (0, ""))
+    monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
     assert check.main(["run", "tracked-ignored"]) == 0
-    monkeypatch.setattr(check, "_capture", lambda argv: (128, ""))
+    monkeypatch.setattr(kit, "capture", lambda argv: (128, ""))
     assert check.main(["run", "tracked-ignored"]) == 1
 
 
 def test_the_docs_build_refuses_without_graphviz(
     recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setitem(check.NEED_PROBES, "graphviz", check._need_graphviz)
-    monkeypatch.setattr(check.shutil, "which", lambda name: None)
+    monkeypatch.setitem(check.NEED_PROBES, "graphviz", fw._need_graphviz)
+    monkeypatch.setattr(fw.shutil, "which", lambda name: None)
     assert check.main(["run", "docs"]) == 2
     assert "graphviz is not on PATH" in capsys.readouterr().err
     assert recorder.calls == []
-    monkeypatch.setattr(check.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
     assert check.main(["run", "docs"]) == 0
 
 
@@ -2087,9 +2102,181 @@ def test_the_dock_engine_steps_run_in_both_tiers() -> None:
     for check_id in ("dock-engine-bundle", "dock-engine-tests"):
         declared = BY_ID[check_id]
         assert declared.tiers == check.BOTH and declared.needs == ("node",)
-        assert check.DOCK_ENGINE in declared.scope
-    assert check.DOCK_ENGINE in check.TSC_SCOPE
+        assert fw.DOCK_ENGINE in declared.scope
+    assert fw.DOCK_ENGINE in fw.TSC_SCOPE
     got = selected("quick", "packages/dock-engine/src/rules.ts")
     assert got["dock-engine-bundle"].state == got["dock-engine-tests"].state == check.WHOLE
     got = selected("quick", "src/osprey/cli/main.py")
     assert got["dock-engine-bundle"].state == got["dock-engine-tests"].state == check.NOT_TOUCHED
+
+
+# ---------------------------------------------------------------------------
+# Each owner declares its checks; the command collects them
+
+#: The framework's module in a scratch tree: one check, so the tree has the
+#: module every collection starts from.
+FIXTURE_FRAMEWORK = """\
+from check_kit import BOTH, Check
+
+CHECKS = (Check("lockfile", "invariant", BOTH, ("uv", "lock", "--check")),)
+CALLER_JOBS = ("lint",)
+"""
+
+#: A module an integration branch would bring: a check of its own, with a lane,
+#: a caller job and a need, and nothing in scripts/check.py that names it.
+FIXTURE_OWNER = """\
+from check_kit import FULL, Check, Lane
+
+def _need_widget():
+    return None
+
+CHECKS = (
+    Check(
+        "widget-contract",
+        "tests",
+        FULL,
+        ("uv", "run", "pytest", "tests/widget"),
+        scope=("src/widget/**",),
+        needs=("widget",),
+        bound_s=300,
+        exec_flags=True,
+        tier_flags={"full": ("--tb=short",)},
+    ),
+)
+LANES = (Lane("widget-e2e", "containers", ("src/widget/**",)),)
+CALLER_JOBS = ("widget-contract",)
+NEEDS = {"widget": _need_widget}
+"""
+
+
+def _owner_tree(root: Path, modules: dict[str, str], *, tracked: bool = True) -> None:
+    """A git tree at *root* holding *modules*, committed when *tracked*."""
+    git(root, "init", "--initial-branch", "main")
+    for path, source in modules.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(source, encoding="utf-8")
+    if tracked:
+        git(root, "add", "-A")
+
+
+def _collected(monkeypatch: pytest.MonkeyPatch, root: Path) -> Any:
+    """The declaration of the tree at *root*, installed as the command's own."""
+    declared = check.collect(check.owner_modules(root), root)
+    for name, value in (
+        ("DECLARED", declared),
+        ("CHECKS", declared.checks),
+        ("LANES", declared.lanes),
+        ("CALLER_JOBS", declared.caller_jobs),
+        ("NEED_PROBES", declared.needs),
+    ):
+        monkeypatch.setattr(check, name, value)
+    return declared
+
+
+def test_a_module_the_branch_adds_contributes_its_check_without_editing_check_py(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A branch adds a check by adding a ``repo_checks.py`` beside its code:
+    the command collects it, after the framework's, with its lane, its caller
+    job and its need, and runs it from its record."""
+    _owner_tree(
+        tmp_path,
+        {
+            check.FRAMEWORK_MODULE: FIXTURE_FRAMEWORK,
+            "src/widget/repo_checks.py": FIXTURE_OWNER,
+        },
+    )
+    declared = _collected(monkeypatch, tmp_path)
+    assert [c.id for c in declared.checks] == ["lockfile", "widget-contract"]
+    assert declared.owners == {
+        "lockfile": check.FRAMEWORK_MODULE,
+        "widget-contract": "src/widget/repo_checks.py",
+    }
+    assert [lane.job for lane in declared.lanes] == ["widget-e2e"]
+    assert declared.caller_jobs == ("lint", "widget-contract")
+    assert check.resolve(["run", "widget-contract", "--", "-v"]) == [
+        [*fw_bound(300), "uv", "run", "pytest", "tests/widget", "-v"]
+    ]
+    (line,) = [argv for argv in check.resolve(["full"]) if "tests/widget" in argv]
+    assert line[-1] == "--tb=short"
+    assert check.select("full", ["src/widget/a.py"]).lanes == ("widget-e2e",)
+    assert check.main(["list", "--tier", "full"]) == 0
+    assert "widget-contract" in capsys.readouterr().out
+
+
+def fw_bound(seconds: int) -> list[str]:
+    """The prefix of a command stopped at *seconds*."""
+    return kit.bounded(seconds, [])
+
+
+def test_an_untracked_module_is_collected(tmp_path: Path) -> None:
+    """A module not yet added to git declares its checks already, so a check is
+    judged in the change that adds it."""
+    _owner_tree(tmp_path, {check.FRAMEWORK_MODULE: FIXTURE_FRAMEWORK})
+    (tmp_path / "src/widget").mkdir(parents=True)
+    (tmp_path / "src/widget/repo_checks.py").write_text(FIXTURE_OWNER, encoding="utf-8")
+    assert check.owner_modules(tmp_path) == [check.FRAMEWORK_MODULE, "src/widget/repo_checks.py"]
+
+
+def test_the_framework_module_is_collected_first(tmp_path: Path) -> None:
+    """The framework's checks hold for the whole repository and check the
+    lockfile before any ``uv run``, so they come first, whatever sorts before."""
+    _owner_tree(
+        tmp_path,
+        {"aaa/repo_checks.py": FIXTURE_OWNER, check.FRAMEWORK_MODULE: FIXTURE_FRAMEWORK},
+    )
+    assert check.owner_modules(tmp_path) == [check.FRAMEWORK_MODULE, "aaa/repo_checks.py"]
+
+
+def test_a_tree_without_the_framework_module_is_refused(tmp_path: Path) -> None:
+    _owner_tree(tmp_path, {"src/widget/repo_checks.py": FIXTURE_OWNER})
+    with pytest.raises(check.Refused, match="scripts/repo_checks.py is missing"):
+        check.owner_modules(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("second", "refusal"),
+    [
+        (FIXTURE_FRAMEWORK, "check lockfile is declared by both"),
+        (FIXTURE_OWNER.replace('"widget-contract",\n', '"other",\n', 1), "lane widget-e2e"),
+        (
+            FIXTURE_OWNER.replace("widget-contract", "other").replace("widget-e2e", "other-e2e"),
+            "need widget is declared by both",
+        ),
+        ("X = 1\n", "declares no CHECKS"),
+    ],
+)
+def test_what_two_modules_declare_has_one_owner(tmp_path: Path, second: str, refusal: str) -> None:
+    """A check, a lane or a need belongs to one module; a second declaration of
+    it is refused, not merged."""
+    _owner_tree(
+        tmp_path,
+        {
+            check.FRAMEWORK_MODULE: FIXTURE_FRAMEWORK,
+            "src/widget/repo_checks.py": FIXTURE_OWNER,
+            "src/zz/repo_checks.py": second,
+        },
+    )
+    with pytest.raises(check.Refused, match=refusal):
+        check.collect(check.owner_modules(tmp_path), tmp_path)
+
+
+def test_every_checks_module_shapes_every_verdict() -> None:
+    """A change to a checks module changes what the command runs, so it selects
+    the command's own tests, as a change to check.py does."""
+    for path in (*check.DECLARED.modules, "scripts/check.py", "scripts/check_kit.py"):
+        assert path in check.SHAPING_SCRIPTS
+        assert fw._select_pytest([path], [], check.SHAPING_SCRIPTS) == check.Selection(
+            check.PATHS, ("tests/scripts",)
+        )
+
+
+def test_no_check_is_keyed_by_its_id_in_the_command() -> None:
+    """Everything the command does with a check is read from its record: no
+    table keyed by a check id and no branch on one is left in the command."""
+    source = (REPO_ROOT / "scripts/check.py").read_text(encoding="utf-8")
+    keyed = re.findall(r"check\.id (?:==|in) [\"'(]", source)
+    named = sorted(
+        {c.id for c in check.CHECKS if re.search(rf"[\"']{re.escape(c.id)}[\"']", source)}
+    )
+    assert keyed == [] and named == []

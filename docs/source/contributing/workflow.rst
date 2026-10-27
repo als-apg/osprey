@@ -65,6 +65,15 @@ run also names the CI lanes your diff touches. ``--base BASE`` arms the checks
 that judge a range without scoping the tier, so ``full --base origin/main``
 judges the whole tree and the range in one verdict.
 
+A check is declared by the code that owns it, in a ``repo_checks.py`` module
+beside that code: ``scripts/repo_checks.py`` holds the framework's and the
+repository-wide checks, and a package that brings checks of its own, such as
+``packages/osprey-connectors/``, carries its own module. ``scripts/check.py``
+collects every such module in the tree; it holds no check itself. Each record in
+a module's ``CHECKS`` carries everything the command does with the check -- its
+command, scope, tiers, needs, bound and hooks -- so adding a check is one record
+in its owner's module and a CI step that calls ``scripts/check.py run ID``.
+
 JavaScript (``*.js`` and ``*.mjs``) is formatted by Prettier, exact-pinned in
 ``package.json`` and configured by ``.prettierrc.json``: ``npm run format``
 rewrites the tree, and the ``prettier`` check (``npm run format:check``) fails

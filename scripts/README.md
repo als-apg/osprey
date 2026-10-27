@@ -21,8 +21,11 @@ This directory contains testing and validation scripts for the Osprey Framework 
 ### check.py
 
 **Purpose**: Answer "is this change clean" with one command. Every check is
-declared once in `scripts/check.py`; a laptop, an automated gate and each CI
-step run it from there, so they cannot disagree about what a check is.
+declared once, by the code that owns it, in a `repo_checks.py` module beside
+that code (`scripts/repo_checks.py` for the framework and the repository as a
+whole), built from the records in `scripts/check_kit.py`. `scripts/check.py`
+collects every such module; a laptop, an automated gate and each CI step run a
+check from there, so they cannot disagree about what a check is.
 
 **Usage**:
 
