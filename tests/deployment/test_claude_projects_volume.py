@@ -9,10 +9,9 @@ load-bearing:
 **The nesting order.** A nested mount is made inside its parent, so the
 transcripts volume is listed after the parent in every render.
 
-**The archive reads transcripts and nothing beside them.** It mounts the
-transcripts volumes, never a claude-config volume, and archives every
-transcript under the same key it had before the move, so an existing archive
-continues without a break and never holds one transcript twice.
+**The archive mounts no transcripts.** Transcripts reach the agent record,
+never the archive service: it mounts neither a transcripts volume nor a
+claude-config volume.
 
 **The volume is part of the user.** Removing a user, the orphan sweep and reset
 all see it, because it carries the labels compose stamps.
@@ -26,7 +25,6 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -55,7 +53,6 @@ from osprey.deployment.runtime_helper import (
 )
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey.services.archive.run import run_pass
 from tests.deployment.test_compose_generator import _packaged_compose_template
 from tests.deployment.test_container_lifecycle import _fake_popen
 from tests.deployment.test_up_as_built import (  # noqa: F401 - fixtures, taken by name
@@ -157,88 +154,16 @@ def test_the_dispatch_mount_is_where_the_runner_points_claude_code(tmp_path):
     )
 
 
-def test_the_archive_reads_the_transcripts_volumes_and_no_claude_config(tmp_path):
+def test_the_archive_mounts_no_transcripts_and_no_claude_config(tmp_path):
     _config_unused, context = _context(tmp_path)
     doc = _render(context, "archive/docker-compose.yml.j2")
     mounts = doc["services"]["archive"]["volumes"]
+    sources = [m.split(":", 1)[0] for m in mounts]
 
-    assert not [m for m in mounts if "claude-config" in m.split(":", 1)[0]]
-    assert (
-        "dispatch_claude_projects_1:/archive/sources/dispatch_projects/dispatch-worker-1:ro"
-        in mounts
-    )
-    assert (
-        "dispatch_claude_projects_2:/archive/sources/dispatch_projects/dispatch-worker-2:ro"
-        in mounts
-    )
-    # The workspace is still mounted, for the run records and the artifacts.
+    assert not [v for v in sources if "claude-config" in v]
+    assert not [v for v in sources if "claude-projects" in v or "claude_projects" in v]
+    # The workspace is still mounted, for the artifacts.
     assert "dispatch_workspace_1:/archive/sources/dispatch/dispatch-worker-1:ro" in mounts
-    for mount in mounts:
-        if "/archive/sources/dispatch_projects/" in mount:
-            assert not mount.split(":")[1].startswith("/archive/sources/dispatch/")
-
-
-# ── The archive ─────────────────────────────────────────────────────────────
-
-
-def _put(path: Path, data: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(data, encoding="utf-8")
-    return path
-
-
-def _archived(dest: Path) -> list[str]:
-    day = next(p for p in dest.iterdir() if not p.name.startswith("."))
-    return sorted(
-        p.relative_to(day).as_posix()
-        for p in day.rglob("*")
-        if p.is_file() and p.name != "MANIFEST.jsonl"
-    )
-
-
-@pytest.fixture
-def trees(tmp_path):
-    sources = tmp_path / "sources"
-    sources.mkdir()
-    dest = tmp_path / "dest"
-    dest.mkdir()
-    os.chmod(dest, 0o700)
-    return sources, dest
-
-
-def test_transcripts_archive_to_the_paths_they_had_before_the_move(trees):
-    sources, dest = trees
-    _put(sources / "terminals/alice/-app/s.jsonl", "t\n")
-    _put(sources / "terminals/alice/-app/s/subagents/a.jsonl", "sub\n")
-    _put(sources / "dispatch_projects/dispatch-worker-1/-app/r.jsonl", "d\n")
-    _put(sources / "dispatch/dispatch-worker-1/dispatch/run.json", "{}")
-
-    run_pass(sources, dest)
-
-    assert _archived(dest) == [
-        "dispatch/dispatch-worker-1/claude-config/projects/-app/r.jsonl",
-        "dispatch/dispatch-worker-1/dispatch/run.json",
-        "terminals/alice/projects/-app/s.jsonl",
-        "terminals/alice/projects/-app/s/subagents/a.jsonl",
-    ]
-
-
-def test_a_stale_old_transcripts_directory_is_archived_once(trees):
-    """The copy keeps mtimes, so the old directory beside the new volume holds a
-    byte-identical twin. Only the volume is a source, so ``x`` is archived once,
-    and a second pass changes nothing."""
-    sources, dest = trees
-    old = _put(sources / "dispatch/shared/claude-config/projects/p/x.jsonl", "x\n")
-    new = _put(sources / "dispatch_projects/shared/p/x.jsonl", "x\n")
-    stamp = old.stat().st_mtime_ns
-    os.utime(new, ns=(stamp, stamp))
-
-    first = run_pass(sources, dest)
-    second = run_pass(sources, dest)
-
-    assert first.files == 1
-    assert _archived(dest) == ["dispatch/shared/claude-config/projects/p/x.jsonl"]
-    assert second.files == 0
 
 
 # ── User removal and the orphan sweep ───────────────────────────────────────
