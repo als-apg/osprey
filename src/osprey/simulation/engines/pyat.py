@@ -58,6 +58,8 @@ if TYPE_CHECKING:
 __all__ = [
     "ElementStop",
     "Prepared",
+    "RECORD_MARKS",
+    "RECORD_ROLES",
     "ResponseMatrix",
     "SOLVE_ERRORS",
     "build",
@@ -71,6 +73,11 @@ __all__ = [
     "response_matrix",
     "start_values",
 ]
+
+#: The roles :func:`describe` names.
+RECORD_ROLES = ("setpoint", "readback", "monitor", "output")
+#: The marks :func:`describe` sets: none.
+RECORD_MARKS: tuple[str, ...] = ()
 
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset({"solve", "twiss_in", "rest_mass_gev"})

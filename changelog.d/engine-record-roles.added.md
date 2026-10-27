@@ -1,0 +1,1 @@
+An engine plug-in may declare the record roles and marks its `describe()` uses (`RECORD_ROLES`, `RECORD_MARKS`); the simulator view carries a record's declared marks, and an engine declaring neither serves the four existing roles as before.

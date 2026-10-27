@@ -10,10 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from osprey_connectors.simulation.view import ROLES
+
 if TYPE_CHECKING:
     from lume.model import LUMEModel
 
-__all__ = ["ENTRY_POINT_GROUP", "EnginePlugin"]
+__all__ = ["ENTRY_POINT_GROUP", "EnginePlugin", "record_marks", "record_roles"]
 
 #: The entry-point group every engine plug-in registers under.
 ENTRY_POINT_GROUP = "osprey.simulation.engines"
@@ -49,7 +51,17 @@ class EnginePlugin(Protocol):
     ``SOLVE_ERRORS``                                        the exceptions meaning "this request has no     every exception is a failure, never a
                                                             solve"; stand-in until lume-base states         refusal
                                                             ``SolveError``
+    ``RECORD_ROLES``                                        the roles ``describe`` may name; a role         ``setpoint``, ``readback``, ``monitor``
+                                                            outside them stops the build                    and ``output``
+    ``RECORD_MARKS``                                        the marks ``describe`` may set ``True``; the    no marks: a description's other keys
+                                                            view's wiring entry and binding carry them,     are dropped
+                                                            and only a write record may carry
+                                                            ``command``
     ======================================================  ==============================================  ==========================================
+
+    ``RECORD_ROLES`` and ``RECORD_MARKS`` are read through :func:`record_roles`
+    and :func:`record_marks`, not stated as members here, so a module without
+    them still satisfies the contract.
     """
 
     def locate(self, deck: Any, element: str, *, model: str | None = None) -> tuple[float, float]:
@@ -74,7 +86,7 @@ class EnginePlugin(Protocol):
         ...
 
     def describe(self, wiring_record: Any) -> Mapping[str, Any]:
-        """What a wiring record is: its role, plane and refresh."""
+        """What a wiring record is: its role, plane and refresh, and any declared marks."""
         ...
 
     def build(
@@ -87,3 +99,27 @@ class EnginePlugin(Protocol):
     ) -> LUMEModel:
         """The LUME model that serves one model's wiring over its deck."""
         ...
+
+
+def record_roles(plugin: Any) -> tuple[str, ...]:
+    """The roles an engine plug-in's ``describe`` may name.
+
+    Args:
+        plugin: The engine plug-in module.
+
+    Returns:
+        Its ``RECORD_ROLES``; the view's ``ROLES`` for a module stating none.
+    """
+    return tuple(str(role) for role in getattr(plugin, "RECORD_ROLES", ROLES))
+
+
+def record_marks(plugin: Any) -> tuple[str, ...]:
+    """The marks an engine plug-in's ``describe`` may set.
+
+    Args:
+        plugin: The engine plug-in module.
+
+    Returns:
+        Its ``RECORD_MARKS``; empty for a module stating none.
+    """
+    return tuple(str(mark) for mark in getattr(plugin, "RECORD_MARKS", ()))
