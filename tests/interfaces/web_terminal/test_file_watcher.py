@@ -463,7 +463,6 @@ class TestLifespanConcealsItsStores:
     """``app.py`` resolves every server-side store and hands the watcher all of them."""
 
     def _boot(self, tmp_path):
-
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir(exist_ok=True)
         constructed: list[tuple] = []

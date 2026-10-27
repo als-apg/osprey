@@ -170,7 +170,6 @@ def test_routes_registered_on_composite_router(path, method):
 
 def test_app_lifespan_builds_a_bounded_ring(tmp_path):
     """The ring is created with its ``app.state`` peers when the app starts up."""
-
     with terminal_client(tmp_path) as client:
         ring = client.app.state.agent_activity_buffer
 

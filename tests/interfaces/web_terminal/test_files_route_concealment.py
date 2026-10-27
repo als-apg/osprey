@@ -352,7 +352,6 @@ class TestStateKeyContract:
     read to the attributes app.py publishes."""
 
     def test_the_lifespan_publishes_the_attributes_these_routes_read(self, tmp_path):
-
         workspace_dir = tmp_path / "_agent_data"
         workspace_dir.mkdir()
 
