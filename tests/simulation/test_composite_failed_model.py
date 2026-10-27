@@ -11,7 +11,6 @@ solve is refused and leaves the model serving.
 from __future__ import annotations
 
 import importlib.metadata
-import importlib.util
 import json
 import math
 import re
@@ -37,11 +36,10 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import ENGINE_GROUP, STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
+from tests._by_path import load_module
 from tests.simulation.conftest import stage_built_simulator_view
 
 if TYPE_CHECKING:
-    from types import ModuleType
-
     from tests._builds import BuiltProject
 
 T0 = 1_760_000_000.0
@@ -239,15 +237,7 @@ LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" 
 LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
 
 
-def _line_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("_line", LINE_SOURCE)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-LINE = _line_module()
+LINE = load_module("_line", LINE_SOURCE)
 
 
 def _line_corrector() -> str:

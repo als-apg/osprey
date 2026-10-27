@@ -14,10 +14,9 @@ sidesteps the ``functools.cache`` wrapped around the real
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
+from tests._by_path import load_module
 from tests.docs._conf import CONF_PY, run_conf
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,12 +29,7 @@ def _load_docs_publish():
     The module is registered in :data:`sys.modules` before execution because it defines a
     dataclass, and ``dataclasses`` resolves annotations through the module entry.
     """
-    spec = importlib.util.spec_from_file_location("docs_publish", _DOCS_PUBLISH_PY)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module("docs_publish", _DOCS_PUBLISH_PY, register=True)
 
 
 def test_release_build_uses_the_running_version(monkeypatch):

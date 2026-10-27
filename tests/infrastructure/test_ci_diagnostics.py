@@ -9,7 +9,6 @@ the half-written final line a SIGKILL leaves.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import shlex
@@ -37,6 +36,7 @@ from osprey_connectors_tests._harness.ci_diagnostics import (
     worker_index,
 )
 from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
+from tests._by_path import load_module
 from tests._live import wait_until
 from tests._nested_pytest import run_nested_pytest
 
@@ -46,11 +46,7 @@ _SUMMARY = _REPO_ROOT / "scripts" / "ci" / "diag_summary.py"
 
 def _load_summary():
     """Import the reader by path — it is a standalone script, not a package."""
-    spec = importlib.util.spec_from_file_location("diag_summary", _SUMMARY)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["diag_summary"] = module
-    spec.loader.exec_module(module)
-    return module
+    return load_module("diag_summary", _SUMMARY, register=True)
 
 
 # ===================================================================
