@@ -493,6 +493,6 @@ def test_init_help_names_every_initable_connector_and_the_stand_in() -> None:
     result = CliRunner().invoke(init, ["--help"])
 
     assert result.exit_code == 0, result.output
-    flat = flat(result.output)
-    assert ", ".join(CLI_CONTROL_SYSTEM_TYPES) in flat
-    assert LIVE_STANDIN in flat
+    text = flat(result.output)
+    assert ", ".join(CLI_CONTROL_SYSTEM_TYPES) in text
+    assert LIVE_STANDIN in text
