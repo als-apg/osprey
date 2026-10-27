@@ -299,10 +299,8 @@ def _env_values(repo: Path) -> dict[str, str]:
 def live_endpoint():
     """A second Channel Access endpoint: the machine the LIVE lane addresses.
 
-    The published port and the server's own port are the same number by
-    construction -- a Channel Access search reply carries the server's own port,
-    so a remap would hand every client an address nothing answers on. That
-    number also names the container.
+    Served on a free port that is both the published and the server's own
+    port (see ``serving_container``), and that also names the container.
     """
     if not e2e_conftest.E2E_ENABLED:  # pragma: no cover - collection-time skip path
         pytest.skip("VA e2e disabled")
@@ -311,45 +309,16 @@ def live_endpoint():
         pytest.skip(f"{e2e_conftest.IMAGE} is not built on this host. {e2e_conftest.IMAGE_REMEDY}")
 
     port = free_port()
-    name = f"{LIVE_ENDPOINT_PREFIX}-{port}"
-    # Stale-cleanup only: the port is this run's alone, so this can name nothing
-    # a concurrent run is using.
-    e2e_conftest.docker("rm", "-f", name, timeout=60)
-    started = e2e_conftest.docker(
-        "run",
-        "-d",
-        "--name",
-        name,
-        "-e",
-        f"EPICS_CA_SERVER_PORT={port}",
-        "-p",
-        f"127.0.0.1:{port}:{port}/tcp",
+    with e2e_conftest.serving_container(
+        f"{LIVE_ENDPOINT_PREFIX}-{port}",
+        port,
         *e2e_conftest.demo_data_run_args(),
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
-        e2e_conftest.IMAGE,
-        timeout=120,
-    )
-    if started.returncode != 0:
-        pytest.fail(f"docker run failed for the live endpoint: {started.stdout}\n{started.stderr}")
-
-    try:
-        deadline = time.monotonic() + LIVE_ENDPOINT_BOOT_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if e2e_conftest.ca_served(port):
-                break
-            time.sleep(2.0)
-        else:
-            logs = e2e_conftest.docker("logs", "--tail", "40", name, timeout=60)
-            pytest.fail(
-                f"the live lane's endpoint never served "
-                f"{e2e_conftest.READINESS_ADDRESS} within "
-                f"{LIVE_ENDPOINT_BOOT_TIMEOUT_S}s.\n{logs.stdout}\n{logs.stderr}"
-            )
+        boot_timeout=LIVE_ENDPOINT_BOOT_TIMEOUT_S,
+    ):
         yield port
-    finally:
-        e2e_conftest.docker("rm", "-f", name, timeout=60)
 
 
 # ---------------------------------------------------------------------------
