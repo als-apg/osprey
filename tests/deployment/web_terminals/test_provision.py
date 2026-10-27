@@ -38,19 +38,11 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from tests.deployment._fake_run import completed
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.
 running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
-
-
-class _FakeCompletedProcess:
-    """Minimal stand-in for subprocess.CompletedProcess."""
-
-    def __init__(self, returncode=0, stdout="", stderr=""):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +65,7 @@ def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tm
     def _fake_run(cmd, **kwargs):
         recorded["cmd"] = cmd
         recorded["env"] = kwargs.get("env")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
@@ -178,7 +170,7 @@ def test_reconcile_force_recreates_only_drifted_services(monkeypatch, tmp_path):
 
     def _fake_run(cmd, **kwargs):
         recorded.append((cmd, kwargs.get("env")))
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
@@ -892,7 +884,7 @@ def _capture_build(monkeypatch):
 
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
-        return _FakeCompletedProcess()
+        return completed()
 
     # Stubbed at `run_captured`, not at `subprocess.run`: the sidecar build is
     # watched (`on_line=`), and a watched capture reads its child through a pipe
@@ -982,7 +974,7 @@ def _stub_web_stack(monkeypatch, tmp_path):
 
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
@@ -1052,7 +1044,7 @@ def test_local_mode_builds_the_auth_image_before_any_compose_invocation(monkeypa
     def _fake_run(cmd, **kwargs):
         recorded.append(list(cmd))
         order.append("compose")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
@@ -1071,7 +1063,7 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
 
     def _fake_run(cmd, **kwargs):
         recorded.append({"cmd": list(cmd), "env": kwargs.get("env")})
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
@@ -1122,7 +1114,7 @@ def test_force_recreate_auth_sidecar_rerenders_before_the_recreate(monkeypatch, 
 
     def _fake_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         order.append("recreate")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
@@ -1149,7 +1141,7 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
 
     def _fake_run(cmd, **kwargs):
         recreated.append(list(cmd))
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
@@ -1178,7 +1170,7 @@ def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation
 
     def _fake_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         order.append("compose")
-        return _FakeCompletedProcess()
+        return completed()
 
     monkeypatch.setattr(provision.subprocess, "run", _fake_run)
 
