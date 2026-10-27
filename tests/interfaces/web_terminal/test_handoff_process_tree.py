@@ -48,6 +48,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
+    pytest.mark.usefixtures("readable_process_table"),
 ]
 
 
@@ -170,9 +171,13 @@ def _fail_reads(monkeypatch, failures: int | None) -> list[bool]:
 
     def flaky():
         reads.append(failures is not None and len(reads) >= failures)
-        return real() if reads[-1] else None
+        if not reads[-1]:
+            raise process_tree.ProcessTableUnreadable(OSError("process table"))
+        return real()
 
     monkeypatch.setattr(process_tree, "snapshot", flaky)
+    if failures is None:
+        monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.3)
     return reads
 
 
