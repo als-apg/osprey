@@ -43,11 +43,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.e2e._dispatch_harness import (
-    build_repo,
-    drain_output,
-    running_dispatch_stack,
-)
+from tests.e2e._deploy_support import drain_output
+from tests.e2e._dispatch_harness import build_repo, running_dispatch_stack
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 

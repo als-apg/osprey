@@ -21,48 +21,14 @@ from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 
 from osprey.interfaces._serving import free_port
-from tests.e2e._deploy_support import find_osprey_console_script, format_failure
-
-
-def drain_output(proc: subprocess.Popen) -> str:
-    """Best-effort grab of a subprocess's combined output for failure messages."""
-    if proc.stdout is None:
-        return "(no captured output)"
-    try:
-        data = proc.stdout.read1(16384) if hasattr(proc.stdout, "read1") else b""
-    except Exception:
-        data = b""
-    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
-    return f"--- subprocess output (partial) ---\n{text}" if text else "(no captured output)"
-
-
-def wait_for_health(url: str, timeout: float, proc: subprocess.Popen) -> None:
-    """Poll ``url`` until it returns HTTP 200, or fail with the captured output."""
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    with httpx.Client(timeout=3.0, trust_env=False) as client:
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                raise AssertionError(
-                    f"subprocess for {url} exited early (rc={proc.returncode}).\n"
-                    f"{drain_output(proc)}"
-                )
-            try:
-                status = client.get(url).status_code
-                if status == 200:
-                    return
-                last_err = f"HTTP {status}"
-            except httpx.HTTPError as exc:
-                last_err = str(exc)
-            time.sleep(0.5)
-    raise AssertionError(
-        f"timed out after {timeout:.0f}s waiting for {url} (last error: {last_err}).\n"
-        f"{drain_output(proc)}"
-    )
+from tests.e2e._deploy_support import (
+    find_osprey_console_script,
+    format_failure,
+    wait_for_health,
+)
 
 
 def terminate(proc: subprocess.Popen | None) -> None:
@@ -167,7 +133,7 @@ def start_worker(
         stderr=subprocess.STDOUT,
     )
     try:
-        wait_for_health(f"http://127.0.0.1:{port}/health", health_timeout, proc)
+        wait_for_health(f"http://127.0.0.1:{port}/health", health_timeout, proc=proc)
     except BaseException:
         terminate(proc)
         raise
@@ -224,7 +190,7 @@ def running_dispatch_stack(
             stderr=subprocess.STDOUT,
         )
         wait_for_health(
-            f"http://127.0.0.1:{dispatcher_port}/health", health_timeout, dispatcher_proc
+            f"http://127.0.0.1:{dispatcher_port}/health", health_timeout, proc=dispatcher_proc
         )
 
         yield {

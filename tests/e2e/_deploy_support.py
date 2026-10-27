@@ -16,20 +16,37 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
+from typing import Any
 
-#: Container runtime selection -- ``docker`` by default, ``podman`` opt-in via
-#: OSPREY_E2E_RUNTIME (the CI podman lanes set it), so one env var drives every
-#: lane. Any other value fails clearly at collection time rather than silently
-#: falling back to docker.
+import httpx
+
 _SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
+
+
+def container_runtime() -> str:
+    """The container runtime the RUNTIME-aware suites drive.
+
+    ``docker`` by default, ``podman`` opt-in via OSPREY_E2E_RUNTIME (the CI
+    podman lanes set it), so one env var drives every lane. Any other value
+    fails clearly rather than silently falling back to docker -- at collection
+    time for a suite that imports ``RUNTIME``, and only there: a suite that
+    takes nothing runtime-aware from this module still collects.
+    """
+    runtime = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
+    if runtime not in _SUPPORTED_RUNTIMES:
+        raise RuntimeError(
+            f"OSPREY_E2E_RUNTIME={runtime!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
+        )
+    return runtime
+
+
+def __getattr__(name: str) -> Any:
+    # ``RUNTIME`` is resolved when a suite imports it, not when this module
+    # loads, so a bad OSPREY_E2E_RUNTIME fails only the suites that use it.
+    if name == "RUNTIME":
+        return container_runtime()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def find_osprey_console_script() -> Path:
@@ -65,7 +82,7 @@ def run_command(cmd: list[str], cwd: Path, timeout: int) -> subprocess.Completed
 def run_osprey(
     osprey_bin: Path, args: list[str], cwd: Path, timeout: int = 120
 ) -> subprocess.CompletedProcess:
-    """Run an ``osprey`` verb with the deploy-side runtime pinned to RUNTIME.
+    """Run an ``osprey`` verb with the deploy-side runtime pinned to :func:`container_runtime`.
 
     Deliberately does NOT set ``OSPREY_PIP_SPEC``: the lifecycle fixtures poison
     it so a stub Dockerfile that ever started consuming it would fail loudly,
@@ -77,7 +94,7 @@ def run_osprey(
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
+        env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": container_runtime()},
     )
 
 
@@ -96,7 +113,11 @@ def runtime_cli(
     daemon that stops answering is a fact worth surfacing, not a false negative.
     """
     return subprocess.run(
-        [RUNTIME, *args], capture_output=True, text=True, timeout=timeout, input=input_text
+        [container_runtime(), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        input=input_text,
     )
 
 
@@ -135,7 +156,12 @@ def runtime_logs(name: str) -> str:
 
 
 def docker_inspect(container: str, fmt: str) -> str:
-    """``docker inspect --format fmt container``, asserting the container exists."""
+    """``docker inspect --format fmt container``, asserting the container exists.
+
+    Docker by name, not :func:`runtime_cli`: its callers are docker-only suites,
+    skipped without a ``docker`` CLI and driving it directly whatever
+    OSPREY_E2E_RUNTIME says.
+    """
     proc = subprocess.run(
         ["docker", "inspect", "--format", fmt, container],
         capture_output=True,
@@ -146,20 +172,51 @@ def docker_inspect(container: str, fmt: str) -> str:
     return proc.stdout.strip()
 
 
-def wait_for_health(url: str, timeout: float, *, probe_timeout: float = 3.0) -> None:
-    """Poll ``url`` once a second until it answers HTTP 200."""
+def drain_output(proc: subprocess.Popen) -> str:
+    """Best-effort grab of a subprocess's combined output for failure messages."""
+    if proc.stdout is None:
+        return "(no captured output)"
+    try:
+        data = proc.stdout.read1(16384) if hasattr(proc.stdout, "read1") else b""
+    except Exception:
+        data = b""
+    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
+    return f"--- subprocess output (partial) ---\n{text}" if text else "(no captured output)"
+
+
+def wait_for_health(
+    url: str,
+    timeout: float,
+    *,
+    probe_timeout: float = 3.0,
+    proc: subprocess.Popen | None = None,
+) -> None:
+    """Poll ``url`` every half second until it answers HTTP 200.
+
+    With ``proc``, the subprocess serving ``url``: its early exit fails the wait
+    at once, and either failure carries its captured output.
+    """
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=probe_timeout) as resp:  # localhost
-                if resp.status == 200:
+    with httpx.Client(timeout=probe_timeout, trust_env=False, follow_redirects=True) as client:
+        while time.monotonic() < deadline:
+            if proc is not None and proc.poll() is not None:
+                raise AssertionError(
+                    f"subprocess for {url} exited early (rc={proc.returncode}).\n"
+                    f"{drain_output(proc)}"
+                )
+            try:
+                status = client.get(url).status_code  # localhost
+                if status == 200:
                     return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
+                last_err = f"HTTP {status}"
+            except httpx.HTTPError as exc:
+                last_err = str(exc)
+            time.sleep(0.5)
+    output = "" if proc is None else f"\n{drain_output(proc)}"
+    raise AssertionError(
+        f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err}){output}"
+    )
 
 
 def wait_for_container_health(container: str, timeout: float) -> None:
