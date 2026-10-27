@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextlib
 import io
 import logging
-import os
 import re
 import threading
 from datetime import UTC, datetime
@@ -26,9 +25,10 @@ from typing import Any
 
 import pytest
 
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import PhaseReporter
 from tests._preset_data import create_project_as_built
-from tests.cli._lifecycle_build import invoke_build
+from tests.cli._lifecycle_build import invoke_build_in
+from tests.cli._reporters import installed
 
 
 class _Capture(logging.Handler):
@@ -102,16 +102,12 @@ def build_records(tmp_path_factory: pytest.TempPathFactory) -> _Capture:
     previous_level = root.level
     root.addHandler(capture)
     root.setLevel(logging.DEBUG)
-    previous_cwd = Path.cwd()
-    os.chdir(repo)
-    # Pre-installed, so the verb reports into it — the same path a chained verb
-    # puts `build` on — and its lines are captured beside the log records.
-    previous_reporter = install_reporter(_RecordingReporter(capture.lines))
     try:
-        result = invoke_build()
+        # Pre-installed, so the verb reports into it — the same path a chained verb
+        # puts `build` on — and its lines are captured beside the log records.
+        with installed(_RecordingReporter(capture.lines)):
+            result = invoke_build_in(repo)
     finally:
-        install_reporter(previous_reporter)
-        os.chdir(previous_cwd)
         root.removeHandler(capture)
         root.setLevel(previous_level)
 

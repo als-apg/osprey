@@ -30,14 +30,12 @@ from osprey.cli import phase_reporter, summary_card
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
     NullReporter,
-    PhaseReporter,
-    current_reporter,
     install_reporter,
 )
 from osprey.cli.styles import osprey_theme
 from osprey.cli.summary_card import format_summary_card, owns_summary_card, print_summary_card
 from tests._simulator_view import write_scenarios_view
-from tests.cli._reporters import installed
+from tests.cli._reporters import ConsoleReporter, installed
 
 
 def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
@@ -61,22 +59,6 @@ def recording_console(*, terminal: bool = False) -> tuple[Console, io.StringIO]:
         ),
         buffer,
     )
-
-
-class RecordingReporter(PhaseReporter):
-    """A real reporter whose console is a buffer, not the terminal.
-
-    Overrides ``out()``, not ``emit()``: ``out()`` is the seam the renderer
-    resolves per call, so a fake that intercepted ``emit`` would see nothing the
-    card prints any more.
-    """
-
-    def __init__(self, console: Console) -> None:
-        super().__init__(color=False)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
 
 
 class Recorded:
@@ -117,18 +99,8 @@ def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
 def recorder():
     """Install a recording reporter for the duration of one test."""
     console, buffer = recording_console()
-    with installed(RecordingReporter(console)):
+    with installed(ConsoleReporter(console)):
         yield Recorded(buffer)
-
-
-@pytest.fixture
-def restore_reporter():
-    """Put the module handle back, for tests that let a verb install its own."""
-    previous = current_reporter()
-    try:
-        yield
-    finally:
-        install_reporter(previous)
 
 
 @pytest.fixture(autouse=True)
@@ -466,7 +438,7 @@ class TestCardPrinting:
         card = format_summary_card(repo, "running")
         assert recorder.lines[: len(card) + 1] == [""] + card
 
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_a_verbose_run_still_ends_with_the_card(self, repo: Path, monkeypatch) -> None:
         """The card is echo class: it says what the run left behind, which is
         the verb's own output rather than decoration on its progress. Under
@@ -480,13 +452,13 @@ class TestCardPrinting:
         card = format_summary_card(repo, "running")
         assert Recorded(buffer).lines[: len(card) + 1] == [""] + card
 
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_the_heading_is_styled_on_a_terminal(self, repo: Path) -> None:
         """The card keeps its bold heading through the renderer. Asserted as
         "carries styling" rather than as an exact escape sequence: which bold
         the theme resolves to is the theme's business."""
         console, buffer = recording_console(terminal=True)
-        install_reporter(RecordingReporter(console))
+        install_reporter(ConsoleReporter(console))
 
         print_summary_card(repo, "running")
 
@@ -519,7 +491,7 @@ class TestCardPrinting:
 class TestCardOwnership:
     """Who prints the card is decided by the same rule as who owns the reporter."""
 
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_a_verb_that_finds_the_quiet_default_owns_the_card(self) -> None:
         install_reporter(NullReporter())
 
@@ -529,7 +501,7 @@ class TestCardOwnership:
     def test_a_verb_chained_under_another_one_does_not(self) -> None:
         assert owns_summary_card() is False
 
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_a_verb_chained_under_a_verbose_run_does_not_either(self) -> None:
         """`--verbose` installs a NullReporter that is not the quiet default:
         the flag travels with it, and the outer verb still owns the run."""
@@ -565,7 +537,7 @@ def deploy_stubs(monkeypatch, repo: Path):
 
 class TestVerbsThatPrintOne:
     @pytest.mark.parametrize("verb", ["up", "restart"])
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs", "restore_installed_reporter")
     def test_a_detached_start_ends_with_a_running_card(
         self, runner, cards, repo: Path, verb: str
     ) -> None:
@@ -574,7 +546,7 @@ class TestVerbsThatPrintOne:
         assert result.exit_code == 0, result.output
         assert cards == [(repo, "running")]
 
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs", "restore_installed_reporter")
     def test_a_verbose_start_asks_for_a_card_too(self, runner, cards, repo: Path) -> None:
         """`--verbose` changes which reporter the run installs, not who owns the
         run: the outermost verb still finds the quiet default and still asks for
@@ -585,7 +557,7 @@ class TestVerbsThatPrintOne:
         assert cards == [(repo, "running")]
 
     @pytest.mark.parametrize("verb", ["up", "restart"])
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs", "restore_installed_reporter")
     def test_an_attached_start_prints_no_card(self, runner, cards, verb: str) -> None:
         """Attached, compose owns the terminal from the exec point on: `up` never
         comes back to print a card, and a `restart` that ends in the log stream
@@ -595,14 +567,14 @@ class TestVerbsThatPrintOne:
         assert result.exit_code == 0, result.output
         assert cards == []
 
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs", "restore_installed_reporter")
     def test_down_ends_with_a_stopped_card(self, runner, cards, repo: Path) -> None:
         result = runner.invoke(cli, ["down"])
 
         assert result.exit_code == 0, result.output
         assert cards == [(repo, "stopped")]
 
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs", "restore_installed_reporter")
     def test_a_failed_start_prints_no_card(self, runner, cards, monkeypatch) -> None:
         """The card states what is now true. Nothing is running, so nothing on
         it would be."""
@@ -646,7 +618,7 @@ def chain_stubs(monkeypatch):
 
 
 class TestTheInitChain:
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_a_fresh_repo_ends_with_a_created_card(self, runner, cards, tmp_path: Path) -> None:
         target = tmp_path / "demo"
 
@@ -657,7 +629,7 @@ class TestTheInitChain:
         assert result.exit_code == 0, result.output
         assert cards == [(target, "created")]
 
-    @pytest.mark.usefixtures("restore_reporter", "chain_stubs")
+    @pytest.mark.usefixtures("restore_installed_reporter", "chain_stubs")
     def test_init_up_prints_exactly_one_card_for_the_whole_chain(
         self, runner, cards, tmp_path: Path
     ) -> None:
@@ -675,7 +647,7 @@ class TestTheInitChain:
         assert result.exit_code == 0, result.output
         assert cards == [(target, "running")]
 
-    @pytest.mark.usefixtures("restore_reporter", "chain_stubs")
+    @pytest.mark.usefixtures("restore_installed_reporter", "chain_stubs")
     def test_build_on_its_own_ends_with_a_built_card(
         self, runner, cards, repo: Path, monkeypatch
     ) -> None:

@@ -34,9 +34,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.phase_reporter import PhaseReporter, install_reporter
+from osprey.cli.phase_reporter import PhaseReporter
 from osprey_connectors.workspace import TIERS_DIRNAME
 from tests.cli._lifecycle_build import invoke_build
+from tests.cli._reporters import installed
 from tests.services.channel_finder.graph_index import corpora
 
 #: Where a render's index goes: the fixed path under the render.
@@ -49,9 +50,8 @@ _CORPUS_RELATIVE = "./data/facility.ttl"
 @pytest.fixture(autouse=True)
 def _plain_reporter():
     """Print facts without color, so an assertion reads the words alone."""
-    previous = install_reporter(PhaseReporter(color=False))
-    yield
-    install_reporter(previous)
+    with installed(PhaseReporter(color=False)):
+        yield
 
 
 def _graph_repo(

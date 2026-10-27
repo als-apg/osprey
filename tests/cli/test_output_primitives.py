@@ -52,6 +52,7 @@ from osprey.cli.phase_reporter import (
 )
 from osprey.cli.styles import data_table, osprey_theme, panel
 from osprey.port_layout import default_port
+from tests.cli._reporters import ConsoleReporter
 
 #: The landing page's port at the default base — the URL sample these
 #: hyperlink-detection tests print. Derived rather than spelled so the sample is
@@ -107,17 +108,6 @@ def recording_console(*, width: int = 100, terminal: bool = True) -> tuple[Conso
         ),
         buffer,
     )
-
-
-class RecordingReporter(PhaseReporter):
-    """A plain-line reporter whose console is a buffer, not the terminal."""
-
-    def __init__(self, console: Console) -> None:
-        super().__init__(color=False)
-        self._console = console
-
-    def out(self) -> Console:
-        return self._console
 
 
 def visible(text: str) -> list[str]:
@@ -221,7 +211,7 @@ def test_report_prints_through_the_mounted_region(live, capsys):
 def test_report_style_rides_on_the_text_not_the_call():
     """A ``style=`` argument would repaint a mounted region in the line's color."""
     console, buffer = recording_console()
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
     report("osprey-demo — running", style="bold")
     assert "\x1b[1m" in buffer.getvalue()
     assert visible(buffer.getvalue()) == ["osprey-demo — running"]
@@ -239,7 +229,7 @@ def test_report_takes_prose_positionally():
 
 def test_report_prints_a_blank_separator_line():
     console, buffer = recording_console()
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
     report("")
     assert _ANSI.sub("", buffer.getvalue()) == "\n"
 
@@ -273,7 +263,7 @@ def test_note_prints_through_the_mounted_region(live, capsys):
 def test_note_is_dim_on_a_terminal():
     """Dim is the other half of subordinate -- the half a pipe cannot carry."""
     console, buffer = recording_console()
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
     note("resolved from OSPREY_PROFILE")
     assert "\x1b[" in buffer.getvalue()
 
@@ -1049,7 +1039,7 @@ def test_a_long_ledger_value_folds_under_its_own_bullet():
     """The one block whose values are prose. A value wider than the terminal
     would otherwise wrap back to column zero and land under the file names."""
     console, buffer = recording_console(width=60)
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
     output.report_fact(
         _RecordingLogger(),
         "minted a keypair",
@@ -1079,7 +1069,7 @@ def test_a_url_in_a_printed_line_is_a_terminal_hyperlink():
     """The addresses the CLI prints are the ones a reader wants to act on, so a
     terminal that understands OSC 8 opens them on a click."""
     console, buffer = recording_console(terminal=True)
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
 
     output.report(f"Everything is running. Open http://127.0.0.1:{_LANDING} to start.")
 
@@ -1096,7 +1086,7 @@ def test_a_url_in_a_section_value_is_a_terminal_hyperlink():
     """The endpoint rows are where this earns its keep: the summary card and
     `osprey status` both lay their addresses out through `section`."""
     console, buffer = recording_console(terminal=True)
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
 
     output.section("endpoints", [("web terminal", f"http://127.0.0.1:{_LANDING}  (landing page)")])
 
@@ -1112,7 +1102,7 @@ def test_a_path_value_stays_a_path_rather_than_a_link():
     """Semantic styling by type: a PurePath keeps the path token and gains no
     link, so the one rule does not start guessing at strings."""
     console, buffer = recording_console(terminal=True)
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
 
     output.section("", [("command output", PurePosixPath("/srv/demo/var/logs"))])
 
@@ -1131,7 +1121,7 @@ def test_a_url_reaches_a_pipe_as_plain_text(capsys):
 
 def test_a_sentence_ending_in_a_url_keeps_its_full_stop_out_of_the_link():
     console, buffer = recording_console(terminal=True)
-    install_reporter(RecordingReporter(console))
+    install_reporter(ConsoleReporter(console))
 
     output.report(f"Open http://127.0.0.1:{_LANDING}.")
 

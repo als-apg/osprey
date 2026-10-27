@@ -24,7 +24,6 @@ from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
     PhaseReporter,
     current_reporter,
-    install_reporter,
     is_verbose,
 )
 from tests.cli._reporters import installed
@@ -87,16 +86,6 @@ def recorder():
 
 
 @pytest.fixture
-def restore_reporter():
-    """Put the module handle back, for tests that let a verb install its own."""
-    previous = current_reporter()
-    try:
-        yield
-    finally:
-        install_reporter(previous)
-
-
-@pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A directory standing in for a built deployment repo."""
     (tmp_path / "build").mkdir()
@@ -147,7 +136,7 @@ class TestInstalledReporter:
     """A verb installs one reporter, and `--verbose` decides which."""
 
     @pytest.mark.parametrize("verb", ["up", "restart", "down"])
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_a_start_or_stop_verb_installs_a_real_reporter(self, runner, deploy_stubs, verb):
         result = runner.invoke(cli, [verb])
 
@@ -155,7 +144,7 @@ class TestInstalledReporter:
         assert deploy_stubs == [(verb, "PhaseReporter", False)]
 
     @pytest.mark.parametrize("verb", ["up", "restart", "down"])
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_verbose_installs_a_null_reporter_that_says_it_is_verbose(
         self, runner, deploy_stubs, verb
     ):
@@ -168,7 +157,7 @@ class TestInstalledReporter:
         assert result.exit_code == 0, result.output
         assert deploy_stubs == [(verb, "NullReporter", True)]
 
-    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("deploy_stubs", "restore_installed_reporter")
     def test_the_default_handle_is_restored_afterwards(self, runner):
         """The install is scoped to the verb: a process that goes on to do
         something else must not keep printing into a finished run's reporter."""
@@ -428,14 +417,14 @@ class TestBuildPhases:
         )
         return recorded
 
-    @pytest.mark.usefixtures("build_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("build_stubs", "restore_installed_reporter")
     def test_build_installs_its_own_reporter(self, runner, installed):
         result = runner.invoke(cli, ["build"])
 
         assert result.exit_code == 0, result.output
         assert installed == [("PhaseReporter", False)]
 
-    @pytest.mark.usefixtures("build_stubs", "restore_reporter")
+    @pytest.mark.usefixtures("build_stubs", "restore_installed_reporter")
     def test_verbose_silences_the_build_phases(self, runner, installed):
         """The render is the biggest captured-subprocess consumer on the build
         path, so `is_verbose()` being True here is what makes `--verbose` mean
@@ -467,7 +456,7 @@ class TestResetPhases:
         assert reset_stub == [("reset", "RecordingReporter", False)]
         assert recorder.lines == []
 
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_verbose_reaches_reset_too(self, runner, reset_stub):
         """Reset's teardown reaches the same captured-subprocess helpers the
         start verbs do, and `--verbose` has to mean the same thing there."""
@@ -586,7 +575,7 @@ class TestInitPhases:
         assert len({handle for _, _, handle in init_stubs}) == 1
         assert titles(recorder) == ["→ Creating probe", "→ Preflight", "→ Starting probe"]
 
-    @pytest.mark.usefixtures("restore_reporter")
+    @pytest.mark.usefixtures("restore_installed_reporter")
     def test_the_chain_shares_the_reporter_init_installed(self, runner, init_stubs, tmp_path):
         """Same property with nothing pre-installed: the reporter the chained
         verbs report into is the one `init` installed, not one of their own."""
@@ -622,7 +611,7 @@ class _RecordSink(logging.Handler):
 def debug_probe(
     monkeypatch,
     deploy_stubs,  # noqa: ARG001 - stubs the layer the verb this probe watches runs through
-    restore_reporter,  # noqa: ARG001 - gives back the reporter handle that verb installs
+    restore_installed_reporter,  # noqa: ARG001 - gives back the reporter handle that verb installs
 ):
     """One DEBUG record emitted from inside a running verb, and what survived.
 
