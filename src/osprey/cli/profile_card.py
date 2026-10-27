@@ -431,13 +431,16 @@ def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dic
     """
     from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
 
+    from .profile_conventions import library_selection
     from .templates.claude_code import _graphdb_configured
 
     ctx: dict[str, Any] = {
         "graphdb_configured": _graphdb_configured(dict(rendered)),
         "event_dispatcher_wired": config_needs_dispatcher_token(rendered),
     }
-    if profile.channel_finder_mode and "channel-finder" in profile.agents:
+    if profile.channel_finder_mode and "channel-finder" in library_selection(
+        "agents", profile.agents
+    ):
         ctx["channel_finder_pipeline"] = profile.channel_finder_mode
     return ctx
 

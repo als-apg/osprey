@@ -572,6 +572,12 @@ def test_the_held_socket_outlives_a_killed_child(harness: Harness) -> None:
     first, _ = _ask(port)
 
     os.kill(first, signal.SIGKILL)
+    # A child blocked in accept() can take the next connection in the kernel
+    # and die holding it, which resets the client; ask only once the
+    # supervisor has reaped it and the next child is up.
+    assert _wait_for(
+        lambda: child.exit_status == -signal.SIGKILL and child.pid not in (None, first)
+    )
 
     second, _ = _ask(port)
     assert second != first

@@ -217,7 +217,7 @@ _PROVENANCE_COMMENT = [
     "# preset that no `# DEVIATION: <why>` comment above the line claims (tag set",
     "# by `deviation_marker:`). This profile is the source of truth either way.",
     "# `providers_hash` is the same record for providers.yml beside this file;",
-    "# `osprey init --revalidate` refreshes the packaged entries in it.",
+    "# `osprey init --revalidate` adds the packaged entries and keys it lacks.",
 ]
 
 # Round-trip mode preserves comments, key order, and quoting style (same

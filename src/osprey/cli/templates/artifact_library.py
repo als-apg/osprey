@@ -88,19 +88,8 @@ def _hook_short_name(stem: str) -> str:
     return stem.replace("_", "-")
 
 
-def parse_hook_frontmatter(hook_path: Path) -> dict | None:
-    """Extract YAML frontmatter from a hook file's docstring.
-
-    Hook files embed metadata in a YAML block delimited by ``---`` inside
-    the module docstring.  This function parses that block and returns the
-    metadata for hooks that declare ``wiring: standalone``.
-
-    Returns:
-        A dict with keys ``name``, ``event``, ``tools``, ``safety_layer``,
-        ``timeout``, ``wiring`` — or ``None`` for utility hooks (no
-        frontmatter), hooks without an ``event`` field, or hooks that do
-        not declare ``wiring: standalone``.
-    """
+def _read_hook_frontmatter(hook_path: Path) -> dict | None:
+    """The YAML block between ``---`` lines in a hook file's docstring, or ``None``."""
     try:
         text = hook_path.read_text(encoding="utf-8")
     except OSError:
@@ -127,7 +116,37 @@ def parse_hook_frontmatter(hook_path: Path) -> dict | None:
         logger.warning("Malformed YAML frontmatter in %s", hook_path)
         return None
 
-    if not isinstance(meta, dict):
+    return meta if isinstance(meta, dict) else None
+
+
+def hook_events(hook_path: Path) -> tuple[str, ...]:
+    """The Claude Code events a library hook's frontmatter says it runs on.
+
+    ``event:`` is one event or a comma-separated list
+    (``PreToolUse, PostToolUse``); a hook with no frontmatter runs on none.
+    """
+    meta = _read_hook_frontmatter(hook_path)
+    event = meta.get("event") if meta else None
+    if not isinstance(event, str):
+        return ()
+    return tuple(part.strip() for part in event.split(",") if part.strip())
+
+
+def parse_hook_frontmatter(hook_path: Path) -> dict | None:
+    """Extract YAML frontmatter from a hook file's docstring.
+
+    Hook files embed metadata in a YAML block delimited by ``---`` inside
+    the module docstring.  This function parses that block and returns the
+    metadata for hooks that declare ``wiring: standalone``.
+
+    Returns:
+        A dict with keys ``name``, ``event``, ``tools``, ``safety_layer``,
+        ``timeout``, ``wiring`` — or ``None`` for utility hooks (no
+        frontmatter), hooks without an ``event`` field, or hooks that do
+        not declare ``wiring: standalone``.
+    """
+    meta = _read_hook_frontmatter(hook_path)
+    if meta is None:
         return None
 
     # Only standalone-wired hooks build PreToolUse/PostToolUse rules from frontmatter.

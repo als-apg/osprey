@@ -20,7 +20,7 @@ from typing import Any
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
 
-from .build_profile_document import _read_profile_document
+from .build_profile_document import RENDER_KEYS, _read_profile_document
 from .build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
@@ -119,11 +119,12 @@ def _convention_source_for_field(field_name: str) -> str | None:
 
 
 # ``exclude:`` fields whose entries name built-in library artifacts rather than
-# profile-authored files. ``validate_artifacts`` hard-rejects any name in these
-# profile lists that the built-in library does not carry, so a profile's own
-# ``agents/orbit-writer.md`` can never legally appear in ``agents:`` — the two
-# namespaces are disjoint, which is why the two ``exclude:`` spellings below
-# have to mean different things.
+# profile-authored files. A bare name in one of these profile lists must be one
+# the built-in library carries (``validate_artifacts``); the profile's own
+# ``agents/orbit-writer.md`` is selected by its directory-prefixed spelling,
+# ``agents/orbit-writer``, in the same list. The two namespaces are disjoint,
+# which is why the two ``exclude:`` spellings below have to mean different
+# things.
 #
 # ``hooks`` is the one field whose two namespaces cannot collide by accident:
 # the library selects a hook by a readable short name (``writes-check``) while
@@ -135,6 +136,16 @@ def _convention_source_for_field(field_name: str) -> str | None:
 _ARTIFACT_LIBRARY_FIELDS: frozenset[str] = frozenset(
     {"hooks", "rules", "skills", "agents", "output_styles"}
 )
+
+
+def _selecting_list_field(source: str | None) -> str | None:
+    """The profile list field that selects convention directory *source*, if any."""
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES
+
+    return next(
+        (field for field, dirname in SELECTED_CONVENTION_SOURCES.items() if dirname == source),
+        None,
+    )
 
 
 def _is_library_selection(field_name: str, name: str) -> bool:
@@ -289,7 +300,8 @@ def _apply_exclude(
       selected is no longer selected;
     * qualified (``agents/channel-finder``) records the entry in ``artifacts``
       as ``"<source>/<name>"`` so the build omits the profile's own file for
-      it, leaving the list alone.
+      it, and drops that same qualified selection from the list, leaving the
+      bare library selection alone.
 
     Keeping them apart is what makes FR-10's promise true: a profile that ships
     ``agents/channel-finder.md`` shadows the built-in agent of that name, and
@@ -381,6 +393,14 @@ def _apply_exclude(
         elif isinstance(current, list):
             removal = {name for name, qualified in split if not qualified}
             merged[field_name] = [item for item in current if item not in removal]
+        # A qualified entry also takes the profile's own artifact out of the
+        # list that selects it (`exclude: {skills: [skills/beam-check]}` drops
+        # `skills/beam-check` from `skills:`), whichever spelling the key used.
+        list_field = _selecting_list_field(source)
+        selecting = merged.get(list_field) if list_field else None
+        if list_field is not None and isinstance(selecting, list):
+            qualified_removal = {f"{source}/{name}" for name, qualified in split if qualified}
+            merged[list_field] = [item for item in selecting if item not in qualified_removal]
 
 
 def _resolve_extends(
@@ -788,9 +808,6 @@ _APP_OWNED_KEYS: tuple[str, ...] = (
     "channel_finder_mode",
 )
 
-#: Image-shaping keys an app file may set; absent, the render has none.
-_APP_RENDER_KEYS: tuple[str, ...] = ("extra_mounts", "seed_base", "image")
-
 _CLAUDE_CODE_SECTION = "claude_code"
 _CONTROL_SYSTEM_SECTION = "control_system"
 _CONNECTOR_TABLE_KEY = "connector"
@@ -1004,14 +1021,75 @@ def _pin_edit_doors(config: dict[str, Any]) -> dict[str, Any]:
     return pinned
 
 
+def _host_guard_wiring(config: dict[str, Any]) -> dict[str, Any]:
+    """The host's hook wiring every app keeps: its guards, and nothing else.
+
+    Guards are a floor, the way the host's floor denies are: a
+    ``claude_code.hooks.PreToolUse`` declaration in force on the host reaches
+    every app render, inert where no tool it matches is present, so an app can
+    add a guard but never drop one by omission. A declaration on any other
+    event is the host's own; an app runs it only when its own ``config:``
+    declares it.
+
+    Args:
+        config: The host's config facts, ``claude_code`` keys fully dotted.
+
+    Returns:
+        A copy of *config* without the non-guard declarations; an event left
+        with none is dropped.
+    """
+    from .profile_conventions import GUARD_EVENT
+
+    prefix = f"{_CLAUDE_CODE_SECTION}.hooks"
+    kept: dict[str, Any] = {}
+    for key, value in config.items():
+        if key == prefix and isinstance(value, dict):
+            guards = value.get(GUARD_EVENT)
+            if isinstance(guards, list) and guards:
+                kept[f"{prefix}.{GUARD_EVENT}"] = guards
+        elif key.startswith(f"{prefix}."):
+            if key == f"{prefix}.{GUARD_EVENT}":
+                kept[key] = value
+        else:
+            kept[key] = value
+    return kept
+
+
+def _guard_floor(host_hooks: Any, app_hooks: Any) -> list[Any]:
+    """The app's ``hooks:`` list with every host library guard it omits appended.
+
+    A guard is a library hook on :data:`~osprey.cli.profile_conventions.GUARD_EVENT`
+    (approval, the kill switch, limits, the memory guard). Each one the host
+    selects reaches the app as the host spells it — the deployment's
+    replacement file where the host names one — unless the app selects it
+    already, in either spelling. The kill switch is pinned whatever the host
+    says: an app render can never write.
+    """
+    from .profile_conventions import library_guard_hooks, library_selection
+
+    hooks = list(app_hooks) if isinstance(app_hooks, list) else []
+    selected = set(library_selection("hooks", hooks))
+    guards = library_guard_hooks()
+    for entry in host_hooks if isinstance(host_hooks, list) else []:
+        names = library_selection("hooks", [entry])
+        if names and names[0] in guards and names[0] not in selected:
+            hooks.append(entry)
+            selected.add(names[0])
+    if _WRITES_CHECK_HOOK not in selected:
+        hooks.append(_WRITES_CHECK_HOOK)
+    return hooks
+
+
 def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) -> dict[str, Any]:
     """Compose an app render from its host deployment and its complete app file.
 
     The app file owns what the agent is: the keys in :data:`_APP_OWNED_KEYS`
-    and :data:`_APP_RENDER_KEYS` come from it alone. Its ``config:`` sits over
+    and :data:`~osprey.cli.build_profile_document.RENDER_KEYS` come from it alone. Its ``config:`` sits over
     the host's facts — the host's config minus every ``claude_code.servers``
-    switch (the app states its own server set) and minus every
-    ``control_system.*writes_enabled`` switch; ``claude_code.permissions`` is
+    switch (the app states its own server set), minus every
+    ``claude_code.hooks`` declaration on an event other than ``PreToolUse``,
+    and minus every ``control_system.*writes_enabled`` switch;
+    ``claude_code.permissions`` is
     kept, so the host's floor denies union with the app's own — all but the
     host's ``remove_deny`` lifts, which grant the host's own render. The app's
     ``mcp_servers`` declarations are added to the host's. Every other
@@ -1019,11 +1097,17 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     verbatim, which is what keeps the data bundle the deployment's. Nothing is
     read from the package: the app file is a materialized, explicit copy.
 
+    Guards are a floor: every ``PreToolUse`` hook in force on the host — a
+    library guard its ``hooks:`` selects, or a facility guard its
+    ``claude_code.hooks.PreToolUse`` declares — reaches the app whatever its
+    own list says, so an app adds guards but never drops one by omission.
+
     Whatever either side says, the render cannot write or edit the deployment:
     every write switch is pinned ``false``, every door in
     :data:`~osprey.deployment.web_terminals.roster.DEPLOYMENT_EDIT_DOORS` is set
     closed (the setup tool denied, the Config panel and gallery writes off),
-    ``writes-check`` is selected, and
+    ``writes-check`` is selected (the one guard pinned even where the host
+    selects none), and
     :func:`~osprey.deployment.web_terminals.lint.lint_app_render` checks the
     result before it is returned.
 
@@ -1041,9 +1125,9 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
     render = {
         key: value
         for key, value in host.items()
-        if key not in _APP_OWNED_KEYS and key not in _APP_RENDER_KEYS and key != "config"
+        if key not in _APP_OWNED_KEYS and key not in RENDER_KEYS and key != "config"
     }
-    for key in (*_APP_OWNED_KEYS, *_APP_RENDER_KEYS):
+    for key in (*_APP_OWNED_KEYS, *sorted(RENDER_KEYS)):
         if key in app:
             render[key] = app[key]
 
@@ -1068,7 +1152,7 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
         ),
     )
     config = _deep_merge(
-        _flatten_section(host_facts, _CLAUDE_CODE_SECTION),
+        _host_guard_wiring(_flatten_section(host_facts, _CLAUDE_CODE_SECTION)),
         _flatten_section(app_config, _CLAUDE_CODE_SECTION),
     )
     # The host's raw config counts a block that held only its write switch (it
@@ -1078,11 +1162,7 @@ def compose_app_render(host: dict[str, Any], app: dict[str, Any], app_rel: str) 
         _pin_write_switches(config, host_config, _drop_write_switches(app_config))
     )
 
-    hooks = render.get("hooks")
-    hooks = list(hooks) if isinstance(hooks, list) else []
-    if _WRITES_CHECK_HOOK not in hooks:
-        hooks.append(_WRITES_CHECK_HOOK)
-    render["hooks"] = hooks
+    render["hooks"] = _guard_floor(host.get("hooks"), render.get("hooks"))
 
     from osprey.deployment.web_terminals.lint import lint_app_render
 
@@ -1133,15 +1213,20 @@ def render_document(
             edit the deployment.
     """
     if legacy:
-        return merge_layer_delta(
+        rendered = merge_layer_delta(
             host_resolved,
             _strip_attachment(layer),
             artifacts=artifacts,
             shadow_candidates=shadow_candidates,
         )
-    if kind is ProfileKind.APP:
-        return compose_app_render(host_resolved, layer, layer_rel)
-    return _deep_merge(host_resolved, layer)
+    elif kind is ProfileKind.APP:
+        rendered = compose_app_render(host_resolved, layer, layer_rel)
+    else:
+        rendered = _deep_merge(host_resolved, layer)
+    # The per-render keys are the card's, read from the file by the render
+    # projection; no profile field holds them, so the document they are parsed
+    # into does not carry them.
+    return {key: value for key, value in rendered.items() if key not in RENDER_KEYS}
 
 
 @dataclass(frozen=True)

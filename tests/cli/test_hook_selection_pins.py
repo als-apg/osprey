@@ -139,11 +139,11 @@ PINNED_PRESET_HOOK_FILES: dict[str, frozenset[str]] = {
     "tiers/admin": _CONTROL_ASSISTANT_HOOK_FILES,
     "tiers/readonly": _CONTROL_ASSISTANT_HOOK_FILES,
     "tiers/readwrite": _CONTROL_ASSISTANT_HOOK_FILES,
-    "apps/channel-finder": _COMMON_HOOK_FILES
-    | {"osprey_cf_feedback_capture.py", "osprey_notebook_update.py", "osprey_writes_check.py"},
-    "apps/knowledge": _COMMON_HOOK_FILES
-    | {"osprey_cf_feedback_capture.py", "osprey_notebook_update.py", "osprey_writes_check.py"},
-    "apps/logbook": _COMMON_HOOK_FILES | {"osprey_notebook_update.py", "osprey_writes_check.py"},
+    # An app carries every guard its host selects (``limits`` among them),
+    # whatever its own list says.
+    "apps/channel-finder": _CONTROL_ASSISTANT_HOOK_FILES,
+    "apps/knowledge": _CONTROL_ASSISTANT_HOOK_FILES,
+    "apps/logbook": _CONTROL_ASSISTANT_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
 }
 
 

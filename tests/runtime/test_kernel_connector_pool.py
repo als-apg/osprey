@@ -132,7 +132,8 @@ class _FirstContextConnector:
 @pytest.fixture
 def in_process_registry():
     """Register the first-context fake under every type the sections select."""
-    from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+    from osprey_connectors.factory import ConnectorFactory
+    from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries():
         for name in ("epics", "virtual_accelerator", "live_standin"):

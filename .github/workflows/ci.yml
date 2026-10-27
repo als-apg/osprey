@@ -985,8 +985,35 @@ jobs:
       if: ${{ !cancelled() }}
       run: python3 scripts/check.py run tracked-ignored
 
+    - name: Install gitleaks
+      # The secret scan's binary, at the version the pre-commit hook pins;
+      # tests/deployment/test_ci_workflow_wiring.py holds the two equal. A
+      # release archive checked against its published digest; nothing is built.
+      if: ${{ !cancelled() }}
+      env:
+        GITLEAKS_VERSION: 8.30.0
+        GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
+      run: |
+        curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+        sudo tar -C /usr/local/bin -xzf "$RUNNER_TEMP/gitleaks.tar.gz" gitleaks
+
+    - name: Run gitleaks (secret scan)
+      # Pull requests only, through env: and never ${{ }} in run:, for the
+      # reasons the changelog step gives.
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      env:
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: python3 scripts/check.py run gitleaks --base "origin/$BASE_REF"
+
     - name: Run mypy (type checking)
       run: uv run python scripts/check.py run mypy
+
+    - name: Run actionlint (workflow lint)
+      # The workflows lint with the pinned linter, and their `run:` blocks
+      # through shellcheck.
+      if: ${{ !cancelled() }}
+      run: uv run python scripts/check.py run actionlint
 
   docs:
     name: Documentation Build (Check Only)
@@ -1021,12 +1048,6 @@ jobs:
     - name: Build documentation
       run: python3 scripts/check.py run docs
 
-    - name: Check for broken links
-      run: |
-        cd docs
-        uv run make linkcheck || true
-      continue-on-error: true
-
     - name: Upload documentation artifact
       uses: actions/upload-artifact@v7
       if: github.event_name == 'pull_request'
@@ -1034,6 +1055,12 @@ jobs:
         name: documentation-preview
         path: docs/build/html
         retention-days: 7
+
+    # A link no reader can follow fails this job. An address that answers a
+    # reader and not a checker is listed in `linkcheck_ignore` in
+    # docs/source/conf.py.
+    - name: Check for broken links
+      run: python3 scripts/check.py run linkcheck
 
   package:
     name: Package Build (framework + lean connectors wheel)
@@ -1060,7 +1087,7 @@ jobs:
     # wheel and import-walks it on a bare venv, asserts the framework wheel
     # carries dock_engine and its package data, and builds pyaml-cs-osprey and
     # import-walks it beside the other two wheels. The order is declared once,
-    # in PACKAGE_STEPS of scripts/check.py.
+    # in PACKAGE_STEPS of scripts/repo_checks.py.
     - name: Build and check the packages
       run: python3 scripts/check.py run package
 
@@ -1831,6 +1858,7 @@ jobs:
           echo "Running scoped E2E filter: $E2E_FILTER"
           # Word-splitting on $E2E_FILTER is intentional so callers can
           # pass multiple paths or extra pytest args in one input.
+          # shellcheck disable=SC2086
           uv run pytest $E2E_FILTER -v --tb=short
         else
           # Tier 3 per-preset agentic flows live in their own matrix job

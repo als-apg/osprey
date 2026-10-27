@@ -700,6 +700,13 @@ def claim_into_profile(project_dir: Path, name: str) -> ClaimOutcome:
             "  Check both paths before retrying — the artifact is at one of them."
         ) from exc
 
+    # A claimed skill, agent, rule, output style or hook renders only where its
+    # path is named; it replaces OSPREY's wherever the profile and its apps
+    # selected that by its bare name, as the claim always meant it to.
+    from .init_revalidate import name_shipped_shadows
+
+    name_shipped_shadows(profile_root)
+
     return ClaimOutcome(
         target=target,
         profile_path=destination,

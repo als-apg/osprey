@@ -837,6 +837,8 @@ class _ProjectVenvPlan(NamedTuple):
     osprey_spec: str
     osprey_label: str
     extra_deps: list[str]
+    uv_path: str | None
+    member_requirements: list[str]
 
 
 def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
@@ -844,7 +846,8 @@ def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
 
     Every :class:`BuildProfileError` about the environment's inputs is raised
     here: an invalid ``osprey_install``, a base interpreter that cannot be
-    probed, and a declared base whose packages cannot be reproduced as pins. A
+    probed, a declared base whose packages cannot be reproduced as pins, and,
+    on the pip path, a spec the workspace members cannot be located from. A
     build refused here has not touched the project venv.
 
     The interpreter the venv is based on comes from
@@ -894,12 +897,20 @@ def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
         list(profile.dependencies or []),
         list(profile.environment.packages or []),
     )
+
+    # --- Choose the installer ---
+    # The pip path names the workspace members beside the framework; a spec
+    # they cannot be derived from is refused here, before the venv is written.
+    uv_path = os.environ.get("UV") or shutil.which("uv")
+    member_requirements = [] if uv_path else _pip_member_requirements(osprey_spec)
     return _ProjectVenvPlan(
         base_python=base_python,
         base_python_arg=base_python_arg,
         osprey_spec=osprey_spec,
         osprey_label=osprey_label,
         extra_deps=extra_deps,
+        uv_path=uv_path,
+        member_requirements=member_requirements,
     )
 
 
@@ -920,7 +931,7 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
     what the project depends on.
     """
     venv_path = project_path / ".venv"
-    uv_path = os.environ.get("UV") or shutil.which("uv")
+    uv_path = plan.uv_path
     base_python = plan.base_python
     base_python_arg = plan.base_python_arg
     osprey_spec = plan.osprey_spec
@@ -1000,7 +1011,7 @@ def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
             # pip draws the same line uv does: see _pins_prerelease.
             cmd.append("--pre")
         cmd += all_deps
-        cmd += _pip_member_requirements(osprey_spec)
+        cmd += plan.member_requirements
 
     from rich.live import Live
     from rich.spinner import Spinner

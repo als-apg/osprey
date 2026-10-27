@@ -691,7 +691,7 @@ def test_profile_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     profile = profile_dir / "profile.yml"
     profile.write_text(
         "extends: hello-world\nname: ConventionTest\nproject_name: repo\ndata: data\n"
-        "provider: anthropic\n"
+        "provider: anthropic\nrules: [rules/extra]\n"
     )
     result = _render_from(runner, str(profile))
     assert result.exit_code == 0, result.output
@@ -1237,7 +1237,7 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(
     )
     (root / "profile.yml").write_text(
         "name: RootProfile\nproject_name: prof\nextends: hello-world\nprovider: anthropic\n"
-        "model: claude-sonnet-5\ndata: data\n"
+        "model: claude-sonnet-5\ndata: data\nagents: [agents/orbit-writer]\n"
     )
     (root / RETIRED_LAYER_DIRNAME / "narrow.yml").write_text(
         "name: Narrow\n"

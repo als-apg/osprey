@@ -108,8 +108,14 @@ RETIRED_CATALOG_KEY = "personas"
 #: Catalog fields the build derives from the tier or app file's location.
 _DERIVED_CATALOG_KNOBS = frozenset({"build_profile", "project", "project_path"})
 
-#: Catalog fields that are top-level keys of the tier or app file instead.
-_LAYER_FILE_KNOBS = ("extra_mounts", "seed_base", "image")
+#: Per-render keys a tier or app file may spell and a root profile never does:
+#: what the card running that render mounts, seeds from, and runs as. They are
+#: also the retired catalog's fields that moved to the top of those files. Read
+#: from the file by the render projection
+#: (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`);
+#: no profile field holds them, so a resolved render document does not carry
+#: them either.
+RENDER_KEYS = frozenset({"extra_mounts", "seed_base", "image"})
 
 #: ``(source, key)`` pairs already warned about. A document is parsed several
 #: times per command (load, hash, lint), and one line per key is the contract.
@@ -304,7 +310,7 @@ def _normalize_retired_roster_keys(raw: dict[str, Any], source: str) -> dict[str
             if knob in _DERIVED_CATALOG_KNOBS:
                 continue
             spelled = f"{catalog_old}.{name}.{knob}"
-            if knob in _LAYER_FILE_KNOBS:
+            if knob in RENDER_KEYS:
                 remedy = f"set `{knob}` at the top of tiers/{name}.yml (or apps/{name}.yml)"
             elif knob == "landing_group":
                 remedy = f"group landing cards with `{_WT_LABEL}.landing.groups`"

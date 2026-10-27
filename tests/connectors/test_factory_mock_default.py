@@ -18,7 +18,8 @@ import pytest
 from osprey.services.python_executor.execution.control import get_execution_control_config
 from osprey_connectors import types
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
+from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
 FACTORY_LOGGER = "connector_factory"

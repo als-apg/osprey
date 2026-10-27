@@ -305,7 +305,7 @@ class TestWorkspaceMembersFromSource:
         members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
         assert install_cmd[-(1 + len(members)) :] == [spec, *members]
 
-    @pytest.mark.usefixtures("without_uv", "calls")
+    @pytest.mark.usefixtures("without_uv")
     @pytest.mark.parametrize(
         "spec",
         [
@@ -314,14 +314,22 @@ class TestWorkspaceMembersFromSource:
             "hg+https://example.invalid/osprey",
         ],
     )
-    def test_pip_command_refuses_a_spec_whose_members_it_cannot_locate(self, tmp_path, spec):
+    def test_pip_command_refuses_a_spec_whose_members_it_cannot_locate(self, calls, tmp_path, spec):
         """A framework fetched from an arbitrary URL names no place its members
         live, and resolving them by name from PyPI may pick up a different
-        project's package."""
+        project's package. The refusal is part of the plan, so an existing venv
+        is left exactly as it was."""
         from osprey_connectors.errors import BuildProfileError
 
+        existing = tmp_path / ".venv" / "pyvenv.cfg"
+        existing.parent.mkdir()
+        existing.write_text("home = /previous/build\n")
+
         with pytest.raises(BuildProfileError, match="workspace member"):
-            _create_project_venv(tmp_path, _plan_project_venv(_profile(osprey_install=spec)))
+            _plan_project_venv(_profile(osprey_install=spec))
+
+        assert calls == []
+        assert existing.read_text() == "home = /previous/build\n"
 
     @pytest.mark.usefixtures("without_uv")
     def test_pip_command_appends_no_member_for_a_version_range(self, calls, tmp_path):

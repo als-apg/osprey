@@ -174,13 +174,15 @@ def test_a_clean_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:
 
 
 def test_a_run_repairs_nothing_the_build_would(repo: Path) -> None:
-    """Neither the facility-rule rescue nor the per-user context seeding runs."""
+    """Nothing is written for a missing facility description or per-user context."""
     built = run_build(repo)
     assert built.exit_code == 0, built.output
     assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
+    # A repo from before the rule moved into the profile: no source-zone copy,
+    # and the library rule selected by its bare name.
     (repo / "rules" / "facility.md").unlink()
     profile = repo / "profile.yml"
-    text = profile.read_text(encoding="utf-8")
+    text = profile.read_text(encoding="utf-8").replace("  - rules/facility ", "  - facility ")
     assert text.count("\n    users:\n") == 1
     profile.write_text(
         text.replace(

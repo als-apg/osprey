@@ -151,7 +151,7 @@ happened on whichever PR touched the plugin; the release only checks it (step 4)
 The release.yml verify step builds the package and compares the *built wheel's*
 version to the pushed tag; if these disagree, the publish fails. They disagree
 when the tag is not on the commit being built, or when the checkout is shallow
-(which yields `0.1.devN` rather than failing outright).
+(which yields `0.0.postN+g…` rather than failing outright).
 
 ---
 
@@ -519,12 +519,13 @@ git push origin vYYYY.M.P
 The tag must point at the merge commit on `main`. The `release.yml` workflow
 triggers on `v*.*.*` and:
 
-1. Verifies a full CI run covered this tree, before anything is built.
+1. Verifies the tagged commit is on `main` and a full CI run covered its tree,
+   before anything is built.
 2. Builds the framework's and its lockstep members' wheels and sdists — not
    `osprey-connectors`, which `verify-pypi-resolvable` then resolves from PyPI,
    proving the framework's `osprey-connectors>=` floor is already published.
 3. Verifies the built version matches the tag. A checkout without full history
-   builds `0.1.devN` instead of the tagged version; this gate catches that.
+   builds `0.0.postN+g…` instead of the tagged version; this gate catches that.
 4. Validates the install docs and that the dependencies resolve from PyPI.
 5. Publishes to PyPI via trusted publishing (OIDC; no token needed).
 6. Creates a GitHub Release using the CHANGELOG section as the body.
@@ -626,8 +627,8 @@ beta on PyPI.
   workflow `release-connectors.yml`, environment `pypi-connectors`, and the
   GitHub environment `pypi-connectors` exists.
 
-**What the tag runs:** `verify-ci` (the shared `scripts/ci/require_green_lanes.py`
-gate) → `build` (`uv build --package osprey-connectors`; the wheel and sdist must
+**What the tag runs:** `verify-ci` (the tag is on `main`, then the shared
+`scripts/ci/require_green_lanes.py` gate) → `build` (`uv build --package osprey-connectors`; the wheel and sdist must
 carry exactly the tag's PEP 440-normalized number; `twine check`) →
 `verify-install` (a bare venv, dependencies from PyPI, the same lean import-walk
 the `package` CI job runs) → `publish-to-pypi` → the GitHub Release
@@ -680,17 +681,43 @@ PyPI, and only when the framework starts needing what it carries:
 
 ## Manual Publish Fallback (only if Actions is broken)
 
-If `release.yml` is broken and the release is time-sensitive:
+If `release.yml` or `release-connectors.yml` is broken and the release is
+time-sensitive, do by hand what the workflow would have, in the same order. The
+tag is pushed already; build from a full clone checked out at it (`git fetch
+--tags` first — a missing tag builds `0.0.postN+g…`). `twine upload` needs a
+PyPI API token for each project (`TWINE_USERNAME=__token__`,
+`TWINE_PASSWORD=<token>`); trusted publishing works only from the workflow.
+
+Framework tag `vYYYY.M.P` — lockstep members upload before the framework, so a
+refused member upload never leaves the framework live with a dependency nothing
+satisfies:
 
 ```bash
-rm -rf dist/ build/ src/*.egg-info/
-uv build
+git checkout vYYYY.M.P && rm -rf dist/
+uv build                                  # the framework
+uv build --package pyaml-cs-osprey        # every lockstep member, as release.yml builds them
+ls dist/                                  # every file must carry YYYY.M.P exactly
 uvx twine check dist/*
-uvx twine upload dist/*    # requires PyPI credentials in env
+uvx twine upload $(ls dist/* | grep -v osprey_framework-)   # every member first
+uvx twine upload dist/osprey_framework-*                     # the framework last
+python3 scripts/ci/release_notes.py CHANGELOG.md YYYY.M.P > /tmp/notes.md
+gh release create vYYYY.M.P --title "Release vYYYY.M.P" --notes-file /tmp/notes.md
 ```
 
-Then manually create the GitHub Release: `gh release create vYYYY.M.P
---notes-file <(awk '/^## \[YYYY.M.P\]/,/^## \[/' CHANGELOG.md | head -n -1)`.
+Connectors tag `osprey-connectors-vYYYY.M.P`:
+
+```bash
+git checkout osprey-connectors-vYYYY.M.P && rm -rf dist/
+uv build --package osprey-connectors
+ls dist/                                  # one wheel and one sdist, both YYYY.M.P
+uvx twine check dist/*
+uvx twine upload dist/osprey_connectors-*
+python3 scripts/ci/release_notes.py packages/osprey-connectors/CHANGELOG.md YYYY.M.P > /tmp/notes.md
+gh release create osprey-connectors-vYYYY.M.P --title "osprey-connectors vYYYY.M.P" \
+  --notes-file /tmp/notes.md --latest=false
+```
+
+Add `--prerelease` to `gh release create` for a `bN` / `rcN` tag.
 
 This is a fallback. The default path is the automated workflow.
 

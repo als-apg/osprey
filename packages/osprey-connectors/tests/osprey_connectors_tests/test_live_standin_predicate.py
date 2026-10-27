@@ -19,7 +19,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.standin import (
-    ARCHIVER_RECORDER_BLOCK_KEY,
+    _ARCHIVER_RECORDER_BLOCK_KEY,
     ARCHIVER_RECORDER_SERVICE,
     LIVE_STANDIN_PORT_KEY,
     archive_belongs_to_standin,
@@ -273,4 +273,4 @@ class TestArchiveBelongsToStandin:
 
     def test_the_block_key_is_the_one_the_build_projects(self) -> None:
         """Pinned because the reach contract projects a leaf of this exact block."""
-        assert ARCHIVER_RECORDER_BLOCK_KEY == "services.archiver_recorder"
+        assert _ARCHIVER_RECORDER_BLOCK_KEY == "services.archiver_recorder"

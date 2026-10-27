@@ -726,10 +726,19 @@ def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
     """Read the groups *pid*'s descendants are in and its descendants in the server's group.
 
     Both come from one process table, read while *alive* says *pid* runs and
-    retried when the read fails. Blocking (it reads the process table).
+    retried while it does. When the table could not be read the tree is
+    returned unread and empty, and a warning names the child and the cause.
+    Blocking (it reads the process table).
     """
-    rows = process_tree.read_while_alive(alive)
-    if rows is None:
+    try:
+        rows = process_tree.read_while_alive(alive)
+    except process_tree.ProcessTableUnreadable as exc:
+        logger.warning(
+            "Could not read the process table while the chat child %d was alive (%s); "
+            "what it started is left running",
+            pid,
+            exc.cause,
+        )
         return _AgentTree(groups=[], members=[], read=False)
     return _AgentTree(
         groups=process_tree.tree_groups(pid, rows),
@@ -1647,10 +1656,11 @@ class OperatorSession:
         in :attr:`tree_ending`.
 
         The process table is read while the child is alive, and a failed read
-        is retried for as long as it is. When it still cannot be read, what the
-        child started cannot be looked for: it is left running, and a warning
-        names the child. Each read is bounded, so a process table that never
-        answers costs about six seconds and no more.
+        is retried while it is, for up to ``process_tree.READ_WAIT_S``. When it
+        still cannot be read, what the child started cannot be looked for: it
+        is left running, a warning names the child, and :attr:`tree_ending`
+        says ``read=False``. A process table that never answers therefore
+        costs about five seconds and no more.
 
         The runner keeps the child's process handle after it closes, so a
         caller that has to wait for the child to be *gone* — not merely asked
@@ -1680,12 +1690,6 @@ class OperatorSession:
             if pid is not None
             else None
         )
-        if pid is not None and tree is not None and not tree.read:
-            logger.warning(
-                "Could not read the process table while the chat child %d was alive; "
-                "what it started is left running",
-                pid,
-            )
 
         scope = self._agent_scope
         if scope is not None:
@@ -1708,14 +1712,16 @@ class OperatorSession:
         self._started = False
         logger.info("OperatorSession stopped")
 
-    def started_commands(self) -> list[ProcessGroup] | None:
+    def started_commands(self) -> list[ProcessGroup]:
         """The commands the agent started in groups of their own and still running.
 
         What ending this session would also end, beyond the agent itself and
-        its helpers in the server's group. Empty once the child has exited;
-        ``None`` when the process table could not be read while it was alive,
-        so what it started is unknown. Blocking (it reads the process table): call it off
-        the loop.
+        its helpers in the server's group. Empty once the child has exited.
+        Blocking (it reads the process table): call it off the loop.
+
+        Raises:
+            process_tree.ProcessTableUnreadable: The process table could not
+                be read while the child was alive: what it started is unknown.
         """
         pid = self.pid
         if pid is None:
