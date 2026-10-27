@@ -27,8 +27,8 @@ under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
 build computes: the readback a setpoint is paired with when no source names
 one; each device's place and position along its model's deck, its ordinal
 among its class in its place and in its model, and the groups that name it;
-and each wiring record's direction, unit, value range and start value. The
-second is ``provenance``: per record, which layer and file stated each field,
+and each wiring record's unit, direction, value range and operating point,
+and what its model's engine says it is: role, plane and refresh. The second is ``provenance``: per record, which layer and file stated each field,
 which fixes were applied and which fields the build filled.
 ``osprey facility show <id>`` prints it.
 

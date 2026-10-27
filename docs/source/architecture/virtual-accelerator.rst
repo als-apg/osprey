@@ -52,7 +52,8 @@ rot.
 The entrypoint, the runner and the model surface read the view through
 ``osprey_connectors.simulation.view.SimulatorView``, the one reader every
 consumer of a view opens it with. Each wiring record of ``variables.json``
-states what its engine's ``describe()`` said of it at build time: its ``role``
+states what its engine's ``describe()`` said of it at build time, written
+into the facility file: its ``role``
 (``setpoint``, ``readback``, ``monitor`` or ``output``), the transverse
 ``plane`` it steers or reads (``x``, ``y`` or none) and its ``refresh``. A
 write's pass reads what the write can change, and never a channel whose binding
