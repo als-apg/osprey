@@ -1,0 +1,1 @@
+An application can be described by an `apps/<name>/app.yml` manifest: its containers, panel, tool server and vendored files. OSPREY validates the file strictly, and a compose key such as `volumes` or `network` is refused with a message naming where it belongs.
