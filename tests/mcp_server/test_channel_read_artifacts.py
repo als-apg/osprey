@@ -252,10 +252,18 @@ async def test_reported_color_mode_places_the_colour_axis_first(tmp_path, monkey
     assert _png_size(png) == (40, 32)
 
 
-async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
-    """A frame the control system calls Mono is not RGB, however its dims line up."""
+@pytest.mark.parametrize(
+    "color_mode",
+    [
+        pytest.param("Mono", id="named"),
+        # areaDetector's enum code for Mono.
+        pytest.param(0, id="enum-code"),
+    ],
+)
+async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch, color_mode):
+    """A frame the control system calls Mono is a 3-plane stack, not RGB, however its dims line up."""
     frame = np.arange(3 * 32 * 40, dtype=np.uint16).reshape(3, 32, 40)
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: "Mono"})
+    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: color_mode})
 
     entry = data["summary"]["readings"][ADDRESS]
     assert entry["no_preview_reason"]
@@ -305,18 +313,6 @@ async def test_integer_color_mode_rgb3_places_the_colour_axis_last(tmp_path, mon
     png = (get_artifact_store().get_file_path(entry["artifact_id"])).read_bytes()
     # 800 wide by 3 high - the trailing axis was colour this time.
     assert _png_size(png) == (800, 3)
-
-
-async def test_integer_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
-    """Enum 0 is Mono: a 3-plane stack, not a colour frame, whatever its dims."""
-    frame = np.arange(3 * 32 * 40, dtype=np.uint16).reshape(3, 32, 40)
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: 0})
-
-    entry = data["summary"]["readings"][ADDRESS]
-    assert entry["no_preview_reason"]
-    stored = get_artifact_store().get_entry(entry["artifact_id"])
-    assert stored is not None and stored.mime_type != "image/png"
-    np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
 async def test_unknown_integer_color_mode_falls_back_to_inference(tmp_path, monkeypatch):

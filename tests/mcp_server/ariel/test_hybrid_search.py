@@ -34,6 +34,18 @@ def _get_hybrid_search():
     return get_tool_fn(hybrid_search)
 
 
+async def _searched_with(**kwargs):
+    """Call hybrid_search over an empty result; return the kwargs it gave ``service.search``."""
+    mock_service = AsyncMock()
+    attach_fake_attachment_reader(mock_service)
+    mock_service.search.return_value = _make_search_result([])
+
+    with patch_ariel_service(mock_service):
+        await _get_hybrid_search()(**kwargs)
+
+    return mock_service.search.call_args.kwargs
+
+
 async def test_hybrid_search_basic(ariel_registry):
     """Basic hybrid search returns matching entries."""
     ariel_registry()
@@ -61,30 +73,18 @@ async def test_hybrid_search_dispatches_to_the_hybrid_mode(ariel_registry):
     """The tool must route to its own search module, not a neighbour's."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="beam loss")
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="beam loss")
-
-    assert mock_service.search.call_args.kwargs["mode"] == "hybrid"
+    assert kwargs["mode"] == "hybrid"
 
 
 async def test_hybrid_search_forwards_author_and_source_filters(ariel_registry):
     """author and source_system travel as advanced params."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="test", author="chen", source_system="Example eLog")
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="test", author="chen", source_system="Example eLog")
-
-    adv = mock_service.search.call_args.kwargs["advanced_params"]
+    adv = kwargs["advanced_params"]
     assert adv["author"] == "chen"
     assert adv["source_system"] == "Example eLog"
 
@@ -93,15 +93,9 @@ async def test_hybrid_search_forwards_date_range(ariel_registry):
     """start_date and end_date become the request's time range."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="test", start_date="2024-01-15", end_date="2024-02-15")
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="test", start_date="2024-01-15", end_date="2024-02-15")
-
-    start, end = mock_service.search.call_args.kwargs["time_range"]
+    start, end = kwargs["time_range"]
     assert start.year == 2024 and start.month == 1 and start.day == 15
     assert end.month == 2 and end.day == 15
 
@@ -516,30 +510,18 @@ async def test_expand_query_is_forwarded_in_advanced_params(value, ariel_registr
     """An explicit expand_query reaches the service as an advanced parameter."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="ts bpm", expand_query=value)
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="ts bpm", expand_query=value)
-
-    assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
+    assert kwargs["advanced_params"]["expand_query"] is value
 
 
 async def test_expand_query_omitted_when_unset(ariel_registry):
     """Silence leaves the deployment's ``expand_by_default`` in charge."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="ts bpm")
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="ts bpm")
-
-    assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
+    assert "expand_query" not in kwargs["advanced_params"]
 
 
 async def test_envelope_reports_the_applied_expansion(ariel_registry):
@@ -603,30 +585,18 @@ async def test_rerank_is_forwarded_in_advanced_params(value, ariel_registry):
     """An explicit rerank reaches the service as an advanced parameter."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="beam loss", rerank=value)
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="beam loss", rerank=value)
-
-    assert mock_service.search.call_args.kwargs["advanced_params"]["rerank"] is value
+    assert kwargs["advanced_params"]["rerank"] is value
 
 
 async def test_rerank_omitted_when_unset(ariel_registry):
     """Silence leaves the deployment's ``settings.rerank`` in charge."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="beam loss")
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="beam loss")
-
-    assert "rerank" not in mock_service.search.call_args.kwargs["advanced_params"]
+    assert "rerank" not in kwargs["advanced_params"]
 
 
 def test_docstring_gives_the_rerank_speed_tradeoff():
@@ -651,30 +621,18 @@ async def test_include_images_is_forwarded_in_advanced_params(value, ariel_regis
     """An explicit include_images reaches the service as its one channel."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="orbit kick", include_images=value)
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="orbit kick", include_images=value)
-
-    assert mock_service.search.call_args.kwargs["advanced_params"]["include_images"] is value
+    assert kwargs["advanced_params"]["include_images"] is value
 
 
 async def test_include_images_omitted_when_unset(ariel_registry):
     """Silence leaves the service to decide from image_embedding.enabled."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    kwargs = await _searched_with(query="orbit kick")
 
-    with patch_ariel_service(mock_service):
-        fn = _get_hybrid_search()
-        await fn(query="orbit kick")
-
-    assert "include_images" not in mock_service.search.call_args.kwargs["advanced_params"]
+    assert "include_images" not in kwargs["advanced_params"]
 
 
 def test_advanced_params_builder_carries_include_images_only_when_given():
