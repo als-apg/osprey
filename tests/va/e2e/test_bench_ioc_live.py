@@ -79,6 +79,7 @@ from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBl
 from tests.fixtures import bench_ioc as bench
 from tests.fixtures.control_context import context_for, publish_reachability
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -1108,10 +1109,4 @@ class TestWhenTheBenchMachineGoesAway:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_bench_ioc_live.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

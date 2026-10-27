@@ -26,6 +26,7 @@ import pytest
 
 from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.types import VIRTUAL_ACCELERATOR, writes_enabled_key
+from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
 #: Which writable corrector this lane drives, as a slot in the served view's
@@ -126,10 +127,4 @@ class TestApprovalSmoke:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_approval_smoke.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)

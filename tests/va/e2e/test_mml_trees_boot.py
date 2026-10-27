@@ -154,6 +154,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     SimulatorView,
 )
 from tests.fixtures.mml._trees import names  # noqa: E402
+from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 pytestmark = [
@@ -985,10 +986,4 @@ class TestTheServedTree:
 
 def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
     """Vacuous-green guard: an empty or half-collected module fails here."""
-    collected = [
-        item
-        for item in request.session.items
-        if item.nodeid.split("::")[0].endswith("test_mml_trees_boot.py")
-    ]
-
-    assert len(collected) >= MIN_COLLECTED_TESTS
+    assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)
