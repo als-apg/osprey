@@ -68,9 +68,9 @@ services:
   tiled:
     ports:
       - "127.0.0.1:8070:8000"
-  telemetry_store:
+  history:
     ports:
-      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:8123:8000"
   postgresql:
     ports:
       - "127.0.0.1:5432:5432"
@@ -331,7 +331,7 @@ def test_printed_summary_keeps_the_entries_and_their_order(probe, compose_file):
 def test_the_printed_block_is_sectioned_by_tier_in_layout_order(probe, compose_file):
     """The shape of the block, not an alphabet.
 
-    The fixture publishes one service in each of three tiers, plus the landing
+    The fixture publishes one service in each of four tiers, plus the landing
     page and the panel bands, and they print gateway-first in ascending offset
     order — which is nothing like the alphabetical order the same service names
     would have taken.
@@ -354,8 +354,8 @@ def test_the_printed_block_is_sectioned_by_tier_in_layout_order(probe, compose_f
         ("dispatch", "event-dispatcher"),
         ("services", "tiled"),
         ("panels", "artifact"),
+        ("gateway", "history"),
         ("stores", "postgresql"),
-        ("stores", "telemetry_store"),
     ):
         assert printed.index(tier) < printed.index(service)
 
@@ -471,21 +471,13 @@ def test_the_graph_store_is_one_row_that_says_which_port_is_which(graphdb_compos
     assert _graph_row(entries) == "bolt 127.0.0.1:7687 · browser http://127.0.0.1:7474"
 
 
-def test_the_telemetry_services_are_shown_under_their_tiers(tmp_path):
-    """The gateway is one row saying which port is which; the store and the
-    history app are pages. Each sits under the tier its layout slot names."""
+def test_the_history_app_is_a_page_under_its_tier(tmp_path):
+    """The history app is a page, under the tier its layout slot names."""
     ports = layout_ports(DEFAULT_PORT_BASE)
-    path = tmp_path / "docker-compose.telemetry.yml"
+    path = tmp_path / "docker-compose.history.yml"
     path.write_text(
         f"""
 services:
-  telemetry_gateway:
-    ports:
-      - "10.0.0.5:{ports["telemetry_gateway"]}:4318"
-      - "127.0.0.1:{ports["telemetry_metrics"]}:8888"
-  telemetry_store:
-    ports:
-      - "127.0.0.1:{ports["telemetry_store"]}:8123"
   history:
     ports:
       - "127.0.0.1:{ports["history"]}:8000"
@@ -495,12 +487,6 @@ services:
     entries = deploy_summary.endpoint_entries({"project_name": "demo"}, [str(path)])
     shown = {service: (tier, address) for tier, service, address in entries}
 
-    assert shown["telemetry_gateway"] == (
-        "services",
-        f"otlp 10.0.0.5:{ports['telemetry_gateway']} · "
-        f"metrics http://127.0.0.1:{ports['telemetry_metrics']}",
-    )
-    assert shown["telemetry_store"] == ("stores", f"http://127.0.0.1:{ports['telemetry_store']}")
     assert shown["history"] == ("gateway", f"http://127.0.0.1:{ports['history']}")
 
 
@@ -588,9 +574,9 @@ services:
     ports:
       - "127.0.0.1:7687:7687"
       - "127.0.0.1:7474:7474"
-  telemetry_store:
+  history:
     ports:
-      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:8123:8000"
   tiled:
     ports:
       - "127.0.0.1:8000:8000"
@@ -607,7 +593,7 @@ services:
         )
     }
 
-    assert entries["telemetry_store"] == "http://127.0.0.1:8123"
+    assert entries["history"] == "http://127.0.0.1:8123"
     assert entries["tiled"] == "http://127.0.0.1:8000"
     assert entries["postgresql"] == "127.0.0.1:5432"
 
@@ -697,9 +683,9 @@ services:
   event-dispatcher:
     ports:
       - "127.0.0.1:{ports["dispatcher"]}:8020"
-  telemetry_store:
+  history:
     ports:
-      - "127.0.0.1:{ports["telemetry_store"]}:8123"
+      - "127.0.0.1:{ports["history"]}:8000"
   qmd:
     ports:
       - "127.0.0.1:{ports["qmd"]}:8000"
@@ -769,7 +755,7 @@ def test_the_whole_block_moves_with_one_key(tmp_path, base):
     addresses = {service: address for _tier, service, address in entries}
 
     ports = layout_ports(base)
-    assert addresses["telemetry_store"] == f"http://127.0.0.1:{ports['telemetry_store']}"
+    assert addresses["history"] == f"http://127.0.0.1:{ports['history']}"
     assert addresses["postgresql"] == f"127.0.0.1:{ports['postgres']}"
     assert addresses["graphdb"] == (
         f"bolt 127.0.0.1:{ports['graphdb_bolt']} · browser http://127.0.0.1:{ports['graphdb_http']}"
@@ -1321,13 +1307,13 @@ def test_an_unknown_service_is_placed_by_the_band_it_actually_binds(tmp_path):
     path = tmp_path / "docker-compose.unknown.yml"
     ports = layout_ports(DEFAULT_PORT_BASE)
     path.write_text(
-        f'services:\n  mystery:\n    ports:\n      - "127.0.0.1:{ports["telemetry_gateway"]}:80"\n',
+        f'services:\n  mystery:\n    ports:\n      - "127.0.0.1:{ports["agent_record"]}:80"\n',
         encoding="utf-8",
     )
 
     entries = deploy_summary.endpoint_entries({"project_name": "demo"}, [str(path)])
 
-    assert ("services", "mystery", f"127.0.0.1:{ports['telemetry_gateway']}") in entries
+    assert ("services", "mystery", f"127.0.0.1:{ports['agent_record']}") in entries
 
 
 def test_a_port_outside_the_block_still_falls_to_the_facility_band(tmp_path):
@@ -1346,19 +1332,19 @@ def test_a_port_outside_the_block_still_falls_to_the_facility_band(tmp_path):
 def test_the_name_wins_over_the_band_a_service_was_moved_to(tmp_path):
     """A service's identity outlives whichever port it was moved to.
 
-    ``postgresql`` published on the telemetry gateway band is still a store, and
+    ``postgresql`` published on the agent record's band is still a store, and
     placing it by where it landed would file it under `services`.
     """
     path = tmp_path / "docker-compose.moved.yml"
     ports = layout_ports(DEFAULT_PORT_BASE)
     path.write_text(
-        f'services:\n  postgresql:\n    ports:\n      - "127.0.0.1:{ports["telemetry_gateway"]}:5432"\n',
+        f'services:\n  postgresql:\n    ports:\n      - "127.0.0.1:{ports["agent_record"]}:5432"\n',
         encoding="utf-8",
     )
 
     entries = deploy_summary.endpoint_entries({"project_name": "demo"}, [str(path)])
 
-    assert ("stores", "postgresql", f"127.0.0.1:{ports['telemetry_gateway']}") in entries
+    assert ("stores", "postgresql", f"127.0.0.1:{ports['agent_record']}") in entries
 
 
 # ---------------------------------------------------------------------------
@@ -1659,8 +1645,8 @@ def test_the_declared_set_is_the_schema_accessor_applied_per_block():
 
 
 def _reader_config(web: dict | None = None, *, method: str = "oidc") -> dict:
-    """Three named readers of the agent record, a store with readers of its own,
-    and, with ``web``, a signed-in web tier serving the history page.
+    """Three named readers of the agent record and, with ``web``, a signed-in
+    web tier serving the history page.
 
     ``carol`` is a roster person, ``ext`` an IdP identity off the roster, and
     ``script`` has neither: they read on the deploy host only.
@@ -1668,8 +1654,7 @@ def _reader_config(web: dict | None = None, *, method: str = "oidc") -> dict:
     config: dict = {
         "project_name": "demo",
         "deploy": {"host": "demo-deploy", "fqdn": "demo.example.org"},
-        "deployed_services": ["telemetry_store"],
-        "services": {"telemetry_store": {"readers": [{"name": "2nd-shift"}]}},
+        "deployed_services": [],
         "agent_record": {
             "readers": [
                 {"name": "carol", "kinds": ["prompt"]},
@@ -1698,10 +1683,10 @@ def _reader_rows(
     return [entry for entry in entries if entry[1].startswith("reader ")]
 
 
-def test_a_reader_who_signs_in_gets_the_history_page_on_the_readers_origin():
+def test_a_reader_who_signs_in_gets_the_history_page_on_its_origin():
     """The roster reader and the IdP reader; the reader nothing signs in reads
     on the deploy host only, through the read API, and has no row."""
-    port = layout_ports(DEFAULT_PORT_BASE)["reader"]
+    port = layout_ports(DEFAULT_PORT_BASE)["history_origin"]
     page = f"https://demo.example.org:{port}/history/"
     config = _reader_config(web={})
 
@@ -1716,7 +1701,7 @@ def test_a_reader_who_signs_in_gets_the_history_page_on_the_readers_origin():
 
 def test_under_password_sign_in_only_a_roster_reader_gets_a_link():
     """No IdP asserts a subject under password sign-in."""
-    port = layout_ports(DEFAULT_PORT_BASE)["reader"]
+    port = layout_ports(DEFAULT_PORT_BASE)["history_origin"]
     config = _reader_config(web={}, method="password")
 
     assert _reader_rows(config) == [
@@ -1724,11 +1709,11 @@ def test_under_password_sign_in_only_a_roster_reader_gets_a_link():
     ]
 
 
-def test_a_stated_reader_origin_is_the_one_printed():
+def test_a_stated_history_origin_is_the_one_printed():
     config = _reader_config(
         web={
             "external_origin": "https://terminals.example.org",
-            "reader_origin": "https://terminals.example.org:8443",
+            "history_origin": "https://terminals.example.org:8443",
         }
     )
     assert deploy_summary.reader_page_url(config, "carol") == (
@@ -1736,17 +1721,17 @@ def test_a_stated_reader_origin_is_the_one_printed():
     )
 
 
-def test_no_link_names_the_query_endpoint_the_query_page_or_a_key():
+def test_no_reader_link_carries_a_key():
     for config in (_reader_config(), _reader_config(web={})):
         for _tier, _service, address in _reader_rows(config):
-            for gone in ("/telemetry/", "/play", "password", "user="):
+            for gone in ("password", "user="):
                 assert gone not in address
     assert not hasattr(deploy_summary, "reader_tunnel_command")
 
 
 def test_without_the_history_page_no_reader_row_is_printed():
-    """A store and its readers alone serve nothing to open: no ``/play`` link,
-    no tunnel. Token sign-in serves no history page either."""
+    """Readers alone serve nothing to open: no link, no tunnel. Token sign-in
+    serves no history page either."""
     assert _reader_rows(_reader_config()) == []
     assert deploy_summary.reader_page_url(_reader_config(), "carol") is None
     token = _reader_config(web={})
@@ -1754,20 +1739,11 @@ def test_without_the_history_page_no_reader_row_is_printed():
     assert _reader_rows(token) == []
 
 
-def test_the_store_readers_print_no_row_and_the_page_needs_no_store():
-    config = _reader_config(web={})
-    config["deployed_services"] = []
-    names = [service for _tier, service, _address in _reader_rows(config)]
-
-    assert names == ["reader carol", "reader ext"]
-    assert deploy_summary.reader_page_url(config, "2nd-shift") is None
-
-
-def test_an_underivable_readers_origin_prints_no_row_and_fails_nothing():
+def test_an_underivable_history_origin_prints_no_row_and_fails_nothing():
     """Advisory: the render refuses that config in its own words; the summary
     of a deployment that is already up must not be what raises."""
     config = _reader_config(web={"external_origin": "https://terminals.example.org"})
 
     assert _reader_rows(config) == []
-    with pytest.raises(ValueError, match="reader_origin"):
+    with pytest.raises(ValueError, match="history_origin"):
         deploy_summary.reader_page_url(config, "carol")

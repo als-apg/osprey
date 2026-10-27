@@ -575,8 +575,8 @@ def test_landing_escapes_html_special_characters_in_link_labels() -> None:
 
     Exercised through the LINK labels rather than a roster name: a group label
     and a link label are free prose a facility authors, while a roster name can
-    no longer reach this template unescaped at all — it is the audit
-    subdirectory's name in every auth posture, so `_check_roster_audit_identities`
+    never reach this template unescaped at all — it is the spool and state
+    subdirectories' name in every auth posture, so `_check_roster_audit_identities`
     refuses anything outside the username charset before the landing page is
     built (see the companion test below). Both halves run through the same `|e`
     filter, so what is pinned here is the same escaping.
@@ -605,12 +605,12 @@ def test_landing_escapes_html_special_characters_in_link_labels() -> None:
 def test_a_roster_name_carrying_markup_never_reaches_the_landing_page() -> None:
     """The stronger half of the escaping story: such a name is refused outright.
 
-    It would be a host directory name (`var/audit/<user>/`, bound read-write into
+    It would be a host directory name (`var/spool/<user>/`, bound read-write into
     that user's container) before it were ever an HTML label, so the render stops
     it rather than escaping it downstream.
     """
     # Act / Assert
-    with pytest.raises(ValueError, match="audit subdirectory"):
+    with pytest.raises(ValueError, match="spool and state subdirectories"):
         render_web_terminals(copy.deepcopy(_config(["<script>alert('u')</script>"])))
 
 
@@ -1661,7 +1661,7 @@ def test_theme_value_is_yaml_quoted_and_round_trips() -> None:
 def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     """A render's `extra_mounts` render as additional `volumes:` entries on every
     user of that render, after the framework mounts (claude-config, agent-data,
-    this user's audit, spool and state subdirectories, its control-context
+    this user's spool and state subdirectories, its control-context
     record directory, the simulator logs and the guarded-run directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
@@ -1691,13 +1691,12 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the nine default mounts plus the render's two
+    # Assert — bob (gui) carries the eight default mounts plus the render's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-claude-projects:/data/claude-config/projects",
         "bob-agent-data:/app/dls-gui/var/agent_data",
-        "./var/audit/bob:/app/dls-gui/var/audit/bob",
         "./var/spool/bob:/app/dls-gui/var/spool/bob",
         "./var/state/bob:/app/dls-gui/var/state/bob",
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
@@ -1707,12 +1706,11 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "shared-cache:/app/cache",
     ]
     # alice (default tier, no extra_mounts) keeps exactly the framework's own
-    # nine mounts — the render's list adds to them, never reorders them.
+    # eight mounts — the render's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-claude-projects:/data/claude-config/projects",
         "alice-agent-data:/app/dls_controls-assistant/var/agent_data",
-        "./var/audit/alice:/app/dls_controls-assistant/var/audit/alice",
         "./var/spool/alice:/app/dls_controls-assistant/var/spool/alice",
         "./var/state/alice:/app/dls_controls-assistant/var/state/alice",
         (
@@ -1725,10 +1723,10 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the nine
+    """A render with no `extra_mounts` emits exactly the eight
     framework per-user volume lines — claude-config, the transcripts volume
     nested in it, agent-data, this user's own
-    audit, spool and state subdirectories, its own control-context record directory, the simulator
+    spool and state subdirectories, its own control-context record directory, the simulator
     logs of its mock target and the guarded-run directory — and the extra_mounts
     loop adds nothing."""
     # Arrange
@@ -1744,7 +1742,6 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
             f"{user}-claude-config:/data/claude-config",
             f"{user}-claude-projects:/data/claude-config/projects",
             f"{user}-agent-data:/app/dls_controls-assistant/var/agent_data",
-            f"./var/audit/{user}:/app/dls_controls-assistant/var/audit/{user}",
             f"./var/spool/{user}:/app/dls_controls-assistant/var/spool/{user}",
             f"./var/state/{user}:/app/dls_controls-assistant/var/state/{user}",
             (
@@ -2570,24 +2567,24 @@ def _render_nginx(config: dict) -> str:
     return render_web_terminals(config)["nginx/nginx.conf"]
 
 
-#: The comment that opens the readers' origin, the server a signed-in deployment
+#: The comment that opens the history page's origin, the server a signed-in deployment
 #: renders after the terminals' servers for its history page.
-_READERS_ORIGIN_MARKER = "# The readers' origin.\n"
+_HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
 
 #: The history page's gate snippet: rendered by every signed-in render, beside
-#: the per-user ones, and included by the readers' origin's history location.
+#: the per-user ones, and included by the history page's origin's history location.
 _HISTORY_GATE_TEMPLATE = "nginx/templates/history-gate.conf.template"
 _HISTORY_GATE_INCLUDE = "/etc/nginx/osprey/history-gate.conf"
 
 
 def _terminals_part(conf: str) -> str:
-    """The terminals' servers of *conf*: everything before the readers' origin.
+    """The terminals' servers of *conf*: everything before the history page's origin.
 
-    The readers' origin gates its history page with an ``auth_request``, an
+    The history page's origin gates its history page with an ``auth_request``, an
     ``internal`` verify target and a gate include of its own, which the
     per-user counts are not about.
     """
-    return conf.partition(_READERS_ORIGIN_MARKER)[0]
+    return conf.partition(_HISTORY_ORIGIN_MARKER)[0]
 
 
 def _directives(conf: str) -> str:
@@ -2707,7 +2704,7 @@ def test_auth_location_suppresses_the_subrequest_body() -> None:
     terminals = _terminals_part(nginx_conf)
     assert terminals.count("proxy_pass_request_body off;") == len(users)
     assert terminals.count('proxy_set_header Content-Length "";') == len(users)
-    # The history page's verify target, on the readers' origin, is one more.
+    # The history page's verify target, on the history page's origin, is one more.
     assert nginx_conf.count("proxy_pass_request_body off;") == len(users) + 1
     assert nginx_conf.count('proxy_set_header Content-Length "";') == len(users) + 1
 
@@ -3479,7 +3476,7 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
         "key": "/etc/nginx/certs/dls.key",
     }
 
-    # Act — the fourth server is the readers' origin, the history page's.
+    # Act — the fourth server is the history page's origin, the history page's.
     redirect, content, catch_all, readers = _server_blocks(_render_nginx(config))
 
     # Assert
@@ -3497,7 +3494,7 @@ def test_tls_redirect_leaves_the_auth_surface_only_on_the_secure_server() -> Non
     assert redirect.count("location") == 0
     assert _directives(catch_all).count("auth_request ") == 0
     assert "location" not in catch_all
-    # The readers' origin serves its sign-in-gated page behind TLS too, and
+    # The history page's origin serves its sign-in-gated page behind TLS too, and
     # holds none of the per-user gates.
     assert re.search(r"^    listen \d+ ssl;$", readers, flags=re.MULTILINE)
     assert "_osprey_auth" not in readers
@@ -3813,13 +3810,10 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
         # id (absent here, since this config names none) and the facility name
         # the terminals behind the sidecar already carry.
         ENV_WEB_APP_NAME,
-        # The sidecar's audit identity and the directory it writes its login and
-        # denial events to. Neither is a secret: one is the fixed name
-        # `sidecar`, the other a container path.
+        # The sidecar's identity: the fixed name `sidecar`, not a secret.
         "OSPREY_AUDIT_IDENTITY",
-        "OSPREY_AUTH_AUDIT_DIR",
-        # Its spool and state directories: container paths, like the audit
-        # directory. The state directory holds the logout revocations.
+        # Its spool and state directories: container paths, not secrets. The
+        # state directory holds the logout revocations.
         "OSPREY_SPOOL_DIR",
         "OSPREY_STATE_DIR",
         ENV_METHOD,
@@ -4292,29 +4286,6 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
 
 
-def test_a_terminal_lists_only_its_record_login_beside_the_shared_file() -> None:
-    """A terminal's one login file is its agent-record login, gateway or not.
-
-    With the telemetry gateway deployed no terminal is handed a gateway login
-    file or carries a gateway login digest label.
-    """
-    # Arrange
-    config = _config(["alice", "bob"])
-    config["deployed_services"] = ["telemetry_store", "telemetry_gateway"]
-
-    # Act
-    compose = _compose(config)
-
-    # Assert
-    terminals = {n: s for n, s in compose["services"].items() if n.startswith("web-")}
-    assert terminals
-    for name, service in terminals.items():
-        user = name.removeprefix("web-")
-        assert service["env_file"] == [".env.users", f".env.agent-record.login.{user}"]
-        assert not [f for f in service["env_file"] if ".env.telemetry-sender." in f], name
-        assert "osprey.telemetry.cred.digest" not in (service.get("labels") or {}), name
-
-
 # ---------------------------------------------------------------------------
 # The egress passthrough: the proxy settings the sidecar's OIDC fetches and
 # every terminal's outbound calls need behind a corporate proxy
@@ -4646,22 +4617,19 @@ def test_render_auth_off_refuses_a_roster_name_outside_the_charset(name: str) ->
     reasoning (the name is an nginx location key and the auth subrequest's
     `?user=` value) only applies behind a login wall. What applies in every
     posture is that the name is a host DIRECTORY: the render emits
-    `./var/audit/<name>:<container>/var/audit/<name>`, so `../../etc` is a
+    `./var/spool/<name>:<container>/var/spool/<name>`, so `../../etc` is a
     read-write bind resolving outside the repo into a container that runs
     agent-generated code, and `alice` beside `Alice` is two terminals sharing
     one subdirectory on a case-insensitive host filesystem.
 
-    This inverts the earlier contract ("no security gain"), which the audit mount
-    invalidated: the renderer used to emit a bind the provisioning seam
-    (`compose_generator.audit_identity_dir`) refuses to create, and the renderer
-    wins — it is the artifact compose reads, and the runtime creates whatever
-    source is missing.
+    The renderer is the artifact compose reads, and the runtime creates
+    whatever bind source is missing, so the refusal has to happen here.
     """
     # Arrange
     config = _config(["alice", name])
 
     # Act / Assert
-    with pytest.raises(ValueError, match="audit subdirectory") as exc_info:
+    with pytest.raises(ValueError, match="spool and state subdirectories") as exc_info:
         render_web_terminals(config)
     assert repr(name) in str(exc_info.value)
 
@@ -4680,7 +4648,7 @@ def test_render_auth_off_still_renders_an_in_charset_roster_name() -> None:
 
 def test_with_authentication_on_the_charset_gate_is_the_one_that_answers() -> None:
     """Both gates refuse an out-of-charset name and both are right about it, but
-    they explain it differently — and only the audit gate applies in both
+    they explain it differently — and only the spool and state gate applies in both
     postures, so it is the one that would shadow the other if the two ran in the
     wrong order. With a login wall the name is the AUTHORIZATION identity (the
     nginx location key, the auth subrequest's `?user=` value), which is the more
@@ -4691,7 +4659,7 @@ def test_with_authentication_on_the_charset_gate_is_the_one_that_answers() -> No
     # Act / Assert
     with pytest.raises(ValueError, match="nginx location key") as exc_info:
         render_web_terminals(_auth_config(["alice", "bob.jones"]))
-    assert "audit subdirectory" not in str(exc_info.value)
+    assert "spool and state subdirectories" not in str(exc_info.value)
 
 
 def test_render_auth_on_charset_gate_rejects_a_trailing_newline_in_a_roster_name() -> None:
@@ -5765,7 +5733,7 @@ def test_the_secret_carrier_refuses_a_roster_name_that_is_not_one_snippet_filena
 
     Driven at the carrier directly, not through `render_web_terminals`: the
     roster gates now refuse this name earlier and on their own grounds (it is
-    also the audit subdirectory's name), so going through the front door would
+    also the spool and state subdirectories' name), so going through the front door would
     pin THAT refusal and leave this one — the carrier's own last line of
     defence, and the only one that runs when the carrier is called with a
     roster the render did not build — unexercised.
@@ -5817,12 +5785,10 @@ def test_the_secret_carrier_refuses_a_dotted_name_that_derives_an_illegal_variab
 
 def test_render_refuses_a_dotted_roster_name_with_authentication_off() -> None:
     """A dot is outside the username charset, and the charset now binds in every
-    auth posture: the name is the audit subdirectory's name whether or not the
-    deployment authenticates. This inverts an earlier contract, under which such
-    a name rendered as long as no operator secret was carried — the audit mount
-    is what invalidated it."""
+    auth posture: the name is the spool and state subdirectories' name whether
+    or not the deployment authenticates."""
     # Act / Assert
-    with pytest.raises(ValueError, match="audit subdirectory") as exc_info:
+    with pytest.raises(ValueError, match="spool and state subdirectories") as exc_info:
         render_web_terminals(_config(["alice.b"]))
     assert "alice.b" in str(exc_info.value)
 
@@ -5846,7 +5812,7 @@ def test_the_secret_carrier_refuses_case_colliding_names_too() -> None:
 
     At the carrier directly: an uppercase name is outside the username charset,
     so the roster gates refuse this pair first — on the neighbouring grounds
-    that the two would also share ONE audit subdirectory on a case-insensitive
+    that the two would also share ONE spool subdirectory on a case-insensitive
     host filesystem.
     """
     # Act / Assert

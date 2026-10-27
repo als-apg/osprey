@@ -56,7 +56,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.deployment import telemetry_credentials
+from osprey.agent_record import credentials as record_credentials
 from osprey.deployment.web_terminals.render import (
     NGINX_TEMPLATES_OUTPUT_DIR,
     TERMINAL_SECRET_HEADER,
@@ -150,17 +150,17 @@ def _directives(conf: str) -> str:
 _LOCATION_RE = re.compile(r"^    location ([^\n{]*)\{\n(.*?)\n    \}$", re.DOTALL | re.MULTILINE)
 
 
-#: The comment that opens the readers' origin, the second server a signed-in
+#: The comment that opens the history page's origin, the second server a signed-in
 #: deployment renders. Its locations share header text with the terminals'
 #: (``= /`` above all), so they are keyed apart rather than read as duplicates.
-_READERS_ORIGIN_MARKER = "# The readers' origin.\n"
-_READERS_ORIGIN_PREFIX = "readers: "
+_HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
+_HISTORY_ORIGIN_PREFIX = "history: "
 
 
 def _locations(conf: str) -> dict[str, str]:
     """Every location block in the rendered fragment, keyed by its header text.
 
-    A location of the readers' origin is keyed with ``readers: `` in front, so
+    A location of the history page's origin is keyed with ``history: `` in front, so
     each server's locations stay distinct and both stay under the guards.
 
     Parsed from the COMMENT-STRIPPED text, because this template explains the
@@ -175,10 +175,10 @@ def _locations(conf: str) -> dict[str, str]:
     guard's coverage, which is a false green on the very property the guard
     exists for.
     """
-    terminals, _, readers = conf.partition(_READERS_ORIGIN_MARKER)
+    terminals, _, history = conf.partition(_HISTORY_ORIGIN_MARKER)
     pairs = [
         (prefix + match.group(1).strip(), match.group(2))
-        for prefix, part in (("", terminals), (_READERS_ORIGIN_PREFIX, readers))
+        for prefix, part in (("", terminals), (_HISTORY_ORIGIN_PREFIX, history))
         for match in _LOCATION_RE.finditer(_directives(part))
     ]
     assert pairs, "no location blocks in the rendered fragment"
@@ -429,8 +429,8 @@ def test_every_proxying_location_claims_every_identity_header_with_auth_on() -> 
     nginx_conf = _render_nginx(_auth_config(_TWO_USERS))
 
     # Assert — the set is non-trivial: two gated users, their verify targets'
-    # worth of surface, and the public login prefix; and on the readers'
-    # origin, the history page, its verify target and the sign-out.
+    # worth of surface, and the public login prefix; and on the history
+    # page's origin, the history page, its verify target and the sign-out.
     proxying = {
         header: body for header, body in _locations(nginx_conf).items() if "proxy_pass " in body
     }
@@ -440,9 +440,9 @@ def test_every_proxying_location_claims_every_identity_header_with_auth_on() -> 
         "= /_osprey_auth/alice",
         "= /_osprey_auth/bob",
         "/auth/",
-        "readers: /history/",
-        "readers: = /verify-history",
-        "readers: = /auth/logout",
+        "history: /history/",
+        "history: = /verify-history",
+        "history: = /auth/logout",
     }
 
     # Assert — and not one of them leaves any of the names for the client to
@@ -823,7 +823,7 @@ def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
     assert snippets, "the gated location's include has no rendered snippet behind it"
     history_gate = f"{NGINX_TEMPLATES_OUTPUT_DIR}/history-gate.conf.template"
     snippets["history-gate.conf"] = artifacts[history_gate].replace(
-        f"${{{telemetry_credentials.HISTORY_GATE_ENV}}}", "substituted-at-container-start"
+        f"${{{record_credentials.HISTORY_GATE_ENV}}}", "substituted-at-container-start"
     )
 
     # Act

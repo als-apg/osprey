@@ -45,8 +45,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.agent_record import credentials as record_credentials
 from osprey.agent_record.config import history_page_deployed
-from osprey.deployment import telemetry_credentials
 from osprey.deployment.web_terminals.render import (
     NGINX_TEMPLATES_OUTPUT_DIR,
     TERMINAL_SECRET_HEADER,
@@ -190,19 +190,19 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
 _HISTORY_GATE_SNIPPET = "history-gate"
 _HISTORY_GATE_TEST_SECRET = "history-gate-secret-for-tests"
 
-#: The comment that opens the readers' origin, the second server a signed-in
+#: The comment that opens the history page's origin, the second server a signed-in
 #: deployment renders after the terminals' servers.
-_READERS_ORIGIN_MARKER = "# The readers' origin.\n"
+_HISTORY_ORIGIN_MARKER = "# The history page's origin.\n"
 
 
 def _terminals_part(conf: str) -> str:
-    """The terminals' servers of *conf*: everything before the readers' origin.
+    """The terminals' servers of *conf*: everything before the history page's origin.
 
-    The readers' origin gates its history page with an ``auth_request`` and an
+    The history page's origin gates its history page with an ``auth_request`` and an
     ``internal`` verify target of its own, which the per-user counts below are
     not about.
     """
-    return conf.partition(_READERS_ORIGIN_MARKER)[0]
+    return conf.partition(_HISTORY_ORIGIN_MARKER)[0]
 
 
 def _terminal_secrets(users: list[str]) -> dict[str, str]:
@@ -282,7 +282,7 @@ def _run_nginx_t(
         # A render that serves the history page writes its gate snippet too, and
         # a deployment hands nginx that secret from the page's gate file.
         if (templates_dir / f"{_HISTORY_GATE_SNIPPET}.conf.template").is_file():
-            env.setdefault(telemetry_credentials.HISTORY_GATE_ENV, _HISTORY_GATE_TEST_SECRET)
+            env.setdefault(record_credentials.HISTORY_GATE_ENV, _HISTORY_GATE_TEST_SECRET)
         for var, value in env.items():
             extra += ["-e", f"{var}={value}"]
     if entrypoint is not None:
@@ -875,10 +875,10 @@ def test_access_log_never_carries_the_query_string() -> None:
     server_level = [fmt for path, fmt in selected if path == "/dev/stdout"]
     assert server_level, f"no sanitized access_log in the dump: {selected}"
     # One per server block: the content server and the redirect for every other
-    # name, in the sanitized format, and the readers' origin in its own
+    # name, in the sanitized format, and the history page's origin in its own
     # path-only one. The TLS redirect-only server is not rendered in this
     # (no-TLS) shape.
-    assert sorted(server_level) == ["osprey_reader", "osprey_sanitized", "osprey_sanitized"]
+    assert sorted(server_level) == ["osprey_history", "osprey_sanitized", "osprey_sanitized"]
 
     # SERVER level, not http. nginx inherits access_log from the level above
     # only when the current level defines none, and every access_log on ONE
@@ -890,7 +890,7 @@ def test_access_log_never_carries_the_query_string() -> None:
     assert "access_log /dev/stdout osprey_sanitized;" in fragment[server_start:]
 
     # And neither format carries anything that can hold a query string.
-    for name in ("osprey_sanitized", "osprey_reader"):
+    for name in ("osprey_sanitized", "osprey_history"):
         formats = [fmt for fmt in _log_formats(dump) if name in fmt]
         assert len(formats) == 1, _log_formats(dump)
         for forbidden in ("$request ", "$args", "$query_string", "$request_uri", "$http_referer"):
@@ -1204,7 +1204,6 @@ def test_the_history_page_passes_nginx_t_with_its_gate_snippet_substituted(tls: 
             {"method": "password"} if tls else {"method": "password", "allow_insecure_http": True}
         )
         config = _config(tls=tls_stanza, auth=auth, users=users)
-        config["deployed_services"] = ["telemetry_store"]
         secrets = _terminal_secrets(users)
         artifacts = render_web_terminals(config, terminal_secrets=secrets)
         nginx_conf = artifacts["nginx/nginx.conf"]

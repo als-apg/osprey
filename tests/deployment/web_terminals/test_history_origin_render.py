@@ -1,18 +1,17 @@
-"""The readers' origin: the second nginx server, and the one origin behind it.
+"""The history page's origin: the second nginx server, and the one origin behind it.
 
 The server exists exactly when the history page does, and serves that page and
-nothing else: no query endpoint (``/telemetry/``) and no query page (``/play``)
-render, whatever the store. It is pinned byte for byte in
-``golden/reader_origin/``, from its opening comment to the end of the file, for
+nothing else. It is pinned byte for byte in
+``golden/history_origin/``, from its opening comment to the end of the file, for
 the shapes its text can take: an origin derived from the deploy host over plain
 HTTP, and one stated beside an external origin with TLS on. The terminal
 servers above it are pinned by ``test_golden_render.py``; a deployment without
 the page renders exactly those and nothing more.
 
 Regenerate the goldens with
-``python tests/deployment/web_terminals/test_reader_origin_render.py`` after a
+``python tests/deployment/web_terminals/test_history_origin_render.py`` after a
 deliberate change to the server, and read the diff: every line of it is a
-change to what a reader's browser is allowed to do.
+change to what a browser on that origin is allowed to do.
 """
 
 from __future__ import annotations
@@ -25,16 +24,15 @@ from typing import Any
 
 import pytest
 
-from osprey.agent_record.config import history_page_deployed
-from osprey.deployment import telemetry_config as tc
-from osprey.deployment import telemetry_credentials
+from osprey.agent_record import credentials as record_credentials
+from osprey.agent_record.config import history_app_port, history_page_deployed
 from osprey.deployment.web_terminals.render import (
     NGINX_TEMPLATES_OUTPUT_DIR,
     TERMINAL_SECRET_HEADER,
     deployment_external_origin,
-    reader_origin,
+    history_origin,
     render_web_terminals,
-    serves_reader_origin,
+    serves_history_origin,
 )
 from osprey.services.auth_sidecar.identity_headers import (
     ACCOUNT_HEADER,
@@ -47,23 +45,22 @@ from osprey.services.auth_sidecar.routes.entry import ENTRY_PATH
 from osprey.services.auth_sidecar.routes.logout import LOGOUT_PATH
 from tests._renders import tier_render
 
-_GOLDEN_DIR = Path(__file__).parent / "golden" / "reader_origin"
+_GOLDEN_DIR = Path(__file__).parent / "golden" / "history_origin"
 _FACILITY_NAME = "Demo Light Source"
 
-#: The first line of the readers' part of the rendered file.
-_MARKER = "# The readers' origin.\n"
+#: The first line of the history page's part of the rendered file.
+_MARKER = "# The history page's origin.\n"
 
 
-def _config(web: dict[str, Any] | None = None, store: dict[str, Any] | None = None) -> dict:
-    """A two-user web tier in front of a deployed store."""
+def _config(web: dict[str, Any] | None = None) -> dict:
+    """A two-user web tier."""
     return {
         "project_name": "dls_controls",
         "facility": {"prefix": "dls"},
         "system": {"timezone": "UTC"},
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
-        "deployed_services": ["telemetry_store", "telemetry_gateway"],
-        "services": {"telemetry_store": {"readers": [{"name": "carol"}], **(store or {})}},
+        "deployed_services": [],
         "modules": {
             "web_terminals": {
                 "enabled": True,
@@ -81,8 +78,8 @@ def _stated_config() -> dict:
     return _config(
         web={
             "external_origin": "https://terminals.dls.example.org",
-            "reader_origin": "https://terminals.dls.example.org:8443",
-            "reader_port": 18443,
+            "history_origin": "https://terminals.dls.example.org:8443",
+            "history_port": 18443,
             "tls": {
                 "enabled": True,
                 "port": 8444,
@@ -90,7 +87,6 @@ def _stated_config() -> dict:
                 "key": "/etc/nginx/certs/dls.key",
             },
         },
-        store={"port": 19000, "limits": {"seconds": 90}},
     )
 
 
@@ -121,7 +117,7 @@ def _nginx(config: dict) -> str:
     return render_web_terminals(config, facility_name=_FACILITY_NAME)["nginx/nginx.conf"]
 
 
-def _reader_part(config: dict) -> str:
+def _history_part(config: dict) -> str:
     conf = _nginx(config)
     assert conf.count(_MARKER) == 1
     return conf[conf.index(_MARKER) :]
@@ -137,14 +133,14 @@ def _location(part: str, opening: str) -> str:
 
 
 @pytest.mark.parametrize("name", sorted(_VARIANTS))
-def test_the_readers_server_matches_its_golden_byte_for_byte(name: str) -> None:
+def test_the_history_server_matches_its_golden_byte_for_byte(name: str) -> None:
     golden = _GOLDEN_DIR / name
     assert golden.is_file(), f"missing golden fixture: {golden}"
-    assert _reader_part(_VARIANTS[name]()) == golden.read_text(encoding="utf-8")
+    assert _history_part(_VARIANTS[name]()) == golden.read_text(encoding="utf-8")
 
 
 def test_only_the_history_goldens_remain() -> None:
-    """A store without the page renders no readers' server, so it has no golden."""
+    """A deployment without the page renders no history server, so it has no golden."""
     assert sorted(path.name for path in _GOLDEN_DIR.iterdir()) == sorted(_VARIANTS)
 
 
@@ -154,78 +150,49 @@ def test_only_the_history_goldens_remain() -> None:
 @pytest.mark.parametrize(
     "config",
     [
-        pytest.param(_config(), id="store-and-token-sign-in"),
-        pytest.param(_stated_config(), id="store-stated-origins"),
-        pytest.param(_config(web={"auth": {"method": "none"}}), id="store-and-no-sign-in"),
+        pytest.param(_config(), id="token-sign-in"),
+        pytest.param(_stated_config(), id="stated-origins"),
+        pytest.param(_config(web={"auth": {"method": "none"}}), id="no-sign-in"),
     ],
 )
-def test_a_store_without_the_history_page_renders_no_readers_server(config: dict) -> None:
+def test_a_deployment_without_the_history_page_renders_no_history_server(config: dict) -> None:
     assert not history_page_deployed(config)
-    assert not serves_reader_origin(config)
+    assert not serves_history_origin(config)
     conf = _nginx(config)
     assert _MARKER not in conf
-    assert "osprey_reader" not in conf
+    assert "osprey_history" not in conf
     assert "\n    listen 10002;" not in conf
 
 
 def test_the_server_exists_exactly_when_the_history_page_does() -> None:
-    with_store = _history_config()
-    without_store = _history_config()
-    without_store["deployed_services"] = []
+    config = _history_config()
     web_off = _history_config()
     web_off["modules"]["web_terminals"]["enabled"] = False
-    for config in (with_store, without_store):
-        assert serves_reader_origin(config)
-        assert _MARKER in _nginx(config)
-    assert not serves_reader_origin(web_off)
+    assert serves_history_origin(config)
+    assert _MARKER in _nginx(config)
+    assert not serves_history_origin(web_off)
 
 
 def test_the_server_listens_on_the_port_the_preflight_probes() -> None:
-    from osprey.deployment.host_ports import derive_reader_origin_bindings
+    from osprey.deployment.host_ports import derive_history_origin_bindings
 
-    config = _signed_in(_config(web={"reader_port": 12345}))
-    (binding,) = derive_reader_origin_bindings(config)
+    config = _signed_in(_config(web={"history_port": 12345}))
+    (binding,) = derive_history_origin_bindings(config)
     assert binding.host_port == 12345
-    assert "    listen 12345;\n" in _reader_part(config)
+    assert "    listen 12345;\n" in _history_part(config)
 
 
-# --- no query endpoint, no query page ------------------------------------------
-
-
-#: Every spelling the store's query endpoint and query page were served under.
-_GONE = ("/telemetry/", "/telemetry/play", "/play", "osprey_reader_query", "osprey_reader_401")
-
-
-@pytest.mark.parametrize("build", [_history_config, _history_stated_config])
-def test_telemetry_and_play_do_not_render(build) -> None:
-    conf = _nginx(build())
-    for gone in _GONE:
-        assert gone not in conf, gone
-    part = _reader_part(build())
-    directives = "\n".join(line for line in part.splitlines() if not line.lstrip().startswith("#"))
-    for word in ("proxy_pass http://127.0.0.1:10804", "http_wait_end_of_query", "sha256-"):
-        assert word not in directives, word
-    assert "WWW-Authenticate" not in directives
-
-
-def test_the_render_names_no_store_port_or_query_page_hash() -> None:
-    """The store's port, limit and image no longer shape the readers' server."""
-    plain = _reader_part(_history_config())
-    moved = _history_config()
-    moved["services"]["telemetry_store"].update(
-        {"port": 19000, "limits": {"seconds": 90}, "image": "clickhouse/clickhouse-server:99.1.1.1"}
-    )
-    assert _reader_part(moved) == plain
+# --- throttling and logging ----------------------------------------------------
 
 
 def test_nothing_throttles_and_the_logs_hold_no_query_string() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     directives = "\n".join(line for line in part.splitlines() if not line.lstrip().startswith("#"))
     assert "limit_req" not in directives
     assert "limit_conn" not in directives
-    assert "access_log /dev/stdout osprey_reader;" in directives
+    assert "access_log /dev/stdout osprey_history;" in directives
     assert "error_log /dev/stderr crit;" in directives
-    log_format = directives[directives.index("log_format osprey_reader") :]
+    log_format = directives[directives.index("log_format osprey_history") :]
     log_format = log_format[: log_format.index(";")]
     assert "$uri" in log_format
     for leaky in ("$request_uri", "$request ", "$args", "$query_string", "$http_referer"):
@@ -236,73 +203,73 @@ def test_nothing_throttles_and_the_logs_hold_no_query_string() -> None:
 
 
 def test_every_other_path_is_a_404() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     assert _location(part, "location /").rstrip().endswith("return 404;")
     assert "\n    root " not in part
     assert "try_files" not in part
 
 
 def test_redirects_stay_relative() -> None:
-    assert "\n    absolute_redirect off;\n" in _reader_part(_history_config())
-    assert "\n    absolute_redirect off;\n" in _reader_part(_history_stated_config())
+    assert "\n    absolute_redirect off;\n" in _history_part(_history_config())
+    assert "\n    absolute_redirect off;\n" in _history_part(_history_stated_config())
 
 
-def test_a_render_asks_no_store_and_writes_the_same_server_every_time(monkeypatch) -> None:
+def test_a_render_opens_no_connection_and_writes_the_same_server_every_time(monkeypatch) -> None:
     """A roster change re-renders the web tier with every service down."""
 
     def _refuse(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("the render opened a network connection")
 
-    first = _reader_part(_history_config())
+    first = _history_part(_history_config())
     monkeypatch.setattr(socket, "create_connection", _refuse)
     monkeypatch.setattr(socket.socket, "connect", _refuse)
     grown = _history_config()
     grown["modules"]["web_terminals"]["users"] = ["alice", "bob", "dana"]
-    assert _reader_part(grown) == first
+    assert _history_part(grown) == first
 
 
 # --- the one origin ----------------------------------------------------------
 
 
-def test_the_derived_origin_is_the_deploy_host_on_the_readers_port() -> None:
-    origin = reader_origin(_config())
+def test_the_derived_origin_is_the_deploy_host_on_the_history_port() -> None:
+    origin = history_origin(_config())
     assert (origin.origin, origin.scheme, origin.host) == (
         "http://dls-deploy.dls.example.org:10002",
         "http",
         "dls-deploy.dls.example.org",
     )
-    moved = reader_origin(_config(web={"reader_port": 12345}))
+    moved = history_origin(_config(web={"history_port": 12345}))
     assert moved.origin == "http://dls-deploy.dls.example.org:12345"
 
 
 def test_tls_makes_the_derived_origin_https_on_the_same_port() -> None:
     tls = {"enabled": True, "cert": "/c", "key": "/k"}
-    assert reader_origin(_config(web={"tls": tls})).origin == (
+    assert history_origin(_config(web={"tls": tls})).origin == (
         "https://dls-deploy.dls.example.org:10002"
     )
 
 
 def test_a_stated_origin_is_used_verbatim() -> None:
-    config = _config(web={"reader_origin": " https://Readers.example.org "})
-    origin = reader_origin(config)
-    assert origin.origin == "https://Readers.example.org"
-    assert origin.host == "readers.example.org"
+    config = _config(web={"history_origin": " https://History.example.org "})
+    origin = history_origin(config)
+    assert origin.origin == "https://History.example.org"
+    assert origin.host == "history.example.org"
 
 
 @pytest.mark.parametrize(
-    "stated", ["", "readers.example.org", "https://readers.example.org/", "ftp://x", 8443]
+    "stated", ["", "history.example.org", "https://history.example.org/", "ftp://x", 8443]
 )
 def test_a_stated_origin_that_is_not_one_is_refused_by_name(stated: Any) -> None:
-    with pytest.raises(ValueError, match=r"modules\.web_terminals\.reader_origin"):
-        reader_origin(_config(web={"reader_origin": stated}))
+    with pytest.raises(ValueError, match=r"modules\.web_terminals\.history_origin"):
+        history_origin(_config(web={"history_origin": stated}))
 
 
-def test_an_external_origin_alone_cannot_name_the_readers_origin() -> None:
+def test_an_external_origin_alone_cannot_name_the_history_origin() -> None:
     config = _signed_in(_config(web={"external_origin": "https://terminals.dls.example.org"}))
     config["modules"]["web_terminals"]["tls"] = {"enabled": True, "cert": "/c", "key": "/k"}
-    with pytest.raises(ValueError, match="reader_origin is not"):
-        reader_origin(config)
-    with pytest.raises(ValueError, match="reader_origin is not"):
+    with pytest.raises(ValueError, match="history_origin is not"):
+        history_origin(config)
+    with pytest.raises(ValueError, match="history_origin is not"):
         _nginx(config)
 
 
@@ -310,10 +277,10 @@ def test_no_deploy_host_and_no_stated_origin_is_refused_by_name() -> None:
     config = _config()
     config["deploy"] = {"host": "dls-deploy"}
     with pytest.raises(ValueError, match=r"deploy\.fqdn"):
-        reader_origin(config)
+        history_origin(config)
 
 
-def test_a_deployment_without_the_page_is_never_asked_for_a_readers_origin() -> None:
+def test_a_deployment_without_the_page_is_never_asked_for_a_history_origin() -> None:
     config = _config(web={"external_origin": "https://terminals.dls.example.org"})
     assert _MARKER not in _nginx(config)
 
@@ -357,7 +324,7 @@ def _sent(body: str) -> list[tuple[str, str]]:
 
 
 def _page(config: dict) -> str:
-    return _location(_reader_part(config), "location /history/")
+    return _location(_history_part(config), "location /history/")
 
 
 def test_the_history_goldens_hold_what_each_shape_is_for() -> None:
@@ -417,7 +384,7 @@ def test_the_page_exists_exactly_when_the_history_app_is_deployed(
 
 
 def test_the_history_locations_sit_before_the_catch_alls() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     assert re.findall(r"^    location (.+) \{$", part, flags=re.MULTILINE) == [
         "/history/",
         "= /history",
@@ -431,16 +398,16 @@ def test_the_history_locations_sit_before_the_catch_alls() -> None:
 
 def test_the_page_is_proxied_with_its_prefix_stripped() -> None:
     page = _page(_history_config())
-    port = tc.history_port(_history_config())
+    port = history_app_port(_history_config())
     assert f"proxy_pass http://127.0.0.1:{port}/;" in page
     assert re.findall(r"proxy_pass (\S+);", page) == [f"http://127.0.0.1:{port}/"]
-    bookmark = _location(_reader_part(_history_config()), "location = /history")
+    bookmark = _location(_history_part(_history_config()), "location = /history")
     assert "return 301 /history/;" in bookmark
 
 
 def test_the_page_is_authorized_by_the_sidecars_history_answer() -> None:
     config = _history_config()
-    part = _reader_part(config)
+    part = _history_part(config)
     page = _page(config)
     assert f"auth_request {verify_history.VERIFY_HISTORY_PATH};" in page
     target = _location(part, f"location = {verify_history.VERIFY_HISTORY_PATH}")
@@ -495,18 +462,18 @@ def test_the_gate_secret_comes_from_the_envsubst_snippet_and_nowhere_else() -> N
     snippet = artifacts[_GATE_TEMPLATE]
     directives = _directive_lines(snippet)
     assert directives == [
-        f'proxy_set_header {TERMINAL_SECRET_HEADER} "${{{telemetry_credentials.HISTORY_GATE_ENV}}}";'
+        f'proxy_set_header {TERMINAL_SECRET_HEADER} "${{{record_credentials.HISTORY_GATE_ENV}}}";'
     ]
     comments = [line for line in snippet.splitlines() if line.startswith("#")]
     assert comments and not any("$" in line for line in comments)
     # The variable passes the nginx container's envsubst filter.
-    assert telemetry_credentials.HISTORY_GATE_ENV.startswith("OSPREY_TERMINAL_SECRET_")
-    # The included file is rendered nowhere else in the readers' server.
-    assert _reader_part(config).count("history-gate.conf") == 1
+    assert record_credentials.HISTORY_GATE_ENV.startswith("OSPREY_TERMINAL_SECRET_")
+    # The included file is rendered nowhere else in the history server.
+    assert _history_part(config).count("history-gate.conf") == 1
 
 
 def test_the_page_may_not_be_framed_or_embedded_by_another_origin() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     page = _page(_history_config())
     assert (
         "add_header Content-Security-Policy \"default-src 'self'; frame-ancestors 'none'\" always;"
@@ -543,7 +510,7 @@ def test_the_embed_map_refuses_only_cross_origin_non_navigations(
     site: str, mode: str, dest: str, refused: bool
 ) -> None:
     """The map, evaluated as nginx evaluates it: regexes in order, first match wins."""
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     body = part[part.index("$osprey_history_embedded {\n") :]
     body = body[: body.index("\n}\n")]
     value = 0
@@ -564,7 +531,7 @@ def test_the_embed_map_refuses_only_cross_origin_non_navigations(
 def test_a_signed_out_navigation_is_sent_to_the_terminals_sign_in(
     config: dict, terminal_origin: str
 ) -> None:
-    part = _reader_part(config)
+    part = _history_part(config)
     assert deployment_external_origin(config) == terminal_origin
     page = _page(config)
     assert "error_page 401 = @osprey_history_401;" in page
@@ -573,7 +540,7 @@ def test_a_signed_out_navigation_is_sent_to_the_terminals_sign_in(
 
     target = (
         f"{terminal_origin}{ENTRY_PATH}?next="
-        f"{quote(reader_origin(config).origin, safe='')}$osprey_history_next"
+        f"{quote(history_origin(config).origin, safe='')}$osprey_history_next"
     )
     assert (
         f"if ($osprey_auth_wants_login_page) {{\n            return 302 {target};\n        }}"
@@ -582,7 +549,7 @@ def test_a_signed_out_navigation_is_sent_to_the_terminals_sign_in(
 
 
 def test_the_return_path_is_an_allowlisted_history_path_or_the_page_itself() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     assert (
         "map $uri $osprey_history_next {\n"
         '    default "/history/";\n'
@@ -597,7 +564,7 @@ def test_the_return_path_is_an_allowlisted_history_path_or_the_page_itself() -> 
 
 
 def test_a_sign_in_naming_no_roster_person_gets_the_403_page() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     page = _page(_history_config())
     # No `=`: the page is served under the sidecar's own 403.
     assert "error_page 403 /history-403.html;" in page
@@ -615,7 +582,7 @@ def test_a_sign_in_naming_no_roster_person_gets_the_403_page() -> None:
 
 
 def test_sign_out_is_proxied_to_the_sidecar_and_names_no_identity() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     body = _location(part, f"location = {LOGOUT_PATH}")
     assert re.search(rf"proxy_pass http://127\.0\.0\.1:\d+{re.escape(LOGOUT_PATH)};", body)
     for header in _IDENTITY_HEADERS:
@@ -624,7 +591,7 @@ def test_sign_out_is_proxied_to_the_sidecar_and_names_no_identity() -> None:
 
 
 def test_every_history_location_names_each_header_once() -> None:
-    part = _reader_part(_history_config())
+    part = _history_part(_history_config())
     for opening in (
         "location /history/",
         f"location = {verify_history.VERIFY_HISTORY_PATH}",
@@ -648,14 +615,16 @@ def _nginx_service(config: dict) -> dict:
 
 def test_nginx_reads_the_gate_file_and_is_recreated_when_it_changes() -> None:
     service = _nginx_service(_history_config())
-    assert service["env_file"] == [telemetry_credentials.HISTORY_GATE_FILE]
-    assert service["labels"][telemetry_credentials.DIGEST_LABEL] == (
-        f"${{{telemetry_credentials.digest_env_name('nginx')}:-}}"
+    assert service["env_file"] == [record_credentials.HISTORY_GATE_FILE]
+    assert service["labels"][record_credentials.DIGEST_LABEL] == (
+        f"${{{record_credentials.digest_env_name('nginx')}:-}}"
     )
+    # One label for the file, the record's.
+    assert [label for label in service["labels"] if label.endswith(".cred.digest")] == [
+        record_credentials.DIGEST_LABEL
+    ]
     # Delivered by the file, never interpolated into the service definition.
-    assert not any(
-        telemetry_credentials.HISTORY_GATE_ENV in entry for entry in service["environment"]
-    )
+    assert not any(record_credentials.HISTORY_GATE_ENV in entry for entry in service["environment"])
 
 
 @pytest.mark.parametrize(
@@ -668,7 +637,7 @@ def test_nginx_reads_the_gate_file_and_is_recreated_when_it_changes() -> None:
 def test_without_the_page_nginx_names_no_gate_file(config: dict) -> None:
     service = _nginx_service(config)
     assert "env_file" not in service
-    assert telemetry_credentials.DIGEST_LABEL not in service["labels"]
+    assert record_credentials.DIGEST_LABEL not in service["labels"]
 
 
 def _regenerate() -> None:
@@ -676,7 +645,7 @@ def _regenerate() -> None:
     _GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
     for name, build in _VARIANTS.items():
         path = _GOLDEN_DIR / name
-        path.write_text(_reader_part(copy.deepcopy(build())), encoding="utf-8")
+        path.write_text(_history_part(copy.deepcopy(build())), encoding="utf-8")
         print(f"wrote {path}")
 
 

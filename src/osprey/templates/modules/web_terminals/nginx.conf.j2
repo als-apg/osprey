@@ -898,10 +898,10 @@ server {
     return 301 {{ external_origin }}$request_uri;
 }
 {%- endif %}
-{%- if reader_server %}
+{%- if history_origin_server %}
 
 # ---------------------------------------------------------------------------
-# The readers' origin.
+# The history page's origin.
 #
 # A second server on its own port, so it is its own browser origin: the people
 # who read the agent record's history page reach it here, and nothing a page on
@@ -912,9 +912,9 @@ server {
 
 # `$uri`, never `$request_uri`: what a page asked for beyond its path is the
 # page's own business, and a log line is a second copy of it.
-log_format osprey_reader '$remote_addr - $remote_user [$time_local] '
-                         '"$request_method $uri $server_protocol" '
-                         '$status $body_bytes_sent';
+log_format osprey_history '$remote_addr - $remote_user [$time_local] '
+                          '"$request_method $uri $server_protocol" '
+                          '$status $body_bytes_sent';
 {%- if history_location %}
 
 # Whether a request for the history page was made by a page on another origin
@@ -951,20 +951,20 @@ map $uri $osprey_history_next {
 
 server {
 {%- if tls_enabled %}
-    listen {{ reader_port }} ssl;
-    listen [::]:{{ reader_port }} ssl;
+    listen {{ history_origin_port }} ssl;
+    listen [::]:{{ history_origin_port }} ssl;
     ssl_certificate {{ tls_cert }};
     ssl_certificate_key {{ tls_key }};
     http2 on;
 {%- else %}
-    listen {{ reader_port }};
-    listen [::]:{{ reader_port }};
+    listen {{ history_origin_port }};
+    listen [::]:{{ history_origin_port }};
 {%- endif %}
     server_name _;
 
     # Server level, which is what replaces the base image's http-level
     # `access_log` instead of adding a line beside it.
-    access_log /dev/stdout osprey_reader;
+    access_log /dev/stdout osprey_history;
     # An error line quotes the whole request line, query string and all, so
     # only the conditions that stop this server from serving are written.
     error_log /dev/stderr crit;
@@ -1012,7 +1012,7 @@ server {
         # entrypoint substitutes at start (see the terminals' `include` for the
         # mechanism). Reached only after the sign-in check above.
         include /etc/nginx/osprey/{{ history_gate_snippet }}.conf;
-        proxy_pass http://127.0.0.1:{{ history_port }}/;
+        proxy_pass http://127.0.0.1:{{ history_app_port }}/;
         proxy_http_version 1.1;
 
         # Only the request headers a page load needs go upstream, by name, so

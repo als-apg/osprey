@@ -43,6 +43,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from osprey.agent_record.config import (
+    HISTORY_SERVICE,
+    history_origin_port,
+    history_page_deployed,
+)
 from osprey.cli import output
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.graphdb_service import (
@@ -57,14 +62,6 @@ from osprey.deployment.host_ports import (
     parse_host_port_bindings,
 )
 from osprey.deployment.qmd_service import dial_address
-from osprey.deployment.telemetry_config import (
-    GATEWAY_METRICS_CONTAINER_PORT,
-    GATEWAY_OTLP_CONTAINER_PORT,
-    GATEWAY_SERVICE,
-    HISTORY_SERVICE,
-    STORE_SERVICE,
-    reader_port,
-)
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.port_layout import (
     LAYOUT,
@@ -86,7 +83,6 @@ logger = get_logger("deployment.summary")
 # shown as a bare address. Keyed on compose service names, mirroring
 # host_ports._SERVICE_REMEDY_KEYS.
 _HTTP_SERVICES = {
-    STORE_SERVICE,
     HISTORY_SERVICE,
     "event-dispatcher",
     "bluesky-bridge",
@@ -114,12 +110,6 @@ _MULTI_PORT_ROLES: dict[str, dict[int, tuple[str, bool]]] = {
         CONTAINER_BOLT_PORT: ("bolt", False),
         CONTAINER_HTTP_PORT: ("browser", True),
     },
-    # The telemetry gateway binds the port senders post to and, on loopback,
-    # its own counters. Only the second is a page; the first answers POSTs.
-    GATEWAY_SERVICE: {
-        GATEWAY_OTLP_CONTAINER_PORT: ("otlp", False),
-        GATEWAY_METRICS_CONTAINER_PORT: ("metrics", True),
-    },
 }
 
 # Which layout slot each compose service publishes, so a row's display tier and
@@ -141,8 +131,6 @@ _SERVICE_SLOTS = {
     "auth": "auth",
     "event-dispatcher": "dispatcher",
     _WORKER_SERVICE_PREFIX: "worker",
-    GATEWAY_SERVICE: "telemetry_gateway",
-    STORE_SERVICE: "telemetry_store",
     HISTORY_SERVICE: "history",
     "qmd": "qmd",
     "tiled": "tiled",
@@ -842,18 +830,6 @@ def endpoint_entries(
     return [(tier, service, address) for _key, tier, service, address in sorted(rows)]
 
 
-def _serves_reader_origin(config: dict) -> bool:
-    """Whether the web tier's nginx carries the readers' server.
-
-    The render's own answer
-    (:func:`~osprey.deployment.web_terminals.render.serves_reader_origin`), so
-    the summary links readers to the server the render writes.
-    """
-    from osprey.deployment.web_terminals.render import serves_reader_origin
-
-    return serves_reader_origin(config)
-
-
 def reader_page_url(config: dict, reader: str) -> str | None:
     """Where the named reader ``reader`` opens the history page from another machine.
 
@@ -870,24 +846,24 @@ def reader_page_url(config: dict, reader: str) -> str | None:
         reader: A reader's name.
 
     Returns:
-        ``<readers' origin>/history/``, or ``None`` when the deployment serves
+        ``<history page's origin>/history/``, or ``None`` when the deployment serves
         no history page, ``reader`` is not an ``agent_record.readers`` entry,
         or nothing signs that reader in.
 
     Raises:
-        ValueError: If the readers' origin cannot be derived from this config
-            (see :func:`~osprey.deployment.web_terminals.render.reader_origin`).
+        ValueError: If the history page's origin cannot be derived from this
+            config (see :func:`~osprey.deployment.web_terminals.render.history_origin`).
     """
-    if not _serves_reader_origin(config):
+    if not history_page_deployed(config):
         return None
     from osprey.agent_record.identities import reader_entries
 
     entry = next((e for e in reader_entries(config) if e["name"] == reader), None)
     if entry is None or not _reader_signs_in(config, entry):
         return None
-    from osprey.deployment.web_terminals.render import reader_origin
+    from osprey.deployment.web_terminals.render import history_origin
 
-    return f"{reader_origin(config).origin}/history/"
+    return f"{history_origin(config).origin}/history/"
 
 
 def _reader_signs_in(config: dict, entry: dict) -> bool:
@@ -910,12 +886,12 @@ def _reader_signs_in(config: dict, entry: dict) -> bool:
 def _reader_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, str, str]]:
     """One row per named reader who can sign in: the history page they open.
 
-    Placed beside the gateway's other servers, under the readers' origin that
-    answers the link. A reader nothing signs in has no row: they read on the
+    Placed beside the gateway's other servers, under the history page's origin
+    that answers the link. A reader nothing signs in has no row: they read on the
     deploy host, through the read API, with the credential the build minted.
 
-    Advisory, like every row of the summary: a config whose readers' origin
-    cannot be derived prints none here, and the render says why in its own
+    Advisory, like every row of the summary: a config whose history page's
+    origin cannot be derived prints none here, and the render says why in its own
     words.
 
     Args:
@@ -927,10 +903,10 @@ def _reader_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, 
     from osprey.agent_record.identities import reader_entries
 
     try:
-        if not _serves_reader_origin(config):
+        if not history_page_deployed(config):
             return []
         links = [(e["name"], reader_page_url(config, e["name"])) for e in reader_entries(config)]
-        slot, port = SLOTS_BY_NAME["reader"], reader_port(config)
+        slot, port = SLOTS_BY_NAME["history_origin"], history_origin_port(config)
     except Exception as exc:
         logger.debug(f"Reader links skipped: {exc}")
         return []

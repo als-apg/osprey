@@ -48,6 +48,11 @@ from pathlib import Path
 
 import yaml
 
+from osprey.agent_record.config import (
+    HISTORY_SERVICE,
+    history_origin_port,
+    history_page_deployed,
+)
 from osprey.deployment.compose_generator import (
     REPO_ID_LABEL,
     _resolve_qmd_corpora,
@@ -71,15 +76,6 @@ from osprey.deployment.qmd_service import (
     resolve_bind_address,
 )
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
-from osprey.deployment.telemetry_config import (
-    GATEWAY_METRICS_CONTAINER_PORT,
-    GATEWAY_OTLP_CONTAINER_PORT,
-    GATEWAY_SERVICE,
-    HISTORY_SERVICE,
-    STORE_SERVICE,
-    reader_port,
-    store_deployed,
-)
 from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
 from osprey.deployment.web_terminals.roster import is_app_entry, roster_entries
 from osprey.port_layout import (
@@ -108,8 +104,6 @@ logger = get_logger("deployment.host_ports")
 _SERVICE_REMEDY_KEYS = {
     "postgresql": "services.postgresql.port_host",
     "mongodb": "services.mongodb.port_host",
-    STORE_SERVICE: "services.telemetry_store.port",
-    GATEWAY_SERVICE: "services.telemetry_gateway.port",
     # No key of its own moves the history app's loopback port; the block does.
     HISTORY_SERVICE: PORT_BASE_CONFIG_KEY,
     "event-dispatcher": "services.event_dispatcher.port",
@@ -158,10 +152,6 @@ _SERVICE_REMEDY_KEYS = {
 _SERVICE_PORT_REMEDY_KEYS = {
     (GRAPHDB_SERVICE_NAME, CONTAINER_BOLT_PORT): GRAPHDB_PORT_CONFIG_KEY,
     (GRAPHDB_SERVICE_NAME, CONTAINER_HTTP_PORT): GRAPHDB_HTTP_PORT_CONFIG_KEY,
-    # The gateway publishes the port senders post to and, on loopback, its own
-    # counters. Only the first has a key; the second moves with the block.
-    (GATEWAY_SERVICE, GATEWAY_OTLP_CONTAINER_PORT): "services.telemetry_gateway.port",
-    (GATEWAY_SERVICE, GATEWAY_METRICS_CONTAINER_PORT): PORT_BASE_CONFIG_KEY,
 }
 
 # Compose service name mapped to the layout slot (or slots) whose port it
@@ -182,8 +172,6 @@ _SERVICE_PORT_REMEDY_KEYS = {
 _SERVICE_LAYOUT_SLOTS = {
     "postgresql": ("postgres",),
     "mongodb": ("mongo",),
-    STORE_SERVICE: ("telemetry_store",),
-    GATEWAY_SERVICE: ("telemetry_gateway", "telemetry_metrics"),
     HISTORY_SERVICE: ("history",),
     "event-dispatcher": ("dispatcher",),
     "dispatch-worker": ("worker",),
@@ -206,12 +194,10 @@ _SERVICE_LAYOUT_SLOTS = {
 # distinguishes the two, and the image fixes it. A slot absent here is matched
 # on its port alone, which is right for the Bluesky lanes: both lanes are the
 # same image on the same container port, and only the host port tells them
-# apart. The telemetry gateway's two slots are likewise one port apart.
+# apart.
 _SLOT_CONTAINER_PORTS = {
     "graphdb_bolt": CONTAINER_BOLT_PORT,
     "graphdb_http": CONTAINER_HTTP_PORT,
-    "telemetry_gateway": GATEWAY_OTLP_CONTAINER_PORT,
-    "telemetry_metrics": GATEWAY_METRICS_CONTAINER_PORT,
 }
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
@@ -837,16 +823,17 @@ def derive_web_terminal_bindings(config):
     return bindings
 
 
-def derive_reader_origin_bindings(config):
-    """Derive the port of the readers' origin, when this deployment serves one.
+def derive_history_origin_bindings(config):
+    """Derive the port of the history page's origin, when this deployment serves one.
 
-    The readers' origin is a second server of the web tier's nginx, which runs
-    on the host network and so has no ``ports:`` block to parse. It exists when
-    the web terminals are enabled and the telemetry store is deployed, and
-    listens on the ``reader`` slot unless ``modules.web_terminals.reader_port``
+    The history page's origin is a second server of the web tier's nginx, which
+    runs on the host network and so has no ``ports:`` block to parse. It exists
+    exactly when the history page is deployed
+    (:func:`~osprey.agent_record.config.history_page_deployed`), and listens on
+    the ``history_origin`` slot unless ``modules.web_terminals.history_port``
     places it elsewhere.
 
-    A ``reader_port`` that is not a port derives nothing here; the telemetry
+    A ``history_port`` that is not a port derives nothing here; the web-terminal
     lint refuses that config by name.
 
     :param config: Loaded (rendered) configuration dictionary
@@ -855,17 +842,14 @@ def derive_reader_origin_bindings(config):
         empty list
     :rtype: list[HostPortBinding]
     """
-    if not isinstance(config, dict) or not store_deployed(config):
-        return []
-    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    if not isinstance(web_terminals, dict) or not web_terminals.get("enabled"):
+    if not isinstance(config, dict) or not history_page_deployed(config):
         return []
     try:
-        port = reader_port(config)
+        port = history_origin_port(config)
     except ValueError as exc:
-        logger.debug(f"The readers' origin derives no port for the preflight: {exc}")
+        logger.debug(f"The history page's origin derives no port for the preflight: {exc}")
         return []
-    on_slot = port == default_port("reader", base=resolve_port_base(config))
+    on_slot = port == default_port("history_origin", base=resolve_port_base(config))
     return [
         HostPortBinding(
             service="nginx",
@@ -874,7 +858,7 @@ def derive_reader_origin_bindings(config):
             container_port=port,
             compose_file=_DERIVED_SOURCE,
             host_network=True,
-            remedy=PORT_BASE_CONFIG_KEY if on_slot else SLOTS_BY_NAME["reader"].config_key,
+            remedy=PORT_BASE_CONFIG_KEY if on_slot else SLOTS_BY_NAME["history_origin"].config_key,
         )
     ]
 
@@ -1276,7 +1260,7 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         list(bindings)
         + derive_host_network_bindings(config)
         + derive_web_terminal_bindings(config)
-        + derive_reader_origin_bindings(config)
+        + derive_history_origin_bindings(config)
     )
 
     def _conflict(binding, kind, holder):
