@@ -32,6 +32,7 @@ import yaml
 
 from osprey.interfaces._serving import free_port
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -828,15 +829,9 @@ def _audit_to(root):
 
 def _audit_records(root):
     """Every executor refusal recorded under *root*, or ``[]`` when none were."""
-    import json
-
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(root / "var" / "audit", SURFACE_EXECUTOR)
 
 
 def _execute_patterns(has_writes: bool) -> dict:

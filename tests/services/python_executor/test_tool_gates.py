@@ -11,13 +11,13 @@ mocked for them: reaching an assertion at all proves the gate ran ahead of
 execution.
 """
 
-import json
 import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from osprey_connectors_tests._harness import write_control_context
+from tests._audit_ledger import ledger_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 #: A literal write into the render zone — the canonical thing the policy exists
@@ -123,12 +123,8 @@ def _refusal_prose(envelope) -> str:
 def _refusal_records(audit_zone):
     """Every executor record this identity filed — the ledger is per-identity."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    log = audit_zone / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not log.exists():
-        return []
-    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+    return ledger_records(audit_zone, SURFACE_EXECUTOR)
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from fastmcp.exceptions import ToolError
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
 from osprey_connectors_tests._harness import DEFAULT_TARGET, write_control_context
+from tests._audit_ledger import ledger_records
 
 
 @pytest.fixture(autouse=True)
@@ -208,12 +209,8 @@ def session(control_context_root, monkeypatch):
 def _executor_records(audit_root) -> list[dict]:
     """Every record on the executor surface, for the identity in force."""
     from osprey.audit.envelope import SURFACE_EXECUTOR
-    from osprey_connectors.identity import acting_identity
 
-    path = audit_root / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return ledger_records(audit_root, SURFACE_EXECUTOR)
 
 
 def test_a_narrowed_control_target_refuses_a_readwrite_run(session, _audit_zone):

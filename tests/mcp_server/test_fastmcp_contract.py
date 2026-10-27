@@ -68,6 +68,7 @@ from osprey.mcp_server import startup
 from osprey.registry.mcp import FRAMEWORK_SERVERS, TOOL_PREFIX_ENV, resolve_servers
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._audit_ledger import ledger_records
 from tests._preset_data import bundle_data_root
 
 
@@ -272,15 +273,6 @@ async def _refused(tool: str) -> ToolError:
         await am.AuditMiddleware().on_call_tool(_context(tool), call_next)
     assert seen == [], f"{tool} was refused but the tool still ran"
     return excinfo.value
-
-
-def _records(audit_root: Path, surface: str) -> list[dict]:
-    from osprey_connectors.identity import acting_identity
-
-    path = audit_root / acting_identity() / f"{surface}.jsonl"
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def _base_ctx() -> dict:
@@ -493,7 +485,7 @@ class TestExtendsCloneClamps:
         error = await _refused("channel_write")
         assert json.loads(str(error))["error_type"] == "safety_error"
 
-        records = _records(audited, clone)
+        records = ledger_records(audited, clone)
         assert [r["subject"] for r in records] == [f"mcp__{clone}__channel_write"]
         assert records[0]["decision"] == "refused"
         assert records[0]["reason"] == am.REASON_POSTURE
@@ -515,7 +507,7 @@ class TestExtendsCloneClamps:
 
         await _refused("channel_write")
 
-        assert _records(audited, clone)[0]["detail"] == am.CLAMP_SOURCE_LOADED
+        assert ledger_records(audited, clone)[0]["detail"] == am.CLAMP_SOURCE_LOADED
 
     async def test_a_clone_read_tool_still_runs_under_the_sandbox_posture(
         self, audited, monkeypatch
@@ -524,7 +516,7 @@ class TestExtendsCloneClamps:
         _as_server(monkeypatch, CLONE)
 
         assert await _call("channel_read") == ["channel_read"]
-        assert _records(audited, CLONE)[0]["decision"] == "allowed"
+        assert ledger_records(audited, CLONE)[0]["decision"] == "allowed"
 
     @pytest.mark.usefixtures("audited")
     async def test_a_mixed_clone_tool_still_runs_under_the_sandbox_posture(self, monkeypatch):
@@ -588,7 +580,7 @@ class TestMissingHookConfigFloor:
 
         await _refused("channel_write")
 
-        assert _records(no_hook_config, CLONE)[0]["detail"] == am.CLAMP_SOURCE_FLOOR
+        assert ledger_records(no_hook_config, CLONE)[0]["detail"] == am.CLAMP_SOURCE_FLOOR
 
     @pytest.mark.usefixtures("no_hook_config")
     async def test_the_mixed_tool_survives_the_floor(self, monkeypatch):
