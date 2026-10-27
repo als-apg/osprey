@@ -34,6 +34,7 @@ from claude_agent_sdk import (
 
 from osprey.mcp_server.dispatch_worker import dispatch_api, run_stats, sdk_runner
 from tests._agent_cli import STUB_AGENT_CLI
+from tests.dispatch_worker._runner import drain
 
 _TOOL = "mcp__controls__channel_read"
 
@@ -181,13 +182,6 @@ async def _run(queue: asyncio.Queue | None = None) -> dict:
     )
 
 
-async def _drain(queue: asyncio.Queue) -> list[dict]:
-    events = []
-    while not queue.empty():
-        events.append(await queue.get())
-    return events
-
-
 @pytest.mark.asyncio
 async def test_the_agent_options_are_the_ones_dispatch_always_built(monkeypatch, render_dir):
     clients = _install(monkeypatch, _fixed_stream)
@@ -256,7 +250,7 @@ async def test_the_recorded_run_and_its_live_events_are_unchanged_for_a_fixed_st
         "session_id": sid,
         "mcp_servers": [{"name": "controls", "status": "connected", "tools": 1, "error": None}],
     }
-    assert await _drain(queue) == [
+    assert await drain(queue) == [
         {"type": "text", "content": "Reading."},
         {"type": "tool_start", "name": _TOOL, "input": {"channels": ["X"]}},
         {"type": "tool_result", "name": _TOOL, "result": "X=1"},

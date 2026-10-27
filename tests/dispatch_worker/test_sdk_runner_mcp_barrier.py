@@ -26,31 +26,13 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
 from osprey.agent_runner import mcp_snapshot_summary
 from osprey.mcp_server.dispatch_worker import sdk_runner
+from tests.dispatch_worker._runner import stub_osprey_helpers
 
 
 @pytest.fixture(autouse=True)
 def _stub_osprey_helpers(monkeypatch, tmp_path):
     """Stub the deferred OSPREY helpers and point the render at ``tmp_path``."""
-    monkeypatch.setattr(
-        "osprey.agent_runner.artifact_resolve.deployed_agent_data_root",
-        lambda: tmp_path / "stub-agent-data",
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.clean_env.build_clean_env",
-        lambda **kw: {},
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.build_system_prompt",
-        lambda *a, **k: "system",
-    )
-    monkeypatch.setattr(
-        "osprey.agent_runner.sdk_context.make_tool_allowlist",
-        lambda tools, denied=(): lambda *a, **k: None,
-    )
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
-        lambda *a, **k: "UTC",
-    )
+    stub_osprey_helpers(monkeypatch, tmp_path / "stub-agent-data")
     (tmp_path / "build").mkdir()
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
