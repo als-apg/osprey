@@ -2248,15 +2248,17 @@ describe('classifyQueueAddResponse', () => {
   });
 
   test('every refusal that carries a capability record is cannot_execute, retryable as the body says', () => {
-    for (const [status, reason, retryable] of /** @type {Array<[number, string, boolean]>} */ ([
-      [409, 'browse_only_connector', false],
-      [409, 'unsupported_connector', false],
-      [409, 'config_unreadable', false],
-      [409, 'manager_not_configured', false],
-      [503, 'manager_unreachable', true],
+    // The classifier branches on the status only at 2xx and 502, so every row
+    // is posted as a 409; `retryable` is the input under test.
+    for (const [reason, retryable] of /** @type {Array<[string, boolean]>} */ ([
+      ['browse_only_connector', false],
+      ['unsupported_connector', false],
+      ['config_unreadable', false],
+      ['manager_not_configured', false],
+      ['manager_unreachable', true],
     ])) {
       expect(
-        classifyQueueAddResponse(status, {
+        classifyQueueAddResponse(409, {
           detail: {
             code: reason,
             detail: 'refused',
