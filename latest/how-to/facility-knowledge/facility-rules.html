@@ -628,7 +628,8 @@ concrete correct procedure rather than a prohibition alone.</p>
 <p><strong>Edit the Markdown directly.</strong> Each rule the agent loads is a file under
 <code class="docutils literal notranslate"><span class="pre">build/.claude/rules/</span></code>, and <code class="docutils literal notranslate"><span class="pre">build/</span></code> is disposable — so the facility
 description you edit is the copy in your repo, at <code class="docutils literal notranslate"><span class="pre">rules/facility.md</span></code>.
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it there, and every build copies it into the render.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes it there and lists it as <code class="docutils literal notranslate"><span class="pre">rules/facility</span></code>, so every
+build copies it into the render.
 The framework-generated rules <em>are</em> re-rendered by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>; to keep an
 edit to one of those, claim it into the profile first with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span>
 <span class="pre">claim</span> <span class="pre">rules/safety</span></code> (<a class="reference internal" href="../build-profiles.html#profile-claim"><span class="std std-ref">Taking ownership of a framework artifact</span></a>).</p>

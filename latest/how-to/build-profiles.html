@@ -678,8 +678,10 @@ path. What a scenario file holds is in <a class="reference internal" href="run-s
 <section id="convention-directories">
 <h2>Convention directories<a class="headerlink" href="#convention-directories" title="Link to this heading">#</a></h2>
 <p>Put a file in the directory that matches what it is, and the build carries it
-into the project. There is nothing to declare in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>: the directory
-name <em>is</em> the declaration, and where each one lands is fixed.</p>
+into the project. Where each one lands is fixed. Skills, agents, rules, output
+styles are also <em>selected</em> by name (see <a class="reference internal" href="#profile-own-artifacts-by-name"><span class="std std-ref">Naming your own skills, agents, rules and output styles</span></a>),
+and hooks by the declaration that wires them (see <a class="reference internal" href="#profile-custom-hooks"><span class="std std-ref">Custom hooks</span></a>);
+everything else lands in every render.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 26.0%" />
@@ -740,9 +742,37 @@ name <em>is</em> the declaration, and where each one lands is fixed.</p>
 <code class="docutils literal notranslate"><span class="pre">commands/orbit/correct.md</span></code> stays namespaced. Skills, MCP servers, services
 and per-user context copy as whole directories — the directory <em>is</em> the entry,
 and a build replaces it wholesale.</p>
+<section id="naming-your-own-skills-agents-rules-and-output-styles">
+<span id="profile-own-artifacts-by-name"></span><h3>Naming your own skills, agents, rules and output styles<a class="headerlink" href="#naming-your-own-skills-agents-rules-and-output-styles" title="Link to this heading">#</a></h3>
+<p>These four render only where a list names them, like the library artifacts in
+the same list. Name one with its directory as a prefix:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">skills</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">diagnose</span><span class="w">                  </span><span class="c1"># a library skill</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">skills/beam-check</span><span class="w">         </span><span class="c1"># skills/beam-check/ beside profile.yml</span>
+<span class="nt">output_styles</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">output-styles/terse</span><span class="w">       </span><span class="c1"># the directory&#39;s spelling, hyphenated</span>
+<span class="nt">hooks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hooks/osprey_limits.py</span><span class="w">    </span><span class="c1"># only a file replacing an OSPREY hook</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s lists select for the deployment and every tier, a tier adds to
+them, and an app’s lists are its whole selection. A bare entry always means
+OSPREY’s artifact. A file named like one (<code class="docutils literal notranslate"><span class="pre">rules/facility.md</span></code>) replaces it
+only where its path, <code class="docutils literal notranslate"><span class="pre">rules/facility</span></code>, is named: there it counts as that
+artifact for wiring, checks and the brief, and supplies only the content.
+Listing both in one render is a build error. A path naming no file fails the build; a file no list names
+reaches no render, and the build warns. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> names the facility
+description it seeds by its path. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> turns a bare
+entry into the path wherever the repo ships the file, and names every other
+unnamed one in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and each app, so an existing deployment’s renders
+stay as they were.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list names a <code class="docutils literal notranslate"><span class="pre">hooks/&lt;file&gt;</span></code> only to replace an OSPREY hook; any
+other entry is refused. Your own hooks are wired, and copied, by their
+<code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code> declaration (see <a class="reference internal" href="#profile-custom-hooks"><span class="std std-ref">Custom hooks</span></a>).</p>
 <p>A file you ship this way is registered as <strong>yours</strong> in the project: later
 re-renders never overwrite it, and cleanup never removes it. Name a file after
-something the framework also renders (<code class="docutils literal notranslate"><span class="pre">rules/safety.md</span></code>) and yours wins.</p>
+something the framework also renders (<code class="docutils literal notranslate"><span class="pre">rules/safety.md</span></code>) and list its path
+(<code class="docutils literal notranslate"><span class="pre">rules/safety</span></code>) instead of the bare name: yours wins in that render.</p>
 <p>Ownership is <em>derived</em> from what the build actually copied, after exclusions
 are applied — there is no list to maintain. An artifact the profile
 excludes is not copied and therefore not owned, so the framework’s own version
@@ -753,6 +783,7 @@ renders in its place.</p>
 unrecognized top-level entries in a profile for exactly this reason — read
 that warning rather than wondering why an artifact never arrived.</p>
 </div>
+</section>
 <section id="paths-the-profile-may-not-write">
 <span id="profile-reserved-paths"></span><h3>Paths the profile may not write<a class="headerlink" href="#paths-the-profile-may-not-write" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">project/</span></code> is the escape hatch for anything without a home in the table above.
@@ -914,7 +945,9 @@ osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="
 <p>The artifact is <strong>moved</strong> out of <code class="docutils literal notranslate"><span class="pre">build/</span></code> and into the matching convention
 slot of the repository’s profile — <code class="docutils literal notranslate"><span class="pre">rules/safety</span></code> lands at
 <code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/rules/safety.md</span></code>, <code class="docutils literal notranslate"><span class="pre">services/postgresql</span></code> at
-<code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>. Edit it there, then rebuild:</p>
+<code class="docutils literal notranslate"><span class="pre">&lt;profile&gt;/services/postgresql/</span></code>. A claimed skill, agent, rule, output style
+or hook is named by its path (<code class="docutils literal notranslate"><span class="pre">rules/safety</span></code>) wherever <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> or an
+app listed its bare name. Edit it there, then rebuild:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
 </pre></div>
 </div>
@@ -947,7 +980,7 @@ variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without owning the template.</p>
 </section>
 <section id="custom-hooks">
-<h2>Custom hooks<a class="headerlink" href="#custom-hooks" title="Link to this heading">#</a></h2>
+<span id="profile-custom-hooks"></span><h2>Custom hooks<a class="headerlink" href="#custom-hooks" title="Link to this heading">#</a></h2>
 <p>A hook is a script the agent runs at a defined moment — before a tool call, at
 session start. Ship yours through <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
@@ -955,9 +988,9 @@ session start. Ship yours through <code class="docutils literal notranslate"><sp
     facility_guard.py
 </pre></div>
 </div>
-<p>That copies the script to <code class="docutils literal notranslate"><span class="pre">.claude/hooks/facility_guard.py</span></code>. <strong>It does not make
-the script run.</strong> Shipping and wiring are two steps; the second is a <code class="docutils literal notranslate"><span class="pre">config:</span></code>
-key naming the event it fires on:</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">config:</span></code> key naming the event it fires on wires it, and the script is
+copied to <code class="docutils literal notranslate"><span class="pre">.claude/hooks/facility_guard.py</span></code> in every render that declaration
+is in force in — and in no other:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">claude_code.hooks.PreToolUse</span><span class="p">:</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">hook</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facility_guard.py</span>
@@ -972,10 +1005,17 @@ key naming the event it fires on:</p>
 <code class="docutils literal notranslate"><span class="pre">PreCompact</span></code>.</p>
 <div class="important admonition">
 <p class="admonition-title">An undeclared hook never runs</p>
-<p>Without a declaration the script still lands in <code class="docutils literal notranslate"><span class="pre">.claude/hooks/</span></code> and
-survives every rebuild — doing nothing. This matters most for a safety check,
-where “present” looks like “enforcing.”</p>
+<p>Without a declaration the script reaches no render, and the build warns.
+Never list it in <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> instead: that list names OSPREY’s hooks, and a
+<code class="docutils literal notranslate"><span class="pre">hooks/&lt;file&gt;</span></code> there only replaces one.</p>
 </div>
+<p>Guards are a floor. Every <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> hook in force on the deployment’s
+render — OSPREY’s (approval, <code class="docutils literal notranslate"><span class="pre">writes-check</span></code>, <code class="docutils literal notranslate"><span class="pre">limits</span></code>, <code class="docutils literal notranslate"><span class="pre">memory-guard</span></code>) or
+one <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> declares — reaches every tier and app render, inert where
+no tool it matches is present. A tier or app adds guards; it never drops one by
+leaving it out. A declaration on any other event reaches a tier with
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>’s config, and an app only when the app’s own <code class="docutils literal notranslate"><span class="pre">config:</span></code>
+declares it.</p>
 <p>Declared wiring is <strong>added</strong> to the framework’s, never put in its place. Your
 declaration cannot remove, alter, or displace anything the generated settings
 already wire — the write-safety gate and the rest render unchanged. Every hook
@@ -997,7 +1037,7 @@ to use the right spelling:</p>
 <span class="w">  </span><span class="nt">claude_code.hooks</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span><span class="w">                </span><span class="c1"># or: unwire every event at once</span>
 </pre></div>
 </div>
-<p>Either form leaves the script itself in place: unwired, not unshipped.</p>
+<p>Either form also stops the script being copied into that render.</p>
 <div class="important admonition">
 <p class="admonition-title">An empty list does nothing</p>
 <p>A tier’s lists merge <strong>additively</strong> with the profile’s, so
@@ -1014,14 +1054,17 @@ pass.</p>
 <section id="replacing-a-built-in-hook">
 <h3>Replacing a built-in hook<a class="headerlink" href="#replacing-a-built-in-hook" title="Link to this heading">#</a></h3>
 <p>Shipping and declaring behave differently for the framework’s own hooks.</p>
-<p><strong>Shipping</strong> a file named for a built-in <em>replaces</em> it: <code class="docutils literal notranslate"><span class="pre">hooks/</span></code> is keyed by
-filename, because that is what the generated settings run. The built-in
-<code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook is <code class="docutils literal notranslate"><span class="pre">osprey_writes_check.py</span></code>, so a profile file of that
-name is the one the agent runs wherever the framework already wired that name.</p>
+<p><strong>Shipping</strong> a file named for a built-in <em>replaces</em> it where a <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list
+names its path: <code class="docutils literal notranslate"><span class="pre">hooks/</span></code> is keyed by filename, because that is what the
+generated settings run. The built-in <code class="docutils literal notranslate"><span class="pre">writes-check</span></code> hook is
+<code class="docutils literal notranslate"><span class="pre">osprey_writes_check.py</span></code>, so listing <code class="docutils literal notranslate"><span class="pre">hooks/osprey_writes_check.py</span></code> in place
+of <code class="docutils literal notranslate"><span class="pre">writes-check</span></code> makes your file the one the agent runs, wired exactly where
+the built-in was. This is the one <code class="docutils literal notranslate"><span class="pre">hooks/&lt;file&gt;</span></code> a list accepts.</p>
 <p><strong>Declaring</strong> a built-in hook is refused. The framework wires its own hooks from
 the profile’s <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> selection, so a declaration naming one would invoke it
 twice. Select or unselect a built-in through <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>; never through
-<code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code>. A built-in guard the deployment selects reaches every
+tier and app all the same, in the spelling <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> gives it.</p>
 </section>
 </section>
 <section id="tiers-and-apps">
@@ -1526,6 +1569,7 @@ relax the constraint in the profile.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#convention-directories">Convention directories</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#naming-your-own-skills-agents-rules-and-output-styles">Naming your own skills, agents, rules and output styles</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#paths-the-profile-may-not-write">Paths the profile may not write</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-shared-web-terminal-baseline">The shared web-terminal baseline</a></li>
 </ul>

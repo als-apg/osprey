@@ -577,7 +577,11 @@ the ones you added are kept. Never touches <code class="docutils literal notrans
 <p><code class="docutils literal notranslate"><span class="pre">--revalidate</span> <span class="pre">[--preset</span> <span class="pre">NAME]</span></code> — Bring an existing deployment repository to
 this OSPREY in place: the current profile vocabulary, every config key the
 profile leaves to its preset (from <code class="docutils literal notranslate"><span class="pre">--preset</span> <span class="pre">NAME</span></code>, or the preset the profile
-records), and the provider entries OSPREY ships, keeping the ones you added.
+records), the provider entries and keys OSPREY ships that <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>
+lacks (every value already in it is kept, an edited entry OSPREY ships
+included), and the repo’s own skills, agents, rules, output styles and hooks named by path in
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and each app (a bare entry the repo ships a file for becomes
+its path), so every render keeps what it carried.
 Your deployment’s own selections — the roster, the shared apps, the default
 tier, role tiers, the landing groups — are left for you and named in the
 output. Prints a diff to review and commit.</p>
