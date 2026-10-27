@@ -154,6 +154,26 @@ def test_an_unstated_database_path_is_left_to_the_mount_refusal(tmp_path: Path) 
     assert limits_database_errors(_render(tmp_path, section, STALE_DB)) == []
 
 
+def test_an_optional_posture_with_no_database_path_passes(tmp_path: Path) -> None:
+    """Optional + no path needs no database at all (q-0001/1, q-0002)."""
+    section = _control_system()
+    section["limits_checking"]["mode"] = "optional"
+    del section["limits_checking"]["database_path"]
+
+    assert limits_database_errors(_render(tmp_path, section, None)) == []
+
+
+def test_an_optional_posture_naming_a_stale_database_is_refused(tmp_path: Path) -> None:
+    """A configured path must load whatever the mode."""
+    section = _control_system()
+    section["limits_checking"]["mode"] = "optional"
+
+    errors = limits_database_errors(_render(tmp_path, section, STALE_DB))
+
+    assert len(errors) == 1
+    assert "control_system.limits_checking.database_path" in errors[0]
+
+
 def test_a_per_type_block_that_switches_checking_off_wins(tmp_path: Path) -> None:
     """The per-type block overrides whole, and it is the block the live target
     resolves to — the same reading the bridge makes for its lane."""

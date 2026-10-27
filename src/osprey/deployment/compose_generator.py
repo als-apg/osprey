@@ -843,10 +843,12 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     silently re-point the mount at a file that is not there.
 
     Refusals are gated on
-    :func:`~osprey_connectors.types.any_armed_target_checks_limits`: a target
-    opens this file only when it both arms writes and has
-    ``limits_checking.enabled`` on, so that pairing is what makes the file's
-    absence a fault rather than a posture. Both halves are read off the SAME
+    :func:`~osprey_connectors.types.any_armed_target_requires_limits_database`:
+    a target needs this file only when it both arms writes and
+    :func:`~osprey_connectors.types.limits_database_required` answers yes for
+    it — limits checking on, and either a mode other than ``optional`` or a
+    path configured — so that pairing is what makes the file's absence a fault
+    rather than a posture. Both halves are read off the SAME
     target, and the write half is a union over the targets a session here can
     select rather than the flat key — the mount is rendered per Bluesky lane,
     on each lane's own target posture (:func:`_bluesky_lane_write_posture`), so
@@ -859,11 +861,16 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     A limits database is therefore optional, exactly as it is at runtime. A
     deployment with no armed target never opens it; neither does one that arms
     writes with limits checking off for every armed target, where the connector
-    builds no validator and consults no database. Both leave an unset or
+    builds no validator and consults no database; nor does one whose armed
+    targets check limits in ``optional`` mode with no path configured, where the
+    connector checks every channel as unlisted against an empty database. All
+    three leave an unset or
     not-yet-staged path a posture rather than a fault, and the render carries
     no mount — a bind source that does not exist would otherwise materialise as
-    a stray empty directory. Checking that is ON for an armed target is the
-    combination that needs the file, the same rule
+    a stray empty directory. A configured path is different: once named, a
+    file that is not on this host is refused for any armed target that checks
+    limits, whatever its mode. Requiring the database for an armed target is
+    the combination that needs the file, the same rule
     ``bluesky_bridge.validation._assert_limits_readable_if_writable`` starts
     on, and catching it here turns an unhealthy container an hour into a deploy
     into a refusal while the operator still has the config in front of them.
@@ -879,20 +886,22 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all, or names one that is not on this host and no armed
-        target checks limits — there is nothing to mount either way, and a bind
+        no path at all and no armed target requires the database, or names
+        one that is not on this host and no armed target checks limits — there is nothing to mount either way, and a bind
         source that is not there is worse than no bind at all
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: Some target arms writes with limits
-        checking on for it, and the key is unset, is not a string, or names a
-        file that is not on this host
+    :raises DeploymentPreconditionError: Some target arms writes and requires
+        a limits database, and the key is unset or not a string (a mode other
+        than ``optional``), or names a file that is not on this host
     """
-    from osprey_connectors.types import any_armed_target_checks_limits
+    from osprey_connectors.types import any_armed_target_requires_limits_database
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    limits_required = any_armed_target_checks_limits(control_system)
+    limits_required = any_armed_target_requires_limits_database(
+        control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
+    )
 
     if not isinstance(raw, str) or not raw.strip():
         if limits_required:
@@ -901,7 +910,8 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     f"At least one control target arms writes_enabled (from "
                     f"control_system.writes_enabled or a "
                     f"control_system.connector.<type>.writes_enabled that "
-                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"overrides it) AND has limits_checking.enabled on in a mode "
+                    f"other than optional, so the "
                     f"channel-limits database is mounted into the services that "
                     f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
                     f"(found: {raw!r}). There is nothing to mount, so those "
@@ -916,7 +926,9 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "Or turn limits checking off for the armed target — "
                     "limits_checking.enabled: false, deployment-wide or in that "
                     "target's control_system.connector.<type> block — which "
-                    "needs no limits database. Disarming every target "
+                    "needs no limits database; limits_checking.mode: optional "
+                    "with no path checks every channel as unlisted and needs "
+                    "none either. Disarming every target "
                     "(control_system.writes_enabled: false with no "
                     "control_system.connector.<type>.writes_enabled: true "
                     "overriding it) needs none either."

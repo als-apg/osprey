@@ -70,6 +70,13 @@ class TestNoCacheStaticMiddleware:
         resp = cache_client.get("/api/vendor/lib.js")
         assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
 
+    def test_a_missing_vendor_file_is_never_cached(self, cache_client):
+        """An error on a vendor path (a missing file, a login redirect) must not
+        outlive the deploy that produced it, so only a 200 is immutable."""
+        resp = cache_client.get("/static/vendor/plotly-9.9.9.min.js")
+        assert resp.status_code == 404
+        assert resp.headers["Cache-Control"] == "no-cache, no-store, must-revalidate"
+
 
 @pytest.fixture
 def exc_client():

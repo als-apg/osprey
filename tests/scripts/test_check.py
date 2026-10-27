@@ -1499,13 +1499,15 @@ def test_a_check_off_its_venue_is_named_and_not_run(
     monkeypatch.setitem(check.VENUE_PROBES, check.LIVE_CA_VENUE, lambda: False)
     assert check.main(["full"]) == 0
     assert not recorder.ran("live_ca/gate.py")
-    named = "not run here: live-ca (needs linux x86_64)"
+    named = "not run here: live-ca (needs linux x86_64 or aarch64)"
     out = capsys.readouterr().out.strip().splitlines()
     assert f"check: {named}" in out
     assert named in out[-1]
 
 
-def test_the_live_channel_access_venue_is_linux_x86_64(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_live_channel_access_venue_is_linux_x86_64_or_aarch64(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def no_probe(*_args: Any) -> tuple[int, str]:
         raise AssertionError("the venue is the platform alone and probes nothing")
 
@@ -1514,8 +1516,10 @@ def test_the_live_channel_access_venue_is_linux_x86_64(monkeypatch: pytest.Monke
     monkeypatch.setattr(check.platform, "machine", lambda: "x86_64")
     assert check._on_live_ca_venue() is False
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(check.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(check.platform, "machine", lambda: "armv7l")
     assert check._on_live_ca_venue() is False
+    monkeypatch.setattr(check.platform, "machine", lambda: "aarch64")
+    assert check._on_live_ca_venue() is True
     monkeypatch.setattr(check.platform, "machine", lambda: "x86_64")
     assert check._on_live_ca_venue() is True
 
@@ -1527,12 +1531,16 @@ def test_the_venue_is_the_platform_the_virtual_accelerator_extra_installs_on(
     extra = pyproject["project"]["optional-dependencies"]["virtual-accelerator"]
     markers = {entry.split(";", 1)[1].strip() for entry in extra if ";" in entry}
     assert len(markers) == 1, markers
-    found = dict(re.findall(r"(sys_platform|platform_machine) == '([^']+)'", markers.pop()))
+    found: dict[str, set[str]] = {}
+    for key, value in re.findall(r"(sys_platform|platform_machine) == '([^']+)'", markers.pop()):
+        found.setdefault(key, set()).add(value)
     assert set(found) == {"sys_platform", "platform_machine"}, found
+    (system,) = found["sys_platform"]
     monkeypatch.setattr(check, "_capture", lambda argv: (1, ""))
-    monkeypatch.setattr(sys, "platform", found["sys_platform"])
-    monkeypatch.setattr(check.platform, "machine", lambda: found["platform_machine"])
-    assert check._on_live_ca_venue() is True
+    monkeypatch.setattr(sys, "platform", system)
+    for machine in found["platform_machine"]:
+        monkeypatch.setattr(check.platform, "machine", lambda machine=machine: machine)
+        assert check._on_live_ca_venue() is True, machine
     monkeypatch.setattr(check.platform, "machine", lambda: "amd64")
     assert check._on_live_ca_venue() is False
 

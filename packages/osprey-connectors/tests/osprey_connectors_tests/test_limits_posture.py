@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import functools
 from typing import Any
 
 import pytest
@@ -36,8 +37,9 @@ from osprey_connectors.types import (
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
     LimitsPosture,
-    any_armed_target_checks_limits,
+    any_armed_target_requires_limits_database,
     incomplete_limits_blocks,
+    limits_database_required,
     most_restrictive_limits_posture,
     target_limits_posture,
     type_limits_posture,
@@ -921,11 +923,13 @@ class TestMostRestrictive:
         assert most_restrictive_limits_posture(_va_baseline_deployment()).incomplete == ()
 
 
-class TestAnyArmedTargetChecksLimits:
-    """Whether some ONE target both arms writes and checks limits.
+class TestAnyArmedTargetRequiresLimitsDatabase:
+    """Whether some ONE target both arms writes and requires a limits database.
 
     The question a deployment-level caller asks before it demands a channel-
-    limits database: only a target that writes and checks opens that file. Both
+    limits database: only a target that writes and requires it opens that file.
+    The cases below configure a path, so "requires" is "checks limits"; the
+    optional/no-path cases at the end are where the two part (q-0001/1, q-0002). Both
     leaves are read off the same target, which is what separates this from
     asking :func:`any_target_writes_enabled` and
     :func:`most_restrictive_limits_posture` separately — those two folds can
@@ -940,20 +944,25 @@ class TestAnyArmedTargetChecksLimits:
 
     def test_a_read_only_deployment_needs_no_limits_database(self) -> None:
         """Nothing writes, so nothing consults the database, however strict."""
-        assert any_armed_target_checks_limits(_va_baseline_deployment()) is False
+        assert (
+            any_armed_target_requires_limits_database(
+                _va_baseline_deployment(), path_configured=True
+            )
+            is False
+        )
 
     def test_an_armed_checking_target_answers_true(self) -> None:
         """The pairing this exists to find, on one machine."""
         section = self._armed(_va_baseline_deployment(), VIRTUAL_ACCELERATOR, True)
-        assert any_armed_target_checks_limits(section) is True
+        assert any_armed_target_requires_limits_database(section, path_configured=True) is True
 
     def test_an_armed_target_that_checks_no_limits_answers_false(self) -> None:
         """Checking off builds no validator, so an armed target opens no file."""
         section = _va_baseline_deployment()
         section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        assert any_armed_target_checks_limits(self._armed(section, VIRTUAL_ACCELERATOR, True)) is (
-            False
-        )
+        assert any_armed_target_requires_limits_database(
+            self._armed(section, VIRTUAL_ACCELERATOR, True), path_configured=True
+        ) is (False)
 
     def test_a_checking_target_does_not_vouch_for_an_armed_one(self) -> None:
         """The armed machine and the checking machine have to be the same one.
@@ -969,13 +978,13 @@ class TestAnyArmedTargetChecksLimits:
         section["connector"][VIRTUAL_ACCELERATOR]["writes_enabled"] = True
         section["connector"][EPICS]["writes_enabled"] = False
 
-        assert any_armed_target_checks_limits(section) is False
+        assert any_armed_target_requires_limits_database(section, path_configured=True) is False
 
     def test_a_deployment_wide_arming_reaches_every_target(self) -> None:
         """A flat ``writes_enabled`` arms the targets that wrote no leaf of their own."""
         section = _va_baseline_deployment()
         section["writes_enabled"] = True
-        assert any_armed_target_checks_limits(section) is True
+        assert any_armed_target_requires_limits_database(section, path_configured=True) is True
 
     def test_a_single_connector_deployment_is_read_by_type(self) -> None:
         """Without the switch, the one connector ``type`` builds is the answer.
@@ -986,14 +995,54 @@ class TestAnyArmedTargetChecksLimits:
         """
         section = _in_process_deployment()
         section["writes_enabled"] = True
-        assert any_armed_target_checks_limits(section) is True
+        assert any_armed_target_requires_limits_database(section, path_configured=True) is True
 
         section[LIMITS_CHECKING_LEAF] = _block(False, "optional")
-        assert any_armed_target_checks_limits(section) is False
+        assert any_armed_target_requires_limits_database(section, path_configured=True) is False
 
     def test_an_unstated_posture_is_not_checking(self) -> None:
         """Silence builds no validator, so it opens no database either."""
-        assert any_armed_target_checks_limits({"writes_enabled": True}) is False
+        assert (
+            any_armed_target_requires_limits_database(
+                {"writes_enabled": True}, path_configured=True
+            )
+            is False
+        )
+
+    def test_an_armed_optional_target_with_no_path_needs_no_database(self) -> None:
+        """Optional mode with no path checks every channel as unlisted (q-0001/1, q-0002)."""
+        section = self._armed(_va_baseline_deployment(), VIRTUAL_ACCELERATOR, True)
+        assert any_armed_target_requires_limits_database(section, path_configured=False) is False
+
+    def test_an_armed_exclusive_target_with_no_path_still_needs_one(self) -> None:
+        """Exclusive mode refuses every unlisted channel, so it needs the file."""
+        section = _va_baseline_deployment()
+        section["writes_enabled"] = True
+        assert any_armed_target_requires_limits_database(section, path_configured=False) is True
+
+
+class TestLimitsDatabaseRequired:
+    """The one predicate every caller asks before it demands the database."""
+
+    @pytest.mark.parametrize(
+        ("enabled", "mode", "path_configured", "required"),
+        [
+            (True, "exclusive", True, True),
+            (True, "exclusive", False, True),
+            (True, "optional", True, True),
+            (True, "optional", False, False),
+            (True, None, False, True),
+            (False, "exclusive", True, False),
+            (False, "optional", False, False),
+            (None, None, True, False),
+        ],
+    )
+    def test_the_posture_matrix(
+        self, enabled: Any, mode: Any, path_configured: bool, required: bool
+    ) -> None:
+        """Enabled and (mode is not optional or a path is configured)."""
+        posture = LimitsPosture(enabled=enabled, mode=mode, connector_type=None)
+        assert limits_database_required(posture, path_configured=path_configured) is required
 
 
 def _missing(connector_type: str, leaf: str) -> str:
@@ -1284,7 +1333,7 @@ def _resolve_every_target(section: dict[str, Any]) -> None:
         _resolve_every_type,
         _resolve_every_target,
         most_restrictive_limits_posture,
-        any_armed_target_checks_limits,
+        functools.partial(any_armed_target_requires_limits_database, path_configured=True),
         incomplete_limits_blocks,
     ],
     ids=["type", "target", "most-restrictive", "any-armed", "incomplete-blocks"],

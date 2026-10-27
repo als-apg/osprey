@@ -932,8 +932,13 @@ def _real_png() -> bytes:
 
 async def test_entry_create_native_picture_is_viewable_at_once(tmp_path, monkeypatch):
     """Direct ``entry_create`` stores the picture copied with its rendition, no sync needed."""
+    from osprey.imaging import render
     from osprey.services.ariel_search.attachments.formats import is_viewable
 
+    # The picture's rendition comes from a cold render worker; on a loaded host
+    # its start-up can outlast the default ready bound, which would store the
+    # picture without one.
+    monkeypatch.setattr(render, "RENDER_READY_TIMEOUT_S", 30.0)
     _setup_registry(tmp_path, monkeypatch)
     img = tmp_path / "beam.png"
     png = _real_png()

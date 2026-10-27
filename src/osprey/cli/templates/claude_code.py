@@ -426,10 +426,11 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
         be read as a JSON object.
     """
     from osprey.facility import FACILITY_FILE
+    from osprey.facility.views.facts import parsed_facility
 
     path = project_dir / FACILITY_FILE
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = parsed_facility(path.read_bytes())
     except FileNotFoundError:
         return {}
     except (OSError, ValueError):
