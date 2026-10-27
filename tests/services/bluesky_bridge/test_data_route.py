@@ -87,17 +87,6 @@ _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
-@pytest.fixture(autouse=True)
-def _isolated_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-    monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
-    # A settled run's statistics are held per run id; a stale entry would let a
-    # test read the previous one's answer instead of computing its own.
-    analysis._clear()
-    yield
-    analysis._clear()
-
-
 # =========================================================================
 # Fakes for the `tiled.client.from_uri` boundary
 # =========================================================================

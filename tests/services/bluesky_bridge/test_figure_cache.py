@@ -13,21 +13,9 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 from osprey.services.bluesky_bridge import document_plane, figure_cache, live_rows
 from osprey.services.bluesky_bridge.document_plane import RunDocumentRouter
 from osprey.services.bluesky_bridge.queue_backend import PLAN_META_KEY, RUN_ID_META_KEY
-
-
-@pytest.fixture(autouse=True)
-def _isolated_cache():
-    """Every test gets an empty module-level cache."""
-    figure_cache._clear()
-    live_rows._clear()
-    yield
-    figure_cache._clear()
-    live_rows._clear()
 
 
 def _key(run_id: str = "run-1", plan: str | None = "orm", source: str = "tiled"):

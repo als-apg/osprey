@@ -28,26 +28,6 @@ from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 
-_TILED_URI_ENV = "BLUESKY_TILED_URI"
-_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test also gets Tiled unconfigured: several tests below (any run
-    with no live buffer) fall through `get_run_data` to the real
-    `_from_tiled`, not a mock. Left to ambient env, an exported
-    `BLUESKY_TILED_URI` would make those tests attempt a real Tiled
-    connection instead of exercising the "not configured" branch they claim
-    to — hanging, or raising `KeyError` on the unset `BLUESKY_TILED_API_KEY`
-    and surfacing as a 500 instead of the asserted 404.
-    """
-    live_rows._clear()
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-    monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
-    yield
-    live_rows._clear()
-
 
 @pytest.fixture
 def client() -> TestClient:

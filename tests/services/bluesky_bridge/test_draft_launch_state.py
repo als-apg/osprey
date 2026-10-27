@@ -14,18 +14,13 @@ live-uvicorn `_live_bridge` route.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge import draft, plan_loader
+from osprey.services.bluesky_bridge import draft
 from osprey.services.bluesky_bridge.app import app
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
@@ -33,18 +28,6 @@ _ORM_ARGS: dict[str, Any] = {
     "span_a": 1.0,
     "num": 3,
 }
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
 
 
 @pytest.fixture

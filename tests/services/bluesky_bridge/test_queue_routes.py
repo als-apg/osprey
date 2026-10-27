@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -35,7 +34,6 @@ from osprey.services.bluesky_bridge import (
     history_removals,
     plan_loader,
     queue,
-    queue_removals,
 )
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
@@ -50,9 +48,6 @@ from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
 from tests._control_system import IN_PROCESS, section_for
 
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
 _TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 _TOKEN = "s3cr3t"
 
@@ -122,33 +117,6 @@ def status_doc(**overrides: Any) -> dict[str, Any]:
     }
     doc.update(overrides)
     return doc
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Mirror `test_draft.py`'s isolation, plus the queue module's own state.
-
-    The backend singleton lives in `app.py`; clearing it to `None` here means
-    a test that forgets to install a fake would lazily build a managerless
-    real backend (fail-closed 503s) rather than seeing another test's fake.
-    """
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.delenv(_TOKEN_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    history_removals._clear()
-    queue_removals._clear()
-    app_module.set_queue_backend(None)
-    yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    history_removals._clear()
-    queue_removals._clear()
-    app_module.set_queue_backend(None)
 
 
 @pytest.fixture

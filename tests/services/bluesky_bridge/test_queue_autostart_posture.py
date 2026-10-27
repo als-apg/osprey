@@ -19,13 +19,6 @@ from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from .test_queue_routes import FakeManager
 
 
-@pytest.fixture(autouse=True)
-def _isolated_backend():
-    app_module.set_queue_backend(None)
-    yield
-    app_module.set_queue_backend(None)
-
-
 def _configure(monkeypatch: pytest.MonkeyPatch, config: Any) -> None:
     """Stand in for the bridge's config read (`get_config_value`), the same
     seam the route tests' `connector` fixture patches."""

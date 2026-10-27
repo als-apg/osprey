@@ -51,12 +51,6 @@ class _ScriptedManager:
         return self._reply
 
 
-@pytest.fixture(autouse=True)
-def _isolated_state():
-    yield
-    app_module.set_queue_backend(None)
-
-
 @pytest.fixture
 def bridge():
     """A `TestClient` on the bridge, with a scripted manager behind the queue."""

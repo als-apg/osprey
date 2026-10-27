@@ -28,23 +28,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import document_plane, draft, live_rows, plan_loader, queue
+from osprey.services.bluesky_bridge import document_plane, live_rows, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend, QueueItemInvalidError
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-_PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
-_PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 
 _GRID_SCAN_ARGS: dict[str, Any] = {
     "readbacks": ["BPM1"],
@@ -106,25 +100,6 @@ def stamped_item(uid: str = "u1", **overrides: Any) -> dict[str, Any]:
     }
     item.update(overrides)
     return item
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
-    monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
-    monkeypatch.delenv(_TOKEN_ENV, raising=False)
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    document_plane._clear()
-    app_module.set_queue_backend(None)
-    yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    document_plane._clear()
-    app_module.set_queue_backend(None)
 
 
 @pytest.fixture

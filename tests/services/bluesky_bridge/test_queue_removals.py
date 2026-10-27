@@ -27,7 +27,7 @@ from bluesky_queueserver_api.comm_base import RequestFailedError
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import history_removals, queue, queue_removals
+from osprey.services.bluesky_bridge import queue, queue_removals
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 from osprey.services.bluesky_bridge.queue_removals import (
@@ -41,22 +41,6 @@ from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 from .test_queue_routes import FakeManager, _install_abort, status_doc
-
-_SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv(_SESSION_PLAN_DIR_ENV, str(tmp_path / "plans_session"))
-    queue._clear()
-    queue_removals._clear()
-    history_removals._clear()
-    app_module.set_queue_backend(None)
-    yield
-    queue._clear()
-    queue_removals._clear()
-    history_removals._clear()
-    app_module.set_queue_backend(None)
 
 
 @pytest.fixture

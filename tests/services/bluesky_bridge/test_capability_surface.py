@@ -83,18 +83,6 @@ class _ExplodingBackend:
         raise self._exc
 
 
-@pytest.fixture(autouse=True)
-def _isolated_backend():
-    """Never let one test's injected backend leak into the next.
-
-    `get_queue_backend` memoizes a process-wide singleton, so the override has
-    to be cleared on the way out — including when a test fails.
-    """
-    bridge_app_module.set_queue_backend(None)
-    yield
-    bridge_app_module.set_queue_backend(None)
-
-
 @pytest.fixture
 def connector(monkeypatch: pytest.MonkeyPatch):
     """Set — or break — the `control_system.type` the bridge resolves.

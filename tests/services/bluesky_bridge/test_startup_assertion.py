@@ -76,7 +76,7 @@ class _InertBackend:
 
 
 @pytest.fixture(autouse=True)
-def _isolated_state(monkeypatch: pytest.MonkeyPatch):
+def _clean_env_and_inert_backend(monkeypatch: pytest.MonkeyPatch):
     """Every test starts from a clean env and an inert, pre-injected backend.
 
     The device-file/Tiled variables are cleared rather than set: the guard is no

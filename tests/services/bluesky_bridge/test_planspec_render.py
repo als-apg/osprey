@@ -58,29 +58,6 @@ _REPO_ROOT = _SRC_ROOT.parent
 _TRUSTED_TIERS: tuple[Provenance, ...] = ("shipped", "preset", "facility")
 
 
-@pytest.fixture(autouse=True)
-def _isolated_plan_loader(monkeypatch: pytest.MonkeyPatch):
-    """Clean loader caches and no leftover layer env vars, per test."""
-    monkeypatch.delenv("BLUESKY_PLAN_DIRS", raising=False)
-    monkeypatch.delenv("BLUESKY_PLAN_MODULE", raising=False)
-    plan_loader.reset_facility_plans()
-    yield
-    plan_loader.reset_facility_plans()
-
-
-@pytest.fixture
-def _isolated_validation_records():
-    """Swap in an empty record store so a session-tier fixture can be validated
-    without leaking its hash into whatever the rest of the suite recorded."""
-    with validation_records.lock:
-        saved = set(validation_records._passing_hashes)
-        validation_records._passing_hashes.clear()
-    yield validation_records
-    with validation_records.lock:
-        validation_records._passing_hashes.clear()
-        validation_records._passing_hashes.update(saved)
-
-
 # ==========================================================================
 # Plan-file fixtures
 # ==========================================================================
@@ -260,7 +237,6 @@ def test_a_var_positional_render_is_honored(tmp_path: Path) -> None:
 def test_session_tier_render_is_ignored_and_names_the_route_reason(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    _isolated_validation_records,
 ) -> None:
     """A session plan's `render()` runs nowhere. `render()` executes in the bridge
     API process on every poll tick, so an agent-authored one is an unbounded-work
@@ -280,9 +256,7 @@ def test_session_tier_render_is_ignored_and_names_the_route_reason(
     assert REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS in caplog.text
 
 
-def test_unreviewed_tier_render_is_ignored_too(
-    tmp_path: Path, _isolated_validation_records
-) -> None:
+def test_unreviewed_tier_render_is_ignored_too(tmp_path: Path) -> None:
     """The gate is on the tier, not on the one tier name that exists today."""
     path = _write_plan(tmp_path, "unreviewed_drawable", tail=_GOOD_RENDER)
     validation_records.record(hash_plan_body(path.read_text()))
@@ -295,7 +269,6 @@ def test_unreviewed_tier_render_is_ignored_too(
 def test_session_tier_plan_without_render_does_not_warn(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
-    _isolated_validation_records,
 ) -> None:
     """Nothing was ignored, so there is nothing to tell the author about."""
     path = _write_plan(tmp_path, "session_plain")
