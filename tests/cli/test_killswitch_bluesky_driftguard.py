@@ -31,7 +31,6 @@ to the deployment-wide key alone.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import yaml
 
@@ -43,39 +42,7 @@ from osprey.registry.mcp import (
     FRAMEWORK_SERVERS,
     is_mixed_matcher,
 )
-from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the three steps a real build takes next.
-
-    A build renders the framework template, overlays the resolved profile's
-    ``config:`` block onto the result, stamps ``.osprey-manifest.json``, and
-    regenerates ``.claude/`` from the finished config. The template carries
-    only derived and profile-field-derived keys, so a fixture that stops after
-    the render holds half a config — the declarative half is the preset's, and
-    the artifacts rendered before it landed do not know about the deployment's
-    control system, services or servers. These fixtures render from a bundle
-    rather than from a profile, so they overlay the preset ``osprey init``
-    pairs with that bundle.
-    """
-    from osprey.cli.build_profile import resolve_build_profile
-    from osprey.utils.config_writer import config_update_fields
-
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
-    project = manager.create_project(**kwargs)
-    profile, _preset_dir = resolve_build_profile(None, preset=preset)
-    config_update_fields(project / "config.yml", profile.config)
-    manager.generate_manifest(
-        project, kwargs["project_name"], preset, {}, artifacts=kwargs.get("artifacts")
-    )
-    # The build's last render, and the one that ships: `create_project` wrote
-    # `.claude/` from a config.yml that did not yet carry the preset's block.
-    manager.regenerate_claude_code(project)
-    return project
-
+from tests._preset_data import create_project_as_built
 
 _PROJECT_COUNTER = 0
 
@@ -113,7 +80,7 @@ def _build_project(
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name=f"killswitch-driftguard-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
@@ -349,7 +316,7 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp
     that deployment already had.
     """
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="killswitch-identity-off",
         output_dir=tmp_path,
@@ -372,7 +339,7 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp
 def test_agreeing_per_connector_keys_render_byte_identically_with_writes_on(tmp_path):
     """The same identity in the armed direction."""
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="killswitch-identity-on",
         output_dir=tmp_path,
