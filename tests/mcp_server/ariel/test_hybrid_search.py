@@ -12,6 +12,7 @@ from tests.mcp_server.ariel.conftest import (
     make_mock_entry,
     make_search_result,
     patch_ariel_service,
+    service_returning,
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
@@ -36,9 +37,7 @@ def _get_hybrid_search():
 
 async def _searched_with(**kwargs):
     """Call hybrid_search over an empty result; return the kwargs it gave ``service.search``."""
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([])
+    mock_service = service_returning(_make_search_result([]))
 
     with patch_ariel_service(mock_service):
         await _get_hybrid_search()(**kwargs)
@@ -53,9 +52,7 @@ async def test_hybrid_search_basic(ariel_registry):
     entries = [make_mock_entry(entry_id="e1", raw_text="Beam loss event", score=0.9)]
     mock_result = _make_search_result(entries, reasoning="Hybrid search: 1 results")
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = mock_result
+    mock_service = service_returning(mock_result)
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -108,9 +105,7 @@ async def test_hybrid_search_exclude_entry_ids(ariel_registry):
         make_mock_entry(entry_id="e1", raw_text="First entry"),
         make_mock_entry(entry_id="e2", raw_text="Second entry"),
     ]
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(entries)
+    mock_service = service_returning(_make_search_result(entries))
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -127,9 +122,7 @@ async def test_hybrid_search_caps_at_max_results(ariel_registry):
     ariel_registry()
 
     entries = [make_mock_entry(entry_id=f"e{i}") for i in range(5)]
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(entries)
+    mock_service = service_returning(_make_search_result(entries))
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -153,9 +146,7 @@ async def test_hybrid_search_no_results_is_not_an_error(ariel_registry):
     """A query that matched nothing is a normal, empty response."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([], reasoning="Hybrid search: 0 results")
+    mock_service = service_returning(_make_search_result([], reasoning="Hybrid search: 0 results"))
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -180,16 +171,16 @@ async def test_sidecar_down_is_an_error_not_an_empty_result(ariel_registry):
     """
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [],
-        reasoning="Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
-        diagnostics=[
-            _qmd_error(
-                "Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering"
-            )
-        ],
+    mock_service = service_returning(
+        _make_search_result(
+            [],
+            reasoning="Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering",
+            diagnostics=[
+                _qmd_error(
+                    "Hybrid search failed: the qmd sidecar at http://127.0.0.1:8180 is not answering"
+                )
+            ],
+        )
     )
 
     with patch_ariel_service(mock_service):
@@ -205,10 +196,10 @@ async def test_sidecar_down_names_the_health_endpoint(ariel_registry):
     """An operator reading the error gets the exact command to run."""
     ariel_registry(services={"qmd": {"port": 8199}})
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [], diagnostics=[_qmd_error("Hybrid search failed: sidecar unreachable")]
+    mock_service = service_returning(
+        _make_search_result(
+            [], diagnostics=[_qmd_error("Hybrid search failed: sidecar unreachable")]
+        )
     )
 
     with patch_ariel_service(mock_service):
@@ -226,10 +217,10 @@ async def test_unconfigured_sidecar_points_at_the_config_block(ariel_registry):
     """With no services.qmd block there is no URL to curl, so say that instead."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [], diagnostics=[_qmd_error("Hybrid search failed: no qmd sidecar is configured")]
+    mock_service = service_returning(
+        _make_search_result(
+            [], diagnostics=[_qmd_error("Hybrid search failed: no qmd sidecar is configured")]
+        )
     )
 
     with patch_ariel_service(mock_service):
@@ -260,10 +251,8 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(ariel_registry):
     )
     entries = [make_mock_entry(entry_id="e1")]
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        entries, diagnostics=[unrelated, other_mode]
+    mock_service = service_returning(
+        _make_search_result(entries, diagnostics=[unrelated, other_mode])
     )
 
     with patch_ariel_service(mock_service):
@@ -295,9 +284,7 @@ async def test_envelope_carries_the_rerank_fallback_warning(ariel_registry):
     )
     entries = [make_mock_entry(entry_id="e1")]
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(entries, diagnostics=[fallback])
+    mock_service = service_returning(_make_search_result(entries, diagnostics=[fallback]))
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -332,9 +319,7 @@ async def test_config_typo_advises_the_config_key_not_the_health_endpoint(ariel_
         category="configuration",
     )
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
+    mock_service = service_returning(_make_search_result([], diagnostics=[misconfigured]))
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -362,9 +347,7 @@ async def test_config_fault_without_a_key_still_points_at_the_settings_block(ari
         category="configuration",
     )
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([], diagnostics=[misconfigured])
+    mock_service = service_returning(_make_search_result([], diagnostics=[misconfigured]))
 
     with patch_ariel_service(mock_service):
         fn = _get_hybrid_search()
@@ -528,11 +511,11 @@ async def test_envelope_reports_the_applied_expansion(ariel_registry):
     """The merged ranking reports the expansion both legs were run with."""
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
-        expanded_terms=[TS_GROUP],
+    mock_service = service_returning(
+        _make_search_result(
+            [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
+            expanded_terms=[TS_GROUP],
+        )
     )
 
     with patch_ariel_service(mock_service):
@@ -552,19 +535,19 @@ async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(ariel_registry)
     """
     ariel_registry()
 
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result(
-        [],
-        diagnostics=[
-            SearchDiagnostic(
-                level=DiagnosticLevel.ERROR,
-                source="service.hybrid",
-                message="invalid pattern 'SR0[1-4': brackets [] not balanced",
-                category="pattern",
-            )
-        ],
-        expanded_terms=[TS_GROUP],
+    mock_service = service_returning(
+        _make_search_result(
+            [],
+            diagnostics=[
+                SearchDiagnostic(
+                    level=DiagnosticLevel.ERROR,
+                    source="service.hybrid",
+                    message="invalid pattern 'SR0[1-4': brackets [] not balanced",
+                    category="pattern",
+                )
+            ],
+            expanded_terms=[TS_GROUP],
+        )
     )
 
     with patch_ariel_service(mock_service):
@@ -683,9 +666,7 @@ async def test_caption_matched_ids_reach_the_listing(ariel_registry):
     ariel_registry()
     entry = make_mock_entry(entry_id="e1", raw_text="orbit kick near BPM 7", score=0.7)
     entry["_matched_attachment_ids"] = ["att-000000000000"]
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = _make_search_result([entry])
+    mock_service = service_returning(_make_search_result([entry]))
 
     with patch_ariel_service(mock_service):
         data = extract_response_dict(await _get_hybrid_search()(query="orbit kick near BPM 7"))
