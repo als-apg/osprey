@@ -108,12 +108,8 @@ class _ServiceDouble:
         """Report the double as healthy (the lifespan logs this)."""
         return True, "Service healthy"
 
-    async def __aenter__(self) -> _ServiceDouble:
-        """Enter the async context the service protocol defines."""
-        return self
-
-    async def __aexit__(self, *exc_info: object) -> None:
-        """Exit the async context (the lifespan calls this on shutdown)."""
+    async def aclose(self) -> None:
+        """Close the service (the lifespan calls this on shutdown)."""
         return None
 
 

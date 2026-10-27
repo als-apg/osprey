@@ -69,18 +69,10 @@ def reset_ariel_service() -> None:
 
 
 async def close_ariel_service() -> None:
-    """Close and reset the service singleton.
-
-    Properly closes both of the service's connection pools before resetting:
-    the singleton is created outside its async context manager, so nothing else
-    will close the SELECT-only pool the agent's raw-SQL path queries through.
-    Use this in tests to avoid connection leaks.
-    """
+    """Close the service, then reset the singleton."""
     global _ariel_service_instance
     if _ariel_service_instance is not None:
-        if _ariel_service_instance.readonly_pool is not None:
-            await _ariel_service_instance.readonly_pool.close()
-        await _ariel_service_instance.pool.close()
+        await _ariel_service_instance.aclose()
     _ariel_service_instance = None
 
 

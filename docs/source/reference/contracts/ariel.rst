@@ -310,8 +310,11 @@ The ``get_ariel_search_service()`` function provides a singleton
 **Lifecycle:** The singleton is created once per process. In the web
 interface, the ``create_app()`` factory manages its own service instance
 through the FastAPI lifespan. For cleanup in tests, use
-``close_ariel_service()`` (closes the connection pool) or
-``reset_ariel_service()`` (resets without closing).
+``close_ariel_service()`` (closes the service — its database pools and its
+search threads) or ``reset_ariel_service()`` (resets without closing).
+``await service.aclose()`` is the service's one close; ``async with`` calls it.
+It ends every search thread within twice the query-embedding timeout and logs
+the name of any still running past it.
 
 **Source:** :file:`src/osprey/services/ariel_search/capability.py`
 
