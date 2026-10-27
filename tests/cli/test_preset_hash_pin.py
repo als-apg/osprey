@@ -36,9 +36,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
     "control-assistant": (
-        "sha256:467acb560630af8ad73cf6438dfa6da16f920d0bc701a71bc1a76b07145afb61"
+        "sha256:15aea4510f92b679c51bb0d352a9dd367486443bb6cd052bed9d4c5d7c4a1d5e"
     ),
-    "hello-world": ("sha256:029244f425e473d9e22635202920f1bb67474520cb5cffa97318a33c80c45240"),
+    "hello-world": ("sha256:d6244e70a02c3685fe269893f610413b5938df9c3f47cff80d32811eb82d2741"),
     "tiers/admin": ("sha256:1a50a4f75750dd6d006e4ad3238eaeddeba1ff44182bd689a84efcde5585932b"),
     "tiers/readonly": ("sha256:bec2c97daa2bd8809bd3eb95b8509b3fba3425471a3b93c562a9429b1acde898"),
     "tiers/readwrite": ("sha256:04c999b7f9da029263f3103065a0d224889a3147359237aa6b815c1fe4dd0bd7"),

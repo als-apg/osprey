@@ -89,7 +89,6 @@ def _graph_repo(
         "  archiver.type: none\n"
         # No approval hook is selected, so nothing would ask: approval is off.
         "  approval.enabled: false\n"
-        "  claude_code.telemetry.enabled: false\n"
         "  hooks.debug: false\n"
         f"  services.graphdb.ttl_path: {_CORPUS_RELATIVE}\n"
     )

@@ -51,7 +51,6 @@ POSTURE_FLOOR: dict[str, Any] = {
     "control_system.connector.virtual_accelerator.serving": "in_process",
     "archiver.type": "mock_archiver",
     "approval.enabled": False,
-    "claude_code.telemetry.enabled": False,
     "hooks.debug": False,
 }
 
