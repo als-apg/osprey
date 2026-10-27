@@ -15,6 +15,8 @@ import socket
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
 from tests._live import free_port
 
@@ -82,38 +84,31 @@ class TestLauncherConfigReader:
 class TestMakeAutoLaunchChecker:
     """Tests for _make_auto_launch_checker using catalog entries."""
 
-    def test_require_section_missing(self):
-        """Auto-launch returns False when require_section=True and section is absent."""
+    @pytest.mark.parametrize(
+        ("server", "config", "launches"),
+        [
+            # require_section=True and the section is absent.
+            pytest.param("channel_finder", {}, False, id="require-section-missing"),
+            # The section exists, and auto_launch defaults to True.
+            pytest.param(
+                "channel_finder",
+                {"channel_finder": {"pipeline_mode": "in_context"}},
+                True,
+                id="require-section-present",
+            ),
+            # require_section=False launches even with no section at all.
+            pytest.param("artifact", {}, True, id="no-require-section"),
+        ],
+    )
+    def test_auto_launch_follows_the_section_requirement(self, server, config, launches):
         from osprey.infrastructure.server_launcher import _make_auto_launch_checker
 
-        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["channel_finder"])
+        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS[server])
         with patch(
             "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={},
+            return_value=config,
         ):
-            assert checker() is False
-
-    def test_require_section_present(self):
-        """Auto-launch returns True when section exists (default auto_launch=True)."""
-        from osprey.infrastructure.server_launcher import _make_auto_launch_checker
-
-        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["channel_finder"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={"channel_finder": {"pipeline_mode": "in_context"}},
-        ):
-            assert checker() is True
-
-    def test_no_require_section(self):
-        """Auto-launch returns True even when section is empty if require_section=False."""
-        from osprey.infrastructure.server_launcher import _make_auto_launch_checker
-
-        checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS["artifact"])
-        with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
-            return_value={},
-        ):
-            assert checker() is True
+            assert checker() is launches
 
 
 class TestEnsureRunningOwnership:
