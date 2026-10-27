@@ -59,6 +59,13 @@ def _reset_bluesky_context():
     reset_server_context()
 
 
+@pytest.fixture(autouse=True)
+def _silence_activity_emit():
+    """No queue tool test posts agent activity; a test asserting the emit patches it itself."""
+    with patch(f"{_MOD}.notify_agent_activity_async"):
+        yield
+
+
 def _configure(
     tmp_path,
     monkeypatch,
@@ -285,8 +292,7 @@ async def test_queue_add_posts_the_pinned_revision_with_the_token_when_armed(tmp
     _armed(tmp_path, monkeypatch)
     body = {"run_id": "abc123", "revision": 7, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=7)
+        result = await _add_fn()(draft_revision=7)
 
     assert m.call_args.args[0] == "/queue/items"
     assert m.call_args.args[1] == {"draft_revision": 7}
@@ -310,8 +316,7 @@ async def test_queue_add_withholds_the_token_when_writes_are_disabled(tmp_path, 
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
     body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=3)
+        result = await _add_fn()(draft_revision=3)
 
     assert _headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
@@ -321,8 +326,7 @@ async def test_queue_add_missing_config_fails_closed_and_withholds_the_token(tmp
     """No config.yml at all is not "writes enabled" by omission."""
     _configure(tmp_path, monkeypatch, writes=None, token=_TOKEN)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     assert _headers_without_owner(m) == {}
 
@@ -331,8 +335,7 @@ async def test_queue_add_without_a_configured_token_still_composes(tmp_path, mon
     """An unarmed deployment may still build a queue; only starting it is gated."""
     _configure(tmp_path, monkeypatch, writes=True, token=None)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     m.assert_called_once()
     assert _headers_without_owner(m) == {}
@@ -464,8 +467,7 @@ async def test_queue_add_still_composes_in_a_readonly_session(tmp_path, monkeypa
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=3)
+        result = await _add_fn()(draft_revision=3)
 
     assert _headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
@@ -735,8 +737,7 @@ async def test_queue_start_armed_posts_with_the_token(tmp_path, monkeypatch):
     """Contrast case: proves the refusals above are gated, not vacuous."""
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _start_fn()()
+        result = await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
     assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
@@ -862,8 +863,7 @@ async def test_queue_start_sends_the_uid_the_approval_prompt_stamped(tmp_path, m
     _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7")
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[1] == {"expected_plan_queue_uid": "q7"}
 
@@ -880,8 +880,7 @@ async def test_queue_start_ignores_an_expired_stamp(tmp_path, monkeypatch):
     _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7", age_s=7200.0)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[1] == {}
 
@@ -907,8 +906,7 @@ async def test_a_stamp_naming_another_lane_is_not_quoted_and_warns_once(
         with patch(
             f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})
         ) as m:
-            with patch(f"{_MOD}.notify_agent_activity_async"):
-                await _start_fn()()
+            await _start_fn()()
 
     assert m.call_args.args[1] == {}
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -935,8 +933,7 @@ async def test_a_session_less_start_sends_no_uid(tmp_path, monkeypatch):
     )
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[1] == {}
 
@@ -954,14 +951,12 @@ async def test_a_null_or_missing_stamp_sends_no_uid(tmp_path, monkeypatch):
     _write_start_stamp(directory, _SESSION, "bluesky", None)
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
     assert m.call_args.args[1] == {}
 
     (directory / _stamp_name(_SESSION, "bluesky")).unlink()
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
     assert m.call_args.args[1] == {}
 
 
@@ -1225,8 +1220,7 @@ async def test_queue_add_names_the_terminal_user_as_the_owner(tmp_path, monkeypa
     _as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] == {
         "X-Launch-Token": _TOKEN,
@@ -1244,8 +1238,7 @@ async def test_a_tree_container_with_no_stamped_owner_sends_no_owner_header(tmp_
     _as_owner_less_tree_container(monkeypatch, tmp_path)
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
 
@@ -1261,8 +1254,7 @@ async def test_a_stamped_owner_beats_the_account_the_process_runs_as(tmp_path, m
     monkeypatch.setenv(CONTROL_OWNER_ENV_VAR, "alice")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     assert _owner_sent(m) == "alice"
 
@@ -1272,8 +1264,7 @@ async def test_queue_start_carries_the_owner(tmp_path, monkeypatch):
     _as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
     assert _owner_sent(m) == "rosterbob"
@@ -1344,9 +1335,8 @@ async def test_queue_add_sends_the_call_ids(tmp_path, monkeypatch):
     _as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            with call_scope("toolu_queue1", "conv-7"):
-                await _add_fn()(draft_revision=3)
+        with call_scope("toolu_queue1", "conv-7"):
+            await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] == {
         "X-Launch-Token": _TOKEN,
@@ -1362,8 +1352,7 @@ async def test_no_scope_sends_no_call_headers(tmp_path, monkeypatch):
     _as_terminal_user(monkeypatch, "rosterbob")
     _armed(tmp_path, monkeypatch)
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+        await _add_fn()(draft_revision=3)
 
     headers = m.call_args.kwargs["headers"]
     assert CONVERSATION_HEADER not in headers

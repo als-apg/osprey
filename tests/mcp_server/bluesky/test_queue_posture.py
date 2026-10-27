@@ -68,6 +68,13 @@ def _reset_bluesky_context():
 
 
 @pytest.fixture(autouse=True)
+def _silence_activity_emit():
+    """No queue tool test posts agent activity; a test asserting the emit patches it itself."""
+    with patch(f"{_MOD}.notify_agent_activity_async"):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _clean_posture_env(monkeypatch):
     """No ambient posture: every test states its own session key and root."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
@@ -215,8 +222,7 @@ async def test_a_sandboxed_lane_target_withholds_the_launch_token_from_queue_add
 
     body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _add_fn()(draft_revision=3)
+        result = await _add_fn()(draft_revision=3)
 
     assert _headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
@@ -265,8 +271,7 @@ async def test_an_armed_lane_on_another_target_still_queues(tmp_path, monkeypatc
 
     body = {"run_id": "abc", "revision": 7, "item": {"item_uid": "u1"}}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=7)
+        await _add_fn()(draft_revision=7)
 
     assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
@@ -276,8 +281,7 @@ async def test_an_armed_lane_on_another_target_still_starts(tmp_path, monkeypatc
     _narrow(tmp_path, monkeypatch, {"standin": "sandbox"})
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _start_fn()()
+        await _start_fn()()
 
     assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
@@ -324,9 +328,8 @@ async def test_a_process_with_no_session_key_is_narrowed_all_the_same(tmp_path, 
     _narrow(tmp_path, monkeypatch, {"standin": "sandbox"})
 
     with patch(f"{_MOD}._http_post_json") as m:
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            with assert_raises_error(error_type="writes_disabled"):
-                await _start_fn()()
+        with assert_raises_error(error_type="writes_disabled"):
+            await _start_fn()()
 
     m.assert_not_called()
 
@@ -362,8 +365,7 @@ async def test_a_plain_halt_is_never_gated_by_the_store(tmp_path, monkeypatch):
     _narrow(tmp_path, monkeypatch, {"standin": "sandbox"})
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"stopped": True})):
-        with patch(f"{_MOD}.notify_agent_activity_async"):
-            result = await _stop_fn()(cancel=False)
+        result = await _stop_fn()(cancel=False)
 
     assert extract_response_dict(result)["stopped"] is True
 
