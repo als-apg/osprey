@@ -64,6 +64,8 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.e2e._deploy_support import RUNTIME
+
 __all__ = [
     "PUBSUB_CONTAINER",
     "RESOURCE_PREFIX",
@@ -73,19 +75,6 @@ __all__ = [
     "pubsub_emulator",
     "runtime_available",
 ]
-
-# ---------------------------------------------------------------------------
-# Container runtime selection — ``docker`` by default, ``podman`` opt-in via
-# OSPREY_E2E_RUNTIME. Any other value fails clearly at import time rather than
-# silently falling back to docker. Same contract as
-# tests/e2e/test_nextcloud_talk_bridge_e2e.py, so one env var drives both lanes.
-# ---------------------------------------------------------------------------
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # ---------------------------------------------------------------------------
 # Fixture identity — the one runtime resource this module creates.
