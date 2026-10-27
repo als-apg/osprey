@@ -10,19 +10,30 @@ writer of them::
                                    the render's config asks for
 
 No output carries timestamps, version or absolute paths, so equal sources and
-equal configs give equal bytes in every render of every build.
+equal configs give equal bytes in every render of every build. A build hands
+every render one record of the views it has written, so a view whose inputs a
+render shares with an earlier one is copied from that one's bytes rather than
+written again.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.facility import FACILITY_FILE
 from osprey.facility.build import FacilityDocument
+
+if TYPE_CHECKING:
+    from osprey.facility.views import View, ViewInputs
+
+#: What one build's renders have written of each view: the files, relative to
+#: the render root, and their bytes, keyed on what the view was written from.
+WrittenViews = dict[Hashable, list[tuple[str, bytes]]]
 
 __all__ = ["FACILITY_FILE", "facility_bytes", "facility_digest", "render_facility_outputs"]
 
@@ -78,6 +89,7 @@ def render_facility_outputs(
     *,
     omitted_reported: set[str] | None = None,
     built_databases: dict[str, Path] | None = None,
+    views_written: WrittenViews | None = None,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -95,6 +107,11 @@ def render_facility_outputs(
             keyed by the sha256 of the view bytes each was imported from; a
             view whose bytes match copies the database, and each one imported
             is added. ``None`` imports every one.
+        views_written: What this build's earlier renders wrote of each view;
+            each view this render writes is added. A view whose writer reads
+            what an earlier render's did is copied from its bytes. ``None``
+            writes every view. One build's only: it holds neither the facility
+            file nor the files a view copies, which a build does not change.
 
     Each view whose predicate is false is named on stderr, one line each, once
     per build, unless a selector picks it from among its alternatives: a view
@@ -126,7 +143,7 @@ def render_facility_outputs(
     for view in views.VIEWS:
         carried, reason = view.written_when(inputs)
         if carried:
-            written.extend(view.write(render_dir / "data" / view.path, inputs))
+            written.extend(_write_view(view, render_dir, inputs, views_written))
         elif view.selected_by is not None:
             continue
         elif omitted_reported is None or view.name not in omitted_reported:
@@ -134,3 +151,46 @@ def render_facility_outputs(
             if omitted_reported is not None:
                 omitted_reported.add(view.name)
     return sorted(written)
+
+
+def _write_view(
+    view: View, render_dir: Path, inputs: ViewInputs, views_written: WrittenViews | None
+) -> list[Path]:
+    """Write one view into a render, or copy it from an earlier render of the build.
+
+    The writer is handed the config keys it reads and nothing else, and a view
+    written from the same keys, the same served models and the same engine
+    registry is the same bytes; its notes were printed by the render that wrote
+    it, and the build prints each once. A copy writes the files, and makes their
+    directories, in the order the writer did: a directory lists its entries in
+    the order they were made on some filesystems, and the build manifest takes
+    its order from that listing.
+    """
+    from importlib import metadata
+
+    from osprey.facility.views import config_read
+
+    inputs = replace(inputs, rendered_config=config_read(inputs.rendered_config, view.reads))
+    root = render_dir / "data" / view.path
+    if views_written is None:
+        return view.write(root, inputs)
+    key = (
+        view.name,
+        tuple(inputs.served),
+        json.dumps(inputs.rendered_config, default=repr),
+        metadata.entry_points,
+    )
+    files = views_written.get(key)
+    if files is None:
+        paths = view.write(root, inputs)
+        views_written[key] = [
+            (path.relative_to(render_dir).as_posix(), path.read_bytes()) for path in paths
+        ]
+        return paths
+    paths = []
+    for relative, content in files:
+        path = render_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        paths.append(path)
+    return paths
