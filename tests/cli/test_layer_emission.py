@@ -168,7 +168,14 @@ def test_exemplar_layer_texts_parse_to_deltas_keyed_by_render_name() -> None:
     expected = exemplar_source_files(with_ci=False)
 
     assert sorted(texts) == sorted(EXEMPLAR_LAYER_FILES)
-    assert all(texts[relative] == expected[relative] for relative in texts)
+    # Init names the facility description it seeds by its path once the file
+    # is there; the emission itself spells the preset's bare name.
+    from osprey.cli.init_revalidate import _rewrite_shadow_lines
+
+    assert all(
+        _rewrite_shadow_lines(texts[relative], relative, ["rules/facility"]) == expected[relative]
+        for relative in texts
+    )
     assert set(_parsed_layer_deltas(texts)) == {*TIER_PRESETS, *APP_PRESETS}
 
 

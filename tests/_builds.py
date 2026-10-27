@@ -90,10 +90,12 @@ class BuiltProject:
         repo: The repo.
         outputs: One entry per render, in render order. The bytes are taken as
             they are written, before the render moves into ``build/``.
+        output: What the build printed, stdout and stderr together.
     """
 
     repo: Path
     outputs: list[RenderOutputs] = field(default_factory=list)
+    output: str = ""
 
     @property
     def build_dir(self) -> Path:
@@ -122,7 +124,7 @@ class BuiltProject:
 
 
 #: Under xdist, the file in the run's shared base temp directory that names the
-#: built repo and holds its render outputs.
+#: built repo and holds its render outputs and what it printed.
 SHARED_BUILD_RECORD = "built-ca.pickle"
 
 
@@ -168,6 +170,7 @@ def build_control_assistant(parent: Path) -> BuiltProject:
         patch.setattr(render, "render_facility_outputs", spy)
         result = run_build(repo)
     assert result.exit_code == 0, result.output
+    built.output = result.output
     return built
 
 
@@ -184,10 +187,10 @@ def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> BuiltPr
     record = shared / SHARED_BUILD_RECORD
     with _exclusive(shared / f"{SHARED_BUILD_RECORD}.lock"):
         if record.is_file():
-            repo, outputs = pickle.loads(record.read_bytes())
-            return BuiltProject(repo, outputs)
+            repo, outputs, output = pickle.loads(record.read_bytes())
+            return BuiltProject(repo, outputs, output)
         built = build_control_assistant(Path(tempfile.mkdtemp(prefix="built-ca-", dir=shared)))
-        record.write_bytes(pickle.dumps((built.repo, built.outputs)))
+        record.write_bytes(pickle.dumps((built.repo, built.outputs, built.output)))
         return built
 
 

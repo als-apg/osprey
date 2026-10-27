@@ -224,6 +224,22 @@ def web_identity_env_unset(monkeypatch):
 
 
 @pytest.fixture
+def readable_process_table(monkeypatch):
+    """Read the real process table through a wait for a readable one.
+
+    A real table that is momentarily unreadable, or does not yet hold a
+    just-spawned pid, makes the test wait, never decide: every
+    ``process_table.snapshot`` call goes through
+    :func:`tests.interfaces.web_terminal._pty_child.readable_rows`. A test that
+    injects an unknown table patches ``snapshot`` after it.
+    """
+    from osprey.deployment import process_table
+    from tests.interfaces.web_terminal._pty_child import readable_rows
+
+    monkeypatch.setattr(process_table, "snapshot", readable_rows)
+
+
+@pytest.fixture
 def bar_items_app(tmp_path) -> Callable[..., Any]:
     """A factory booting the whole app with both agent-data stores on ``tmp_path``.
 

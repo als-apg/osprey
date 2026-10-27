@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import osprey_connectors
 from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
 # Decided by lookup, never by import: importing either would load libca here.
@@ -36,9 +37,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PYTHONPATH = os.pathsep.join(
-    [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
-)
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
+PYTHONPATH = os.pathsep.join([str(REPO_ROOT / "src"), str(CONNECTORS_ROOT)])
 
 CA_TIMEOUT_S = 5.0
 CHILD_TIMEOUT_S = 120.0

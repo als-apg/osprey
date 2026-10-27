@@ -2259,8 +2259,11 @@ def lint_app_render(render: Mapping[str, Any]) -> list[Finding]:
             continue
         if value is not False:
             problems.append(f"{path} is {value!r}")
+    from osprey.cli.profile_conventions import library_selection
+
     hooks = render.get("hooks")
-    if not isinstance(hooks, list) or _WRITES_CHECK_HOOK not in hooks:
+    # A path to the deployment's copy of the kill switch selects it.
+    if not isinstance(hooks, list) or _WRITES_CHECK_HOOK not in library_selection("hooks", hooks):
         problems.append(f"{_WRITES_CHECK_HOOK!r} is not among its hooks")
     if is_setup_patch_capable(render_capability_document(dict(config))):
         problems.append(f"{SETUP_PATCH_TOOL!r} is not denied, so it could rewrite its own config")

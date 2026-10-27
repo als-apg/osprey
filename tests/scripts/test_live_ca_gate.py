@@ -44,6 +44,10 @@ _PROMPT_S = 20
 #: ``_HANG_S``, so a timed-out child here can only have been cut off in the hang.
 _LIMIT_S = 5.0
 
+#: A limit long enough for a child pytest to start, run one test and print its
+#: counts on a host busy with a parallel suite, and still far short of the hang.
+_REPORT_S = 20
+
 
 def _alive(pid: int) -> bool:
     """Whether ``pid`` still names a process."""
@@ -214,13 +218,13 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
         types.SimpleNamespace(Popen=_TimedFromCounts, TimeoutExpired=subprocess.TimeoutExpired),
     )
 
-    counts, status = gate._run_module(str(module), 5)
+    counts, status = gate._run_module(str(module), _REPORT_S)
 
     out = capsys.readouterr().out
     assert "1 passed" in out, out
     assert counts == {"passed": 0, "skipped": 0, "failed": 0, "error": 1}
     assert status == 1
-    assert "timed out after 5 s" in out
+    assert f"timed out after {_REPORT_S} s" in out
 
 
 def test_a_timed_out_module_whose_table_could_not_be_read_says_so(

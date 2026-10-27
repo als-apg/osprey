@@ -19,7 +19,7 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator
 
 from osprey.agent_runner.clean_env import build_base_child_env
-from osprey.deployment import process_table, subprocess_capture
+from osprey.deployment import subprocess_capture
 from osprey.interfaces.web_terminal import process_tree
 from osprey_connectors.logger import get_logger
 
@@ -300,11 +300,13 @@ class PtySession:
         so it can occupy the calling thread for about 2 s plus the group stop's
         grace and SIGKILL wait for the child, plus about five more seconds for
         started processes that ignore SIGTERM, plus up to about
-        ``process_tree.TEARDOWN_READ_WAIT_S`` and one read of a process table
-        that does not answer at each step that reads it. A caller that must not
-        block that long runs it in a worker thread. When the table stays
-        unreadable the child is ended without its started groups, and a warning
-        says they may survive. A started group the table could not be read to
+        ``process_tree.READ_WAIT_S`` and one read of a process table that does
+        not answer at each step that reads it. A caller that must not
+        block that long runs it in a worker thread. The started groups are
+        looked for in a table read while the child is alive, a failed read
+        retried only while it is; when the table stays unreadable the child is
+        ended without its started groups, and a warning says what it started
+        is left running. A started group the table could not be read to
         re-identify is not signalled, and a warning names it as possibly still
         running.
 
@@ -318,19 +320,19 @@ class PtySession:
         # Taken before the hang-up: a process the agent started in a session
         # of its own keeps its parent link only until the agent exits.
         groups: list[process_tree.ProcessGroup] = []
-        if self._process is not None and self._process.poll() is None:
+        process = self._process
+        if process is not None and process.poll() is None:
             try:
-                groups = process_tree.tree_groups(
-                    self._process.pid,
-                    process_table.snapshot_within(process_tree.TEARDOWN_READ_WAIT_S),
-                )
-            except process_table.ProcessTableUnreadable as exc:
+                rows = process_tree.read_while_alive(lambda: process.poll() is None)
+            except process_tree.ProcessTableUnreadable as exc:
                 logger.warning(
-                    "Could not read the process table before ending the PTY child %d (%s); "
-                    "commands it started may survive",
-                    self._process.pid,
-                    exc,
+                    "Could not read the process table while the PTY child %d was alive (%s); "
+                    "what it started is left running",
+                    process.pid,
+                    exc.cause,
                 )
+            else:
+                groups = process_tree.tree_groups(process.pid, rows)
 
         # Close master fd FIRST — the kernel sends SIGHUP to the entire
         # session (all process groups under this session leader), which is the
@@ -398,22 +400,21 @@ class PtySession:
                     process_tree.describe(ending.unknown),
                 )
 
-    def started_commands(self) -> list[process_tree.ProcessGroup] | None:
+    def started_commands(self) -> list[process_tree.ProcessGroup]:
         """The commands the agent started in process groups of their own, still running.
 
         What ending this session would also end, beyond the agent and the
-        helpers in its own group. Empty once the child has exited; ``None``
-        when the process table could not be read while it was alive, so what
-        it started is unknown. Blocking (it reads the process table): call it
-        off the loop.
+        helpers in its own group. Empty once the child has exited. Blocking
+        (it reads the process table): call it off the loop.
+
+        Raises:
+            process_tree.ProcessTableUnreadable: The process table could not
+                be read while the child was alive: what it started is unknown.
         """
         process = self._process
         if process is None or process.poll() is not None:
             return []
-        try:
-            return process_tree.started_groups(process.pid)
-        except process_table.ProcessTableUnreadable:
-            return None if process.poll() is None else []
+        return process_tree.started_groups(process.pid, lambda: process.poll() is None)
 
     @property
     def pid(self) -> int | None:

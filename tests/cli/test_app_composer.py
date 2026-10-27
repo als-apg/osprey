@@ -204,7 +204,12 @@ def test_writes_check_is_added_to_the_app_hooks(tmp_path: Path) -> None:
     raw = _resolve(_repo(tmp_path, _APP))
     assert raw["hooks"][:2] == ["hook-log", "target-state"]
     assert "writes-check" in raw["hooks"]
-    assert "approval" not in raw["hooks"]
+
+
+def test_every_host_guard_reaches_the_app_and_nothing_else_does(tmp_path: Path) -> None:
+    host = dict(_HOST, hooks=["hook-log", "approval", "turn-state"])
+    raw = _resolve(_repo(tmp_path, dict(_APP, hooks=["target-state"]), host=host))
+    assert raw["hooks"] == ["target-state", "approval", "writes-check"]
 
 
 def test_writes_check_is_not_duplicated(tmp_path: Path) -> None:

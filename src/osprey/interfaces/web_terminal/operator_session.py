@@ -45,7 +45,6 @@ from osprey.agent_runner.sdk_context import (
 from osprey.agent_runner.write_tools import load_approval_prefixes, read_only_disallowed_tools
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
-from osprey.deployment import process_table
 from osprey.deployment.process_table import ProcessRow
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
@@ -723,15 +722,23 @@ class TreeEnding:
     unknown_members: tuple[ProcessRow, ...] = ()
 
 
-def _read_tree(pid: int) -> _AgentTree:
+def _read_tree(pid: int, alive: Callable[[], bool]) -> _AgentTree:
     """Read the groups *pid*'s descendants are in and its descendants in the server's group.
 
-    Both come from one process table. Blocking (it reads the process table);
-    must run while *pid* is alive.
+    Both come from one process table, read while *alive* says *pid* runs and
+    retried while it does. When the table could not be read the tree is
+    returned unread and empty, and a warning names the child and the cause.
+    Blocking (it reads the process table).
     """
     try:
-        rows = process_table.snapshot_within(process_tree.TEARDOWN_READ_WAIT_S)
-    except process_table.ProcessTableUnreadable:
+        rows = process_tree.read_while_alive(alive)
+    except process_tree.ProcessTableUnreadable as exc:
+        logger.warning(
+            "Could not read the process table while the chat child %d was alive (%s); "
+            "what it started is left running",
+            pid,
+            exc.cause,
+        )
         return _AgentTree(groups=[], members=[], read=False)
     return _AgentTree(
         groups=process_tree.tree_groups(pid, rows),
@@ -1629,11 +1636,11 @@ class OperatorSession:
         for up to about ten more seconds. What it ended is in the log line and
         in :attr:`tree_ending`.
 
-        The process table is read while the child is alive, in one read
-        retried for up to ``process_tree.TEARDOWN_READ_WAIT_S``. When it
-        cannot be read, nothing is signalled: what the child started is left
-        running, a warning names the child, and :attr:`tree_ending` reports
-        the tree unread. What a later read could not re-identify is left
+        The process table is read while the child is alive, and a failed read
+        is retried while it is, for up to ``process_tree.READ_WAIT_S``. When it
+        still cannot be read, nothing is signalled: what the child started is
+        left running, a warning names the child, and :attr:`tree_ending` says
+        ``read=False``. What a later read could not re-identify is left
         unsignalled and named in :attr:`tree_ending`.
 
         The runner keeps the child's process handle after it closes, so a
@@ -1659,13 +1666,11 @@ class OperatorSession:
         # the agent started in a session of its own keeps its parent link only
         # until the agent exits.
         pid = self.pid
-        tree = await asyncio.to_thread(_read_tree, pid) if pid is not None else None
-        if pid is not None and tree is not None and not tree.read:
-            logger.warning(
-                "Could not read the process table while the chat child %d was alive; "
-                "what it started is left running",
-                pid,
-            )
+        tree = (
+            await asyncio.to_thread(_read_tree, pid, lambda: self.process_exited is False)
+            if pid is not None
+            else None
+        )
 
         scope = self._agent_scope
         if scope is not None:
@@ -1688,22 +1693,21 @@ class OperatorSession:
         self._started = False
         logger.info("OperatorSession stopped")
 
-    def started_commands(self) -> list[ProcessGroup] | None:
+    def started_commands(self) -> list[ProcessGroup]:
         """The commands the agent started in groups of their own and still running.
 
         What ending this session would also end, beyond the agent itself and
-        its helpers in the server's group. Empty once the child has exited;
-        ``None`` when the process table could not be read while it was alive,
-        so what it started is unknown. Blocking (it reads the process table):
-        call it off the loop.
+        its helpers in the server's group. Empty once the child has exited.
+        Blocking (it reads the process table): call it off the loop.
+
+        Raises:
+            process_tree.ProcessTableUnreadable: The process table could not
+                be read while the child was alive: what it started is unknown.
         """
         pid = self.pid
         if pid is None:
             return []
-        try:
-            return process_tree.started_groups(pid)
-        except process_table.ProcessTableUnreadable:
-            return None if self.process_exited is False else []
+        return process_tree.started_groups(pid, lambda: self.process_exited is False)
 
     @property
     def _connected_agent(self) -> AgentSession | None:

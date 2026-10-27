@@ -1354,6 +1354,12 @@ class BuildProfile:
 
         errors.extend(project_name_errors(self.project_name))
 
+        # A `skills/<name>`-style entry selects the profile's own artifact, so
+        # it has to name one that is there.
+        from .profile_conventions import convention_selection_errors, profile_artifact_lists
+
+        errors.extend(convention_selection_errors(profile_dir, profile_artifact_lists(self)))
+
         if not isinstance(self.deploy_services, bool):
             errors.append(
                 f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "owner": {
+    "kind": "web_terminal",
+    "pid": 4242,
+    "port": 10080
+  },
+  "target": "va",
+  "generation": 3,
+  "posture": {
+    "live": "sandbox"
+  },
+  "last_switch": {
+    "request_id": "req-7",
+    "target": "va",
+    "requested_at": "2026-10-20T12:00:00+00:00",
+    "requested_by": "pid:4243",
+    "status": "applied",
+    "reason": null,
+    "detail": "The control target is now 'va' (generation 3).",
+    "generation": 3
+  }
+}

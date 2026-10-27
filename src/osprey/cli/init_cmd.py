@@ -1280,7 +1280,9 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     is_flag=True,
     help="Bring an existing deployment repo to this OSPREY in place — the current "
     "profile vocabulary, every config key the profile leaves to its preset, the "
-    "provider entries OSPREY ships — and print the diff. Only on a repo that holds "
+    "provider entries OSPREY ships that providers.yml lacks (its values are kept), its "
+    "own skills/agents/rules/output styles/hooks "
+    "named where they render today — and print the diff. Only on a repo that holds "
     "profile.yml; with --preset, fills from that preset; not with --force or --reset.",
 )
 @click.option("--up", "start", is_flag=True, help="Build the deployment and start it.")
@@ -1427,9 +1429,9 @@ def init(
             # directory on, so the README names `rules/` exactly where a repo has
             # one. Imported here, not at module scope: `osprey --help` must not
             # pull in the build pipeline (TR-2).
-            from .build_persistence import FACILITY_RULE_NAME
+            from .build_persistence import selects_facility_rule
 
-            facility_rule = FACILITY_RULE_NAME in materialized.resolved.rules
+            facility_rule = selects_facility_rule(materialized.resolved.rules)
             # Driven off the table rather than four calls written out: the set of
             # files this command authors and the set the --force promise names are
             # then the same object, not two lists that agree today.

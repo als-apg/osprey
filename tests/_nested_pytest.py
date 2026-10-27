@@ -29,7 +29,8 @@ for fails it saying so.
 A finished run reports how long it sat silent before it exited
 (``NestedRun.quiet_before_exit``): the time between the last growth of its
 streams and its exit, which for a pytest run is the time it took to end after
-its last word.
+its last word. Every timing decision reads one clock, ``time.monotonic`` unless
+a test passes its own, so a test can decide what the loop sees as elapsed.
 
 The leading underscore keeps the module out of pytest collection.
 """
@@ -40,7 +41,7 @@ import os
 import subprocess
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,7 @@ def run_nested_pytest(
     env: Mapping[str, str] | None,
     stall_seconds: float = STALL_SECONDS,
     temproot: Path | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> NestedRun:
     """Run ``argv`` to its exit, failing the calling test if it stalls.
 
@@ -129,6 +131,8 @@ def run_nested_pytest(
         temproot: The run's ``PYTEST_DEBUG_TEMPROOT``; ``None`` gives it a root
             of its own inside the helper's scratch, which goes with the
             helper's return. A path is used as is, so several runs can share it.
+        clock: What the stall window and the silence before exit are measured
+            on; it is read after each check of the streams.
 
     Returns:
         The finished run, with its stdout and stderr as text and how long it
@@ -156,10 +160,10 @@ def run_nested_pytest(
             )
             try:
                 written = -1
-                last_progress = time.monotonic()
+                last_progress = clock()
                 while not _exited(proc):
                     size = out_path.stat().st_size + err_path.stat().st_size
-                    now = time.monotonic()
+                    now = clock()
                     if size != written:
                         written, last_progress = size, now
                     elif now - last_progress > stall_seconds:
@@ -171,7 +175,7 @@ def run_nested_pytest(
                             f"\n--- stderr ---\n{err_path.read_text()}"
                         )
                     time.sleep(_POLL_SECONDS)
-                exited = time.monotonic()
+                exited = clock()
                 if out_path.stat().st_size + err_path.stat().st_size != written:
                     last_progress = exited
             finally:

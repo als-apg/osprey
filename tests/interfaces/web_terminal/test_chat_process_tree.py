@@ -48,6 +48,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
+    pytest.mark.usefixtures("readable_process_table"),
 ]
 
 
@@ -207,12 +208,13 @@ async def test_stop_warns_and_reports_an_unread_tree_when_the_table_stays_unread
             raise process_table.ProcessTableUnreadable(OSError("process table"))
 
         monkeypatch.setattr(process_table, "snapshot", unreadable)
-        monkeypatch.setattr(process_tree, "TEARDOWN_READ_WAIT_S", 0.3)
+        monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.3)
 
         with caplog.at_level(logging.WARNING, logger=operator_session.__name__):
             await session.stop()
 
         assert session.process_exited is True
+        # Retried while the child lived, and given up on once the wait had passed.
         assert len(reads) > 1
         warnings = [
             record.getMessage()
@@ -521,7 +523,6 @@ async def test_started_commands_lists_only_groups_of_their_own(tmp_path):
 
         commands = await asyncio.to_thread(session.started_commands)
 
-        assert commands is not None
         assert [c.label for c in commands] == ["magnet_scan.py"]
         assert commands[0].pgid == grandchild
         assert helper not in {pid for c in commands for pid, _ in c.members}

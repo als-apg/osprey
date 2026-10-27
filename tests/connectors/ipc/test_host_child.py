@@ -56,12 +56,15 @@ from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The connectors under test, wherever they are installed: the workspace member
+# here, the floor release in the framework-at-connectors-floor lane.
+CONNECTORS_ROOT = Path(posture_store.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
         # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
         str(CHILD_STUBS),
         str(REPO_ROOT / "src"),
-        str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+        str(CONNECTORS_ROOT),
     ]
 )
 

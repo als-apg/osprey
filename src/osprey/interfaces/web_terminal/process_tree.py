@@ -10,11 +10,13 @@ listed by :func:`server_group_members` and ended one by one with
 :func:`end_processes`.
 
 The tree is read in-process with psutil, so a read never forks and has no
-timeout: a busy host makes it slower, never unknown. A read that fails raises
-:class:`ProcessTableUnreadable`. A reader that decides to end or keep something
-never takes an unreadable table for an empty one, and an ending never signals
-what it could not re-identify: what an unreadable table hides is reported as
-unknown, never as gone and never as a survivor.
+timeout: a busy host makes it slower, never unknown. A tree is read through
+one reader, :func:`read_while_alive`, which raises
+:class:`ProcessTableUnreadable` when it could not look, so no caller takes an
+unknown tree for one that started nothing. The tree can only be read while
+its root lives, so that is the only time the reader retries a failed read.
+An ending never signals what it could not re-identify: what an unreadable
+table hides is reported as unknown, never as gone and never as a survivor.
 
 A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
@@ -58,9 +60,9 @@ _WRAPPER_STDIN = " < /dev/null"
 END_TERM_WAIT_S = 3.0
 # How long started processes get to disappear after SIGKILL.
 END_KILL_WAIT_S = 2.0
-# How long teardown retries an unreadable table before it ends the agent without
-# its started commands.
-TEARDOWN_READ_WAIT_S = 5.0
+# How long a read that decides what to look for, end or keep retries an
+# unreadable table: a tree read while its root lives, and each read of an ending.
+READ_WAIT_S = 5.0
 # Interval between snapshots while waiting for groups to end.
 _POLL_S = 0.05
 # Longest label kept for a group.
@@ -73,6 +75,23 @@ _FILE_NAME = re.compile(r"^[\w.-]+\.[A-Za-z0-9]{1,5}$")
 # What makes a command line shell syntax rather than one program and its arguments: a
 # separator, a pipe, a redirection, a substitution, quoting, or a leading assignment.
 _SHELL_SYNTAX = re.compile(r"[;|&<>()$`'\"\\]|^\S+=")
+
+
+def read_while_alive(alive: Callable[[], bool]) -> dict[int, ProcessRow]:
+    """Return the process table, read while the root of a tree is alive.
+
+    *alive* says whether the root still runs. A tree can only be read while it
+    does, so every read, the first included, is preceded by that question, and
+    a failed read is retried only while the answer is yes, for up to
+    :data:`READ_WAIT_S` (:func:`~osprey.deployment.process_table.snapshot_within`).
+
+    Raises:
+        ProcessTableUnreadable: No read succeeded while the root was alive:
+            what it started is unknown, never empty. Raised at once for a
+            failure no retry can answer, and with :class:`ProcessLookupError`
+            as the cause when the root had exited before a read was taken.
+    """
+    return process_table.snapshot_within(READ_WAIT_S, alive=alive)
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -230,7 +249,7 @@ def _group(pgid: int, rows: Sequence[ProcessRow]) -> ProcessGroup:
     )
 
 
-def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[ProcessGroup]:
+def tree_groups(root: int, rows: dict[int, ProcessRow]) -> list[ProcessGroup]:
     """Return every process group a process descending from *root* belongs to.
 
     *root* is included. The server's own group and groups 0 and 1 are never
@@ -239,15 +258,10 @@ def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[Pr
     Ordered by earliest member start, then by pgid: the pgid keeps groups whose
     starts are equal in the same order from one look to the next.
 
-    Must run while *root* is alive: a process that put itself in a new session
-    keeps its parent link only until its parent exits. *rows* defaults to a
-    fresh :func:`~osprey.deployment.process_table.snapshot`.
-
-    Raises:
-        ProcessTableUnreadable: *rows* was not given and the table could not be read.
+    *rows* is the table :func:`read_while_alive` read while *root* was alive:
+    a process that put itself in a new session keeps its parent link only
+    until its parent exits.
     """
-    if rows is None:
-        rows = process_table.snapshot()
     if root not in rows:
         return []
     children: dict[int, list[int]] = {}
@@ -271,38 +285,39 @@ def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[Pr
     return sorted(groups, key=lambda g: (min(started for _, started in g.members), g.pgid))
 
 
-def started_groups(root: int) -> list[ProcessGroup]:
+def started_groups(root: int, alive: Callable[[], bool]) -> list[ProcessGroup]:
     """Return the process groups *root*'s descendants split off for their commands.
 
     That is :func:`tree_groups` without *root*'s own group: the groups an
-    agent runs its shell commands in. Blocking (it reads the process table), and like
-    :func:`tree_groups` it must run while *root* is alive.
+    agent runs its shell commands in. The table is read through
+    :func:`read_while_alive`, with *alive* saying whether *root* still runs.
+    Blocking (it reads the process table).
+
+    Returns:
+        The groups, empty when *root* started nothing or no longer exists.
 
     Raises:
-        ProcessTableUnreadable: The table could not be read.
+        ProcessTableUnreadable: The table could not be read while *root* was
+            alive: what it started is unknown.
     """
     try:
         own = os.getpgid(root)
     except OSError:
         return []
-    return [group for group in tree_groups(root) if group.pgid != own]
+    rows = read_while_alive(alive)
+    return [group for group in tree_groups(root, rows) if group.pgid != own]
 
 
-def server_group_members(root: int, rows: dict[int, ProcessRow] | None = None) -> list[ProcessRow]:
+def server_group_members(root: int, rows: dict[int, ProcessRow]) -> list[ProcessRow]:
     """Return *root*'s descendants that are in the server's own process group.
 
     A process in the server's own group cannot be ended through its group,
     which :func:`tree_groups` never returns and :func:`end_groups` never
     signals, so these are ended one by one with :func:`end_processes`.
     *root* itself and the server are never listed. Ordered by start time, then pid.
-    Must run while *root* is alive, for the same reason as :func:`tree_groups`.
-    *rows* defaults to a fresh :func:`~osprey.deployment.process_table.snapshot`.
-
-    Raises:
-        ProcessTableUnreadable: *rows* was not given and the table could not be read.
+    *rows* is the table :func:`read_while_alive` read while *root* was alive,
+    for the same reason as in :func:`tree_groups`.
     """
-    if rows is None:
-        rows = process_table.snapshot()
     if root not in rows:
         return []
     children: dict[int, list[int]] = {}
@@ -322,20 +337,16 @@ def server_group_members(root: int, rows: dict[int, ProcessRow] | None = None) -
 
 
 def still_running(
-    groups: Sequence[ProcessGroup], rows: dict[int, ProcessRow] | None = None
+    groups: Sequence[ProcessGroup], rows: dict[int, ProcessRow]
 ) -> list[ProcessGroup]:
     """Return the groups that still hold one of their snapshotted members.
 
     A member that has exited but is not yet reaped (a zombie, which a server
     running as PID 1 without an init leaves behind) no longer counts.
 
-    *rows* defaults to a fresh :func:`~osprey.deployment.process_table.snapshot`.
-
-    Raises:
-        ProcessTableUnreadable: *rows* was not given and the table could not be read.
+    *rows* is a table read after the groups were snapshotted; an ending reads
+    it through :func:`~osprey.deployment.process_table.snapshot_within`.
     """
-    if rows is None:
-        rows = process_table.snapshot()
     alive = []
     for group in groups:
         for pid, started in group.members:
@@ -369,7 +380,7 @@ def _wait_gone(
 
     A failed poll keeps the last known set. When the wait ends on a failed
     poll with something left, one verdict read is taken, retried for up to
-    :data:`TEARDOWN_READ_WAIT_S`.
+    :data:`READ_WAIT_S`.
 
     Returns:
         ``(remaining, read)``: what the latest successful read still found,
@@ -389,7 +400,7 @@ def _wait_gone(
         items = alive(items, rows)
     if items and not read:
         try:
-            rows = process_table.snapshot_within(TEARDOWN_READ_WAIT_S)
+            rows = process_table.snapshot_within(READ_WAIT_S)
         except ProcessTableUnreadable:
             return items, False
         return alive(items, rows), True
@@ -406,7 +417,7 @@ def _end(
     Nothing a read did not re-identify is signalled; it is reported as unknown.
     """
     try:
-        rows = process_table.snapshot_within(TEARDOWN_READ_WAIT_S)
+        rows = process_table.snapshot_within(READ_WAIT_S)
     except ProcessTableUnreadable:
         return Ending(unknown=tuple(items))
     live = alive(items, rows)
@@ -427,7 +438,7 @@ def end_groups(groups: Sequence[ProcessGroup]) -> Ending[ProcessGroup]:
     snapshotted member) are signalled, never the server's own group and never
     group 0 or 1. A group the table could not be read to re-identify is not
     signalled. Each read that decides a step is retried for up to
-    :data:`TEARDOWN_READ_WAIT_S`.
+    :data:`READ_WAIT_S`.
 
     Returns:
         The :class:`Ending`: ``ended`` the groups that were signalled,

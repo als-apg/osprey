@@ -217,28 +217,16 @@ def test_the_demo_index_holds_the_569_golden_rows(
 
 
 @pytest.mark.slow
-def test_an_in_context_build_writes_the_index(tmp_path: Path) -> None:
-    from click.testing import CliRunner
+def test_an_in_context_build_writes_the_index(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    """The shared build's deployment rendered selecting in_context: that index, no other."""
+    from osprey.facility.views.channel_finder import HIERARCHICAL_FILE, MIDDLE_LAYER_FILE
+    from tests.facility._built_render import render_built
 
-    from osprey.cli.init_cmd import init
-    from tests._builds import run_build
+    written = render_built(built_control_assistant, tmp_path / "render", "in_context")
 
-    repo = tmp_path / "demo"
-    result = CliRunner().invoke(
-        init,
-        [
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            "channel_finder_mode=in_context",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-
-    built = run_build(repo)
-
-    assert built.exit_code == 0, built.output
-    index = repo / "build" / "data" / "channel_finder" / IN_CONTEXT_FILE
-    assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
+    indexes = tmp_path / "render" / "data" / "channel_finder"
+    assert indexes / IN_CONTEXT_FILE in written
+    assert json.loads((indexes / IN_CONTEXT_FILE).read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
+    assert not {indexes / HIERARCHICAL_FILE, indexes / MIDDLE_LAYER_FILE} & set(written)

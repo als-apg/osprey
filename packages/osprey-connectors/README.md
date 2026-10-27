@@ -101,9 +101,10 @@ the package changes rather than with every framework release. Its numbers are
 not the framework's, and no framework release requires a matching one. (The
 `0.1.0` release on PyPI predates this scheme; its tag is retired.)
 
-Each release must stay backward-compatible with every supported
-`osprey-framework` release. The framework therefore declares only a floor on
-this package, never a pin.
+Each release stays backward-compatible with every supported `osprey-framework`
+release, and CI enforces that in its `connectors-compat` and
+`framework-at-connectors-floor` lanes. The framework therefore declares only a
+floor on this package, never a pin.
 
 The exception taxonomy in `osprey_connectors.errors` is public API: the class
 names `ChannelError`, `ChannelWriteBlockedError`, `ChannelWriteFailedError`,

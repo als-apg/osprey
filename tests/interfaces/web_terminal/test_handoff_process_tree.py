@@ -48,6 +48,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
+    pytest.mark.usefixtures("readable_process_table"),
 ]
 
 
@@ -167,6 +168,50 @@ def _fail_reads(monkeypatch) -> None:
         raise process_table.ProcessTableUnreadable(PermissionError("process table"))
 
     monkeypatch.setattr(process_table, "snapshot", unreadable)
+
+
+def _fail_first_read(monkeypatch) -> list[bool]:
+    """Make the first process-table read fail the way a retry can answer: a busy table.
+
+    Returns the log of reads: each entry says whether that read reached the real process table.
+    """
+    real = process_table.snapshot
+    reads: list[bool] = []
+
+    def flaky():
+        reads.append(bool(reads))
+        if not reads[-1]:
+            raise process_table.ProcessTableUnreadable(OSError("process table"))
+        return real()
+
+    monkeypatch.setattr(process_table, "snapshot", flaky)
+    return reads
+
+
+async def test_a_failed_process_table_read_is_looked_at_again_before_the_door_acts(
+    tmp_path, monkeypatch
+):
+    app = make_app(hook=False)
+    session, pid_file, input_file = _pool_terminal(app, tmp_path, ("magnet_scan.py",))
+    pids: list[int] = []
+    try:
+        pids = wait_for_pids(session, pid_file, 2)
+        reads = _fail_first_read(monkeypatch)
+
+        with pytest.raises(HandoffRefused) as refused:
+            await acquire(app, KEY, "simple", object(), interrupt=True, spawn=chat_spawner(app))
+
+        assert reads[0] is False
+        assert refused.value.error == ERROR_HANDOFF_STARTED_COMMANDS
+        assert [c["label"] for c in refused.value.extra["commands"]] == ["magnet_scan.py"]
+        assert refused.value.extra["unread"] is False
+        assert session.is_alive
+        assert input_file.read_bytes() == b""
+        assert not group_is_gone(pids[0])
+    finally:
+        monkeypatch.undo()
+        registry(app).cleanup_all()
+        kill_quietly(pids)
 
 
 async def test_a_process_table_that_never_reads_asks_instead_of_ending_unseen_commands(

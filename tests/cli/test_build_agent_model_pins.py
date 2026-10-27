@@ -43,6 +43,13 @@ def _site_helper(repo: Path, model: str) -> None:
         "Answer questions about the site.\n",
         encoding="utf-8",
     )
+    # The deployment's own agent renders where a list names it.
+    profile = repo / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    assert text.count("\nagents: []") == 1
+    profile.write_text(
+        text.replace("\nagents: []", "\nagents: [agents/site-helper]"), encoding="utf-8"
+    )
 
 
 def _build(repo: Path):

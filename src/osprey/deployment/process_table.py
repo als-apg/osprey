@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import psutil
@@ -45,11 +46,13 @@ class ProcessTableUnreadable(RuntimeError):
     answer either: the host has no process table, or reading it is refused.
     """
 
-    def __init__(self, cause: BaseException) -> None:
+    def __init__(self, cause: BaseException, *, retryable: bool | None = None) -> None:
         super().__init__(f"cannot read the process table: {cause}")
         self.cause = cause
-        self.retryable = not isinstance(
-            cause, FileNotFoundError | PermissionError | psutil.AccessDenied
+        self.retryable = (
+            not isinstance(cause, FileNotFoundError | PermissionError | psutil.AccessDenied)
+            if retryable is None
+            else retryable
         )
 
 
@@ -88,25 +91,37 @@ def snapshot() -> dict[int, ProcessRow]:
     return rows
 
 
-def snapshot_within(within: float) -> dict[int, ProcessRow]:
+def snapshot_within(
+    within: float, *, alive: Callable[[], bool] | None = None
+) -> dict[int, ProcessRow]:
     """Return :func:`snapshot`, retrying a retryable failure for up to *within* seconds.
 
     Attempts are :data:`_READ_RETRY_S` apart and none starts once *within*
     seconds have passed since the first began, so the call blocks for at most
-    *within* plus one read.
+    *within* plus one read. With *alive*, a read is worth taking only while
+    the process it is taken for runs: every attempt, the first included, is
+    preceded by that question, and none is taken once the answer is no.
 
     Raises:
         ProcessTableUnreadable: The last failure, once no attempt is left or
-            at once when it is not retryable.
+            at once when it is not retryable; with :class:`ProcessLookupError`
+            as the cause when *alive* said no before any read was taken.
     """
     deadline = time.monotonic() + within
-    while True:
+    failure: ProcessTableUnreadable | None = None
+    while alive is None or alive():
         try:
             return snapshot()
         except ProcessTableUnreadable as exc:
+            failure = exc
             if not exc.retryable or time.monotonic() + _READ_RETRY_S > deadline:
                 raise
         time.sleep(_READ_RETRY_S)
+    if failure is not None:
+        raise failure
+    raise ProcessTableUnreadable(
+        ProcessLookupError("the process exited before the table was read"), retryable=False
+    )
 
 
 __all__ = ["ProcessRow", "ProcessTableUnreadable", "snapshot", "snapshot_within"]
