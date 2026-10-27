@@ -47,6 +47,7 @@ from osprey.agent_record.contract import (
     ENTRY_COLUMNS,
     OP_IN,
     OP_STARTS_WITH,
+    STATE_TIME_FIELD,
     AppendResult,
     BackendHealth,
     Entry,
@@ -62,6 +63,7 @@ from osprey.agent_record.contract import (
     next_stamp,
     select_conditions,
     select_order,
+    state_time,
 )
 from osprey.agent_record.credentials import CLICKHOUSE_USER
 
@@ -351,6 +353,17 @@ class ClickHouseBackend:
                 "state write",
                 data=row.encode("utf-8") + b"\n",
             )
+
+    def count_state(self, prefix: str, since: datetime | None = None) -> int:
+        """How many states are named ``<prefix>…``, stamped at or after *since* if given."""
+        sql = f"SELECT count() AS n FROM {_STATE} FINAL WHERE startsWith(name, {ddl.quote(prefix)})"
+        if since is not None:
+            sql += (
+                f" AND JSONExtractString(value, {ddl.quote(STATE_TIME_FIELD)})"
+                f" >= {ddl.quote(state_time(since))}"
+            )
+        rows = self._rows(sql, "state count")
+        return int(rows[0]["n"]) if rows else 0
 
     # ------------------------------------------------------------------ health
 

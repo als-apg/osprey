@@ -6,9 +6,12 @@ the ``history`` login, every D18 credential reading exactly its scope through
 the read API, an OTLP batch committed by the spool consumer and then readable,
 spool lines written while the service was down ingested after a restart, and a
 backend outage that answers reads ``unavailable`` while ``/health/sources``
-shows the kept backlog. Also the daily scheduler's order (export, then
-retention, retention skipped when the export fails), the stubs it calls, and
-the ``osprey agent-record serve`` registration.
+shows the kept backlog. Also the lifespan's jobs: run at start with the
+archive root and retention window, ``jobs_ready`` on ``/health``, a running
+job blocking neither start-up nor reads, shutdown waiting for it before the
+backend closes, a failed export kept as ``last_error``, and the jobs clock
+override; and the ``osprey agent-record serve`` registration. The jobs'
+schedule itself is pinned in ``test_scheduler.py``.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import threading
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,7 +29,7 @@ import httpx
 import pytest
 from click.testing import CliRunner
 
-from osprey.agent_record import archive, retention, scheduler, service, writer
+from osprey.agent_record import archive, retention, service, writer
 from osprey.agent_record import contract as c
 from osprey.agent_record import credentials as creds
 from osprey.agent_record import identities as ids
@@ -143,7 +147,8 @@ def _names(answer: dict) -> set[str]:
 
 async def test_health_is_open_and_an_unauthenticated_read_is_refused(config, env, backend):
     async with _serving(service.create_app(config=config, backend=backend, env=env)) as client:
-        assert (await client.get("/health")).json() == {"status": "ok"}
+        health = (await client.get("/health")).json()
+        assert health["status"] == "ok" and set(health) == {"status", "jobs_ready"}
         missing = await client.get("/v1/read/recent_audit")
         assert missing.status_code == 401
         assert missing.headers["www-authenticate"].startswith("Basic")
@@ -426,66 +431,138 @@ def test_the_clickhouse_backend_needs_its_endpoint(tmp_path):
         service.open_backend(record, tmp_path, {})
 
 
-# --- scheduler ----------------------------------------------------------------------
+# --- jobs ---------------------------------------------------------------------------
 
 
-def test_next_run_is_the_next_daily_slot():
-    at = scheduler.DAILY_AT
-    before = datetime(2026, 10, 23, 0, 0, tzinfo=UTC)
-    assert scheduler.next_run(before) == datetime(2026, 10, 23, at.hour, at.minute, tzinfo=UTC)
-    on_it = datetime(2026, 10, 23, at.hour, at.minute, tzinfo=UTC)
-    assert scheduler.next_run(on_it) == on_it + timedelta(days=1)
+class _Jobs:
+    """Fakes for both jobs; the export can be held until released."""
+
+    def __init__(self, monkeypatch, *, hold: bool = False, fail: bool = False):
+        self.exports: list[tuple] = []
+        self.retentions: list[tuple] = []
+        self.started = threading.Event()
+        self.release = threading.Event()
+        if not hold:
+            self.release.set()
+        self._fail = fail
+        monkeypatch.setattr(archive, "run_export", self.export)
+        monkeypatch.setattr(retention, "run_retention", self.retention)
+
+    def export(self, record, now, archive_root):
+        self.started.set()
+        assert self.release.wait(10)
+        self.exports.append((record, now, archive_root))
+        if self._fail:
+            raise RuntimeError("archive unreachable")
+        return []
+
+    def retention(self, record, now, retention_days, archive_root):
+        self.retentions.append((record, now, retention_days, archive_root))
+        return 0
 
 
-def test_the_jobs_run_export_then_retention(monkeypatch):
-    calls: list[str] = []
-    monkeypatch.setattr(archive, "run_export", lambda record, now: calls.append("export"))
-    monkeypatch.setattr(retention, "run_retention", lambda record, now: calls.append("retention"))
-    scheduler.run_jobs(object(), NOW)
-    assert calls == ["export", "retention"]
+async def _jobs_ready(client) -> bool:
+    return (await client.get("/health")).json().get("jobs_ready") is True
 
 
-def test_a_failed_export_skips_retention(monkeypatch):
-    calls: list[str] = []
+async def test_the_jobs_run_at_start_with_the_archive_root_and_retention_days(
+    config, env, backend, tmp_path, monkeypatch
+):
+    config.setdefault("agent_record", {})["retention_days"] = 5
+    env[service.ARCHIVE_DIR_ENV] = str(tmp_path / "archive")
+    jobs = _Jobs(monkeypatch)
+    async with _serving(service.create_app(config=config, backend=backend, env=env)) as client:
+        await _eventually(lambda: _jobs_ready(client))
+        assert (await client.get("/health")).json() == {"status": "ok", "jobs_ready": True}
+    [(record, now, root)] = jobs.exports
+    assert record is backend and root == tmp_path / "archive"
+    assert now.tzinfo is not None and abs(now - datetime.now(UTC)) < timedelta(minutes=5)
+    assert jobs.retentions == [(backend, now, 5, tmp_path / "archive")]
 
-    def failing(_record, _now):
-        raise RuntimeError("archive unreachable")
 
-    monkeypatch.setattr(archive, "run_export", failing)
-    monkeypatch.setattr(retention, "run_retention", lambda record, now: calls.append("retention"))
-    with pytest.raises(RuntimeError):
-        scheduler.run_jobs(object(), NOW)
-    assert calls == []
+async def test_a_running_job_blocks_neither_start_up_nor_reads(config, env, backend, monkeypatch):
+    backend.append(SEED)
+    jobs = _Jobs(monkeypatch, hold=True)
+    try:
+        app = service.create_app(config=config, backend=backend, env=env)
+        async with _serving(app) as client:
+            assert await asyncio.to_thread(jobs.started.wait, 10)
+            assert (await client.get("/health")).json() == {"status": "ok", "jobs_ready": False}
+            answer = await client.get("/v1/read/recent_audit", headers=_auth("operator"))
+            assert answer.status_code == 200
+            assert _names(answer.json()) == AUDITS
+            jobs.release.set()
+            await _eventually(lambda: _jobs_ready(client))
+    finally:
+        jobs.release.set()
 
 
-async def test_the_scheduler_waits_for_the_slot_and_survives_a_failed_day(monkeypatch):
-    runs: list[datetime] = []
-    clock = [datetime(2026, 10, 23, 0, 0, tzinfo=UTC)]
-    waits: list[float] = []
+async def test_shutdown_waits_for_a_running_job_before_the_backend_closes(
+    config, env, tmp_path, monkeypatch
+):
+    events: list[str] = []
+    jobs = _Jobs(monkeypatch, hold=True)
 
-    def export(_record, now):
-        runs.append(now)
-        if len(runs) == 1:
-            raise RuntimeError("first day fails")
+    class Recorded(EmbeddedBackend):
+        def close(self):
+            events.append("closed")
+            super().close()
 
-    async def sleep(seconds: float) -> None:
-        waits.append(seconds)
-        clock[0] += timedelta(seconds=seconds)
-        if len(waits) > 2:
-            raise asyncio.CancelledError
+    def export(_record, _now, _archive_root):
+        jobs.started.set()
+        assert jobs.release.wait(10)
+        events.append("export done")
+        return []
 
     monkeypatch.setattr(archive, "run_export", export)
-    with pytest.raises(asyncio.CancelledError):
-        await scheduler.run(object(), now=lambda: clock[0], sleep=sleep)
-    assert waits[0] == 30 * 60 and waits[1] == 24 * 3600
-    assert len(runs) == 2, "a failed day does not end the loop"
+    monkeypatch.setattr(
+        service, "open_backend", lambda record, record_dir, env: Recorded(tmp_path / "r.duckdb")
+    )
+    app = service.create_app(config=config, env=env)
+    try:
+        async with app.router.lifespan_context(app):
+            assert await asyncio.to_thread(jobs.started.wait, 10)
+            asyncio.get_running_loop().call_later(0.3, jobs.release.set)
+    finally:
+        jobs.release.set()
+    assert events == ["export done", "closed"]
 
 
-def test_the_stubs_do_nothing(backend):
-    backend.append(SEED[:1])
-    assert archive.run_export(backend, NOW) is None
-    assert retention.run_retention(backend, NOW) is None
-    assert len(backend.select(c.ScopeFilter(), c.Query())) == 1
+async def test_a_failed_export_is_kept_as_last_error_and_skips_retention(
+    config, env, backend, monkeypatch
+):
+    jobs = _Jobs(monkeypatch, fail=True)
+    app = service.create_app(config=config, backend=backend, env=env)
+    async with _serving(app) as client:
+        await _eventually(lambda: _jobs_ready(client))
+        assert app.state.jobs.last_error == "RuntimeError: archive unreachable"
+    assert len(jobs.exports) == 1 and jobs.retentions == []
+
+
+async def test_the_jobs_clock_sets_every_runs_now_and_is_warned_about(
+    config, env, backend, monkeypatch, caplog
+):
+    env[service.JOBS_CLOCK_ENV] = "2030-01-02"
+    jobs = _Jobs(monkeypatch)
+    app = service.create_app(config=config, backend=backend, env=env)
+    with caplog.at_level("WARNING", logger=service.__name__):
+        async with _serving(app) as client:
+            await _eventually(lambda: _jobs_ready(client))
+    fixed = datetime(2030, 1, 2, tzinfo=UTC)
+    assert [now for _r, now, _root in jobs.exports] == [fixed]
+    assert app.state.jobs_clock() == fixed
+    assert any(service.JOBS_CLOCK_ENV in record.getMessage() for record in caplog.records)
+
+
+def test_a_jobs_clock_that_is_not_an_iso_date_is_refused(config, env):
+    env[service.JOBS_CLOCK_ENV] = "tomorrow"
+    with pytest.raises(ValueError, match=service.JOBS_CLOCK_ENV):
+        service.create_app(config=config, env=env)
+
+
+def test_without_a_jobs_clock_the_jobs_read_the_wall_clock(config, env):
+    app = service.create_app(config=config, env=env)
+    assert abs(app.state.jobs_clock() - datetime.now(UTC)) < timedelta(minutes=1)
 
 
 # --- CLI ----------------------------------------------------------------------------

@@ -27,19 +27,41 @@ runs. It hosts:
     answers 400.
 
 ``GET /health``
-    Unauthenticated: 200 ``{"status": "ok"}``, or 503 ``{"status":
-    "unconfigured"}`` while the service env is missing. A host-local service
-    (one given a lease directory) adds ``ready``: false until its first full
-    spool pass and transcript scan have committed, true after; if that first
-    pass fails it answers 503 ``{"status": "error", "ready": false}`` and is
-    never ready.
+    Unauthenticated: 200 ``{"status": "ok", "jobs_ready": <bool>}``, where
+    ``jobs_ready`` turns true once the jobs' start-up run has finished
+    (whatever its outcome), or 503 ``{"status": "unconfigured"}`` while the
+    service env is missing. A host-local service (one given a lease
+    directory) adds ``ready``: false until its first full spool pass and
+    transcript scan have committed, true after; if that first pass fails it
+    answers 503 ``{"status": "error", "ready": false}`` and is never ready.
 
 ``GET /health/sources``
     For any authenticated login: per spool source its backlog, the age of
-    the oldest uncommitted segment, abandoned writers, writer errors,
-    refusals and when it last wrote; per transcript root its last poll, last
-    commit and errors; the backend's own health. During a backend outage the
-    spools are kept and their backlog is shown here.
+    the oldest uncommitted segment, abandoned writers, writer errors, when it
+    last wrote (``last_seen``) and last committed, the recent refused lines,
+    ``refusals`` (refused lines stored in the record within
+    :data:`REFUSALS_WINDOW`, earlier runs of the service included) and
+    ``spool_errors`` (lines refused since this service started, at
+    ``spool_errors_since``); per transcript root its last poll, last commit
+    (``last_seen``), newest transcript modification and errors; the
+    backend's own health; ``export`` with ``last_exported_day``,
+    ``lag_days`` (closed arrival days from the oldest through yesterday, by
+    the jobs' clock, that the archive holds no mark for; 0 on an empty
+    record) and ``last_error`` (the jobs' last export failure); and
+    ``jobs_clock``, the jobs' clock override or ``null``. Every source says
+    whether it is ``live`` (a spool source: an ``.open`` segment not
+    abandoned; a transcript root: a transcript modified within
+    :data:`STOPPED_AFTER`), ``stopped`` (live or holding a backlog, with no
+    commit from it within :data:`STOPPED_AFTER`) or ``idle`` (not live and
+    no backlog). During a backend outage the spools are kept and their
+    backlog is shown here.
+
+``POST /jobs/export``
+    For the host and operator logins only (:data:`EXPORTERS`; any other is
+    refused 403): runs the catch-up export now, on the jobs' clock, and
+    answers ``{"status": "ok", "exported": [<ISO day>, ...]}``. A failure is
+    kept as the jobs' ``last_error`` and answers 503 ``status: unavailable``
+    when the record failed, 500 ``status: error`` otherwise.
 
 **Authentication** is HTTP Basic, ``<login>:<token>``, against the verifier
 in :data:`~osprey.agent_record.credentials.VERIFIER_ENV` (one ``<login>:<sha256
@@ -72,9 +94,11 @@ bound, until both have committed past the snapshot.
 ``clickhouse`` imported only when configured) unless one was injected, and
 runs three tasks: the transcript tailer, the spool consumer (a pass every
 :data:`SPOOL_INTERVAL_S` and right after each accepted OTLP batch) and the
-daily scheduler (:mod:`osprey.agent_record.scheduler`). Shutdown cancels the
-tasks and closes the backend the lifespan opened; an injected backend is the
-caller's to close.
+jobs (:mod:`osprey.agent_record.scheduler`): export, then retention, once at
+start and then daily, in a worker thread so neither start-up nor a read ever
+waits on them. Shutdown cancels the tasks, waits for a job thread still
+running, and closes the backend the lifespan opened; an injected backend is
+the caller's to close.
 
 **The host-local service** is the same app given a lease directory (``osprey
 agent-record serve --lease-dir``, which only :mod:`osprey.agent_record.host`
@@ -93,6 +117,14 @@ a default under the deployment repo root (``project_root`` of the config):
 - :data:`SPOOL_ROOT_ENV`: the spool root, default ``<root>/var/spool``.
 - :data:`RECORD_DIR_ENV`: the embedded store's directory, default
   ``<root>/var/agent_record``; the store is :data:`EMBEDDED_FILENAME` in it.
+- :data:`ARCHIVE_DIR_ENV`: the archive root the record's jobs export into,
+  default ``<root>/var/archive``. It is the same tree on the host and, bind
+  mounted at the same project-relative path, in the container. A root this
+  process cannot write is reported at start, naming the path; start-up goes on.
+- :data:`JOBS_CLOCK_ENV`: unset in every deployment; an ISO date here makes
+  every job run read that date's UTC midnight as ``now`` (a test hook that
+  lets a replay close a day). The service warns at start while it is set,
+  and a value that is not an ISO date stops the app from being built.
 - :data:`TRANSCRIPTS_DIR_ENV`: the directory holding one transcript root per
   :func:`~osprey.agent_record.identities.transcript_roots` name, each mounted
   at ``<dir>/<root name>``; default :data:`DEFAULT_TRANSCRIPTS_DIR`.
@@ -122,7 +154,7 @@ import os
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -130,9 +162,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from osprey.agent_record import archive, scheduler
 from osprey.agent_record import credentials as creds
 from osprey.agent_record import identities as ids
-from osprey.agent_record import scheduler
 from osprey.agent_record.config import (
     BACKEND_CLICKHOUSE,
     BACKEND_EMBEDDED,
@@ -140,6 +172,9 @@ from osprey.agent_record.config import (
     parse_agent_record_block,
 )
 from osprey.agent_record.contract import (
+    REFUSED_STATE_PREFIX,
+    SOURCE_HOST,
+    SOURCE_OPERATOR,
     All,
     BackendHealth,
     Narrow,
@@ -167,15 +202,21 @@ from osprey.utils.bearer import credential_bytes
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ARCHIVE_DIR_ENV",
     "CLICKHOUSE_URL_ENV",
     "DEFAULT_TRANSCRIPTS_DIR",
     "EMBEDDED_FILENAME",
+    "EXPORT_PATH",
+    "EXPORTERS",
     "HOST_PROJECTS_ENV",
     "IngestDrainer",
+    "JOBS_CLOCK_ENV",
     "READ_METHODS",
     "RECORD_DIR_ENV",
+    "REFUSALS_WINDOW",
     "SPOOL_INTERVAL_S",
     "SPOOL_ROOT_ENV",
+    "STOPPED_AFTER",
     "TRANSCRIPTS_DIR_ENV",
     "WRITTEN_BY_SELF",
     "create_app",
@@ -188,6 +229,10 @@ __all__ = [
 SPOOL_ROOT_ENV = "OSPREY_AGENT_RECORD_SPOOL_ROOT"
 #: The embedded store's directory.
 RECORD_DIR_ENV = "OSPREY_AGENT_RECORD_DIR"
+#: The archive root the record's jobs export into.
+ARCHIVE_DIR_ENV = "OSPREY_AGENT_RECORD_ARCHIVE_DIR"
+#: An ISO date the jobs read as ``now`` (its UTC midnight); a test hook, unset in deployments.
+JOBS_CLOCK_ENV = "OSPREY_AGENT_RECORD_JOBS_CLOCK"
 #: The directory each transcript root is mounted under, as ``<dir>/<root name>``.
 TRANSCRIPTS_DIR_ENV = "OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR"
 #: The ClickHouse HTTP endpoint, with ``backend: clickhouse``.
@@ -204,6 +249,16 @@ EMBEDDED_FILENAME = "record.duckdb"
 SPOOL_INTERVAL_S = 2.0
 #: Seconds between two looks at the lease directory of a host-local service.
 LEASE_POLL_S = 1.0
+
+#: How long a source may be live or hold a backlog without a commit before it is stopped.
+STOPPED_AFTER = timedelta(minutes=5)
+#: How far back ``/health/sources`` counts a source's stored refusals.
+REFUSALS_WINDOW = timedelta(hours=24)
+
+#: The route that runs the catch-up export on demand.
+EXPORT_PATH = "/jobs/export"
+#: The source classes whose logins may run the export.
+EXPORTERS = frozenset({SOURCE_HOST, SOURCE_OPERATOR})
 
 #: The viewer forms the history front states.
 VIEWER_ALL = "all"
@@ -258,6 +313,7 @@ class _Settings:
     root: Path
     spool_root: Path
     record_dir: Path
+    archive_root: Path
     transcripts_dir: Path
     #: ``{login: sha256 hex}``, or ``None`` while the service env is missing.
     verifier: Mapping[str, str] | None
@@ -265,10 +321,29 @@ class _Settings:
     unconfigured: str = ""
     grants: Mapping[str, ids.CredentialGrant] = field(default_factory=dict)
     host_projects: Path | None = None
+    #: The jobs' fixed ``now`` from :data:`JOBS_CLOCK_ENV`; ``None`` for the wall clock.
+    jobs_clock: datetime | None = None
+
+
+def _jobs_clock(env: Mapping[str, str]) -> datetime | None:
+    """The jobs' clock override from *env*: the named day's UTC midnight.
+
+    Raises:
+        ValueError: If :data:`JOBS_CLOCK_ENV` is set to something not an ISO date.
+    """
+    raw = env.get(JOBS_CLOCK_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        raise ValueError(f"{JOBS_CLOCK_ENV}={raw!r} is not an ISO date (YYYY-MM-DD)") from None
+    return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
 def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
     from osprey_connectors.workspace import (
+        ARCHIVE_DIR_RELPATH,
         RECORD_DIR_RELPATH,
         SPOOL_DIR_RELPATH,
         resolve_project_root,
@@ -300,13 +375,35 @@ def _settings(config: Mapping[str, Any], env: Mapping[str, str]) -> _Settings:
         root=root,
         spool_root=Path(env.get(SPOOL_ROOT_ENV) or root / SPOOL_DIR_RELPATH),
         record_dir=Path(env.get(RECORD_DIR_ENV) or root / RECORD_DIR_RELPATH),
+        archive_root=Path(env.get(ARCHIVE_DIR_ENV) or root / ARCHIVE_DIR_RELPATH),
         transcripts_dir=Path(env.get(TRANSCRIPTS_DIR_ENV) or DEFAULT_TRANSCRIPTS_DIR),
         verifier=verifier,
         secrets=secrets,
         unconfigured=problem,
         grants=ids.credential_table(config),
         host_projects=Path(env[HOST_PROJECTS_ENV]) if env.get(HOST_PROJECTS_ENV) else None,
+        jobs_clock=_jobs_clock(env),
     )
+
+
+def _report_archive_root(root: Path) -> bool:
+    """Warn, naming *root*, when this process cannot write the archive root.
+
+    Never raises and never stops start-up: ingest and reads do not need the
+    archive, and the jobs that do report their own failure when they run.
+
+    :return: Whether the root is a directory this process can write
+    """
+    if root.is_dir() and os.access(root, os.W_OK | os.X_OK):
+        return True
+    state = "is not writable by" if root.is_dir() else "does not exist for"
+    logger.warning(
+        "the agent-record archive root %s %s this process; the record's days "
+        "cannot be exported there until it is (run `osprey build` to provision it)",
+        root,
+        state,
+    )
+    return False
 
 
 def _transcript_roots(
@@ -602,41 +699,129 @@ def _backend_health(backend: RecordBackend) -> BackendHealth:
         return BackendHealth(ok=False, backend=type(backend).__name__, detail=str(exc))
 
 
-def _spool_json(health: SpoolHealth) -> dict[str, Any]:
+def _activity(
+    live: bool, backlog: int, last_commit: datetime | None, started: datetime, now: datetime
+) -> dict[str, bool]:
+    """``live``, ``stopped`` and ``idle`` of one source.
+
+    A source with nothing committed by this process is measured from *started*,
+    so a service that just started does not call a busy source stopped.
+    """
+    pending = live or backlog > 0
+    since = last_commit if last_commit is not None else started
+    return {
+        "live": live,
+        "stopped": pending and now - since > STOPPED_AFTER,
+        "idle": not pending,
+    }
+
+
+def _refusals(backend: RecordBackend, identities: set[str], now: datetime) -> dict[str, int | None]:
+    """Each identity's refused lines stored within :data:`REFUSALS_WINDOW`; ``None`` if unreadable."""
+    counts: dict[str, int | None] = {}
+    for identity in sorted(identities):
+        try:
+            counts[identity] = backend.count_state(
+                f"{REFUSED_STATE_PREFIX}:{identity}:", now - REFUSALS_WINDOW
+            )
+        except Exception:  # health is a report; an unreadable count is unknown, not zero
+            counts[identity] = None
+    return counts
+
+
+def _spool_json(
+    health: SpoolHealth, refusals: Mapping[str, int | None], started: datetime, now: datetime
+) -> dict[str, Any]:
     sources = {}
     for path, source in health.sources.items():
         row = asdict(source)
         row["abandoned"] = list(source.abandoned)
         row["writer_errors"] = list(source.writer_errors)
         row["refused"] = [asdict(r) for r in source.refused]
+        row["spool_errors"] = row.pop("refused_total")
+        row["refusals"] = refusals.get(source.identity)
         row["last_seen"] = _iso(source.last_seen)
+        row["last_commit"] = _iso(source.last_commit)
+        row.update(_activity(source.live, source.backlog_lines, source.last_commit, started, now))
         sources[path] = row
     return {
         "backend_error": health.backend_error,
         "backlog_lines": health.backlog_lines,
+        "spool_errors_since": _iso(started),
         "sources": sources,
         "quarantined": [list(pair) for pair in health.quarantined],
         "problems": list(health.problems),
     }
 
 
-def _transcripts_json(tailer: TranscriptTailer | None) -> dict[str, Any]:
+def _transcripts_json(
+    tailer: TranscriptTailer | None, started: datetime, now: datetime
+) -> dict[str, Any]:
     if tailer is None:
         return {}
-    return {
-        name: {
+    rows = {}
+    for name, source in tailer.health.items():
+        modified = source.last_modified
+        live = modified is not None and now - modified <= STOPPED_AFTER
+        rows[name] = {
             "identity": source.identity,
             "ok": source.ok,
             "error": source.error,
             "file_errors": dict(source.file_errors),
             "last_polled": _iso(source.last_polled),
             "last_seen": _iso(source.last_seen),
+            "last_modified": _iso(modified),
             "files": source.files,
             "appended": source.appended,
             "duplicates": source.duplicates,
             "skipped_retention": source.skipped_retention,
+            **_activity(live, 0, source.last_seen, started, now),
         }
-        for name, source in tailer.health.items()
+    return rows
+
+
+def _export_json(
+    health: BackendHealth, archive_root: Path, today: date, last_error: str | None
+) -> dict[str, Any]:
+    """The export block: the newest marked day, the closed days not marked, the last failure."""
+    report: dict[str, Any] = {
+        "last_exported_day": None,
+        "lag_days": None,
+        "last_error": last_error,
+    }
+    try:
+        done = archive.exported_days(archive_root)
+    except OSError as exc:
+        report["archive_error"] = f"the archive's marks cannot be read: {exc}"
+        return report
+    report["last_exported_day"] = _iso(max(done)) if done else None
+    if not health.ok:
+        return report
+    report["lag_days"] = len(archive.unexported_days(health.oldest_arrival_day, today, done))
+    return report
+
+
+def _health_sources(
+    runtime: _Runtime,
+    archive_root: Path,
+    jobs: scheduler.JobsState,
+    jobs_now: datetime,
+    jobs_clock: datetime | None,
+    started: datetime,
+) -> dict[str, Any]:
+    """The body of ``GET /health/sources``; blocking, run in a worker thread."""
+    now = datetime.now(UTC)
+    backend_health = _backend_health(runtime.backend)
+    spool = runtime.consumer.health()
+    identities = {source.identity for source in spool.sources.values()}
+    return {
+        "backend": _backend_json(backend_health),
+        "spool": _spool_json(spool, _refusals(runtime.backend, identities, now), started, now),
+        "transcripts": _transcripts_json(runtime.tailer, started, now),
+        "export": _export_json(
+            backend_health, archive_root, jobs_now.astimezone(UTC).date(), jobs.last_error
+        ),
+        "jobs_clock": _iso(jobs_clock),
     }
 
 
@@ -720,6 +905,7 @@ class _Runtime:
     tailer: TranscriptTailer
     receiver: OtlpReceiver
     wake: asyncio.Event
+    started: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 async def _consume_forever(runtime: _Runtime) -> None:
@@ -777,7 +963,8 @@ def create_app(
 
     Raises:
         BuildProfileError: If the config's ``agent_record`` block is invalid.
-        ValueError: If the credential table cannot be built from the config.
+        ValueError: If the credential table cannot be built from the config,
+            or :data:`JOBS_CLOCK_ENV` is set but not an ISO date.
     """
     if config is None:
         from osprey_connectors.workspace import load_osprey_config
@@ -786,10 +973,24 @@ def create_app(
     config = dict(config)
     environ: Mapping[str, str] = os.environ if env is None else env
     settings = _settings(config, environ)
+    jobs_clock = (
+        scheduler.wall_clock
+        if settings.jobs_clock is None
+        else scheduler.fixed_clock(settings.jobs_clock)
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.runtime = None
+        app.state.archive_root = settings.archive_root
+        app.state.jobs = scheduler.JobsState()
+        _report_archive_root(settings.archive_root)
+        if settings.jobs_clock is not None:
+            logger.warning(
+                "%s is set: the record's jobs read %s as now, not the wall clock",
+                JOBS_CLOCK_ENV,
+                settings.jobs_clock.isoformat(),
+            )
         if settings.verifier is None:
             logger.error(
                 "agent-record is not configured (%s); ingest is off", settings.unconfigured
@@ -836,7 +1037,17 @@ def create_app(
         def start_ingest() -> None:
             tasks.append(asyncio.create_task(runtime.tailer.run(interval=POLL_INTERVAL_S)))
             tasks.append(asyncio.create_task(_consume_forever(runtime)))
-            tasks.append(asyncio.create_task(scheduler.run(record)))
+            tasks.append(
+                asyncio.create_task(
+                    scheduler.run(
+                        record,
+                        archive_root=settings.archive_root,
+                        retention_days=retention_days,
+                        clock=jobs_clock,
+                        state=app.state.jobs,
+                    )
+                )
+            )
 
         def first_pass() -> None:
             runtime.consumer.consume()
@@ -865,6 +1076,8 @@ def create_app(
         try:
             yield
         finally:
+            # Each task waits for its own job thread on cancel, so the gather
+            # returns only once no job still uses the backend.
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -888,6 +1101,8 @@ def create_app(
     app.state.runtime = None
     app.state.ready = False
     app.state.first_pass_failed = False
+    app.state.jobs = scheduler.JobsState()
+    app.state.jobs_clock = jobs_clock
 
     def runtime_of(request: Request) -> _Runtime:
         runtime = request.app.state.runtime
@@ -901,11 +1116,14 @@ def create_app(
             return JSONResponse(
                 {"status": "unconfigured", "reason": settings.unconfigured}, status_code=503
             )
+        jobs_ready = app.state.jobs.ready
         if lease_dir is not None:
             if app.state.first_pass_failed:
                 return JSONResponse({"status": "error", "ready": False}, status_code=503)
-            return JSONResponse({"status": "ok", "ready": bool(app.state.ready)})
-        return JSONResponse({"status": "ok"})
+            return JSONResponse(
+                {"status": "ok", "ready": bool(app.state.ready), "jobs_ready": jobs_ready}
+            )
+        return JSONResponse({"status": "ok", "jobs_ready": jobs_ready})
 
     @app.get("/health/sources")
     async def health_sources(request: Request) -> JSONResponse:
@@ -914,14 +1132,39 @@ def create_app(
             runtime = runtime_of(request)
         except _Refused as exc:
             return _refusal(exc)
-        backend_health = await run_in_threadpool(_backend_health, runtime.backend)
-        return JSONResponse(
-            {
-                "backend": _backend_json(backend_health),
-                "spool": _spool_json(runtime.consumer.health()),
-                "transcripts": _transcripts_json(runtime.tailer),
-            }
+        body = await run_in_threadpool(
+            _health_sources,
+            runtime,
+            settings.archive_root,
+            app.state.jobs,
+            jobs_clock(),
+            settings.jobs_clock,
+            runtime.started,
         )
+        return JSONResponse(body)
+
+    @app.post(EXPORT_PATH)
+    async def export(request: Request) -> JSONResponse:
+        try:
+            grant = _authenticate(settings, request)
+            if grant.source_class not in EXPORTERS:
+                raise _Refused(403, f"login {grant.login!r} may not run the export")
+            runtime = runtime_of(request)
+        except _Refused as exc:
+            return _refusal(exc)
+        jobs: scheduler.JobsState = app.state.jobs
+        try:
+            days = await run_in_threadpool(
+                scheduler.export, runtime.backend, jobs_clock(), settings.archive_root, jobs
+            )
+        except Exception as exc:
+            logger.exception("on-demand export failed")
+            if isinstance(exc, RecordBackendError):
+                return JSONResponse(
+                    {"status": "unavailable", "reason": jobs.last_error}, status_code=503
+                )
+            return JSONResponse({"status": "error", "reason": jobs.last_error}, status_code=500)
+        return JSONResponse({"status": "ok", "exported": [day.isoformat() for day in days]})
 
     @app.post(LOGS_PATH)
     async def otlp_logs(request: Request) -> Response:

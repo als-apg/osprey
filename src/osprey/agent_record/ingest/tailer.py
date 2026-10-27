@@ -113,7 +113,8 @@ class SourceHealth:
     ``error`` names why the root could not be read at all; ``file_errors``
     maps a path relative to ``projects/`` to why that file could not be read.
     Both are cleared by a later poll that reads them cleanly. ``last_seen`` is
-    the last time new lines from this source were committed.
+    the last time new lines from this source were committed;
+    ``last_modified`` the newest transcript modification any poll has seen.
     """
 
     root: str
@@ -122,6 +123,7 @@ class SourceHealth:
     file_errors: dict[str, str] = field(default_factory=dict)
     last_polled: datetime | None = None
     last_seen: datetime | None = None
+    last_modified: datetime | None = None
     files: int = 0
     appended: int = 0
     duplicates: int = 0
@@ -442,6 +444,9 @@ class TranscriptTailer:
             if not stat.S_ISREG(st.st_mode):
                 raise OSError(f"{relpath} is not a regular file")
             size = st.st_size
+            modified = datetime.fromtimestamp(st.st_mtime, UTC)
+            if source.last_modified is None or modified > source.last_modified:
+                source.last_modified = modified
             stored = self.backend.get_state(state_name)
             position = _position(stored, st.st_ino, size)
             if position.offset > 0 and os.pread(fd, 1, position.offset - 1) != b"\n":

@@ -164,6 +164,10 @@ class SourceHealth:
     refused_total: int = 0
     #: The newest segment write any pass has seen in this directory.
     last_seen: datetime | None = None
+    #: An ``.open`` segment not yet abandoned: a writer may still append to it.
+    live: bool = False
+    #: When this process last committed a line from this directory.
+    last_commit: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +215,7 @@ class _SourceState:
     refused: deque[RefusedLine] = field(default_factory=lambda: deque(maxlen=SHOWN_PER_SOURCE))
     refused_total: int = 0
     last_seen: datetime | None = None
+    last_commit: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -542,6 +547,7 @@ class SpoolConsumer:
         backlog = 0
         oldest_ns: int | None = None
         abandoned: list[str] = []
+        live = False
         # Sealed before open, oldest first: a writer's earlier lines land first.
         segments.sort(key=lambda item: (parse_segment_name(item[0]).start_ns, not item[1]))  # type: ignore[union-attr]
         for name, sealed in segments:
@@ -553,8 +559,11 @@ class SpoolConsumer:
                 backlog += pending
                 start_ns = parse_segment_name(name).start_ns  # type: ignore[union-attr]
                 oldest_ns = start_ns if oldest_ns is None else min(oldest_ns, start_ns)
-            if not sealed and idle_s > ABANDONED_OPEN_S:
-                abandoned.append(name)
+            if not sealed:
+                if idle_s > ABANDONED_OPEN_S:
+                    abandoned.append(name)
+                else:
+                    live = True
         oldest_age = None
         if oldest_ns is not None:
             oldest_age = max(0.0, now.timestamp() - oldest_ns / 1e9)
@@ -569,6 +578,8 @@ class SpoolConsumer:
             refused=tuple(source.refused),
             refused_total=source.refused_total,
             last_seen=source.last_seen,
+            live=live,
+            last_commit=source.last_commit,
         )
 
     def _writer_errors(self, path: Path) -> tuple[str, ...]:
@@ -742,6 +753,7 @@ class SpoolConsumer:
         entries: list[Entry] = []
         refusals: list[RefusedLine] = []
         claimed: dict[str, str] = {}
+        now = self._now()
         try:
             for raw, _end in batch:
                 entry, refusal = self._ingest_line(directory, segment, raw, claimed)
@@ -754,7 +766,7 @@ class SpoolConsumer:
                 if is_token(refusal.entry_id):
                     self.backend.put_state(
                         refused_state_name(directory.identity, refusal.entry_id),
-                        refused_state_value(refusal.kind, refusal.reason),
+                        refused_state_value(refusal.kind, refusal.reason, now),
                     )
             offset = batch[-1][1]
             self.backend.put_state(state_name, SpoolCheckpoint(offset).to_state())
@@ -765,6 +777,7 @@ class SpoolConsumer:
             self._accepts.pop(directory.identity, None)
             return False
         self._offsets[state_name] = offset
+        source.last_commit = now
         accepted = self._accepts.get(directory.identity)
         if accepted is not None:
             accepted.update(claimed)

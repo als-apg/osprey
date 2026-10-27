@@ -9,7 +9,10 @@ service and a body the client cannot read all answering ``unavailable`` within
 the timeout without raising, paging a timeline to its end through ``next``
 yielding each entry once, ``entries(source=...)`` and
 ``recent_audit(written_by="self")`` over the wire, ``from_env`` and the
-:class:`~tests.agent_record.fakes.FakeRecordClient` double.
+:class:`~tests.agent_record.fakes.FakeRecordClient` double; and
+``health_sources()`` read by any login, ``export()`` run by the host and
+operator logins and refused to every other, both answering unavailable on a
+stopped, unconfigured or odd service and naming why an export failed.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import base64
 import inspect
 import json
 import time
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -76,6 +80,7 @@ def backend(tmp_path_factory):
 @pytest.fixture(scope="module")
 def url(config, backend, tmp_path_factory):
     root = tmp_path_factory.mktemp("service")
+    (root / "archive").mkdir(mode=0o700)
     lines = "".join(
         creds.verifier_line(login, _token(login)) + "\n" for login in ids.credential_table(config)
     )
@@ -85,6 +90,7 @@ def url(config, backend, tmp_path_factory):
         service.SPOOL_ROOT_ENV: str(root / "spool"),
         service.RECORD_DIR_ENV: str(root / "record"),
         service.TRANSCRIPTS_DIR_ENV: str(root / "transcripts"),
+        service.ARCHIVE_DIR_ENV: str(root / "archive"),
     }
     with run_app_server(service.create_app(config=config, backend=backend, env=env)) as base:
         yield base
@@ -471,3 +477,101 @@ def test_the_fake_answers_unavailable_and_computed_answers():
     computed = FakeRecordClient({"run": lambda run_id, **_: ClientAnswer(data={"id": run_id})})
     assert computed.run(R1, narrow_runs={R1}).data == {"id": R1}
     assert computed.calls_to("run") == [{"run_id": R1, "narrow_runs": {R1}}]
+
+
+# --- health and the export -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("login", ["alice", "operator", "builder", "history"])
+def test_any_login_reads_the_health_report(url, login):
+    answer = _client(url, login, timeout=10.0).health_sources()
+    assert answer.unavailable is None, answer.unavailable
+    assert answer.complete
+    assert {"backend", "spool", "transcripts", "export", "jobs_clock"} <= set(answer.data)
+    assert answer.data["backend"]["ok"] is True
+    assert set(answer.data["export"]) >= {"last_exported_day", "lag_days", "last_error"}
+
+
+@pytest.mark.parametrize("login", ["operator", "builder"])
+def test_the_host_and_operator_logins_run_the_export(url, login):
+    answer = _client(url, login, timeout=30.0).export()
+    assert answer.unavailable is None, answer.unavailable
+    assert answer.complete and isinstance(answer.data, list)
+    for day in answer.data:
+        assert date.fromisoformat(day) < datetime.now(UTC).date()
+    report = _client(url, login, timeout=10.0).health_sources().data["export"]
+    assert report["lag_days"] == 0 and report["last_error"] is None
+
+
+@pytest.mark.parametrize("login", ["alice", "history", "teams-bridge"])
+def test_every_other_login_is_refused_the_export(url, login):
+    answer = _client(url, login, timeout=10.0).export()
+    assert answer.unavailable and "403" in answer.unavailable
+    assert answer.data is None and not answer.complete
+
+
+def test_health_and_export_on_a_stopped_service_are_unavailable():
+    client = RecordClient(f"http://127.0.0.1:{free_port()}", "operator", "x", timeout=2.0)
+    for answer in (client.health_sources(), client.export()):
+        assert answer.unavailable and "unreachable" in answer.unavailable
+        assert answer.data is None and not answer.complete
+
+
+def test_health_and_export_with_a_wrong_password_are_unavailable(url):
+    client = RecordClient(url, "operator", "not-the-token", timeout=5.0)
+    for answer in (client.health_sources(), client.export()):
+        assert answer.unavailable and "401" in answer.unavailable
+
+
+def test_health_and_export_unconfigured_answer_unavailable():
+    client = RecordClient.from_env({})
+    for answer in (client.health_sources(), client.export()):
+        assert answer.unavailable and "not configured" in answer.unavailable
+
+
+@pytest.fixture(scope="module")
+def odd_report_url():
+    """A service answering health and export bodies the record never sends."""
+    app = FastAPI()
+
+    @app.get("/health/sources")
+    async def sources():
+        return JSONResponse(["not", "an", "object"])
+
+    @app.post("/jobs/export")
+    async def export():
+        return JSONResponse({"status": "ok"})
+
+    with run_app_server(app) as base:
+        yield base
+
+
+def test_a_report_the_client_cannot_read_is_unavailable(odd_report_url):
+    client = RecordClient(odd_report_url, "operator", "x", timeout=2.0)
+    sources = client.health_sources()
+    assert sources.unavailable and "no object" in sources.unavailable
+    exported = client.export()
+    assert exported.unavailable and "cannot read" in exported.unavailable
+
+
+def test_an_export_that_fails_names_why(monkeypatch, config, tmp_path):
+    from osprey.agent_record import archive
+
+    def broken(record, now, root):  # noqa: ARG001 - run_export signature
+        raise c.RecordBackendError("the record is down")
+
+    monkeypatch.setattr(archive, "run_export", broken)
+    lines = "".join(
+        creds.verifier_line(login, _token(login)) + "\n" for login in ids.credential_table(config)
+    )
+    env = {
+        creds.VERIFIER_ENV: _b64(lines),
+        creds.SECRETS_ENV: _b64(json.dumps(["s3cr3t-token-value-0123456789"])),
+        service.SPOOL_ROOT_ENV: str(tmp_path / "spool"),
+        service.RECORD_DIR_ENV: str(tmp_path / "record"),
+        service.TRANSCRIPTS_DIR_ENV: str(tmp_path / "transcripts"),
+        service.ARCHIVE_DIR_ENV: str(tmp_path / "archive"),
+    }
+    with run_app_server(service.create_app(config=config, env=env)) as base:
+        answer = _client(base, "operator", timeout=10.0).export()
+    assert answer.unavailable and "the record is down" in answer.unavailable

@@ -1,5 +1,6 @@
 """State, wait marks, retention and export on every backend: state is last
-write wins and never an entry; a drain passes exactly when ingest has
+write wins and never an entry; ``count_state`` counts a name prefix, with a
+time only the values stamped at or after it; a drain passes exactly when ingest has
 committed past it, and a transcript ``WaitMark`` when the tailer has; arrival-day delete drops whole days and keeps state; the Parquet
 export holds each ``(key, chunk.index)`` of its day once.
 """
@@ -30,6 +31,29 @@ def test_state_is_last_write_wins_and_never_an_entry(backend, settle, tmp_path):
     backend.append([k.entry(k.ALICE, "sp:alice:e1", c.KIND_FEEDBACK, 1, arrived=-30 * DAY)])
     assert backend.delete_arrived_before(k.T0.date()) == 1
     assert backend.get_state("cursor") == {"offset": 2, "note": "später"}
+
+
+def test_count_state_counts_a_prefix_and_only_times_since(backend, settle):
+    old, recent = k.T0 - timedelta(hours=25), k.T0 - timedelta(hours=1)
+    backend.put_state(c.refused_state_name(k.ALICE, "e1"), c.refused_state_value("run", "x", old))
+    backend.put_state(
+        c.refused_state_name(k.ALICE, "e2"), c.refused_state_value("run", "x", recent)
+    )
+    backend.put_state(c.refused_state_name(k.ALICE, "e3"), c.refused_state_value("run", "x", k.T0))
+    backend.put_state(c.refused_state_name(k.BOB, "e1"), c.refused_state_value("run", "x", k.T0))
+    backend.put_state(f"{c.REFUSED_STATE_PREFIX}:{k.ALICE}:untimed", {"kind": "run"})
+    backend.put_state("cursor", {"offset": 1, c.STATE_TIME_FIELD: c.state_time(k.T0)})
+    settle()
+    alice = f"{c.REFUSED_STATE_PREFIX}:{k.ALICE}:"
+    assert backend.count_state(alice) == 4
+    assert backend.count_state(alice, k.T0 - timedelta(hours=24)) == 2
+    assert backend.count_state(alice, k.T0) == 1, "a time equal to since counts"
+    assert backend.count_state(f"{c.REFUSED_STATE_PREFIX}:") == 5
+    assert backend.count_state("nothing:") == 0
+    # Last write wins: re-stamping a refusal old ages it out.
+    backend.put_state(c.refused_state_name(k.ALICE, "e3"), c.refused_state_value("run", "x", old))
+    settle()
+    assert backend.count_state(alice, k.T0 - timedelta(hours=24)) == 1
 
 
 def test_a_drain_passes_once_its_lines_are_committed_or_refused(backend, settle, tmp_path):

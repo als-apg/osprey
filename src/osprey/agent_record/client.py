@@ -14,6 +14,12 @@ takes:
     A ``Source`` login's narrowing to one session or to a set of run ids.
     The service refuses either on any other login.
 
+Two calls are not reads: :meth:`RecordClient.health_sources` answers the
+service's ``GET /health/sources`` report as ``data`` (any login may ask), and
+:meth:`RecordClient.export` runs ``POST /jobs/export`` and answers the days
+exported, ISO dates oldest first, as ``data`` (the host and operator logins
+only; any other is refused).
+
 It authenticates with HTTP Basic ``<login>:<password>`` and, for the history
 login only, names its viewer in
 :data:`~osprey.agent_record.identities.VIEWER_HEADER`.
@@ -73,6 +79,8 @@ READ_NAMES = (
 )
 
 _READ_PATH = "/v1/read/"
+_HEALTH_SOURCES_PATH = "/health/sources"
+_EXPORT_PATH = "/jobs/export"
 
 
 @dataclass(frozen=True)
@@ -145,6 +153,29 @@ def _decode(response: httpx.Response) -> ClientAnswer:
         more=more,
         reason=reason,
     )
+
+
+def _decode_report(response: httpx.Response, key: str | None) -> ClientAnswer:
+    """A ``/health/sources`` body (*key* ``None``: the whole object) or ``body[key]``."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ClientAnswer.failed(f"agent-record answered {response.status_code} without JSON")
+    if not isinstance(body, Mapping):
+        return ClientAnswer.failed(f"agent-record answered {response.status_code} with no object")
+    if response.status_code != 200 or (key is not None and body.get("status") != "ok"):
+        reason = body.get("reason")
+        detail = f": {reason}" if isinstance(reason, str) and reason else ""
+        if body.get("status") == "unavailable":
+            return ClientAnswer.failed(f"the record is unavailable{detail}")
+        return ClientAnswer.failed(
+            f"agent-record refused the call ({response.status_code}){detail}"
+        )
+    if key is None:
+        return ClientAnswer(data=dict(body), complete=True)
+    if key not in body:
+        return ClientAnswer.failed("agent-record answered a body this client cannot read")
+    return ClientAnswer(data=body[key], complete=True)
 
 
 def _param(value: Any) -> str:
@@ -226,8 +257,6 @@ class RecordClient:
         narrow_session: str | None,
         narrow_runs: Collection[str],
     ) -> ClientAnswer:
-        if self._unconfigured:
-            return ClientAnswer.failed(self._unconfigured)
         params: list[tuple[str, str]] = [
             (key, _param(value)) for key, value in args.items() if value is not None
         ]
@@ -237,20 +266,47 @@ class RecordClient:
         if narrow_session is not None:
             params.append(("narrow_session", narrow_session))
         params.extend(("narrow_run", run_id) for run_id in sorted(narrow_runs))
+        response = self._send("GET", f"{_READ_PATH}{name}", params, self.timeout)
+        return response if isinstance(response, ClientAnswer) else _decode(response)
+
+    def _send(
+        self, method: str, path: str, params: list[tuple[str, str]], timeout: float
+    ) -> httpx.Response | ClientAnswer:
+        """The service's response, or the unavailable answer naming why there is none."""
+        if self._unconfigured:
+            return ClientAnswer.failed(self._unconfigured)
         headers = {VIEWER_HEADER: self.viewer} if self.viewer is not None else {}
         try:
-            response = httpx.get(
-                f"{self.url}{_READ_PATH}{name}",
+            return httpx.request(
+                method,
+                f"{self.url}{path}",
                 params=params,
                 headers=headers,
                 auth=(self.login, self._password),
-                timeout=self.timeout,
+                timeout=timeout,
             )
         except httpx.TimeoutException:
-            return ClientAnswer.failed(f"agent-record did not answer within {self.timeout:g} s")
+            return ClientAnswer.failed(f"agent-record did not answer within {timeout:g} s")
         except (httpx.HTTPError, httpx.InvalidURL, OSError, ValueError) as exc:
             return ClientAnswer.failed(f"agent-record is unreachable: {type(exc).__name__}: {exc}")
-        return _decode(response)
+
+    # -- health and the export -----------------------------------------------
+
+    def health_sources(self) -> ClientAnswer:
+        """The service's per-source, backend and export report, as ``data``."""
+        response = self._send("GET", _HEALTH_SOURCES_PATH, [], self.timeout)
+        if isinstance(response, ClientAnswer):
+            return response
+        return _decode_report(response, None)
+
+    def export(self, *, timeout: float | None = None) -> ClientAnswer:
+        """Run the catch-up export now; ``data`` is the days exported, ISO dates
+        oldest first. *timeout* overrides the client's for this call."""
+        wait = self.timeout if timeout is None else timeout
+        response = self._send("POST", _EXPORT_PATH, [], wait)
+        if isinstance(response, ClientAnswer):
+            return response
+        return _decode_report(response, "exported")
 
     # -- the read API --------------------------------------------------------
 

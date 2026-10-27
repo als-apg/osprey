@@ -31,7 +31,8 @@ append, so no reader can ever return a secret.
 
 **Ingest state is not a kind.** Transcript offsets, spool checkpoints and the
 refused-line records live in the backend's separate state namespace
-(``get_state``/``put_state``, last write wins), named by
+(``get_state``/``put_state``, last write wins; ``count_state`` counts the
+names under a prefix, optionally only those stamped since a time), named by
 :func:`transcript_state_name`, :func:`spool_state_name` and
 :func:`refused_state_name`. Only the agent-record process writes it; no spool
 line, OTLP event or transcript line can reach it.
@@ -976,6 +977,25 @@ class StateStore(Protocol):
 
     def put_state(self, name: str, value: Mapping[str, Any]) -> None: ...
 
+    def count_state(self, prefix: str, since: datetime | None = None) -> int:
+        """How many states are named ``<prefix>…``; with *since*, only those whose
+        :data:`STATE_TIME_FIELD` (written by :func:`state_time`) is at or after it."""
+        ...
+
+
+#: The key of a state value's time, the one :meth:`StateStore.count_state` filters on.
+STATE_TIME_FIELD = "at"
+
+
+def state_time(moment: datetime) -> str:
+    """*moment* as a state value's time: fixed-width UTC ISO-8601 with microseconds.
+
+    One width for every value, so a backend compares two times as text.
+    """
+    if moment.tzinfo is None:
+        raise ValueError("a state time must be timezone-aware")
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
 
 def encode_state(name: str, value: Mapping[str, Any]) -> str:
     """The stored text of the state *value* under *name*.
@@ -1132,9 +1152,9 @@ class SpoolCheckpoint:
         return cls(value.get("offset"))  # type: ignore[arg-type]
 
 
-def refused_state_value(kind: str, reason: str) -> dict[str, str]:
-    """The value recorded under :func:`refused_state_name`."""
-    return {"kind": str(kind), "reason": str(reason)}
+def refused_state_value(kind: str, reason: str, at: datetime) -> dict[str, str]:
+    """The value recorded under :func:`refused_state_name`; *at* is when it was refused."""
+    return {"kind": str(kind), "reason": str(reason), STATE_TIME_FIELD: state_time(at)}
 
 
 # ---------------------------------------------------------------------------

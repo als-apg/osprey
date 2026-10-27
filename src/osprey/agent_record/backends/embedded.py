@@ -47,6 +47,7 @@ from osprey.agent_record.contract import (
     ENTRY_COLUMNS,
     OP_IN,
     OP_STARTS_WITH,
+    STATE_TIME_FIELD,
     AppendResult,
     BackendHealth,
     Entry,
@@ -62,6 +63,7 @@ from osprey.agent_record.contract import (
     next_stamp,
     select_conditions,
     select_order,
+    state_time,
 )
 
 BACKEND_NAME = "embedded"
@@ -370,6 +372,21 @@ class EmbeddedBackend:
                 )
             except duckdb.Error as exc:
                 raise RecordBackendError(f"state write to {self.path} failed: {exc}") from exc
+
+    def count_state(self, prefix: str, since: datetime | None = None) -> int:
+        """How many states are named ``<prefix>…``, stamped at or after *since* if given."""
+        sql = "SELECT count(*) FROM state WHERE starts_with(name, ?)"
+        params: list[Any] = [prefix]
+        if since is not None:
+            sql += f" AND coalesce(json_extract_string(value, '$.{STATE_TIME_FIELD}'), '') >= ?"
+            params.append(state_time(since))
+        with self._lock:
+            con = self._connection()
+            try:
+                row = con.execute(sql, params).fetchone()
+            except duckdb.Error as exc:
+                raise RecordBackendError(f"state count in {self.path} failed: {exc}") from exc
+        return int(row[0]) if row else 0
 
     # ------------------------------------------------------------------ health
 

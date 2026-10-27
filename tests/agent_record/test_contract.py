@@ -63,6 +63,15 @@ class FakeBackend:
     def put_state(self, name, value):
         self.state[name] = dict(value)
 
+    def count_state(self, prefix, since=None):
+        floor = None if since is None else c.state_time(since)
+        return sum(
+            1
+            for name, value in self.state.items()
+            if name.startswith(prefix)
+            and (floor is None or value.get(c.STATE_TIME_FIELD, "") >= floor)
+        )
+
     def health(self):
         return c.BackendHealth(ok=True, backend="fake")
 
@@ -414,7 +423,14 @@ def test_state_values_round_trip():
         c.TranscriptOffset.from_state({"generation": 1})
     with pytest.raises(ValueError):
         c.SpoolCheckpoint(-1)
-    assert c.refused_state_value("run", "not allowed") == {"kind": "run", "reason": "not allowed"}
+    at = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
+    assert c.refused_state_value("run", "not allowed", at) == {
+        "kind": "run",
+        "reason": "not allowed",
+        "at": "2026-10-23T12:00:00.000000Z",
+    }
+    with pytest.raises(ValueError):
+        c.state_time(datetime(2026, 10, 23, 12, 0))
 
 
 # --- spool segments ----------------------------------------------------------------
