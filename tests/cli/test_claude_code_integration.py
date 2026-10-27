@@ -985,88 +985,50 @@ class TestChannelFinderAwareness:
 class TestUserOwnedSkipBehavior:
     """Test user_owned skip behavior during project creation and regen."""
 
-    def test_user_owned_skips_safety_on_regen(self, tmp_path):
-        """Regen skips user-owned safety.md, preserving custom content."""
+    @pytest.mark.parametrize(
+        ("artifact", "relative", "custom_content"),
+        [
+            pytest.param(
+                "rules/safety",
+                ".claude/rules/safety.md",
+                "# Custom Safety Rules\nFacility-specific safety.",
+                id="safety",
+            ),
+            pytest.param(
+                "claude-md",
+                "CLAUDE.md",
+                "# My Custom CLAUDE.md\nFacility-specific content.",
+                id="claude_md",
+            ),
+            pytest.param("mcp-json", ".mcp.json", '{"mcpServers": {"custom": {}}}', id="mcp_json"),
+        ],
+    )
+    def test_user_owned_skips_on_regen(self, tmp_path, artifact, relative, custom_content):
+        """Regen skips a user-owned artifact, preserving its custom content."""
         manager = TemplateManager()
         project_dir = create_project_with_manifest(
             manager,
-            project_name="test-skip-safety",
+            project_name="test-skip",
             output_dir=tmp_path,
             data_bundle="control_assistant",
             context={"channel_finder_mode": "hierarchical"},
             data_root=bundle_data_root("control_assistant"),
         )
 
-        # Customize safety.md and add to user_owned
-        safety_path = project_dir / ".claude" / "rules" / "safety.md"
-        custom_content = "# Custom Safety Rules\nFacility-specific safety."
-        safety_path.write_text(custom_content)
+        target = project_dir / relative
+        target.write_text(custom_content)
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
         if "scaffold" not in config:
             config["scaffold"] = {}
         user_owned = config["scaffold"].get("user_owned", [])
-        user_owned.append("rules/safety")
+        user_owned.append(artifact)
         config["scaffold"]["user_owned"] = user_owned
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
 
-        assert safety_path.read_text() == custom_content
-
-    def test_user_owned_skips_claude_md_on_regen(self, tmp_path):
-        """Regen skips user-owned CLAUDE.md."""
-        manager = TemplateManager()
-        project_dir = create_project_with_manifest(
-            manager,
-            project_name="test-skip-md",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-            context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
-        )
-
-        custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
-        (project_dir / "CLAUDE.md").write_text(custom_content)
-
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        if "scaffold" not in config:
-            config["scaffold"] = {}
-        user_owned = config["scaffold"].get("user_owned", [])
-        user_owned.append("claude-md")
-        config["scaffold"]["user_owned"] = user_owned
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        manager.regenerate_claude_code(project_dir)
-
-        assert (project_dir / "CLAUDE.md").read_text() == custom_content
-
-    def test_user_owned_skips_mcp_json_on_regen(self, tmp_path):
-        """Regen skips user-owned .mcp.json."""
-        manager = TemplateManager()
-        project_dir = create_project_with_manifest(
-            manager,
-            project_name="test-skip-mcp",
-            output_dir=tmp_path,
-            data_bundle="control_assistant",
-            context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("control_assistant"),
-        )
-
-        custom_content = '{"mcpServers": {"custom": {}}}'
-        (project_dir / ".mcp.json").write_text(custom_content)
-
-        config = yaml.safe_load((project_dir / "config.yml").read_text())
-        if "scaffold" not in config:
-            config["scaffold"] = {}
-        user_owned = config["scaffold"].get("user_owned", [])
-        user_owned.append("mcp-json")
-        config["scaffold"]["user_owned"] = user_owned
-        (project_dir / "config.yml").write_text(yaml.dump(config))
-
-        manager.regenerate_claude_code(project_dir)
-
-        assert (project_dir / ".mcp.json").read_text() == custom_content
+        assert target.read_text() == custom_content
 
     def test_no_user_owned_behaves_as_before(self, tmp_path):
         """A project without a prompts section renders unaffected."""
