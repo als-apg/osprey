@@ -60,7 +60,9 @@ variables a developer shell may export are unset, so an "unset" row means
 unset.
 
 ``workspace_dir`` is the empty watched directory most app tests boot over;
-``_started_app.app_client`` is the boot itself.
+``_started_app.app_client`` is the boot itself. ``app`` and ``sessions_dir``
+are the unstarted app and the transcript directory the ``/ws/terminal`` suites
+drive through the harness in ``_ws``.
 
 Two non-autouse builders serve the tests that ask for them:
 :func:`bar_items_app` boots the whole app with both agent-data stores on
@@ -232,6 +234,33 @@ def workspace_dir(tmp_path) -> Path:
     ws = tmp_path / "_agent_data"
     ws.mkdir()
     return ws
+
+
+@pytest.fixture
+def app(tmp_path) -> Iterator[FastAPI]:
+    """The app the ``/ws/terminal`` suites drive, built over ``tmp_path`` and not started.
+
+    Each test enters its own ``TestClient``; the spawn is swapped out through
+    ``_ws.patch_spawn``, so the shell command is never run.
+    """
+    from osprey.interfaces.web_terminal.app import create_app
+
+    with patch(
+        "osprey.interfaces.web_terminal.app._load_web_config",
+        return_value={"watch_dir": str(tmp_path / "ws")},
+    ):
+        yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
+
+
+@pytest.fixture
+def sessions_dir(tmp_path, monkeypatch) -> Path:
+    """Point ``SessionDiscovery`` at an empty transcript directory and return it."""
+    from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
+
+    sessions = tmp_path / "claude_sessions"
+    sessions.mkdir()
+    monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions)
+    return sessions
 
 
 @pytest.fixture
