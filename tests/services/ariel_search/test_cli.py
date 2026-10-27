@@ -10,6 +10,7 @@ from click.testing import CliRunner
 
 from osprey.cli.ariel import ariel_group
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from tests._text import flat
 
 #: A store without attachment copy state: ingest stores each entry with the
 #: plain upsert and fetches no pictures.
@@ -1012,11 +1013,6 @@ concepts:
 """
 
 
-def _flat(text: str) -> str:
-    """Collapse rich's wrapping and indentation so phrases can be asserted on."""
-    return " ".join(text.split())
-
-
 class TestVocabCheckCommand:
     """``osprey ariel vocab-check`` — the database-free vocabulary validator."""
 
@@ -1046,10 +1042,10 @@ class TestVocabCheckCommand:
     def test_vocab_check_help_documents_defaults_and_exit_codes(self, runner):
         result = runner.invoke(ariel_group, ["vocab-check", "--help"])
         assert result.exit_code == 0
-        flat = _flat(result.output)
-        assert "Validate a facility vocabulary file" in flat
-        assert "ariel.vocabulary.path" in flat
-        assert "Exit codes" in flat
+        text = flat(result.output)
+        assert "Validate a facility vocabulary file" in text
+        assert "ariel.vocabulary.path" in text
+        assert "Exit codes" in text
 
     @pytest.mark.usefixtures("no_config")
     def test_three_error_file_exits_one_listing_every_error(self, runner, tmp_path):
@@ -1058,11 +1054,11 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 1
-        flat = _flat(result.stderr)
-        assert "3 error(s)" in flat
-        assert "'canonical' must be a non-empty string" in flat
-        assert "unknown kind 'sideways'" in flat
-        assert "'forms' must be a non-empty list, got an empty list" in flat
+        text = flat(result.stderr)
+        assert "3 error(s)" in text
+        assert "'canonical' must be a non-empty string" in text
+        assert "unknown kind 'sideways'" in text
+        assert "'forms' must be a non-empty list, got an empty list" in text
 
     @pytest.mark.usefixtures("no_config")
     def test_warnings_only_file_exits_zero_and_prints_the_warning(self, runner, tmp_path):
@@ -1071,11 +1067,11 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
-        warning = _flat(result.stderr)
+        warning = flat(result.stderr)
         assert 'form "ts" is bound to 2 concepts' in warning
         assert "troubleshoot" in warning
         assert "timing system" in warning
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_vocab_check_prints_edge_and_interior_warnings(self, runner, tmp_path):
@@ -1084,7 +1080,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
-        warning = _flat(result.stderr)
+        warning = flat(result.stderr)
         assert (
             'form "(BPM)" (concept "beam position monitor") is matched as "bpm" '
             "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries"
@@ -1093,7 +1089,7 @@ class TestVocabCheckCommand:
             'form "vert. orbit" (concept "vertical orbit"): its interior punctuation is '
             "required — only text that breaks the same way matches"
         ) in warning
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_vocab_check_canonical_empty_after_stripping(self, runner, tmp_path):
@@ -1104,7 +1100,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 1
-        assert "concepts[0] ('...'): 'canonical' must be a non-empty string" in _flat(result.stderr)
+        assert "concepts[0] ('...'): 'canonical' must be a non-empty string" in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_vocab_check_canonicals_colliding_after_stripping(self, runner, tmp_path):
@@ -1120,7 +1116,7 @@ class TestVocabCheckCommand:
         assert (
             "concepts[1] ('vert. orbit'): duplicate canonical 'vert orbit' after "
             "normalization — already defined by concepts[0]"
-        ) in _flat(result.stderr)
+        ) in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_clean_file_reports_the_concept_count(self, runner, tmp_path):
@@ -1134,21 +1130,21 @@ class TestVocabCheckCommand:
 
         assert result.exit_code == 0
         assert result.stderr.strip() == ""
-        assert "Vocabulary OK: 1 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 1 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_missing_file_is_a_vocabulary_error_not_a_usage_error(self, runner, tmp_path):
         result = runner.invoke(ariel_group, ["vocab-check", str(tmp_path / "absent.yml")])
 
         assert result.exit_code == 1
-        assert "vocabulary file not found" in _flat(result.stderr)
+        assert "vocabulary file not found" in flat(result.stderr)
 
     @pytest.mark.usefixtures("no_config")
     def test_no_path_and_no_config_explains_both_ways_to_name_one(self, runner):
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code == 1
-        assert "pass PATH or set ariel.vocabulary.path" in _flat(result.stderr)
+        assert "pass PATH or set ariel.vocabulary.path" in flat(result.stderr)
 
     def test_explicit_path_needs_no_project_config(self, runner, tmp_path, monkeypatch):
         """Outside a project directory the config loader raises; PATH must still work."""
@@ -1162,7 +1158,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     def test_no_path_outside_a_project_still_reports_the_missing_config(self, runner, monkeypatch):
         def _no_project(_key, _default=None):
@@ -1173,7 +1169,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code != 0
-        assert "config.yml" in _flat(result.output) or isinstance(
+        assert "config.yml" in flat(result.output) or isinstance(
             result.exception, FileNotFoundError
         )
 
@@ -1189,7 +1185,7 @@ class TestVocabCheckCommand:
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code == 0
-        assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
+        assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
     @pytest.mark.usefixtures("no_config")
     def test_json_emits_one_document_and_still_exits_one_on_errors(self, runner, tmp_path):
@@ -1263,7 +1259,7 @@ class TestStatusVocabularyLine:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check" in _flat(
+        assert "Vocabulary: INVALID (1 errors). Run: osprey ariel vocab-check" in flat(
             result.stdout
         )
 
@@ -1280,7 +1276,7 @@ class TestStatusVocabularyLine:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts)" in _flat(result.stdout)
+        assert "Vocabulary: OK (20 concepts)" in flat(result.stdout)
 
     def test_disabled_vocabulary_says_so(self, runner, monkeypatch):
         self._patch_status(
@@ -1295,7 +1291,7 @@ class TestStatusVocabularyLine:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "Vocabulary: disabled" in flat(result.stdout)
 
     def test_json_document_carries_the_vocabulary_key(self, runner, monkeypatch):
         import json as json_mod
@@ -1359,7 +1355,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert (
             "image_caption: 5 pictures past "
             "ariel.enhancement_modules.image_caption.max_images_per_entry have no caption."
@@ -1372,7 +1368,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert "image_caption: 3 captions made with an older prompt." in text
         assert "osprey ariel enhance --module image_caption --refresh-stale" in text
 
@@ -1391,7 +1387,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert "older prompt" not in text
         assert "image_caption: 2 captions are waiting to be made again" in text
         assert ("image_caption: 1 captions could not be made again and keep their old text") in text
@@ -1402,7 +1398,7 @@ class TestStatusCaptionLines:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "image_caption: 7 captions record no prompt; --refresh-stale leaves them" in _flat(
+        assert "image_caption: 7 captions record no prompt; --refresh-stale leaves them" in flat(
             result.stdout
         )
 
@@ -1434,7 +1430,7 @@ class TestEnhanceRefreshStale:
         result = runner.invoke(ariel_group, ["enhance", "--refresh-stale", *args])
 
         assert result.exit_code == 1
-        assert "--refresh-stale needs --module image_caption" in _flat(result.output)
+        assert "--refresh-stale needs --module image_caption" in flat(result.output)
         assert called == []
 
     def test_refresh_stale_reaches_run_enhance(self, runner, monkeypatch):
@@ -1496,9 +1492,9 @@ class TestModuleConfigRefusal:
         assert result.exit_code == 1, result.output
         assert isinstance(result.exception, SystemExit)
         assert "Traceback" not in result.output
-        flat = " ".join(result.stderr.split())
+        printed = flat(result.stderr)
         for text in expected:
-            assert text in flat, result.stderr
+            assert text in printed, result.stderr
 
     @pytest.fixture
     def quiet_pre_step(self, monkeypatch):
@@ -1724,7 +1720,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert (
             "text_embedding nomic-embed-text: 12 entries embedded without entry expansion. "
             + self._REEMBED
@@ -1753,7 +1749,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert (
             "text_embedding nomic-embed-text: 2 entries embedded with a different input rule."
             in text
@@ -1797,7 +1793,7 @@ class TestStatusEmbeddingBuilds:
         assert (
             "text_embedding nomic-embed-text: cannot check how 7 entries were embedded: "
             "the vocabulary does not load. Run: osprey ariel vocab-check"
-        ) in _flat(result.stdout)
+        ) in flat(result.stdout)
         assert "reembed" not in result.output
 
     def test_embedding_builds_vocabulary_disabled_prints_causes_without_the_command(
@@ -1817,7 +1813,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        text = _flat(result.stdout)
+        text = flat(result.stdout)
         assert "text_embedding nomic-embed-text: 6 entries embedded with entry expansion." in text
         assert "reembed" not in result.output
 
@@ -1837,7 +1833,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert _flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
+        assert flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
 
     def test_embedding_builds_schema_note_prints_once_when_both_are_behind(
         self, runner, monkeypatch
@@ -1859,7 +1855,7 @@ class TestStatusEmbeddingBuilds:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert _flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
+        assert flat(result.stdout).count("schema behind code: run osprey ariel migrate") == 1
 
 
 class TestStatusReportVocabularyExpansion:
@@ -1902,7 +1898,7 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts, entries expanded, key e1:ab12cd34ef56ab78)" in _flat(
+        assert "Vocabulary: OK (20 concepts, entries expanded, key e1:ab12cd34ef56ab78)" in flat(
             result.stdout
         )
 
@@ -1920,7 +1916,7 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts)" in _flat(result.stdout)
+        assert "Vocabulary: OK (20 concepts)" in flat(result.stdout)
         assert "entries expanded" not in result.output
 
     def test_report_vocabulary_disabled_with_the_key_on_warns_on_stderr(self, runner, monkeypatch):
@@ -1937,12 +1933,12 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "Vocabulary: disabled" in flat(result.stdout)
         assert "has no effect" not in result.stdout
         assert (
             "ariel.vocabulary.expand_entries is on and has no effect while "
             "ariel.vocabulary.enabled is false"
-        ) in _flat(result.stderr)
+        ) in flat(result.stderr)
 
     def test_report_vocabulary_disabled_with_the_key_off_does_not_warn(self, runner, monkeypatch):
         self._vocabulary(
@@ -1958,5 +1954,5 @@ class TestStatusReportVocabularyExpansion:
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: disabled" in _flat(result.stdout)
+        assert "Vocabulary: disabled" in flat(result.stdout)
         assert "expand_entries" not in result.output
