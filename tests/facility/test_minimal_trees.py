@@ -30,6 +30,7 @@ from click.testing import CliRunner, Result
 
 from osprey.facility import TEXTURE
 from osprey_connectors.errors import ChannelNotFoundError
+from tests._config_lookup import writes_enabled_lookup
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -336,11 +337,6 @@ def test_zero_sources_write_the_same_view_set_with_no_channel(build_project: Bui
     ]
 
 
-def _writes_enabled(key: str, default: Any = None) -> Any:
-    """A config lookup with writes enabled and every other key at its default."""
-    return True if key == "control_system.writes_enabled" else default
-
-
 async def _served(project: BuiltProject) -> Any:
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from tests.facility.served_tree import in_process_config
@@ -400,7 +396,7 @@ async def test_als_shaped_namespace_round_trip(
     from osprey_connectors.control_system._base import WriteOutcome
 
     collapsed = "SR04U_GDS1PS_AC00"
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
     connector = await _served(project)
     try:
         for address in addresses:

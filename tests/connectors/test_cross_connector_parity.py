@@ -63,6 +63,7 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
+from tests._config_lookup import writes_enabled_lookup
 from tests.connectors._driver_fakes import device_attribute, driven_through, eq_data
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -159,13 +160,6 @@ def _confirm_argument(scenario: Scenario) -> bool | None:
 # ---------------------------------------------------------------------------
 
 
-def _writes_enabled(key, default=None):
-    """Enable writes and answer every other config lookup with its default."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
 async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     """Drive VAInProcessConnector through ``scenario``.
 
@@ -173,7 +167,7 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     differs" is a ``_put`` that keeps a different number (a clamped setpoint),
     and "put fails" is a value the channel cannot hold. Both mirror the mock's own unit tests.
     """
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -271,7 +265,7 @@ async def _run_doocs(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
 
     with (
         driven_through("doocs4py", mock_d4py),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -315,7 +309,7 @@ async def _run_tango(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
 
     with (
         driven_through("tango", mock_tango),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
     ):
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
@@ -527,7 +521,7 @@ class TestTranslatedReadFailures:
 
 
 async def _reading_mock(monkeypatch, tmp_path) -> ChannelValue:
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
     view = served_tree(tmp_path, readings=["TEST:CHANNEL:RB"])
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -546,7 +540,7 @@ async def _reading_doocs(_monkeypatch, _tmp_path) -> ChannelValue:
 
     with (
         driven_through("doocs4py", mock_d4py),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -563,7 +557,7 @@ async def _reading_tango(_monkeypatch, _tmp_path) -> ChannelValue:
 
     with (
         driven_through("tango", mock_tango),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
     ):
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
@@ -625,7 +619,7 @@ async def _stall_doocs(action: str) -> StalledRun:
     try:
         with (
             driven_through("doocs4py", mock_d4py),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
         ):
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -649,7 +643,7 @@ async def _stall_tango(action: str) -> StalledRun:
     try:
         with (
             driven_through("tango", mock_tango),
-            patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+            patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
         ):
             from osprey_connectors.control_system._tango_connector import TangoConnector
 

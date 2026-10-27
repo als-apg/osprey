@@ -28,21 +28,16 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
+from tests._config_lookup import writes_enabled_lookup
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
 JOURNAL = ("inprocess", "writes.json")
 
 
-def _writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
-
-
 @pytest.fixture(autouse=True)
 def writes_enabled(monkeypatch):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
 
 
 def _journal(view: Path) -> Path:

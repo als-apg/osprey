@@ -19,14 +19,8 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
 )
 from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from tests._config_lookup import writes_enabled_lookup
 from tests.facility.served_tree import in_process_config, served_tree
-
-
-def _config_with_writes_enabled(key, default=None):
-    """Mock get_config_value that enables writes but returns sane defaults otherwise."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
 
 
 class TestVAInProcessConnector:
@@ -49,9 +43,7 @@ class TestVAInProcessConnector:
         self, tmp_path, monkeypatch
     ):
         """After disconnect no address validates and a write says it is not connected."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         connector = VAInProcessConnector()
         await connector.connect(
             in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
@@ -155,7 +147,7 @@ class TestVAInProcessConnector:
         connector = VAInProcessConnector()
         with patch(
             "osprey_connectors.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
+            side_effect=writes_enabled_lookup,
         ):
             await connector.connect(in_process_config(view, response_delay_ms=0))
 
@@ -174,9 +166,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_write_to_a_readback_is_refused_before_any_put(self, tmp_path, monkeypatch):
         """A channel that is not a writable setpoint is refused, and nothing is put."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = VAInProcessConnector()
         await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -194,9 +184,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_write_outside_the_facility_file_is_refused(self, tmp_path, monkeypatch):
         """A write to an address the facility file does not hold is refused by name."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         connector = VAInProcessConnector()
         await connector.connect(
             in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
@@ -215,9 +203,7 @@ class TestVAInProcessConnector:
         self, tmp_path, monkeypatch
     ):
         """A checked write to an unknown address is refused as not found, not as denied."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         connector = VAInProcessConnector()
         await connector.connect(
             in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
@@ -236,9 +222,7 @@ class TestVAInProcessConnector:
         self, tmp_path, monkeypatch
     ):
         """The composite's refusal text is the refusal's message, verbatim."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         connector = VAInProcessConnector()
         await connector.connect(
             in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
@@ -272,9 +256,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_an_enum_channel_reads_its_option_index(self, tmp_path, monkeypatch):
         """A bool or enum channel reads back as its option index, its label beside it."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         view = served_tree(
             tmp_path,
             ["MODE:SP"],
@@ -310,9 +292,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_a_write_to_a_stuck_texture_setpoint_confirms(self, tmp_path, monkeypatch):
         """A held write confirms on the setpoint, and its readback does not follow."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         self._fault(view, {"MAGNET:CURRENT:SP": "stuck"})
         connector = VAInProcessConnector()
@@ -354,9 +334,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_a_subscription_fires_after_a_write(self, tmp_path, monkeypatch):
         """A write that changes a subscribed channel's held value fires its callback."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = VAInProcessConnector()
         await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -937,9 +915,7 @@ class TestInProcessWriteConfirmationContract:
         has to outlive connect(). The tree serves the setpoints these tests
         write, and the readback one of them is paired with.
         """
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _config_with_writes_enabled
-        )
+        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
         view = served_tree(
             tmp_path,
             {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "TEST:CHANNEL:SP": None},

@@ -19,17 +19,11 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from tests._config_lookup import writes_enabled_lookup
 from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
 
 VALUE_SENT = 5.0
-
-
-def _writes_enabled(key, default=None):
-    """Enable writes and answer every other config lookup with its default."""
-    if key == "control_system.writes_enabled":
-        return True
-    return default
 
 
 def _broken_validator() -> MagicMock:
@@ -48,7 +42,7 @@ class WriteRun:
 
 
 async def _run_mock(monkeypatch, tmp_path) -> WriteRun:
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _writes_enabled)
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_lookup)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = VAInProcessConnector()
     await connector.connect(in_process_config(view, response_delay_ms=0))
@@ -70,7 +64,7 @@ async def _run_doocs(_monkeypatch, _tmp_path) -> WriteRun:
 
     with (
         driven_through("doocs4py", doocs4py),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
     ):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -94,7 +88,7 @@ async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
 
     with (
         driven_through("tango", tango),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled),
+        patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_lookup),
     ):
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
