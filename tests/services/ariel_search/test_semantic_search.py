@@ -28,6 +28,7 @@ from osprey.services.ariel_search.search.semantic import (
     semantic_provider,
     semantic_search,
 )
+from tests._live import free_port
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 # --------------------------------------------------------------------------
@@ -574,7 +575,6 @@ class TestReachableQueryServer:
         from osprey.models.providers import _local_server
         from tests.services.ariel_search.test_provider_resolver import (
             _fallback_class,
-            _free_port,
             _ProbeRecorder,
             _register,
             _Stub,
@@ -588,7 +588,7 @@ class TestReachableQueryServer:
             monkeypatch.setattr(_local_server, "probe", probes)
             cls = _fallback_class()
             _register(monkeypatch, fakellama=cls)
-            port = _free_port()
+            port = free_port()
             config = _fallback_config(port)
             embedder = _embedder_for(config)
             assert type(embedder) is cls

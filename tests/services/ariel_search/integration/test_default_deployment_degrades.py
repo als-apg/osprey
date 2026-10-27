@@ -30,7 +30,6 @@ import copy
 import json
 import logging
 import re
-import socket
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -51,6 +50,7 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.search import image_lane
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.ariel_search.search.qmd import PICTURE_UNAVAILABLE_MESSAGE
+from tests._live import free_port
 from tests.mcp_server.conftest import get_tool_fn
 from tests.services.ariel_search.integration._support import FakeQMDClient
 from tests.services.ariel_search.llama_stub import FIXTURES
@@ -96,10 +96,7 @@ VOCABULARY = (
 
 def _closed_url() -> str:
     """A local URL nothing listens on: a port bound once, then released."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    return f"http://127.0.0.1:{port}"
+    return f"http://127.0.0.1:{free_port()}"
 
 
 class OllamaStub:

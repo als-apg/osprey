@@ -14,7 +14,6 @@ import contextlib
 import dataclasses
 import logging
 import math
-import socket
 import threading
 import time
 from collections.abc import Callable
@@ -41,6 +40,7 @@ from osprey.services.ariel_search.enhancement.image_embedding.module import (
     ImageEmbeddingModule,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
+from tests._live import free_port
 from tests.services.ariel_search._image_doubles import FakeCursor, FakeGate
 from tests.services.ariel_search.llama_stub import MODEL
 
@@ -63,9 +63,7 @@ def _isolated(monkeypatch):
 
 
 def _refused_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+    return f"http://127.0.0.1:{free_port()}"
 
 
 def _config(url: str, **settings: Any) -> dict[str, Any]:

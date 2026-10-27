@@ -9,7 +9,6 @@ the one local-server cache, for adapters that resolve outside their calls.
 from __future__ import annotations
 
 import contextlib
-import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +25,7 @@ from osprey.services.ariel_search.enhancement.provider_resolver import (
     resolve_reachable_base_url,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
+from tests._live import free_port
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 KEY = "ariel.enhancement_modules.text_embedding.provider"
@@ -75,12 +75,6 @@ def _cached_entries() -> list[str]:
     """The URLs the local-server cache holds right now."""
     with _local_server._cache_lock:
         return list(_local_server._cache.values())
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 class _Stub:
@@ -329,7 +323,7 @@ class TestResolveReachableBaseUrl:
     def test_a_refusing_localhost_falls_back_to_the_docker_host(self, probes, stubs, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
         stub = stubs()
-        port = _free_port()
+        port = free_port()
         probes.docker_target = stub.url
         configured = f"http://127.0.0.1:{port}"
 
@@ -352,7 +346,7 @@ class TestResolveReachableBaseUrl:
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         cls = _fallback_class()
-        configured = f"http://127.0.0.1:{_free_port()}"
+        configured = f"http://127.0.0.1:{free_port()}"
 
         first = resolve_reachable_base_url(cls, configured)
         walked = len(probes.calls)
@@ -364,7 +358,7 @@ class TestResolveReachableBaseUrl:
     def test_the_env_override_is_tried_first(self, probes, stubs, monkeypatch):
         stub = stubs()
         monkeypatch.setenv("X_HOST", stub.url)
-        configured = f"http://127.0.0.1:{_free_port()}"
+        configured = f"http://127.0.0.1:{free_port()}"
 
         assert resolve_reachable_base_url(_fallback_class(), configured) == stub.url
         assert probes.calls == [stub.url]
@@ -372,7 +366,7 @@ class TestResolveReachableBaseUrl:
     @pytest.mark.usefixtures("probes")
     def test_nothing_answering_returns_the_configured_url(self, monkeypatch):
         monkeypatch.delenv("X_HOST", raising=False)
-        configured = f"http://127.0.0.1:{_free_port()}"
+        configured = f"http://127.0.0.1:{free_port()}"
 
         assert resolve_reachable_base_url(_fallback_class(), configured) == configured
 
@@ -380,7 +374,7 @@ class TestResolveReachableBaseUrl:
         monkeypatch.delenv("X_HOST", raising=False)
         fallback = stubs()
         probes.docker_target = fallback.url
-        port = _free_port()
+        port = free_port()
         configured = f"http://127.0.0.1:{port}"
         cls = _fallback_class()
         assert resolve_reachable_base_url(cls, configured) == (
@@ -397,7 +391,7 @@ class TestResolveReachableBaseUrl:
         monkeypatch.delenv("X_HOST", raising=False)
         probes.docker_target = stubs().url
         probes.delay_s = 0.3
-        port = _free_port()
+        port = free_port()
         configured = f"http://127.0.0.1:{port}"
         cls = _fallback_class()
 
@@ -464,7 +458,7 @@ class TestTextEmbeddingResolution:
         probes.docker_target = stubs().url
         cls = _fallback_class()
         _register(monkeypatch, fakellama=cls)
-        port = _free_port()
+        port = free_port()
         module = _text_module({"name": "fakellama", "base_url": f"http://127.0.0.1:{port}"})
 
         await module.enhance({"entry_id": "e1", "raw_text": "beam"}, _tables_exist_conn())
@@ -482,7 +476,7 @@ class TestTextEmbeddingResolution:
         monkeypatch.delenv("LLAMA_CPP_HOST", raising=False)
         monkeypatch.setattr(_local_server, "probe", lambda url, path, timeout: False)
 
-        module = _text_module({"name": "llama-cpp", "base_url": f"http://127.0.0.1:{_free_port()}"})
+        module = _text_module({"name": "llama-cpp", "base_url": f"http://127.0.0.1:{free_port()}"})
         verdict = await module.health_check()
 
         assert verdict.reachable is False

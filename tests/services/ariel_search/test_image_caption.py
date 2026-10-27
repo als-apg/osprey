@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import math
-import socket
 import threading
 import time
 from collections.abc import Callable
@@ -52,6 +51,7 @@ from osprey.services.ariel_search.enhancement.vision_errors import (
     error_signature,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
+from tests._live import free_port
 from tests.services.ariel_search._image_doubles import FakeCursor, FakeGate
 
 MODEL = "qwen3-vl:4b"
@@ -1046,12 +1046,6 @@ def test_cancelled_pass_lets_asyncio_run_return_within_one_second(provider_confi
 # ---------------------------------------------------------------------------
 
 
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 class StubOllama:
     """An Ollama stand-in serving ``/api/tags``, ``/v1/models``, ``/api/show`` and ``/api/chat``."""
 
@@ -1157,7 +1151,7 @@ class TestOllama:
         assert (result.reachable, result.reason) == (False, "model")
 
     async def test_nothing_answering_is_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+        module = _ollama_module(provider_configs, f"http://localhost:{free_port()}")
         result = await module.health_check()
         assert (result.reachable, result.reason) == (False, "unreachable")
 
@@ -1180,7 +1174,7 @@ class TestOllama:
     ):
         stub = stubs({MODEL: ["completion", "vision"]})
         fallbacks.append(stub.url)
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+        module = _ollama_module(provider_configs, f"http://localhost:{free_port()}")
 
         result = await module.health_check()
         assert result.reachable is True
@@ -1220,7 +1214,7 @@ class TestOllama:
         assert repo.failed == {}
 
     async def test_the_adapter_failed_connect_classifies_unreachable(self, provider_configs):
-        module = _ollama_module(provider_configs, f"http://localhost:{_free_port()}")
+        module = _ollama_module(provider_configs, f"http://localhost:{free_port()}")
         repo = FakeRepo()
         repo.add_entry("e1", 1)
 
@@ -1232,7 +1226,7 @@ class TestOllama:
         self, provider_configs, stubs, fallbacks, caplog
     ):
         caplog.set_level(logging.DEBUG)
-        configured_port = _free_port()
+        configured_port = free_port()
         fallback = stubs({MODEL: ["vision"]})
         fallbacks.append(fallback.url)
         module = _ollama_module(provider_configs, f"http://localhost:{configured_port}")

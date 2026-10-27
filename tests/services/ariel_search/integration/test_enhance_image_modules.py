@@ -13,7 +13,6 @@ real module with its vision call replaced by a fake.
 
 from __future__ import annotations
 
-import socket
 import threading
 import time
 from datetime import UTC, datetime
@@ -33,6 +32,7 @@ from osprey.services.ariel_search.enhancement.image_caption import module as cap
 from osprey.services.ariel_search.enhancement.image_embedding.module import ImageEmbeddingModule
 from osprey.services.ariel_search.enhancement.vision_errors import EmptyReplyError
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
+from tests._live import free_port
 from tests.services.ariel_search.fake_adapters import HttpStubAdapter
 from tests.services.ariel_search.integration._support import migrated_repository
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
@@ -150,9 +150,7 @@ def _captions(uri: str, entry_id: str) -> dict[str, Any]:
 
 
 def _closed_url() -> str:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+    return f"http://127.0.0.1:{free_port()}"
 
 
 @pytest.fixture(autouse=True)
