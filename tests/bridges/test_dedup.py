@@ -17,19 +17,7 @@ import json
 import threading
 
 from osprey.bridges.core.dedup import PRUNE_MAX_AGE_SECONDS, DedupStore
-
-
-class FakeClock:
-    """Injectable monotone clock (epoch seconds) advanced explicitly by tests."""
-
-    def __init__(self, t: float = 1_000_000.0) -> None:
-        self.t = t
-
-    def __call__(self) -> float:
-        return self.t
-
-    def advance(self, dt: float) -> None:
-        self.t += dt
+from tests.bridges.conftest import FakeClock
 
 
 def _clocked_store(tmp_path, clock):

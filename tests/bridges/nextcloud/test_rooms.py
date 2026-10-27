@@ -29,6 +29,7 @@ from osprey.bridges.nextcloud_talk import (
 )
 from osprey.bridges.nextcloud_talk.client import ROOM_TYPE_ONE_TO_ONE
 from osprey.bridges.nextcloud_talk.rooms import BACKOFF_CAP, BACKOFF_START
+from tests.bridges.conftest import recording_client
 
 CFG = NextcloudBridgeConfig(
     base_url="https://cloud.example.org",
@@ -61,14 +62,9 @@ def _directory(handler, **kwargs):
     for the backoff schedule — and ``requests`` every HTTP request the directory
     made, which is how the read path is pinned as network-free.
     """
-    requests: list[httpx.Request] = []
+    http, requests = recording_client(handler)
     sleeps: list[float] = []
-
-    def recorder(request):
-        requests.append(request)
-        return handler(request)
-
-    client = TalkClient(CFG, client=httpx.Client(transport=httpx.MockTransport(recorder)))
+    client = TalkClient(CFG, client=http)
     return RoomDirectory(client, sleep=sleeps.append, **kwargs), sleeps, requests
 
 

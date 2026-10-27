@@ -28,6 +28,7 @@ from osprey.bridges.nextcloud_talk.client import (
     REQUEST_TIMEOUT,
     ROOM_TYPE_ONE_TO_ONE,
 )
+from tests.bridges.conftest import recording_client
 
 CFG = NextcloudBridgeConfig(
     base_url="https://cloud.example.org",
@@ -211,13 +212,8 @@ def test_credentials_come_from_the_config():
     cfg = NextcloudBridgeConfig(
         base_url="https://nc.example.org", bot_account="other-bot", app_password="other-pw"
     )
-    seen: list[httpx.Request] = []
-
-    def recorder(request):
-        seen.append(request)
-        return _ocs(ROOM_PAYLOAD)
-
-    client = TalkClient(cfg, client=httpx.Client(transport=httpx.MockTransport(recorder)))
+    http, seen = recording_client(lambda _request: _ocs(ROOM_PAYLOAD))
+    client = TalkClient(cfg, client=http)
     client.room_info("roomA")
     expected = "Basic " + base64.b64encode(b"other-bot:other-pw").decode()
     assert seen[0].headers["authorization"] == expected
