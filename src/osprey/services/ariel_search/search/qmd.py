@@ -308,7 +308,7 @@ async def hybrid_search(
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
     include_images: bool | None = None,
-    search_calls: SearchCallPool | None = None,
+    search_calls: SearchCallPool,
     **kwargs: Any,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Execute the configured qmd or RRF hybrid strategy.
@@ -359,10 +359,9 @@ async def hybrid_search(
             original `query`.
         include_images: Whether the picture lane runs. ``None`` means on
             exactly when ``image_embedding`` is enabled.
-        search_calls: The search service's pool for search-time provider
-            calls, where the picture lane and the ``rrf`` strategy's semantic
-            lane embed the query. Required when the picture lane is on or the
-            strategy is ``rrf``; the service always passes it.
+        search_calls: The search service's search-call pool. Every provider
+            call of every lane runs on it: the picture lane embeds the query
+            there, and so does the ``rrf`` strategy's semantic lane.
 
     Returns:
         Without `query_expansion`: a list of ``(entry, score, snippets)`` tuples
@@ -397,8 +396,6 @@ async def hybrid_search(
         SearchConfigurationError: If the module's config block holds a
             malformed knob. Typed so the service can report it as a
             configuration problem rather than a generic module failure.
-        TypeError: If the picture lane is on or the strategy is ``rrf`` and no
-            ``search_calls`` pool was passed. Raised before either lane starts.
     """
     if not query.strip():
         return module_result([], query_expansion)
@@ -412,10 +409,6 @@ async def hybrid_search(
         # goes looking at a service that is perfectly healthy. Message verbatim.
         raise SearchConfigurationError(str(exc)) from exc
     rrf = settings.strategy == "rrf"
-    if rrf and search_calls is None:
-        # Raised here, not in the lane: the lane reads any exception as a
-        # failed semantic search and ranks on keywords alone.
-        raise TypeError("hybrid_search with the rrf strategy needs search_calls")
     effective_rerank = False if rrf else settings.rerank and (rerank is None or bool(rerank))
     effective_candidates = settings.candidate_limit if candidate_limit is None else candidate_limit
 
@@ -431,10 +424,6 @@ async def hybrid_search(
     # picture lane sees the typed query, never a vocabulary expansion.
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None = None
     if lane_on:
-        if search_calls is None:
-            # Raised here, not in the lane: the lane reads any exception as a
-            # failed picture search and opens its breaker.
-            raise TypeError("hybrid_search with the picture lane on needs search_calls")
         # Imported here: the lane's dependencies import the config module,
         # which imports this package.
         from osprey.services.ariel_search.search import image_lane
@@ -521,13 +510,12 @@ async def _ranked_search(
     embedder: BaseProvider | None,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
-    search_calls: SearchCallPool | None,
+    search_calls: SearchCallPool,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Run the text lane, join the picture lane when it ran, and shape the result.
 
     See :func:`hybrid_search`; `img_task` is the running picture lane, or
-    ``None`` when picture search is off for this call. `search_calls` is
-    present whenever `rrf` is set.
+    ``None`` when picture search is off for this call.
     """
     qmd, available = await asyncio.to_thread(_resolve_client, client)
     if not available:
@@ -567,7 +555,6 @@ async def _ranked_search(
     lane_limit = max(fetch_limit, candidate_limit or fetch_limit)
     semantic_task: asyncio.Task[list[_RankedTextHit]] | None = None
     if rrf:
-        assert search_calls is not None  # hybrid_search refuses rrf without a pool
         semantic_task = asyncio.create_task(
             _semantic_hits(
                 query,

@@ -197,7 +197,12 @@ class TestNoServerListening:
             return LaneRepository([make_entry("a"), make_entry("b")])
 
         text_only = await hybrid_search(
-            "q", repo(), config, client=StubClient(hits), include_images=False
+            "q",
+            repo(),
+            config,
+            client=StubClient(hits),
+            include_images=False,
+            search_calls=search_calls,
         )
         result = await hybrid_search(
             "q", repo(), config, client=StubClient(hits), search_calls=search_calls
