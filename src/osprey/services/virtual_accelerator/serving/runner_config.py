@@ -38,6 +38,8 @@ import copy
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from osprey_connectors.simulation.view import PERIODIC, SETPOINT
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
@@ -64,9 +66,7 @@ SAFETY_KEYS: Mapping[str, Any] = {
 #: fail the runner's health record.
 HEALTH_KEYS: Mapping[str, Any] = {"failed_pass_tolerance": 3}
 
-_SETPOINT = "setpoint"
 _FLOAT = "float"
-_PERIODIC = "periodic"
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -93,7 +93,7 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
         except KeyError:
             entry["mode"] = "ro"
             continue
-        is_setpoint = channel.role == _SETPOINT
+        is_setpoint = channel.role == SETPOINT
         # A channel is served writable only as a setpoint the view marks writable.
         entry["mode"] = "rw" if is_setpoint and channel.writable else "ro"
         if is_setpoint:
@@ -117,7 +117,7 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
     return frozenset(
         binding.address
         for binding in view.bindings(served_only=False)
-        if binding.refresh == _PERIODIC
+        if binding.refresh == PERIODIC
     )
 
 
@@ -138,12 +138,12 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
         and the model's status address.
     """
     bindings = view.bindings(served_only=False)
-    settings = [binding for binding in bindings if binding.role == _SETPOINT]
+    settings = [binding for binding in bindings if binding.role == SETPOINT]
     pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
     paired = {pair for pair in pairs.values() if pair is not None}
     computed: dict[str, set[str]] = {}
     for binding in bindings:
-        if binding.role != _SETPOINT and binding.address not in paired:
+        if binding.role != SETPOINT and binding.address not in paired:
             computed.setdefault(binding.model, set()).add(binding.address)
     for model, address in view.status_addresses().items():
         computed.setdefault(model, set()).add(address)
