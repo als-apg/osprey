@@ -53,6 +53,8 @@ from tests.mcp_server._bluesky import (
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
+pytestmark = pytest.mark.usefixtures("silence_queue_activity_emit")
+
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
 
 _TOKEN = "genuinely-valid-token"
@@ -62,13 +64,6 @@ _TOKEN = "genuinely-valid-token"
 def _reset_bluesky_context():
     yield
     reset_server_context()
-
-
-@pytest.fixture(autouse=True)
-def _silence_activity_emit():
-    """No queue tool test posts agent activity; a test asserting the emit patches it itself."""
-    with patch(f"{_MOD}.notify_agent_activity_async"):
-        yield
 
 
 def _configure(
