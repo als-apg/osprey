@@ -26,10 +26,10 @@ from rich.console import Console
 
 from osprey.cli.main import cli
 from osprey.deployment import status_display
+from tests._text import flat
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.cli._reporters import ConsoleReporter, installed
 from tests.cli.conftest import TerminalProbe
-from tests.cli._text import flat
 
 SUBSTITUTION = "haiku, sonnet, opus aliases run the main model gpt-6-sol"
 UNLISTED = "'openai' does not list gpt-6-preview"

@@ -37,8 +37,8 @@ from osprey.cli.build_profile_resolve import (
 from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.errors import BuildProfileError
+from tests._text import flat
 from tests.cli._lifecycle_build import invoke_build, rendered_config
-from tests.cli._text import flat
 
 
 def _set_args(pairs: tuple[str, ...]) -> list[str]:

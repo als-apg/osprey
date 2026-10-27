@@ -32,7 +32,7 @@ from osprey.cli.build_profile_schema import BlueskyConfig
 from osprey.cli.profile_cmd import validate as profile_validate
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
-from tests.cli._text import flat
+from tests._text import flat
 
 #: A port an author pinned by hand, one block above the layout's own. What these
 #: tests pin is that an AUTHORED number survives parsing and merging, so the

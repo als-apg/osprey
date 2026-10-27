@@ -43,7 +43,7 @@ from osprey_connectors.types import (
     LIVE_STANDIN,
     SET_CONTROL_SYSTEM_TYPES,
 )
-from tests.cli._text import flat
+from tests._text import flat
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 

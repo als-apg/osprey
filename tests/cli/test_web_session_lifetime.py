@@ -37,8 +37,8 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.interfaces._serving import free_port
+from tests._text import flat
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._text import flat
 
 TWELVE_HOURS = 12 * 60 * 60
 

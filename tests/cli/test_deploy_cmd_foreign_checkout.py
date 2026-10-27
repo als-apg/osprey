@@ -21,7 +21,7 @@ from osprey.deployment.container_ownership import (
     Resource,
     host_claim,
 )
-from tests.cli._text import flat
+from tests._text import flat
 
 
 @pytest.fixture

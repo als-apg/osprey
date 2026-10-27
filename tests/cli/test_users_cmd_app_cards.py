@@ -24,7 +24,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
 )
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
-from tests.cli._text import flat
+from tests._text import flat
 
 REFUSAL = (
     "logbook is a shared app card; remove it from modules.web_terminals.shared "
