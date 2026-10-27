@@ -985,11 +985,13 @@ class TestPanelRegisterAPI:
     )
     def test_register_refused_without_a_dns_lookup_returns_422(self, client_runtime_panels, panel):
         """A non-http(s) URL or a built-in panel id is rejected with 422 before any lookup."""
-        # Act — no getaddrinfo patch
-        resp = client_runtime_panels.post("/api/panels/register", json=panel)
+        # Act
+        with patch(_GETADDRINFO_TARGET) as resolve:
+            resp = client_runtime_panels.post("/api/panels/register", json=panel)
 
         # Assert
         assert resp.status_code == 422
+        resolve.assert_not_called()
 
     @pytest.mark.parametrize("panel_id", ["überblick", "..", "beam/viewer"])
     def test_register_id_the_panel_could_not_be_reached_by_returns_422(
