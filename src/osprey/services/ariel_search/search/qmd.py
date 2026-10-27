@@ -95,6 +95,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.base import QueryExpansion
     from osprey.services.qmd import QMDSearchResult
 
@@ -297,6 +298,7 @@ async def hybrid_search(
     config: ARIELConfig,
     embedder: BaseProvider | None = None,
     *,
+    search_calls: SearchCallPool,
     max_results: int = 10,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
@@ -331,6 +333,8 @@ async def hybrid_search(
         embedder: Provider used by ARIEL's existing semantic search, for the
             ``rrf`` strategy only. When omitted, the ``rrf`` path resolves the
             configured provider class; the ``qmd`` strategy never touches it.
+        search_calls: The pool the query embeddings of the semantic and
+            picture lanes run on.
         max_results: Maximum text-lane entries to return (default: 10).
             Image-only entries are counted separately, at most
             ``ceil(max_results / 3)`` of them.
@@ -424,7 +428,9 @@ async def hybrid_search(
         from osprey.services.ariel_search.search import image_lane
 
         img_task = asyncio.create_task(
-            image_lane.search_images(query, repository, config, fetch_limit=fetch_limit)
+            image_lane.search_images(
+                query, repository, config, fetch_limit=fetch_limit, search_calls=search_calls
+            )
         )
     try:
         return await _ranked_search(
@@ -440,6 +446,7 @@ async def hybrid_search(
             candidate_limit=effective_candidates,
             client=client,
             embedder=embedder,
+            search_calls=search_calls,
             query_expansion=query_expansion,
             img_task=img_task,
         )
@@ -500,6 +507,7 @@ async def _ranked_search(
     candidate_limit: int | None,
     client: QMDClient | None,
     embedder: BaseProvider | None,
+    search_calls: SearchCallPool,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
@@ -552,6 +560,7 @@ async def _ranked_search(
                 repository,
                 config,
                 embedder,
+                search_calls=search_calls,
                 limit=lane_limit,
                 filters=filters,
                 query_expansion=query_expansion,
@@ -885,6 +894,7 @@ async def _semantic_hits(
     config: ARIELConfig,
     embedder: BaseProvider | None,
     *,
+    search_calls: SearchCallPool,
     limit: int,
     filters: _Filters,
     query_expansion: QueryExpansion | None,
@@ -904,6 +914,7 @@ async def _semantic_hits(
         repository,
         config,
         embedder,
+        search_calls=search_calls,
         max_results=limit,
         # Hybrid needs a candidate ranking rather than semantic mode's
         # operator-facing cutoff; RRF itself decides the final order.
@@ -1306,6 +1317,7 @@ def get_tool_descriptor() -> SearchToolDescriptor:
         # Only the rrf strategy embeds, and it resolves its own provider, so the
         # default qmd strategy depends on the sidecar alone.
         needs_embedder=False,
+        needs_search_calls=True,
         accepts_expansion=True,
         accepts_include_images=True,
     )

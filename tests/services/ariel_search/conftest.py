@@ -39,12 +39,13 @@ from tests._container_support import is_docker_available, start_or_skip, stop_qu
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator, Iterator
     from concurrent.futures import ThreadPoolExecutor
 
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
 logger = logging.getLogger(__name__)
 
@@ -1081,3 +1082,15 @@ def expander(unit_vocabulary_file):
     return SpyExpander(
         EntryExpander(loaded, canonical_to_acronym=True, canonical_to_shorthand=False)
     )
+
+
+@pytest.fixture
+async def search_calls() -> AsyncIterator[SearchCallPool]:
+    """A search-call pool for direct lane calls, closed when the test ends."""
+    from osprey.services.ariel_search.search._offload import SearchCallPool
+
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        await pool.aclose()

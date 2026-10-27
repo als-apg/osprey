@@ -339,17 +339,23 @@ class TestSemanticSearchE2E:
     async def test_conceptual_search(self, seeded_ariel_db):
         """Search 'electrical failure' finds power-related entries."""
         from osprey.models.provider_registry import get_provider_registry
+        from osprey.services.ariel_search.search._offload import SearchCallPool
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         embedder = get_provider_registry().get_provider("ollama")()
-        results = await semantic_search(
-            query="electrical failure",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder=embedder,
-            max_results=5,
-            similarity_threshold=0.3,  # Lower threshold for conceptual match
-        )
+        search_calls = SearchCallPool()
+        try:
+            results = await semantic_search(
+                query="electrical failure",
+                repository=seeded_ariel_db["repository"],
+                config=seeded_ariel_db["config"],
+                embedder=embedder,
+                max_results=5,
+                similarity_threshold=0.3,  # Lower threshold for conceptual match
+                search_calls=search_calls,
+            )
+        finally:
+            await search_calls.aclose()
 
         # Deterministic: we got results
         assert len(results) > 0, "Expected results for 'electrical failure'"
@@ -364,17 +370,23 @@ class TestSemanticSearchE2E:
     async def test_rephrased_query(self, seeded_ariel_db):
         """Search 'accelerator shutdown' finds trip/failure entries."""
         from osprey.models.provider_registry import get_provider_registry
+        from osprey.services.ariel_search.search._offload import SearchCallPool
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         embedder = get_provider_registry().get_provider("ollama")()
-        results = await semantic_search(
-            query="accelerator shutdown incident",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder=embedder,
-            max_results=5,
-            similarity_threshold=0.3,
-        )
+        search_calls = SearchCallPool()
+        try:
+            results = await semantic_search(
+                query="accelerator shutdown incident",
+                repository=seeded_ariel_db["repository"],
+                config=seeded_ariel_db["config"],
+                embedder=embedder,
+                max_results=5,
+                similarity_threshold=0.3,
+                search_calls=search_calls,
+            )
+        finally:
+            await search_calls.aclose()
 
         # Deterministic: we got results
         assert len(results) > 0, "Expected results for 'accelerator shutdown incident'"
@@ -389,17 +401,23 @@ class TestSemanticSearchE2E:
     async def test_domain_concept_search(self, seeded_ariel_db):
         """Search 'cold equipment problems' finds cryogenic issues."""
         from osprey.models.provider_registry import get_provider_registry
+        from osprey.services.ariel_search.search._offload import SearchCallPool
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         embedder = get_provider_registry().get_provider("ollama")()
-        results = await semantic_search(
-            query="cold equipment temperature problems",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder=embedder,
-            max_results=5,
-            similarity_threshold=0.3,
-        )
+        search_calls = SearchCallPool()
+        try:
+            results = await semantic_search(
+                query="cold equipment temperature problems",
+                repository=seeded_ariel_db["repository"],
+                config=seeded_ariel_db["config"],
+                embedder=embedder,
+                max_results=5,
+                similarity_threshold=0.3,
+                search_calls=search_calls,
+            )
+        finally:
+            await search_calls.aclose()
 
         # Deterministic: we got results
         assert len(results) > 0, "Expected results for 'cold equipment temperature problems'"
@@ -446,6 +464,7 @@ class TestSearchIntegration:
     async def test_keyword_and_semantic_consistency(self, seeded_ariel_db):
         """Keyword and semantic search both find the same entry for exact terms."""
         from osprey.models.provider_registry import get_provider_registry
+        from osprey.services.ariel_search.search._offload import SearchCallPool
         from osprey.services.ariel_search.search.keyword import keyword_search
         from osprey.services.ariel_search.search.semantic import semantic_search
 
@@ -459,14 +478,19 @@ class TestSearchIntegration:
             max_results=5,
         )
 
-        semantic_results = await semantic_search(
-            query="vacuum leak in sector 5",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder=embedder,
-            max_results=5,
-            similarity_threshold=0.3,
-        )
+        search_calls = SearchCallPool()
+        try:
+            semantic_results = await semantic_search(
+                query="vacuum leak in sector 5",
+                repository=seeded_ariel_db["repository"],
+                config=seeded_ariel_db["config"],
+                embedder=embedder,
+                max_results=5,
+                similarity_threshold=0.3,
+                search_calls=search_calls,
+            )
+        finally:
+            await search_calls.aclose()
 
         keyword_ids = {entry["entry_id"] for entry, score, highlights in keyword_results}
         semantic_ids = {entry["entry_id"] for entry, score in semantic_results}

@@ -482,7 +482,7 @@ class TestSemanticSearchWithRealEmbeddings:
         return repository
 
     async def test_semantic_search_finds_similar_entries(
-        self, seeded_repository_with_embeddings, integration_ariel_config
+        self, seeded_repository_with_embeddings, integration_ariel_config, search_calls
     ):
         """Semantic search finds entries with similar meaning."""
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -498,6 +498,7 @@ class TestSemanticSearchWithRealEmbeddings:
             embedder=embedder,
             max_results=10,
             similarity_threshold=0.5,  # Lower threshold for testing
+            search_calls=search_calls,
         )
 
         # Should find beam-related entries
@@ -505,7 +506,7 @@ class TestSemanticSearchWithRealEmbeddings:
         assert "semantic-001" in entry_ids or "semantic-002" in entry_ids
 
     async def test_similarity_scores_decrease_for_unrelated(
-        self, seeded_repository_with_embeddings, integration_ariel_config
+        self, seeded_repository_with_embeddings, integration_ariel_config, search_calls
     ):
         """Unrelated entries have lower similarity scores."""
         from osprey.services.ariel_search.search.semantic import semantic_search
@@ -521,6 +522,7 @@ class TestSemanticSearchWithRealEmbeddings:
             embedder=embedder,
             max_results=10,
             similarity_threshold=0.0,  # Get all results
+            search_calls=search_calls,
         )
 
         if len(results) >= 2:
