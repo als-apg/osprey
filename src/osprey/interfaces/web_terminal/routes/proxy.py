@@ -54,6 +54,7 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.websockets import WebSocketState
 from websockets.asyncio.client import connect as _WebSocketConnect
 
+from osprey.apps.manifest import is_write_method
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.interfaces._media_types import STATIC_TEXT_TYPES as _STATIC_TEXT_TYPES
 from osprey.interfaces._media_types import asset_media_type as _asset_media_type
@@ -174,6 +175,50 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
         if cp.get("id") == panel_id:
             return bool(cp.get("configDefined"))
     return False
+
+
+def configured_agent_routes(custom_panels: list[dict]) -> frozenset[tuple[str, str]]:
+    """Compose the exact ``(method, /panel/<id><path>)`` pairs the panels declare.
+
+    Only a config-declared panel addressed at loopback contributes: a runtime
+    registration or an off-box backend declares nothing, whatever its dict holds.
+
+    Args:
+        custom_panels: The custom-panel dicts :func:`_load_panel_config` forwards,
+            each with ``agentRoutes`` as ``{method, path}`` entries whose path is
+            backend-root-relative.
+    """
+    pairs: set[tuple[str, str]] = set()
+    for panel in custom_panels:
+        if not panel.get("configDefined") or not _backend_is_loopback(panel.get("url", "")):
+            continue
+        for route in panel.get("agentRoutes") or []:
+            pairs.add((route["method"].upper(), f"/panel/{panel['id']}{route['path']}"))
+    return frozenset(pairs)
+
+
+def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str | None:
+    """The application ``panel_id`` serves, when this login does not arm it.
+
+    ``None`` for a panel that names no application — a built-in panel, a
+    runtime registration, a config-defined panel of the non-application shape —
+    and for an application panel this login arms. A missing ``armWrites`` is
+    read as false.
+    """
+    for panel in getattr(scope.app.state, "custom_panels", []):
+        if panel.get("id") == panel_id:
+            application = panel.get("app")
+            if application and not panel.get("armWrites", False):
+                return str(application)
+            return None
+    return None
+
+
+def _unarmed_refusal(scope: Request | WebSocket, application: str, what: str) -> str:
+    """The refusal naming the login and the application."""
+    login = str(getattr(scope.app.state, "terminal_user", "") or "").strip()
+    who = f"login '{login}'" if login else "this login"
+    return f"{what} refused: {who} does not arm application '{application}' for writes"
 
 
 class _RedirectRefusingConnect(_WebSocketConnect):
@@ -1343,6 +1388,17 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             status_code=404,
         )
 
+    # An application panel on a login that does not arm it is read-only here:
+    # a write method is refused before anything leaves the terminal.
+    method = request.method.upper()
+    if is_write_method(method):
+        application = _unarmed_application(request, panel_id)
+        if application is not None:
+            return Response(
+                content=_unarmed_refusal(request, application, method),
+                status_code=403,
+            )
+
     outer_prefix = compute_url_prefix()
 
     # Build the target URL. The dispatcher's MCP transport is addressed from
@@ -1639,6 +1695,16 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     backend_url = _resolve_panel_url(websocket, panel_id)
     if not backend_url:
         await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
+        return
+
+    # A socket to an application panel is a write path: refused on a login
+    # that does not arm the application, before any credential is attached.
+    application = _unarmed_application(websocket, panel_id)
+    if application is not None:
+        # A close reason is capped at 123 bytes on the wire.
+        reason = _unarmed_refusal(websocket, application, "WebSocket")
+        reason = reason.encode()[:123].decode(errors="ignore")
+        await websocket.close(code=4003, reason=reason)
         return
 
     # Convert http(s) backend URL to ws(s)
