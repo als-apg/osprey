@@ -279,6 +279,7 @@ def test_patch_with_no_draft_and_no_plan_name_409(client: TestClient) -> None:
     resp = client.patch("/draft", json={"plan_args_patch": {"num": 5}, "client_id": "human-1"})
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "no_draft"
+    assert resp.json()["detail"]["retryable"] is False
 
 
 def test_expected_plan_name_mismatch_409(client: TestClient) -> None:
@@ -296,6 +297,7 @@ def test_expected_plan_name_mismatch_409(client: TestClient) -> None:
     )
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "plan_name_mismatch"
+    assert resp.json()["detail"]["retryable"] is False
 
     # A matching expectation succeeds normally.
     resp2 = client.patch(
