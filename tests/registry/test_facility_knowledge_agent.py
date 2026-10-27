@@ -10,6 +10,8 @@ Verifies that:
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.registry.mcp import FRAMEWORK_AGENTS, resolve_agents, resolve_servers
 from tests.registry._ctx import base_ctx
 
@@ -143,36 +145,25 @@ class TestFacilityKnowledgeAgentTemplate:
         rendered = self._render(template_manager, ctx)
         assert not rendered.strip(), "Template must produce no output when agent is disabled"
 
-    def test_contains_list_concepts_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_facility_knowledge__list_concepts" in rendered
-
-    def test_contains_read_concept_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_facility_knowledge__read_concept" in rendered
-
-    def test_contains_search_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_facility_knowledge__search" in rendered
-
-    def test_contains_submit_response_tool(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "mcp__osprey_workspace__submit_response" in rendered
+    @pytest.mark.parametrize(
+        "expected",
+        [
+            pytest.param("mcp__osprey_facility_knowledge__list_concepts", id="list_concepts_tool"),
+            pytest.param("mcp__osprey_facility_knowledge__read_concept", id="read_concept_tool"),
+            pytest.param("mcp__osprey_facility_knowledge__search", id="search_tool"),
+            pytest.param("mcp__osprey_workspace__submit_response", id="submit_response_tool"),
+            pytest.param("name: facility-knowledge", id="frontmatter_name_field"),
+        ],
+    )
+    def test_contains(self, template_manager, expected):
+        rendered = self._render(template_manager, self._full_ctx(enabled=True))
+        assert expected in rendered
 
     def test_disallowed_tools_present(self, template_manager):
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         assert "disallowedTools" in rendered
         assert "Bash" in rendered
-
-    def test_frontmatter_name_field(self, template_manager):
-        ctx = self._full_ctx(enabled=True)
-        rendered = self._render(template_manager, ctx)
-        assert "name: facility-knowledge" in rendered
 
     def test_no_capabilities_tool(self, template_manager):
         """capabilities is a server-level introspection tool, not exposed to the agent."""
