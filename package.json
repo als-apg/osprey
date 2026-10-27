@@ -8,6 +8,8 @@
     "test:js": "vitest run",
     "test:js:watch": "vitest",
     "lint": "eslint .",
+    "format": "prettier --write \"**/*.{js,mjs}\"",
+    "format:check": "prettier --check \"**/*.{js,mjs}\"",
     "build:dock-engine": "node packages/dock-engine/scripts/build.mjs",
     "check:dock-engine": "node packages/dock-engine/scripts/build.mjs --check",
     "test:dock-engine": "vitest run -c packages/dock-engine/vitest.config.ts"
@@ -24,6 +26,7 @@
     "jsdom": "^30.1.2",
     "vite": "8.3.2",
     "typescript-6": "npm:typescript@6.0.3",
-    "@types/node": "26.1.0"
+    "@types/node": "26.1.0",
+    "prettier": "3.9.9"
   }
 }

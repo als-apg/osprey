@@ -31,7 +31,9 @@ afterEach(() => {
 });
 
 test('every data column is a server sort key, and chrome is pinned', () => {
-  const data = COLUMN_SPECS.filter((s) => !s.pin).map((s) => s.key).sort();
+  const data = COLUMN_SPECS.filter((s) => !s.pin)
+    .map((s) => s.key)
+    .sort();
   expect(data).toEqual(['address', 'description', 'device', 'dir', 'section', 'signal', 'system']);
   expect(COLUMN_SPECS[0]).toMatchObject({ key: 'chk', pin: 'start' });
   expect(COLUMN_SPECS.at(-1)).toMatchObject({ key: 'act', pin: 'end' });
@@ -70,7 +72,9 @@ test('a multi-user render keeps its arrangement under its own key', () => {
 });
 
 test('refused storage forgets quietly instead of breaking the finder', () => {
-  const deny = () => { throw new Error('denied'); };
+  const deny = () => {
+    throw new Error('denied');
+  };
   vi.stubGlobal('localStorage', { getItem: deny, setItem: deny, removeItem: deny, clear: deny });
   expect(() => saveColumns(defaultLayout(COLUMN_SPECS))).not.toThrow();
   expect(() => savePrefs({ density: 'compact', collapsed: [] })).not.toThrow();

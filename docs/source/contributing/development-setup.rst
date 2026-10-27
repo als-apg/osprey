@@ -87,6 +87,10 @@ We follow PEP 8 with Ruff enforcement:
 - **Type hints**: Gradual typing enforced with mypy
 - **Docstrings**: Google style
 - **Classes**: PascalCase, **Functions**: snake_case, **Constants**: UPPER_SNAKE_CASE
+- **Hygiene**: Ruff also judges debug prints in shipped code, debugger calls,
+  commented-out code, quoted credentials outside tests and work markers without
+  a link; a deliberate exception is a ``# noqa: CODE -- reason`` on its line,
+  or a ``# ruff: noqa: CODE -- reason`` at the top of a program module
 
 **Import organization:** standard library, then third-party, then local (``from osprey...``).
 
@@ -105,8 +109,11 @@ Linting and Formatting
    # Type checking
    uv run mypy
 
+   # All of the above as checks, with the fast tests
+   uv run python scripts/check.py quick
+
 The type check must report zero errors. ``uv run mypy`` prints the full report over the
-declared trees. CI and ``scripts/ci_check.sh`` run the same check through
+declared trees. CI and both tiers of ``scripts/check.py`` run the same check through
 ``scripts/mypy_gate.py``, which fails on any error and refuses a run made without the stub
 packages the ``dev`` extra declares (fix: ``uv sync --extra dev``). There is no list of
 tolerated errors: an error is fixed where it is reported.
@@ -294,7 +301,7 @@ the exemplars below have worked examples):
 - Vitest unit, factory-with-injected-callbacks pattern:
   ``tests/interfaces/artifacts/preview.test.mjs``,
   ``tests/interfaces/lattice_dashboard/render.test.mjs``,
-  ``tests/interfaces/web_terminal/scaffold-detail.test.mjs``.
+  ``tests/interfaces/web_terminal/scaffold/detail.test.mjs``.
 - Interaction pin, proving a multi-module split still wires up end to end:
   ``tests/interfaces/artifacts/test_gallery_interactions.py``,
   ``tests/interfaces/web_terminal/test_scaffold_detail.py``,

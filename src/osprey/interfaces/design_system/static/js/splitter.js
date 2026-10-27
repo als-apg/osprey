@@ -284,9 +284,10 @@ export function initSplitter({
   const toggleCollapse = () => (collapsed ? expand() : collapse());
 
   const restoreSize = () => {
-    let stored = /** @type {{size: number|null, collapsed: boolean}} */ (
-      { size: initialSize, collapsed: Boolean(initialCollapsed) }
-    );
+    let stored = /** @type {{size: number|null, collapsed: boolean}} */ ({
+      size: initialSize,
+      collapsed: Boolean(initialCollapsed),
+    });
     if (storageKey !== null) {
       let raw = null;
       try {

@@ -1,0 +1,290 @@
+name: Release osprey-connectors to PyPI
+
+on:
+  push:
+    tags:
+      - 'osprey-connectors-v2*'  # calendar tags like osprey-connectors-v2026.10.0
+
+# osprey-connectors has its own calendar stream, on its own
+# osprey-connectors-vYYYY.M.P tags (bN / rcN for pre-releases), cut when the
+# package changes rather than with every framework release — see
+# packages/osprey-connectors/pyproject.toml. This workflow is that stream's
+# whole release: one tag builds, checks and publishes the connectors wheel and
+# sdist and nothing else. The framework's v-tags run release.yml, which never
+# builds this package; the framework declares only a floor on it, and its own
+# release proves the floor resolves from PyPI.
+#
+# The trigger is a tag push and nothing else: no dispatch, so no run publishes
+# a commit nobody tagged. The `2` keeps the retired osprey-connectors-v0.1.0
+# line out, as the package's describe glob does. Every job is also guarded on
+# the tag ref, so a trigger widened later cannot run a publish from a branch,
+# and on the repository, so a tag on a mirror or fork builds and publishes
+# nothing.
+#
+# On PyPI, osprey-connectors' trusted publisher names this workflow file and
+# the `pypi-connectors` environment, and nothing else can upload it: the
+# framework's publisher (release.yml, `pypi`) is registered on
+# osprey-framework, not here.
+
+# Nothing at workflow level writes. The two jobs that do — the PyPI upload
+# (`id-token`) and the GitHub release (`contents`) — say so in their own block.
+permissions:
+  contents: read
+
+jobs:
+  # Nothing else in this workflow runs a test. The connectors package is proved
+  # by always-on lanes rather than model-spending ones, so no label is involved
+  # here: what the gate asks is that the ci.yml run on the tagged tree ran them
+  # and every one of them went green.
+  verify-ci:
+    name: Verify CI On The Tagged Tree
+    runs-on: ubuntu-latest
+    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    # A job-level block REPLACES the workflow's scopes rather than extending
+    # them. Reading another workflow's runs needs `actions: read`.
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0  # the tree comparison walks the tag's parents
+
+    - name: Require the tagged commit on main
+      # Releases are cut from main (the release skill). The lane gate
+      # below cannot tell: a commit off main whose tree had a green run passes
+      # it. And a connectors tag main cannot reach leaves main's dev builds
+      # describing from an older connectors tag, below the framework's floor.
+      # Shared with release.yml; tests/deployment/test_ci_workflow_wiring.py
+      # holds the two copies equal and runs this one against a scratch repo.
+      env:
+        TAG_SHA: ${{ github.sha }}
+        TAG_NAME: ${{ github.ref_name }}
+      run: |
+        git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+        if ! git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+          echo "::error::$TAG_NAME ($TAG_SHA) is not on main. Tag the merge commit on main:"
+          echo "  git push --delete origin $TAG_NAME && git tag -f $TAG_NAME <main sha> && git push origin $TAG_NAME"
+          exit 1
+        fi
+        echo "✅ $TAG_NAME is on main"
+
+    - name: Require a green CI run on this tree
+      # scripts/ci/require_green_lanes.py, shared with release.yml.
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG_SHA: ${{ github.sha }}
+        TAG_NAME: ${{ github.ref_name }}
+        # The lanes that prove the connectors package, one per line:
+        # <ci.yml job id>=<rendered job-name prefix>. The unit lane (whose
+        # shards run the package suite beside the framework), lint (lockfile,
+        # ruff, the changelog gate), the package job's lean wheel, the
+        # framework-free suite, and the backward-compatibility lanes: the
+        # connectors under every listed framework release, and the framework at
+        # its connectors floor. A compatibility lane that stands down (no
+        # release listed yet, a floor that predates the independent releases)
+        # concludes success, so it never blocks a tag it has nothing to prove
+        # for. tests/deployment/test_ci_workflow_wiring.py fails while a
+        # compatibility lane in ci.yml is missing here.
+        REQUIRED_LANES: |
+          test=Test Python
+          lint=Lint and Code Quality
+          package=Package Build
+          connectors-standalone=Connectors suite without the framework
+          connectors-compat=Connectors HEAD under framework
+          framework-at-connectors-floor=Framework HEAD at its declared connectors floor
+      run: python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES"
+
+  build:
+    name: Build osprey-connectors
+    runs-on: ubuntu-latest
+    needs: [verify-ci]
+    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0  # the version is the describe of this package's own tags
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Derive the version from the tag
+      id: version
+      # PEP 440-normalized, because that is what the backend stamps and what the
+      # filenames carry: a tag spelled osprey-connectors-v2026.10.0-rc1 builds
+      # 2026.10.0rc1. Anything that is not exactly X.Y.Z is a pre-release, the
+      # same rule release.yml applies to the framework's tags.
+      env:
+        TAG_NAME: ${{ github.ref_name }}
+      run: |
+        RAW="${TAG_NAME#osprey-connectors-v}"
+        VERSION="$(uv run --no-project --with packaging python -c \
+          'import sys; from packaging.version import Version; print(Version(sys.argv[1]))' "$RAW")"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "prerelease=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "prerelease=true" >> "$GITHUB_OUTPUT"
+        fi
+        echo "Tag $TAG_NAME -> osprey-connectors $VERSION"
+
+    - name: Build package
+      run: uv build --package osprey-connectors
+
+    - name: Verify built versions match tag
+      # The version comes from the describe, not a literal, so this checks the
+      # files about to be published: exactly one wheel and one sdist of this
+      # package, both carrying the tag's number. A shallow checkout or a missing
+      # tag does not fail the build — it silently yields 0.0.postN+g… or the
+      # previous tag's .postN — so this is what catches that before PyPI does.
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        ls -l dist/
+        status=0
+        shopt -s nullglob
+        files=(dist/*)
+        wheels=(dist/osprey_connectors-*.whl)
+        sdists=(dist/osprey_connectors-*.tar.gz)
+        if [ "${#wheels[@]}" -ne 1 ] || [ "${#sdists[@]}" -ne 1 ] || [ "${#files[@]}" -ne 2 ]; then
+          echo "❌ expected one osprey-connectors wheel and one sdist in dist/, found: ${files[*]}"
+          status=1
+        fi
+        for file in "${wheels[@]}" "${sdists[@]}"; do
+          name="$(basename "$file")"
+          # <name>-<version>-<python tag>-...whl / <name>-<version>.tar.gz
+          if [[ "$name" == *.whl ]]; then
+            BUILT="$(echo "$name" | cut -d'-' -f2)"
+          else
+            BUILT="${name#osprey_connectors-}"
+            BUILT="${BUILT%.tar.gz}"
+          fi
+          echo "$name: $BUILT"
+          if [ "$BUILT" != "$VERSION" ]; then
+            echo "❌ Version mismatch! Tag: $VERSION, Built: $BUILT"
+            echo "   A clean checkout of the tag must build exactly $VERSION."
+            echo "   A local segment or .postN means the tag is not what was built."
+            status=1
+          fi
+        done
+        [ "$status" -eq 0 ] && echo "✅ Every built version matches tag: $VERSION"
+        exit "$status"
+
+    - name: Check package
+      run: uvx twine check dist/*
+
+    - name: Upload distribution artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: connectors-distributions
+        path: dist/
+
+  verify-install:
+    name: Verify The Wheel On A Bare Venv
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+
+    # The wheel about to be published, installed into a fresh venv with every
+    # dependency resolved from PyPI, then walked by the same lean import check
+    # ci.yml's `package` job runs: every module imports, and nothing of the
+    # framework or the agent stack is loaded.
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7  # for scripts/ci/connectors_lean_import_walk.py
+
+    - name: Download distribution artifacts
+      uses: actions/download-artifact@v8
+      with:
+        name: connectors-distributions
+        path: dist/
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+
+    - name: Install the wheel with deps from PyPI and import-walk it
+      env:
+        VERSION: ${{ needs.build.outputs.version }}
+      run: |
+        uv venv /tmp/lean-check --python 3.11
+        uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
+        /tmp/lean-check/bin/python -I scripts/ci/connectors_lean_import_walk.py
+        INSTALLED="$(/tmp/lean-check/bin/python -I -c 'import osprey_connectors; print(osprey_connectors.__version__)')"
+        echo "osprey_connectors.__version__ = $INSTALLED"
+        [ "$INSTALLED" = "$VERSION" ]
+
+  publish-to-pypi:
+    name: Publish osprey-connectors to PyPI
+    # `verify-ci` already gates `build`, so this repeats it — deliberately.
+    # The publish is the one step nobody can take back, and a future edit that
+    # re-wires the chain above must not be able to un-gate it silently.
+    needs: [verify-ci, build, verify-install]
+    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-connectors
+      url: https://pypi.org/project/osprey-connectors/${{ needs.build.outputs.version }}/
+    # Trusted publishing: the OIDC token is minted for this job alone.
+    permissions:
+      id-token: write
+
+    steps:
+    - name: Download distribution artifacts
+      uses: actions/download-artifact@v8
+      with:
+        name: connectors-distributions
+        path: dist/
+
+    # skip-existing lets a re-pushed tag complete a publish that stopped halfway.
+    - name: Publish osprey-connectors to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: dist/
+        skip-existing: true
+        verbose: true
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: [build, publish-to-pypi]
+    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # creating the release
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+
+    - name: Extract release notes from the connectors CHANGELOG
+      # The package's own changelog, folded from packages/osprey-connectors/
+      # changelog.d/ by `scripts/changelog_fragments.py apply --root
+      # packages/osprey-connectors`, and read by the same script release.yml
+      # reads the framework's with.
+      env:
+        VERSION: ${{ needs.build.outputs.version }}
+      run: |
+        echo "Extracting release notes for osprey-connectors $VERSION"
+        python3 scripts/ci/release_notes.py packages/osprey-connectors/CHANGELOG.md "$VERSION" > release_notes.md
+        cat release_notes.md
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v3
+      with:
+        name: osprey-connectors v${{ needs.build.outputs.version }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
+        # "Latest" stays the framework's: a connectors release is never what a
+        # reader landing on the repository's releases page should install.
+        make_latest: false

@@ -37,9 +37,15 @@ import {
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildConsole } from './chat-console.js';
 import { emitChat } from './chat-events.js';
+import { endsTurn, isResponseFrame } from './chat-frames.js';
 import { initChatFeatures } from './chat-features.js';
 import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
-import { buildEmptyState, onKindChange, onSettled, renderEmptyStateContent } from './first-contact.js';
+import {
+  buildEmptyState,
+  onKindChange,
+  onSettled,
+  renderEmptyStateContent,
+} from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
@@ -185,8 +191,7 @@ export function initChat(containerId = 'operator-container') {
   /** Whether the wait is on screen; it never steps back to a restart. */
   let waiting = false;
 
-  const isSimpleMode = () =>
-    document.documentElement.getAttribute('data-ui-mode') === 'simple';
+  const isSimpleMode = () => document.documentElement.getAttribute('data-ui-mode') === 'simple';
 
   const isPinned = () =>
     messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
@@ -324,9 +329,9 @@ export function initChat(containerId = 'operator-container') {
     overlayAction.disabled = false;
     overlayAction.onclick = onPress
       ? () => {
-        overlayAction.disabled = true;
-        onPress();
-      }
+          overlayAction.disabled = true;
+          onPress();
+        }
       : null;
   }
 
@@ -496,21 +501,6 @@ export function initChat(containerId = 'operator-container') {
     if (pinned) scrollToBottom();
   }
 
-  /** @param {import('./chat-client.js').ChatEvent} frame */
-  const endsTurn = (frame) =>
-    frame.type === 'result' ||
-    (frame.type === 'error' && frame.error_type !== 'AssistantMessageError');
-
-  /** Frame types that belong to a response, as opposed to notices about one. */
-  const RESPONSE_FRAMES = new Set([
-    'text',
-    'delta',
-    'thinking',
-    'tool_use',
-    'tool_result',
-    'permission_request',
-  ]);
-
   /**
    * One frame from the feed: the snapshot it opens with, then everything the
    * agent does. The feed is closed while this tab's own turn streams, so what
@@ -535,7 +525,7 @@ export function initChat(containerId = 'operator-container') {
     if (!mirroring) {
       // Part of a response this tab is not drawing yet (its start came before
       // the feed connected); join it. A notice on its own just draws.
-      if (!RESPONSE_FRAMES.has(frame.type)) {
+      if (!isResponseFrame(frame)) {
         draw(frame);
         return;
       }
@@ -608,7 +598,7 @@ export function initChat(containerId = 'operator-container') {
       showHandoffRefused(refusal ?? HANDOFF_FALLBACK);
       const refused = /** @type {import('./chat-client.js').TransportError} */ (err);
       if (refused?.slug === 'handoff_started_commands') {
-        askAboutStartedCommands(Array.isArray(refused.commands) ? refused.commands : [], {
+        askAboutStartedCommands(refused.commands, {
           onStop: () => void runHandoff(cutRunningTurn, true),
           onCancel: cancelHandoff,
           unread: refused.unread === true,

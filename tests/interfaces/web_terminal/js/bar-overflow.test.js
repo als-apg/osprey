@@ -354,7 +354,7 @@ describe('the overflow menu names what folded', () => {
     expect(trigger()).toBeNull();
   });
 
-  test("each folded item is one row, under its catalog overflowLabel", () => {
+  test('each folded item is one row, under its catalog overflowLabel', () => {
     reconcile(layoutOf(['logo', 'docs', 'clock', 'stopwatch']));
     crowdingAtCapacity(1);
     applyOverflow(document);

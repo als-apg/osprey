@@ -27,29 +27,29 @@ export function initSidebarMenu({ button, menu }) {
 
   const setOpen = (/** @type {boolean} */ open) => {
     menu.hidden = !open;
-    button.setAttribute("aria-expanded", String(open));
+    button.setAttribute('aria-expanded', String(open));
   };
 
   const close = () => setOpen(false);
 
   // `hidden` reflects as boolean | "until-found", so coerce before handing
   // it to the boolean-only setter.
-  button.addEventListener("click", () => setOpen(Boolean(menu.hidden)));
+  button.addEventListener('click', () => setOpen(Boolean(menu.hidden)));
 
   // Any item click performs its action (via the item's own listener) and
   // dismisses the menu — the scope pill / spinner give the lasting feedback.
-  menu.addEventListener("click", (e) => {
-    if (/** @type {HTMLElement} */ (e.target).closest(".sidebar-menu-item")) close();
+  menu.addEventListener('click', (e) => {
+    if (/** @type {HTMLElement} */ (e.target).closest('.sidebar-menu-item')) close();
   });
 
-  document.addEventListener("pointerdown", (e) => {
+  document.addEventListener('pointerdown', (e) => {
     if (menu.hidden) return;
     const target = /** @type {Node} */ (e.target);
     if (!menu.contains(target) && !button.contains(target)) close();
   });
 
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !menu.hidden) {
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !menu.hidden) {
       close();
       button.focus();
     }

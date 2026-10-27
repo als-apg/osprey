@@ -36,7 +36,9 @@ A third record is written only when a test fails:
     in each process, from ``pytest_runtest_makereport`` — before that module's
     fixtures tear its stack down. The workflow's capture step cannot take it:
     that teardown happens inside the pytest step, so by the time any later step
-    runs, the stack's containers are gone.
+    runs, the stack's containers are gone. The snapshot runs outside the test's
+    pytest-timeout budget, which is re-armed after it. A snapshot that could
+    not finish says ``capture incomplete`` in its ``state.txt``.
 
 All three are gated on ``OSPREY_CI_DIAG_DIR``: unset (every local run) means
 this module installs nothing at all.
@@ -114,7 +116,6 @@ files, which legitimately takes minutes, is never mistaken for a hang.
 
 from __future__ import annotations
 
-import contextlib
 import faulthandler
 import json
 import os
@@ -344,9 +345,18 @@ class ContainerSnapshots:
         self.worker = worker
         self.engine = engine
         self._modules: set[str] = set()
+        #: Why the capture in progress stopped short; ``None`` while it has not.
+        self._incomplete: str | None = None
 
     def _run(self, *args: str) -> tuple[subprocess.CompletedProcess[str] | None, str]:
-        """Run one engine call; a failure is returned as text, never raised."""
+        """Run one engine call; a failure is returned as text, never raised.
+
+        A call that exceeds ``SNAPSHOT_CALL_TIMEOUT`` marks the capture
+        incomplete, and every later call of that capture is skipped: an engine
+        that stopped answering once costs one bound, not one per call.
+        """
+        if self._incomplete is not None:
+            return None, ""
         try:
             done = subprocess.run(
                 [self.engine, *args],
@@ -354,48 +364,69 @@ class ContainerSnapshots:
                 text=True,
                 timeout=SNAPSHOT_CALL_TIMEOUT,
             )
+        except subprocess.TimeoutExpired:
+            call = " ".join([self.engine, args[0], *args[1:][-1:]])
+            self._incomplete = f"{call} exceeded {SNAPSHOT_CALL_TIMEOUT:g} s"
+            return None, f"({self._incomplete})\n"
         except (OSError, subprocess.SubprocessError) as exc:
             return None, f"({self.engine} {args[0]} failed: {exc})\n"
         return done, done.stdout + done.stderr
 
     def capture(self, nodeid: str, when: str) -> Path | None:
-        """Write one module's snapshot; ``None`` when there is nothing to record."""
+        """Write one module's snapshot; ``None`` when there is nothing to record.
+
+        ``state.txt`` is written whatever happens once a container is listed or
+        the capture stopped short, and ends with a ``capture incomplete:
+        <reason>`` line when a call, the listing included, timed out or the
+        capture raised.
+        """
         module = nodeid.split("::", 1)[0]
         if module in self._modules:
             return None
         self._modules.add(module)
+        self._incomplete = None
 
         if shutil.which(self.engine) is None:
             return None
-        listed, _ = self._run("ps", "-aq")
-        if listed is None or listed.returncode != 0:
-            return None
-        ids = listed.stdout.split()
-        if not ids:
-            return None
-
         target = self.root / f"{self.worker}--{_safe(module)}"
-        target.mkdir(parents=True, exist_ok=True)
-        utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
-        (target / "ps.txt").write_text(self._run("ps", "-a")[1])
+        state: list[str] = []
+        ids: list[str] = []
+        try:
+            listed, _ = self._run("ps", "-aq")
+            if listed is not None and listed.returncode == 0:
+                ids = listed.stdout.split()
+            if not ids:
+                return None if self._incomplete is None else target
+            target.mkdir(parents=True, exist_ok=True)
+            utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            (target / "failure.txt").write_text(f"nodeid={nodeid}\nphase={when}\nutc={utc}\n")
+            (target / "ps.txt").write_text(self._run("ps", "-a")[1])
 
-        state = []
-        for cid in ids:
-            named, _ = self._run("inspect", "--format", "{{.Name}}", cid)
-            raw = named.stdout.strip() if named is not None and named.returncode == 0 else ""
-            name = _safe(raw.lstrip("/")) or cid
+            for cid in ids:
+                if self._incomplete is not None:
+                    break
+                named, _ = self._run("inspect", "--format", "{{.Name}}", cid)
+                raw = named.stdout.strip() if named is not None and named.returncode == 0 else ""
+                name = _safe(raw.lstrip("/")) or cid
 
-            (target / f"{name}.log").write_text(self._run("logs", "--timestamps", cid)[1])
-            state.append(self._run("inspect", "--format", _STATE_FORMAT, cid)[1])
+                (target / f"{name}.log").write_text(self._run("logs", "--timestamps", cid)[1])
+                state.append(self._run("inspect", "--format", _STATE_FORMAT, cid)[1])
 
-            health, _ = self._run("inspect", "--format", "{{json .State.Health}}", cid)
-            if health is not None and health.returncode == 0:
-                text = health.stdout.strip()
-                if text and text != "null":
-                    (target / f"{name}.health.json").write_text(text + "\n")
-
-        (target / "state.txt").write_text("".join(state))
+                health, _ = self._run("inspect", "--format", "{{json .State.Health}}", cid)
+                if health is not None and health.returncode == 0:
+                    text = health.stdout.strip()
+                    if text and text != "null":
+                        (target / f"{name}.health.json").write_text(text + "\n")
+        except BaseException as exc:
+            if self._incomplete is None:
+                self._incomplete = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if self._incomplete is not None:
+                state.append(f"capture incomplete: {self._incomplete}\n")
+            if ids or self._incomplete is not None:
+                target.mkdir(parents=True, exist_ok=True)
+                (target / "state.txt").write_text("".join(state))
         return target
 
     @pytest.hookimpl(hookwrapper=True)
@@ -404,9 +435,22 @@ class ContainerSnapshots:
         report = outcome.get_result()
         if not report.failed:
             return
-        # a diagnostic must never replace the failure it observes
-        with contextlib.suppress(Exception):
+        # The capture is not test time: an armed pytest-timeout alarm is paused
+        # around it, so it can neither fire mid-capture nor spend the test's
+        # budget. A func_only timer is already cancelled once the call phase
+        # has returned, and re-arming it would leave an alarm nothing cancels.
+        timer = item.config.pluginmanager.get_plugin("timeout")
+        settings = timer._get_item_settings(item) if timer is not None else None
+        armed = bool(settings is not None and settings.timeout and not settings.func_only)
+        if armed:
+            item.config.hook.pytest_timeout_cancel_timer(item=item)
+        try:
             self.capture(item.nodeid, report.when)
+        except (Exception, pytest.fail.Exception):
+            pass  # a diagnostic must never replace the failure it observes
+        finally:
+            if armed:
+                item.config.hook.pytest_timeout_set_timer(item=item, settings=settings)
 
 
 def register_container_snapshots(

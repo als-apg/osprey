@@ -15,11 +15,18 @@ import contextlib
 import os
 import select
 import signal
-import subprocess
 import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import psutil
+import pytest
+
+# Bound at import, so a test that patches ``process_tree.snapshot`` with
+# :func:`readable_rows` never has it call itself.
+from osprey.interfaces.web_terminal.process_tree import ProcessRow, ProcessTableUnreadable
+from osprey.interfaces.web_terminal.process_tree import snapshot as _read_table
 
 if TYPE_CHECKING:
     from osprey.interfaces.web_terminal.pty_manager import PtySession
@@ -234,20 +241,47 @@ def pid_gone(pid: int, within: float = 5.0) -> bool:
             return True
         except PermissionError:
             pass
-        state = subprocess.run(
-            ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-        ).stdout.strip()
-        if not state or state.startswith("Z"):
+        try:
+            if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                return True
+        except psutil.NoSuchProcess:
             return True
         if time.monotonic() > deadline:
             return False
         time.sleep(0.05)
 
 
-def _running_state(pid: int) -> str | None:
-    """Return the ``ps`` state of *pid* while it runs, ``None`` once it is gone or a zombie.
+def readable_rows(
+    holding: Iterable[int] = (), within: float = CHILD_HANG_CEILING
+) -> dict[int, ProcessRow]:
+    """Return the host's process table once a read answers and holds every pid in *holding*.
 
-    ``ps`` is forked only for a pid the kernel still answers for: that is the
+    A liveness wait: it returns on its condition and never decides a pass. A
+    table that is momentarily unreadable, or does not yet hold a just-spawned
+    pid, makes the caller wait; only a table that stays unreadable, or never
+    holds *holding*, for *within* seconds fails the test, naming the last cause.
+    """
+    wanted = set(holding)
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            rows = _read_table()
+        except ProcessTableUnreadable as exc:
+            cause = str(exc)
+        else:
+            missing = wanted - rows.keys()
+            if not missing:
+                return rows
+            cause = f"the process table does not hold pid(s) {sorted(missing)}"
+        if time.monotonic() > deadline:
+            pytest.fail(f"no readable process table within {within:g} s: {cause}")
+        time.sleep(_POLL_S)
+
+
+def _running_state(pid: int) -> str | None:
+    """Return the psutil status of *pid* while it runs, ``None`` once it is gone or a zombie.
+
+    The status is read only for a pid the kernel still answers for: that is the
     one case a signal probe cannot tell a running process from an exited one
     nobody has reaped.
     """
@@ -257,20 +291,21 @@ def _running_state(pid: int) -> str | None:
         return None
     except PermissionError:
         pass
-    state = subprocess.run(
-        ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-    ).stdout.strip()
-    return None if not state or state.startswith("Z") else state
+    try:
+        state = psutil.Process(pid).status()
+    except psutil.NoSuchProcess:
+        return None
+    return None if state == psutil.STATUS_ZOMBIE else state
 
 
 async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
     """Wait until every one of *pids* is gone, or a zombie nobody has reaped yet.
 
-    The wait of an async test: it yields to the loop between looks and runs
-    ``ps`` off it, so whatever the loop still has to finish is not held up by
+    The wait of an async test: it yields to the loop between looks and reads
+    the process table off it, so whatever the loop still has to finish is not held up by
     the waiting. All of *pids* share one deadline of *within* seconds. A pid
     still running at the deadline fails the wait by name, with the state
-    ``ps`` last reported for it.
+    the process table last reported for it.
     """
     started = time.monotonic()
     running = list(pids)

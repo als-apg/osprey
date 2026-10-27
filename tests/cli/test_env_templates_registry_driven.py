@@ -13,6 +13,8 @@ which renders a template.
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from osprey.cli.templates.manager import TemplateManager
@@ -93,6 +95,22 @@ def a_registered_site_gateway(monkeypatch):
     return "SITE_GATEWAY_TOKEN"
 
 
+class _Plain:
+    """A registered class that does not subclass BaseProvider."""
+
+    name = "plain"
+
+
+@pytest.fixture
+def a_registered_plain_class(monkeypatch):
+    """Put a class that is not a BaseProvider in the registry for one test."""
+    from osprey.models.provider_registry import _ProviderEntry, get_provider_registry
+
+    registry = get_provider_registry()
+    monkeypatch.setitem(registry._entries, "plain", _ProviderEntry(__name__, "_Plain"))
+    monkeypatch.setitem(registry._providers, "plain", _Plain)
+
+
 def _render(template_name: str, ctx: dict) -> str:
     manager = TemplateManager()
     return manager.jinja_env.get_template(template_name).render(**ctx)
@@ -160,11 +178,31 @@ class TestProviderBaseUrlEntries:
             cls = registry.get_provider(name)
             if cls is None:
                 continue
-            if cls.requires_base_url and not cls.default_base_url and cls.base_url_env_var:
+            if (
+                cls.declares("requires_base_url")
+                and not cls.default_base_url
+                and cls.base_url_env_var
+            ):
                 expected.add(cls.base_url_env_var)
 
         assert a_registered_gateway_without_an_endpoint in expected  # not vacuous
         assert {e["var"] for e in provider_base_url_entries()} == expected
+
+    @pytest.mark.usefixtures("a_registered_site_gateway")
+    def test_a_provider_that_declares_no_endpoint_flag_is_not_listed(self):
+        """A site's own class that leaves requires_base_url undeclared needs no endpoint."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            entries = provider_base_url_entries()
+        assert "site-gateway" not in {e["provider"] for e in entries}
+
+    @pytest.mark.usefixtures("a_registered_plain_class")
+    def test_a_registered_class_that_is_not_a_base_provider_is_not_listed(self):
+        """A class with no capability flags at all declares no endpoint."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            entries = provider_base_url_entries()
+        assert "plain" not in {e["provider"] for e in entries}
 
     def test_providers_with_a_working_default_are_excluded(self):
         """Setting their variable redirects them; it does not enable them."""

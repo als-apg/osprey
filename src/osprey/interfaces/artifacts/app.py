@@ -1204,7 +1204,7 @@ def run_server(
     announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
     login_url = mint_and_announce(host, port)
     if announce:
-        print(f"Open: {login_url}")
+        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
 
     app = create_app(workspace_root=workspace_root)
     uvicorn.run(app, host=host, port=port, log_level="info")

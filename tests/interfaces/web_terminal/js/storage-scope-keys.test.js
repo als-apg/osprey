@@ -196,8 +196,7 @@ describe('panel-agent-attention.js acknowledgements', () => {
 
   /** Mount a rail carrying one entry the badge can anchor to. */
   function mountRail() {
-    document.body.innerHTML =
-      `<div id="rail"><button class="panel-rail-button" data-panel-id="${PANEL}"></button></div>`;
+    document.body.innerHTML = `<div id="rail"><button class="panel-rail-button" data-panel-id="${PANEL}"></button></div>`;
     const rail = document.getElementById('rail');
     if (!rail) throw new Error('expected the rail fixture');
     initAgentAttention(rail);
@@ -228,14 +227,19 @@ describe('panel-agent-attention.js acknowledgements', () => {
   /** Stub the recent-activity endpoint with one panel event at `ts`.
    * @param {number} ts */
   function serveRecent(ts) {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ events: [{ target: { kind: 'panel', panel: PANEL }, ts }] }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ events: [{ target: { kind: 'panel', panel: PANEL }, ts }] }),
+      }))
+    );
   }
 
   function isBadged() {
-    return document.querySelector('.panel-rail-button')?.classList.contains('agent-attention') ?? false;
+    return (
+      document.querySelector('.panel-rail-button')?.classList.contains('agent-attention') ?? false
+    );
   }
 
   test("another user's acknowledgement does not silence bob's badge on reload", async () => {
@@ -273,10 +277,13 @@ describe('palette.js recent commands', () => {
 
   // The palette's one network read, answered here so nothing dials out.
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (!url.endsWith('/api/config')) throw new Error(`unstubbed fetch: ${url}`);
-      return { ok: true, status: 200, json: async () => ({ sections: {} }) };
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (!url.endsWith('/api/config')) throw new Error(`unstubbed fetch: ${url}`);
+        return { ok: true, status: 200, json: async () => ({ sections: {} }) };
+      })
+    );
   });
 
   /** A deps bundle with one action. */
@@ -303,12 +310,16 @@ describe('palette.js recent commands', () => {
   function pressEnter() {
     document
       .querySelector('.command-palette-input')
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      ?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+      );
   }
 
   /** @returns {(string|null)[]} the visible section headings, in DOM order. */
   function headings() {
-    return [...document.querySelectorAll('.command-palette-group-heading')].map((h) => h.textContent);
+    return [...document.querySelectorAll('.command-palette-group-heading')].map(
+      (h) => h.textContent
+    );
   }
 
   afterEach(() => {
@@ -316,7 +327,7 @@ describe('palette.js recent commands', () => {
     document.body.innerHTML = '';
   });
 
-  test('executing a command records it under this user\'s key', async () => {
+  test("executing a command records it under this user's key", async () => {
     serveAs('bob');
     openPalette(makeDeps());
     await flushMicro();
@@ -338,7 +349,7 @@ describe('palette.js recent commands', () => {
     expect(headings()).not.toContain('Recent');
   });
 
-  test('this user\'s own Recent list renders', async () => {
+  test("this user's own Recent list renders", async () => {
     localStorage.setItem(`${BASE}--bob`, JSON.stringify([RESTART]));
     serveAs('bob');
 

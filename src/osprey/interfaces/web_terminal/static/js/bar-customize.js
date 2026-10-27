@@ -284,7 +284,8 @@ function reasonText(drop) {
   const host = /** @type {BarHost} */ (drop.host);
   if (drop.reason === 'overflow') return `${HOST_LABEL[host] ?? 'Bar'} is full`;
   if (drop.reason === 'unavailable') return 'Not in this deployment';
-  if (drop.reason === 'duplicate') return `Already in the ${(HOST_LABEL[host] ?? 'bar').toLowerCase()}`;
+  if (drop.reason === 'duplicate')
+    return `Already in the ${(HOST_LABEL[host] ?? 'bar').toLowerCase()}`;
   return 'Not available in this build';
 }
 

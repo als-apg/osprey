@@ -423,7 +423,9 @@ describe('a reset is a DELETE, and the way out of read-only', () => {
     await sync.resetLayout({ edit: true });
 
     expect(sync.isLayoutReadonly()).toBe(false);
-    await expect(sync.saveLayout(doc(['logo', 'search'], []), { edit: true })).resolves.toBeTruthy();
+    await expect(
+      sync.saveLayout(doc(['logo', 'search'], []), { edit: true })
+    ).resolves.toBeTruthy();
   });
 
   test('a deployment default this build cannot read latches again', async () => {
@@ -518,35 +520,48 @@ describe('the deployment context is served, not inferred', () => {
   test.each([
     ['identity', 'identityAvailable', 'header', ['logo', 'identity']],
     ['system-health', 'systemHealthAvailable', 'status', ['system-health', 'clock']],
-  ])('an offered %s survives even though the SSR did not place it', async (_type, fact, where, placed) => {
-    const context = { ...{ identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false }, [fact]: true };
-    const served = where === 'header' ? doc(placed, []) : doc([], placed);
-    await boot({ fetch: endpoint({ get: served }), headerShells: LOGO_SHELL, context });
-    await settle();
+  ])(
+    'an offered %s survives even though the SSR did not place it',
+    async (_type, fact, where, placed) => {
+      const context = {
+        ...{ identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
+        [fact]: true,
+      };
+      const served = where === 'header' ? doc(placed, []) : doc([], placed);
+      await boot({ fetch: endpoint({ get: served }), headerShells: LOGO_SHELL, context });
+      await settle();
 
-    expect(typesIn(/** @type {'header' | 'status'} */ (where))).toEqual(placed);
-    expect(sync.isLayoutReadonly()).toBe(false);
-  });
+      expect(typesIn(/** @type {'header' | 'status'} */ (where))).toEqual(placed);
+      expect(sync.isLayoutReadonly()).toBe(false);
+    }
+  );
 
   // A stored document (rev >= 1) is content an operator placed, so an item the
   // stamp does not offer is dropped and the drop latches.
   test.each([
     ['bluesky-queue', 4],
     ['system-health', 2],
-  ])('an unoffered %s is dropped from a stored document and latches read-only', async (type, rev) => {
-    await boot({
-      fetch: endpoint({ get: doc([], [type, 'clock'], { rev }) }),
-      context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
-    });
-    await settle();
+  ])(
+    'an unoffered %s is dropped from a stored document and latches read-only',
+    async (type, rev) => {
+      await boot({
+        fetch: endpoint({ get: doc([], [type, 'clock'], { rev }) }),
+        context: {
+          identityAvailable: false,
+          blueskyAvailable: false,
+          systemHealthAvailable: false,
+        },
+      });
+      await settle();
 
-    expect(typesIn('status')).toEqual(['clock']);
-    expect(sync.isLayoutReadonly()).toBe(true);
-    await expect(sync.saveLayout(doc([], ['clock']), { edit: true })).rejects.toMatchObject({
-      reason: 'readonly',
-    });
-    expect(putBodies()).toEqual([]);
-  });
+      expect(typesIn('status')).toEqual(['clock']);
+      expect(sync.isLayoutReadonly()).toBe(true);
+      await expect(sync.saveLayout(doc([], ['clock']), { edit: true })).rejects.toMatchObject({
+        reason: 'readonly',
+      });
+      expect(putBodies()).toEqual([]);
+    }
+  );
 
   test('the same deployment stays writable while the document keeps quiet about it', async () => {
     await boot({

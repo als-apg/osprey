@@ -161,12 +161,15 @@ def _describe_glob(member_root: Path) -> str | None:
 
     try:
         with (member_root / "pyproject.toml").open("rb") as handle:
-            command = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"][
-                "git_describe_command"
-            ]
-        argv = shlex.split(command)
+            options = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"]
+        # setuptools-scm's `scm.git.describe_command` table (osprey-connectors),
+        # else the flat `git_describe_command` key the other members still use.
+        command = options.get("scm", {}).get("git", {}).get("describe_command")
+        if command is None:
+            command = options["git_describe_command"]
+        argv = shlex.split(command) if isinstance(command, str) else list(command)
         return argv[argv.index("--match") + 1]
-    except (OSError, ValueError, KeyError, IndexError, TypeError):
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
         return None
 
 

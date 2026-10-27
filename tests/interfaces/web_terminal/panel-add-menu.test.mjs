@@ -22,7 +22,11 @@ describe('derivePanelId', () => {
   test.each([
     ['a plain label is slugged', 'My Dashboard', 'my-dashboard'],
     ['a URL input uses its hostname', 'http://grafana.internal:3000', 'grafana-internal'],
-    ['a URL hostname is lowercased, path and query dropped', 'https://Metrics.Lan/path?q=1', 'metrics-lan'],
+    [
+      'a URL hostname is lowercased, path and query dropped',
+      'https://Metrics.Lan/path?q=1',
+      'metrics-lan',
+    ],
     ['runs of punctuation collapse', '  Beam   Position!! ', 'beam-position'],
     ['edge dashes are trimmed', '--weird__name--', 'weird-name'],
     ['an empty input never yields an empty id', '', 'panel'],

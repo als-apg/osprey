@@ -64,25 +64,28 @@ differences, each load-bearing:
   resolving to the last stable release; the beta is reached only by
   `--pre` or an exact `==` pin. That opt-in IS the beta channel — nothing
   else has to be built for it.
-- **The connectors floor stays on the last stable release — never a
-  pre-release floor.** A plain `>=YYYY.M.PbN` floor refuses every
-  same-checkout dev wheel (`<last-stable>.postN` sorts *below* the beta), so
-  `osprey up --dev` and every image-building CI lane breaks until the tag
-  exists (found live on the v2026.9.0b1 release PR). No clause added to the
-  stable floor makes it admit pre-releases either: an `!=` exclusion never
-  does. A beta framework pairs with the beta connectors through the install:
-  `pip install --pre` admits pre-releases for the whole resolve, and pip also
-  takes a pre-release when no stable release satisfies the floor. uv admits
-  transitive pre-releases only with `--prerelease allow`: even an exact `==`
-  pin on the framework fails without it, with a hint that names the flag.
-  The installation page carries the command under *Pre-releases*; repeat the
-  exact command at the top of the GitHub Release body, because a reader who
-  follows the stable instructions from the pre-release's own docs directory
-  gets the last stable release and not the beta. The floor names a
-  connectors release (its own `osprey-connectors-v*` stream, below), never a
-  framework version: raise it only when the framework starts needing
-  something a newer stable connectors release carries, and run
-  `uv lock --check` after that edit.
+- **The connectors floor names a stable osprey-connectors release that is on
+  PyPI and whose tag is reachable from `main`.** `osprey-connectors` has its
+  own calendar stream (`osprey-connectors-vYYYY.M.P`, `release-connectors.yml`,
+  PyPI environment `pypi-connectors`); the framework declares only
+  `osprey-connectors>=FLOOR` and never a ceiling. A floor above the last
+  reachable connectors tag breaks every paired wheel install and
+  `osprey up --dev` (dev wheels build as `<last tag>.postN`), and a floor
+  nothing stable satisfies makes pip *and* uv (default policy) silently take a
+  pre-release — so the order is always: connectors release first, floor raise
+  in a following PR. `connectors_compat_matrix.py` refuses a floor whose tag is
+  not reachable. A beta framework needs no connectors beta: `OSPREY_PIP_PRE`
+  resolves the whole deps layer with `--prerelease=allow`, which takes the
+  newest connectors — so publish a connectors pre-release only when every beta
+  deployment should absorb it. Raise the floor only when the framework starts
+  needing something a newer stable connectors release carries, and run
+  `uv lock --check` after that edit (see "Releasing osprey-connectors" below).
+- **The install command goes in the release body.** The installation page
+  carries it under *Pre-releases* (`uv tool install --prerelease allow
+  "osprey-framework==YYYY.M.PbN"`); repeat the exact command at the top of the
+  GitHub Release body, because a reader who follows the stable instructions
+  from the pre-release's own docs directory gets the last stable release and
+  not the beta.
 - **The GitHub Release is marked pre-release automatically.** `release.yml`
   classifies the tag (exactly `X.Y.Z` = stable, anything else = pre-release)
   and sets the flag, so the beta never shows as "Latest".
@@ -119,9 +122,10 @@ derived from a tag, no literal — but from its **own** tags,
 package changes rather than with every framework tag. Its describe glob
 (`osprey-connectors-v2[0-9][0-9][0-9].*`) skips both the framework's `v*` tags
 and the retired `osprey-connectors-v0.1.0`; the framework's `v[0-9]*` glob
-never reads a connectors tag. Each connectors release must stay
-backward-compatible with every supported framework release, which is why the
-framework declares only a floor on it.
+never reads a connectors tag. Each connectors release stays
+backward-compatible with every supported framework release, enforced in CI by
+the `connectors-compat` and `framework-at-connectors-floor` lanes, which is why
+the framework declares only a floor on it.
 
 A checkout with no connectors calendar tag reachable builds the package as
 `0.0.postN+g…`, which the framework's floor refuses — `osprey up --dev` then
@@ -147,7 +151,7 @@ happened on whichever PR touched the plugin; the release only checks it (step 4)
 The release.yml verify step builds the package and compares the *built wheel's*
 version to the pushed tag; if these disagree, the publish fails. They disagree
 when the tag is not on the commit being built, or when the checkout is shallow
-(which yields `0.1.devN` rather than failing outright).
+(which yields `0.0.postN+g…` rather than failing outright).
 
 ---
 
@@ -439,8 +443,9 @@ means a PR slipped past the gate and needs `python scripts/plugin_version.py
 bump` on this branch.
 
 Now hand off to `/osprey:contribute` for the rest of the PR mechanics:
-`quick_check.sh` → commit (`release: notes for vYYYY.M.P`) →
-`ci_check.sh` → push → `premerge_check.sh main` → `gh pr create`.
+`scripts/check.py quick` → commit (`release: notes for vYYYY.M.P`) →
+`scripts/check.py full` → push → `scripts/check.py quick --changed origin/main` →
+`gh pr create`.
 
 The PR title should be `release: vYYYY.M.P — <theme>`. The PR body should
 include the CHANGELOG entries verbatim so reviewers see exactly what's being
@@ -493,10 +498,17 @@ Verify the latest commit on `main` is the release-notes merge.
 
 ## Step 6: Tag and push
 
-Before the first tag whose tree contains a new workspace member: register a
-PyPI pending trusted publisher for it (this repository, workflow `release.yml`,
-environment `pypi`) — without it PyPI refuses that wheel and the tag lands
-half-published.
+Before the first tag whose tree contains a new lockstep workspace member (one
+that rides the framework's v-tag, as `pyaml-cs-osprey` does): register a PyPI
+pending trusted publisher for it (this repository, workflow `release.yml`,
+environment `pypi`) and add its `uv build --package` line to `release.yml` —
+without the publisher PyPI refuses that wheel and the tag lands half-published.
+`osprey-connectors` is not one: a framework tag never builds it (see
+"Releasing osprey-connectors" below).
+
+Run `python3 scripts/ci/connectors_compat_matrix.py check --before-tagging vYYYY.M.P`:
+every earlier split-era framework release must already be listed (or retired)
+in `[tool.osprey-connectors.compat]`, or the next PR after the tag goes red.
 
 Tags can be pushed directly; branch protection covers branches, not tags:
 
@@ -508,10 +520,13 @@ git push origin vYYYY.M.P
 The tag must point at the merge commit on `main`. The `release.yml` workflow
 triggers on `v*.*.*` and:
 
-1. Verifies a full CI run covered this tree, before anything is built.
-2. Builds the wheel and sdist.
+1. Verifies the tagged commit is on `main` and a full CI run covered its tree,
+   before anything is built.
+2. Builds the framework's and its lockstep members' wheels and sdists — not
+   `osprey-connectors`, which `verify-pypi-resolvable` then resolves from PyPI,
+   proving the framework's `osprey-connectors>=` floor is already published.
 3. Verifies the built version matches the tag. A checkout without full history
-   builds `0.1.devN` instead of the tagged version; this gate catches that.
+   builds `0.0.postN+g…` instead of the tagged version; this gate catches that.
 4. Validates the install docs and that the dependencies resolve from PyPI.
 5. Publishes to PyPI via trusted publishing (OIDC; no token needed).
 6. Creates a GitHub Release using the CHANGELOG section as the body.
@@ -563,6 +578,11 @@ green.
 
 ## After the release
 
+- Once `https://pypi.org/project/osprey-framework/YYYY.M.P/` exists, open the
+  listing PR: add the version to `[tool.osprey-connectors.compat] frameworks`
+  in `packages/osprey-connectors/pyproject.toml` (move the beta it supersedes
+  to `retired`). This is what makes the connectors compatibility lane and its
+  nightly run hold connectors HEAD to the release.
 - Update any installed copy of the plugin: `claude plugin marketplace update
   osprey && claude plugin update osprey@osprey` (add `--scope project` inside a
   deployment repository).
@@ -573,19 +593,132 @@ green.
 
 ---
 
-## Manual Publish Fallback (only if Actions is broken)
+## Releasing osprey-connectors
 
-If `release.yml` is broken and the release is time-sensitive:
+`osprey-connectors` releases on its own, from its own tag, through its own
+workflow (`.github/workflows/release-connectors.yml`) — never with a framework
+tag, and the framework's `release.yml` never builds it.
+
+**Tag format:** `osprey-connectors-vYYYY.M.P` (`osprey-connectors-v2026.10.0`).
+The workflow fires on `osprey-connectors-v2*` pushes and nothing else — there is
+no dispatch — and a connectors release is never marked "Latest" (that stays the
+framework's). **Connectors releases are stable by default.** The tooling would
+accept a `bN` / `rcN` tag (it becomes a GitHub pre-release), but do not cut one
+without a reason: a beta framework is installed with pre-releases admitted for
+the whole resolve (`--prerelease=allow`), so it would absorb any connectors
+beta on PyPI.
+
+**Preconditions:**
+
+- The tagged commit is on `main` and its `ci.yml` run is green in every lane
+  the `verify-ci` job's `REQUIRED_LANES` names: `test`, `lint`, `package`,
+  `connectors-standalone`, plus the backward-compatibility lanes
+  `connectors-compat` and `framework-at-connectors-floor` (a lane that stands
+  down — no framework listed yet, a floor that predates the independent
+  releases — concludes success). These are always-on lanes — no `full-ci` label is involved — but a
+  `main` run superseded by a later merge is `cancelled`, not green; then
+  `gh workflow run ci.yml --ref osprey-connectors-vYYYY.M.P` and re-push the tag.
+- The package's changelog is folded and rotated on `main`: run
+  `python scripts/changelog_fragments.py apply --root packages/osprey-connectors`,
+  rotate `## [Unreleased]` in `packages/osprey-connectors/CHANGELOG.md` to
+  `## [YYYY.M.P] - YYYY-MM-DD`, and merge that PR first. The GitHub Release body
+  is that section. Connectors changes carry their fragments in
+  `packages/osprey-connectors/changelog.d/`, not the root `changelog.d/`.
+- PyPI's trusted publisher for `osprey-connectors` names this repository,
+  workflow `release-connectors.yml`, environment `pypi-connectors`, and the
+  GitHub environment `pypi-connectors` exists.
+
+**What the tag runs:** `verify-ci` (the tag is on `main`, then the shared
+`scripts/ci/require_green_lanes.py` gate) → `build` (`uv build --package osprey-connectors`; the wheel and sdist must
+carry exactly the tag's PEP 440-normalized number; `twine check`) →
+`verify-install` (a bare venv, dependencies from PyPI, the same lean import-walk
+the `package` CI job runs) → `publish-to-pypi` → the GitHub Release
+`osprey-connectors vYYYY.M.P`. A re-pushed tag resumes a half-finished publish
+(`skip-existing`).
 
 ```bash
-rm -rf dist/ build/ src/*.egg-info/
-uv build
-uvx twine check dist/*
-uvx twine upload dist/*    # requires PyPI credentials in env
+git tag osprey-connectors-vYYYY.M.P <main merge commit>
+git push origin osprey-connectors-vYYYY.M.P
+gh run watch                     # follow the release-connectors.yml run
 ```
 
-Then manually create the GitHub Release: `gh release create vYYYY.M.P
---notes-file <(awk '/^## \[YYYY.M.P\]/,/^## \[/' CHANGELOG.md | head -n -1)`.
+**Raising the framework's floor** — only after the connectors release is on
+PyPI, and only when the framework starts needing what it carries:
+
+1. Confirm `https://pypi.org/project/osprey-connectors/YYYY.M.P/` exists.
+2. Raise `osprey-connectors>=` in the root `pyproject.toml` to that release, run
+   `uv lock`, and confirm `uv lock --check` passes.
+3. Land it in a normal PR (with a root `changelog.d/` fragment). The next
+   framework tag's `verify-pypi-resolvable` resolves the floor from PyPI and
+   fails if it is not there, so the order cannot be inverted silently.
+
+> **Cut-over (October 2026) — one time.** The order in which the split lands:
+>
+> 0. Maintainer, before PR B (the version stream) merges: register the PyPI
+>    trusted publisher on `osprey-connectors` (owner `als-apg`, repo `osprey`,
+>    workflow `release-connectors.yml`, environment `pypi-connectors`), create
+>    the GitHub environment `pypi-connectors`, and push the bootstrap tag
+>    `osprey-connectors-v2026.9.0b3` on `0584524d4` (it fires nothing).
+> 1. Merge #1810 (the connectors public API) before the first independent
+>    connectors tag.
+> 2. Merge the own-suite PR.
+> 3. Merge the version-stream PR.
+> 4. Merge the release-workflows PR.
+> 5. Merge the compatibility-lanes PR, then remove `release.yml`'s publisher
+>    from the `osprey-connectors` PyPI project.
+> 6. Connectors notes PR (`uv run python scripts/changelog_fragments.py apply
+>    --root packages/osprey-connectors`, rotate `## [2026.10.0]`), tag
+>    `osprey-connectors-v2026.10.0`, confirm it on PyPI.
+> 7. Floor-raise PR: `osprey-connectors>=2026.10.0` (+ `uv lock`, and
+>    pyaml-cs-osprey's floor too) — only after PyPI shows the release. This
+>    arms `framework-at-connectors-floor`.
+> 8. Framework notes PR for 2026.10.0b1 (`full-ci`), run the before-tagging
+>    check, tag `v2026.10.0b1`.
+> 9. Listing PR: `frameworks = ["2026.10.0b1"]`.
+>
+> Framework 2026.9.0b1–b3 are superseded: they are never listed, `main`'s
+> connectors already break them, and rebuilding such an image needs
+> `osprey-connectors==2026.9.0b3` pinned.
+
+## Manual Publish Fallback (only if Actions is broken)
+
+If `release.yml` or `release-connectors.yml` is broken and the release is
+time-sensitive, do by hand what the workflow would have, in the same order. The
+tag is pushed already; build from a full clone checked out at it (`git fetch
+--tags` first — a missing tag builds `0.0.postN+g…`). `twine upload` needs a
+PyPI API token for each project (`TWINE_USERNAME=__token__`,
+`TWINE_PASSWORD=<token>`); trusted publishing works only from the workflow.
+
+Framework tag `vYYYY.M.P` — lockstep members upload before the framework, so a
+refused member upload never leaves the framework live with a dependency nothing
+satisfies:
+
+```bash
+git checkout vYYYY.M.P && rm -rf dist/
+uv build                                  # the framework
+uv build --package pyaml-cs-osprey        # every lockstep member, as release.yml builds them
+ls dist/                                  # every file must carry YYYY.M.P exactly
+uvx twine check dist/*
+uvx twine upload $(ls dist/* | grep -v osprey_framework-)   # every member first
+uvx twine upload dist/osprey_framework-*                     # the framework last
+python3 scripts/ci/release_notes.py CHANGELOG.md YYYY.M.P > /tmp/notes.md
+gh release create vYYYY.M.P --title "Release vYYYY.M.P" --notes-file /tmp/notes.md
+```
+
+Connectors tag `osprey-connectors-vYYYY.M.P`:
+
+```bash
+git checkout osprey-connectors-vYYYY.M.P && rm -rf dist/
+uv build --package osprey-connectors
+ls dist/                                  # one wheel and one sdist, both YYYY.M.P
+uvx twine check dist/*
+uvx twine upload dist/osprey_connectors-*
+python3 scripts/ci/release_notes.py packages/osprey-connectors/CHANGELOG.md YYYY.M.P > /tmp/notes.md
+gh release create osprey-connectors-vYYYY.M.P --title "osprey-connectors vYYYY.M.P" \
+  --notes-file /tmp/notes.md --latest=false
+```
+
+Add `--prerelease` to `gh release create` for a `bN` / `rcN` tag.
 
 This is a fallback. The default path is the automated workflow.
 
@@ -597,7 +730,7 @@ This is a fallback. The default path is the automated workflow.
 | PyPI rejects the upload as a duplicate | This version was already published | CalVer means version numbers are unique; you cannot republish. Bump the patch counter and try again |
 | `gh pr merge` fails with "not mergeable" | Stale checks because `main` moved | Merge or rebase `origin/main` into the release branch, push, wait for CI to re-run |
 | CI "plugin tree changed without a version bump" | A PR touched `plugins/osprey/` without `plugin_version.py bump` | Run the bump on that branch and push |
-| GitHub Release body is empty or wrong | CHANGELOG section heading didn't match the regex `release.yml` uses | Make sure the CHANGELOG heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` |
+| GitHub Release body is just "See CHANGELOG.md for details.", or wrong | `scripts/ci/release_notes.py` found no line starting with `## [<version>]` (matched literally, the tag's version without the `v` / `osprey-connectors-v` prefix) in `CHANGELOG.md`, or in `packages/osprey-connectors/CHANGELOG.md` for a connectors tag | Make sure the released section's heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` (pre-release: `## [YYYY.M.PbN] - …`) in that tree's `CHANGELOG.md` |
 | `uv lock --check` fails on the release PR | The connectors floor (or any `pyproject.toml` edit) changed without regenerating the lockfile | Run `uv lock`, commit `uv.lock` in the same commit |
 | `changelog_fragments.py apply` exits 1 | A fragment filename is malformed or carries an unrecognized type | Rename it `<name>.<type>.md` using one of added/changed/deprecated/removed/fixed/security/internal |
 | Released section is missing entries, or fragments are still on `main` after the release | `apply` was not run before the rotation, or its deletions were not staged | Fold the leftover fragments into the released section by hand, delete them, and open a PR carrying just `CHANGELOG.md` and the fragment deletions (`git add -A changelog.d/ CHANGELOG.md`) |

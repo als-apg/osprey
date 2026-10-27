@@ -130,7 +130,7 @@ __all__ = [
 #: The operator secret's environment carrier. In the container shape the deploy
 #: ``.env`` supplies it per user and nginx forwards the same value as a header;
 #: in the single-user shape nothing sets it and this module mints one.
-OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
+OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: Prefix of the per-user operator secrets a multi-user deployment mints
 #: (``OSPREY_TERMINAL_SECRET_<USER>``). Each per-user container receives its
@@ -177,7 +177,7 @@ _ACCOUNT_SEPARATORS: tuple[str, ...] = ("/", "\\", " ")
 _RESERVED_ACCOUNTS: tuple[str, ...] = (".", "..")
 
 #: The panel token's environment carrier.
-PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"
+PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The multi-user shape's tell, read (never popped — ``osprey web`` reads it
 #: too) exactly as :func:`osprey.cli.web_cmd.resolve_bind_host` reads it: any
@@ -187,12 +187,12 @@ BIND_HOST_ENV = "OSPREY_TERMINAL_BIND_HOST"
 #: The event dispatcher's bearer. A deployment hands it to the terminal's
 #: container so the proxy can inject it on the EVENTS panel hop; it is held
 #: here, not read from the environment, for the reason the operator secret is.
-DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"
+DISPATCHER_TOKEN_ENV = "EVENT_DISPATCHER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: The dispatcher-to-worker bearer. The web server has no use for it and holds
 #: nothing; the carrier is closed wherever the others are, so no agent this
 #: process spawns inherits it.
-WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"
+WORKER_TOKEN_ENV = "DISPATCH_WORKER_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 
 #: How long a browser session stays valid when nothing configures it — the
 #: default behind ``modules.web_terminals.auth.session_lifetime``, which is

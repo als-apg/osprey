@@ -368,6 +368,43 @@ class TestCheck:
         )
         assert check(repo, capsys, "main") == (1, pv.UNCHANGED + "\n", "")
 
+    def test_uncommitted_plugin_edits_are_not_judged(self, repo, capsys):
+        """Without ``--worktree`` the range is committed state, which a pull request carries."""
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        git(repo, "add", "-A")
+        assert check(repo, capsys) == (0, pv.UNTOUCHED + "\n", "")
+
+    def test_a_staged_plugin_edit_without_a_bump_fails_under_worktree(self, repo):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        git(repo, "add", "-A")
+        assert run(repo, "check", "--base", "main", "--worktree") == 1
+
+    def test_a_staged_plugin_edit_with_a_bump_passes_under_worktree(self, repo):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL, "changed\n")
+        assert run(repo, "bump", "--today", "2026-09-15") == 0
+        git(repo, "add", "-A")
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+
+    def test_an_untracked_plugin_file_counts_under_worktree(self, repo):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, SKILL.parent / "NEW.md", "new\n")
+        assert run(repo, "check", "--base", "main") == 0
+        assert run(repo, "check", "--base", "main", "--worktree") == 1
+
+    def test_an_untracked_file_outside_the_tree_owes_nothing_under_worktree(self, repo, capsys):
+        git(repo, "checkout", "-q", "-b", "work")
+        write(repo, Path("NOTES.md"), "new\n")
+        capsys.readouterr()
+        assert run(repo, "check", "--base", "main", "--worktree") == 0
+        assert capsys.readouterr().out == pv.UNTOUCHED + "\n"
+
+    def test_a_base_that_does_not_resolve_is_an_error_under_worktree(self, repo, capsys):
+        assert run(repo, "check", "--base", "no-such-branch", "--worktree") == 2
+        assert "no-such-branch" in capsys.readouterr().err
+
     def test_base_is_required(self, repo, capsys):
         with pytest.raises(SystemExit) as exit_info:
             run(repo, "check")

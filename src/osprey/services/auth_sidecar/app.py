@@ -140,8 +140,8 @@ STATE_COOKIE_SAME_SITE: Literal["lax", "strict", "none"] = "lax"
 # --- Environment variable names ---------------------------------------------
 
 ENV_METHOD = "OSPREY_AUTH_METHOD"
-ENV_SESSION_SECRET = "OSPREY_AUTH_SESSION_SECRET"
-ENV_STATE_SECRET = "OSPREY_AUTH_STATE_SECRET"
+ENV_SESSION_SECRET = "OSPREY_AUTH_SESSION_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
+ENV_STATE_SECRET = "OSPREY_AUTH_STATE_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 ENV_SESSION_LIFETIME = "OSPREY_AUTH_SESSION_LIFETIME"
 ENV_THROTTLE_INITIAL_DELAY = "OSPREY_AUTH_THROTTLE_INITIAL_DELAY"
 ENV_THROTTLE_MULTIPLIER = "OSPREY_AUTH_THROTTLE_MULTIPLIER"
@@ -182,7 +182,7 @@ leaves the login page on the framework palette and shows the wordmark alone.
 
 ENV_OIDC_ISSUER = "OSPREY_AUTH_OIDC_ISSUER"
 ENV_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID_ENV"
-ENV_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET_ENV"
+ENV_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET_ENV"  # noqa: S105 -- names an environment variable, holds no secret
 ENV_OIDC_CLAIM = "OSPREY_AUTH_OIDC_CLAIM"
 ENV_OIDC_SCOPES = "OSPREY_AUTH_OIDC_SCOPES"
 """Space-separated scopes to request at the authorization endpoint.
@@ -190,7 +190,7 @@ ENV_OIDC_SCOPES = "OSPREY_AUTH_OIDC_SCOPES"
 Set from the rendered ``modules.web_terminals.auth.oidc.scopes``. Absent means
 the sidecar's own :data:`~osprey.services.auth_sidecar.app.DEFAULT_OIDC_SCOPES`
 apply, so the default lives in one place."""
-ENV_OIDC_CLAIMS_IN_ID_TOKEN = "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN"
+ENV_OIDC_CLAIMS_IN_ID_TOKEN = "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN"  # noqa: S105 -- names an environment variable, holds no secret
 """Whether to ask the IdP, in so many words, to put our claims in the ID token.
 
 Set from the rendered ``modules.web_terminals.auth.oidc.claims_in_id_token``.
@@ -262,7 +262,7 @@ _ACCESS_PREFIXES = (ACCESS_USER_PREFIX, ACCESS_DOMAIN_PREFIX)
 _ACCESS_VALUE_LOG_LIMIT = 80
 
 DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
-DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
+DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"  # noqa: S105 -- names an environment variable, holds no secret
 DEFAULT_OIDC_CLAIM = "sub"
 
 DEFAULT_OIDC_SCOPES = ("openid", "profile", "email")

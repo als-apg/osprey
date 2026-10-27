@@ -9,7 +9,10 @@
  */
 import { afterEach, describe, expect, test } from 'vitest';
 
-import { serverClass, ts } from '../../../src/osprey/interfaces/web_terminal/static/js/session-helpers.js';
+import {
+  serverClass,
+  ts,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/session-helpers.js';
 import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 describe('serverClass', () => {

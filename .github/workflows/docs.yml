@@ -6,8 +6,8 @@
 #   /vX.Y.Z/     one directory per vX.Y.Z release tag, rewritten only when that
 #                tag is re-published. A pre-release tag (v2026.9.0b1) publishes
 #                the same way — its own directory and switcher entry, never the
-#                root. Component tags (osprey-connectors-v*) build but are not
-#                published.
+#                root. Component tags (osprey-connectors-v*) do not start with
+#                `v`, so the tag filter below never runs this workflow for them.
 #   /latest/     the development build from main, which renders a banner saying
 #                so and points readers at the released docs.
 #
@@ -168,12 +168,14 @@ jobs:
         cd docs
         uv run make html
 
+    # A mirror or fork builds the site and deploys nothing.
+
     # Fail-closed: a missing gh-pages branch is the first deployment, but any
     # other failure (network, auth) must stop the run rather than be mistaken
     # for one — publishing an "empty site" would delete every existing version.
     - name: Fetch published site
       id: pages
-      if: steps.plan.outputs.deploy == 'true'
+      if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
       run: |
         URL="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
         set +e
@@ -197,7 +199,7 @@ jobs:
         esac
 
     - name: Stage deployment tree
-      if: steps.plan.outputs.deploy == 'true'
+      if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
       run: |
         python3 "${{ steps.helper.outputs.path }}" stage \
           --ref "$DOCS_REF" \
@@ -212,13 +214,13 @@ jobs:
     # written ahead of it. Reads the repository's tags from the build checkout's
     # cwd, as noted at the plan step, so it sets no `working-directory` either.
     - name: Write version switcher index
-      if: steps.plan.outputs.deploy == 'true'
+      if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
       run: |
         python3 "${{ steps.helper.outputs.path }}" versions \
           --deployment deployment
 
     - name: Deploy to GitHub Pages
-      if: steps.plan.outputs.deploy == 'true'
+      if: github.repository == 'als-apg/osprey' && steps.plan.outputs.deploy == 'true'
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}

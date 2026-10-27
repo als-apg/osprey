@@ -519,7 +519,7 @@ def log_hook(hook_name, hook_input, status="ok", detail=""):
     line = f"{ts} [{hook_name}] tool={tool} status={status}"
     if detail:
         line += f" {detail}"
-    print(line, file=sys.stderr)
+    print(line, file=sys.stderr)  # noqa: T201 -- stderr carries the hook log line
 
     emit_debug(hook_name, hook_input, tool, status, detail)
 

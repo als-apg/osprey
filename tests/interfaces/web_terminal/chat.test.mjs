@@ -29,7 +29,10 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { HANDOFF_FALLBACK, transportNotice } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-notices.js';
+import {
+  HANDOFF_FALLBACK,
+  transportNotice,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-notices.js';
 import { HANDOFF_RESTART_BUDGET_MS } from '../../../src/osprey/interfaces/web_terminal/static/js/terminal-handoff.js';
 
 const CHAT_JS = '../../../src/osprey/interfaces/web_terminal/static/js/chat.js';
@@ -161,9 +164,11 @@ beforeEach(() => {
   transport.sendPrompt.mockReset().mockReturnValue({ abort: () => {}, aborted: false });
   transport.interrupt.mockReset().mockResolvedValue(undefined);
   transport.requestHandoff.mockReset().mockResolvedValue({ state: 'simple', session_id: 'k' });
-  transport.fetchCommands.mockReset().mockResolvedValue([
-    { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
-  ]);
+  transport.fetchCommands
+    .mockReset()
+    .mockResolvedValue([
+      { name: 'diagnose', description: 'Investigate failures', argument_hint: '', kind: 'skill' },
+    ]);
   transport.followChat.mockReset().mockReturnValue({ close: () => {} });
 });
 
@@ -217,9 +222,8 @@ describe('initChat binding', () => {
     expect(logEntries()).toEqual(['from K1']);
 
     transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K2' }]);
-    const pointer = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-    );
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
     pointer.setPointer('K2');
     await Promise.resolve();
     await Promise.resolve();
@@ -232,9 +236,8 @@ describe('initChat binding', () => {
   test('a cleared pointer leaves the log on the key it was bound to', async () => {
     transport.fetchHistory.mockResolvedValue([{ role: 'assistant', content: 'from K1' }]);
     await mountChat({ pointer: 'K1' });
-    const pointer = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-    );
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
 
     transport.fetchHistory.mockClear();
     pointer.clearPointer();
@@ -249,9 +252,8 @@ describe('initChat binding', () => {
 
   test('overlapping pointer changes render only the newer key turns', async () => {
     await mountChat({ pointer: 'K1' });
-    const pointer = await import(
-      '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js'
-    );
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
 
     /** @type {((value: any) => void)[]} */
     const admit = [];
@@ -359,9 +361,12 @@ describe('enterFromExpert', () => {
     admit({ state: 'simple', session_id: 'K1' });
     await entered;
 
-    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+      })
+    );
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(logEntries()).toEqual(['carried over']);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
@@ -434,9 +439,12 @@ describe('enterFromExpert', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+      })
+    );
   });
 
   test('a session held elsewhere states the fact and offers nothing', async () => {
@@ -468,9 +476,12 @@ describe('enterFromExpert', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+      })
+    );
   });
 
   test('a capacity 429 offers a retry that re-asks without interrupting', async () => {
@@ -488,9 +499,12 @@ describe('enterFromExpert', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+      })
+    );
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
   });
 
@@ -652,6 +666,14 @@ describe('a prompt refused by the other view', () => {
 describe('started commands', () => {
   const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py -s 3' };
 
+  afterEach(async () => {
+    // A question left up would answer the next test's Escape: take it down
+    // through the module instance this test's chat.js raised it with.
+    const confirm =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js');
+    confirm.dismissConfirm();
+  });
+
   /**
    * The refusal the hand-off answers when stopping the agent would end commands it started.
    * @param {{label: string, command: string}[] | undefined} commands
@@ -689,7 +711,9 @@ describe('started commands', () => {
 
     await chat.enterFromExpert({ interrupt: true });
 
-    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    expect(textOf('.op-handoff-message')).toBe(
+      'The agent started a command that is still running.'
+    );
     expect(dialog()).not.toBeNull();
     expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
     expect(document.activeElement).toBe(dialogButton('.posture-modal-cancel'));
@@ -698,10 +722,13 @@ describe('started commands', () => {
     await settle();
 
     expect(transport.requestHandoff).toHaveBeenCalledTimes(2);
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: true,
+      })
+    );
     expect(dialog()).toBeNull();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
     expect(/** @type {HTMLTextAreaElement} */ (one('textarea')).disabled).toBe(false);
@@ -722,10 +749,13 @@ describe('started commands', () => {
     dialogButton('.posture-modal-confirm').click();
     await settle();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: true,
+      })
+    );
   });
 
   test('"Cancel" sends nothing more and flips to the Expert view', async () => {
@@ -771,10 +801,13 @@ describe('started commands', () => {
     dialogButton('.posture-modal-confirm').click();
     await settle();
 
-    expect(transport.requestHandoff).toHaveBeenLastCalledWith('K1', expect.objectContaining({
-      interrupt: false,
-      endStarted: true,
-    }));
+    expect(transport.requestHandoff).toHaveBeenLastCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: false,
+        endStarted: true,
+      })
+    );
   });
 
   test('with nothing running the stop goes straight through and nothing is asked', async () => {
@@ -783,10 +816,13 @@ describe('started commands', () => {
     await chat.enterFromExpert({ interrupt: true });
 
     expect(transport.requestHandoff).toHaveBeenCalledTimes(1);
-    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: false,
+      })
+    );
     expect(document.querySelector('.posture-modal-overlay')).toBeNull();
     expect(/** @type {HTMLElement} */ (one('.op-handoff')).hidden).toBe(true);
   });
@@ -800,7 +836,9 @@ describe('started commands', () => {
     const callbacks = transport.sendPrompt.mock.calls[0][2];
     callbacks.onError(startedRefusal(undefined));
 
-    expect(textOf('.op-handoff-message')).toBe('The agent started a command that is still running.');
+    expect(textOf('.op-handoff-message')).toBe(
+      'The agent started a command that is still running.'
+    );
     const action = /** @type {HTMLButtonElement} */ (one('.op-handoff-action'));
     expect(action.textContent).toBe('Stop and switch now');
     // The chat endpoint's refusal carries no list, so nothing is asked yet.
@@ -810,10 +848,13 @@ describe('started commands', () => {
     action.click();
     await settle();
 
-    expect(transport.requestHandoff).toHaveBeenCalledWith('K1', expect.objectContaining({
-      interrupt: true,
-      endStarted: false,
-    }));
+    expect(transport.requestHandoff).toHaveBeenCalledWith(
+      'K1',
+      expect.objectContaining({
+        interrupt: true,
+        endStarted: false,
+      })
+    );
     expect(dialogTitle()).toBe('This also ends magnet_scan.py.');
 
     dialogButton('.posture-modal-cancel').click();

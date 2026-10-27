@@ -1,3 +1,4 @@
+# ruff: noqa: T201 -- the design-token build command reports on stdout and stderr
 """Build orchestrator: load -> validate -> emit for the design-token generator.
 
 Ties together the rest of the generator package into the one pipeline the

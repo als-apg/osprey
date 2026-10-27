@@ -92,7 +92,10 @@ function renderStatus(container, status) {
         <div class="card-body">
           ${renderModuleList([
             { name: 'Keyword Search', enabled: status.enabled_search_modules?.includes('keyword') },
-            { name: 'Semantic Search', enabled: status.enabled_search_modules?.includes('semantic') },
+            {
+              name: 'Semantic Search',
+              enabled: status.enabled_search_modules?.includes('semantic'),
+            },
             { name: 'Vision Search', enabled: false, future: true },
           ])}
         </div>
@@ -105,15 +108,23 @@ function renderStatus(container, status) {
         </div>
         <div class="card-body">
           ${renderModuleList([
-            { name: 'Text Embedding', enabled: status.enabled_enhancement_modules?.includes('text_embedding') },
-            { name: 'Semantic Processor', enabled: status.enabled_enhancement_modules?.includes('semantic_processor') },
+            {
+              name: 'Text Embedding',
+              enabled: status.enabled_enhancement_modules?.includes('text_embedding'),
+            },
+            {
+              name: 'Semantic Processor',
+              enabled: status.enabled_enhancement_modules?.includes('semantic_processor'),
+            },
           ])}
         </div>
       </div>
     </div>
 
     <!-- Embedding Tables -->
-    ${status.embedding_tables?.length > 0 ? `
+    ${
+      status.embedding_tables?.length > 0
+        ? `
       <div class="card" style="margin-top: 24px;">
         <div class="card-header">
           <span class="card-title">Embedding Models</span>
@@ -129,27 +140,36 @@ function renderStatus(container, status) {
               </tr>
             </thead>
             <tbody>
-              ${status.embedding_tables.map((/** @type {any} */ table) => `
+              ${status.embedding_tables
+                .map(
+                  (/** @type {any} */ table) => `
                 <tr>
                   <td class="font-mono">${escapeHtml(table.table_name.replace('text_embeddings_', ''))}</td>
                   <td class="font-mono">${table.entry_count.toLocaleString()}</td>
                   <td class="font-mono">${table.dimension || '-'}</td>
                   <td>
-                    ${table.is_active
-                      ? '<span class="status-indicator"><span class="status-dot healthy"></span> Active</span>'
-                      : '<span class="text-muted">-</span>'
+                    ${
+                      table.is_active
+                        ? '<span class="status-indicator"><span class="status-dot healthy"></span> Active</span>'
+                        : '<span class="text-muted">-</span>'
                     }
                   </td>
                 </tr>
-              `).join('')}
+              `
+                )
+                .join('')}
             </tbody>
           </table>
         </div>
       </div>
-    ` : ''}
+    `
+        : ''
+    }
 
     <!-- Errors -->
-    ${status.errors?.length > 0 ? `
+    ${
+      status.errors?.length > 0
+        ? `
       <div class="card" style="margin-top: 24px; border-color: var(--color-error);">
         <div class="card-header" style="background: var(--color-error-bg);">
           <span class="card-title text-error">Errors</span>
@@ -160,7 +180,9 @@ function renderStatus(container, status) {
           </ul>
         </div>
       </div>
-    ` : ''}
+    `
+        : ''
+    }
   `;
 }
 
@@ -172,11 +194,12 @@ function renderStatus(container, status) {
 function renderModuleList(modules) {
   return `
     <div style="display: flex; flex-direction: column; gap: 12px;">
-      ${modules.map((/** @type {any} */ m) => {
-        const dot = m.enabled ? 'healthy' : 'inactive';
-        const label = m.enabled ? 'Enabled' : (m.future ? '(Future)' : 'Disabled');
-        const labelColor = m.enabled ? 'text-success' : 'text-muted';
-        return `
+      ${modules
+        .map((/** @type {any} */ m) => {
+          const dot = m.enabled ? 'healthy' : 'inactive';
+          const label = m.enabled ? 'Enabled' : m.future ? '(Future)' : 'Disabled';
+          const labelColor = m.enabled ? 'text-success' : 'text-muted';
+          return `
           <div style="display: flex; align-items: center; justify-content: space-between;">
             <span class="status-indicator">
               <span class="status-dot ${dot}"></span>
@@ -185,7 +208,8 @@ function renderModuleList(modules) {
             <span class="${labelColor}" style="font-size: var(--text-xl);">${label}</span>
           </div>
         `;
-      }).join('')}
+        })
+        .join('')}
     </div>
   `;
 }

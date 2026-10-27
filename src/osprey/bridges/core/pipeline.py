@@ -75,6 +75,7 @@ __all__ = [
     "PRIOR_ANSWERS_CAPABILITY",
     "PRIOR_ANSWER_RUNS_KEY",
     "REINJECT_MAX_IMAGES",
+    "REINJECT_MAX_IMAGE_BYTES",
     "REINJECT_MAX_TOTAL_BYTES",
     "SERVER_TOO_OLD_REASON",
     "TOO_MANY_FILES_REASON",
@@ -99,6 +100,12 @@ MAX_TOTAL_BYTES = 10 * 1024 * 1024
 IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 REINJECT_MAX_IMAGES = 3
 REINJECT_MAX_TOTAL_BYTES = 8 * 1024 * 1024
+# The worker refuses the WHOLE dispatch (a fatal, non-retryable 400) when any one image
+# is over its per-image cap, so the total budget alone is not enough: a single prior
+# plot between this and the total would sink every follow-up in its thread. Equals the
+# worker's ``MAX_IMAGE_BYTES``; core carries no osprey dispatch imports, so the number
+# is spelled here and a cross-cutting test keeps the two equal.
+REINJECT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 # Skip reason for a downloaded file the pair cannot ingest (capability probe said no).
 # The bytes are never shipped to a worker that would drop them; the reason rides the
@@ -599,7 +606,7 @@ def _reinject_prior_images(
     A follow-up dispatch already carries the prior turns in ``conversation_so_far``
     (descriptors and all); this additionally ships the BYTES of the newest
     :data:`REINJECT_MAX_IMAGES` prior images (across all turns, within
-    :data:`REINJECT_MAX_TOTAL_BYTES`) so the agent can look at them again, not just
+    :data:`REINJECT_MAX_TOTAL_BYTES`, each within :data:`REINJECT_MAX_IMAGE_BYTES`) so the agent can look at them again, not just
     read a descriptor. Runs AFTER the current message's own files are folded.
 
     Gated on the SAME ``input_files`` capability probe as the current-message fold:
@@ -638,8 +645,11 @@ def _reinject_prior_images(
     injected: list[dict[str, Any]] = []
     remaining = REINJECT_MAX_TOTAL_BYTES
     for ti, ai, run_id, desc in reversed(selected):
-        fetched = deps.fetch_prior_artifact(deps.cfg, run_id, desc, remaining)
-        if fetched is None:
+        limit = min(remaining, REINJECT_MAX_IMAGE_BYTES)
+        fetched = deps.fetch_prior_artifact(deps.cfg, run_id, desc, limit)
+        # The limit is re-checked here because the fetch seam is pluggable and the
+        # worker's refusal of one oversize image costs the whole dispatch.
+        if fetched is None or len(fetched.data) > limit:
             _flag_expired(turns, ti, ai)
             continue
         # ``delivered_mime`` only PREDICTED an image (it is stamped at run

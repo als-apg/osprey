@@ -18,7 +18,7 @@ import { esc, messageOf } from './utils.js';
 import { filterChannels, totalChunksFor, clampChunkIdx, pageSlice } from './chunk-filter.js';
 
 /** @type {any[]} */
-let allChannels = [];   // the ENTIRE in-context database (loaded once)
+let allChannels = []; // the ENTIRE in-context database (loaded once)
 let filterText = '';
 let chunkIdx = 0;
 const CHUNK_SIZE = 50;
@@ -35,9 +35,7 @@ function getFiltered() {
  * @returns {'expert'|'simple'}
  */
 function uiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple'
-    ? 'simple'
-    : 'expert';
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
 }
 
 /**
@@ -90,7 +88,8 @@ async function loadAll() {
     renderPagination();
   } catch (e) {
     const area = document.getElementById('ic-table-area');
-    if (area) area.innerHTML = `<div class="empty-state">Failed to load channels: ${esc(messageOf(e))}</div>`;
+    if (area)
+      area.innerHTML = `<div class="empty-state">Failed to load channels: ${esc(messageOf(e))}</div>`;
   }
 }
 
@@ -137,11 +136,12 @@ function renderTable() {
           </tr>
         </thead>
         <tbody>
-          ${pageItems.map((ch, i) => {
-            const name = ch.name || ch.channel_name || ch.channel || '—';
-            const addr = ch.address || ch.pv_address || '';
-            const desc = ch.description || '';
-            return `
+          ${pageItems
+            .map((ch, i) => {
+              const name = ch.name || ch.channel_name || ch.channel || '—';
+              const addr = ch.address || ch.pv_address || '';
+              const desc = ch.description || '';
+              return `
               <tr>
                 <td>${start + i + 1}</td>
                 <td class="pv-cell">${esc(name)}</td>
@@ -149,7 +149,8 @@ function renderTable() {
                 <td>${esc(desc)}</td>
               </tr>
             `;
-          }).join('')}
+            })
+            .join('')}
         </tbody>
       </table>
     </div>
@@ -169,16 +170,18 @@ function renderSimpleCards(area, filtered, pageItems) {
   }
 
   const noun = filtered.length === 1 ? 'channel' : 'channels';
-  const cards = pageItems.map((ch) => {
-    const name = ch.name || ch.channel_name || ch.channel || '—';
-    const desc = ch.description || '';
-    return `
+  const cards = pageItems
+    .map((ch) => {
+      const name = ch.name || ch.channel_name || ch.channel || '—';
+      const desc = ch.description || '';
+      return `
       <div class="cf-simple-card">
         <div class="cf-simple-card-name">${esc(name)}</div>
         ${desc ? `<div class="cf-simple-card-desc">${esc(desc)}</div>` : ''}
       </div>
     `;
-  }).join('');
+    })
+    .join('');
 
   area.innerHTML = `
     <div class="cf-simple-count">${filtered.length} ${noun} found</div>
@@ -208,9 +211,17 @@ function renderPagination() {
 
   // Page flips are pure client-side over the already-loaded set — no network.
   document.getElementById('ic-prev')?.addEventListener('click', () => {
-    if (chunkIdx > 0) { chunkIdx -= 1; renderTable(); renderPagination(); }
+    if (chunkIdx > 0) {
+      chunkIdx -= 1;
+      renderTable();
+      renderPagination();
+    }
   });
   document.getElementById('ic-next')?.addEventListener('click', () => {
-    if (chunkIdx < totalChunks - 1) { chunkIdx += 1; renderTable(); renderPagination(); }
+    if (chunkIdx < totalChunks - 1) {
+      chunkIdx += 1;
+      renderTable();
+      renderPagination();
+    }
   });
 }

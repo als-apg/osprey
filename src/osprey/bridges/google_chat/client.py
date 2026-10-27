@@ -2,9 +2,9 @@
 
 :class:`ChatClient` is a thin mapper onto the Chat v1 ``spaces.messages`` surface,
 plus the one ``spaces.members.list`` read the room roster makes, and nothing more: it assembles the message body (text, threading, ``cardsV2``),
-issues the call, and hands the parsed resource back. It carries **no retry, no
-backoff, and no swallow policy** for posting — a failed create raises, on the
-first failure, having made exactly one request.
+issues the call, and hands the parsed resource back. It carries **no retry and
+no swallow policy** for posting — a failed create raises on its first failure —
+with the one exception of Chat's rate limit (see `Rate limits`_ below).
 
 That is deliberate rather than unfinished. The engine's crash-safety ordering is
 built on the outbound members' *failure* contracts (see
@@ -35,6 +35,25 @@ post will be refused the same way, and the engine needs to know it to stop
 retrying instead of failing the same message once per drain pass. Any other
 ``403`` — a missing scope, a disabled API — is a bridge-wide misconfiguration that
 one fix clears for every destination, so it stays the ordinary raise it always was.
+
+Rate limits
+-----------
+The other failure classified here is Chat's write quota: about one message create
+per second per space. An answer travels as several chunks posted back to back,
+and a 429 part-way through used to raise, so the engine re-delivered the WHOLE
+answer from its first chunk next cycle — re-posting what had landed and tripping
+the same quota again. Two things keep a post under it, both here because the
+quota is shared by every thread posting into a space and this one client, behind
+its one lock, is what every post goes through:
+
+* consecutive creates are spaced at least :data:`WRITE_INTERVAL` apart;
+* a ``429`` is waited out and retried, up to :data:`RATE_LIMIT_RETRIES` times with
+  a doubling wait from :data:`RATE_LIMIT_BACKOFF`, before it raises like any other
+  failure. Chat refuses a throttled write before taking it, so the retry cannot
+  double-post — and every caller's policy wants the post to land if it can.
+
+The wait holds the lock on purpose: a second thread posting meanwhile would only
+spend the same quota.
 
 Threading
 ---------
@@ -69,6 +88,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any
 
 from ..core.errors import UndeliverableError
@@ -93,6 +113,19 @@ default ceiling. A body over it is rejected outright — not truncated — so th
 splitting is what makes a long answer deliverable at all."""
 
 REPLY_OPTION = "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"
+
+WRITE_INTERVAL = 1.0
+"""Least time, in seconds, between two message creates: Chat's per-space write quota."""
+
+RATE_LIMIT_RETRIES = 5
+"""How many times a ``429`` is waited out before it raises."""
+
+RATE_LIMIT_BACKOFF = 2.0
+"""The first wait after a ``429``, in seconds; it doubles per retry (2, 4, 8, 16, 32)."""
+
+# Indirections the tests replace, so pacing and backoff are observable without waiting.
+_sleep = time.sleep
+_clock = time.monotonic
 """``messageReplyOption`` for every create: reply into the named thread, and fall
 back to opening a new thread if that thread no longer exists. The fallback is the
 load-bearing half — an agent turn can outlive the thread it was asked in, and the
@@ -179,6 +212,12 @@ def _permanent_refusal(exc: BaseException) -> str | None:
     return None
 
 
+def _rate_limited(exc: BaseException) -> bool:
+    """Whether ``exc`` is Chat's quota refusal, read by duck typing like
+    :func:`_permanent_refusal`."""
+    return getattr(getattr(exc, "resp", None), "status", None) == 429
+
+
 class ChatClient:
     """The Chat v1 ``spaces.messages`` calls the bridge makes, over one service.
 
@@ -205,13 +244,19 @@ class ChatClient:
         """
         self._service: Any = build_chat_service(cfg) if service is None else service
         self._lock = threading.Lock()
+        self._last_write: float | None = None
 
-    def _execute(self, request: Any) -> Any:
+    def _execute(self, request: Any, *, write: bool = False) -> Any:
         """Run one built request's HTTP leg under the shared lock.
+
+        A ``429`` is waited out and retried (see the module's `Rate limits`_); every
+        other failure surfaces on the first attempt.
 
         Args:
             request: A ``googleapiclient`` request object, already built off the
                 service (building is local model lookup and needs no lock).
+            write: The request creates a message, so it is spaced at least
+                :data:`WRITE_INTERVAL` after the previous one.
 
         Returns:
             Whatever the API answered, undecoded by us.
@@ -220,16 +265,31 @@ class ChatClient:
             UndeliverableError: If Chat refused the destination permanently (see the
                 module docstring); the transport's error is the cause.
             Exception: Anything else the transport raises, unchanged — callers own
-                the policy.
+                the policy — including a ``429`` that outlasted every retry.
         """
         with self._lock:
-            try:
-                return request.execute()
-            except Exception as exc:
-                refusal = _permanent_refusal(exc)
-                if refusal is None:
-                    raise
-                raise UndeliverableError(refusal) from exc
+            for attempt in range(RATE_LIMIT_RETRIES + 1):
+                # A retry follows a backoff at least as long as the interval already.
+                if write and attempt == 0 and self._last_write is not None:
+                    wait = WRITE_INTERVAL - (_clock() - self._last_write)
+                    if wait > 0:
+                        _sleep(wait)
+                try:
+                    return request.execute()
+                except Exception as exc:
+                    if _rate_limited(exc) and attempt < RATE_LIMIT_RETRIES:
+                        delay = RATE_LIMIT_BACKOFF * 2**attempt
+                        logger.warning("chat rate limit hit; retrying in %.0fs", delay)
+                        _sleep(delay)
+                        continue
+                    refusal = _permanent_refusal(exc)
+                    if refusal is None:
+                        raise
+                    raise UndeliverableError(refusal) from exc
+                finally:
+                    if write:
+                        self._last_write = _clock()
+            raise AssertionError("unreachable: the last attempt returns or raises")
 
     def create_message(
         self,
@@ -274,7 +334,8 @@ class ChatClient:
         response = self._execute(
             self._service.spaces()
             .messages()
-            .create(parent=space, messageReplyOption=REPLY_OPTION, body=body)
+            .create(parent=space, messageReplyOption=REPLY_OPTION, body=body),
+            write=True,
         )
         return response if isinstance(response, dict) else {}
 

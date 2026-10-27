@@ -36,6 +36,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.audit import posture
+from osprey.mcp_server.approval_stamp import (  # noqa: F401 - re-exported spellings
+    APPROVAL_ASK_PREFIX,
+    APPROVAL_ASK_SUFFIX,
+    APPROVAL_CONFIG_INVALID,
+    APPROVAL_MISSING,
+    APPROVED_FIELDS,
+    ApprovalRefused,
+    check_asked_call,
+)
+from osprey.mcp_server.approval_stamp import (  # noqa: F401 - re-exported spellings
+    ApprovalConfigInvalid as _ApprovalConfigInvalid,
+)
+from osprey.mcp_server.approval_stamp import ApprovalMissing as _ApprovalMissing
 from osprey.mcp_server.sandbox_env import (
     PERIMETER_DENY_PORTS_ENV,
     PERIMETER_MARKER_ENV,
@@ -183,38 +196,22 @@ FAILURE_KIND_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: :attr:`ExecutionResult.failure_kind` for a guarded call that was never
 #: admitted: its tool's approval policy asks, and the approval hook left no
 #: matching record for this call. Nothing ran.
-FAILURE_KIND_APPROVAL_MISSING = "approval_missing"
+FAILURE_KIND_APPROVAL_MISSING = APPROVAL_MISSING
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run refused because the
 #: rendered ``config.yml`` states an approval switch that is not true or false,
 #: or an ``approval`` section that is not a mapping. Nothing ran, and calling
 #: again cannot help: the fix is in the deployment's profile.
-FAILURE_KIND_APPROVAL_CONFIG_INVALID = "approval_config_invalid"
+FAILURE_KIND_APPROVAL_CONFIG_INVALID = APPROVAL_CONFIG_INVALID
 #: :attr:`ExecutionResult.failure_kind` for a readwrite run that did not start
 #: because another guarded run holds its control target's lock. Nothing in the
 #: submitted code ran; the error message names the holder's pid and start time.
 #: Spelled like the sandbox wrapper's failure kind for the same refusal.
 FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 
-#: The call fields the approval prompt binds a guarded call to. Every one the
-#: call carries must equal the value the approval hook recorded for the call.
-APPROVED_FIELDS: tuple[str, ...] = ("approved_target", "approved_view_sha256")
-
-#: The approved fields an asking guarded call must carry.
-_REQUIRED_APPROVED_FIELDS: tuple[str, ...] = ("approved_target",)
-
-#: The further approved fields an asking call of one tool must carry: a
-#: measurement is bound to the pyAML view its prompt showed.
-_TOOL_REQUIRED_APPROVED_FIELDS: Mapping[str, tuple[str, ...]] = {
-    "pyaml_measure": ("approved_view_sha256",),
-}
-
-#: The ask stamp the approval hook leaves for a call it put to an approver,
-#: restated from ``osprey_approval.py`` (a hook script this package cannot
-#: import);
-#: ``tests/mcp_server/python_executor/test_approved_call_forwarding.py`` pins the
-#: spellings equal.
-APPROVAL_ASK_PREFIX = "approval_ask_"
-APPROVAL_ASK_SUFFIX = ".json"
+#: The ask-stamp spellings, :data:`APPROVED_FIELDS` and the per-tool rule of
+#: which of them an asking call must carry live in
+#: :mod:`osprey.mcp_server.approval_stamp`, shared with every server that checks
+#: a guarded call against the approval hook's record.
 
 #: Upper bound, in seconds, on winding down a cancelled run that has no finite
 #: deadline: how long its child gets to exit after ``SIGINT`` before it is
@@ -778,44 +775,6 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     return target
 
 
-class _ApprovalMissing(Exception):
-    """A guarded call whose approval prompt left no matching record.
-
-    Raised by :func:`_check_approved_call` and turned into an
-    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
-    is spawned — never seen outside this module.
-    """
-
-
-class _ApprovalConfigInvalid(Exception):
-    """A readwrite call under an approval switch that is not true or false.
-
-    Raised by :func:`_check_approved_call` and turned into an
-    :class:`ExecutionResult` by :func:`_execute_via_local`, before anything
-    is spawned — never seen outside this module.
-    """
-
-
-def _approved_call_stamp(tool_use_id: str | None) -> dict | None:
-    """The approval hook's ask stamp for the call *tool_use_id*, or ``None``.
-
-    ``None`` without an id, without a stamp, and when the state directory
-    cannot be resolved: each is a call nobody can show was asked.
-    """
-    if not tool_use_id:
-        return None
-    try:
-        from osprey.mcp_server.control_system import target_state
-
-        stamp = target_state.read_file(
-            target_state.state_dir() / f"{APPROVAL_ASK_PREFIX}{tool_use_id}{APPROVAL_ASK_SUFFIX}"
-        )
-    except Exception:
-        logger.debug("Could not read the ask stamp for %s", tool_use_id, exc_info=True)
-        return None
-    return stamp if isinstance(stamp, dict) else None
-
-
 def _check_approved_call(
     execution_mode: str,
     osprey_config: Mapping[str, Any],
@@ -830,9 +789,10 @@ def _check_approved_call(
     ask was put to nobody, so neither is checked. A call whose policy asks
     runs only when the approval hook's ask stamp for this tool call exists,
     names *tool*, and records every approved field the call carries with the
-    same value; the call must carry the target, ``pyaml_measure`` the view
-    digest too, and that target must name the guarded-run directory
-    *control_target* does. Nothing of the stamp reaches the sandbox.
+    same value (:func:`~osprey.mcp_server.approval_stamp.stamp_refusal`); the
+    call must carry the fields its tool's
+    :func:`~osprey.mcp_server.approval_stamp.required_fields` rule names, and
+    its target must name the guarded-run directory *control_target* does. Nothing of the stamp reaches the sandbox.
 
     Args:
         execution_mode: ``"readonly"`` or ``"readwrite"``.
@@ -848,33 +808,8 @@ def _check_approved_call(
         _ApprovalConfigInvalid: The config states an ``approval.enabled`` that
             is not true or false, or an ``approval`` that is not a mapping.
     """
-    if execution_mode != "readwrite":
+    if execution_mode != "readwrite" or not check_asked_call(osprey_config, tool, approved):
         return
-    from osprey.cli.build_posture_check import approval_enabled_fault, ask_capable
-
-    fault = approval_enabled_fault(osprey_config)
-    if fault is not None:
-        raise _ApprovalConfigInvalid(f"not run: {fault} (approval_config_invalid).")
-    if not ask_capable(osprey_config, tool):
-        return
-    from osprey.audit.call import current_tool_use_id
-
-    stamp = _approved_call_stamp(current_tool_use_id())
-    if stamp is None or not str(stamp.get("tool") or "").endswith(tool):
-        raise _ApprovalMissing(
-            "not run: this call's approval prompt left no record (approval_missing). "
-            "Call the tool again so the approval prompt can ask."
-        )
-    required = (*_REQUIRED_APPROVED_FIELDS, *_TOOL_REQUIRED_APPROVED_FIELDS.get(tool, ()))
-    for name in APPROVED_FIELDS:
-        value = approved.get(name)
-        if value is None and name not in required:
-            continue
-        if value is None or stamp.get(name) != value:
-            raise _ApprovalMissing(
-                f"not run: `{name}` differs from what the approval prompt recorded "
-                "(approval_missing). Call the tool again."
-            )
     approved_target = str(approved["approved_target"])
     approved_name = _guarded_run_name(approved_target)
     if approved_name is None or approved_name != _guarded_run_name(control_target):
@@ -1109,7 +1044,7 @@ async def _execute_via_local(
             {"approved_target": approved_target, "approved_view_sha256": approved_view_sha256},
             control_target=control_target,
         )
-    except _ApprovalMissing as refusal:
+    except ApprovalRefused as refusal:
         return ExecutionResult(
             success=False,
             stdout="",
@@ -1118,18 +1053,7 @@ async def _execute_via_local(
             execution_time_seconds=0.0,
             error_message=str(refusal),
             control_target=control_target,
-            failure_kind=FAILURE_KIND_APPROVAL_MISSING,
-        )
-    except _ApprovalConfigInvalid as refusal:
-        return ExecutionResult(
-            success=False,
-            stdout="",
-            stderr=str(refusal),
-            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
-            execution_time_seconds=0.0,
-            error_message=str(refusal),
-            control_target=control_target,
-            failure_kind=FAILURE_KIND_APPROVAL_CONFIG_INVALID,
+            failure_kind=refusal.code,
         )
     limits_validator = _load_limits_validator(target=control_target)
 

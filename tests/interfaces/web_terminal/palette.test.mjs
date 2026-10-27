@@ -69,26 +69,28 @@ function holdConfig() {
 // import graph) GETs at import time — before the dynamic import below is
 // evaluated. Any other URL is a dependency this file has not declared, and
 // fails loudly.
-vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-  if (url === '/api/config') return answerConfig();
-  if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
-  return {
-    ok: true,
-    status: 200,
-    json: async () => ({
-      version: 1,
-      rev: 0,
-      header: [],
-      status: [],
-      header_visible: true,
-      status_visible: true,
-    }),
-  };
-}));
-
-const { initCommandPalette } = await import(
-  '../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js'
+vi.stubGlobal(
+  'fetch',
+  vi.fn(async (/** @type {string} */ url) => {
+    if (url === '/api/config') return answerConfig();
+    if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        version: 1,
+        rev: 0,
+        header: [],
+        status: [],
+        header_visible: true,
+        status_visible: true,
+      }),
+    };
+  })
 );
+
+const { initCommandPalette } =
+  await import('../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js');
 
 /** Flush the requestAnimationFrame that adds the `.visible` class. */
 function flushRaf() {
@@ -204,7 +206,7 @@ describe('filtering + highlight', () => {
     await flushMicro();
     typeQuery('control');
     const row = [...document.querySelectorAll('.command-palette-item')].find(
-      (r) => r.querySelector('.command-palette-item-label')?.textContent === 'control_system.type',
+      (r) => r.querySelector('.command-palette-item-label')?.textContent === 'control_system.type'
     );
     if (!row) throw new Error('no control_system.type row');
     const marks = [...row.querySelectorAll('.command-palette-match')];
@@ -237,7 +239,7 @@ describe('filtering + highlight', () => {
     await flushMicro();
     typeQuery('');
     const headings = [...document.querySelectorAll('.command-palette-group-heading')].map(
-      (h) => h.textContent,
+      (h) => h.textContent
     );
     expect(headings).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
   });
@@ -258,7 +260,9 @@ describe('keyboard navigation', () => {
     expect(options().length).toBeGreaterThan(0);
 
     pressKey('ArrowDown');
-    const active1 = /** @type {HTMLElement} */ (document.querySelector('.command-palette-item--active'));
+    const active1 = /** @type {HTMLElement} */ (
+      document.querySelector('.command-palette-item--active')
+    );
     expect(active1).toBeTruthy();
     expect(active1.getAttribute('aria-selected')).toBe('true');
     // aria-activedescendant always points at a real option id (never the status row).
@@ -316,7 +320,7 @@ describe('concurrent config fetch', () => {
     // Status row gone; real settings items now match the query.
     expect(document.querySelector('.command-palette-status')).toBeNull();
     const labels = [...document.querySelectorAll('.command-palette-item-label')].map(
-      (l) => l.textContent,
+      (l) => l.textContent
     );
     expect(labels.some((t) => t.includes('control_system'))).toBe(true);
   });
@@ -369,7 +373,7 @@ describe('recent commands', () => {
    * @param {string} label */
   function clickRow(label) {
     const row = [...document.querySelectorAll('.command-palette-item')].find(
-      (r) => r.querySelector('.command-palette-item-label')?.textContent === label,
+      (r) => r.querySelector('.command-palette-item-label')?.textContent === label
     );
     if (!row) throw new Error(`no palette row labelled "${label}"`);
     /** @type {HTMLElement} */ (row).click();
@@ -461,9 +465,8 @@ describe('recent commands', () => {
     typeQuery('');
 
     const options = () => [...document.querySelectorAll('[role="option"]')];
-    const activeIdx = () => options().findIndex(
-      (o) => o.classList.contains('command-palette-item--active'),
-    );
+    const activeIdx = () =>
+      options().findIndex((o) => o.classList.contains('command-palette-item--active'));
 
     // Wrap backwards from the first row onto the LAST one — the Actions group's
     // own "Restart terminal", the twin of the Recent row at index 0.
@@ -479,7 +482,7 @@ describe('recent commands', () => {
     expect(activeIdx()).not.toBe(0);
     const active = options()[activeIdx()];
     expect(active.querySelector('.command-palette-item-label')?.textContent).toBe(
-      'Restart terminal',
+      'Restart terminal'
     );
   });
 

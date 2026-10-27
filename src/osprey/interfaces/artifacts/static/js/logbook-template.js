@@ -1,10 +1,9 @@
 // @ts-check
 /* OSPREY Logbook — modal HTML template.
  *
- * Stateless markup for the logbook entry composer modal, extracted from
- * logbook.js to keep that module under the max-lines cap. Imported and
- * assigned to overlay.innerHTML by createLogbookModal(). No interpolation:
- * this is a static constant.
+ * Stateless markup for the logbook entry composer modal. Imported and
+ * assigned to overlay.innerHTML by buildLogbookModal() in logbook-modal.js.
+ * No interpolation: this is a static constant.
  */
 
 export const LOGBOOK_MODAL_HTML = `

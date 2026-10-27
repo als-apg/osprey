@@ -229,7 +229,7 @@ class _HierarchicalNamingMixin(_HierarchicalBase):
         pattern = self.naming_pattern
 
         # Parse the naming pattern to extract literal text and placeholders
-        # Pattern: "S{sector}:{building}:F{floor}"
+        # Pattern: "S{sector}:{building}:F{floor}"  # noqa: ERA001 -- a naming pattern
         # → [('S', 'sector'), (':', 'building'), (':F', 'floor')]
         # where each tuple is (prefix_text, level_name)
 

@@ -1484,7 +1484,7 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
     `writes_check` allows every lane-addressed tool and neither of these refuses
     on posture, so this prompt is the only gate they have. `queue_add` starts
     nothing — the server withholds the launch token and the bridge refuses
-    `launch_token_required` once the queue drains — and a plain stop is ungated
+    `launch_token_invalid` once the queue drains — and a plain stop is ungated
     everywhere by design.
     """
     config = _posture_config(

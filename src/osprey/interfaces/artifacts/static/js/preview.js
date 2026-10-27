@@ -39,7 +39,7 @@ import {
   setSelectedArtifact,
   getFocusedArtifact,
   setFocusedArtifact,
-} from "./state.js";
+} from './state.js';
 import {
   typeBadge,
   escapeHtml,
@@ -48,13 +48,13 @@ import {
   openUrl,
   requestColorPass,
   artifactPath,
-} from "./types.js";
-import { artifactViewportHtml, mountArtifactViewport } from "./artifact-viewport.js";
-import { injectLogbookButtons } from "./logbook.js";
-import { injectPrintButton } from "./print.js";
+} from './types.js';
+import { artifactViewportHtml, mountArtifactViewport } from './artifact-viewport.js';
+import { injectLogbookButtons } from './logbook.js';
+import { injectPrintButton } from './print.js';
 // Only for the "Open in new tab" link, which carries the theme in force —
 // the standalone page it opens has no hub to follow (see openUrl()).
-import { getTheme } from "/design-system/js/theme-manager.js";
+import { getTheme } from '/design-system/js/theme-manager.js';
 
 /**
  * Nudge the preview's embedded media to re-measure after a fullscreen
@@ -66,16 +66,22 @@ import { getTheme } from "/design-system/js/theme-manager.js";
  * @returns {void}
  */
 function resizePreviewMedia() {
-  const previewContent = document.getElementById("preview-content");
-  const iframe = previewContent?.querySelector("iframe");
+  const previewContent = document.getElementById('preview-content');
+  const iframe = previewContent?.querySelector('iframe');
   if (iframe?.contentWindow) {
-    // eslint-disable-next-line no-empty -- intentional empty catch: dispatching resize into a cross-origin frame is best-effort
-    try { iframe.contentWindow.dispatchEvent(new Event("resize")); } catch {}
+    try {
+      iframe.contentWindow.dispatchEvent(new Event('resize'));
+    } catch {
+      // Dispatching resize into a cross-origin frame is best-effort.
+    }
   }
-  const tsChart = previewContent?.querySelector(".ts-viewport-container");
-  if (tsChart && typeof Plotly !== "undefined") {
-    // eslint-disable-next-line no-empty -- intentional empty catch: Plotly resize is best-effort when chart not yet ready
-    try { Plotly.Plots.resize(tsChart); } catch {}
+  const tsChart = previewContent?.querySelector('.ts-viewport-container');
+  if (tsChart && typeof Plotly !== 'undefined') {
+    try {
+      Plotly.Plots.resize(tsChart);
+    } catch {
+      // Plotly resize is best-effort when chart not yet ready.
+    }
   }
 }
 
@@ -104,8 +110,8 @@ export function createPreviewRenderer(callbacks) {
 
   /** @returns {void} */
   function renderPreview() {
-    const previewEmpty = document.getElementById("preview-empty");
-    const previewContent = document.getElementById("preview-content");
+    const previewEmpty = document.getElementById('preview-empty');
+    const previewContent = document.getElementById('preview-content');
     if (!previewEmpty || !previewContent) return;
 
     if (!getSelectedArtifact()) {
@@ -119,13 +125,13 @@ export function createPreviewRenderer(callbacks) {
         exitFullscreen();
         return;
       }
-      previewEmpty.classList.remove("hidden");
-      previewContent.classList.add("hidden");
+      previewEmpty.classList.remove('hidden');
+      previewContent.classList.add('hidden');
       return;
     }
 
-    previewEmpty.classList.add("hidden");
-    previewContent.classList.remove("hidden");
+    previewEmpty.classList.add('hidden');
+    previewContent.classList.remove('hidden');
 
     const a = getSelectedArtifact();
 
@@ -146,7 +152,7 @@ export function createPreviewRenderer(callbacks) {
         </div>
         <div class="preview-header-actions">
           <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
-          <button class="btn-action-icon ${a.pinned ? "btn-action-pinned" : ""}" id="preview-toggle-pin" title="${a.pinned ? "Unpin" : "Pin"}">
+          <button class="btn-action-icon ${a.pinned ? 'btn-action-pinned' : ''}" id="preview-toggle-pin" title="${a.pinned ? 'Unpin' : 'Pin'}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M5 9l2-1V4a1 1 0 011-1h8a1 1 0 011 1v4l2 1a1 1 0 01.4 1.6l-1.4 2a1 1 0 01-.8.4H6.8a1 1 0 01-.8-.4l-1.4-2A1 1 0 015 9z"/></svg>
           </button>
           <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
@@ -160,7 +166,7 @@ export function createPreviewRenderer(callbacks) {
           </button>
         </div>
       </div>
-      ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ""}
+      ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ''}
       <div class="preview-meta-strip">
         <span class="preview-meta-item">
           <span class="preview-meta-label">Size</span>
@@ -170,11 +176,15 @@ export function createPreviewRenderer(callbacks) {
           <span class="preview-meta-label">Created</span>
           <span class="preview-meta-value">${formatFullTime(a.timestamp)}</span>
         </span>
-        ${a.tool_source ? `
+        ${
+          a.tool_source
+            ? `
         <span class="preview-meta-item">
           <span class="preview-meta-label">Source</span>
           <span class="preview-meta-value">${escapeHtml(a.tool_source)}</span>
-        </span>` : ""}
+        </span>`
+            : ''
+        }
         <span class="preview-meta-path" id="preview-copy-path" title="Click to copy path">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
           <span class="preview-path-text">${escapeHtml(artifactPath(a))}</span>
@@ -186,46 +196,57 @@ export function createPreviewRenderer(callbacks) {
     `;
 
     // Wire action buttons
-    /** @type {HTMLElement} */ (document.getElementById("preview-toggle-pin")).addEventListener("click", () => togglePin(a));
-    /** @type {HTMLElement} */ (document.getElementById("preview-delete")).addEventListener("click", () => {
-      if (!confirm(`Delete "${a.title}"? This cannot be undone.`)) return;
-      fetch(`/api/artifacts/${a.id}`, { method: "DELETE" })
-        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-        .then(() => {
-          removeArtifact(a.id);
-          if (getSelectedArtifact()?.id === a.id) setSelectedArtifact(null);
-          if (getFocusedArtifact()?.id === a.id) setFocusedArtifact(null);
-          callbacks.onArtifactDeleted();
-          renderPreview();
-        })
-        .catch((err) => console.error("Delete failed:", err));
-    });
+    /** @type {HTMLElement} */ (document.getElementById('preview-toggle-pin')).addEventListener(
+      'click',
+      () => togglePin(a)
+    );
+    /** @type {HTMLElement} */ (document.getElementById('preview-delete')).addEventListener(
+      'click',
+      () => {
+        if (!confirm(`Delete "${a.title}"? This cannot be undone.`)) return;
+        fetch(`/api/artifacts/${a.id}`, { method: 'DELETE' })
+          .then((r) => {
+            if (!r.ok) throw new Error();
+            return r.json();
+          })
+          .then(() => {
+            removeArtifact(a.id);
+            if (getSelectedArtifact()?.id === a.id) setSelectedArtifact(null);
+            if (getFocusedArtifact()?.id === a.id) setFocusedArtifact(null);
+            callbacks.onArtifactDeleted();
+            renderPreview();
+          })
+          .catch((err) => console.error('Delete failed:', err));
+      }
+    );
 
     // Copy path to clipboard
-    const copyPathBtn = document.getElementById("preview-copy-path");
+    const copyPathBtn = document.getElementById('preview-copy-path');
     if (copyPathBtn) {
-      copyPathBtn.addEventListener("click", () => {
+      copyPathBtn.addEventListener('click', () => {
         const path = artifactPath(a);
         navigator.clipboard.writeText(path).then(() => {
-          copyPathBtn.classList.add("copied");
-          setTimeout(() => copyPathBtn.classList.remove("copied"), 1500);
+          copyPathBtn.classList.add('copied');
+          setTimeout(() => copyPathBtn.classList.remove('copied'), 1500);
         });
       });
     }
 
     // Fullscreen buttons
-    const enterBtn = document.getElementById("fullscreen-enter");
-    if (enterBtn) enterBtn.addEventListener("click", () => enterFullscreen());
+    const enterBtn = document.getElementById('fullscreen-enter');
+    if (enterBtn) enterBtn.addEventListener('click', () => enterFullscreen());
 
-    const backBtn = document.getElementById("fullscreen-back");
-    if (backBtn) backBtn.addEventListener("click", () => exitFullscreen());
+    const backBtn = document.getElementById('fullscreen-back');
+    if (backBtn) backBtn.addEventListener('click', () => exitFullscreen());
 
-    const newBadge = document.getElementById("fullscreen-new-badge");
+    const newBadge = document.getElementById('fullscreen-new-badge');
     if (newBadge) {
-      newBadge.addEventListener("click", () => {
+      newBadge.addEventListener('click', () => {
         // Navigate to newest artifact, stay in fullscreen
         if (getArtifacts().length > 0) {
-          const sorted = [...getArtifacts()].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+          const sorted = [...getArtifacts()].sort((a, b) =>
+            (b.timestamp || '').localeCompare(a.timestamp || '')
+          );
           setSelectedArtifact(sorted[0]);
           newArtifactsSinceFullscreen = 0;
           renderPreview();
@@ -254,8 +275,8 @@ export function createPreviewRenderer(callbacks) {
     const newPinned = !artifact.pinned;
     try {
       const resp = await fetch(`/api/artifacts/${artifact.id}/pin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned: newPinned }),
       });
       if (resp.ok) {
@@ -264,7 +285,7 @@ export function createPreviewRenderer(callbacks) {
         renderPreview();
       }
     } catch (err) {
-      console.error("Failed to toggle pin:", err);
+      console.error('Failed to toggle pin:', err);
     }
   }
 
@@ -306,7 +327,7 @@ export function createPreviewRenderer(callbacks) {
     requestAnimationFrame(() => {
       resizePreviewMedia();
       if (getSelectedArtifact()) {
-        const sidebarBody = document.getElementById("sidebar-body");
+        const sidebarBody = document.getElementById('sidebar-body');
         const sel = sidebarBody?.querySelector(`[data-id="${getSelectedArtifact().id}"]`);
         if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
@@ -325,16 +346,16 @@ export function createPreviewRenderer(callbacks) {
   /** @param {any} artifact */
   async function setAsFocus(artifact) {
     try {
-      const resp = await fetch("/api/focus", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const resp = await fetch('/api/focus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ artifact_id: artifact.id }),
       });
       if (resp.ok) {
         setFocusedArtifact(artifact);
       }
     } catch (err) {
-      console.error("Failed to set focus:", err);
+      console.error('Failed to set focus:', err);
     }
   }
 
@@ -344,7 +365,9 @@ export function createPreviewRenderer(callbacks) {
     exitFullscreen,
     setAsFocus,
     isFullscreen: () => isFullscreen,
-    noteNewArtifactArrival: () => { newArtifactsSinceFullscreen++; },
+    noteNewArtifactArrival: () => {
+      newArtifactsSinceFullscreen++;
+    },
     updateNewArtifactBadge,
   };
 }

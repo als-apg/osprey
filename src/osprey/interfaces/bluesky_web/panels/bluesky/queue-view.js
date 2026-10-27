@@ -857,7 +857,13 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
     }
     clearConfirmArmed = false;
     renderQueue();
-    void queueWrite('DELETE', '/queue/items', undefined, 'Waiting plans removed.', writeOutcomeTone(false));
+    void queueWrite(
+      'DELETE',
+      '/queue/items',
+      undefined,
+      'Waiting plans removed.',
+      writeOutcomeTone(false)
+    );
   });
 
   // Two-step as well: the records it drops are the operator's own log of what
@@ -872,7 +878,13 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
     historyClearConfirmArmed = false;
     renderHistory();
     void (async () => {
-      const ok = await queueWrite('DELETE', '/history', undefined, 'History cleared.', writeOutcomeTone(false));
+      const ok = await queueWrite(
+        'DELETE',
+        '/history',
+        undefined,
+        'History cleared.',
+        writeOutcomeTone(false)
+      );
       if (!ok) return;
       if (state.selected && state.history.some((record) => record.id === state.selected)) {
         onSelectRun(null, false);

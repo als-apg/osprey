@@ -69,7 +69,10 @@ from pydantic import BaseModel, Field
 
 from osprey.services.ariel_search.database.search_fts import MIN_TERM_COVERAGE, coverage_terms
 from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
-from osprey.services.ariel_search.exceptions import SearchConfigurationError
+from osprey.services.ariel_search.exceptions import (
+    SearchConfigurationError,
+    SearchTimeoutError,
+)
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
     START_BOUND_DESCRIPTION,
@@ -453,6 +456,12 @@ PICTURE_UNAVAILABLE_MESSAGE = (
     "known only by their pictures are missing."
 )
 
+#: Message of the diagnostic a timed-out semantic lane adds to a hybrid answer.
+SEMANTIC_UNAVAILABLE_MESSAGE = (
+    "Semantic ranking unavailable — the query embedding timed out, so results "
+    "are ranked on keywords only."
+)
+
 #: Opening of the diagnostic an image-only answer to a sidecar outage carries;
 #: :func:`_text_unavailable_message` completes it with the sidecar dialled.
 TEXT_UNAVAILABLE_MESSAGE = "Text ranking unavailable — picture matches only"
@@ -594,7 +603,23 @@ async def _ranked_search(
 
     ranked = _decode_hits(hits)
     if semantic_task is not None:
-        ranked = _rrf_hits(ranked, await semantic_task)
+        try:
+            semantic = await semantic_task
+        except SearchTimeoutError as e:
+            # A hung or saturated embedding provider costs hybrid its semantic
+            # lane, never the keyword answer the sidecar already gave.
+            logger.warning(f"hybrid_search: semantic lane skipped: {e}")
+            semantic = []
+            diagnostics = (
+                *diagnostics,
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="hybrid",
+                    message=SEMANTIC_UNAVAILABLE_MESSAGE,
+                    category="semantic_search",
+                ),
+            )
+        ranked = _rrf_hits(ranked, semantic)
 
     if image_hits is not None:
         results = await _fused_results(

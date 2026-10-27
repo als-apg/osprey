@@ -1428,7 +1428,7 @@ def _inject_bluesky(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
         "terminals receive it only for renders entitled to it; the rest are "
-        "refused with launch_token_required and hand arming to the operator."
+        "refused with launch_token_invalid and hand arming to the operator."
     )
     logger.debug(
         "    Images:     `osprey up` builds the bluesky-bridge image locally "

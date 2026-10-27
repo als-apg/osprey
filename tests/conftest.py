@@ -1464,6 +1464,35 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
     monkeypatch.setattr(build_cmd, "_build_graph_index", _cached_build_graph_index)
 
 
+# ===================================================================
+# Entry points
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _memoized_entry_points():
+    """Read the installed distributions' entry points once per session, not once per call.
+
+    ``importlib.metadata.entry_points()`` walks every distribution on the path
+    on each call — tens of milliseconds in this environment — and a build of
+    the demo facility looks its simulation engines up a few hundred times, so
+    the suite spent a large share of every build re-reading the same
+    ``entry_points.txt`` files. Nothing a test does installs a distribution, so
+    the answer for one selection is the same for the whole session.
+
+    A test that hands the code a fake registry still does so by patching
+    ``metadata.entry_points`` itself; its patch replaces this one for that test
+    and wraps it when it calls through.
+    """
+    import functools
+    from importlib import metadata
+
+    memoized = functools.cache(metadata.entry_points)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(metadata, "entry_points", memoized)
+        yield
+
+
 @contextmanager
 def dispatcher_route_registry():
     """Build dispatcher servers without inheriting or leaving route registrations.
@@ -1500,3 +1529,32 @@ def dispatcher_route_registry():
         yield build
     finally:
         dispatch_server.mcp._additional_http_routes = baseline_routes
+
+
+# ===================================================================
+# Packaged-template tree guard
+# ===================================================================
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_writes_into_the_packaged_templates():
+    """Fail the session if a test added or removed a path in the shipped templates.
+
+    Tests that copy the template tree read it while other tests run beside them,
+    so a test that writes into it and cleans up again surfaces as a copy error
+    somewhere else. This names the directories instead, including one where an
+    entry came and went before the session ended. A test that needs a changed
+    tree copies it to ``tmp_path`` and points ``TemplateManager._get_template_root``
+    at the copy. Under xdist each worker checks its own session.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+
+    root = Path(TemplateManager().template_root)
+    before = _repo_cleanliness.tree_snapshot(root)
+    yield
+    clauses = _repo_cleanliness.what_this_run_did_to_tree(before, root)
+    if clauses:
+        raise AssertionError(
+            f"the test run {'; '.join(clauses)}. "
+            "A test that needs a changed tree writes into a tmp_path copy of it."
+        )

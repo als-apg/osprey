@@ -51,7 +51,7 @@ describe('mode-boot.js storage scoping', () => {
       expect(currentMode()).toBe('expert');
     });
 
-    test("carol, same polluted slot, boots HER server mode", () => {
+    test('carol, same polluted slot, boots HER server mode', () => {
       window.localStorage.setItem(LEGACY_KEY, 'expert');
       document.documentElement.setAttribute(SCOPE_ATTR, 'carol');
       document.documentElement.setAttribute('data-ui-mode', 'simple');

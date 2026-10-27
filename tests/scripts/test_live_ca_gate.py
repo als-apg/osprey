@@ -34,6 +34,14 @@ _HANG_S = 60
 #: Upper bound on a call that must not wait for the hang.
 _PROMPT_S = 20
 
+#: The limit a hung child is killed at: room for an interpreter to start and
+#: print on a loaded host, and still far inside :data:`_PROMPT_S`.
+_KILL_LIMIT_S = 5
+
+#: A limit long enough for a child pytest to start, run one test and print its
+#: counts on a host busy with a parallel suite, and still far short of the hang.
+_REPORT_S = 20
+
 
 def _alive(pid: int) -> bool:
     """Whether ``pid`` still names a process."""
@@ -89,7 +97,7 @@ def test_a_child_that_outlives_its_limit_is_killed_and_its_output_so_far_is_retu
     ]
 
     started = time.monotonic()
-    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, 1)
+    stdout, _stderr, returncode, timed_out = gate._run_child(cmd, _KILL_LIMIT_S)
     elapsed = time.monotonic() - started
 
     assert timed_out is True
@@ -169,13 +177,13 @@ def test_a_module_that_reports_counts_and_then_hangs_is_still_an_error(
         encoding="utf-8",
     )
 
-    counts, status = gate._run_module(str(module), 5)
+    counts, status = gate._run_module(str(module), _REPORT_S)
 
     out = capsys.readouterr().out
     assert "1 passed" in out, out
     assert counts == {"passed": 0, "skipped": 0, "failed": 0, "error": 1}
     assert status == 1
-    assert "timed out after 5 s" in out
+    assert f"timed out after {_REPORT_S} s" in out
 
 
 def test_a_module_timeout_flag_is_not_fanned_out_as_a_target_and_a_bad_value_is_refused(

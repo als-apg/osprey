@@ -12,7 +12,13 @@ import { fetchJSON, postJSON, putJSON, deleteJSON, ApiError } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
 import { showToast } from './app.js';
-import { getContainer, getCurrentKey, setCurrentKey, getRerender, getRenderList } from './feedback-state.js';
+import {
+  getContainer,
+  getCurrentKey,
+  setCurrentKey,
+  getRerender,
+  getRenderList,
+} from './feedback-state.js';
 import { _renderSelections, _formatTime, _parseSelections } from './feedback-render.js';
 
 /** Re-render the current view via the registered dispatcher. */
@@ -140,7 +146,7 @@ function _bindDetailEvents(container, meta) {
   });
 
   // Edit record buttons
-  container.querySelectorAll('.fb-edit-record').forEach(btn => {
+  container.querySelectorAll('.fb-edit-record').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const card = /** @type {HTMLElement|null} */ (btn.closest('.fb-record-card'));
@@ -153,7 +159,7 @@ function _bindDetailEvents(container, meta) {
   });
 
   // Delete record buttons
-  container.querySelectorAll('.fb-delete-record').forEach(btn => {
+  container.querySelectorAll('.fb-delete-record').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const card = /** @type {HTMLElement|null} */ (btn.closest('.fb-record-card'));
@@ -175,12 +181,22 @@ function _bindDetailEvents(container, meta) {
 async function _handleAddRecordToEntry(meta, entryType) {
   /** @type {import('./modal.js').ModalField[]} */
   const fields = [
-    { name: 'selections', label: 'Selections (key: value, one per line)', type: 'textarea', placeholder: 'system: MAG\ndevice: QF1' },
+    {
+      name: 'selections',
+      label: 'Selections (key: value, one per line)',
+      type: 'textarea',
+      placeholder: 'system: MAG\ndevice: QF1',
+    },
   ];
   if (entryType === 'success') {
     fields.push({ name: 'channel_count', label: 'Channel Count', type: 'number', value: '0' });
   } else {
-    fields.push({ name: 'reason', label: 'Failure Reason', type: 'text', placeholder: 'e.g. no options at family level' });
+    fields.push({
+      name: 'reason',
+      label: 'Failure Reason',
+      type: 'text',
+      placeholder: 'e.g. no options at family level',
+    });
   }
 
   const result = await formModal({
@@ -231,16 +247,33 @@ async function _handleEditRecord(recordType, index) {
 
   const isSuccess = recordType === 'successes';
   const currentSelections = isSuccess ? record.selections : record.partial_selections;
-  const selStr = Object.entries(currentSelections || {}).map(([k, v]) => `${k}: ${v}`).join('\n');
+  const selStr = Object.entries(currentSelections || {})
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
 
   /** @type {import('./modal.js').ModalField[]} */
   const fields = [
-    { name: 'selections', label: 'Selections (key: value, one per line)', type: 'textarea', value: selStr },
+    {
+      name: 'selections',
+      label: 'Selections (key: value, one per line)',
+      type: 'textarea',
+      value: selStr,
+    },
   ];
   if (isSuccess) {
-    fields.push({ name: 'channel_count', label: 'Channel Count', type: 'number', value: String(record.channel_count || 0) });
+    fields.push({
+      name: 'channel_count',
+      label: 'Channel Count',
+      type: 'number',
+      value: String(record.channel_count || 0),
+    });
   } else {
-    fields.push({ name: 'reason', label: 'Failure Reason', type: 'text', value: record.reason || '' });
+    fields.push({
+      name: 'reason',
+      label: 'Failure Reason',
+      type: 'text',
+      value: record.reason || '',
+    });
   }
 
   const result = await formModal({

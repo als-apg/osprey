@@ -67,17 +67,26 @@ function makeApi() {
 /** An UnhandledDragOverEvent-shaped stub carrying our MIME (or not). */
 function overEvent({ target = 'content', position = 'right', withMime = true } = {}) {
   return {
-    nativeEvent: { dataTransfer: { types: withMime ? ['application/x-osprey-panel'] : ['text/plain'] } },
+    nativeEvent: {
+      dataTransfer: { types: withMime ? ['application/x-osprey-panel'] : ['text/plain'] },
+    },
     target,
     position,
     accepted: false,
-    accept() { this.accepted = true; },
+    accept() {
+      this.accepted = true;
+    },
   };
 }
 
 /** A DidDrop-shaped stub whose dataTransfer serves the payload on getData.
  *  @param {{id?: string, position?: string, group?: any, withMime?: boolean}} [opts] */
-function dropEvent({ id = 'ariel', position = 'right', group = { id: 'g1' }, withMime = true } = {}) {
+function dropEvent({
+  id = 'ariel',
+  position = 'right',
+  group = { id: 'g1' },
+  withMime = true,
+} = {}) {
   return {
     nativeEvent: {
       dataTransfer: {
@@ -101,7 +110,7 @@ async function wire(api, onDropPanel = vi.fn()) {
   return { mod, container, onDropPanel };
 }
 
-describe('drag-over acceptance (paints dockview\'s drop overlay)', () => {
+describe("drag-over acceptance (paints dockview's drop overlay)", () => {
   test.each([
     ['a split geometry', 'content', 'right'],
     ['an edge-of-grid target', 'edge', 'left'],
@@ -139,17 +148,23 @@ describe('drop routing', () => {
   test.each([
     ['bottom', 'below'],
     ['top', 'above'],
-  ])('resolves the payload and hands overlay "%s" to onDropPanel as direction "%s"', async (position, direction) => {
-    const api = makeApi();
-    const group = { id: 'g1' };
-    const { onDropPanel } = await wire(api);
+  ])(
+    'resolves the payload and hands overlay "%s" to onDropPanel as direction "%s"',
+    async (position, direction) => {
+      const api = makeApi();
+      const group = { id: 'g1' };
+      const { onDropPanel } = await wire(api);
 
-    api._dropCb(dropEvent({ id: 'okf', position, group }));
+      api._dropCb(dropEvent({ id: 'okf', position, group }));
 
-    // The two vocabularies differ on the vertical axis, and addPanel throws on
-    // the untranslated value.
-    expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', { referenceGroup: group, direction });
-  });
+      // The two vocabularies differ on the vertical axis, and addPanel throws on
+      // the untranslated value.
+      expect(onDropPanel).toHaveBeenCalledExactlyOnceWith('okf', {
+        referenceGroup: group,
+        direction,
+      });
+    }
+  );
 
   test('a groupless (grid-edge) drop passes a direction-only position', async () => {
     const api = makeApi();
@@ -181,7 +196,9 @@ describe('railDragStart / railDragEnd — payload + shields', () => {
     return {
       data: /** @type {Record<string, string>} */ ({}),
       effectAllowed: '',
-      setData(/** @type {string} */ k, /** @type {string} */ v) { this.data[k] = v; },
+      setData(/** @type {string} */ k, /** @type {string} */ v) {
+        this.data[k] = v;
+      },
     };
   }
 
@@ -208,7 +225,7 @@ describe('railDragStart / railDragEnd — payload + shields', () => {
     expect(setIframePointerShield).toHaveBeenLastCalledWith(false);
   });
 
-  test('a document-level terminator lowers the shields when the source\'s dragend is lost', async () => {
+  test("a document-level terminator lowers the shields when the source's dragend is lost", async () => {
     // HTML5 delivers dragend only to the drag's SOURCE element; a rail entry
     // removed mid-drag (SSE remove_panel_from_rail / arrange prune) can never fire it, and
     // during a native drag mouseup/pointerup are suppressed. Without a

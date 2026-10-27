@@ -33,9 +33,7 @@ import { showEntry } from './entries-detail.js';
  * @returns {'expert'|'simple'}
  */
 function getUiMode() {
-  return document.documentElement.getAttribute('data-ui-mode') === 'simple'
-    ? 'simple'
-    : 'expert';
+  return document.documentElement.getAttribute('data-ui-mode') === 'simple' ? 'simple' : 'expert';
 }
 
 /**
@@ -116,9 +114,7 @@ function renderRerankStatus(uiMode) {
  * @returns {boolean}
  */
 function hasRerankFallbackWarning(results) {
-  return (results.diagnostics ?? []).some(
-    d => d.level === 'warning' && d.category === 'rerank'
-  );
+  return (results.diagnostics ?? []).some((d) => d.level === 'warning' && d.category === 'rerank');
 }
 
 /**
@@ -177,7 +173,9 @@ function renderConfigStatus(capabilities) {
 
   const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
   if (searchBtn) searchBtn.disabled = true;
-  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
+  const searchInput = /** @type {HTMLInputElement|null} */ (
+    document.getElementById('search-input')
+  );
   if (searchInput) searchInput.disabled = true;
 }
 
@@ -190,7 +188,9 @@ function renderConfigStatus(capabilities) {
 export function initSearch(capabilities = null) {
   renderConfigStatus(capabilities);
 
-  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
+  const searchInput = /** @type {HTMLInputElement|null} */ (
+    document.getElementById('search-input')
+  );
   const searchBtn = document.getElementById('search-btn');
 
   // Search input enter key
@@ -240,7 +240,9 @@ export function initSearch(capabilities = null) {
  * @param {string|null} [query] - Optional query override
  */
 export async function performSearch(query = null) {
-  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
+  const searchInput = /** @type {HTMLInputElement|null} */ (
+    document.getElementById('search-input')
+  );
   const resultsContainer = document.getElementById('search-results');
 
   query = query || searchInput?.value?.trim();
@@ -388,16 +390,13 @@ function renderSearchResults(results, mode = 'keyword') {
   if ((results.entries?.length ?? 0) > 0) {
     const sourcesSet = results.sources?.length ? new Set(results.sources) : null;
     html += '<div class="results-list">';
-    (results.entries ?? []).forEach(entry => {
+    (results.entries ?? []).forEach((entry) => {
       const isCited = sourcesSet ? sourcesSet.has(entry.entry_id) : false;
       html += renderEntryCard(entry, isCited);
     });
     html += '</div>';
   } else {
-    html += renderEmptyState(
-      'No Results Found',
-      'Try adjusting your search terms or filters.'
-    );
+    html += renderEmptyState('No Results Found', 'Try adjusting your search terms or filters.');
   }
 
   resultsContainer.innerHTML = html;
@@ -425,10 +424,7 @@ function renderSearchResultsSimple(container, results) {
 
   const entries = results.entries ?? [];
   if (entries.length === 0) {
-    html += renderEmptyState(
-      'No entries found',
-      'Try different words, or browse all entries.'
-    );
+    html += renderEmptyState('No entries found', 'Try different words, or browse all entries.');
     container.innerHTML = html;
     return;
   }
@@ -442,7 +438,7 @@ function renderSearchResultsSimple(container, results) {
   `;
 
   html += '<div class="results-list">';
-  entries.forEach(entry => {
+  entries.forEach((entry) => {
     html += renderEntryCardSimple(entry);
   });
   html += '</div>';
@@ -470,7 +466,9 @@ export function onUiModeChange() {
  * after the operator emptied the box cannot repaint the cleared view.
  */
 export function clearSearch() {
-  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
+  const searchInput = /** @type {HTMLInputElement|null} */ (
+    document.getElementById('search-input')
+  );
   const resultsContainer = document.getElementById('search-results');
 
   if (searchInput) searchInput.value = '';

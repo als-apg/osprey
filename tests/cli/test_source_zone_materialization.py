@@ -659,7 +659,7 @@ def test_summary_says_no_env_was_written_when_nothing_was_exported(
 
 
 # ---------------------------------------------------------------------------
-# Provenance (FR-6)
+# Tests of provenance, FR-6
 # ---------------------------------------------------------------------------
 
 
@@ -1471,6 +1471,9 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
         name: ({"build_profile": f"{TIERS_DIRNAME}/{name}.yml"} if rewrites else value)
         for name, value in preset_renders.items()
     }
+    # Init seeds the facility description into the profile and names it by its
+    # path: the profile's copy where the preset selects OSPREY's rule.
+    d_new["rules"] = ["facility" if rule == "rules/facility" else rule for rule in d_new["rules"]]
     assert d_new == d_preset
 
 

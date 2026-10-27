@@ -18,7 +18,7 @@ import subprocess
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import unquote, urlparse
 
 from osprey_connectors.errors import BuildProfileError
@@ -829,13 +829,26 @@ def _is_network_install_failure(output: str) -> bool:
 _VENV_CREATE_TIMEOUT_S = 300
 
 
-def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
-    """Create the project venv and install osprey + profile deps.
+class _ProjectVenvPlan(NamedTuple):
+    """Everything the project venv is built from, judged before anything is written."""
 
-    This is the single place where the project's Python environment is set up.
-    One venv, one install command, one resolver pass. The resolver sees all
-    dependencies together (osprey + profile deps + ``environment.packages``) and
-    either succeeds or fails.
+    base_python: Path | None
+    base_python_arg: str
+    osprey_spec: str
+    osprey_label: str
+    extra_deps: list[str]
+    uv_path: str | None
+    member_requirements: list[str]
+
+
+def _plan_project_venv(profile: Any) -> _ProjectVenvPlan:
+    """Judge the project environment's inputs without writing anything.
+
+    Every :class:`BuildProfileError` about the environment's inputs is raised
+    here: an invalid ``osprey_install``, a base interpreter that cannot be
+    probed, a declared base whose packages cannot be reproduced as pins, and,
+    on the pip path, a spec the workspace members cannot be located from. A
+    build refused here has not touched the project venv.
 
     The interpreter the venv is based on comes from
     ``profile.environment.python`` when set, and from the build's own
@@ -847,28 +860,83 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     a declared venv base's packages into such requirements, so a declared base
     is carried over deliberately, as pins, rather than by inheritance.
 
-    The same assembled list is installed here, recorded by
-    :func:`_write_project_pyproject`, and returned to the caller, which renders
-    it into the generated Dockerfile's install line. Three consumers, one list:
-    the host venv, its record, and the image built from it cannot disagree
-    about what the project depends on, because none of them re-derives it.
-
     See :func:`_resolve_osprey_spec` for how ``profile.osprey_install`` is
     interpreted.
-
-    Returns:
-        Every non-osprey requirement that was installed, already merged and
-        de-duplicated by :func:`_merge_project_requirements`. osprey's own
-        requirement is not in it — the image installs osprey from its own
-        pinned spec, exactly as :func:`_write_project_pyproject` records it
-        separately.
     """
     import sys
 
-    venv_path = project_path / ".venv"
-    uv_path = os.environ.get("UV") or shutil.which("uv")
     base_python = profile.environment.resolved_python()
     base_python_arg = str(base_python) if base_python is not None else sys.executable
+
+    # --- Resolve osprey install spec ---
+    osprey_install = profile.osprey_install or "local"
+    osprey_spec, osprey_label = _resolve_osprey_spec(osprey_install)
+
+    # --- Freeze the declared base environment ---
+    # Computed exactly once per build: the probe enumerates a whole environment,
+    # and a second call would be a second chance for the installed set and the
+    # recorded set to disagree — the divergence this freeze exists to close.
+    # Only a *declared* base is frozen. With no `environment.python` the base is
+    # the interpreter osprey itself happens to be installed into: an accident of
+    # how the operator installed the framework, not a curated environment, and
+    # carrying its packages (test tooling included) into every built project
+    # would be inheritance nobody asked for.
+    frozen_base = (
+        freeze_base_environment(base_python, list(profile.environment.inherit_exclude or []))
+        if base_python is not None
+        else []
+    )
+
+    # --- Merge frozen base + profile deps + environment packages ---
+    # `extra_deps` is the single non-osprey requirement list: everything the
+    # profile asks for, resolved in one pass alongside osprey itself. osprey's
+    # own requirement is not in it — the image installs osprey from its own
+    # pinned spec, exactly as `_write_project_pyproject` records it separately.
+    extra_deps = _merge_project_requirements(
+        frozen_base,
+        list(profile.dependencies or []),
+        list(profile.environment.packages or []),
+    )
+
+    # --- Choose the installer ---
+    # The pip path names the workspace members beside the framework; a spec
+    # they cannot be derived from is refused here, before the venv is written.
+    uv_path = os.environ.get("UV") or shutil.which("uv")
+    member_requirements = [] if uv_path else _pip_member_requirements(osprey_spec)
+    return _ProjectVenvPlan(
+        base_python=base_python,
+        base_python_arg=base_python_arg,
+        osprey_spec=osprey_spec,
+        osprey_label=osprey_label,
+        extra_deps=extra_deps,
+        uv_path=uv_path,
+        member_requirements=member_requirements,
+    )
+
+
+def _create_project_venv(project_path: Path, plan: _ProjectVenvPlan) -> None:
+    """Create the project venv and install osprey + profile deps from *plan*.
+
+    This is the single place where the project's Python environment is written.
+    One venv, one install command, one resolver pass. The resolver sees all
+    dependencies together (osprey + profile deps + ``environment.packages``) and
+    either succeeds or fails. What to install was judged by
+    :func:`_plan_project_venv`; this step only writes.
+
+    The plan's ``extra_deps`` is the one list that the venv, its record and the
+    image line all read: it is installed here, recorded by
+    :func:`_write_project_pyproject`, and rendered by the caller into the
+    generated Dockerfile's install line. None of them re-derives it, so the
+    host venv, its record and the image built from it cannot disagree about
+    what the project depends on.
+    """
+    venv_path = project_path / ".venv"
+    uv_path = plan.uv_path
+    base_python = plan.base_python
+    base_python_arg = plan.base_python_arg
+    osprey_spec = plan.osprey_spec
+    osprey_label = plan.osprey_label
+    extra_deps = plan.extra_deps
 
     # --- Create venv ---
     logger.info("  Creating project virtual environment...")
@@ -918,34 +986,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
         output = (result.stdout + result.stderr).strip()
         raise BuildProfileError(f"Failed to create project venv: {output}")
 
-    # --- Resolve osprey install spec ---
-    osprey_install = profile.osprey_install or "local"
-    osprey_spec, osprey_label = _resolve_osprey_spec(osprey_install)
-
-    # --- Freeze the declared base environment ---
-    # Computed exactly once per build: the probe enumerates a whole environment,
-    # and a second call would be a second chance for the installed set and the
-    # recorded set to disagree — the divergence this freeze exists to close.
-    # Only a *declared* base is frozen. With no `environment.python` the base is
-    # the interpreter osprey itself happens to be installed into: an accident of
-    # how the operator installed the framework, not a curated environment, and
-    # carrying its packages (test tooling included) into every built project
-    # would be inheritance nobody asked for.
-    frozen_base = (
-        freeze_base_environment(base_python, list(profile.environment.inherit_exclude or []))
-        if base_python is not None
-        else []
-    )
-
     # --- Install osprey + frozen base + profile deps + environment packages ---
-    # `extra_deps` is the single non-osprey requirement list: everything the
-    # profile asks for, resolved in one pass alongside osprey itself, and the
-    # same list `_write_project_pyproject` records below.
-    extra_deps = _merge_project_requirements(
-        frozen_base,
-        list(profile.dependencies or []),
-        list(profile.environment.packages or []),
-    )
     all_deps = [osprey_spec] + extra_deps
     venv_python = venv_path / "bin" / "python"
     dep_count = len(extra_deps)
@@ -970,7 +1011,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
             # pip draws the same line uv does: see _pins_prerelease.
             cmd.append("--pre")
         cmd += all_deps
-        cmd += _pip_member_requirements(osprey_spec)
+        cmd += plan.member_requirements
 
     from rich.live import Live
     from rich.spinner import Spinner
@@ -1004,8 +1045,3 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
     # --- Record deps in pyproject.toml ---
     # The recorded list is the installed list — same object, no re-derivation.
     _write_project_pyproject(project_path, osprey_spec, osprey_label, extra_deps, base_python_arg)
-
-    # Handed back for the image's install line — the third consumer of this one
-    # list. Returned only after the install and the record both succeeded, so a
-    # failed build never yields a list for an image to be built from.
-    return extra_deps

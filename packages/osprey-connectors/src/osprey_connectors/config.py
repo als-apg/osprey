@@ -50,7 +50,6 @@ __all__ = [
     "ConfigBuilder",
     "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
     "EXECUTION_METHOD_SUBPROCESS",
-    "RUNTIME_STATE_DIR",
     "RUNTIME_WRITE_PATH_KEYS",
     "config_anchored_at",
     "config_flag",
@@ -62,7 +61,6 @@ __all__ = [
     "get_config_value",
     "get_configurable",
     "get_facility_timezone",
-    "get_framework_service_config",
     "get_full_configuration",
     "is_unresolved_placeholder",
     "load_config",
@@ -301,7 +299,7 @@ _BUILD_OWNED_DATA_DIR = "data"
 #: Directory runtime state belongs in — the durable ``var/`` zone, outside the
 #: render entirely, so it survives every rebuild of ``build/``. Named in the
 #: advisory that fires when a runtime writer is pointed at build-owned ``data/``.
-RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
+_RUNTIME_STATE_DIR = DEFAULT_AGENT_DATA_BASE_DIR
 
 #: Config keys whose value names a path something writes to *at run time*.
 #: These must stay out of ``data/``: that tree is build-owned and checksummed by
@@ -665,7 +663,7 @@ class ConfigBuilder:
                 value,
                 _BUILD_OWNED_DATA_DIR,
                 self.config_path,
-                RUNTIME_STATE_DIR,
+                _RUNTIME_STATE_DIR,
             )
 
     def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
@@ -1119,25 +1117,6 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
         >>> channels = config.get("channel_finder", {})
     """
     return _get_config(config_path).raw_config
-
-
-def get_framework_service_config(
-    service_name: str, config_path: str | None = None
-) -> dict[str, Any]:
-    """Get framework service configuration with automatic context detection.
-
-    Args:
-        service_name: Name of the framework service
-        config_path: Optional explicit path to configuration file
-
-    Returns:
-        Dictionary with service configuration
-    """
-    configurable = get_configurable(config_path)
-    service_configs: dict[str, Any] = configurable.get("service_configs", {})
-    return mapping_or_empty(
-        service_configs.get(service_name), f"services.{service_name}", config_path
-    )
 
 
 def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:

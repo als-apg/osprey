@@ -61,7 +61,7 @@ not inherit their state.
 Gating: needs Docker; the VA image builds natively for the host arch, so on
 Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) --
 slow (minutes) on a cold image cache. Lives in ``tests/e2e/`` (never collected
-by the fast lane, see ``ci_check.sh``/ci.yml). Run locally with
+by the fast lane, see ``scripts/check.py``/ci.yml). Run locally with
 ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image cache is warm.
 
 Markers: ``e2e``/``slow``/docker-gated, matching

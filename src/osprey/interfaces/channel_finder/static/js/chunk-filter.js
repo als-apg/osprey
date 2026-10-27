@@ -22,7 +22,7 @@
  */
 export function filterChannels(channels, filterText) {
   if (!filterText) return channels;
-  return channels.filter(ch => {
+  return channels.filter((ch) => {
     const name = (ch.name || ch.channel_name || ch.channel || '').toLowerCase();
     const addr = (ch.address || ch.pv_address || '').toLowerCase();
     const desc = (ch.description || '').toLowerCase();

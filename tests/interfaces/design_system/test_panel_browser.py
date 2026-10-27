@@ -104,7 +104,7 @@ def test_reference_panel_applies_requested_theme(chromium_browser, theme_id: str
         page = chromium_browser.new_page()
         try:
             # A clean load also proves the panel's /design-system head assets
-            # (theme-boot.js, tokens.css, theme-manager.js, frame-params.js)
+            # theme-boot.js, tokens.css, theme-manager.js and frame-params.js
             # resolved — if any 404'd, boot would not run and theming would
             # silently no-op rather than fail visibly.
             assert_page_loads_clean(page, f"{base_url}/panel?theme={theme_id}")

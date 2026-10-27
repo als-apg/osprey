@@ -9,13 +9,13 @@ group, where no group signal may be sent, so its descendants in that group are
 listed by :func:`server_group_members` and ended one by one with
 :func:`end_processes`.
 
-The tree is read from ``ps``: macOS has no ``/proc`` and psutil is not a
-dependency, while ``ps`` is present on every host the server runs on. Without
-``ps``, or when ``ps`` fails, nothing is found, so ``PtySession.terminate``
-reaches only the child's own group. One failed read is not a host without
-``ps``, and the tree can only be read while its root lives, so a reader that
-must not miss a tree reads through :func:`read_while_alive`, which retries
-while the root is alive, and says so when it still could not look.
+The tree is read in-process with psutil, so a read never forks and has no
+timeout: a busy host makes it slower, never unknown. A tree is read through
+one reader, :func:`read_while_alive`, which raises
+:class:`ProcessTableUnreadable` when it could not look, so no caller takes an
+unknown tree for one that started nothing. The tree can only be read while
+its root lives, so that is the only time the reader retries a failed read.
+The liveness checks that wait for an ending count an unknown member as alive.
 
 A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
@@ -36,18 +36,19 @@ import contextlib
 import os
 import re
 import signal
-import subprocess
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+import psutil
+
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("process_tree")
 
-# Every process with its parent, group, state, full start time and command line, no header.
-_PS_COMMAND = ["ps", "-A", "-o", "pid=,ppid=,pgid=,stat=,lstart=,command="]
+# What a read asks psutil for, per process; the group comes from ``os.getpgid``.
+_ATTRS = ["pid", "ppid", "status", "create_time", "cmdline", "name"]
 # Programs that are shells: the agent CLI starts every command through one of them.
 _SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"})
 # The script the agent CLI's shell wrapper runs: setup pieces joined by ``&&``, then
@@ -61,8 +62,10 @@ END_TERM_WAIT_S = 3.0
 END_KILL_WAIT_S = 2.0
 # Interval between snapshots while waiting for groups to end.
 _POLL_S = 0.05
-# How many times a tree that must not be missed is read before the reader gives up.
-TREE_READ_ATTEMPTS = 3
+# How long a tree read retries a failed read while its root lives.
+READ_WAIT_S = 5.0
+# Interval between attempts to read an unreadable table.
+_READ_RETRY_S = 0.25
 # Longest label kept for a group.
 _LABEL_MAX = 40
 # Longest command line sent to the browser for a group.
@@ -77,68 +80,99 @@ _SHELL_SYNTAX = re.compile(r"[;|&<>()$`'\"\\]|^\S+=")
 
 @dataclass(frozen=True)
 class ProcessRow:
-    """One process as ``ps`` reported it."""
+    """One process as the process table reported it."""
 
     pid: int
     ppid: int
     pgid: int
     started: float  # epoch seconds
     command: str
-    state: str  # ``ps`` state; a leading ``Z`` is an exited process nobody has reaped
-
-    @property
-    def exited(self) -> bool:
-        return self.state.startswith("Z")
+    exited: bool  # a zombie: exited, and nobody has reaped it yet
 
 
-def snapshot() -> dict[int, ProcessRow] | None:
-    """Return every process on the host by pid, or None when ``ps`` cannot be read."""
-    try:
-        result = subprocess.run(
-            _PS_COMMAND,
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=True,
-            env={**os.environ, "LC_ALL": "C"},
+class ProcessTableUnreadable(RuntimeError):
+    """The process table could not be read, so what is running is unknown.
+
+    ``cause`` is the failure. ``retryable`` is false when another read cannot
+    answer either: the host has no process table, or reading it is refused.
+    """
+
+    def __init__(self, cause: BaseException, *, retryable: bool | None = None) -> None:
+        super().__init__(f"cannot read the process table: {cause}")
+        self.cause = cause
+        self.retryable = (
+            not isinstance(cause, FileNotFoundError | PermissionError | psutil.AccessDenied)
+            if retryable is None
+            else retryable
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.debug("Cannot read the process table: %s", exc)
-        return None
+
+
+def snapshot() -> dict[int, ProcessRow]:
+    """Return every process on the host by pid.
+
+    A row that cannot be read because its process is exiting, or whose group
+    or start can no longer be read, is absent. Only a failure to enumerate the
+    table itself raises.
+
+    Raises:
+        ProcessTableUnreadable: The process table could not be enumerated.
+    """
     rows: dict[int, ProcessRow] = {}
-    for line in result.stdout.splitlines():
-        parts = line.split(None, 9)
-        if len(parts) != 10:
-            continue
-        try:
-            pid, ppid, pgid = int(parts[0]), int(parts[1]), int(parts[2])
-            started = time.mktime(time.strptime(" ".join(parts[4:9]), "%a %b %d %H:%M:%S %Y"))
-        except (ValueError, OverflowError):
-            continue
-        rows[pid] = ProcessRow(pid, ppid, pgid, started, parts[9], parts[3])
+    try:
+        for process in psutil.process_iter():
+            try:
+                info = process.as_dict(_ATTRS, ad_value=None)
+            # SystemError covers a psutil defect on macOS, where reading the command
+            # line of an exiting process raises it from the C extension; the catch
+            # is dropped once psutil fixes it.
+            except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied, SystemError):
+                continue
+            pid, ppid, started = info["pid"], info["ppid"], info["create_time"]
+            if ppid is None or started is None:
+                continue
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                continue
+            cmdline = info["cmdline"]
+            command = " ".join(cmdline) if cmdline else info["name"] or ""
+            exited = info["status"] == psutil.STATUS_ZOMBIE
+            rows[pid] = ProcessRow(pid, ppid, pgid, started, command, exited)
+    except (psutil.Error, OSError, SystemError) as exc:
+        raise ProcessTableUnreadable(exc) from exc
     return rows
 
 
-def read_while_alive(alive: Callable[[], bool]) -> dict[int, ProcessRow] | None:
+def read_while_alive(alive: Callable[[], bool]) -> dict[int, ProcessRow]:
     """Return a :func:`snapshot` taken while the root of a tree is alive, retrying a failed read.
 
-    *alive* says whether the root still runs. A read is only worth taking while
-    it does, so each of the up to :data:`TREE_READ_ATTEMPTS` reads is preceded
-    by that question, and the first one that succeeds is returned.
+    *alive* says whether the root still runs. A tree can only be read while it
+    does, so every read, the first included, is preceded by that question, and
+    a failed read is retried only while the answer is yes. Attempts are
+    :data:`_READ_RETRY_S` apart and none starts once :data:`READ_WAIT_S` has
+    passed since the first, so the call blocks for at most that plus one read.
 
-    Returns:
-        The process table, or ``None`` when it could not be read while the
-        root was alive: what the root started is then unknown, never empty.
+    Raises:
+        ProcessTableUnreadable: No read succeeded while the root was alive:
+            what it started is unknown, never empty. Raised at once for a
+            failure no retry can answer, and with :class:`ProcessLookupError`
+            as the cause when the root had exited before a read was taken.
     """
-    for attempt in range(TREE_READ_ATTEMPTS):
-        if attempt:
-            time.sleep(_POLL_S)
-        if not alive():
-            return None
-        rows = snapshot()
-        if rows is not None:
-            return rows
-    return None
+    deadline = time.monotonic() + READ_WAIT_S
+    failure: ProcessTableUnreadable | None = None
+    while alive():
+        try:
+            return snapshot()
+        except ProcessTableUnreadable as exc:
+            failure = exc
+            if not exc.retryable or time.monotonic() + _READ_RETRY_S > deadline:
+                raise
+        time.sleep(_READ_RETRY_S)
+    if failure is not None:
+        raise failure
+    raise ProcessTableUnreadable(
+        ProcessLookupError("the root exited before the table was read"), retryable=False
+    )
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -277,24 +311,20 @@ def _group(pgid: int, rows: Sequence[ProcessRow]) -> ProcessGroup:
     )
 
 
-def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[ProcessGroup]:
+def tree_groups(root: int, rows: dict[int, ProcessRow]) -> list[ProcessGroup]:
     """Return every process group a process descending from *root* belongs to.
 
     *root* is included. The server's own group and groups 0 and 1 are never
     returned. A group's members are every process in it, including one already
     reparented out of the tree, since a signal to the group reaches it.
-    Ordered by earliest member start, then by pgid: ``ps`` reports start times
-    in whole seconds, so groups started within one second tie on time, and the
-    pgid keeps their order the same from one look to the next.
+    Ordered by earliest member start, then by pgid: the pgid keeps groups whose
+    starts are equal in the same order from one look to the next.
 
-    *rows* defaults to a fresh :func:`snapshot`, and nothing is found when
-    that cannot be read. Either way the table must have been read while *root*
-    was alive: a process that put itself in a new session keeps its parent
-    link only until its parent exits.
+    *rows* is the table :func:`read_while_alive` read while *root* was alive:
+    a process that put itself in a new session keeps its parent link only
+    until its parent exits.
     """
-    if rows is None:
-        rows = snapshot()
-    if rows is None or root not in rows:
+    if root not in rows:
         return []
     children: dict[int, list[int]] = {}
     for row in rows.values():
@@ -317,42 +347,40 @@ def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[Pr
     return sorted(groups, key=lambda g: (min(started for _, started in g.members), g.pgid))
 
 
-def started_groups(root: int, alive: Callable[[], bool]) -> list[ProcessGroup] | None:
+def started_groups(root: int, alive: Callable[[], bool]) -> list[ProcessGroup]:
     """Return the process groups *root*'s descendants split off for their commands.
 
     That is :func:`tree_groups` without *root*'s own group: the groups an
     agent runs its shell commands in. The table is read through
-    :func:`read_while_alive`, with *alive* saying whether *root* still runs,
-    so a failed read is retried. Blocking (it runs ``ps``).
+    :func:`read_while_alive`, with *alive* saying whether *root* still runs.
+    Blocking (it reads the process table).
 
     Returns:
-        The groups, empty when *root* has exited or started nothing; or
-        ``None`` when the table could not be read while *root* was alive:
-        what it started is then unknown, never empty.
+        The groups, empty when *root* started nothing or no longer exists.
+
+    Raises:
+        ProcessTableUnreadable: The table could not be read while *root* was
+            alive: what it started is unknown.
     """
     try:
         own = os.getpgid(root)
     except OSError:
         return []
     rows = read_while_alive(alive)
-    if rows is None:
-        return None if alive() else []
     return [group for group in tree_groups(root, rows) if group.pgid != own]
 
 
-def server_group_members(root: int, rows: dict[int, ProcessRow] | None = None) -> list[ProcessRow]:
+def server_group_members(root: int, rows: dict[int, ProcessRow]) -> list[ProcessRow]:
     """Return *root*'s descendants that are in the server's own process group.
 
     A process in the server's own group cannot be ended through its group,
     which :func:`tree_groups` never returns and :func:`end_groups` never
     signals, so these are ended one by one with :func:`end_processes`.
     *root* itself and the server are never listed. Ordered by start time, then pid.
-    *rows* defaults to a fresh :func:`snapshot`; it must have been read while
-    *root* was alive, for the same reason as in :func:`tree_groups`.
+    *rows* is the table :func:`read_while_alive` read while *root* was alive,
+    for the same reason as in :func:`tree_groups`.
     """
-    if rows is None:
-        rows = snapshot()
-    if rows is None or root not in rows:
+    if root not in rows:
         return []
     children: dict[int, list[int]] = {}
     for row in rows.values():
@@ -382,8 +410,9 @@ def still_running(
     read every group is returned: an unknown group is never claimed gone.
     """
     if rows is None:
-        rows = snapshot()
-        if rows is None:
+        try:
+            rows = snapshot()
+        except ProcessTableUnreadable:
             return list(groups)
     alive = []
     for group in groups:
@@ -448,8 +477,9 @@ def _live_rows(rows: Sequence[ProcessRow]) -> list[ProcessRow]:
     Every row is returned when the table cannot be read: an unknown process is
     never claimed gone.
     """
-    current = snapshot()
-    if current is None:
+    try:
+        current = snapshot()
+    except ProcessTableUnreadable:
         return list(rows)
     live = []
     for row in rows:

@@ -82,15 +82,24 @@ def _free_port() -> str:
 #: stub view again for a start-up pass that fails.
 SERVERS = ("names", "demo", "stub", "first_pass")
 
-# import-time required because libca latches the EPICS_CA_* environment when
-# the CA context is created, which happens on the first Channel Access call
-# anywhere in the process. Each server listens on a Channel Access port of its own, so the client
+# Each server listens on a Channel Access port of its own, so the client
 # searches them all; the pairing of server and port is fixed here, once.
 CA_PORTS: dict[str, str] = {server: _free_port() for server in SERVERS}
-# import-time required because libca reads the search list once, when the CA
-# context is created.
-os.environ["EPICS_CA_ADDR_LIST"] = " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS)
-os.environ["EPICS_CA_AUTO_ADDR_LIST"] = "NO"
+# What this module's client searches with. libca reads its settings once, when
+# the process's CA context is created, and other modules collected into the same
+# process write their own at import (test_apply_fault.py names a port of its own).
+# So these are not written into os.environ at import: `_served` hands them to
+# CaLoop.point_at before it starts a server, which writes them and drops a
+# context already created under different ones, whichever module ran first.
+CA_CLIENT_ENV: dict[str, str | None] = {
+    "EPICS_CA_ADDR_LIST": " ".join(f"127.0.0.1:{CA_PORTS[s]}" for s in SERVERS),
+    "EPICS_CA_AUTO_ADDR_LIST": "NO",
+    "EPICS_CA_SERVER_PORT": None,
+    "EPICS_CA_NAME_SERVERS": None,
+}
+# import-time required because libca reads the repeater port when the first CA
+# context in the process is created, which may be another module's, before any
+# of this module's fixtures run; point_at does not carry it.
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
 # Found, never imported: pcaspy's extension bundles its own EPICS base, and
@@ -733,6 +742,9 @@ def _served(
         "health_file": str(view_dir.parent / f"{server}-health" / "health.json"),
     }
     view = json.loads((view_dir / "variables.json").read_text(encoding="utf-8"))
+    from osprey_connectors.control_system._ca_loop import get_ca_loop
+
+    _on_ca_loop(get_ca_loop().point_at(CA_CLIENT_ENV))
     served = _Server(spec, view, state_dir)
     try:
         yield served
@@ -801,11 +813,16 @@ def _ca(address: str) -> dict[str, Any]:
 
 
 def _ca_text(address: str) -> str:
-    """A string channel's text, read once over CA."""
+    """A string channel's text, read once over CA.
+
+    The server serves a string variable as a char array, so its text is the
+    array read as a NUL-terminated string (``DBR_CHAR_STR``); a ``DBR_STRING``
+    read of it answers one number per character.
+    """
     import aioca
 
     text = _on_ca_loop(
-        aioca.caget(address, datatype=aioca.DBR_STRING, timeout=CA_TIMEOUT_S, throw=False)
+        aioca.caget(address, datatype=aioca.DBR_CHAR_STR, timeout=CA_TIMEOUT_S, throw=False)
     )
     assert text.ok, f"{address} returned nothing over CA"
     return str(text)

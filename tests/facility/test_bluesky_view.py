@@ -294,6 +294,25 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
     assert err.count("view bluesky not written: services.bluesky") == 1
 
 
+@pytest.mark.slow
+def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
+    built_control_assistant: BuiltProject,
+) -> None:
+    """A real build hands every render one ``omitted_reported`` set.
+
+    Most of the shared build's renders run no Bluesky lane, so each of them
+    omits the view, and the build names it once.
+    """
+    without = [
+        render
+        for render in built_control_assistant.outputs
+        if f"data/{BLUESKY_DEVICES_FILE}" not in render.files
+    ]
+
+    assert len(without) > 1
+    assert built_control_assistant.output.count("view bluesky not written: services.bluesky") == 1
+
+
 # --- the demo ----------------------------------------------------------------------
 
 

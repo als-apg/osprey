@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import time
 
+import psutil
 import pytest
 
 from osprey.interfaces.web_terminal import process_tree
@@ -19,20 +19,18 @@ from tests.interfaces.web_terminal._pty_child import (
     detaching_child_script,
     kill_quietly,
     pid_gone,
+    readable_rows,
     sleeper_script,
     wait_for_pids,
 )
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
 ]
 
 
 def _own_row() -> process_tree.ProcessRow:
-    rows = process_tree.snapshot()
-    assert rows is not None
-    return rows[os.getpid()]
+    return readable_rows(holding=[os.getpid()])[os.getpid()]
 
 
 def test_a_started_group_and_the_roots_own_group_are_found(tmp_path):
@@ -47,7 +45,8 @@ def test_a_started_group_and_the_roots_own_group_are_found(tmp_path):
         child = session.pid
         assert child is not None
 
-        groups = {g.pgid: g for g in process_tree.tree_groups(child)}
+        rows = readable_rows(holding=[child, grandchild, helper])
+        groups = {g.pgid: g for g in process_tree.tree_groups(child, rows)}
 
         assert set(groups) == {grandchild, os.getpgid(child)}
         assert groups[grandchild].label == "magnet_scan.py"
@@ -60,29 +59,28 @@ def test_a_started_group_and_the_roots_own_group_are_found(tmp_path):
 
 def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
     """Groups whose earliest members started in the same second come back by pgid."""
-    # ``ps`` reports whole seconds, so commands started within one second compare equal.
+    # Commands whose starts compare equal keep one order across looks.
     second = 1_700_000_000.0
     rows = {
-        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, False)
         for pid, ppid, pgid, started, command in [
             (4202, 1, 4202, second - 5.0, "agent"),
             (4208, 4202, 4208, second, "python orbit_poll.py"),
             (4201, 4202, 4201, second, "python magnet_scan.py"),
         ]
     }
-    monkeypatch.setattr(process_tree, "snapshot", lambda: rows)
     monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
 
-    groups = process_tree.tree_groups(4202)
+    groups = process_tree.tree_groups(4202, rows)
 
     assert [g.pgid for g in groups] == [4202, 4201, 4208]
     assert [g.label for g in groups] == ["agent", "magnet_scan.py", "orbit_poll.py"]
 
 
-# ``ps`` reports whole seconds, so every row of one look carries a fixed, round start.
+# A fixed, round start for every row of one look.
 _SECOND = 1_700_000_000.0
 _AGENT = "/home/op/.local/bin/claude --setting-sources project --mcp-config=.mcp.json"
-# The agent CLI's shell wrapper as ``ps`` lists it, around the command it evaluates.
+# The agent CLI's shell wrapper as the process table lists it, around the command it evaluates.
 _WRAPPER_HEAD = (
     "/bin/zsh -c source /home/op/.claude/shell-snapshots/snapshot-zsh-1791044269505-8e7vp7.sh "
     "2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && eval "
@@ -100,7 +98,7 @@ def _wrapper(command: str) -> str:
 def _table(*rows: tuple[int, int, int, float, str]) -> dict[int, process_tree.ProcessRow]:
     """A process table of ``(pid, ppid, pgid, started, command)`` rows, all running."""
     return {
-        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, False)
         for pid, ppid, pgid, started, command in rows
     }
 
@@ -122,8 +120,7 @@ def test_a_started_loop_is_named_the_same_on_every_look(monkeypatch):
         (4231, 4211, 4210, _SECOND + 8.0, "date"),
     ]:
         rows = _table(*_LOOP, leaf)
-        monkeypatch.setattr(process_tree, "snapshot", lambda rows=rows: rows)
-        (group,) = [g for g in process_tree.tree_groups(4202) if g.pgid == 4210]
+        (group,) = [g for g in process_tree.tree_groups(4202, rows) if g.pgid == 4210]
         seen.append(group.to_json())
 
     assert seen[0] == seen[1]
@@ -144,10 +141,9 @@ def test_two_different_loops_are_named_differently(monkeypatch):
         ),
         (4232, 4213, 4212, _SECOND + 7.0, "sleep 1"),
     )
-    monkeypatch.setattr(process_tree, "snapshot", lambda: rows)
     monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
 
-    groups = {g.pgid: g for g in process_tree.tree_groups(4202)}
+    groups = {g.pgid: g for g in process_tree.tree_groups(4202, rows)}
 
     assert groups[4210].to_json() == {
         "label": "bash -c 'while true; do date >> /tmp/be…",
@@ -165,10 +161,9 @@ def test_a_leader_that_is_no_wrapper_names_the_group_as_it_is(monkeypatch):
         (4210, 4202, 4210, _SECOND, "/x/bin/python /x/magnet_scan.py --sector 3"),
         (4230, 4210, 4210, _SECOND + 7.0, "sleep 5"),
     )
-    monkeypatch.setattr(process_tree, "snapshot", lambda: rows)
     monkeypatch.setattr(process_tree.os, "getpgrp", lambda: 100)
 
-    groups = {g.pgid: g for g in process_tree.tree_groups(4202)}
+    groups = {g.pgid: g for g in process_tree.tree_groups(4202, rows)}
 
     assert groups[4210].to_json() == {
         "label": "magnet_scan.py",
@@ -240,16 +235,15 @@ def test_still_running_drops_a_group_whose_members_ended():
         [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
     )
     try:
-        rows = process_tree.snapshot()
-        assert rows is not None
+        rows = readable_rows(holding=[proc.pid])
         row = rows[proc.pid]
         group = ProcessGroup(row.pgid, ((row.pid, row.started),), "sleep", row.command)
-        assert process_tree.still_running([group]) == [group]
+        assert process_tree.still_running([group], readable_rows()) == [group]
     finally:
         proc.kill()
         proc.wait()
     assert pid_gone(proc.pid)
-    assert process_tree.still_running([group]) == []
+    assert process_tree.still_running([group], readable_rows()) == []
 
 
 def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
@@ -259,22 +253,19 @@ def test_still_running_drops_a_group_whose_members_are_unreaped_zombies():
         start_new_session=True,
     )
     try:
-        rows = process_tree.snapshot()
-        assert rows is not None
+        rows = readable_rows(holding=[proc.pid])
         row = rows[proc.pid]
         group = ProcessGroup(row.pgid, ((row.pid, row.started),), "python", row.command)
         assert proc.stdin is not None
         proc.stdin.close()
         deadline = time.monotonic() + 10
         state = ""
-        while not state.startswith("Z"):
+        while state != psutil.STATUS_ZOMBIE:
             assert time.monotonic() < deadline
             time.sleep(0.05)
-            state = subprocess.run(
-                ["ps", "-o", "stat=", "-p", str(proc.pid)], capture_output=True, text=True
-            ).stdout.strip()
+            state = psutil.Process(proc.pid).status()
 
-        assert process_tree.still_running([group]) == []
+        assert process_tree.still_running([group], readable_rows()) == []
     finally:
         proc.kill()
         proc.wait()
@@ -285,11 +276,7 @@ def test_still_running_drops_a_reused_group_id():
         [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
     )
     try:
-        deadline = time.monotonic() + 10
-        rows = process_tree.snapshot()
-        while rows is None or proc.pid not in rows:
-            assert time.monotonic() < deadline
-            rows = process_tree.snapshot()
+        rows = readable_rows(holding=[proc.pid])
         row = rows[proc.pid]
         group = ProcessGroup(row.pgid, ((row.pid, row.started + 1.0),), "sleep", row.command)
         assert process_tree.still_running([group], rows) == []
@@ -311,15 +298,138 @@ def test_end_groups_never_signals_the_servers_own_group(monkeypatch):
     assert os.getpgrp() not in signalled
 
 
-def test_no_ps_finds_nothing_and_drops_nothing(monkeypatch):
-    def no_ps(*args, **kwargs):
-        raise FileNotFoundError("ps")
+def _failing_reads(exc: BaseException):
+    """A ``process_iter`` that fails with *exc* once iterated."""
 
-    monkeypatch.setattr(process_tree.subprocess, "run", no_ps)
+    def process_iter(*args, **kwargs):
+        raise exc
+        yield  # a generator, as ``psutil.process_iter`` is
+
+    return process_iter
+
+
+@pytest.mark.parametrize(
+    ("failure", "retryable"),
+    [
+        (psutil.Error("x"), True),
+        (OSError("x"), True),
+        (SystemError("x"), True),
+        (psutil.AccessDenied(), False),
+        (FileNotFoundError("x"), False),
+        (PermissionError("x"), False),
+    ],
+)
+def test_an_unreadable_table_raises_naming_the_cause(monkeypatch, failure, retryable):
+    monkeypatch.setattr(process_tree.psutil, "process_iter", _failing_reads(failure))
+
+    with pytest.raises(process_tree.ProcessTableUnreadable) as caught:
+        process_tree.snapshot()
+
+    assert caught.value.cause is failure
+    assert caught.value.retryable is retryable
+
+
+def test_no_process_table_is_unknown_to_readers_and_alive_to_liveness(monkeypatch):
+    monkeypatch.setattr(process_tree.psutil, "process_iter", _failing_reads(psutil.AccessDenied()))
     groups = [ProcessGroup(4242, ((4242, 0.0),), "scan.py", "python scan.py")]
 
-    assert process_tree.tree_groups(os.getpid()) == []
+    with pytest.raises(process_tree.ProcessTableUnreadable) as caught:
+        process_tree.read_while_alive(lambda: True)
+    assert not caught.value.retryable
+    with pytest.raises(process_tree.ProcessTableUnreadable):
+        process_tree.started_groups(os.getpid(), lambda: True)
     assert process_tree.still_running(groups) == groups
+
+
+class _FakeProcess:
+    def __init__(
+        self, pid: int, ppid: int, command: list[str], fails: BaseException | None = None
+    ) -> None:
+        self.fails = fails
+        self.info = {
+            "pid": pid,
+            "ppid": ppid,
+            "status": psutil.STATUS_SLEEPING,
+            "create_time": _SECOND + pid,
+            "cmdline": command,
+            "name": command[0],
+        }
+
+    def as_dict(self, attrs=None, ad_value=None) -> dict:  # noqa: ARG002 - psutil's signature
+        if self.fails is not None:
+            raise self.fails
+        return dict(self.info)
+
+
+@pytest.mark.parametrize("refusal", [ProcessLookupError, PermissionError])
+def test_a_row_whose_group_cannot_be_read_is_absent_not_fatal(monkeypatch, refusal):
+    processes = [
+        _FakeProcess(4201, 1, ["python", "magnet_scan.py"]),
+        _FakeProcess(4202, 1, ["sleep", "60"]),
+        _FakeProcess(4203, 1, ["python", "orbit_poll.py"]),
+    ]
+
+    def getpgid(pid: int) -> int:
+        if pid == 4202:
+            raise refusal(pid)
+        return pid
+
+    monkeypatch.setattr(process_tree.psutil, "process_iter", lambda *a, **k: iter(processes))
+    monkeypatch.setattr(process_tree.os, "getpgid", getpgid)
+
+    rows = process_tree.snapshot()
+
+    assert set(rows) == {4201, 4203}
+    assert rows[4201].command == "python magnet_scan.py"
+    assert rows[4201].pgid == 4201
+
+
+def _iterating(processes: list[_FakeProcess]):
+    """A ``process_iter`` that reads each row inside the generator, as psutil 7.2.2 does."""
+
+    def process_iter(attrs=None, ad_value=None):
+        for process in processes:
+            if attrs is not None:
+                process.info = process.as_dict(attrs, ad_value)
+            yield process
+
+    return process_iter
+
+
+@pytest.mark.parametrize(
+    "failure", [SystemError("proc_cmdline"), psutil.NoSuchProcess(4202), psutil.AccessDenied()]
+)
+def test_a_row_that_cannot_be_read_is_absent_not_fatal(monkeypatch, failure):
+    processes = [
+        _FakeProcess(4201, 1, ["python", "magnet_scan.py"]),
+        _FakeProcess(4202, 1, ["sleep", "60"], fails=failure),
+        _FakeProcess(4203, 1, ["python", "orbit_poll.py"]),
+    ]
+    monkeypatch.setattr(process_tree.psutil, "process_iter", _iterating(processes))
+    monkeypatch.setattr(process_tree.os, "getpgid", lambda pid: pid)
+
+    rows = process_tree.snapshot()
+
+    assert set(rows) == {4201, 4203}
+
+
+def test_reading_the_table_never_forks(monkeypatch):
+    def no_fork(*args, **kwargs):
+        raise AssertionError("reading the process table forked")
+
+    monkeypatch.setattr(subprocess, "Popen", no_fork)
+    monkeypatch.setattr(os, "fork", no_fork)
+
+    rows = process_tree.snapshot()
+
+    assert rows[os.getpid()].pgid == os.getpgrp()
+
+
+def test_a_process_keeps_its_start_across_reads():
+    first = readable_rows(holding=[os.getpid()])[os.getpid()]
+    second = readable_rows(holding=[os.getpid()])[os.getpid()]
+
+    assert first.started == second.started
 
 
 def test_describe_names_a_group_by_its_name_not_its_command_line():
@@ -356,6 +466,7 @@ def _read_pids(path, count: int) -> list[int]:
         time.sleep(0.05)
 
 
+@pytest.mark.usefixtures("readable_process_table")
 async def test_server_group_members_are_the_roots_descendants_in_the_servers_group(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     pids: list[int] = []
@@ -365,7 +476,8 @@ async def test_server_group_members_are_the_roots_descendants_in_the_servers_gro
             pids = _read_pids(factory.pid_files[0], 2)
             grandchild, helper = pids
 
-            members = {row.pid for row in process_tree.server_group_members(root)}
+            rows = readable_rows(holding=[root, *pids])
+            members = {row.pid for row in process_tree.server_group_members(root, rows)}
 
             assert helper in members
             assert root not in members
@@ -374,6 +486,7 @@ async def test_server_group_members_are_the_roots_descendants_in_the_servers_gro
             kill_quietly(pids)
 
 
+@pytest.mark.usefixtures("readable_process_table")
 async def test_started_groups_leave_out_the_roots_own_group(tmp_path):
     factory = child_factory(tmp_path, scripts=("magnet_scan.py",))
     pids: list[int] = []
@@ -385,7 +498,6 @@ async def test_started_groups_leave_out_the_roots_own_group(tmp_path):
 
             process = client._transport._process
             groups = process_tree.started_groups(root, lambda: process.returncode is None)
-            assert groups is not None
 
             assert [g.pgid for g in groups] == [grandchild]
             assert groups[0].label == "magnet_scan.py"
@@ -403,7 +515,6 @@ async def test_started_groups_leave_out_the_roots_own_group(tmp_path):
         assert child is not None
 
         groups = process_tree.started_groups(child, lambda: session.is_alive)
-        assert groups is not None
         pgids = {g.pgid for g in groups}
 
         assert pgids == {pty_pids[0]}
@@ -428,14 +539,9 @@ def test_end_processes_never_signals_the_server(monkeypatch):
 def test_end_processes_skips_a_reused_pid(monkeypatch):
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        deadline = time.monotonic() + 10
-        rows = process_tree.snapshot()
-        while rows is None or proc.pid not in rows:
-            assert time.monotonic() < deadline
-            rows = process_tree.snapshot()
-        live = rows[proc.pid]
+        live = readable_rows(holding=[proc.pid])[proc.pid]
         reused = process_tree.ProcessRow(
-            live.pid, live.ppid, live.pgid, live.started + 1.0, live.command, live.state
+            live.pid, live.ppid, live.pgid, live.started + 1.0, live.command, live.exited
         )
         signalled: list[int] = []
         # Scoped, not test-wide: ``os`` is the one module object, so a patch
@@ -452,62 +558,87 @@ def test_end_processes_skips_a_reused_pid(monkeypatch):
         proc.wait()
 
 
-def test_no_ps_finds_no_server_group_members(monkeypatch):
-    def no_ps(*args, **kwargs):
-        raise FileNotFoundError("ps")
+def _answering(monkeypatch, answers: list[dict | BaseException]) -> list[None]:
+    """Answer each process-table read with the next of *answers*; return the log of reads.
 
-    monkeypatch.setattr(process_tree.subprocess, "run", no_ps)
-
-    assert process_tree.server_group_members(os.getpid()) == []
-
-
-def _count_reads(monkeypatch, answers: list[dict | None]) -> list[None]:
-    """Answer each process-table read with the next of *answers*; return the log of reads."""
+    An exception in *answers* is a read that fails with it.
+    """
     reads: list[None] = []
 
     def read():
         reads.append(None)
-        return answers[len(reads) - 1]
+        answer = answers[len(reads) - 1]
+        if isinstance(answer, BaseException):
+            raise process_tree.ProcessTableUnreadable(answer)
+        return answer
 
     monkeypatch.setattr(process_tree, "snapshot", read)
-    monkeypatch.setattr(process_tree, "_POLL_S", 0.0)
+    monkeypatch.setattr(process_tree, "_READ_RETRY_S", 0.0)
     return reads
 
 
 def test_read_while_alive_returns_the_first_read_that_succeeds(monkeypatch):
-    rows = {1: process_tree.ProcessRow(1, 0, 1, 0.0, "init", "S")}
-    reads = _count_reads(monkeypatch, [None, rows, rows])
+    rows = {1: process_tree.ProcessRow(1, 0, 1, 0.0, "init", False)}
+    reads = _answering(monkeypatch, [psutil.Error("busy"), rows, rows])
 
     assert process_tree.read_while_alive(lambda: True) is rows
     assert len(reads) == 2
 
 
 def test_read_while_alive_stops_retrying_once_the_root_has_exited(monkeypatch):
-    reads = _count_reads(monkeypatch, [None] * process_tree.TREE_READ_ATTEMPTS)
+    busy = psutil.Error("busy")
+    reads = _answering(monkeypatch, [busy, busy, busy])
 
-    assert process_tree.read_while_alive(lambda: not reads) is None
+    with pytest.raises(process_tree.ProcessTableUnreadable) as caught:
+        process_tree.read_while_alive(lambda: not reads)
+
+    assert caught.value.cause is busy
     assert len(reads) == 1
 
 
-def test_started_groups_is_unknown_when_no_read_succeeds_while_the_root_lives(monkeypatch):
-    reads = _count_reads(monkeypatch, [None] * (process_tree.TREE_READ_ATTEMPTS + 1))
+def test_read_while_alive_takes_no_read_once_the_root_has_exited(monkeypatch):
+    reads = _answering(monkeypatch, [{}])
 
-    assert process_tree.started_groups(os.getpid(), lambda: True) is None
-    assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+    with pytest.raises(process_tree.ProcessTableUnreadable) as caught:
+        process_tree.read_while_alive(lambda: False)
+
+    assert isinstance(caught.value.cause, ProcessLookupError)
+    assert not caught.value.retryable
+    assert reads == []
 
 
-def test_started_groups_is_empty_when_the_root_exits_before_a_read(monkeypatch):
-    reads = _count_reads(monkeypatch, [None] * process_tree.TREE_READ_ATTEMPTS)
+@pytest.mark.parametrize(
+    "missing", [FileNotFoundError("proc"), PermissionError("proc"), psutil.AccessDenied()]
+)
+def test_read_while_alive_does_not_retry_a_table_no_read_can_answer(monkeypatch, missing):
+    reads = _answering(monkeypatch, [missing, {}])
 
-    assert process_tree.started_groups(os.getpid(), lambda: not reads) == []
+    with pytest.raises(process_tree.ProcessTableUnreadable) as caught:
+        process_tree.read_while_alive(lambda: True)
+
+    assert caught.value.cause is missing
     assert len(reads) == 1
 
 
-def test_read_while_alive_gives_up_after_the_attempt_bound(monkeypatch):
-    reads = _count_reads(monkeypatch, [None] * (process_tree.TREE_READ_ATTEMPTS + 1))
+def test_read_while_alive_gives_up_once_its_wait_has_passed(monkeypatch):
+    busy = psutil.Error("busy")
+    reads = _answering(monkeypatch, [busy, busy, {}])
+    monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.0)
 
-    assert process_tree.read_while_alive(lambda: True) is None
-    assert len(reads) == process_tree.TREE_READ_ATTEMPTS
+    with pytest.raises(process_tree.ProcessTableUnreadable) as caught:
+        process_tree.read_while_alive(lambda: True)
+
+    assert caught.value.cause is busy
+    assert len(reads) == 1
+
+
+def test_started_groups_raises_when_no_read_succeeds_while_the_root_lives(monkeypatch):
+    busy = psutil.Error("busy")
+    _answering(monkeypatch, [busy] * 3)
+    monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.0)
+
+    with pytest.raises(process_tree.ProcessTableUnreadable):
+        process_tree.started_groups(os.getpid(), lambda: True)
 
 
 def test_a_tree_read_from_a_given_table_takes_no_read_of_its_own(monkeypatch):
@@ -517,7 +648,7 @@ def test_a_tree_read_from_a_given_table_takes_no_read_of_its_own(monkeypatch):
         7001: process_tree.ProcessRow(7001, own.pid, 7001, 5.0, "python scan.py", "S"),
         7002: process_tree.ProcessRow(7002, own.pid, own.pgid, 6.0, "python helper.py", "S"),
     }
-    reads = _count_reads(monkeypatch, [])
+    reads = _answering(monkeypatch, [])
 
     groups = process_tree.tree_groups(own.pid, rows)
     members = process_tree.server_group_members(own.pid, rows)

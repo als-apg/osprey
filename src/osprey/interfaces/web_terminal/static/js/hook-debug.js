@@ -35,9 +35,7 @@ export function initHookDebug() {
   bar.className = 'hook-debug-bar';
   _buildToggleBar(bar);
 
-  const toggle = /** @type {HTMLInputElement} */ (
-    document.getElementById('hook-debug-toggle')
-  );
+  const toggle = /** @type {HTMLInputElement} */ (document.getElementById('hook-debug-toggle'));
 
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
@@ -62,9 +60,7 @@ export function initHookDebug() {
   const logToggleHeader = /** @type {HTMLElement} */ (
     document.getElementById('hook-debug-log-toggle')
   );
-  const logBody = /** @type {HTMLElement} */ (
-    document.getElementById('hook-debug-log-body')
-  );
+  const logBody = /** @type {HTMLElement} */ (document.getElementById('hook-debug-log-body'));
   const refreshBtn = /** @type {HTMLButtonElement} */ (
     document.getElementById('hook-debug-refresh')
   );
@@ -205,7 +201,8 @@ async function _loadLogEntries(logBody) {
       _appendCell(tr, entry.tool || '-');
 
       const status = entry.status || '-';
-      const statusClass = status === 'allowed' ? 'status-ok' : status === 'blocked' ? 'status-blocked' : '';
+      const statusClass =
+        status === 'allowed' ? 'status-ok' : status === 'blocked' ? 'status-blocked' : '';
       _appendCell(tr, status, statusClass);
 
       _appendCell(tr, entry.detail || entry.message || '', 'log-detail');
@@ -244,13 +241,15 @@ function _appendCell(tr, text, className) {
  */
 function _formatTimestamp(ts) {
   if (!ts) return '-';
-  return formatFacilityTime(ts, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-    hourCycle: 'h23',
-  }) || ts;
+  return (
+    formatFacilityTime(ts, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hourCycle: 'h23',
+    }) || ts
+  );
 }
 
 /**

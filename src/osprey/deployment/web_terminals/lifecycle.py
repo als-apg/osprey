@@ -243,7 +243,7 @@ def decommission_user(
             destruction was requested but not confirmed.
         BashLaunchTokenConflictError: If a render that survives this removal
             would hold ``BLUESKY_LAUNCH_TOKEN`` while its shipped settings still
-            permit ``Bash``. Raised before ``config.yml`` is touched, so nothing
+            leave a shell open. Raised before ``config.yml`` is touched, so nothing
             is half-applied; removing the offending render's own last user is
             unaffected, because the check reads the post-removal roster.
         RemovalIncompleteError: If every other step finished but a volume the

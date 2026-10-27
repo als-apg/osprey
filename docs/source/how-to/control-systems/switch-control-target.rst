@@ -706,8 +706,7 @@ machine's do. That is also why the live machine is gated while both are running:
 see `Go live`_. ``osprey sim apply`` reaches both machines: a scenario changes
 the world, not one lane.
 
-On a laptop the second container is a real cost — the simulator image is
-amd64-only, so on Apple Silicon a second one doubles what QEMU has to emulate,
+On a laptop the second container is a real cost — a second simulator runs
 for the life of the deployment. Delete the line when the rehearsal is over.
 
 .. seealso::

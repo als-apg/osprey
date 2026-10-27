@@ -120,10 +120,7 @@ describe('theme-manager.js storage scoping', () => {
     });
 
     test('a scoped hub ignores a polluted bare key and takes the server default', () => {
-      window.localStorage.setItem(
-        LEGACY_KEY,
-        JSON.stringify({ family: 'retro', mode: 'dark' })
-      );
+      window.localStorage.setItem(LEGACY_KEY, JSON.stringify({ family: 'retro', mode: 'dark' }));
       document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
       document.documentElement.setAttribute('data-theme', 'light');
 
@@ -146,10 +143,7 @@ describe('theme-manager.js storage scoping', () => {
     });
 
     test('an unscoped hub still reads the bare legacy key', () => {
-      window.localStorage.setItem(
-        LEGACY_KEY,
-        JSON.stringify({ family: 'retro', mode: 'dark' })
-      );
+      window.localStorage.setItem(LEGACY_KEY, JSON.stringify({ family: 'retro', mode: 'dark' }));
       document.documentElement.setAttribute('data-theme', 'light');
 
       ThemeManager.initTheme({ role: 'hub' });

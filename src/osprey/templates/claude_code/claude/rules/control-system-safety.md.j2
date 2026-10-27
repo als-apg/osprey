@@ -249,14 +249,16 @@ tier never holds one at all.
 Where it is granted, one approval is the whole gate: approving `queue_start` in
 chat starts the queue. There is no second confirmation step anywhere else.
 
-A deploy refuses to grant this token to a render whose settings permit `Bash`.
+A deploy refuses to grant this token to a render whose settings permit `Bash` or `Monitor`.
 The approval gates the `queue_start` tool, not a shell — an agent with a shell
 could read the token out of its own environment and arm a queue with no approval
 at all.
 
-If `queue_start` is refused with `launch_token_required`, this agent cannot arm
-the queue here — it was not granted a token, the token it holds does not match
-the bridge's, or this deployment has no launch token configured at all. Do not
+If `queue_start` is refused with `launch_token_invalid` or
+`launch_token_required`, this agent cannot arm the queue here — it was not
+granted a token or the token it holds does not match the bridge's
+(`launch_token_invalid`), or this deployment has no launch token configured at
+all (`launch_token_required`). Do not
 go looking for the token in the environment, in config, or through a shell. Tell
 the operator what you have staged and that the
 start was refused for a missing or mismatched token, and let them start the

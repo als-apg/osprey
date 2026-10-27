@@ -31,7 +31,9 @@ let railEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
  * as the rail exists and before any SSE frame can arrive.
  * @param {HTMLElement} el
  */
-export function initAgentAttention(el) { railEl = el; }
+export function initAgentAttention(el) {
+  railEl = el;
+}
 
 /**
  * Transient agent glow on a rail entry — flash only, never the persistent
@@ -39,7 +41,10 @@ export function initAgentAttention(el) { railEl = el; }
  * without an entry.
  * @param {string} panelId
  */
-export function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
+export function flashAgentGlow(panelId) {
+  const entry = getEntry(railEl, panelId);
+  if (entry) flashElement(entry);
+}
 
 /**
  * Attribute a tile the agent visibly changed on BOTH surfaces at once: the
@@ -49,7 +54,10 @@ export function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId
  * attribute to) call flashAgentGlow alone, on purpose.
  * @param {string} panelId
  */
-export function flashAgentTile(panelId) { flashAgentGlow(panelId); glowPanel(panelId); }
+export function flashAgentTile(panelId) {
+  flashAgentGlow(panelId);
+  glowPanel(panelId);
+}
 
 /** Newest badge-causing server ts seen this page lifetime, per panel.
  *  @type {Map<string, number>} */
@@ -88,7 +96,11 @@ function noteBadgeTs(panelId, ts) {
  */
 function ackedTs(panelId) {
   let raw = null;
-  try { raw = localStorage.getItem(ackStorageKey(panelId)); } catch { return -Infinity; }
+  try {
+    raw = localStorage.getItem(ackStorageKey(panelId));
+  } catch {
+    return -Infinity;
+  }
   const ts = raw === null ? NaN : Number(raw);
   return Number.isFinite(ts) ? ts : -Infinity;
 }
@@ -103,7 +115,11 @@ export function clearBadge(panelId) {
   setEntryAttention(railEl, panelId, false);
   const ts = badgeTs.get(panelId);
   if (ts === undefined) return;
-  try { localStorage.setItem(ackStorageKey(panelId), String(ts)); } catch { /* storage denied */ }
+  try {
+    localStorage.setItem(ackStorageKey(panelId), String(ts));
+  } catch {
+    /* storage denied */
+  }
 }
 
 /**
@@ -132,8 +148,12 @@ export function badgePanelActivity(panelId, ts) {
  */
 export async function restoreAgentBadges() {
   let body = null;
-  try { body = await fetchJSON('/api/agent-activity/recent'); } catch { return; }
-  for (const ev of (body?.events || [])) {
+  try {
+    body = await fetchJSON('/api/agent-activity/recent');
+  } catch {
+    return;
+  }
+  for (const ev of body?.events || []) {
     const target = ev?.target;
     if (target?.kind !== 'panel' || !target.panel || typeof ev.ts !== 'number') continue;
     if (ev.ts <= ackedTs(target.panel)) continue;

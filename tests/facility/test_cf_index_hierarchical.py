@@ -601,33 +601,24 @@ def test_a_demo_leaf_takes_its_channel_s_description(
 
 
 @pytest.mark.slow
-def test_a_hierarchical_build_writes_the_index(tmp_path: Path) -> None:
-    from click.testing import CliRunner
-
-    from osprey.cli.init_cmd import init
-    from osprey.facility.views.channel_finder import CHANNEL_FINDER_SCHEMA, HIERARCHICAL_FILE
-    from tests._builds import run_build
-
-    repo = tmp_path / "demo"
-    result = CliRunner().invoke(
-        init,
-        [
-            str(repo),
-            "--preset",
-            "control-assistant",
-            "--no-git",
-            "--set",
-            "channel_finder_mode=hierarchical",
-        ],
+def test_a_hierarchical_build_writes_the_index(
+    built_control_assistant: BuiltProject, tmp_path: Path
+) -> None:
+    """The shared build's deployment rendered selecting hierarchical: that index, no other."""
+    from osprey.facility.views.channel_finder import (
+        CHANNEL_FINDER_SCHEMA,
+        HIERARCHICAL_FILE,
+        IN_CONTEXT_FILE,
+        MIDDLE_LAYER_FILE,
     )
-    assert result.exit_code == 0, result.output
+    from tests.facility._built_render import render_built
 
-    built = run_build(repo)
+    written = render_built(built_control_assistant, tmp_path / "render", "hierarchical")
 
-    assert built.exit_code == 0, built.output
-    index = repo / "build" / "data" / "channel_finder" / HIERARCHICAL_FILE
-    assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
-    assert "view hierarchical not written" not in built.output
+    indexes = tmp_path / "render" / "data" / "channel_finder"
+    assert indexes / HIERARCHICAL_FILE in written
+    assert json.loads((indexes / HIERARCHICAL_FILE).read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
+    assert not {indexes / IN_CONTEXT_FILE, indexes / MIDDLE_LAYER_FILE} & set(written)
 
 
 @pytest.mark.parametrize(

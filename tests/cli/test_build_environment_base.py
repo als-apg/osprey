@@ -14,9 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_environment import _create_project_venv
+from osprey.cli import build_environment
+from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey_connectors.errors import BuildProfileError
 
 
 def _profile(
@@ -48,6 +50,11 @@ def calls(monkeypatch) -> list[list[str]]:
     return recorded
 
 
+def _venv_command(calls: list[list[str]]) -> list[str]:
+    """The venv-creation command; a declared base's probe runs before it."""
+    return next(cmd for cmd in calls if "venv" in cmd)
+
+
 @pytest.fixture
 def with_uv(monkeypatch) -> str:
     """Force the uv branch with a deterministic uv path."""
@@ -68,41 +75,41 @@ class TestCustomBaseInterpreter:
     def test_uv_branch_uses_custom_base(self, calls, with_uv, tmp_path):
         base = tmp_path / "other-venv" / "bin" / "python"
 
-        _create_project_venv(tmp_path, _profile(python=str(base)))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(python=str(base))))
 
-        venv_cmd = calls[0]
+        venv_cmd = _venv_command(calls)
         assert venv_cmd[:3] == [with_uv, "venv", str(tmp_path / ".venv")]
         assert venv_cmd[venv_cmd.index("--python") + 1] == str(base)
 
     @pytest.mark.usefixtures("with_uv")
     def test_uv_branch_defaults_to_build_interpreter(self, calls, tmp_path):
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
-        venv_cmd = calls[0]
+        venv_cmd = _venv_command(calls)
         assert venv_cmd[venv_cmd.index("--python") + 1] == sys.executable
 
     @pytest.mark.usefixtures("without_uv")
     def test_stdlib_branch_uses_custom_base(self, calls, tmp_path):
         base = tmp_path / "bare" / "bin" / "python3.12"
 
-        _create_project_venv(tmp_path, _profile(python=str(base)))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(python=str(base))))
 
-        venv_cmd = calls[0]
+        venv_cmd = _venv_command(calls)
         assert venv_cmd == [str(base), "-m", "venv", str(tmp_path / ".venv")]
 
     @pytest.mark.usefixtures("without_uv")
     def test_stdlib_branch_defaults_to_build_interpreter(self, calls, tmp_path):
-        _create_project_venv(tmp_path, _profile())
+        _create_project_venv(tmp_path, _plan_project_venv(_profile()))
 
-        assert calls[0] == [sys.executable, "-m", "venv", str(tmp_path / ".venv")]
+        assert _venv_command(calls) == [sys.executable, "-m", "venv", str(tmp_path / ".venv")]
 
     @pytest.mark.usefixtures("with_uv")
     def test_tilde_in_base_is_expanded(self, calls, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
-        _create_project_venv(tmp_path, _profile(python="~/envs/rig/bin/python"))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(python="~/envs/rig/bin/python")))
 
-        venv_cmd = calls[0]
+        venv_cmd = _venv_command(calls)
         assert venv_cmd[venv_cmd.index("--python") + 1] == str(
             Path("~/envs/rig/bin/python").expanduser()
         )
@@ -116,9 +123,9 @@ class TestCustomBaseInterpreter:
         base = venv_root / "bin" / "python"
         base.touch()
 
-        _create_project_venv(tmp_path, _profile(python=str(base)))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(python=str(base))))
 
-        venv_cmd = calls[0]
+        venv_cmd = _venv_command(calls)
         assert venv_cmd[venv_cmd.index("--python") + 1] == str(base)
         # No inheritance is assumed: only the declared requirements are
         # installed. A declared base is additionally probed and frozen (see
@@ -133,7 +140,9 @@ class TestEnvironmentPackages:
     def test_uv_install_carries_dependencies_and_packages(self, calls, with_uv, tmp_path):
         _create_project_venv(
             tmp_path,
-            _profile(dependencies=["numpy>=1.24"], packages=["cothread", "h5py==3.11.0"]),
+            _plan_project_venv(
+                _profile(dependencies=["numpy>=1.24"], packages=["cothread", "h5py==3.11.0"])
+            ),
         )
 
         assert len(calls) == 2, "environment.packages must not add a second install pass"
@@ -149,7 +158,8 @@ class TestEnvironmentPackages:
     @pytest.mark.usefixtures("without_uv")
     def test_stdlib_install_carries_dependencies_and_packages(self, calls, tmp_path):
         _create_project_venv(
-            tmp_path, _profile(dependencies=["numpy>=1.24"], packages=["cothread"])
+            tmp_path,
+            _plan_project_venv(_profile(dependencies=["numpy>=1.24"], packages=["cothread"])),
         )
 
         assert len(calls) == 2
@@ -159,15 +169,40 @@ class TestEnvironmentPackages:
 
     @pytest.mark.usefixtures("with_uv")
     def test_packages_alone_reach_the_resolver(self, calls, tmp_path):
-        _create_project_venv(tmp_path, _profile(packages=["pyepics"]))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(packages=["pyepics"])))
 
         assert calls[1][-2:] == ["osprey-framework==1.2.3", "pyepics"]
 
     @pytest.mark.usefixtures("with_uv")
     def test_empty_environment_block_changes_nothing(self, calls, tmp_path):
-        _create_project_venv(tmp_path, _profile(dependencies=["pandas"]))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(dependencies=["pandas"])))
 
         assert calls[1][-2:] == ["osprey-framework==1.2.3", "pandas"]
+
+
+class TestPlanJudgesBeforeAnythingIsWritten:
+    """Every refusal about the environment's inputs is raised by the plan."""
+
+    @pytest.mark.usefixtures("with_uv")
+    def test_a_refused_base_never_touches_the_venv(self, calls, tmp_path, monkeypatch):
+        monkeypatch.setattr(build_environment, "_base_is_venv", lambda _python: True)
+        monkeypatch.setattr(
+            build_environment,
+            "_probe_base_distributions",
+            lambda _python: [
+                {
+                    "name": "bravo",
+                    "version": "2.0.0",
+                    "direct_url": ('{"url": "file:///src/bravo", "dir_info": {"editable": true}}'),
+                }
+            ],
+        )
+        base = tmp_path / "base-venv" / "bin" / "python"
+
+        with pytest.raises(BuildProfileError, match="bravo"):
+            _plan_project_venv(_profile(python=str(base)))
+
+        assert not any("venv" in cmd for cmd in calls)
 
 
 class TestWorkspaceMembersFromSource:
@@ -181,7 +216,9 @@ class TestWorkspaceMembersFromSource:
     def test_uv_command_is_unchanged_for_a_source_spec(self, calls, tmp_path):
         root = tmp_path / "osprey-src"
 
-        _create_project_venv(tmp_path, _profile(osprey_install=str(root), packages=["pyepics"]))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(_profile(osprey_install=str(root), packages=["pyepics"]))
+        )
 
         install_cmd = calls[1]
         assert install_cmd[-2:] == [str(root), "pyepics"]
@@ -191,7 +228,9 @@ class TestWorkspaceMembersFromSource:
     def test_pip_command_appends_every_member_for_a_source_spec(self, calls, tmp_path):
         root = tmp_path / "osprey-src"
 
-        _create_project_venv(tmp_path, _profile(osprey_install=str(root), packages=["pyepics"]))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(_profile(osprey_install=str(root), packages=["pyepics"]))
+        )
 
         install_cmd = calls[1]
         members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
@@ -200,7 +239,7 @@ class TestWorkspaceMembersFromSource:
 
     @pytest.mark.usefixtures("without_uv")
     def test_pip_command_appends_no_member_for_a_pinned_spec(self, calls, tmp_path):
-        _create_project_venv(tmp_path, _profile(packages=["pyepics"]))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(packages=["pyepics"])))
 
         install_cmd = calls[1]
         assert install_cmd[-2:] == ["osprey-framework==1.2.3", "pyepics"]
@@ -227,7 +266,7 @@ class TestWorkspaceMembersFromSource:
     ):
         """The members live in the same repository, one subdirectory each, so
         they come from the same commit rather than by name from PyPI."""
-        _create_project_venv(tmp_path, _profile(osprey_install=spec))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(osprey_install=spec)))
 
         install_cmd = calls[1]
         members = self._vcs_members()
@@ -240,13 +279,13 @@ class TestWorkspaceMembersFromSource:
         url = root.as_uri()
         spec = f"osprey-framework @ {url}" if form == "direct-reference" else url
 
-        _create_project_venv(tmp_path, _profile(osprey_install=spec))
+        _create_project_venv(tmp_path, _plan_project_venv(_profile(osprey_install=spec)))
 
         install_cmd = calls[1]
         members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
         assert install_cmd[-(1 + len(members)) :] == [spec, *members]
 
-    @pytest.mark.usefixtures("without_uv", "calls")
+    @pytest.mark.usefixtures("without_uv")
     @pytest.mark.parametrize(
         "spec",
         [
@@ -255,17 +294,27 @@ class TestWorkspaceMembersFromSource:
             "hg+https://example.invalid/osprey",
         ],
     )
-    def test_pip_command_refuses_a_spec_whose_members_it_cannot_locate(self, tmp_path, spec):
+    def test_pip_command_refuses_a_spec_whose_members_it_cannot_locate(self, calls, tmp_path, spec):
         """A framework fetched from an arbitrary URL names no place its members
         live, and resolving them by name from PyPI may pick up a different
-        project's package."""
+        project's package. The refusal is part of the plan, so an existing venv
+        is left exactly as it was."""
         from osprey_connectors.errors import BuildProfileError
 
+        existing = tmp_path / ".venv" / "pyvenv.cfg"
+        existing.parent.mkdir()
+        existing.write_text("home = /previous/build\n")
+
         with pytest.raises(BuildProfileError, match="workspace member"):
-            _create_project_venv(tmp_path, _profile(osprey_install=spec))
+            _plan_project_venv(_profile(osprey_install=spec))
+
+        assert calls == []
+        assert existing.read_text() == "home = /previous/build\n"
 
     @pytest.mark.usefixtures("without_uv")
     def test_pip_command_appends_no_member_for_a_version_range(self, calls, tmp_path):
-        _create_project_venv(tmp_path, _profile(osprey_install="osprey-framework>=2026.9"))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(_profile(osprey_install="osprey-framework>=2026.9"))
+        )
 
         assert calls[1][-1] == "osprey-framework>=2026.9"

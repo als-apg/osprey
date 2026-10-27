@@ -148,13 +148,17 @@ def test_path_absence_is_measured_by_git_not_the_filesystem(tmp_path):
     assert guard.tracked_files("src/osprey/services/machine_state") == []
 
 
-def test_cli_exits_nonzero_when_the_manifest_is_violated(tmp_path):
+def test_cli_exits_nonzero_when_the_manifest_is_violated(tmp_path, monkeypatch):
     doctored = copy.deepcopy(MANIFEST)
     doctored["deleted"].append("system.timezone")
     manifest_path = tmp_path / "config_key_manifest.yml"
     manifest_path.write_text(yaml.safe_dump(doctored))
 
-    # The clean tree's exit 0 is test_guard_is_green_on_this_tree's assertion.
+    # Only check_deleted runs, through the real run(); the full clean run is
+    # test_guard_is_green_on_this_tree's.
+    for name in dir(ConfigKeyGuard):
+        if name.startswith("check_") and name != "check_deleted":
+            monkeypatch.setattr(ConfigKeyGuard, name, lambda self, *_, **__: None)
     assert guard_module.main(["--manifest", str(manifest_path)]) == 1
 
 
@@ -226,11 +230,16 @@ def test_leaves_below_a_data_map_are_not_demanded():
 
 def test_mode_2_unmatched_evidence_regex_goes_red():
     def break_the_evidence(manifest):
-        manifest["keys"]["images.registry"]["evidence"] = "no_reader_spells_this_anywhere"
+        # Only the broken key: the others are test_guard_is_green_on_this_tree's.
+        broken = {
+            **manifest["keys"]["images.registry"],
+            "evidence": "no_reader_spells_this_anywhere",
+        }
+        manifest["keys"] = {"images.registry": broken}
 
     guard = make_guard(break_the_evidence)
     guard.check_evidence()
-    assert "evidence" in modes(guard)
+    assert modes(guard) == ["evidence"]
     assert "images.registry" in details(guard)
 
 
@@ -1189,13 +1198,19 @@ def test_back_test_catches_a_regex_that_cannot_fail():
     """Zero matches on both sides is a green light wired to nothing."""
 
     def wire_it_to_nothing(manifest):
-        manifest["orphan_sites"]["facility_name"] = [
-            {"root": "src/osprey/templates", "regex": "zzz_never_existed_anywhere"}
-        ]
+        # Only this site, and no absent paths: the real ones are
+        # test_back_test_confirms_every_orphan_regex_is_falsifiable's.
+        manifest["orphan_sites"] = {
+            "facility_name": [
+                {"root": "src/osprey/templates", "regex": "zzz_never_existed_anywhere"}
+            ]
+        }
+        manifest["absent_paths"] = []
 
     guard = make_guard(wire_it_to_nothing)
     guard.back_test(_baseline_commit())
-    assert "back-test" in modes(guard)
+    assert modes(guard) == ["back-test"]
+    assert "orphan regex for facility_name" in details(guard)
     assert "cannot fail" in details(guard)
 
 
@@ -1211,20 +1226,26 @@ def test_back_test_sums_hits_across_roots_newer_than_the_baseline():
     """
 
     def cannot_fail_under_either_root(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {
-                "root": [
-                    "src/osprey/templates",
-                    "packages/osprey-connectors/src/osprey_connectors",
-                ],
-                "regex": "zzz_never_existed_anywhere",
-                "why": "negative control",
-            }
-        ]
+        # Only this site, and no absent paths, as in
+        # test_back_test_catches_a_regex_that_cannot_fail.
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {
+                    "root": [
+                        "src/osprey/templates",
+                        "packages/osprey-connectors/src/osprey_connectors",
+                    ],
+                    "regex": "zzz_never_existed_anywhere",
+                    "why": "negative control",
+                }
+            ]
+        }
+        manifest["absent_paths"] = []
 
     guard = make_guard(cannot_fail_under_either_root)
     guard.back_test(_baseline_commit())
-    assert "back-test" in modes(guard)
+    assert modes(guard) == ["back-test"]
+    assert "orphan regex for synthetic" in details(guard)
     assert "cannot fail" in details(guard)
 
 

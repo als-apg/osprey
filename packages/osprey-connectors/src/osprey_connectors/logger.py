@@ -43,7 +43,6 @@ from osprey_connectors.config import get_config_value
 
 __all__ = [
     "ComponentLogger",
-    "QUIET_THIRD_PARTY_LOGGERS",
     "configure_logging",
     "get_logger",
     "set_handler_console",
@@ -185,7 +184,7 @@ class ComponentLogger:
 
 #: Third-party loggers that ``configure_logging()`` raises to WARNING. They are
 #: chatty at INFO and their output is noise in an operator's terminal.
-QUIET_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
+_QUIET_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
     "httpx",
     "httpcore",
     "requests",
@@ -294,7 +293,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     if not any(isinstance(handler, RichHandler) for handler in root_logger.handlers):
         root_logger.addHandler(_build_rich_handler())
 
-    for lib in QUIET_THIRD_PARTY_LOGGERS:
+    for lib in _QUIET_THIRD_PARTY_LOGGERS:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 

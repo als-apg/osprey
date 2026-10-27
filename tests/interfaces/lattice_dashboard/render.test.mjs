@@ -44,10 +44,12 @@ function mountFixture() {
     <div class="stat-chip" id="stat-chrom-x"><span class="stat-value"></span></div>
     <div class="stat-chip" id="stat-chrom-y"><span class="stat-value"></span></div>
     <div id="slider-container"></div>
-    ${FIGURE_NAMES.map(name => `
+    ${FIGURE_NAMES.map(
+      (name) => `
       <span class="figure-led" id="led-${name}"></span>
       <div class="figure-plot" id="plot-${name}"></div>
-    `).join('')}
+    `
+    ).join('')}
   `;
 }
 
@@ -246,10 +248,7 @@ describe('renderPlotly', () => {
     const figData = {
       data: [],
       layout: {
-        annotations: [
-          { text: 'a', font: { color: 'red' } },
-          { text: 'b' },
-        ],
+        annotations: [{ text: 'a', font: { color: 'red' } }, { text: 'b' }],
       },
     };
     renderPlotly('optics', figData);
@@ -291,7 +290,7 @@ describe('createRenderer / updateSliders debounce', () => {
 
   function families() {
     return {
-      'QF1': { type: 'quadrupole', value: 1.2345, range: [-5, 5] },
+      QF1: { type: 'quadrupole', value: 1.2345, range: [-5, 5] },
     };
   }
 

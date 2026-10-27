@@ -52,9 +52,10 @@ from osprey.deployment.web_terminals.roster import (
     served_renders,
     tier_privileges,
 )
-from tests.cli.test_tier_app_presets import _build_layered_stack, _build_render_stack
+from tests._builds import copy_build
+from tests.cli.test_tier_app_presets import _build_layered_stack
 
-#: Each fixture builds the flagship preset for real — seconds, not
+#: Each fixture reads a real build of the flagship preset — seconds, not
 #: milliseconds — because the end state is a property of what a build writes.
 pytestmark = pytest.mark.slow
 
@@ -144,9 +145,9 @@ def _grants(config: dict, repo: Path) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def stack(tmp_path_factory) -> Path:
-    """The flagship preset as shipped, built once."""
-    return _build_render_stack(tmp_path_factory.mktemp("end-state") / "my-facility")
+def stack(built_control_assistant) -> Path:
+    """The flagship preset as shipped: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_control_assistant.repo
 
 
 @pytest.fixture(scope="module")
@@ -216,11 +217,14 @@ def test_served_set(config: dict, served: dict[str, roster.ServedRender]) -> Non
 
 def test_one_list(
     stack: Path,
-    config: dict,
     served: dict[str, roster.ServedRender],
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """Grants, the env write, the image build and lint each walk exactly the served set."""
+    # The env write adds files to the repo, so it runs on a copy of the shared build.
+    stack = copy_build(stack, tmp_path)
+    config = _host(stack)
     paths = {render.project_path: name for name, render in served.items()}
 
     roster_seen: list[str] = []

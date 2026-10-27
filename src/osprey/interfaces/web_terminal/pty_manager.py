@@ -308,8 +308,9 @@ class PtySession:
         processes is in the log line this method writes. When the process table
         cannot be read while the child is alive, the started groups cannot be
         looked for: only the child's own group is reached, and a warning says so.
-        Each read is bounded, so a process table that never answers adds about
-        six seconds and no more.
+        A failed read is retried while the child lives for up to
+        ``process_tree.READ_WAIT_S``, so a process table that never answers
+        adds about five seconds and no more.
         """
         # Taken before the hang-up: a process the agent started in a session
         # of its own keeps its parent link only until the agent exits. A failed
@@ -317,12 +318,14 @@ class PtySession:
         groups: list[process_tree.ProcessGroup] = []
         process = self._process
         if process is not None and process.poll() is None:
-            rows = process_tree.read_while_alive(lambda: process.poll() is None)
-            if rows is None:
+            try:
+                rows = process_tree.read_while_alive(lambda: process.poll() is None)
+            except process_tree.ProcessTableUnreadable as exc:
                 logger.warning(
-                    "Could not read the process table while the PTY child %d was alive; "
+                    "Could not read the process table while the PTY child %d was alive (%s); "
                     "what it started is left running",
                     process.pid,
+                    exc.cause,
                 )
             else:
                 groups = process_tree.tree_groups(process.pid, rows)
@@ -375,13 +378,16 @@ class PtySession:
                     process_tree.describe(survivors),
                 )
 
-    def started_commands(self) -> list[process_tree.ProcessGroup] | None:
+    def started_commands(self) -> list[process_tree.ProcessGroup]:
         """The commands the agent started in process groups of their own, still running.
 
         What ending this session would also end, beyond the agent and the
-        helpers in its own group. Empty once the child has exited; ``None``
-        when the process table could not be read while it was alive, so what
-        it started is unknown. Blocking (it runs ``ps``): call it off the loop.
+        helpers in its own group. Empty once the child has exited. Blocking
+        (it reads the process table): call it off the loop.
+
+        Raises:
+            process_tree.ProcessTableUnreadable: The process table could not
+                be read while the child was alive: what it started is unknown.
         """
         process = self._process
         if process is None or process.poll() is not None:

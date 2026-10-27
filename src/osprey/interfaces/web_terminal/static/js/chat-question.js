@@ -181,7 +181,11 @@ export function createQuestionCard(request, hooks) {
       const body = elem('span', 'op-option-body');
       body.append(elem('span', 'op-option-label', option.label));
       if (option.description) body.append(elem('span', 'op-option-desc', option.description));
-      row.append(elem('span', 'op-option-key', String(index + 1)), elem('span', 'op-option-mark'), body);
+      row.append(
+        elem('span', 'op-option-key', String(index + 1)),
+        elem('span', 'op-option-mark'),
+        body
+      );
       row.addEventListener('click', () => choose(index));
       return row;
     });

@@ -15,7 +15,7 @@
  * `createHTMLDocument()` document never reaches `readyState === "complete"`
  * on its own, so print.js always takes its `addEventListener("load", ...)`
  * branch here — the same branch a real slow-loading print window takes).
- * `alert`/`Plotly` are stubbed the same way scaffold-detail.test.mjs and
+ * `alert`/`Plotly` are stubbed the same way scaffold/detail.test.mjs and
  * timeseries.test.mjs do. No real print window, popup, or Plotly chart is
  * ever exercised — this is deliberately out of scope (see the module's own
  * header comment on strategy).
@@ -72,11 +72,15 @@ function makeFakeWindow({ readyState } = {}) {
   let loadCb = null;
   return {
     document: doc,
-    addEventListener: vi.fn((evt, cb) => { if (evt === 'load') loadCb = cb; }),
+    addEventListener: vi.fn((evt, cb) => {
+      if (evt === 'load') loadCb = cb;
+    }),
     focus: vi.fn(),
     print: vi.fn(),
     close: vi.fn(),
-    fireLoad() { loadCb?.(); },
+    fireLoad() {
+      loadCb?.();
+    },
   };
 }
 
@@ -206,7 +210,10 @@ describe('printArtifact: guards and dispatch', () => {
   test('alerts and does not throw when window.open is blocked (iframe path)', () => {
     const alertSpy = vi.fn();
     vi.stubGlobal('alert', alertSpy);
-    vi.stubGlobal('open', vi.fn(() => null));
+    vi.stubGlobal(
+      'open',
+      vi.fn(() => null)
+    );
 
     expect(() => printArtifact(makeArtifact({ artifact_type: 'html' }))).not.toThrow();
     expect(alertSpy).toHaveBeenCalledWith(MSG_POPUP_BLOCKED);
@@ -221,44 +228,55 @@ describe('printArtifact: guards and dispatch', () => {
       ['text', '/files/a1/beam_profile.png?theme=light'],
       ['json', '/files/a1/beam_profile.png?theme=light'],
       ['some_unrecognized_type', '/files/a1/beam_profile.png?theme=light'],
-    ])('%s opens the raw file URL pinned to the light theme in a sized popup and injects print-cleanup styles', (artifact_type, expectedUrl) => {
-      const win = makeFakeWindow();
-      const openSpy = vi.fn(() => win);
-      vi.stubGlobal('open', openSpy);
+    ])(
+      '%s opens the raw file URL pinned to the light theme in a sized popup and injects print-cleanup styles',
+      (artifact_type, expectedUrl) => {
+        const win = makeFakeWindow();
+        const openSpy = vi.fn(() => win);
+        vi.stubGlobal('open', openSpy);
 
-      printArtifact(makeArtifact({ artifact_type }));
+        printArtifact(makeArtifact({ artifact_type }));
 
-      expect(openSpy).toHaveBeenCalledWith(expectedUrl, '_blank', 'width=900,height=700');
-      expect(win.addEventListener).toHaveBeenCalledWith('load', expect.any(Function));
+        expect(openSpy).toHaveBeenCalledWith(expectedUrl, '_blank', 'width=900,height=700');
+        expect(win.addEventListener).toHaveBeenCalledWith('load', expect.any(Function));
 
-      win.fireLoad();
-      expect(win.focus).toHaveBeenCalled();
-      expect(win.print).toHaveBeenCalledTimes(1);
-      const style = win.document.head.querySelector('style');
-      expect(style?.textContent).toContain('@media print');
-      expect(style?.textContent).toContain('.modebar');
-    });
+        win.fireLoad();
+        expect(win.focus).toHaveBeenCalled();
+        expect(win.print).toHaveBeenCalledTimes(1);
+        const style = win.document.head.querySelector('style');
+        expect(style?.textContent).toContain('@media print');
+        expect(style?.textContent).toContain('.modebar');
+      }
+    );
 
     test.each([
       ['markdown', '/api/markdown/a1/rendered?theme=light'],
       ['notebook', '/api/notebooks/a1/rendered?theme=light'],
-    ])('%s opens its server-rendered endpoint pinned to the light theme', (artifact_type, expectedUrl) => {
-      const win = makeFakeWindow();
-      const openSpy = vi.fn(() => win);
-      vi.stubGlobal('open', openSpy);
+    ])(
+      '%s opens its server-rendered endpoint pinned to the light theme',
+      (artifact_type, expectedUrl) => {
+        const win = makeFakeWindow();
+        const openSpy = vi.fn(() => win);
+        vi.stubGlobal('open', openSpy);
 
-      printArtifact(makeArtifact({ artifact_type }));
+        printArtifact(makeArtifact({ artifact_type }));
 
-      expect(openSpy).toHaveBeenCalledWith(expectedUrl, '_blank', 'width=900,height=700');
-    });
+        expect(openSpy).toHaveBeenCalledWith(expectedUrl, '_blank', 'width=900,height=700');
+      }
+    );
 
     test('a cross-origin document access failure during style injection is swallowed and printing still proceeds', () => {
       const win = makeFakeWindow();
       // Force the try{} in onReady to throw, mirroring a cross-origin window.
       Object.defineProperty(win.document, 'head', {
-        get() { throw new DOMException('cross-origin', 'SecurityError'); },
+        get() {
+          throw new DOMException('cross-origin', 'SecurityError');
+        },
       });
-      vi.stubGlobal('open', vi.fn(() => win));
+      vi.stubGlobal(
+        'open',
+        vi.fn(() => win)
+      );
 
       printArtifact(makeArtifact({ artifact_type: 'html' }));
       expect(() => win.fireLoad()).not.toThrow();
@@ -268,44 +286,55 @@ describe('printArtifact: guards and dispatch', () => {
   });
 
   describe('image strategy (plot_png, image)', () => {
-    test.each(['plot_png', 'image'])('%s builds a self-contained print document with an escaped <img>', (artifact_type) => {
-      const win = makeFakeWindow();
-      vi.stubGlobal('open', vi.fn(() => win));
+    test.each(['plot_png', 'image'])(
+      '%s builds a self-contained print document with an escaped <img>',
+      (artifact_type) => {
+        const win = makeFakeWindow();
+        vi.stubGlobal(
+          'open',
+          vi.fn(() => win)
+        );
 
-      printArtifact(makeArtifact({
-        artifact_type,
-        title: '<b>Hostile</b> Title',
-        id: 'img-1',
-        filename: 'p.png',
-      }));
+        printArtifact(
+          makeArtifact({
+            artifact_type,
+            title: '<b>Hostile</b> Title',
+            id: 'img-1',
+            filename: 'p.png',
+          })
+        );
 
-      win.fireLoad();
+        win.fireLoad();
 
-      // The document was built from an esc()-escaped HTML string, so the
-      // parsed <title> element's own markup (innerHTML) carries the escaped
-      // entities — textContent decodes them back, same as any other
-      // browser-parsed element, so it round-trips to the raw title rather
-      // than proving the escaping (that's what innerHTML is for here).
-      const titleEl = win.document.querySelector('title');
-      expect(titleEl?.textContent).toBe('<b>Hostile</b> Title');
-      expect(titleEl?.innerHTML).toBe(esc('<b>Hostile</b> Title'));
-      const img = win.document.querySelector('.print-body img');
-      expect(img).not.toBeNull();
-      expect(img?.getAttribute('src')).toBe('/files/img-1/p.png');
-      // Attribute values decode entities on parse too, so this round-trips
-      // to the raw title; innerHTML on the <h1> is the escaping proof.
-      expect(img?.getAttribute('alt')).toBe('<b>Hostile</b> Title');
-      const h1 = win.document.querySelector('.print-header h1');
-      expect(h1?.textContent).toBe('<b>Hostile</b> Title');
-      expect(h1?.innerHTML).toBe(esc('<b>Hostile</b> Title'));
-      expect(win.focus).toHaveBeenCalled();
-      expect(win.print).toHaveBeenCalledTimes(1);
-    });
+        // The document was built from an esc()-escaped HTML string, so the
+        // parsed <title> element's own markup (innerHTML) carries the escaped
+        // entities — textContent decodes them back, same as any other
+        // browser-parsed element, so it round-trips to the raw title rather
+        // than proving the escaping (that's what innerHTML is for here).
+        const titleEl = win.document.querySelector('title');
+        expect(titleEl?.textContent).toBe('<b>Hostile</b> Title');
+        expect(titleEl?.innerHTML).toBe(esc('<b>Hostile</b> Title'));
+        const img = win.document.querySelector('.print-body img');
+        expect(img).not.toBeNull();
+        expect(img?.getAttribute('src')).toBe('/files/img-1/p.png');
+        // Attribute values decode entities on parse too, so this round-trips
+        // to the raw title; innerHTML on the <h1> is the escaping proof.
+        expect(img?.getAttribute('alt')).toBe('<b>Hostile</b> Title');
+        const h1 = win.document.querySelector('.print-header h1');
+        expect(h1?.textContent).toBe('<b>Hostile</b> Title');
+        expect(h1?.innerHTML).toBe(esc('<b>Hostile</b> Title'));
+        expect(win.focus).toHaveBeenCalled();
+        expect(win.print).toHaveBeenCalledTimes(1);
+      }
+    );
 
     test('alerts and does not throw when window.open is blocked', () => {
       const alertSpy = vi.fn();
       vi.stubGlobal('alert', alertSpy);
-      vi.stubGlobal('open', vi.fn(() => null));
+      vi.stubGlobal(
+        'open',
+        vi.fn(() => null)
+      );
 
       expect(() => printArtifact(makeArtifact({ artifact_type: 'image' }))).not.toThrow();
       expect(alertSpy).toHaveBeenCalledWith(MSG_POPUP_BLOCKED);
@@ -313,7 +342,10 @@ describe('printArtifact: guards and dispatch', () => {
 
     test('an already-loaded document (readyState "complete") prints exactly once, synchronously', () => {
       const win = makeFakeWindow({ readyState: 'complete' });
-      vi.stubGlobal('open', vi.fn(() => win));
+      vi.stubGlobal(
+        'open',
+        vi.fn(() => win)
+      );
 
       printArtifact(makeArtifact({ artifact_type: 'plot_png', id: 'img-2', filename: 'q.png' }));
 
@@ -332,34 +364,49 @@ describe('printArtifact: guards and dispatch', () => {
     }
 
     test.each([
-      ['metadata.data_type === "timeseries"', { metadata: { data_type: 'timeseries' }, artifact_type: 'json' }],
+      [
+        'metadata.data_type === "timeseries"',
+        { metadata: { data_type: 'timeseries' }, artifact_type: 'json' },
+      ],
       ['category === "archiver_data"', { category: 'archiver_data', artifact_type: 'json' }],
-    ])('routes to the timeseries capture path when %s, overriding artifact_type', (_label, overrides) => {
-      mountChart();
-      const alertSpy = vi.fn();
-      vi.stubGlobal('alert', alertSpy);
-      vi.stubGlobal('Plotly', { toImage: vi.fn(() => Promise.resolve('data:image/png;base64,xyz')) });
-      const win = makeFakeWindow();
-      const openSpy = vi.fn(() => win);
-      vi.stubGlobal('open', openSpy);
+    ])(
+      'routes to the timeseries capture path when %s, overriding artifact_type',
+      (_label, overrides) => {
+        mountChart();
+        const alertSpy = vi.fn();
+        vi.stubGlobal('alert', alertSpy);
+        vi.stubGlobal('Plotly', {
+          toImage: vi.fn(() => Promise.resolve('data:image/png;base64,xyz')),
+        });
+        const win = makeFakeWindow();
+        const openSpy = vi.fn(() => win);
+        vi.stubGlobal('open', openSpy);
 
-      printArtifact(makeArtifact(overrides));
+        printArtifact(makeArtifact(overrides));
 
-      // Opens synchronously (before the async Plotly.toImage capture) to
-      // dodge popup blockers.
-      expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank', 'width=900,height=700');
-      expect(alertSpy).not.toHaveBeenCalled();
-    });
+        // Opens synchronously (before the async Plotly.toImage capture) to
+        // dodge popup blockers.
+        expect(openSpy).toHaveBeenCalledWith('about:blank', '_blank', 'width=900,height=700');
+        expect(alertSpy).not.toHaveBeenCalled();
+      }
+    );
 
     test('captures the chart via Plotly.toImage and prints once resolved', async () => {
       mountChart();
-      vi.stubGlobal('Plotly', { toImage: vi.fn(() => Promise.resolve('data:image/png;base64,xyz')) });
+      vi.stubGlobal('Plotly', {
+        toImage: vi.fn(() => Promise.resolve('data:image/png;base64,xyz')),
+      });
       const win = makeFakeWindow();
-      vi.stubGlobal('open', vi.fn(() => win));
+      vi.stubGlobal(
+        'open',
+        vi.fn(() => win)
+      );
 
       printArtifact(makeArtifact({ category: 'archiver_data', title: 'CH1' }));
 
-      await vi.waitFor(() => { expect(win.print).toHaveBeenCalledTimes(1); });
+      await vi.waitFor(() => {
+        expect(win.print).toHaveBeenCalledTimes(1);
+      });
       expect(win.focus).toHaveBeenCalled();
       const img = win.document.querySelector('.print-body img');
       expect(img?.getAttribute('src')).toBe('data:image/png;base64,xyz');
@@ -401,11 +448,16 @@ describe('printArtifact: guards and dispatch', () => {
       vi.stubGlobal('alert', alertSpy);
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const win = makeFakeWindow();
-      vi.stubGlobal('open', vi.fn(() => win));
+      vi.stubGlobal(
+        'open',
+        vi.fn(() => win)
+      );
 
       printArtifact(makeArtifact({ category: 'archiver_data' }));
 
-      await vi.waitFor(() => { expect(alertSpy).toHaveBeenCalledWith(MSG_CAPTURE_FAILED); });
+      await vi.waitFor(() => {
+        expect(alertSpy).toHaveBeenCalledWith(MSG_CAPTURE_FAILED);
+      });
       expect(win.close).toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith('[print.js] Plotly.toImage failed:', captureErr);
     });
@@ -416,7 +468,10 @@ describe('printArtifact: guards and dispatch', () => {
       vi.stubGlobal('Plotly', { toImage });
       const alertSpy = vi.fn();
       vi.stubGlobal('alert', alertSpy);
-      vi.stubGlobal('open', vi.fn(() => null));
+      vi.stubGlobal(
+        'open',
+        vi.fn(() => null)
+      );
 
       printArtifact(makeArtifact({ category: 'archiver_data' }));
 

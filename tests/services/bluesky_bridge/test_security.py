@@ -15,6 +15,7 @@ def test_require_armed_raises_503_when_unset(monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(HTTPException) as exc_info:
         require_armed()
     assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["code"] == "launch_token_required"
 
 
 def test_require_armed_error_does_not_leak_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,6 +34,7 @@ def test_require_armed_raises_503_when_empty_string(monkeypatch: pytest.MonkeyPa
     with pytest.raises(HTTPException) as exc_info:
         require_armed()
     assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["code"] == "launch_token_required"
 
 
 def test_require_armed_returns_configured_token(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,6 +52,7 @@ def test_verify_launch_token_raises_403_on_mismatch(monkeypatch: pytest.MonkeyPa
     with pytest.raises(HTTPException) as exc_info:
         verify_launch_token("wrong-token")
     assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "launch_token_invalid"
 
 
 def test_verify_launch_token_raises_403_on_missing_header(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,6 +60,7 @@ def test_verify_launch_token_raises_403_on_missing_header(monkeypatch: pytest.Mo
     with pytest.raises(HTTPException) as exc_info:
         verify_launch_token(None)
     assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "launch_token_invalid"
 
 
 def test_verify_launch_token_error_does_not_leak_expected_or_received(
@@ -77,3 +81,12 @@ def test_verify_launch_token_raises_503_when_unarmed_even_with_a_header(
     with pytest.raises(HTTPException) as exc_info:
         verify_launch_token("anything")
     assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["code"] == "launch_token_required"
+
+
+def test_require_armed_treats_a_blank_token_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(_ENV_VAR, "   ")
+    with pytest.raises(HTTPException) as exc_info:
+        verify_launch_token("   ")
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["code"] == "launch_token_required"

@@ -105,6 +105,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from osprey.interfaces.web_terminal import transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
+from osprey.interfaces.web_terminal.process_tree import ProcessTableUnreadable
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.turn_state import IDLE, get_turn_state, reset_turn_state
 from osprey.mcp_server.workspace.transcript_reader import TranscriptReader, tail_state
@@ -1331,17 +1332,17 @@ async def _wait_for_pty_idle(app: Any, state: HandoffState, plan: AcquirePlan) -
 async def _check_started(
     state: HandoffState,
     plan: AcquirePlan,
-    started: Callable[[], Sequence[ProcessGroup] | None],
+    started: Callable[[], Sequence[ProcessGroup]],
 ) -> None:
     """Refuse a hand-off that would end commands the outgoing agent started.
 
     Only a plan that ends the outgoing agent (``plan.teardown``) and does not
     carry the operator's agreement (``plan.end_started``) looks. *started*
-    runs ``ps``, so it runs in a worker thread. The look runs right before
+    reads the process table, so it runs in a worker thread. The look runs right before
     the door would act, so it is never stale; a command started between the
-    question and the consent is ended with the rest. When *started* could not
-    read the process table (``None``), what the agent started is unknown, and
-    the operator is asked the same question rather than told nothing runs.
+    question and the consent is ended with the rest. When *started* raises
+    :class:`ProcessTableUnreadable`, what the agent started is unknown, and the
+    operator is asked the same question rather than told nothing runs.
 
     Raises:
         HandoffStartedCommands: Commands the agent started are still running,
@@ -1349,18 +1350,21 @@ async def _check_started(
     """
     if plan.end_started or not plan.teardown:
         return
-    found = await asyncio.to_thread(started)
-    _raise_if_superseded(state, plan)
-    assert plan.outgoing is not None
-    if found is None:
+    try:
+        running = list(await asyncio.to_thread(started))
+    except ProcessTableUnreadable as exc:
+        _raise_if_superseded(state, plan)
+        assert plan.outgoing is not None
         logger.warning(
-            "Session %s: could not read the process table while the %s agent was alive; "
+            "Session %s: could not read the process table while the %s agent was alive (%s); "
             "asking before the hand-off ends what it started",
             plan.key,
             plan.outgoing.surface,
+            exc.cause,
         )
-        raise HandoffRefused.started_commands(plan.key, [], unread=True)
-    running = list(found)
+        raise HandoffRefused.started_commands(plan.key, [], unread=True) from exc
+    _raise_if_superseded(state, plan)
+    assert plan.outgoing is not None
     if running:
         logger.info(
             "Session %s: the %s agent has %d started command(s) running; asking before "

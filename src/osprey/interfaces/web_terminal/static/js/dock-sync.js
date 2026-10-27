@@ -502,9 +502,7 @@ export function dockPanelAt(serviceId, title = serviceId, position = null) {
 export function dockPanelBesideActive(serviceId, title = serviceId) {
   const api = getDockApi();
   if (!api) return;
-  const position = api.activeGroup
-    ? { referenceGroup: api.activeGroup, direction: 'right' }
-    : null;
+  const position = api.activeGroup ? { referenceGroup: api.activeGroup, direction: 'right' } : null;
   dockPanelAt(serviceId, title, position);
 }
 
@@ -546,7 +544,8 @@ export function initDockSync() {
     return;
   }
   const attempt = wireAttempts++;
-  if (attempt > FAST_POLL_ATTEMPTS) {  // ~4.5s at 150ms — the shell is late or absent
+  if (attempt > FAST_POLL_ATTEMPTS) {
+    // ~4.5s at 150ms — the shell is late or absent
     if (!capabilityReported) {
       capabilityReported = true;
       reportPanelLayout([], false);

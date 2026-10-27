@@ -1099,7 +1099,7 @@ def response_matrix(
 
 
 #: The pass method of an element that applies its ``KickAngle`` and no polynomial.
-_KICK_PASS = "CorrectorPass"
+_KICK_PASS = "CorrectorPass"  # noqa: S105 -- names a tracking pass method, holds no secret
 
 #: The attributes a kick element's polynomial replacement does not carry over.
 _KICK_ONLY_ATTRIBUTES = frozenset(

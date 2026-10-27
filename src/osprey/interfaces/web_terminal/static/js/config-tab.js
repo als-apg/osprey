@@ -77,8 +77,7 @@ export function applyConfigUnreadableNotice(panelsPayload) {
   notice.className = 'drawer-notice';
   notice.id = CONFIG_UNREADABLE_NOTICE_ID;
   notice.setAttribute('role', 'status');
-  notice.textContent =
-    `Config editing is off: ${path} could not be read. Fix the file and restart the web terminal.`;
+  notice.textContent = `Config editing is off: ${path} could not be read. Fix the file and restart the web terminal.`;
   header.after(notice);
   return true;
 }

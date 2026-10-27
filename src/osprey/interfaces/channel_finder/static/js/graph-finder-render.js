@@ -66,6 +66,7 @@ import { defaultLayout, visibleColumns } from '/design-system/js/table-columns.j
 /** @typedef {Record<string, any>} Device */
 
 /** What a direction reads as in the interface. `none` is an em dash. */
+/** @type {Record<string, string>} */
 const DIR_LABEL = { R: 'R', W: 'W', RW: 'RW', none: '—' };
 
 /** The facet groups, in rail order. `cls` is drawn from the ontology tree. */
@@ -149,16 +150,19 @@ function facetItem(facet, value, label, count, opts = {}) {
   const depthAttr = depth == null ? '' : ` data-depth="${depth}"`;
   // A leaf keeps the twisty gutter but shows nothing in it, so leaf and parent
   // labels line up.
-  const twisty = depth == null
-    ? ''
-    : (opts.leaf
-      ? '<span class="tw leaf" aria-hidden="true"></span>'
-      : '<span class="tw" aria-hidden="true">▾</span>');
+  const twisty =
+    depth == null
+      ? ''
+      : opts.leaf
+        ? '<span class="tw leaf" aria-hidden="true"></span>'
+        : '<span class="tw" aria-hidden="true">▾</span>';
   const title = opts.title ? ` title="${esc(opts.title)}"` : '';
 
-  return `<button type="button" class="${classes.join(' ')}" data-facet="${esc(facet)}"`
-    + ` data-value="${esc(value)}"${depthAttr}${title}`
-    + `>${twisty}<span class="k">${esc(label)}</span><span class="n">${fmt(count)}</span></button>`;
+  return (
+    `<button type="button" class="${classes.join(' ')}" data-facet="${esc(facet)}"` +
+    ` data-value="${esc(value)}"${depthAttr}${title}` +
+    `>${twisty}<span class="k">${esc(label)}</span><span class="n">${fmt(count)}</span></button>`
+  );
 }
 
 /**
@@ -175,17 +179,20 @@ function facetItem(facet, value, label, count, opts = {}) {
 function facetGroup(key, title, body, active, collapsed) {
   if (!body) return '';
   const k = esc(key);
-  const count = active > 0
-    ? `<span class="facet-active" title="${active} selected">${active}</span>`
-      + `<button type="button" class="facet-clear" data-clear-facet="${k}"`
-      + ` title="Clear ${esc(title)}" aria-label="Clear ${esc(title)}">✕</button>`
-    : '';
-  return `<div class="facet${collapsed ? ' collapsed' : ''}" data-facet-group="${k}">`
-    + '<div class="facet-head">'
-    + `<button type="button" class="facet-toggle" data-facet-toggle="${k}" aria-expanded="${!collapsed}">`
-    + `<span class="tw" aria-hidden="true">▾</span><span class="facet-title">${esc(title)}</span></button>`
-    + `${count}</div>`
-    + `<div class="facet-body">${body}</div></div>`;
+  const count =
+    active > 0
+      ? `<span class="facet-active" title="${active} selected">${active}</span>` +
+        `<button type="button" class="facet-clear" data-clear-facet="${k}"` +
+        ` title="Clear ${esc(title)}" aria-label="Clear ${esc(title)}">✕</button>`
+      : '';
+  return (
+    `<div class="facet${collapsed ? ' collapsed' : ''}" data-facet-group="${k}">` +
+    '<div class="facet-head">' +
+    `<button type="button" class="facet-toggle" data-facet-toggle="${k}" aria-expanded="${!collapsed}">` +
+    `<span class="tw" aria-hidden="true">▾</span><span class="facet-title">${esc(title)}</span></button>` +
+    `${count}</div>` +
+    `<div class="facet-body">${body}</div></div>`
+  );
 }
 
 /**
@@ -213,14 +220,16 @@ function classItems(tree, counts, active) {
     if (!node || !node.uri) return;
     const children = Array.isArray(node.children) ? node.children : [];
     const count = counts.get(node.uri) || 0;
-    out.push(facetItem('cls', node.uri, node.name || node.uri, count, {
-      on: active === node.uri,
-      zero: count === 0,
-      abstract: Boolean(node.abstract),
-      depth,
-      leaf: children.length === 0,
-      title: node.uri,
-    }));
+    out.push(
+      facetItem('cls', node.uri, node.name || node.uri, count, {
+        on: active === node.uri,
+        zero: count === 0,
+        abstract: Boolean(node.abstract),
+        depth,
+        leaf: children.length === 0,
+        title: node.uri,
+      })
+    );
     for (const child of children) walk(child, depth + 1);
   };
 
@@ -249,28 +258,42 @@ export function facetRailHtml(facets, tree, state, collapsed = []) {
   /** @type {Map<string, number>} */
   const classCounts = new Map();
   for (const entry of f.class || []) {
-    if (entry && entry.value != null) classCounts.set(String(entry.value), Number(entry.count) || 0);
+    if (entry && entry.value != null)
+      classCounts.set(String(entry.value), Number(entry.count) || 0);
   }
 
-  return FACET_GROUPS.map(group => {
+  return FACET_GROUPS.map((group) => {
     if (group.key === 'cls') {
-      return facetGroup('cls', group.title, classItems(tree || [], classCounts, s.cls),
-        s.cls ? 1 : 0, folded.has('cls'));
+      return facetGroup(
+        'cls',
+        group.title,
+        classItems(tree || [], classCounts, s.cls),
+        s.cls ? 1 : 0,
+        folded.has('cls')
+      );
     }
     const entries = /** @type {FacetEntry[]} */ (
-      /** @type {Record<string, any>} */ (f)[group.key] || []);
+      /** @type {Record<string, any>} */ (f)[group.key] || []
+    );
     const active = /** @type {Set<string> | undefined} */ (
-      /** @type {Record<string, any>} */ (s)[group.key]);
-    const body = entries.map(entry => {
-      const value = String(entry.value ?? '');
-      const label = group.key === 'dir'
-        ? (/** @type {Record<string, string>} */ (DIR_LABEL)[value] ?? value)
-        : value;
-      return facetItem(group.key, value, label, Number(entry.count) || 0, {
-        on: Boolean(active && active.has(value)),
-      });
-    }).join('');
-    return facetGroup(group.key, group.title, body, active ? active.size : 0, folded.has(group.key));
+      /** @type {Record<string, any>} */ (s)[group.key]
+    );
+    const body = entries
+      .map((entry) => {
+        const value = String(entry.value ?? '');
+        const label = group.key === 'dir' ? (DIR_LABEL[value] ?? value) : value;
+        return facetItem(group.key, value, label, Number(entry.count) || 0, {
+          on: Boolean(active && active.has(value)),
+        });
+      })
+      .join('');
+    return facetGroup(
+      group.key,
+      group.title,
+      body,
+      active ? active.size : 0,
+      folded.has(group.key)
+    );
   }).join('');
 }
 
@@ -281,10 +304,13 @@ export function facetRailHtml(facets, tree, state, collapsed = []) {
  */
 export function chipsHtml(chips) {
   if (!chips || chips.length === 0) return '';
-  return chips.map(chip =>
-    `<button type="button" class="active-filter" data-chip="${esc(chip.key)}">`
-    + `${esc(chip.label)} <span aria-hidden="true">✕</span></button>`
-  ).join('');
+  return chips
+    .map(
+      (chip) =>
+        `<button type="button" class="active-filter" data-chip="${esc(chip.key)}">` +
+        `${esc(chip.label)} <span aria-hidden="true">✕</span></button>`
+    )
+    .join('');
 }
 
 /** The columns drawn when the caller passes none: the default layout. */
@@ -301,11 +327,15 @@ const DEFAULT_COLUMNS = visibleColumns(COLUMN_SPECS, defaultLayout(COLUMN_SPECS)
 function cellHtml(key, row, pv, isChecked) {
   switch (key) {
     case 'chk':
-      return `<td class="chk"><input type="checkbox" data-pv="${esc(pv)}"`
-        + `${isChecked ? ' checked' : ''} aria-label="Select ${esc(pv)}"></td>`;
+      return (
+        `<td class="chk"><input type="checkbox" data-pv="${esc(pv)}"` +
+        `${isChecked ? ' checked' : ''} aria-label="Select ${esc(pv)}"></td>`
+      );
     case 'device':
-      return `<td class="dev"><button type="button" class="dev" data-uri="${esc(row.device_uri ?? '')}" tabindex="-1">`
-        + `${esc(row.device ?? '')}</button></td>`;
+      return (
+        `<td class="dev"><button type="button" class="dev" data-uri="${esc(row.device_uri ?? '')}" tabindex="-1">` +
+        `${esc(row.device ?? '')}</button></td>`
+      );
     case 'section':
       return `<td class="sec">${esc(row.section ?? '')}</td>`;
     case 'system':
@@ -325,8 +355,10 @@ function cellHtml(key, row, pv, isChecked) {
       return `<td class="desc" title="${esc(desc)}">${esc(desc)}</td>`;
     }
     case 'act':
-      return `<td class="act"><button type="button" class="copy-btn" data-copy="${esc(pv)}"`
-        + ` title="Copy address" aria-label="Copy ${esc(pv)}" tabindex="-1">⎘</button></td>`;
+      return (
+        `<td class="act"><button type="button" class="copy-btn" data-copy="${esc(pv)}"` +
+        ` title="Copy address" aria-label="Copy ${esc(pv)}" tabindex="-1">⎘</button></td>`
+      );
     default:
       return '<td></td>';
   }
@@ -343,19 +375,25 @@ function cellHtml(key, row, pv, isChecked) {
  */
 function headHtml(col, state, allChecked) {
   if (col.key === 'chk') {
-    return `<th class="chk" data-col="chk" data-pinned><input type="checkbox" data-select-page${allChecked ? ' checked' : ''}`
-      + ' aria-label="Select every channel on this page"></th>';
+    return (
+      `<th class="chk" data-col="chk" data-pinned><input type="checkbox" data-select-page${allChecked ? ' checked' : ''}` +
+      ' aria-label="Select every channel on this page"></th>'
+    );
   }
   if (col.pin) {
     return `<th class="${esc(col.key)}" data-col="${esc(col.key)}" data-pinned aria-label="${esc(col.label)}"></th>`;
   }
   const sort = state && state.sort && state.sort.key === col.key ? state.sort.dir : null;
   const aria = sort === 'asc' ? 'ascending' : sort === 'desc' ? 'descending' : 'none';
-  const arrow = sort ? `<span class="sort-mark" aria-hidden="true">${sort === 'asc' ? '▲' : '▼'}</span>` : '';
-  return `<th data-col="${esc(col.key)}" aria-sort="${aria}" tabindex="0"`
-    + ' title="Click to sort · drag to move · right-click for options">'
-    + `<span class="th-label">${esc(col.label)}${arrow}</span>`
-    + `<span class="col-resize" data-resize="${esc(col.key)}" aria-hidden="true"></span></th>`;
+  const arrow = sort
+    ? `<span class="sort-mark" aria-hidden="true">${sort === 'asc' ? '▲' : '▼'}</span>`
+    : '';
+  return (
+    `<th data-col="${esc(col.key)}" aria-sort="${aria}" tabindex="0"` +
+    ' title="Click to sort · drag to move · right-click for options">' +
+    `<span class="th-label">${esc(col.label)}${arrow}</span>` +
+    `<span class="col-resize" data-resize="${esc(col.key)}" aria-hidden="true"></span></th>`
+  );
 }
 
 /**
@@ -381,36 +419,50 @@ export function resultsHtml(rows, state, columns = DEFAULT_COLUMNS, focusPv = nu
   const list = rows || [];
   const cols = columns && columns.length ? columns : DEFAULT_COLUMNS;
   const selected = (state && state.selected) || new Set();
-  const allChecked = list.length > 0 && list.every(r => selected.has(String(r.fullPv ?? '')));
+  const allChecked = list.length > 0 && list.every((r) => selected.has(String(r.fullPv ?? '')));
   const tabStop = list.some((r) => String(r.fullPv ?? '') === focusPv)
     ? focusPv
-    : (list.length ? String(list[0].fullPv ?? '') : null);
+    : list.length
+      ? String(list[0].fullPv ?? '')
+      : null;
 
-  const body = list.length === 0
-    ? `<tr><td colspan="${cols.length}" class="result-empty">No channels match.</td></tr>`
-    : list.map(row => {
-      const pv = String(row.fullPv ?? '');
-      const isChecked = selected.has(pv);
-      return `<tr data-pv="${esc(pv)}" data-uri="${esc(row.device_uri ?? '')}"`
-        + ` tabindex="${pv === tabStop ? '0' : '-1'}"${isChecked ? ' class="checked"' : ''}>`
-        + cols.map((col) => cellHtml(col.key, row, pv, isChecked)).join('')
-        + '</tr>';
-    }).join('');
+  const body =
+    list.length === 0
+      ? `<tr><td colspan="${cols.length}" class="result-empty">No channels match.</td></tr>`
+      : list
+          .map((row) => {
+            const pv = String(row.fullPv ?? '');
+            const isChecked = selected.has(pv);
+            return (
+              `<tr data-pv="${esc(pv)}" data-uri="${esc(row.device_uri ?? '')}"` +
+              ` tabindex="${pv === tabStop ? '0' : '-1'}"${isChecked ? ' class="checked"' : ''}>` +
+              cols.map((col) => cellHtml(col.key, row, pv, isChecked)).join('') +
+              '</tr>'
+            );
+          })
+          .join('');
 
   // The last data column takes whatever width the pane has to spare, so the
   // table fills it without stretching every column; the sum of the stored
   // widths is the table's floor, so a narrow pane scrolls sideways instead.
   const fill = cols.map((col) => !col.pin).lastIndexOf(true);
   const floor = cols.reduce((sum, col) => sum + (Number(col.width) || 80), 0);
-  const colgroup = '<colgroup>'
-    + cols.map((col, i) => (i === fill
-      ? `<col data-col="${esc(col.key)}" data-fill>`
-      : `<col data-col="${esc(col.key)}" style="width:${Number(col.width) || 80}px">`)).join('')
-    + '</colgroup>';
-  return `<div class="result-wrap"><table class="result-table" style="min-width:${floor}px">`
-    + colgroup
-    + `<thead><tr>${cols.map((col) => headHtml(col, state, allChecked)).join('')}</tr></thead>`
-    + `<tbody>${body}</tbody></table></div>`;
+  const colgroup =
+    '<colgroup>' +
+    cols
+      .map((col, i) =>
+        i === fill
+          ? `<col data-col="${esc(col.key)}" data-fill>`
+          : `<col data-col="${esc(col.key)}" style="width:${Number(col.width) || 80}px">`
+      )
+      .join('') +
+    '</colgroup>';
+  return (
+    `<div class="result-wrap"><table class="result-table" style="min-width:${floor}px">` +
+    colgroup +
+    `<thead><tr>${cols.map((col) => headHtml(col, state, allChecked)).join('')}</tr></thead>` +
+    `<tbody>${body}</tbody></table></div>`
+  );
 }
 
 /**
@@ -436,28 +488,30 @@ export function footerHtml(total, devices, page, pages, selectedCount, embedded)
   const off = count === 0 ? ' disabled' : '';
 
   const sendBtn = embedded
-    ? '<button type="button" class="btn btn-primary btn-sm" data-action="send"'
-      + `${off}>Send to assistant</button>`
+    ? '<button type="button" class="btn btn-primary btn-sm" data-action="send"' +
+      `${off}>Send to assistant</button>`
     : '';
 
-  return '<div class="result-foot">'
-    + `<span class="result-counts"><strong>${fmt(total)}</strong> channels on `
-    + `<strong>${fmt(devices)}</strong> devices</span>`
-    + '<span class="pager">'
-    + '<button type="button" class="btn btn-secondary btn-sm" data-page="prev"'
-    + `${current <= 1 ? ' disabled' : ''} aria-label="Previous page">‹</button>`
-    + `<span class="pager-pos">${current} / ${last}</span>`
-    + '<button type="button" class="btn btn-secondary btn-sm" data-page="next"'
-    + `${current >= (Number(pages) || 0) ? ' disabled' : ''} aria-label="Next page">›</button>`
-    + '</span>'
-    + '<span class="spacer"></span>'
-    + `<span class="sel-count">${fmt(count)} selected</span>`
-    + `<button type="button" class="btn btn-secondary btn-sm" data-action="copy"${off}>`
-    + 'Copy addresses</button>'
-    + sendBtn
-    + `<button type="button" class="btn btn-secondary btn-sm" data-action="clear"${off}>`
-    + 'Clear</button>'
-    + '</div>';
+  return (
+    '<div class="result-foot">' +
+    `<span class="result-counts"><strong>${fmt(total)}</strong> channels on ` +
+    `<strong>${fmt(devices)}</strong> devices</span>` +
+    '<span class="pager">' +
+    '<button type="button" class="btn btn-secondary btn-sm" data-page="prev"' +
+    `${current <= 1 ? ' disabled' : ''} aria-label="Previous page">‹</button>` +
+    `<span class="pager-pos">${current} / ${last}</span>` +
+    '<button type="button" class="btn btn-secondary btn-sm" data-page="next"' +
+    `${current >= (Number(pages) || 0) ? ' disabled' : ''} aria-label="Next page">›</button>` +
+    '</span>' +
+    '<span class="spacer"></span>' +
+    `<span class="sel-count">${fmt(count)} selected</span>` +
+    `<button type="button" class="btn btn-secondary btn-sm" data-action="copy"${off}>` +
+    'Copy addresses</button>' +
+    sendBtn +
+    `<button type="button" class="btn btn-secondary btn-sm" data-action="clear"${off}>` +
+    'Clear</button>' +
+    '</div>'
+  );
 }
 
 /**
@@ -466,8 +520,10 @@ export function footerHtml(total, devices, page, pages, selectedCount, embedded)
  * @returns {string}
  */
 function closeButton() {
-  return '<button type="button" class="close card-btn" data-action="close-card"'
-    + ' title="Close (Esc)" aria-label="Close">✕</button>';
+  return (
+    '<button type="button" class="close card-btn" data-action="close-card"' +
+    ' title="Close (Esc)" aria-label="Close">✕</button>'
+  );
 }
 
 /**
@@ -481,13 +537,15 @@ function signalRow(binding, signal) {
   const b = binding || {};
   const pv = String(b.fullPv ?? '');
   const sub = b.description || '';
-  return `<tr data-pv="${esc(pv)}">`
-    + `<td class="sig">${esc(signal)}</td>`
-    + `<td>${dirPill(directionOf(b))}</td>`
-    + `<td class="pv">${esc(pv)} <button type="button" class="copy-btn copy-btn-static"`
-    + ` data-copy="${esc(pv)}" title="Copy address" aria-label="Copy ${esc(pv)}">⎘</button></td>`
-    + `<td class="sub">${esc(sub)}</td>`
-    + '</tr>';
+  return (
+    `<tr data-pv="${esc(pv)}">` +
+    `<td class="sig">${esc(signal)}</td>` +
+    `<td>${dirPill(directionOf(b))}</td>` +
+    `<td class="pv">${esc(pv)} <button type="button" class="copy-btn copy-btn-static"` +
+    ` data-copy="${esc(pv)}" title="Copy address" aria-label="Copy ${esc(pv)}">⎘</button></td>` +
+    `<td class="sub">${esc(sub)}</td>` +
+    '</tr>'
+  );
 }
 
 /**
@@ -524,19 +582,21 @@ export function deviceCardHtml(device, opts = {}) {
 
   const descriptions = [d.familyDescription, d.systemDescription]
     .filter(Boolean)
-    .map(text => `<div class="fam">${esc(text)}</div>`)
+    .map((text) => `<div class="fam">${esc(text)}</div>`)
     .join('');
 
   /** @type {any[]} */
   const groups = Array.isArray(d.signals) ? d.signals : [];
-  const rows = groups.map(group => {
-    /** @type {any[]} */
-    const bindings = Array.isArray(group && group.bindings) ? group.bindings : [];
-    // The signal name is written once per group, on the group's first row.
-    return bindings
-      .map((binding, index) => signalRow(binding, index === 0 ? String(group.name ?? '') : ''))
-      .join('');
-  }).join('');
+  const rows = groups
+    .map((group) => {
+      /** @type {any[]} */
+      const bindings = Array.isArray(group && group.bindings) ? group.bindings : [];
+      // The signal name is written once per group, on the group's first row.
+      return bindings
+        .map((binding, index) => signalRow(binding, index === 0 ? String(group.name ?? '') : ''))
+        .join('');
+    })
+    .join('');
 
   const table = rows
     ? `<table class="sig-table"><tbody>${rows}</tbody></table>`
@@ -544,20 +604,22 @@ export function deviceCardHtml(device, opts = {}) {
 
   const hasRows = rows !== '';
   const send = opts.embedded
-    ? '<button type="button" class="card-btn" data-action="send-device"'
-      + `${hasRows ? '' : ' disabled'} title="Send every address to the assistant"`
-      + ' aria-label="Send every address to the assistant">➤</button>'
+    ? '<button type="button" class="card-btn" data-action="send-device"' +
+      `${hasRows ? '' : ' disabled'} title="Send every address to the assistant"` +
+      ' aria-label="Send every address to the assistant">➤</button>'
     : '';
-  return `<div class="device-card" data-uri="${esc(d.uri ?? '')}"><div class="device-card-head">`
-    + `<span class="name" title="${esc(d.device ?? '')}">${esc(d.device ?? '')}</span>`
-    + '<span class="card-actions">'
-    + '<button type="button" class="card-btn" data-action="copy-device"'
-    + `${hasRows ? '' : ' disabled'} title="Copy every address" aria-label="Copy every address">⎘</button>`
-    + send
-    + closeButton()
-    + '</span></div><div class="device-card-body">'
-    + (meta.length ? `<div class="meta">${esc(meta.join(' · '))}</div>` : '')
-    + `${descriptions}${table}</div></div>`;
+  return (
+    `<div class="device-card" data-uri="${esc(d.uri ?? '')}"><div class="device-card-head">` +
+    `<span class="name" title="${esc(d.device ?? '')}">${esc(d.device ?? '')}</span>` +
+    '<span class="card-actions">' +
+    '<button type="button" class="card-btn" data-action="copy-device"' +
+    `${hasRows ? '' : ' disabled'} title="Copy every address" aria-label="Copy every address">⎘</button>` +
+    send +
+    closeButton() +
+    '</span></div><div class="device-card-body">' +
+    (meta.length ? `<div class="meta">${esc(meta.join(' · '))}</div>` : '') +
+    `${descriptions}${table}</div></div>`
+  );
 }
 
 /**
@@ -568,7 +630,8 @@ export function deviceCardHtml(device, opts = {}) {
 export function deviceAddresses(device) {
   /** @type {any[]} */
   const groups = Array.isArray(device && device.signals) ? device.signals : [];
-  return groups.flatMap((group) => (Array.isArray(group && group.bindings) ? group.bindings : []))
+  return groups
+    .flatMap((group) => (Array.isArray(group && group.bindings) ? group.bindings : []))
     .map((binding) => String((binding && binding.fullPv) ?? ''))
     .filter(Boolean);
 }
@@ -580,10 +643,69 @@ export function deviceAddresses(device) {
  * @returns {string}
  */
 export function deviceCardErrorHtml(detail) {
-  return '<div class="device-card device-card-error"><div class="device-card-head">'
-    + '<span class="name">Device unavailable</span>'
-    + `<span class="card-actions">${closeButton()}</span>`
-    + '</div><div class="device-card-body">'
-    + `<div class="card-error">${esc(detail ?? '')}</div>`
-    + '</div></div>';
+  return (
+    '<div class="device-card device-card-error"><div class="device-card-head">' +
+    '<span class="name">Device unavailable</span>' +
+    `<span class="card-actions">${closeButton()}</span>` +
+    '</div><div class="device-card-body">' +
+    `<div class="card-error">${esc(detail ?? '')}</div>` +
+    '</div></div>'
+  );
+}
+
+/**
+ * The ids of the regions {@link skeletonHtml} writes, which the panel looks up
+ * to redraw each one in place.
+ */
+export const FINDER_IDS = Object.freeze({
+  search: 'graph-finder-q',
+  count: 'graph-finder-count',
+  chips: 'graph-finder-chips',
+  rail: 'graph-finder-rail',
+  railSplit: 'graph-finder-rail-split',
+  caution: 'graph-finder-caution',
+  card: 'graph-finder-card',
+  cardSplit: 'graph-finder-card-split',
+  table: 'graph-finder-table',
+});
+
+const SEARCH_PLACEHOLDER = 'Search devices, addresses and descriptions';
+
+/**
+ * The finder's skeleton. The query box lives here rather than in a re-rendered
+ * region: replacing an input while it has focus would drop the caret mid-word.
+ * @param {'comfortable'|'compact'} density - The row density the toggle shows as pressed.
+ * @returns {string} Markup for the toolbar, the panes and the regions inside them.
+ */
+export function skeletonHtml(density) {
+  const toggle = (/** @type {'comfortable'|'compact'} */ d, /** @type {string} */ label) =>
+    `<button type="button" data-density="${d}" aria-pressed="${density === d}">${label}</button>`;
+  return `
+    <div class="cf-toolbar">
+      <label class="cf-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="${FINDER_IDS.search}" placeholder="${esc(SEARCH_PLACEHOLDER)}"
+               aria-label="${esc(SEARCH_PLACEHOLDER)}" autocomplete="off" spellcheck="false">
+        <kbd title="Press / to search">/</kbd>
+      </label>
+      <span class="finder-count" id="${FINDER_IDS.count}"></span>
+      <span class="cf-spacer"></span>
+      <span class="cf-seg" role="group" aria-label="Row density">${toggle('comfortable', 'Comfortable')}${toggle('compact', 'Compact')}</span>
+      <button type="button" class="cf-iconbtn" data-more aria-haspopup="menu"
+              title="More options" aria-label="More options">⋯</button>
+    </div>
+    <div class="active-filters" id="${FINDER_IDS.chips}"></div>
+    <div class="finder-layout">
+      <div class="facet-rail" id="${FINDER_IDS.rail}"></div>
+      <div class="osprey-splitter" id="${FINDER_IDS.railSplit}" role="separator" aria-orientation="vertical"
+           aria-label="Resize the filters" tabindex="0" title="Drag to resize · double-click to hide"></div>
+      <div class="finder-results">
+        <div id="${FINDER_IDS.caution}"></div>
+        <div class="finder-table" id="${FINDER_IDS.table}"></div>
+      </div>
+      <div class="osprey-splitter" id="${FINDER_IDS.cardSplit}" role="separator" aria-orientation="vertical"
+           aria-label="Resize the device inspector" tabindex="0" hidden></div>
+      <div class="finder-inspector" id="${FINDER_IDS.card}" hidden></div>
+    </div>
+  `;
 }

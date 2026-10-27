@@ -44,8 +44,15 @@
 /** @typedef {{key: SortKey, dir: 'asc'|'desc'}} Sort */
 
 /** Every sortable column, for callers that must tell a data column from chrome. */
-export const SORT_KEYS = /** @type {readonly SortKey[]} */ (
-  ['device', 'section', 'system', 'address', 'dir', 'signal', 'description']);
+export const SORT_KEYS = /** @type {readonly SortKey[]} */ ([
+  'device',
+  'section',
+  'system',
+  'address',
+  'dir',
+  'signal',
+  'description',
+]);
 
 /**
  * @typedef {object} Chip
@@ -158,9 +165,10 @@ export function toSearchParams(state) {
  * @returns {boolean} Whether the order changed.
  */
 export function setSort(state, sort) {
-  const same = sort === null
-    ? state.sort === null
-    : state.sort !== null && state.sort.key === sort.key && state.sort.dir === sort.dir;
+  const same =
+    sort === null
+      ? state.sort === null
+      : state.sort !== null && state.sort.key === sort.key && state.sort.dir === sort.dir;
   if (same) return false;
   state.sort = sort;
   state.page = 1;

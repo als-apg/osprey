@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_environment import _create_project_venv
+from osprey.cli.build_environment import _create_project_venv, _plan_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 
 
@@ -40,7 +40,7 @@ def _build(project_path: Path, osprey_install: str) -> dict:
     profile = BuildProfile(
         name="test", osprey_install=osprey_install, environment=EnvironmentConfig()
     )
-    _create_project_venv(project_path, profile)
+    _create_project_venv(project_path, _plan_project_venv(profile))
     return tomllib.loads((project_path / "pyproject.toml").read_text(encoding="utf-8"))
 
 

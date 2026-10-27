@@ -192,7 +192,7 @@ E_DELTA_ORBIT = 5.0e-6
 _SPEED_OF_LIGHT = 299792458.0
 
 #: The solve whose model has no design simulator.
-_SINGLE_PASS = "single_pass"
+_SINGLE_PASS = "single_pass"  # noqa: S105 -- names a lattice mode, holds no secret
 
 #: Wide enough that no generated string or reference is folded across lines.
 _YAML_WIDTH = 4096
@@ -1127,7 +1127,7 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
         inputs: The render's view inputs.
 
     Returns:
-        The files written, sorted.
+        The files written, in the order they were written.
     """
     written_models, omitted = measured_models(inputs)
     for model, reason in omitted.items():
@@ -1158,4 +1158,4 @@ def write_pyaml_view(root: Path, inputs: ViewInputs) -> list[Path]:
             path = directory / name
             path.write_text(text, encoding="utf-8")
             written.append(path)
-    return sorted(written)
+    return written

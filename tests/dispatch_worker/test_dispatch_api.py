@@ -322,7 +322,7 @@ def test_dispatch_no_auth_header(client):
 
 
 # ---------------------------------------------------------------------------
-# GET /dispatch/{run_id}
+# Tests of GET /dispatch/{run_id}
 # ---------------------------------------------------------------------------
 
 
@@ -487,7 +487,7 @@ def test_a_run_id_that_is_no_record_key_is_404_without_a_read(client, monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# DELETE /dispatch/{run_id}
+# Tests of DELETE /dispatch/{run_id}
 # ---------------------------------------------------------------------------
 
 

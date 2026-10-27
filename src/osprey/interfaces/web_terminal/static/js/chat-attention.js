@@ -29,13 +29,11 @@ const TURN_TAG = 'osprey-turn-finished';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** The bell outline, on the same 24-unit grid as chat-icons.js. */
-const BELL_PATHS = [
-  'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9',
-  'M10.3 21a1.94 1.94 0 0 0 3.4 0',
-];
+const BELL_PATHS = ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0'];
 
 const BELL_TITLE = 'Desktop notifications, when the agent needs you while this tab is hidden';
-const BLOCKED_TITLE = "Notifications are blocked for this site. Allow them in the browser's site settings.";
+const BLOCKED_TITLE =
+  "Notifications are blocked for this site. Allow them in the browser's site settings.";
 
 /** The `Notification` constructor when the browser has one, else null. Read at call time. */
 function notifier() {
@@ -208,7 +206,7 @@ function createBell() {
       },
       () => {
         /* the browser refused to ask: the bell stays off */
-      },
+      }
     );
   });
 
@@ -316,7 +314,7 @@ export function initChatAttention(ctx) {
       render();
       if (notified.has(id)) return;
       const note = notify(`osprey-attention-${id}`, requestText(kind, toolName), () =>
-        focusCard(id),
+        focusCard(id)
       );
       if (note) {
         notified.add(id);

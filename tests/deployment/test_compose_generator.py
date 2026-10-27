@@ -2178,8 +2178,21 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def orm_stack_render(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The plan-stack deploy config, built once for the three ``test_orm_stack_*`` rows.
+
+    The first row's compose render writes only under ``build/build/``, which the others never read.
+    """
+    from click.testing import CliRunner
+
+    from tests.e2e import _orm_stack
+
+    return _orm_stack.build_via_cli_runner(CliRunner(), tmp_path_factory.mktemp("orm-stack"))
+
+
 def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    orm_stack_render: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FR11's turn-key deploy config, end to end without Docker:
     ``osprey build`` (in-process, via ``tests/e2e/_orm_stack``) followed by a
@@ -2197,13 +2210,9 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     """
     import json
 
-    from click.testing import CliRunner
-
     from tests.e2e import _orm_stack
 
-    runner = CliRunner()
-
-    project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
+    project_dir = orm_stack_render
 
     # -- the build's device view reached the bluesky build context ----------
     # The staged file is the build's Bluesky devices view, written from the
@@ -2288,7 +2297,9 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     )
 
 
-def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: Path) -> None:
+def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(
+    orm_stack_render: Path,
+) -> None:
     """The plan-stack lanes size a sweep from a corrector a limits record
     bounds and read it back on monitors the same model solves for.
 
@@ -2297,11 +2308,9 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: P
     monitor bindings of that corrector's model: a monitor of another model
     cannot respond to the sweep.
     """
-    from click.testing import CliRunner
-
     from tests.e2e import _facility_select, _orm_stack
 
-    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+    repo = orm_stack_render.parent
 
     setpoint, readback, model = _facility_select.bounded_corrector(repo)
     entry = _orm_stack.channel_limits(repo)[setpoint]
@@ -2318,7 +2327,7 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(tmp_path: P
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
 
-def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
+def test_orm_stack_correctors_hold_the_sweep_span(orm_stack_render: Path) -> None:
     """Every corrector the ORM lane sweeps holds ``+-SPAN_A`` on the model.
 
     The lane sweeps one model's correctors, the model whose corrector a limits
@@ -2326,13 +2335,11 @@ def test_orm_stack_correctors_hold_the_sweep_span(tmp_path: Path) -> None:
     model serving, so a corrector that loses the beam at the sweep's span would
     fail the lane's first write rather than yield a response column.
     """
-    from click.testing import CliRunner
-
     from osprey_connectors.simulation.composite import Composite, WriteRefusedError
     from osprey_connectors.simulation.view import SimulatorView
     from tests.e2e import _facility_select, _orm_stack, test_orm_roundtrip
 
-    repo = _orm_stack.build_via_cli_runner(CliRunner(), tmp_path).parent
+    repo = orm_stack_render.parent
 
     model = _facility_select.bounded_corrector(repo)[2]
     correctors = _orm_stack.select_correctors(repo, test_orm_roundtrip.CORRECTOR_COUNT, model=model)
@@ -4129,9 +4136,10 @@ def _wheel_difference_report(first: Path, second: Path) -> str:
 def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
     """Two dev-wheel builds from identical source yield identical sha256.
 
-    Skips cleanly under exactly the conditions the production helper itself
-    falls back on: osprey not editable-installed, no pyproject.toml at the
-    source root, or the ``build`` package unavailable.
+    Skips only where no dev wheel can be built from source at all: osprey not
+    editable-installed, no pyproject.toml at the source root, or the ``build``
+    package unavailable. Past those, the helper either stages the wheels or
+    raises DevModeUnavailableError, and a raise here is a failure, not a skip.
     """
     import hashlib
     import importlib.util
@@ -4169,8 +4177,7 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
             # Reset the memo so the second round is a genuinely fresh build, not
             # a copy of the first round's cached wheel.
             _reset_wheel_build_cache()
-            if not _copy_local_framework_for_override(str(out_dir)):
-                pytest.skip("dev wheel build unavailable in this environment")
+            assert _copy_local_framework_for_override(str(out_dir))
             staged = {w.name.split("-")[0]: w for w in out_dir.glob("*.whl")}
             assert sorted(staged) == sorted(
                 ["osprey_framework"] + [m.replace("-", "_") for m in WORKSPACE_MEMBERS]
@@ -7520,10 +7527,11 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
 # A limits database is optional. Refusals ride on one target both arming
-# writes and having `limits_checking.enabled` on
-# (`any_armed_target_checks_limits`), because that pairing is what opens the
-# file: a target that checks no limits builds no validator and reads no
-# database. The write half is a union over the targets a session here can
+# writes and requiring the database (`any_armed_target_requires_limits_database`:
+# `limits_checking.enabled` on, and a mode other than `optional` or a path
+# configured), because that pairing is what opens the file: a target that checks
+# no limits builds no validator and reads no database, and one checking in
+# `optional` mode with no path checks every channel as unlisted. The write half is a union over the targets a session here can
 # select rather than the flat key, since the template mounts the file per
 # Bluesky lane off each lane's own target posture -- so a deployment-wide
 # `writes_enabled: false` with an armed `connector.<type>.writes_enabled` still
@@ -7690,6 +7698,46 @@ def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_
         "the reason must say which posture makes the missing key fatal"
     )
     assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key"
+
+
+def test_limits_mount_lets_an_optional_writable_deployment_with_no_path_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Optional mode, no path: legal, and nothing to mount (q-0001/1, q-0002)."""
+    control_system = _limits_config(None)
+    control_system["limits_checking"]["mode"] = "optional"
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert config.get("limits_mount") is None
+
+
+def test_limits_mount_refuses_an_exclusive_writable_deployment_with_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exclusive mode needs the database to know what is writable at all."""
+    control_system = _limits_config(None)
+    control_system["limits_checking"]["mode"] = "exclusive"
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)):
+        prepare_compose_files(str(config_path))
+
+
+def test_limits_mount_refuses_an_optional_writable_deployment_whose_named_file_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A configured path must exist whatever the mode."""
+    control_system = _limits_config(DEFAULT_LIMITS_RELPATH)
+    control_system["limits_checking"]["mode"] = "optional"
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)):
+        prepare_compose_files(str(config_path))
 
 
 def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absent(

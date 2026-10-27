@@ -44,10 +44,10 @@
  * @module artifact-viewport
  */
 
-import { getTheme } from "/design-system/js/theme-manager.js";
-import { fileUrl } from "./state.js";
-import { escapeHtml, hasTimeseriesData, withTheme } from "./types.js";
-import { renderMarkdownView, renderJsonView } from "./preview-content.js";
+import { getTheme } from '/design-system/js/theme-manager.js';
+import { fileUrl } from './state.js';
+import { escapeHtml, hasTimeseriesData, withTheme } from './types.js';
+import { renderMarkdownView, renderJsonView } from './preview-content.js';
 
 /**
  * The src for an embedded artifact page: the URL stamped with the theme the
@@ -85,24 +85,24 @@ export function artifactViewportHtml(a) {
   }
 
   switch (a.artifact_type) {
-    case "plot_html":
-    case "table_html":
-    case "dashboard_html":
-    case "html":
+    case 'plot_html':
+    case 'table_html':
+    case 'dashboard_html':
+    case 'html':
       return `<iframe src="${embedSrc(fileUrl(a))}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
-    case "notebook":
+    case 'notebook':
       return `<iframe src="${embedSrc(`/api/notebooks/${encodeURIComponent(a.id)}/rendered`)}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
-    case "plot_png":
-    case "image":
+    case 'plot_png':
+    case 'image':
       return `<img src="${fileUrl(a)}" alt="${escapeHtml(a.title)}" />`;
-    case "markdown":
+    case 'markdown':
       return `<div class="md-preview-container"></div>`;
-    case "json":
+    case 'json':
       return `<div class="json-viewer"></div>`;
-    case "text":
+    case 'text':
       return `<iframe src="${fileUrl(a)}" class="preview-iframe-dark"></iframe>`;
     default:
-      if (a.mime_type === "application/pdf") {
+      if (a.mime_type === 'application/pdf') {
         return `<iframe src="${fileUrl(a)}" class="preview-iframe-light"></iframe>`;
       }
       return `<div class="preview-download">
@@ -137,19 +137,21 @@ export function artifactViewportHtml(a) {
  */
 export function mountArtifactViewport(container, a, options) {
   if (hasTimeseriesData(a)) {
-    const tsEl = /** @type {HTMLElement|null} */ (container.querySelector(".ts-viewport-container"));
+    const tsEl = /** @type {HTMLElement|null} */ (
+      container.querySelector('.ts-viewport-container')
+    );
     if (tsEl && options.onTimeseriesNeeded) options.onTimeseriesNeeded(tsEl, a);
     return;
   }
 
-  if (a.artifact_type === "markdown") {
-    const mdEl = /** @type {HTMLElement|null} */ (container.querySelector(".md-preview-container"));
+  if (a.artifact_type === 'markdown') {
+    const mdEl = /** @type {HTMLElement|null} */ (container.querySelector('.md-preview-container'));
     if (mdEl) renderMarkdownView(mdEl, a);
     return;
   }
 
-  if (a.artifact_type === "json") {
-    const jsonEl = /** @type {HTMLElement|null} */ (container.querySelector(".json-viewer"));
+  if (a.artifact_type === 'json') {
+    const jsonEl = /** @type {HTMLElement|null} */ (container.querySelector('.json-viewer'));
     if (jsonEl) renderJsonView(jsonEl, a);
   }
 }

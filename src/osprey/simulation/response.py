@@ -69,7 +69,7 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
     except Exception as exc:
         if not _refusal(exc, engine):
             raise
-        print(RESULT_TAG, json.dumps({"refused": str(exc)}), flush=True)
+        print(RESULT_TAG, json.dumps({"refused": str(exc)}), flush=True)  # noqa: T201 -- stdout carries the result line the parent reads
         return
     line = {
         "rows": [str(row) for row in result.rows],
@@ -77,4 +77,4 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
         "matrix": [[float(value) for value in row] for row in result.matrix],
         "unsolved": {str(address): str(text) for address, text in result.unsolved.items()},
     }
-    print(RESULT_TAG, json.dumps(line), flush=True)
+    print(RESULT_TAG, json.dumps(line), flush=True)  # noqa: T201 -- stdout carries the result line the parent reads

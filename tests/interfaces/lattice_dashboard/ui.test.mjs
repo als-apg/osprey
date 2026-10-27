@@ -146,10 +146,7 @@ describe('layout-mode toggle', () => {
     ui.initLayout();
 
     expect(Plotly.relayout).toHaveBeenCalledTimes(1);
-    expect(Plotly.relayout).toHaveBeenCalledWith(
-      byId('plot-optics'),
-      { autosize: true }
-    );
+    expect(Plotly.relayout).toHaveBeenCalledWith(byId('plot-optics'), { autosize: true });
   });
 });
 
@@ -220,8 +217,12 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
       _data: new Map(),
       effectAllowed: '',
       dropEffect: '',
-      setData(type, val) { this._data.set(type, val); },
-      getData(type) { return this._data.get(type) ?? ''; },
+      setData(type, val) {
+        this._data.set(type, val);
+      },
+      getData(type) {
+        return this._data.get(type) ?? '';
+      },
     };
 
     const dragStart = new Event('dragstart', { bubbles: true });
@@ -263,11 +264,15 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     ui.restorePanelOrder();
 
     const opticsContainer = byId('cell-optics').parentNode;
-    const firstChildOfOpticsContainer = /** @type {Element} */ (opticsContainer).querySelector('.figure-cell');
+    const firstChildOfOpticsContainer = /** @type {Element} */ (opticsContainer).querySelector(
+      '.figure-cell'
+    );
     // 'da' was reordered into whichever slot position 0 maps to; assert via
     // the round-trip contract instead of a hardcoded DOM shape: reading the
     // order back out via savePanelOrder's own selector must match 'saved'.
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(
+      (c) => /** @type {HTMLElement} */ (c).dataset.figure
+    );
     expect(cellsInOrder).toEqual(['da', 'optics']);
     expect(firstChildOfOpticsContainer).not.toBeNull();
   });
@@ -279,14 +284,18 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     expect(() => ui.restorePanelOrder()).not.toThrow();
     expect(window.localStorage.getItem('lattice-panel-order')).toBeNull();
     // DOM order is untouched (still the fixture's natural order).
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(
+      (c) => /** @type {HTMLElement} */ (c).dataset.figure
+    );
     expect(cellsInOrder).toEqual(['optics', 'da']);
   });
 
   test('restorePanelOrder is a no-op when nothing is saved', () => {
     const ui = createUI(FIGURE_NAMES);
     expect(() => ui.restorePanelOrder()).not.toThrow();
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(
+      (c) => /** @type {HTMLElement} */ (c).dataset.figure
+    );
     expect(cellsInOrder).toEqual(['optics', 'da']);
   });
 
@@ -303,7 +312,9 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     const ui2 = createUI(FIGURE_NAMES);
     ui2.restorePanelOrder();
 
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(
+      (c) => /** @type {HTMLElement} */ (c).dataset.figure
+    );
     expect(cellsInOrder).toEqual(savedOrder);
   });
 });
@@ -320,11 +331,18 @@ describe('on a multi-user mount (storage scope)', () => {
       effectAllowed: '',
       dropEffect: '',
       /** @param {string} t @param {string} v */
-      setData(t, v) { data.set(t, v); },
+      setData(t, v) {
+        data.set(t, v);
+      },
       /** @param {string} t */
-      getData(t) { return data.get(t) ?? ''; },
+      getData(t) {
+        return data.get(t) ?? '';
+      },
     };
-    for (const [type, target] of [['dragstart', qs(fromCell, '.figure-header')], ['drop', toCell]]) {
+    for (const [type, target] of [
+      ['dragstart', qs(fromCell, '.figure-header')],
+      ['drop', toCell],
+    ]) {
       const event = new Event(/** @type {string} */ (type), { bubbles: true });
       /** @type {Event & {dataTransfer: unknown}} */ (event).dataTransfer = dataTransfer;
       /** @type {HTMLElement} */ (target).dispatchEvent(event);
@@ -333,7 +351,7 @@ describe('on a multi-user mount (storage scope)', () => {
 
   const figureOrder = () =>
     Array.from(document.querySelectorAll('.figure-cell')).map(
-      c => /** @type {HTMLElement} */ (c).dataset.figure
+      (c) => /** @type {HTMLElement} */ (c).dataset.figure
     );
 
   beforeEach(() => {

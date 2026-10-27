@@ -21,7 +21,7 @@ Thank you for your interest in contributing to the Osprey Framework. This guide 
       :link-type: doc
       :shadow: md
 
-      Branch naming, the three-tier local test run, conventional commits, and
+      Branch naming, the local check tiers, conventional commits, and
       what happens to your pull request on the way to ``main``.
 
    .. grid-item-card:: Extending Osprey

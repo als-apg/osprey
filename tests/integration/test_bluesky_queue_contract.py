@@ -725,7 +725,7 @@ def test_starting_the_queue_requires_the_launch_token(
     monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
     wrong = client.post("/queue/start", headers={"X-Launch-Token": "not-the-token"})
     assert wrong.status_code == 403
-    assert wrong.json()["detail"]["code"] == "launch_token_required"
+    assert wrong.json()["detail"]["code"] == "launch_token_invalid"
     assert manager.calls == []
 
     armed = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
@@ -755,7 +755,7 @@ def test_enqueueing_onto_a_running_queue_requires_the_launch_token(
 
     assert refused.status_code == 403
     detail = refused.json()["detail"]
-    assert detail["code"] == "launch_token_required"
+    assert detail["code"] == "launch_token_invalid"
     assert detail["manager_state"] == "executing_queue"
     # Nothing was added, so nothing had to be withdrawn.
     assert "item_add" not in manager.method_names()
@@ -788,7 +788,7 @@ def test_stopping_is_ungated_but_withdrawing_a_stop_requires_the_token(
 
     refused = client.post("/queue/stop", json={"cancel": True})
     assert refused.status_code == 403
-    assert refused.json()["detail"]["code"] == "launch_token_required"
+    assert refused.json()["detail"]["code"] == "launch_token_invalid"
     # The withdrawal never reached the manager: the stop still stands.
     assert manager.stop_pending is True
     assert "queue_stop_cancel" not in manager.method_names()
@@ -802,8 +802,8 @@ def test_stopping_is_ungated_but_withdrawing_a_stop_requires_the_token(
 
 
 @pytest.mark.parametrize(
-    ("token_configured", "expected_status"),
-    [(False, 503), (True, 403)],
+    ("token_configured", "expected_status", "expected_code"),
+    [(False, 503, "launch_token_required"), (True, 403, "launch_token_invalid")],
     ids=["unarmed-bridge", "wrong-token"],
 )
 def test_all_three_arming_routes_refuse_with_one_code(
@@ -812,10 +812,13 @@ def test_all_three_arming_routes_refuse_with_one_code(
     monkeypatch: pytest.MonkeyPatch,
     token_configured: bool,
     expected_status: int,
+    expected_code: str,
 ) -> None:
     """Start, enqueue-while-running, and stop-cancel are three routes but ONE
-    refusal for a consumer: same ``launch_token_required`` code, same status
-    code for the same cause. A panel branches once, not three times."""
+    refusal for a consumer: same code, same status code for the same cause —
+    ``launch_token_required`` (503) when the bridge has no token,
+    ``launch_token_invalid`` (403) when the caller's is missing or wrong. A
+    panel branches once per cause, not once per route."""
     revision = _draft_revision(client)
     if token_configured:
         monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
@@ -831,7 +834,7 @@ def test_all_three_arming_routes_refuse_with_one_code(
     for route, resp in refusals.items():
         assert resp.status_code == expected_status, f"{route}: {resp.text}"
         detail = resp.json()["detail"]
-        assert detail["code"] == "launch_token_required", route
+        assert detail["code"] == expected_code, route
         assert isinstance(detail["detail"], str) and detail["detail"], route
 
     # None of the three arming actions reached the manager.
@@ -957,7 +960,7 @@ def test_abort_is_never_refused_for_a_token(
     """The inverse of ``test_all_three_arming_routes_refuse_with_one_code``.
 
     Those three postures make every arming route answer
-    ``launch_token_required``. The abort must answer none of them: it is the
+    ``launch_token_required`` or ``launch_token_invalid``. The abort must answer none of them: it is the
     emergency halt, and a halt that can be refused for a policy reason is a
     halt with a failure mode. A WRONG token is included deliberately — that is
     the posture in which a gate added "for consistency" would bite hardest.
@@ -1065,7 +1068,7 @@ async def test_an_unarmed_add_racing_an_armed_start_is_refused_and_leaves_no_ite
     with pytest.raises(HTTPException) as excinfo:
         await asyncio.wait_for(add_task, timeout=5)
     assert excinfo.value.status_code == 403
-    assert excinfo.value.detail["code"] == "launch_token_required"
+    assert excinfo.value.detail["code"] == "launch_token_invalid"
     # Idle but ARMED: the manager reports autostart on, and that alone is what
     # makes the unarmed add an execution and refuses it.
     assert excinfo.value.detail["manager_state"] == "idle"
@@ -1118,7 +1121,7 @@ async def test_an_out_of_band_start_between_the_add_and_the_recheck_withdraws_th
     with pytest.raises(HTTPException) as excinfo:
         await asyncio.wait_for(add_task, timeout=5)
     assert excinfo.value.status_code == 403
-    assert excinfo.value.detail["code"] == "launch_token_required"
+    assert excinfo.value.detail["code"] == "launch_token_invalid"
     assert excinfo.value.detail["manager_state"] == "executing_queue"
     # Withdrawal succeeded, so the refusal says nothing about a stranded item.
     assert "item_left_behind" not in excinfo.value.detail

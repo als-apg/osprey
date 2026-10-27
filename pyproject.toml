@@ -89,6 +89,7 @@ dependencies = [
     # The image render worker decodes and re-encodes logbook attachments with
     # Pillow; matplotlib pulls it in only transitively, so declare it here.
     "pillow>=12.3",
+    "psutil>=7.2",  # The web terminal reads the process table with it
     # Networking and protocols
     "aiohttp>=3.14.3",  # Required by litellm (ConnectionTimeoutError needs >=3.10)
     "websocket-client>=1.7.0",
@@ -234,10 +235,10 @@ dependencies = [
     # The floor admits no pre-release by itself. Every install OSPREY drives
     # from a pre-release pin admits them for the whole resolve (`--pre` for
     # pip, `--prerelease allow` for uv; see osprey.version.pins_prerelease),
-    # which lets it take the newest connectors pre-release, and pip also takes
-    # a pre-release when no stable release satisfies the floor. uv resolves
-    # transitive pre-releases only when told (`--prerelease=allow`); it fails
-    # loudly with that hint, never silently pairs an older stable.
+    # which lets it take the newest connectors pre-release. Where no stable
+    # release satisfies the floor, pip *and* uv under its default policy
+    # (`if-necessary`) silently take a pre-release — which is why the floor
+    # names only a stable connectors release already on PyPI.
     "osprey-connectors>=2026.6.2",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
@@ -295,6 +296,11 @@ dev = [
     # changes between minors, so an unpinned floor lets CI and the local hook
     # disagree about what "formatted" means.
     "ruff>=0.16.2,<0.17",
+    # Pinned so every venue judges the workflows by the same rules: a linter
+    # free to move versions reports findings the diff did not introduce.
+    "actionlint-py==1.7.12.25",
+    # Pinned for the same reason; actionlint runs it over every workflow `run:` block.
+    "shellcheck-py==0.11.0.1",
     "testcontainers[postgres]>=4.15.0",  # Real PostgreSQL for integration tests
     # `lint-imports` holds the boundary between the framework and the
     # connectors package: the contracts are in [tool.importlinter] below.
@@ -407,18 +413,22 @@ screen-capture-linux = [
 # nowhere. That floor is hard: 0.8.0's `SimplePV.writeNotify` aborts the server
 # on any asynchronous write while `caput -w` still reports success.
 #
-# The environment marker is load-bearing. pcaspy publishes manylinux x86_64
-# wheels at every interpreter, but nothing else that loads: cp313/cp314 are
-# x86_64-only, there is no linux aarch64 wheel at any interpreter, and the
-# macosx_11_0_arm64 wheels are broken as shipped (they link
-# @rpath/libc++.1.dylib with no surviving LC_RPATH entry). The marker rides on
-# the lume-pva-apg entry alone, because its `ca` extra requires pcaspy with no
-# marker of its own: unmarked, this entry would send a developer's Mac into a
-# pcaspy source build that needs EPICS Base plus the separate PCAS module, and
-# fail. Verified, not assumed -- resolving `lume-pva-apg[ca,pva]==0.1.5` for
-# macOS at 3.13 selects pcaspy 0.8.1, whose only artifact at that interpreter
-# and platform is the sdist. Marked, those hosts get the honest skip and run
-# the live suites in the container venue under scripts/va/live_ca/ instead.
+# The environment marker is load-bearing. It admits the two platforms where a
+# Channel Access server loads: linux x86_64, where pcaspy publishes manylinux
+# wheels at every interpreter, and linux aarch64, where it publishes none and
+# the VA service image builds pcaspy itself from its sdist against EPICS Base
+# plus the separate PCAS module (see that Dockerfile's native-wheels stage).
+# Everywhere else nothing loads: the macosx_11_0_arm64 wheels are broken as
+# shipped (they link @rpath/libc++.1.dylib with no surviving LC_RPATH entry).
+# The marker rides on the lume-pva-apg entry alone, because its `ca` extra
+# requires pcaspy with no marker of its own: unmarked, this entry would send a
+# developer's Mac into a pcaspy source build that needs EPICS Base plus the
+# PCAS module, and fail. Verified, not assumed -- resolving
+# `lume-pva-apg[ca,pva]==0.1.5` for macOS at 3.13 selects pcaspy 0.8.1, whose
+# only artifact at that interpreter and platform is the sdist. Marked, those
+# hosts get the honest skip and run the live suites in the container venue
+# under scripts/va/live_ca/ instead. A linux aarch64 host installing this extra
+# outside that image needs EPICS Base and PCAS for the same source build.
 #
 # The cost of the marker is that `import lume_pva_apg` is unavailable on a Mac
 # too. That costs nothing real: `serving/runner.py` imports `lume_pva_apg.runner`,
@@ -426,10 +436,10 @@ screen-capture-linux = [
 # else is installed, and the suites that reach it already treat all three server
 # roots the same way.
 virtual-accelerator = [
-    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "lume-pva-apg[ca,pva]==0.1.5; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
     # Recorder-side (see the note above); deliberately UNMARKED, unlike the
     # serving entry. That marker is not a house style to copy — it exists
-    # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
+    # because pcaspy loads only on linux x86_64 and aarch64. These two load
     # everywhere, so marking them would only make the recorder's dependencies
     # silently absent on a developer's machine.
     "aioca>=1.7",
@@ -536,10 +546,10 @@ version-file = "src/osprey/_version.py"
 exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results", "**/prefetched-models"]
 
 [tool.hatch.build.targets.wheel]
-# `dock_engine` (the dock layout rules shared with CANOPY) ships inside this
+# `dock_engine` (the dock layout rules shared with the panel builder) ships inside this
 # wheel from packages/dock-engine: it is too small for a distribution of its
 # own, and nothing on PyPI could otherwise satisfy a framework import of it.
-# CANOPY installs the same directory from git (`#subdirectory=packages/dock-engine`),
+# The panel builder installs the same directory from git (`#subdirectory=packages/dock-engine`),
 # never the framework. The import-linter contract `dock-engine-standalone`
 # keeps the module from importing the framework back.
 packages = ["src/osprey", "packages/dock-engine/src/dock_engine"]
@@ -693,7 +703,7 @@ markers = [
 # Import boundaries, checked by `lint-imports` (import-linter) in the lint job.
 # The graph covers three distributions: `osprey` is the framework,
 # `osprey_connectors` the separately installable connectors package, and
-# `dock_engine` the dock layout rules shared with CANOPY. Every
+# `dock_engine` the dock layout rules shared with the panel builder. Every
 # import statement counts, including ones inside functions and under
 # `if TYPE_CHECKING:`; an `importlib.import_module("...")` string does not.
 [tool.importlinter]
@@ -711,7 +721,7 @@ forbidden_modules = ["osprey"]
 [[tool.importlinter.contracts]]
 id = "dock-engine-standalone"
 name = "dock_engine imports neither the framework nor the connectors"
-# The package is shared with CANOPY, which installs it without either, and is
+# The package is shared with the panel builder, which installs it without either, and is
 # standard library only.
 type = "forbidden"
 source_modules = ["dock_engine"]
@@ -807,6 +817,13 @@ select = [
     "RUF100",  # unused noqa: a suppression names an enabled rule that fires on its line
     "TID251",  # banned-api: the agent SDK is imported only inside the harness adapter
     "SIM105",  # suppressible-exception: a swallowed exception is named in one `with contextlib.suppress(...)`
+    "T20",  # print and pprint: shipped code reports through its own output channel
+    "T100",  # debugger calls
+    "ERA001",  # commented-out code
+    "S105",  # a quoted credential assigned to a name
+    "S106",  # a quoted credential passed as an argument
+    "S107",  # a quoted credential as a parameter default
+    "TD003",  # a work marker carries a link to its issue
 ]
 # Rules this config does not select but code may name in a `noqa`: PLC2701
 # (import-private-name) runs in a preview-only invocation of its own, so RUF100
@@ -830,15 +847,19 @@ ignore-variadic-names = true
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
-"tests/*" = ["B011", "B017", "B018"]  # Allow assert False, useless attribute access, assert blind exception
+# Allow assert False, useless attribute access, assert blind exception. Test
+# fixtures carry fake credentials by design; gitleaks scans every path for real ones.
+"tests/*" = ["B011", "B017", "B018", "S105", "S106", "S107"]
+"packages/*/tests/**" = ["S105", "S106", "S107", "T20"]  # T20: tests print, as below
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 # The agent SDK ban covers the shipped trees, src/ and packages/. Inside them the
 # harness adapter is where the SDK is imported; outside them, tests and developer
-# scripts drive the SDK directly.
-"!{src,packages}/**" = ["TID251"]
+# scripts drive the SDK directly. Print calls are judged in the same shipped trees:
+# tests, scripts and docs print to the developer running them.
+"!{src,packages}/**" = ["TID251", "T20"]
 "src/osprey/agent_runner/**" = ["TID251"]
 # import-private-name holds the framework to the connectors package's public
 # names (lint-imports holds it at the level of modules). Tests, scripts and the

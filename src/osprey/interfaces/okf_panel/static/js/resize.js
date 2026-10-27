@@ -12,10 +12,10 @@
  * system's base.css.
  */
 
-import { clampSize as clamp, initSplitter } from "/design-system/js/splitter.js";
-import { scopedStorageKey } from "/design-system/js/storage-scope.js";
+import { clampSize as clamp, initSplitter } from '/design-system/js/splitter.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
-const STORAGE_KEY = "osprey-okf-sidebar-width";
+const STORAGE_KEY = 'osprey-okf-sidebar-width';
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 560;
 const KEY_STEP = 16;
@@ -36,8 +36,8 @@ export function clampWidth(width) {
  */
 export function initSidebarResize() {
   initSplitter({
-    handle: document.getElementById("sidebar-resizer"),
-    pane: document.getElementById("sidebar"),
+    handle: document.getElementById('sidebar-resizer'),
+    pane: document.getElementById('sidebar'),
     storageKey: scopedStorageKey(STORAGE_KEY),
     min: MIN_WIDTH,
     max: MAX_WIDTH,

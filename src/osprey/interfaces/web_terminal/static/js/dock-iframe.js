@@ -145,7 +145,7 @@ function ensureDock() {
       disposers.push(
         api.onDidLayoutChange(syncGeometry),
         api.onDidActivePanelChange(syncGeometry),
-        api.onDidActivePanelChange(trackActiveServiceGroup),
+        api.onDidActivePanelChange(trackActiveServiceGroup)
       );
       wireDragShield(api);
       window.addEventListener('resize', syncGeometry);
@@ -208,10 +208,12 @@ export function setIframePointerShield(on) {
  * @param {any} api
  */
 function wireDragShield(api) {
-  disposers.push(...onDragGesture(api, {
-    onStart: () => setIframePointerShield(true),
-    onEnd: () => setIframePointerShield(false),
-  }));
+  disposers.push(
+    ...onDragGesture(api, {
+      onStart: () => setIframePointerShield(true),
+      onEnd: () => setIframePointerShield(false),
+    })
+  );
 }
 
 /** @param {HTMLIFrameElement} iframe */
@@ -249,7 +251,7 @@ function trackActiveServiceGroup() {
 /** @param {any} group @returns {boolean} whether the group holds a service placeholder */
 function groupHasServicePlaceholder(group) {
   return (group?.panels ?? []).some(
-    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX),
+    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX)
   );
 }
 
@@ -262,8 +264,7 @@ function groupHasServicePlaceholder(group) {
  */
 function targetServiceGroup(api) {
   const active = api.activePanel;
-  if (typeof active?.id === 'string' && active.id.startsWith(PLACEHOLDER_PREFIX)
-      && active.group) {
+  if (typeof active?.id === 'string' && active.id.startsWith(PLACEHOLDER_PREFIX) && active.group) {
     return active.group;
   }
   if (lastServiceGroupId) {
@@ -274,7 +275,7 @@ function targetServiceGroup(api) {
     const group = api.getPanel(e.placeholderId)?.group;
     if (group) return group;
   }
-  for (const p of (Array.isArray(api.panels) ? api.panels : [])) {
+  for (const p of Array.isArray(api.panels) ? api.panels : []) {
     if (typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.group) {
       return p.group;
     }
@@ -309,9 +310,10 @@ function ensurePlaceholder(api, entry, intent = 'replace') {
   const opts = { id: entry.placeholderId, component: PLACEHOLDER_COMPONENT, title: entry.title };
   const target = targetServiceGroup(api);
   if (target) {
-    opts.position = intent === 'replace'
-      ? { referenceGroup: target, direction: 'within' }
-      : { referenceGroup: target, direction: 'right' };
+    opts.position =
+      intent === 'replace'
+        ? { referenceGroup: target, direction: 'within' }
+        : { referenceGroup: target, direction: 'right' };
   } else if (api.getPanel(TERMINAL_PANEL_ID)) {
     opts.position = { referencePanel: TERMINAL_PANEL_ID, direction: 'left' };
     opts.initialWidth = defaultServiceWidth();
@@ -355,7 +357,7 @@ function evictReplacedOccupants(api, keptPlaceholderId) {
   if (!group) return;
   const others = (group.panels ?? []).filter(
     (/** @type {any} */ p) =>
-      typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.id !== keptPlaceholderId,
+      typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX) && p.id !== keptPlaceholderId
   );
   for (const panel of others) {
     const serviceId = panel.id.slice(PLACEHOLDER_PREFIX.length);
@@ -450,9 +452,7 @@ function pruneOrphanPlaceholders(api) {
     if (!id.startsWith(PLACEHOLDER_PREFIX)) continue;
     const sid = id.slice(PLACEHOLDER_PREFIX.length);
     const unknown = !knownServiceIds.has(sid) && !managed.has(sid);
-    const closed = !!serverVisibleIds
-      && !serverVisibleIds.has(sid)
-      && !managed.get(sid)?.visible;
+    const closed = !!serverVisibleIds && !serverVisibleIds.has(sid) && !managed.get(sid)?.visible;
     if (!unknown && !closed) continue;
     try {
       api.removePanel(panel);
@@ -467,7 +467,9 @@ function dispatchResize(iframe) {
   if (!iframe.contentWindow) return;
   try {
     iframe.contentWindow.dispatchEvent(new Event('resize'));
-  } catch { /* cross-origin — nothing we can do */ }
+  } catch {
+    /* cross-origin — nothing we can do */
+  }
 }
 
 /**
@@ -487,8 +489,9 @@ function rewireContentObservers(api) {
   contentObserver.disconnect();
   for (const entry of managed.values()) {
     if (!entry.visible) continue;
-    const content = api.getPanel(entry.placeholderId)?.group?.element
-      ?.querySelector('.dv-content-container');
+    const content = api
+      .getPanel(entry.placeholderId)
+      ?.group?.element?.querySelector('.dv-content-container');
     if (content) contentObserver.observe(content);
   }
 }

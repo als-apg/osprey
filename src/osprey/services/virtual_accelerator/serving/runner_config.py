@@ -18,6 +18,13 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
 :func:`periodic_addresses` names the channels the view says refresh
 ``periodic``, which a write pass leaves for the next periodic pass.
 
+:func:`setting_records` and :func:`pass_readback` name what a write pass of
+physics settings reads back. A physics setting reaches its own model alone, and
+there moves itself, its readback and what the model computes from its settings.
+Every other value stands as the last pass left it -- what moves with time alone,
+the next periodic pass publishes -- and reading it back again would make each
+write, one per corrector for an apply, cost the whole roster.
+
 :data:`HEALTH_KEYS` holds the defaults of the runner's health record: how many
 consecutive failed publishing passes still count as ``degraded``.
 
@@ -28,13 +35,20 @@ tested in process.
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.view import SimulatorView
 
-__all__ = ["HEALTH_KEYS", "SAFETY_KEYS", "apply_safety", "periodic_addresses"]
+__all__ = [
+    "HEALTH_KEYS",
+    "SAFETY_KEYS",
+    "apply_safety",
+    "pass_readback",
+    "periodic_addresses",
+    "setting_records",
+]
 
 #: The write-path keys every model runner configuration carries.
 SAFETY_KEYS: Mapping[str, Any] = {
@@ -105,3 +119,58 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
         for binding in view.bindings(served_only=False)
         if binding.refresh == _PERIODIC
     )
+
+
+def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
+    """The records a setting's write can change, by setting address, across every model.
+
+    A setting reaches its own model alone. There it moves itself, the readback
+    it pairs with and what the model computes from all its settings -- every
+    record that pairs with no setpoint, and the model's status -- but no other
+    setting or the readback paired with it.
+
+    Args:
+        view: The simulator view.
+
+    Returns:
+        For each setpoint a physics model binds: itself, its readback, the
+        model's records that are no setpoint and no readback paired with one,
+        and the model's status address.
+    """
+    bindings = view.bindings(served_only=False)
+    settings = [binding for binding in bindings if binding.role == _SETPOINT]
+    pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
+    paired = {pair for pair in pairs.values() if pair is not None}
+    computed: dict[str, set[str]] = {}
+    for binding in bindings:
+        if binding.role != _SETPOINT and binding.address not in paired:
+            computed.setdefault(binding.model, set()).add(binding.address)
+    for model, address in view.status_addresses().items():
+        computed.setdefault(model, set()).add(address)
+    records: dict[str, frozenset[str]] = {}
+    for binding in settings:
+        own = {binding.address, *computed.get(binding.model, ())}
+        if (pair := pairs[binding.address]) is not None:
+            own.add(pair)
+        records[binding.address] = frozenset(own)
+    return records
+
+
+def pass_readback(
+    records: Mapping[str, frozenset[str]], written: Iterable[str]
+) -> frozenset[str] | None:
+    """What a write pass of ``written`` reads back when ``records`` names every value of it.
+
+    Args:
+        records: The records each address's write can change, as
+            :func:`setting_records` names them.
+        written: The addresses the pass writes.
+
+    Returns:
+        The records of every written address, or ``None`` when the pass
+        writes nothing or writes any address ``records`` does not name.
+    """
+    addresses = set(written)
+    if not addresses or not addresses <= records.keys():
+        return None
+    return frozenset().union(*(records[address] for address in addresses))

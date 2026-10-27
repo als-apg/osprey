@@ -35,19 +35,22 @@ const SYNC = '../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js
 // resolve; the same spy instances persist across resetModules (they are closed
 // over here), while dock-sync's own state is rebuilt on each fresh import.
 const {
-  getDockApi, setPanelFocus, setPanelVisibility, reportPanelLayout, setLayoutRestoredHook, state,
-} = vi.hoisted(
-  () => ({
-    state: { api: /** @type {any} */ (null), restoreHook: /** @type {any} */ (null) },
-    getDockApi: vi.fn(() => /** @type {any} */ (null)),
-    setLayoutRestoredHook: vi.fn(),
-    setPanelFocus: vi.fn(),
-    setPanelVisibility: vi.fn(),
-    // Resolves with the server's acknowledgement; the reporter sets its dedupe
-    // baseline from that, so tests can model a lost report by resolving null.
-    reportPanelLayout: vi.fn(),
-  }),
-);
+  getDockApi,
+  setPanelFocus,
+  setPanelVisibility,
+  reportPanelLayout,
+  setLayoutRestoredHook,
+  state,
+} = vi.hoisted(() => ({
+  state: { api: /** @type {any} */ (null), restoreHook: /** @type {any} */ (null) },
+  getDockApi: vi.fn(() => /** @type {any} */ (null)),
+  setLayoutRestoredHook: vi.fn(),
+  setPanelFocus: vi.fn(),
+  setPanelVisibility: vi.fn(),
+  // Resolves with the server's acknowledgement; the reporter sets its dedupe
+  // baseline from that, so tests can model a lost report by resolving null.
+  reportPanelLayout: vi.fn(),
+}));
 // getDockApi reads the mutable holder so a test can swap the live api in place.
 getDockApi.mockImplementation(() => state.api);
 
@@ -81,8 +84,9 @@ beforeEach(() => {
   });
   // Default: the server acknowledges every report as a genuine update, echoing
   // the tiles back the way the real route does.
-  reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-    Promise.resolve({ status: 'ok', tiles, dock, updated: true }),
+  reportPanelLayout.mockImplementation(
+    (/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
+      Promise.resolve({ status: 'ok', tiles, dock, updated: true })
   );
   state.api = null;
   document.body.innerHTML = '';
@@ -232,7 +236,9 @@ function branch(...children) {
 function gridPayload(root) {
   return {
     grid:
-      root === undefined ? undefined : { root, width: 1600, height: 900, orientation: 'HORIZONTAL' },
+      root === undefined
+        ? undefined
+        : { root, width: 1600, height: 900, orientation: 'HORIZONTAL' },
     panels: {},
     activeGroup: 'group-1',
   };
@@ -324,7 +330,7 @@ describe('serializeOpenTiles — occupancy in spatial reading order', () => {
     const root = branch(
       branch(leaf('iframe:ariel'), leaf('iframe:bluesky')),
       leaf('iframe:okf'),
-      leaf('terminal'),
+      leaf('terminal')
     );
 
     expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel', 'bluesky', 'okf']);
@@ -335,7 +341,7 @@ describe('serializeOpenTiles — occupancy in spatial reading order', () => {
     const root = branch(
       leaf('iframe:a'),
       branch(leaf('iframe:b'), branch(leaf('iframe:c'), leaf('terminal'))),
-      leaf('iframe:d'),
+      leaf('iframe:d')
     );
 
     expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['a', 'b', 'c', 'd']);
@@ -366,7 +372,7 @@ describe('serializeOpenTiles — occupancy in spatial reading order', () => {
       { type: 'leaf' },
       { type: 'leaf', data: { views: 'not-an-array' } },
       { type: 'mystery', data: [leaf('iframe:ignored')] },
-      leaf('iframe:ariel'),
+      leaf('iframe:ariel')
     );
 
     expect(serializeOpenTiles(apiWithGrid(root))).toEqual(['ariel']);
@@ -693,8 +699,9 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
   test('a deduped no-op ack (updated:false) still sets the dedupe baseline', async () => {
     // The server already held this list, so it is acknowledged even though
     // nothing changed — the client must treat it as reported, not retry it.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles, dock, updated: false }),
+    reportPanelLayout.mockImplementation(
+      (/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
+        Promise.resolve({ status: 'ok', tiles, dock, updated: false })
     );
     const { api } = await wireReporting(branch(leaf('iframe:ariel')));
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -719,8 +726,9 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
 
     // Once a report lands, the baseline takes hold and dedupe resumes.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles, dock, updated: true }),
+    reportPanelLayout.mockImplementation(
+      (/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
+        Promise.resolve({ status: 'ok', tiles, dock, updated: true })
     );
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -743,8 +751,9 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     expect(errSpy).toHaveBeenCalled();
 
     // The reporter is still alive: the next layout change reports normally.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles, dock, updated: true }),
+    reportPanelLayout.mockImplementation(
+      (/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
+        Promise.resolve({ status: 'ok', tiles, dock, updated: true })
     );
     withGrid(api, branch(leaf('iframe:ariel'), leaf('iframe:okf')));
     api.fireLayout();
@@ -757,8 +766,9 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
   test('the baseline follows the ACKNOWLEDGED tiles, not the ones sent', async () => {
     // A server that normalized the list would otherwise leave the client
     // re-POSTing forever; the baseline is whatever the server says it holds.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ _tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles: ['ariel'], dock, updated: true }),
+    reportPanelLayout.mockImplementation(
+      (/** @type {string[]} */ _tiles, /** @type {boolean} */ dock) =>
+        Promise.resolve({ status: 'ok', tiles: ['ariel'], dock, updated: true })
     );
     const { api } = await wireReporting(branch(leaf('iframe:ariel')));
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -776,10 +786,18 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     /** Resolvers for the reports still in flight; calling one delivers its ack.
      *  @type {(() => void)[]} */
     const pending = [];
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
-      new Promise((resolve) => pending.push(() => resolve({
-        status: 'ok', tiles, dock, updated: true,
-      }))),
+    reportPanelLayout.mockImplementation(
+      (/** @type {string[]} */ tiles, /** @type {boolean} */ dock) =>
+        new Promise((resolve) =>
+          pending.push(() =>
+            resolve({
+              status: 'ok',
+              tiles,
+              dock,
+              updated: true,
+            })
+          )
+        )
     );
 
     const { api } = await wireReporting(branch(leaf('iframe:ariel')));
@@ -813,8 +831,9 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     // the real layout. Erring toward a redundant POST is recoverable (the server
     // dedupes it); erring toward suppression is not, because a suppressed report
     // leaves the server wrong with nothing scheduled to correct it.
-    reportPanelLayout.mockImplementation((/** @type {string[]} */ _tiles, /** @type {boolean} */ dock) =>
-      Promise.resolve({ status: 'ok', tiles: ['stale-older-list'], dock, updated: true }),
+    reportPanelLayout.mockImplementation(
+      (/** @type {string[]} */ _tiles, /** @type {boolean} */ dock) =>
+        Promise.resolve({ status: 'ok', tiles: ['stale-older-list'], dock, updated: true })
     );
     const { api } = await wireReporting(branch(leaf('iframe:ariel')));
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -827,16 +846,17 @@ describe('occupancy reporter — settle debounce, content dedupe, capability', (
     expect(reportPanelLayout).toHaveBeenCalledTimes(2);
     expect(reportPanelLayout).toHaveBeenLastCalledWith(['ariel'], true);
   });
-
 });
 
 describe('withEchoSuppressed — the guard primitive', () => {
   test('restores the guard even when the callback throws (finally)', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
-    expect(() => mod.withEchoSuppressed(() => {
-      throw new Error('boom');
-    })).toThrow('boom');
+    expect(() =>
+      mod.withEchoSuppressed(() => {
+        throw new Error('boom');
+      })
+    ).toThrow('boom');
 
     // Guard is back to 0, so a subsequent genuine focus still POSTs.
     api.activePanel = { id: 'iframe:ariel' };
@@ -984,7 +1004,7 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     tabs[0].tile.removeAttribute('data-panel-id'); // stamp lost — nothing to resolve
 
     expect(() =>
-      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     ).not.toThrow();
     expect(tileClose).not.toHaveBeenCalled();
   });
@@ -996,7 +1016,7 @@ describe('human tab close → local vacate handler (never a POST)', () => {
     const { tabs } = buildGroup(root, api, ['iframe:ariel']);
 
     expect(() =>
-      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+      tabs[0].action.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     ).not.toThrow();
     expect(setPanelVisibility).not.toHaveBeenCalled();
   });
@@ -1040,7 +1060,7 @@ describe('dockPanelBesideActive — placeholder append (register/open path)', ()
     expect(api._added[0].position).toBeUndefined();
   });
 
-  test('a move is echo-guarded — the removal\'s auto-activation does not POST a focus', async () => {
+  test("a move is echo-guarded — the removal's auto-activation does not POST a focus", async () => {
     const api = makeApi();
     api.activeGroup = { id: 'group-1' };
     api._panels['iframe:ariel'] = { id: 'iframe:ariel', group: { id: 'group-0' } };
@@ -1142,7 +1162,6 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
     expect(api.removePanel).not.toHaveBeenCalled();
     expect(api.addPanel).not.toHaveBeenCalled();
   });
-
 });
 
 describe('initDockSync — wiring, idempotency, late arrival', () => {

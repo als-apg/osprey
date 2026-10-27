@@ -117,7 +117,10 @@ function byId(id) {
 const button = () => byId('rail-more-btn');
 const menu = () => byId('rail-more-menu');
 const rowKeys = () =>
-  Array.from(menu().querySelectorAll('.rail-more-row'), (r) => /** @type {HTMLElement} */ (r).dataset.row);
+  Array.from(
+    menu().querySelectorAll('.rail-more-row'),
+    (r) => /** @type {HTMLElement} */ (r).dataset.row
+  );
 
 /** @param {string} key @param {string} [part] */
 function row(key, part = '.rail-more-item') {
@@ -133,13 +136,21 @@ function press(key, init = {}) {
 
 /** @param {HTMLElement} node */
 function rightClick(node) {
-  const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 });
+  const e = new MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    clientX: 10,
+    clientY: 10,
+  });
   node.dispatchEvent(e);
   return e;
 }
 
 const contextLabels = () =>
-  Array.from(document.querySelectorAll('.rail-context-menu .rail-context-label'), (el) => el.textContent);
+  Array.from(
+    document.querySelectorAll('.rail-context-menu .rail-context-label'),
+    (el) => el.textContent
+  );
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -329,7 +340,12 @@ describe('hiding Docs and Feedback', () => {
     initRailMoreMenu({ getSessionId: () => KEY });
     const feedback = byId('panel-feedback-btn');
 
-    const key = new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true });
+    const key = new KeyboardEvent('keydown', {
+      key: 'F10',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
     feedback.dispatchEvent(key);
 
     expect(key.defaultPrevented).toBe(true);

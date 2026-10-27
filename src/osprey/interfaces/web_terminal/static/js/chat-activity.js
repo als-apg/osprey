@@ -179,14 +179,16 @@ export const TOOL_PHRASES = Object.freeze({
  * @returns {string}
  */
 export function normaliseToolName(name) {
-  return name
-    // Non-greedy: the FIRST `__` after the server name ends the prefix — the
-    // server name may itself contain single underscores (osprey_workspace,
-    // osprey_facility_knowledge, or a facility-declared server named that way).
-    .replace(/^mcp__.+?__/, '')
-    .trim()
-    .replace(/[\s-]+/g, '_')
-    .toLowerCase();
+  return (
+    name
+      // Non-greedy: the FIRST `__` after the server name ends the prefix — the
+      // server name may itself contain single underscores (osprey_workspace,
+      // osprey_facility_knowledge, or a facility-declared server named that way).
+      .replace(/^mcp__.+?__/, '')
+      .trim()
+      .replace(/[\s-]+/g, '_')
+      .toLowerCase()
+  );
 }
 
 /**

@@ -40,7 +40,7 @@ onModeChange(() => remountCurrentView());
 
 /** @type {Record<string, ViewModule>} */
 const VIEWS = {
-  explore:  { mount: mountExplore,  unmount: unmountExplore },
+  explore: { mount: mountExplore, unmount: unmountExplore },
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
 };
 
@@ -114,7 +114,7 @@ function activateView(viewName) {
   container.innerHTML = '';
 
   // Update nav links
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
@@ -136,7 +136,7 @@ function remountCurrentView() {
 // ---- Navigation ----
 
 function setupNav() {
-  document.querySelectorAll('.nav-link').forEach(link => {
+  document.querySelectorAll('.nav-link').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       const view = /** @type {HTMLElement} */ (link).dataset.view;
@@ -215,10 +215,12 @@ function buildPipelineDropdown() {
     return;
   }
 
-  dropdown.innerHTML = available.map(pt => {
-    const active = pt === state.pipelineType ? ' active' : '';
-    return `<button class="pipeline-dropdown-item${active}" data-pipeline="${esc(pt)}">${esc(PIPELINE_LABELS[pt] || pt)}</button>`;
-  }).join('');
+  dropdown.innerHTML = available
+    .map((pt) => {
+      const active = pt === state.pipelineType ? ' active' : '';
+      return `<button class="pipeline-dropdown-item${active}" data-pipeline="${esc(pt)}">${esc(PIPELINE_LABELS[pt] || pt)}</button>`;
+    })
+    .join('');
 
   // Toggle dropdown on badge click
   badge.addEventListener('click', (e) => {
@@ -230,7 +232,7 @@ function buildPipelineDropdown() {
   document.addEventListener('click', () => dropdown.classList.remove('open'));
 
   // Switch pipeline on item click
-  dropdown.querySelectorAll('.pipeline-dropdown-item').forEach(btn => {
+  dropdown.querySelectorAll('.pipeline-dropdown-item').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       dropdown.classList.remove('open');
@@ -257,13 +259,16 @@ async function switchPipeline(newType) {
     updatePipelineBadge(info.pipeline_type);
 
     // Update dropdown active state
-    document.querySelectorAll('.pipeline-dropdown-item').forEach(btn => {
-      btn.classList.toggle('active', /** @type {HTMLElement} */ (btn).dataset.pipeline === info.pipeline_type);
+    document.querySelectorAll('.pipeline-dropdown-item').forEach((btn) => {
+      btn.classList.toggle(
+        'active',
+        /** @type {HTMLElement} */ (btn).dataset.pipeline === info.pipeline_type
+      );
     });
 
     // Refresh stats and re-mount current view
     refreshStatsBadges();
-    currentView = null;  // Force re-mount
+    currentView = null; // Force re-mount
     routeFromHash();
 
     showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, 'success');

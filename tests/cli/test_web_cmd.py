@@ -401,7 +401,7 @@ class TestDeploymentResolution:
             captured["cwd"] = os.getcwd()
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.chdir(deployment)
 
         result = runner.invoke(web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False)
@@ -429,7 +429,7 @@ class TestDeploymentResolution:
             observed["osprey_config"] = os.environ.get("OSPREY_CONFIG")
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.chdir(deployment)
 
         result = runner.invoke(web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False)
@@ -437,6 +437,59 @@ class TestDeploymentResolution:
         assert result.exit_code == 0
         expected = (deployment / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
+
+    def test_bare_launch_loads_the_terminal_credentials_from_the_repo_env(
+        self, runner, monkeypatch, deployment
+    ):
+        """A host launch reads its credentials from the repo ``.env``.
+
+        The terminal is the one process that holds the terminal secret and the
+        launch tokens by design, so the bare launch loads the chain with
+        credentials included, as a containerised terminal receives them from
+        its compose ``env_file``. A plain setting in the same file still loads.
+        """
+        keys = ("OSPREY_TERMINAL_SECRET", "OSPREY_TEST_BRIDGE_LAUNCH_TOKEN", "OSPREY_TEST_PLAIN")
+        for key in keys:
+            monkeypatch.setenv(key, "__unset_by_test_fixture__")
+            monkeypatch.delenv(key)
+        (deployment / ".env").write_text(
+            "OSPREY_TERMINAL_SECRET=secret-from-dotenv\n"
+            "OSPREY_TEST_BRIDGE_LAUNCH_TOKEN=token-from-dotenv\n"
+            "OSPREY_TEST_PLAIN=plain-from-dotenv\n"
+        )
+        observed = {}
+
+        def _capture_run_web(**_kw):
+            observed.update({key: os.environ.get(key) for key in keys})
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
+        monkeypatch.chdir(deployment)
+
+        result = runner.invoke(web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert observed == {
+            "OSPREY_TERMINAL_SECRET": "secret-from-dotenv",
+            "OSPREY_TEST_BRIDGE_LAUNCH_TOKEN": "token-from-dotenv",
+            "OSPREY_TEST_PLAIN": "plain-from-dotenv",
+        }
+
+    def test_shell_exported_secret_outranks_the_repo_env(self, runner, monkeypatch, deployment):
+        """Loading credentials keeps the chain's precedence: the shell wins."""
+        monkeypatch.setenv("OSPREY_TERMINAL_SECRET", "secret-from-shell")
+        (deployment / ".env").write_text("OSPREY_TERMINAL_SECRET=secret-from-dotenv\n")
+        observed = {}
+
+        def _capture_run_web(**_kw):
+            observed["secret"] = os.environ.get("OSPREY_TERMINAL_SECRET")
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _capture_run_web)
+        monkeypatch.chdir(deployment)
+
+        result = runner.invoke(web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False)
+
+        assert result.exit_code == 0, result.output
+        assert observed["secret"] == "secret-from-shell"
 
 
 # -- detach -----------------------------------------------------------------
@@ -794,7 +847,7 @@ class TestWebCommandPreflightWiring:
     def _stub_launch(self, monkeypatch):
         """Prevent the real server from starting once pre-flight passes."""
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def test_held_companion_port_aborts_before_bind(self, runner, monkeypatch, deployment):
         artifact_port = _free_port()
@@ -889,7 +942,7 @@ class TestPreflightAuthSecret:
 
     def _stub_launch(self, monkeypatch):
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def _stub_clean_ports(self, monkeypatch):
         artifact_port = _free_port()
@@ -1310,7 +1363,7 @@ class TestPreflightConfigValidity:
 
     def _stub_launch(self, monkeypatch):
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         # No provider configured — keep Probe 2 out of these tests' way.
         monkeypatch.setattr(
             "osprey.agent_runner.provider_env.load_provider_spec", lambda *_a, **_kw: None
@@ -1589,7 +1642,7 @@ class TestOperatorLoginUrl:
                 captured.update(kw)
 
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _run)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         # Single-user shape: no declared bind host, so the secret is minted here
         # rather than demanded from a deployment.
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
@@ -1625,7 +1678,7 @@ class TestOperatorLoginUrl:
         The bare URL sets no cookie, so an auto-opened tab would land on the
         login-required page; the ?token= exchange is what mints the session.
         """
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
 
         opened: dict = {}
@@ -1666,7 +1719,7 @@ class TestOperatorLoginUrl:
         REAL run_web (create_app / uvicorn.run / the opener are stubbed) so the
         browser_url wiring is exercised, not mocked away.
         """
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
 
         opened: dict = {}
@@ -1897,7 +1950,7 @@ class TestContainerShapeWithoutASuppliedSecret:
         """End to end: `osprey web` in that shape fails cleanly with the reason."""
         from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
 
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
         monkeypatch.setenv(DECLARED_BIND_ENV, "127.0.0.1")
         monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
 
@@ -1924,7 +1977,7 @@ class TestInheritedSecretIsExplained:
 
     def _stub_launch(self, monkeypatch):
         monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **kw: None)
-        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda **_kw: None)
 
     def test_shell_exported_secret_is_reported_without_echoing_it(
         self, runner, monkeypatch, deployment

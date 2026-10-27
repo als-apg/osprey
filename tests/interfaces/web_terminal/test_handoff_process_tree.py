@@ -14,7 +14,6 @@ its commands the way the agent CLI does, and the door runs through
 
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,7 +48,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.skipif(shutil.which("ps") is None, reason="needs ps to read the process tree"),
+    pytest.mark.usefixtures("readable_process_table"),
 ]
 
 
@@ -165,16 +164,20 @@ async def test_with_nothing_started_the_stop_goes_straight_through(tmp_path):
 def _fail_reads(monkeypatch, failures: int | None) -> list[bool]:
     """Make the first *failures* process-table reads fail, or every read when None.
 
-    Returns the log of reads: each entry says whether that read reached the real ``ps``.
+    Returns the log of reads: each entry says whether that read reached the real process table.
     """
     real = process_tree.snapshot
     reads: list[bool] = []
 
     def flaky():
         reads.append(failures is not None and len(reads) >= failures)
-        return real() if reads[-1] else None
+        if not reads[-1]:
+            raise process_tree.ProcessTableUnreadable(OSError("process table"))
+        return real()
 
     monkeypatch.setattr(process_tree, "snapshot", flaky)
+    if failures is None:
+        monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.3)
     return reads
 
 

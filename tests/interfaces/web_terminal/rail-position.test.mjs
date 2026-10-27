@@ -83,7 +83,10 @@ describe('rail-position theme coupling', () => {
     localStorage.clear();
     document.documentElement.setAttribute('data-rail-position', 'left');
     window.history.replaceState(null, '', '/');
-    initRailThemeCoupling({ family_rail_defaults: { retro: 'top' }, rail_position_configured: false });
+    initRailThemeCoupling({
+      family_rail_defaults: { retro: 'top' },
+      rail_position_configured: false,
+    });
   });
 
   test('the retro family moves the rail to the top', () => {
@@ -117,7 +120,10 @@ describe('rail-position theme coupling', () => {
   });
 
   test('a config-pinned rail outranks the family', () => {
-    initRailThemeCoupling({ family_rail_defaults: { retro: 'top' }, rail_position_configured: true });
+    initRailThemeCoupling({
+      family_rail_defaults: { retro: 'top' },
+      rail_position_configured: true,
+    });
     followThemeFamily('retro');
     expect(getRailPosition()).toBe('left');
   });

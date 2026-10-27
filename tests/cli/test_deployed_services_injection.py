@@ -37,7 +37,6 @@ the rest are unit tests of the two merges and cost nothing.
 from __future__ import annotations
 
 import copy
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -144,14 +143,14 @@ def _service_leaves(document: dict[str, Any]) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def built_project(
-    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
-) -> Path:
+def built_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """One real ``osprey init`` + ``osprey build`` of the cell, shared by the module.
 
-    Invoked exactly as the fixture freeze invoked it — same verbs, same fixed
-    project name, same ``*_API_KEY``-stripped environment — so what it renders
-    is comparable to what was frozen. No source directories are prepended to
+    Invoked as the fixture freeze invoked it — same verbs, same fixed project
+    name, same ``*_API_KEY``-stripped environment — so what it renders is
+    comparable to what was frozen. The build skips the venv the freeze's build
+    installed: nothing here reads it, and the interpreter it would record is
+    the one key the freeze masks. No source directories are prepended to
     ``PYTHONPATH``: the CLI imports OSPREY as installed, which is the tree under
     test. A subprocess, so the in-process index stub ``tests/conftest.py``
     installs does not reach it: every render's search index here is the one
@@ -179,9 +178,7 @@ def built_project(
     assert result.returncode == 0, f"osprey init refused the cell:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
-    # Every reader of this project reads its rendered files, never the venv.
-    shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
+    result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
     assert result.returncode == 0, f"osprey build refused the cell:\n{_failure_reason(result)}"
     return project
 
@@ -204,9 +201,7 @@ def _render_dir(built_project: Path, render: str) -> Path:
 
 
 @pytest.fixture(scope="module")
-def external_store_render(
-    tmp_path_factory: pytest.TempPathFactory, offline_build_env: dict[str, str]
-) -> dict[str, Any]:
+def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     """An attached project naming an external graph store nothing here deploys.
 
     ``hello-world`` ships no graph store of its own, so a ``services.graphdb``
@@ -239,9 +234,8 @@ def external_store_render(
     assert result.returncode == 0, f"osprey init refused the profile:\n{_failure_reason(result)}"
 
     project: Path = scratch / PROJECT_NAME
-    result = _run_cli(["build"], cwd=project, env={**env, **offline_build_env})
-    # Only the rendered config is read, never the venv.
-    shutil.rmtree(project / "build" / ".venv", ignore_errors=True)
+    # --skip-deps: only the rendered config is read, never a venv.
+    result = _run_cli(["build", "--skip-deps"], cwd=project, env=env)
     assert result.returncode == 0, (
         "osprey build refused an attached profile that names an external graph store:\n"
         f"{_failure_reason(result)}"

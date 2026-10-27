@@ -6,108 +6,70 @@ This directory contains testing and validation scripts for the Osprey Framework 
 
 | Script | Purpose | Duration | When to Use |
 |--------|---------|----------|-------------|
-| `quick_check.sh` | Fast pre-commit validation | < 30s | Before every commit |
-| `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
-| `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
-| `gate.sh` | The merge gate: every CI step that needs no secret or Docker; `full [--base <ref>]`, or `fast [--base <ref>] <paths>` | as long as the suite | Before a merge; called by automation that gates a branch |
+| `check.py quick` | The checks a commit needs | Minutes | Before every commit |
+| `check.py full` | Every check, with the serial suites and the builds | The longest run | Before pushing |
+| `check.py quick --changed origin/main` | The quick tier scoped to the branch's diff, plus the checks that judge a range | Scales with the diff | Before creating a PR |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
-| `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
-| `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching `plugins/`, `.claude-plugin/` or `.agents/plugins/` |
+| `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching a gated directory; when cutting a release |
+| `plugin_version.py` | Show, bump and check the plugin version | < 1s | After touching the plugin tree |
 | `cli_tool_inventory.py` | CLI tool inventory of the pinned build | ~2 s plus an npm download | After bumping `_DEFAULT_CLAUDE_CLI_VERSION` |
 | `bpm_polarity_picture.py` | Redraw the example facility's bpm-polarity logbook picture from its model and scenario | ~5 s | After changing the example's SR deck or wiring, the bpm-polarity scenario, or the BPM noise seeds |
 | `va/capture_nominals.py` | Capture the served nominals golden from the VA container over Channel Access; `--out` writes, `--check` compares | ~2 min with the container boot | After a change to the served demo view or the VA's served values |
 
 ## Scripts
 
-### quick_check.sh
+### check.py
 
-**Purpose**: Fast pre-commit validation to catch common issues.
-
-**What it does**:
-- Auto-fixes code formatting with ruff
-- Runs fast unit tests (stops on first failure)
-
-**Usage**:
-```bash
-./scripts/quick_check.sh
-```
-
-**When to use**: Before every commit. This is your first line of defense.
-
-**Exit codes**:
-- `0`: All checks passed
-- `1`: Checks failed
-
----
-
-### ci_check.sh
-
-**Purpose**: Replicate the entire GitHub Actions CI workflow locally.
-
-**What it does**:
-1. **Linting**: Runs ruff (linting + formatting check) and mypy
-2. **Testing**: Runs pytest with coverage reporting
-3. **Documentation**: Builds Sphinx docs and checks links
-4. **Package**: Builds Python package and validates with twine
+**Purpose**: Answer "is this change clean" with one command. Every check is
+declared once, by the code that owns it, in a `repo_checks.py` module beside
+that code (`scripts/repo_checks.py` for the framework and the repository as a
+whole), built from the records in `scripts/check_kit.py`. `scripts/check.py`
+collects every such module; a laptop, an automated gate and each CI step run a
+check from there, so they cannot disagree about what a check is.
 
 **Usage**:
-```bash
-./scripts/ci_check.sh
-```
 
-**When to use**: Before pushing to GitHub. If this passes, CI will almost certainly pass.
+| Command | When | What it adds |
+|---------|------|--------------|
+| `uv run python scripts/check.py quick` | Before every commit | `--fix` lets ruff rewrite files first |
+| `uv run python scripts/check.py full` | Before pushing | The serial suites (real terminal, wall clock, live Channel Access), the documentation build and the package build |
+| `uv run python scripts/check.py quick --changed origin/main` | Before creating a PR | Scopes the tier to `origin/main...HEAD`, runs the checks that judge a range (changelog fragment and plugin version) and names the CI lanes the diff touches; with `--worktree` the tier and the range checks judge the working tree |
+| `uv run python scripts/check.py run ID...` | To run one check as CI does | Execution flags after `--` reach pytest |
+| `uv run python scripts/check.py list` | To see what a tier runs | `--tier quick` or `--tier full` narrows it, `--json` prints the declaration |
+
+`--changed BASE --worktree` judges the working tree instead of `HEAD`, for the
+runners and every range check alike, so staged, unstaged and untracked files
+count. Test files after `--` are added to what the range selects. `--base BASE`
+arms the checks that judge a range without scoping the tier, so
+`full --base origin/main` judges the whole tree and the range in one verdict.
+
+**What it runs**: `uv run python scripts/check.py list` prints every check, its
+kind, its tiers and its command.
 
 **Requirements**:
-- Virtual environment must be present (`venv` or `.venv`)
-- All dev dependencies installed: `uv sync --extra dev --extra docs`
-- Build tools installed: `uv tool install build twine` or `uv pip install build twine`
+- `uv sync --extra dev --extra docs` and graphviz (`dot`) on PATH (the full
+  tier refuses the docs build and the link check without them; the dev extra
+  carries actionlint and the shellcheck it runs)
+- `gitleaks` on PATH for the secret scan, which runs whenever a base is given
+- network access for the full tier's link check
+- `uv sync --extra virtual-accelerator` on Linux x86_64 (the full tier refuses
+  there without it; elsewhere the live Channel Access gate does not run)
+- `npm ci` (the TypeScript, ESLint, Vitest and dock-engine checks refuse without
+  the Node toolchain)
 
 **Exit codes**:
-- `0`: All checks passed (safe to push)
-- `1`: One or more checks failed
+- `0`: Clean
+- `1`: A check failed
+- `2`: Refused: the command could not judge (a missing toolchain, a base that
+  does not resolve, an unknown check)
 
-**Tips**:
-- Run this before every push to save CI minutes
-- Uses exact same commands as `.github/workflows/ci.yml`
-- Shows detailed output for each check
-
----
-
-### premerge_check.sh
-
-**Purpose**: Comprehensive validation before creating a pull request.
-
-**What it does**:
-- Detects debug code (print, breakpoint, pdb)
-- Finds commented-out code
-- Checks for hardcoded secrets
-- Validates that a changelog fragment was added (runs `changelog_fragments.py check`)
-- Validates that a changed plugin tree carries a version bump (runs `plugin_version.py check`)
-- Checks type hints
-- Validates TODO/FIXME comments have issue links
-- Runs code formatters and linters
-- Runs test suite
-
-**Usage**:
-```bash
-# Check against main branch (default)
-./scripts/premerge_check.sh main
-
-# Check against current branch's upstream
-./scripts/premerge_check.sh
-```
-
-**When to use**: Final validation before creating a PR or merging.
-
-**Exit codes**:
-- `0`: All checks passed (ready for PR)
-- `1`: Blocking issues found (must fix before PR)
-
-**Severity levels**:
-- **BLOCKERS**: Must fix (debug code, secrets, test failures)
-- **CRITICAL**: Should fix (missing changelog fragment, missing type hints)
-- **HIGH**: Address before merge (unlinked TODOs)
-- **MEDIUM**: Good to fix (formatting issues)
+The last line is the verdict. It names every check that failed, with up to five
+failing tests of each failed test check and a count of the rest, and everything
+that did not run here: a check with no base to judge, a check this machine
+cannot host, a pytest run whose named paths the marker expression wholly
+deselects (with the CI lane that runs them), and the CI lanes the command
+never runs. A refusal for a missing toolchain names every check it could not
+judge, with what to install, before any check runs.
 
 ---
 
@@ -167,27 +129,29 @@ pins it down: it runs even when the lint steps before it fail.
 
 ### changelog_fragments.py
 
-**Purpose**: Make sure a change under `src/` or `packages/` ships a changelog
-fragment, and fold the fragments into `CHANGELOG.md` when a release is cut.
+**Purpose**: Make sure a change under a gated directory (`GATED_PREFIXES` in
+the script; every verdict line names them) ships a changelog fragment, and fold the fragments into `CHANGELOG.md` when a release is cut.
 
 **What it does**: `check` validates every fragment in `changelog.d/` (`README.md` is skipped) — the filename
 grammar `<name>.<type>.md` and the body rules — and then compares the branch
-against its base: a change under `src/` or `packages/` must add a fragment, and
+against its base: a change under a gated directory (`GATED_PREFIXES` in the
+script; every verdict line names them) must add a fragment, and
 `## [Unreleased]` in `CHANGELOG.md` must not be edited by hand. `apply` inserts
 each fragment as a bullet under its `### <Type>` heading in `## [Unreleased]`
 and deletes the fragment files.
 
 **Usage**:
 ```bash
-# What the `lint` CI job, `scripts/gate.sh` and premerge_check.sh run
+# What the `lint` CI job and `scripts/check.py`'s changelog check run;
+# --worktree judges staged, unstaged and untracked files too
 uv run python scripts/changelog_fragments.py check --base origin/main
 
 # The release fold — run once while cutting a release
 uv run python scripts/changelog_fragments.py apply
 ```
 
-**When to use**: `check` after touching `src/` or `packages/`, though CI and
-`./scripts/premerge_check.sh` already run it for you. `apply` only when cutting
+**When to use**: `check` after touching a gated directory, though CI and
+`scripts/check.py quick --changed origin/main` already run it for you. `apply` only when cutting
 a release.
 
 **Exit codes**:
@@ -213,20 +177,21 @@ manifests disagree. `bump` advances `YYYY.M.N` in both (`--set` writes a given
 version). `check --base <ref>` compares the branch against what it merges into:
 when `plugins/`, `.claude-plugin/` or `.agents/plugins/` changed since the merge
 base, the head version must differ from every version the base tip carries. A
-plain branch name such as `main` is read as `origin/main` first, as
-`changelog_fragments.py check` reads it.
+plain branch name such as `main` is read as `origin/main` first, as every
+range check in this directory reads it.
 
 **Usage**:
 ```bash
 uv run python scripts/plugin_version.py show
 uv run python scripts/plugin_version.py bump
 
-# What the `lint` CI job, `scripts/gate.sh` and premerge_check.sh run
+# What the `lint` CI job and `scripts/check.py`'s plugin-version check run;
+# --worktree judges staged, unstaged and untracked files too
 uv run python scripts/plugin_version.py check --base origin/main
 ```
 
 **When to use**: `bump` after touching the plugin tree; CI and
-`./scripts/premerge_check.sh` run `check` for you.
+`scripts/check.py quick --changed origin/main` run `check` for you.
 
 **Exit codes** (`check`):
 - `0`: The plugin tree is untouched, new, or carries a new version
@@ -324,20 +289,20 @@ uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nomin
 vim src/osprey/some_file.py
 
 # 2. Quick check before commit
-./scripts/quick_check.sh
+uv run python scripts/check.py quick
 
 # 3. Commit if passed
 git add .
 git commit -m "feat: add new feature"
 
-# 4. Full CI check before push
-./scripts/ci_check.sh
+# 4. Full check before push
+uv run python scripts/check.py full
 
 # 5. Push if passed
 git push origin feature/my-feature
 
-# 6. Final pre-merge check before PR
-./scripts/premerge_check.sh main
+# 6. The quick tier scoped to the branch before the PR
+uv run python scripts/check.py quick --changed origin/main
 
 # 7. Create PR if passed
 gh pr create
@@ -357,23 +322,6 @@ pre-commit run --all-files
 ```
 
 ## Troubleshooting
-
-### "Permission denied" error
-
-Make scripts executable:
-```bash
-chmod +x scripts/*.sh
-```
-
-### "Virtual environment not found"
-
-Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On macOS/Linux
-# or
-venv\Scripts\activate     # On Windows
-```
 
 ### "Module not found" errors
 
@@ -407,7 +355,9 @@ pip install -e ".[docs]"
 
 ## CI/CD Integration
 
-These scripts are designed to match the GitHub Actions workflows:
+The `lint`, `test`, `docs`, `package` and `frontend-js` jobs of
+`.github/workflows/ci.yml` call `scripts/check.py run <id>`, so a local tier and
+CI run each check from the same declaration:
 
 - `.github/workflows/ci.yml`: Main CI pipeline
 - `.github/workflows/release.yml`: Release automation

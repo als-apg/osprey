@@ -76,13 +76,13 @@ class CloudEndpoints:
 CLOUDS: Mapping[str, CloudEndpoints] = {
     "commercial": CloudEndpoints(
         login_host="login.microsoftonline.com",
-        token_scope="https://api.botframework.com/.default",
+        token_scope="https://api.botframework.com/.default",  # noqa: S106 -- names a scope URL, holds no secret
         graph_host="graph.microsoft.com",
         graph_scope="https://graph.microsoft.com/.default",
     ),
     "gcchigh": CloudEndpoints(
         login_host="login.microsoftonline.us",
-        token_scope="https://api.botframework.us/.default",
+        token_scope="https://api.botframework.us/.default",  # noqa: S106 -- names a scope URL, holds no secret
         graph_host="graph.microsoft.us",
         graph_scope="https://graph.microsoft.us/.default",
     ),
