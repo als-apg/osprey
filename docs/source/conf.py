@@ -99,7 +99,7 @@ redirects: dict[str, str] = {
     "how-to/agent-interfaces/chat-bridges/add-a-channel": "../../../contributing/extending-osprey.html",
     # Operate: health and monitoring
     "how-to/configure-health-checks": "health-and-monitoring/configure-health-checks.html",
-    "how-to/monitor-agent": "health-and-monitoring/monitor-agent.html",
+    "how-to/monitor-agent": "health-and-monitoring/agent-record.html",
     "how-to/health-json-contract": "../reference/contracts/health-json.html",
     # Operate: control systems
     "how-to/add-connector": "control-systems/use-connectors.html",
