@@ -4833,7 +4833,7 @@ def test_gchat_bridge_sa_key_is_mounted_read_only_at_its_own_path() -> None:
     with an error that never names the variable, whereas the ``/dev/null``
     sentinel is a harmless no-op that lets the container come up far enough for
     ``require_startup`` to name the missing variable itself (asserted by
-    ``test_gchat_bridge_rendered_env_parses_and_fails_closed_without_secrets``).
+    ``test_chat_bridge_rendered_env_parses_and_fails_closed_without_secrets[gchat]``).
     """
     volumes = _bridge_service(_GCHAT_BRIDGE)["volumes"]
     sa_mounts = [v for v in volumes if "GCHAT_SA_KEY" in str(v)]
@@ -6038,24 +6038,9 @@ def test_the_worker_address_is_the_one_the_connector_would_dial() -> None:
 # would be the one that host mode fails to suppress.
 # ---------------------------------------------------------------------------
 
-#: (config key under `services:`, compose service key), for every chat bridge.
-_AXIS_BRIDGES = [
-    pytest.param("gchat_bridge", "gchat-bridge", id="gchat"),
-    pytest.param("nextcloud_bridge", "nextcloud-bridge", id="nextcloud"),
-    pytest.param("teams_bridge", "teams-bridge", id="teams"),
-]
-
-#: Config key -> that bridge's :class:`_ChatBridge`. A lookup rather than a
-#: chain of conditionals so a bridge added to :data:`_AXIS_BRIDGES` without a
-#: spec raises ``KeyError`` here instead of silently re-rendering another
-#: bridge's template under its name.
-_AXIS_BRIDGE_SPECS = {
-    bridge.config_key: bridge for bridge in (_GCHAT_BRIDGE, _NEXTCLOUD_BRIDGE, _TEAMS_BRIDGE)
-}
-
 
 def _render_bridge_with_axis(
-    config_key: str, network: str | None = None, *, pair_network: str | None = None
+    bridge: _ChatBridge, network: str | None = None, *, pair_network: str | None = None
 ) -> str:
     """Render a bridge template with an explicit ``network:`` on one or both sides.
 
@@ -6063,22 +6048,21 @@ def _render_bridge_with_axis(
     dispatch pair's. ``None`` leaves the key off entirely, which is how a
     deployment that never heard of the axis renders.
     """
-    bridge: dict = {"trigger": "t"}
+    block: dict = {"trigger": "t"}
     if network is not None:
-        bridge["network"] = network
+        block["network"] = network
     pair: dict = {} if pair_network is None else {"network": pair_network}
     services = {
-        config_key: bridge,
+        bridge.config_key: block,
         "event_dispatcher": dict(pair),
         "dispatch_worker": dict(pair),
     }
-    return _render_bridge_template(_AXIS_BRIDGE_SPECS[config_key], services=services)
+    return _render_bridge_template(bridge, services=services)
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_without_the_axis_renders_todays_network_blocks(
-    config_key: str,
-    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
+    bridge: _ChatBridge,
 ) -> None:
     """An undeclared axis reproduces the pre-macro bytes exactly.
 
@@ -6086,7 +6070,7 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     whitespace contract is that adopting it moves not one byte, and a parsed
     comparison would pass on a render that gained or lost a blank line.
     """
-    rendered = _render_bridge_with_axis(config_key)
+    rendered = _render_bridge_with_axis(bridge)
 
     # Service-level membership, in place directly after the state volume.
     assert "_data:/data\n    networks:\n      - osprey-network\n\nvolumes:\n" in rendered
@@ -6099,13 +6083,11 @@ def test_bridge_without_the_axis_renders_todays_network_blocks(
     )
 
     # `bridge` is only the name of the behaviour the unset axis already had.
-    assert _render_bridge_with_axis(config_key, "bridge") == rendered
+    assert _render_bridge_with_axis(bridge, "bridge") == rendered
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_on_host_swaps_membership_and_drops_the_stanza(bridge: _ChatBridge) -> None:
     """`network: host` moves BOTH halves of the axis, never just one.
 
     A service on the host namespace that still declares a network leaves compose
@@ -6113,9 +6095,9 @@ def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
     service is a compose error. Neither is a template's to get half right, which
     is why both come from the same macro pair.
     """
-    rendered = _render_bridge_with_axis(config_key, "host")
+    rendered = _render_bridge_with_axis(bridge, "host")
     doc = yaml.safe_load(rendered)
-    svc = doc["services"][service_key]
+    svc = doc["services"][bridge.service_key]
 
     assert svc["network_mode"] == "host"
     assert "networks" not in svc, "host mode must not also join a network"
@@ -6128,10 +6110,8 @@ def test_bridge_on_host_swaps_membership_and_drops_the_stanza(
     assert doc["volumes"], "the bridge's state volume must survive host mode"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(bridge: _ChatBridge) -> None:
     """A host-mode dispatch pair does not drag the bridge onto the host.
 
     The bridge reads `services.<bridge>.network` and nothing else. A mixed
@@ -6139,17 +6119,17 @@ def test_bridge_honours_its_own_axis_not_the_dispatch_pairs(
     whether it is a deployable one, and it can only do that if the template
     reports the topology honestly instead of quietly matching the pair.
     """
-    rendered = _render_bridge_with_axis(config_key, pair_network="host")
-    svc = yaml.safe_load(rendered)["services"][service_key]
+    rendered = _render_bridge_with_axis(bridge, pair_network="host")
+    svc = yaml.safe_load(rendered)["services"][bridge.service_key]
 
     assert svc["networks"] == ["osprey-network"]
     assert "network_mode" not in svc
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_publishes_no_ports_in_any_network_mode(
-    config_key: str, service_key: str, network: str | None
+    bridge: _ChatBridge, network: str | None
 ) -> None:
     """Neither bridge opens a listening socket, so neither publishes a port.
 
@@ -6158,7 +6138,7 @@ def test_bridge_publishes_no_ports_in_any_network_mode(
     others. A future port belongs in the macro's `ports()` call, which suppresses
     it under host — never in a hand-written block that would not be.
     """
-    svc = yaml.safe_load(_render_bridge_with_axis(config_key, network))["services"][service_key]
+    svc = yaml.safe_load(_render_bridge_with_axis(bridge, network))["services"][bridge.service_key]
 
     assert "ports" not in svc
 
@@ -6192,7 +6172,7 @@ _BRIDGE_COMPOSE_URL_LINES = (
 
 
 def _render_bridge_pair_urls(
-    config_key: str,
+    bridge: _ChatBridge,
     *,
     network: str | None = None,
     pair_network: str | None = None,
@@ -6208,35 +6188,34 @@ def _render_bridge_pair_urls(
     addresses are built from. ``pair_deployed=False`` drops both halves from
     ``deployed_services``, the externally-hosted-pair case.
     """
-    bridge: dict = {"trigger": "t"}
+    block: dict = {"trigger": "t"}
     if network is not None:
-        bridge["network"] = network
+        block["network"] = network
     pair: dict = {} if pair_network is None else {"network": pair_network}
     services = {
-        config_key: bridge,
+        bridge.config_key: block,
         "event_dispatcher": {**pair, **(dispatcher or {})},
         "dispatch_worker": {**pair, **(worker or {})},
     }
     return _render_bridge_template(
-        _AXIS_BRIDGE_SPECS[config_key],
+        bridge,
         services=services,
         dispatcher_deployed=pair_deployed,
         worker_deployed=pair_deployed,
     )
 
 
-def _bridge_pair_urls(config_key: str, service_key: str, **kwargs: object) -> tuple[str, str]:
+def _bridge_pair_urls(bridge: _ChatBridge, **kwargs: object) -> tuple[str, str]:
     """Return the rendered ``(DISPATCHER_URL, WORKER_URL)`` pair."""
-    rendered = _render_bridge_pair_urls(config_key, **kwargs)  # type: ignore[arg-type]
-    env = yaml.safe_load(rendered)["services"][service_key]["environment"]
+    rendered = _render_bridge_pair_urls(bridge, **kwargs)  # type: ignore[arg-type]
+    env = yaml.safe_load(rendered)["services"][bridge.service_key]["environment"]
     return env["DISPATCHER_URL"], env["WORKER_URL"]
 
 
 @pytest.mark.parametrize("network", [None, "bridge"], ids=["unset", "bridge"])
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
-    config_key: str,
-    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
+    bridge: _ChatBridge,
     network: str | None,
 ) -> None:
     """A network-joined bridge keeps the service-key addresses, byte for byte.
@@ -6245,40 +6224,35 @@ def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
     render that every existing deployment already runs, and the host-mode
     branch beside them must not shift so much as their indentation.
     """
-    rendered = _render_bridge_pair_urls(config_key, network=network)
+    rendered = _render_bridge_pair_urls(bridge, network=network)
 
     for line in _BRIDGE_COMPOSE_URL_LINES:
         assert line in rendered, f"missing {line.strip()!r}"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_on_host_addresses_the_pair_over_loopback(config_key: str, service_key: str) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_on_host_addresses_the_pair_over_loopback(bridge: _ChatBridge) -> None:
     """On the host namespace both addresses become the host's own.
 
     The compose service keys are not resolvable names there, and the failure
     they cause is silent: the bridge boots, reports healthy, and fails every
     dispatch POST and every status poll for as long as it runs.
     """
-    dispatcher_url, worker_url = _bridge_pair_urls(
-        config_key, service_key, network="host", pair_network="host"
-    )
+    dispatcher_url, worker_url = _bridge_pair_urls(bridge, network="host", pair_network="host")
 
     assert dispatcher_url == f"http://localhost:{default_port('dispatcher')}"
     assert worker_url == f"http://localhost:{default_port('worker', 1)}"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_host_addresses_follow_the_pairs_configured_ports(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_host_addresses_follow_the_pairs_configured_ports(bridge: _ChatBridge) -> None:
     """Loopback is the host part; the ports stay the pair's own.
 
     A facility that moves either half's port moves the bridge's address for it
     — the alternative being a bridge that dials the default forever.
     """
     dispatcher_url, worker_url = _bridge_pair_urls(
-        config_key,
-        service_key,
+        bridge,
         network="host",
         pair_network="host",
         dispatcher={"port": 8123},
@@ -6289,10 +6263,8 @@ def test_bridge_host_addresses_follow_the_pairs_configured_ports(
     assert worker_url == "http://localhost:9500"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(bridge: _ChatBridge) -> None:
     """The worker port is derived from the walk, not restated as the base.
 
     Workers share one port space on the host namespace, so worker `i` listens
@@ -6302,8 +6274,7 @@ def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
     that and silently fail the day routing reaches worker 2.
     """
     _, worker_url = _bridge_pair_urls(
-        config_key,
-        service_key,
+        bridge,
         network="host",
         pair_network="host",
         worker={"worker_port_base": 9500, "worker_port_stride": 10},
@@ -6312,10 +6283,8 @@ def test_bridge_host_worker_address_is_the_first_step_of_the_port_walk(
     assert worker_url == "http://localhost:9500"
 
 
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
-def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
-    config_key: str, service_key: str
-) -> None:
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_bridge_addresses_follow_its_own_axis_not_the_pairs(bridge: _ChatBridge) -> None:
     """A host-mode pair does not rewrite a network-joined bridge's addresses.
 
     The bridge is IN the compose network there, so the service keys are exactly
@@ -6323,16 +6292,16 @@ def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
     topology is the build's pair-parity check to reject, which it can only do
     if the render reports the topology honestly instead of quietly matching.
     """
-    dispatcher_url, worker_url = _bridge_pair_urls(config_key, service_key, pair_network="host")
+    dispatcher_url, worker_url = _bridge_pair_urls(bridge, pair_network="host")
 
     assert dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
-@pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
 def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
-    config_key: str, service_key: str, network: str | None
+    bridge: _ChatBridge, network: str | None
 ) -> None:
     """Host mode addresses a CO-DEPLOYED pair, never an absent one.
 
@@ -6341,9 +6310,7 @@ def test_bridge_still_requires_both_addresses_when_the_pair_is_external(
     boot by name — the alternative being a bridge that dials its own loopback
     and answers no one.
     """
-    dispatcher_url, worker_url = _bridge_pair_urls(
-        config_key, service_key, network=network, pair_deployed=False
-    )
+    dispatcher_url, worker_url = _bridge_pair_urls(bridge, network=network, pair_deployed=False)
 
     assert dispatcher_url.startswith("${DISPATCHER_URL:?")
     assert worker_url.startswith("${WORKER_URL:?")
