@@ -13,6 +13,7 @@ from tests.mcp_server.ariel.conftest import (
     make_mock_entry,
     make_search_result,
     patch_ariel_service,
+    service_returning,
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
@@ -176,14 +177,6 @@ TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
 TSLASH_GROUP = {"original": "t/s", "alternatives": ["troubleshoot"]}
 
 
-def _service_returning(mock_result):
-    """An ARIEL service mock whose search returns *mock_result*."""
-    mock_service = AsyncMock()
-    attach_fake_attachment_reader(mock_service)
-    mock_service.search.return_value = mock_result
-    return mock_service
-
-
 def _keyword_descriptor(execute, query_parser):
     """Build a keyword descriptor around *execute* for the real service."""
     from pydantic import BaseModel
@@ -210,7 +203,7 @@ async def test_expand_query_is_forwarded_in_advanced_params(value, ariel_registr
     """An explicit expand_query reaches the service as an advanced parameter."""
     ariel_registry()
 
-    mock_service = _service_returning(_make_search_result([]))
+    mock_service = service_returning(_make_search_result([]))
 
     with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
@@ -228,7 +221,7 @@ async def test_expand_query_omitted_when_unset(ariel_registry):
     """
     ariel_registry()
 
-    mock_service = _service_returning(_make_search_result([]))
+    mock_service = service_returning(_make_search_result([]))
 
     with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
@@ -245,7 +238,7 @@ async def test_envelope_reports_the_applied_expansion(ariel_registry):
         [make_mock_entry(entry_id="e1", raw_text="troubleshoot the timing system")],
         expanded_terms=[TS_GROUP],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
     with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
@@ -273,7 +266,7 @@ async def test_envelope_reports_diagnostics(ariel_registry):
             )
         ],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
     with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
@@ -309,7 +302,7 @@ async def test_timeout_diagnostic_becomes_an_error_envelope(ariel_registry):
         ],
         expanded_terms=[TS_GROUP],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
     with patch_ariel_service(mock_service):
         fn = _get_keyword_search()
@@ -345,7 +338,7 @@ async def test_invalid_pattern_diagnostic_names_the_pattern(ariel_registry):
         ],
         expanded_terms=[TSLASH_GROUP],
     )
-    mock_service = _service_returning(mock_result)
+    mock_service = service_returning(mock_result)
 
     with patch_ariel_service(mock_service):
         fn = _get_keyword_search()

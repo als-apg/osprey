@@ -9,7 +9,6 @@ loads back.
 """
 
 import struct
-from contextlib import nullcontext
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -21,6 +20,7 @@ from osprey.interfaces.artifacts.app import create_app
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
+from tests.mcp_server._channel_read import config_patch
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 ADDRESS = "CAM:1:IMAGE"
@@ -55,23 +55,6 @@ class _FakeConnector:
         return _channel_value(self._values[address], self._color_modes.get(address))
 
 
-def _config_patch(overrides: dict):
-    """Patch only the named config keys, delegating everything else."""
-    if not overrides:
-        return nullcontext()
-
-    from osprey_connectors import config as config_module
-
-    real = config_module.get_config_value
-
-    def fake(path, default=None, *args, **kwargs):
-        if path in overrides:
-            return overrides[path]
-        return real(path, default, *args, **kwargs)
-
-    return patch("osprey_connectors.config.get_config_value", side_effect=fake)
-
-
 async def _read(tmp_path, monkeypatch, values, *, color_modes=None, overrides=None, **kwargs):
     """Run the real channel_read tool body against a mock connector."""
     monkeypatch.chdir(tmp_path)
@@ -91,7 +74,7 @@ async def _read(tmp_path, monkeypatch, values, *, color_modes=None, overrides=No
             return_value=connector,
         ),
         patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
-        _config_patch(overrides or {}),
+        config_patch(overrides or {}),
     ):
         result = await get_tool_fn(channel_read)(channels=list(values), **kwargs)
     return extract_response_dict(result)
@@ -465,7 +448,7 @@ async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch)
             return_value=connector,
         ),
         patch("osprey.infrastructure.server_launcher.ensure_web_server", lambda *a, **k: None),
-        _config_patch({"control_system.channel_read_artifact_retention": 2}),
+        config_patch({"control_system.channel_read_artifact_retention": 2}),
     ):
         for _ in range(4):
             await get_tool_fn(channel_read)(channels=[ADDRESS])

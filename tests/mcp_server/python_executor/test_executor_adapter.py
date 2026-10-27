@@ -36,33 +36,7 @@ def _nobody_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("osprey.cli.build_posture_check.ask_capable", lambda *_args: False)
 
 
-@pytest.fixture(autouse=True)
-def _reset_all_config_caches(monkeypatch):
-    """Reset ALL config caches before each test.
-
-    Prior test modules set the ConfigBuilder singleton via
-    get_config_builder(set_as_default=True).  We must clear
-    _default_config, _default_configurable, and _config_cache
-    before each test so the adapter reads from the test's own
-    config.yml via monkeypatch.chdir(tmp_path).
-    """
-    from osprey_connectors.workspace import reset_config_cache
-
-    reset_config_cache()
-
-    import osprey_connectors.config as _cfg
-
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    # Save and clear the cache dict; monkeypatch restores it on teardown
-    saved_cache = _cfg._config_cache.copy()
-    _cfg._config_cache.clear()
-
-    yield
-
-    reset_config_cache()
-    _cfg._config_cache.clear()
-    _cfg._config_cache.update(saved_cache)
+pytestmark = pytest.mark.usefixtures("reset_config_caches")
 
 
 # ---------------------------------------------------------------------------

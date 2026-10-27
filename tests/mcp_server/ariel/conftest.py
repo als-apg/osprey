@@ -190,6 +190,14 @@ def make_search_result(
     return result
 
 
+def service_returning(search_result):
+    """An ARIEL service mock whose search returns *search_result*."""
+    service = AsyncMock()
+    attach_fake_attachment_reader(service)
+    service.search.return_value = search_result
+    return service
+
+
 @pytest.fixture
 def mock_ariel_service():
     """Create a mock ARIELSearchService with AsyncMock methods."""

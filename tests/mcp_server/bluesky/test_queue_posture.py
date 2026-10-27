@@ -38,9 +38,9 @@ import yaml
 
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
-from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
+from tests.mcp_server._bluesky import headers_without_owner
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
@@ -138,20 +138,6 @@ def _stop_fn():
     return get_tool_fn(queue.queue_stop)
 
 
-def _headers_without_owner(m) -> dict[str, str]:
-    """The headers one forwarded request carried, minus the owner stamp.
-
-    Every POST the queue tools send carries ``X-Osprey-Owner`` whenever the
-    owner ladder can name an owner, and under test the process account always
-    can. The rows below are about the launch token the narrowing withholds, so
-    they compare the rest of the header dict exactly — a stray third header
-    still fails them — and leave the owner half to
-    ``tests/mcp_server/bluesky/test_queue_tools.py``, which pins it.
-    """
-    headers = m.call_args.kwargs["headers"] or {}
-    return {name: value for name, value in headers.items() if name != OWNER_HEADER}
-
-
 def _refusal(code: str, detail: str, **extras) -> dict:
     return {"detail": {"code": code, "detail": detail, **extras}}
 
@@ -224,7 +210,7 @@ async def test_a_sandboxed_lane_target_withholds_the_launch_token_from_queue_add
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
         result = await _add_fn()(draft_revision=3)
 
-    assert _headers_without_owner(m) == {}
+    assert headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
 
 
@@ -273,7 +259,7 @@ async def test_an_armed_lane_on_another_target_still_queues(tmp_path, monkeypatc
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
         await _add_fn()(draft_revision=7)
 
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
 
 async def test_an_armed_lane_on_another_target_still_starts(tmp_path, monkeypatch):
@@ -283,7 +269,7 @@ async def test_an_armed_lane_on_another_target_still_starts(tmp_path, monkeypatc
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
         await _start_fn()()
 
-    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
+    assert headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
 
 
 # =========================================================================
