@@ -48,14 +48,13 @@ import os
 import shutil
 import socket
 import subprocess
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
-from tests.e2e._deploy_support import format_failure, wait_for_health
+from tests.e2e._deploy_support import find_osprey_console_script, format_failure, wait_for_health
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
@@ -505,23 +504,6 @@ def build_via_cli_runner(
     if result.exit_code != 0:
         raise AssertionError(f"osprey build failed (exit={result.exit_code}):\n{result.output}")
     return repo / "build"
-
-
-def find_osprey_console_script() -> Path:
-    """Locate the ``osprey`` console script for subprocess invocations.
-
-    Centralized here since every real-container e2e that builds this stack
-    (task 5.2, and the agentic e2e in 5.3/5.4) needs it, mirroring the
-    identical helper duplicated in test_va_substrate_equivalence.py /
-    test_tiled_roundtrip.py / test_bluesky_deploy.py.
-    """
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
 
 
 def build_project_subprocess(

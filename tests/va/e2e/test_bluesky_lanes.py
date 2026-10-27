@@ -68,7 +68,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -94,6 +93,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_f
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
+from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
@@ -203,16 +203,6 @@ MIN_COLLECTED_TESTS = 15
 # ---------------------------------------------------------------------------
 # Process + HTTP helpers
 # ---------------------------------------------------------------------------
-def _osprey_bin() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
     """Run one ``osprey`` command in *cwd*, with this checkout on the path.
 
@@ -421,7 +411,7 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
     repo = base / name
 
     argv = [
-        str(_osprey_bin()),
+        str(find_osprey_console_script()),
         "init",
         str(repo),
         "--preset",
@@ -454,7 +444,7 @@ def _init_and_build(base: Path, name: str, *, second_lane: bool) -> Path:
 
     build = _run(
         [
-            str(_osprey_bin()),
+            str(find_osprey_console_script()),
             "build",
             "--repo",
             str(repo),
@@ -565,7 +555,11 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
         handle.write(f"EPICS_CA_NAME_SERVERS=host.docker.internal:{live_endpoint}\n")
 
     try:
-        up = _run([str(_osprey_bin()), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_S)
+        up = _run(
+            [str(find_osprey_console_script()), "up", "-d", "--dev"],
+            cwd=repo,
+            timeout=DEPLOY_UP_TIMEOUT_S,
+        )
         if up.returncode != 0:
             pytest.fail(f"osprey up --dev failed (rc={up.returncode}):\n{up.stdout}\n{up.stderr}")
 
@@ -602,7 +596,9 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
             limits=limits,
         )
     finally:
-        down = _run([str(_osprey_bin()), "down"], cwd=repo, timeout=DEPLOY_DOWN_TIMEOUT_S)
+        down = _run(
+            [str(find_osprey_console_script()), "down"], cwd=repo, timeout=DEPLOY_DOWN_TIMEOUT_S
+        )
         if down.returncode != 0:
             print(  # surface teardown issues in the run log
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
