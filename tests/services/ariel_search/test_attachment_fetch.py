@@ -525,18 +525,16 @@ async def test_fetch_three_hops_are_followed(server, adapter):
     assert out.data == PNG
 
 
-async def test_fetch_fourth_hop_is_source_refused(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/chain/4"), 1000, _origins(server), adapter)
-    assert out == FetchOutcome(code="source_refused")
-
-
-async def test_fetch_off_origin_location_is_source_refused(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/redir/off"), 1000, _origins(server), adapter)
-    assert out == FetchOutcome(code="source_refused")
-
-
-async def test_fetch_redirect_without_location_is_source_refused(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/redir/none"), 1000, _origins(server), adapter)
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/chain/4", id="fourth_hop"),
+        pytest.param("/redir/off", id="off_origin_location"),
+        pytest.param("/redir/none", id="redirect_without_location"),
+    ],
+)
+async def test_fetch_redirect_is_source_refused(server, adapter, path):
+    out = await fetch_attachment_bytes(_url(server, path), 1000, _origins(server), adapter)
     assert out == FetchOutcome(code="source_refused")
 
 
