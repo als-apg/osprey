@@ -31,7 +31,6 @@ import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
 from osprey.port_layout import DEFAULT_PORT_BASE, WORKER_MAX, default_port
-from osprey_connectors.errors import BuildProfileError
 from tests.cli._profiles import validation_errors
 
 #: The bundled trigger file every dispatch block below points at. The dispatch

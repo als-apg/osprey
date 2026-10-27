@@ -22,7 +22,6 @@ import yaml
 
 from osprey.cli.build_profile import BuildProfile, DispatchConfig, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import env_names_errors
-from osprey_connectors.errors import BuildProfileError
 from tests.cli._profiles import validation_errors
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")

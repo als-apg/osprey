@@ -44,7 +44,6 @@ import pytest
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
-from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._preset_data import create_project_as_built
 from tests._vocabulary import hardcoded_vocabulary_hits
 from tests.cli._lifecycle_build import invoke_build

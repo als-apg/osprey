@@ -42,13 +42,11 @@ from osprey.cli.validate_claude_artifacts import (
 from osprey.registry.mcp import (
     CHANNEL_FINDER_TOOLS_BY_PIPELINE,
     FRAMEWORK_AGENTS,
-    FRAMEWORK_SERVERS,
 )
 from tests._builds import copy_build
 from tests._preset_data import bundle_data_root
 from tests.cli._lifecycle_build import invoke_build
-from tests.cli._template_projects import create_project_with_manifest
-from tests.cli._template_projects import graph_permission_entries
+from tests.cli._template_projects import create_project_with_manifest, graph_permission_entries
 
 # ---------------------------------------------------------------------------
 # Helpers

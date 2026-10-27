@@ -89,8 +89,8 @@ from osprey_connectors.types import CONTROL_TARGETS, configured_targets, target_
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import invoke_build, rendered_config
-from tests.fixtures.lifecycle_repo import build_exemplar_repo
 from tests.cli._template_projects import graph_permission_entries
+from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
 TIER_NAMES = ("readonly", "readwrite", "admin")
 
