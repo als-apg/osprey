@@ -33,6 +33,7 @@ from osprey.services.ariel_search.ingestion.ingest import (
     EntryIngestOutcome,
     ingest_one,
 )
+from tests.services.ariel_search.integration._support import fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -121,28 +122,6 @@ def _id(entry_id: str, url: str) -> str:
     aid = attachment_id_for(entry_id, {"url": url})
     assert aid is not None
     return aid
-
-
-def _fake_prepare(monkeypatch) -> None:
-    """Render every sniffed picture instantly; non-images answer from the sniff."""
-    from osprey.imaging.formats import sniff
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        sniffed = sniff(data)
-        if not sniffed.is_image:
-            return prepare_mod.PreparedPicture(sniffed.mime, sniffed.skip_reason)
-        return prepare_mod.PreparedPicture(
-            mime_type=sniffed.mime,
-            skip_reason=None,
-            rendition_bytes=b"r",
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256="cd" * 32,
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
 
 
 async def _ingest(
@@ -243,7 +222,7 @@ class TestIngestOneStore:
     async def test_ingest_one_stores_text_records_rows_copies_and_runs_enhancers(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
         entry_id = f"{PREFIX}happy"
@@ -285,7 +264,7 @@ class TestIngestOneStore:
     async def test_ingest_one_record_rows_raising_once_keeps_text_then_backfill_recovers(
         self, repository, attachment_fetch, monkeypatch, caplog
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _config("images")
         entry_id = f"{PREFIX}savepoint"
         real_record_rows = copy_mod.record_rows
@@ -331,7 +310,7 @@ class TestIngestOneStore:
     async def test_ingest_one_picture_timeout_keeps_text_stored_before_fetch(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _config("images")
         entry_id = f"{PREFIX}timeout"
         seen_at_fetch: list = []
@@ -382,7 +361,7 @@ class TestIngestOneReIngest:
     async def test_ingest_one_pending_row_deleted_when_url_leaves_list(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(transient=True, host_up=False))
         cfg = _config("images")
         entry_id = f"{PREFIX}pending-delete"
@@ -475,7 +454,7 @@ class TestIngestOneConcurrency:
     async def test_ingest_one_against_backfill_page_lock_never_deadlocks(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
         ids = [f"{PREFIX}deadlock-1", f"{PREFIX}deadlock-2"]
@@ -649,7 +628,7 @@ class TestTextModulesMarkUnderAttachmentTextMd5:
     async def test_ingest_one_marks_text_embedding_on_a_migrated_store(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         entry_id = f"{PREFIX}md5-mark"
         embedder = _CaptionedEmbedder()
@@ -675,7 +654,7 @@ class TestTextModulesMarkUnderAttachmentTextMd5:
     async def test_a_caption_changed_during_enhance_leaves_the_text_module_owed(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         entry_id = f"{PREFIX}md5-race"
 
@@ -697,7 +676,7 @@ class TestTextModulesMarkUnderAttachmentTextMd5:
     async def test_an_unchanged_reingest_keeps_the_caption_in_the_embedder_input(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         entry_id = f"{PREFIX}md5-reingest"
         cfg = _config("images")
@@ -730,7 +709,7 @@ class TestTextModulesMarkUnderAttachmentTextMd5:
         from osprey.services.ariel_search import cli_operations as ops
         from tests.services.ariel_search._cli_ops_doubles import _patch_service, _StubService
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         entry_id = f"{PREFIX}md5-run-enhance"
         await _ingest(

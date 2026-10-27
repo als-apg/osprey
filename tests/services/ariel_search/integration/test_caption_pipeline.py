@@ -39,6 +39,7 @@ from osprey.services.ariel_search.enhancement.qmd_export.writer import mirror_pa
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search.keyword import keyword_search
+from tests.services.ariel_search.integration._support import fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -138,28 +139,6 @@ def _id(entry_id: str, name: str) -> str:
     return aid
 
 
-def _fake_prepare(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Render every sniffed picture instantly."""
-    from osprey.imaging.formats import sniff
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        sniffed = sniff(data)
-        if not sniffed.is_image:
-            return prepare_mod.PreparedPicture(sniffed.mime, sniffed.skip_reason)
-        return prepare_mod.PreparedPicture(
-            mime_type=sniffed.mime,
-            skip_reason=None,
-            rendition_bytes=b"r",
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256="cd" * 32,
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
-
-
 async def _seed_copied(repo, uri: str, entry_id: str, names: list[str]) -> list[str]:
     """Store an entry with one PNG per name, every picture copied with a rendition."""
     cfg = ARIELConfig.from_dict(_config_dict(uri))
@@ -245,7 +224,7 @@ class TestPollLeavesCaptionsToTheCatchup:
         from osprey.services.ariel_search import ingestion as ingestion_pkg
         from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         fake = _vision(monkeypatch, _FakeVision(lambda _n: time.sleep(10)))
         cfg = ARIELConfig.from_dict(_config_dict(scratch_database))

@@ -30,7 +30,6 @@ shared ``llama_stub``.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -54,6 +53,7 @@ from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.qmd import QMDSearchResult
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.services.ariel_search.integration._support import fake_prepare_as_own_rendition
 from tests.services.ariel_search.llama_stub import FIXTURES
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
@@ -210,24 +210,6 @@ def _entry() -> dict[str, Any]:
     }
 
 
-def _fake_prepare(monkeypatch) -> None:
-    """Every fetched picture is its own rendition; no render worker starts."""
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        return prepare_mod.PreparedPicture(
-            mime_type="image/png",
-            skip_reason=None,
-            rendition_bytes=bytes(data),
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256=hashlib.sha256(data).hexdigest(),
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
-
-
 def _enhancement_status(uri: str) -> dict[str, Any]:
     with psycopg.connect(uri) as conn:
         row = conn.execute(
@@ -347,7 +329,7 @@ async def test_every_module_combination_runs(
     picture_search = embedding and hybrid
     if copies:
         attachment_fetch.respond(lambda url, *_a, **_k: FetchOutcome(data=_picture_bytes(url)))
-        _fake_prepare(monkeypatch)
+        fake_prepare_as_own_rendition(monkeypatch)
 
     raw = _config_dict(
         scratch_database,

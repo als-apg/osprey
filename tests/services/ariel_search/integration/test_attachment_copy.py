@@ -21,6 +21,7 @@ from osprey.services.ariel_search.attachments.copy import record_and_compose, re
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -465,28 +466,6 @@ PDF = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
 HTML = b"<!DOCTYPE html><html><head><title>Login</title></head><body>sign in</body></html>"
 
 
-def _fake_prepare(monkeypatch) -> None:
-    """Render every sniffed picture instantly; non-images answer from the sniff."""
-    from osprey.imaging.formats import sniff
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        sniffed = sniff(data)
-        if not sniffed.is_image:
-            return prepare_mod.PreparedPicture(sniffed.mime, sniffed.skip_reason)
-        return prepare_mod.PreparedPicture(
-            mime_type=sniffed.mime,
-            skip_reason=None,
-            rendition_bytes=b"r",
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256="cd" * 32,
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
-
-
 def _copy_run(cfg: ARIELConfig, **overrides) -> copy_mod.CopyRun:
     return copy_mod.CopyRun(_http(cfg), ORIGINS, **overrides)
 
@@ -552,7 +531,7 @@ class TestCopyEntry:
     async def test_copy_entry_ten_poll_outage_then_serving_copies_on_poll_eleven(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         entry, cfg = f"{PREFIX}outage-1", _config("images")
         ids = await _pending(repository, entry, [f"{i}.png" for i in range(8)], cfg)
         attachment_fetch.respond(FetchOutcome(transient=True, host_up=False))
@@ -573,7 +552,7 @@ class TestCopyEntry:
     async def test_copy_entry_refusing_host_ends_eight_day_row_only(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         entry, cfg = f"{PREFIX}age-1", _config("images")
         old, fresh = await _pending(repository, entry, ["old.png", "new.png"], cfg)
         async with repository.pool.connection() as conn:
@@ -592,7 +571,7 @@ class TestCopyEntry:
         self, repository, attachment_fetch, monkeypatch
     ):
         # Scaled: a 60 s deadline over 20 s pictures becomes 0.6 s over 0.2 s.
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         entry, cfg = f"{PREFIX}slow-1", _config("images")
         ids = await _pending(repository, entry, [f"{i}.png" for i in range(20)], cfg)
         attachment_fetch.respond(_sleepy_server(0.2))
@@ -612,7 +591,7 @@ class TestCopyEntry:
     async def test_copy_entry_twenty_five_pictures_over_three_polls_copy_twenty(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         entry, cfg = f"{PREFIX}budget-1", _config("images")
         ids = await _pending(repository, entry, [f"{i}.png" for i in range(25)], cfg)
         attachment_fetch.respond(_sleepy_server(0.2))
@@ -626,7 +605,7 @@ class TestCopyEntry:
     async def test_copy_entry_declared_png_html_body_is_source_refused_then_backfilled(
         self, repository, attachment_fetch, monkeypatch, mode
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         entry, cfg = f"{PREFIX}login-{mode}", _config(mode)
         (aid,) = await _pending(repository, entry, ["shot.png"], cfg)
         attachment_fetch.respond(FetchOutcome(data=HTML))
@@ -810,7 +789,7 @@ class TestPollCopyRetryStep:
     async def test_retry_step_copies_a_timed_out_picture_on_the_next_poll(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _retry_config()
         entry = scope = f"{PREFIX}retry-timeout"
         (aid,) = await _retry_entry(repository, entry, ["late.png"], cfg, at=FUTURE)
@@ -859,7 +838,7 @@ class TestPollCopyRetryStep:
         assert all(state[i]["copy_status"] == "copied" for i in ids)
         assert all(state[i]["rendition_sha256"] is None for i in ids)
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         fetches = len(attachment_fetch.calls)
         await scheduler.poll_once()
 
@@ -872,7 +851,7 @@ class TestPollCopyRetryStep:
     ):
         import psycopg
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _retry_config()
         entry = scope = f"{PREFIX}retry-locked"
         (aid,) = await _retry_entry(repository, entry, ["held.png"], cfg, at=FUTURE)
@@ -896,7 +875,7 @@ class TestPollCopyRetryStep:
     async def test_retry_step_older_entry_copied_within_two_polls_behind_twenty_stuck(
         self, repository, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _retry_config()
         scope = f"{PREFIX}retry-starve-"
         stuck = [f"{scope}stuck-{i:02d}" for i in range(20)]
@@ -1034,7 +1013,7 @@ class TestBackfill:
     async def test_backfill_page_with_one_pending_picture_completes_quickly(
         self, scratch_repo, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
         await _seed_at(scratch_repo, "bf-one", [_png_item("one.png")], minutes=0)
@@ -1052,7 +1031,7 @@ class TestBackfill:
         """``ingest_one([a,c])`` lands between the page commit and the copy of ``[a,b]``."""
         from osprey.services.ariel_search.ingestion.ingest import ingest_one
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _config("images")
         adapter = _OriginHttpAdapter(cfg)
         a, b, c = _png_item("a.png"), _png_item("b.png"), _png_item("c.png")
@@ -1095,7 +1074,7 @@ class TestBackfill:
     ):
         from osprey.services.ariel_search.ingestion.ingest import ingest_one
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
         adapter = _OriginHttpAdapter(cfg)
@@ -1118,7 +1097,7 @@ class TestBackfill:
     ):
         from collections import Counter
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(_sleepy_server(0.05))
         cfg = _config("images")
         for i in range(3):
@@ -1147,7 +1126,7 @@ class TestBackfill:
     ):
         from osprey.services.ariel_search.ingestion.ingest import ingest_one
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
         adapter = _OriginHttpAdapter(cfg)
@@ -1237,7 +1216,7 @@ class TestBackfill:
         )
         from osprey.services.ariel_search.database.connection import create_connection_pool
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         config_dict = {
             "database": {"uri": scratch_database},
@@ -1436,7 +1415,7 @@ class TestBackfillRetryDecoderFailed:
         from osprey.services.ariel_search.database.migrations import image_table_name
         from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         config_dict = _retry_config_dict(scratch_database, stub.url)
         cfg = ARIELConfig.from_dict(config_dict)
         aid = await _seed_content_skip(image_repo, "rdf-1", "spot.png", "decoder_failed", cfg)
@@ -1457,7 +1436,7 @@ class TestBackfillRetryDecoderFailed:
         row = (await _state(image_repo, "rdf-1"))[aid]
         assert row["copy_status"] == "copied"
         assert row["skip_reason"] is None
-        assert row["rendition_sha256"] == "cd" * 32
+        assert row["rendition_sha256"] == FAKE_RENDITION_SHA
         assert row["data"] == PNG_MAGIC
 
         await ops.run_enhance(config_dict, module=None, force=False, limit=100)
@@ -1480,7 +1459,7 @@ class TestBackfillRetryDecoderFailed:
     async def test_retry_decoder_failed_resets_only_decoder_failed_and_dry_run_writes_nothing(
         self, scratch_repo, attachment_fetch, monkeypatch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         cfg = _config("images")
         broken = await _seed_content_skip(scratch_repo, "rdf-a", "a.png", "decoder_failed", cfg)
         other = await _seed_content_skip(scratch_repo, "rdf-b", "b.png", "format_mismatch", cfg)
@@ -1493,7 +1472,9 @@ class TestBackfillRetryDecoderFailed:
 
         assert (result.decoder_reset, result.rendered, result.copy_failed) == (1, 1, 0)
         assert (await _state(scratch_repo, "rdf-a"))[broken]["skip_reason"] is None
-        assert (await _state(scratch_repo, "rdf-a"))[broken]["rendition_sha256"] == "cd" * 32
+        assert (await _state(scratch_repo, "rdf-a"))[broken][
+            "rendition_sha256"
+        ] == FAKE_RENDITION_SHA
         assert (await _state(scratch_repo, "rdf-b"))[other]["skip_reason"] == "format_mismatch"
         assert attachment_fetch.calls == []
 

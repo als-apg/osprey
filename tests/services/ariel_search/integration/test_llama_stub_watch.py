@@ -23,7 +23,6 @@ adapter against the shared ``llama_stub``.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -41,6 +40,7 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.enhancement.availability import HEALTH_TIMEOUT_S
 from osprey.services.ariel_search.enhancement.image_embedding import module as embed_mod
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from tests.services.ariel_search.integration._support import fake_prepare_as_own_rendition
 from tests.services.ariel_search.llama_stub import FIXTURES
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
@@ -130,24 +130,6 @@ def _config_dict(uri: str, embed_url: str, **embed: Any) -> dict[str, Any]:
     }
 
 
-def _fake_prepare(monkeypatch) -> None:
-    """Every fetched picture is its own rendition; no render worker starts."""
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        return prepare_mod.PreparedPicture(
-            mime_type="image/png",
-            skip_reason=None,
-            rendition_bytes=bytes(data),
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256=hashlib.sha256(data).hexdigest(),
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
-
-
 def _statuses(uri: str) -> dict[str, dict[str, Any]]:
     with psycopg.connect(uri) as conn:
         rows = conn.execute("SELECT entry_id, enhancement_status FROM enhanced_entries").fetchall()
@@ -227,7 +209,7 @@ def _isolated(monkeypatch, attachment_fetch):
         "osprey.services.ariel_search.ingestion.get_adapter", lambda config: _Adapter(config)
     )
     attachment_fetch.respond(lambda url, *_a, **_k: FetchOutcome(data=_picture_bytes(url)))
-    _fake_prepare(monkeypatch)
+    fake_prepare_as_own_rendition(monkeypatch)
     yield
     _Adapter.queue[:] = []
     availability.reset_availability()

@@ -18,6 +18,7 @@ import pytest
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
+from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -26,28 +27,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker"), pytest.mar
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
 ENTRY_ID = "cliingest-1"
 PICTURE_PATH = "attachments/2026/10/beam_profile.png"
-
-
-def _fake_prepare(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Render every sniffed picture instantly; non-images answer from the sniff."""
-    from osprey.imaging.formats import sniff
-    from osprey.services.ariel_search.attachments import prepare as prepare_mod
-
-    async def _prepare(data, **_kwargs):
-        sniffed = sniff(data)
-        if not sniffed.is_image:
-            return prepare_mod.PreparedPicture(sniffed.mime, sniffed.skip_reason)
-        return prepare_mod.PreparedPicture(
-            mime_type=sniffed.mime,
-            skip_reason=None,
-            rendition_bytes=b"r",
-            rendition_mime="image/png",
-            rendition_w=1,
-            rendition_h=1,
-            rendition_sha256="cd" * 32,
-        )
-
-    monkeypatch.setattr(prepare_mod, "prepare_picture", _prepare)
 
 
 @pytest.fixture
@@ -107,7 +86,7 @@ def _assert_copied(uri: str) -> None:
     assert len(rows) == 1
     (row,) = rows
     assert row["copy_status"] == "copied"
-    assert row["rendition_sha256"] == "cd" * 32
+    assert row["rendition_sha256"] == FAKE_RENDITION_SHA
     assert bytes(row["data"]) == PNG_MAGIC
 
 
@@ -115,7 +94,7 @@ class TestRunIngestCopies:
     async def test_run_ingest_copies_the_picture_and_reingest_fetches_nothing(
         self, monkeypatch, scratch_database, als_source, attachment_fetch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         await _migrate(_config_dict(scratch_database, als_source))
 
@@ -153,7 +132,7 @@ class TestRunQuickstartCopies:
     async def test_run_quickstart_copies_the_picture_and_reingest_fetches_nothing(
         self, monkeypatch, scratch_database, als_source, attachment_fetch
     ):
-        _fake_prepare(monkeypatch)
+        fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
 
         out = await ops.run_quickstart(_config_dict(scratch_database, als_source), source=None)
