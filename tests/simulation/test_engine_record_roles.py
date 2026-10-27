@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import ast
 import sys
 import types
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+import osprey
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import (
@@ -17,7 +20,8 @@ from osprey.simulation.engines import (
     record_marks,
     record_roles,
 )
-from osprey_connectors.simulation.view import COMMAND_MARK, ROLES, Binding
+from osprey_connectors.simulation import view as view_module
+from osprey_connectors.simulation.view import COMMAND_MARK, REFRESH, ROLES, Binding
 
 FAKE = "fake_record_roles_engine"
 FOUR_ROLES = ("setpoint", "readback", "monitor", "output")
@@ -166,3 +170,24 @@ def test_a_binding_carries_the_records_marks() -> None:
     assert Binding.from_record("M", record).marks == frozenset()
     marked = Binding.from_record("M", {**record, "marks": ["command"]})
     assert marked.marks == frozenset({"command"})
+
+
+#: The modules that read roles and refresh from the view.
+ROLE_READERS = (
+    Path(view_module.__file__).parent / "composite.py",
+    Path(view_module.__file__).parent / "texture.py",
+    Path(osprey.__file__).parent / "services/virtual_accelerator/serving/runner_config.py",
+)
+
+
+@pytest.mark.parametrize("path", ROLE_READERS, ids=lambda path: path.name)
+def test_the_role_readers_name_no_role_of_their_own(path: Path) -> None:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    named = [
+        node.value.value
+        for node in tree.body
+        if isinstance(node, ast.Assign | ast.AnnAssign)
+        and isinstance(node.value, ast.Constant)
+        and node.value.value in (*ROLES, *REFRESH)
+    ]
+    assert named == []
