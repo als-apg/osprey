@@ -22,6 +22,7 @@ import { cwd } from 'node:process';
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
+import { fakeEventSourceClass } from './_event-source.mjs';
 
 import {
   ABORT_LABEL,
@@ -1240,24 +1241,7 @@ describe('removalRecords', () => {
 // ---------------------------------------------------------------------------
 
 describe('createQueueStream', () => {
-  /** Minimal EventSource stand-in: happy-dom has none. */
-  class FakeEventSource {
-    /** @type {FakeEventSource[]} */
-    static instances = [];
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      this.closed = false;
-      /** @type {((event: {data: string}) => void)|null} */
-      this.onmessage = null;
-      /** @type {(() => void)|null} */
-      this.onerror = null;
-      FakeEventSource.instances.push(this);
-    }
-    close() {
-      this.closed = true;
-    }
-  }
+  const FakeEventSource = fakeEventSourceClass();
 
   beforeEach(() => {
     FakeEventSource.instances = [];
@@ -2551,20 +2535,7 @@ describe('booting the shipped bundle', () => {
   const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   /** Captures the panel's EventSource so a test can push frames at it. */
-  class BootEventSource {
-    /** @type {BootEventSource[]} */
-    static instances = [];
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      /** @type {((event: {data: string}) => void)|null} */
-      this.onmessage = null;
-      /** @type {(() => void)|null} */
-      this.onerror = null;
-      BootEventSource.instances.push(this);
-    }
-    close() {}
-  }
+  const BootEventSource = fakeEventSourceClass();
 
   /** @returns {{stopBtn: any, startBtn: any, abortBtn: any, pushFrame: (f: any) => void}} */
   function boot() {
@@ -3403,20 +3374,7 @@ describe('the merged panel shell', () => {
   const BUNDLE = `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/`;
 
   /** Captures the panel's EventSources so a test can push queue frames. */
-  class ShellEventSource {
-    /** @type {ShellEventSource[]} */
-    static instances = [];
-    /** @param {string} url */
-    constructor(url) {
-      this.url = url;
-      /** @type {((event: {data: string}) => void)|null} */
-      this.onmessage = null;
-      /** @type {(() => void)|null} */
-      this.onerror = null;
-      ShellEventSource.instances.push(this);
-    }
-    close() {}
-  }
+  const ShellEventSource = fakeEventSourceClass();
 
   /**
    * Every contribution the panel has posted at the (faked) hub. Untyped on
