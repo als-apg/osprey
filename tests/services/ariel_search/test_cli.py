@@ -44,6 +44,9 @@ class TestARIELCLIGroup:
             ("search", "Search the logbook"),
             ("sync", "Sync ARIEL database"),
             ("reembed", "Re-embed entries"),
+            ("ingest", "source file"),
+            ("enhance", "enhancement modules"),
+            ("models", "embedding"),
         ],
     )
     def test_subcommand_exists(self, runner, command, summary):
@@ -51,20 +54,6 @@ class TestARIELCLIGroup:
         result = runner.invoke(ariel_group, [command, "--help"])
         assert result.exit_code == 0
         assert summary in result.output
-
-    @pytest.mark.parametrize(
-        ("command", "summary"),
-        [
-            ("ingest", "source file"),
-            ("enhance", "enhancement modules"),
-            ("models", "embedding"),
-        ],
-    )
-    def test_subcommand_exists_case_insensitive_summary(self, runner, command, summary):
-        """Each subcommand answers ``--help`` with its summary, in any case."""
-        result = runner.invoke(ariel_group, [command, "--help"])
-        assert result.exit_code == 0
-        assert summary in result.output.lower()
 
     @pytest.mark.parametrize(
         ("command", "text"),
