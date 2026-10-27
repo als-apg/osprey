@@ -31,13 +31,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from osprey_connectors.config import config_flag
-from osprey_connectors.control_system._base import is_readonly_run
 from osprey_connectors.control_system._gateway_role import (
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
     _selected_role,
     readonly_gateway_refusal,
 )
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.types import (
     STANDIN_TYPES,
     TARGET_LIVE,
@@ -225,7 +225,7 @@ def derive_endpoints(
             own; injectable so a caller (or a test) can derive the endpoints of
             a posture other than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
-            :func:`~osprey_connectors.control_system.is_readonly_run`.
+            :func:`~osprey_connectors.posture_env.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
             port is filled from — the file the child reads, so the port derived
             here is the port it connects to. ``None`` reads ``CONFIG_FILE``,

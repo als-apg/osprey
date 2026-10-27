@@ -58,6 +58,7 @@ from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
 from osprey.utils.workspace import LAYER_DIRNAMES
 from osprey_connectors import posture_store
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.posture_env import POSTURE_ENV_VAR
 from osprey_connectors.safety_file import atomic_replace
 
 if TYPE_CHECKING:
@@ -1062,7 +1063,7 @@ async def _execute_via_local(
     # the read_only gateway when this says readonly, so a readonly run cannot
     # write however the call is spelled — the pre-execution regex only ever
     # saw the standard spellings.
-    sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
+    sandbox_env[POSTURE_ENV_VAR] = execution_mode
     # Which machine those writes and reads reach is the second runtime property
     # of the subprocess, and it is stamped for the same reason as the mode: the
     # sandbox is a fresh process that builds its own connector, so the target

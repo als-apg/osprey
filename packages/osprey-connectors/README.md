@@ -23,8 +23,8 @@ name starts with an underscore is internal and can change in any release.
 Most modules are their own API, each imported by its own path: `config`,
 `workspace`, `dotenv`, `yaml_loader`, `connection`, `types`, `factory`,
 `call_timeout`, `errors`, `logger`, `log_filter`, `identity`, `relative_time`,
-`control_context`, `posture_store`, `safety_file`, `settle`, `process`,
-`standin` and `honesty`. So are the `simulation` package and its modules
+`control_context`, `posture_env`, `posture_store`, `safety_file`, `settle`,
+`process`, `standin` and `honesty`. So are the `simulation` package and its modules
 (`simulation.state`, `simulation.view`, `simulation.archive`, ...): its root
 imports neither numpy nor lume, and the heavier modules are imported by their
 own names.
@@ -40,6 +40,11 @@ and their names are imported from the subpackage itself:
 
 `osprey_connectors.control_system.write_door`, the door a connector opens around
 its own write, is a public module of its own.
+
+The read-only run — `POSTURE_ENV_VAR`, `SANDBOX_MODE` and `is_readonly_run()` —
+lives in `osprey_connectors.posture_env`, a leaf that imports nothing from the
+package. `osprey_connectors.control_system` exported `is_readonly_run` before
+2026.10.0 and no longer does.
 
 The concrete connectors are internal (`control_system._epics_connector`,
 `archiver._mongodb_archiver_connector`, ...): a caller builds one through

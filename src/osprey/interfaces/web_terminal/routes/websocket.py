@@ -51,8 +51,8 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system import is_readonly_run
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
