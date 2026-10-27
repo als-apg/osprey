@@ -16,13 +16,13 @@ from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 __all__ = [
     "APPS_DIRNAME",
     "ARCHIVE_DIR_RELPATH",
-    "AUDIT_DIR_RELPATH",
     "BUILD_DIR_NAME",
     "CHAT_UPLOADS_SUBDIR",
     "DEFAULT_AGENT_DATA_BASE_DIR",
     "IMAGE_DIR_NAME",
     "LAYER_DIRNAMES",
     "LAYER_DIR_KINDS",
+    "PRE_UPGRADE_AUDIT_RELPATH",
     "PROFILE_FILENAME",
     "RECORD_DIR_RELPATH",
     "RENDERED_CONFIG_RELPATH",
@@ -136,15 +136,18 @@ RENDERED_CONFIG_RELPATH = f"{BUILD_DIR_NAME}/config.yml"
 #: does not offer.
 DEFAULT_AGENT_DATA_BASE_DIR = f"{STATE_DIR_NAME}/agent_data"
 
-#: The safety audit log, relative to the repo root: what the agent was asked to
-#: do and what it did. Durable like the agent-data root beside it, and kept by
-#: ``osprey reset`` unless ``--purge-audit`` is passed. Named here rather than
-#: spelled at each end because the directory the reset command promises to keep
-#: has to be the directory the refusal recorder writes into.
-AUDIT_DIR_RELPATH = f"{STATE_DIR_NAME}/audit"
+#: The audit tree a deployment wrote before the agent record existed, relative
+#: to the repo root. Nothing writes or reads it any more: it stays on disk
+#: unchanged, executed code is still refused writing it, and only
+#: ``osprey reset --purge-audit`` deletes it. Named here because those two
+#: keepers — the executor's protected-write roots and the reset purge — have to
+#: name the same directory.
+PRE_UPGRADE_AUDIT_RELPATH = f"{STATE_DIR_NAME}/audit"
 
-#: The append-only agent-record archive, relative to the repo root; nothing in
-#: OSPREY deletes under it.
+#: The archive, relative to the repo root: each closed day's export of the agent
+#: record beside the artifact and Bluesky copies, with an append-only manifest per
+#: day. Only ``osprey reset --purge-audit`` deletes under it, and only the
+#: record's exports (``<day>/agent_record/``), marking each such day purged.
 ARCHIVE_DIR_RELPATH = f"{STATE_DIR_NAME}/archive"
 
 #: The spool root, relative to the repo root: one directory per writer identity
@@ -164,20 +167,20 @@ STATE_DIR_RELPATH = f"{STATE_DIR_NAME}/state"
 
 #: The simulator's model-log directory, relative to the repo root: the composite
 #: appends one ``<model>.log`` per served physics model here, from whichever
-#: process serves it. Durable like the audit root beside it.
+#: process serves it. Durable like the archive beside it.
 SIMULATOR_LOG_DIR_RELPATH = f"{STATE_DIR_NAME}/simulator"
 
 #: The subdirectory of :data:`SIMULATOR_LOG_DIR_RELPATH` the live stand-in
 #: instance writes, so a record's directory names the machine that wrote it.
 SIMULATOR_STANDIN_LOG_SUBDIR = "standin"
 
-#: The two directories that make up the state zone, created empty and otherwise
+#: The directories that make up the state zone, created empty and otherwise
 #: the agent's to write. Both ``osprey init`` and ``osprey build`` guarantee they
 #: exist — a fresh clone carries no git-ignored directory, so whichever command
 #: runs first has to make them, and a repo that was reset must end up looking
 #: like one that was freshly cloned. Spelled once for exactly that reason: two
 #: commands agreeing by coincidence is how a reset and a clone start to differ.
-STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR, AUDIT_DIR_RELPATH)
+STATE_ZONE_DIRS: tuple[str, ...] = (DEFAULT_AGENT_DATA_BASE_DIR,)
 
 #: Subdirectory of the agent-data root holding the files operators attach in the
 #: Simple view's chat. The web terminal stores them there and hands the agent

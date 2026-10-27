@@ -32,7 +32,6 @@ from osprey.deployment.compose_generator import (
     compose_provider_env,
     control_target_tree_dir,
     derived_compose_dirs,
-    ensure_audit_dir,
     ensure_control_target_dir,
     ensure_shared_corpus_dir,
     ensure_spool_dir,
@@ -1051,7 +1050,7 @@ def _roster_identities(config: dict) -> list[str]:
 def _ensure_control_target_dirs(config: dict, repo_root: Path | str) -> None:
     """Provision the control-context tree and one directory per roster user.
 
-    The same act, and the same failure, as the audit loop beside this call: a
+    The same act, and the same failure, as the spool loop beside this call: a
     bind source the deploy does not create is created by the container runtime
     instead — root-owned under a rootful daemon — after which the terminal's
     dropped ``osprey`` process writes no record at all, every lane and the
@@ -1612,8 +1611,8 @@ def deploy_up_web_terminals(
                 "(every entitled web terminal writes it; the sidecar indexes it read-only)."
             )
 
-    # Every audit subdirectory this stack is about to bind: one per roster user,
-    # plus the sidecar's fixed one whenever a sidecar is rendered. Provisioned
+    # Every spool and state subdirectory this stack is about to bind: one per
+    # roster user, plus the sidecar's fixed one whenever a sidecar is rendered. Provisioned
     # BEFORE the render for the same ordering reason the bundle above is, minus
     # one: no gid is read back here, because the group membership that survives
     # the privilege drop is granted inside the container by the entrypoint,
@@ -1626,19 +1625,14 @@ def deploy_up_web_terminals(
     # it needs no directory, and refusing here would move the strict resolve's
     # error (raised below, with its own explanation) to a place that cannot
     # explain it.
-    #
-    # Each of those containers binds its own spool and state directories beside
-    # its audit one, so they are provisioned in the same pass for the same
-    # reason.
     for identity in _audit_identities(config):
-        ensure_audit_dir(repo_root, identity, relative_to=repo_root)
         ensure_spool_dir(repo_root, identity, relative_to=repo_root)
         ensure_state_dir(repo_root, identity, relative_to=repo_root)
 
     # The control-context tree, and one directory in it per roster user: the
     # other per-identity bind this stack is about to declare, provisioned here
-    # for the same reason and at the same point as the audit subdirectories
-    # above. The build path writes the tree's framework-owned contents (marker,
+    # for the same reason and at the same point as the spool and state
+    # subdirectories above. The build path writes the tree's framework-owned contents (marker,
     # worker and service identities); the roster is this path's to add, because
     # only a web-terminal deploy has one.
     _ensure_control_target_dirs(config, repo_root)

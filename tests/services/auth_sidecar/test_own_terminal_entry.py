@@ -28,6 +28,7 @@ from osprey.agent_record.contract import KIND_AUDIT, SURFACE_FIELD
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import create_app
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes import entry
 from osprey.services.auth_sidecar.routes.login import DENIAL_MESSAGE, LOGIN_PATH
@@ -155,7 +156,7 @@ def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_zone: Any) -> It
     """
     state = tmp_path / "var" / "state" / "sidecar"
     state.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
+    monkeypatch.setenv(STATE_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     spool = spool_zone.spool_for("sidecar")

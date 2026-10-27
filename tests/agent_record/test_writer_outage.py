@@ -48,9 +48,9 @@ from osprey.interfaces.web_terminal.feedback_composer import CONTEXT_RECORD_UNAV
 from osprey.interfaces.web_terminal.routes.feedback import router as feedback_router
 from osprey.mcp_server.dispatch_worker import dispatch_api, sdk_runner
 from osprey.models.logging import log_api_call
-from osprey.services.auth_sidecar import audit as sidecar_audit
 from osprey.services.auth_sidecar.app import create_app as create_sidecar_app
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.agent_record.test_identities import _config
 
@@ -253,7 +253,7 @@ def _sidecar_login(spool_zone, monkeypatch, tmp_path) -> float:
     """One password login through the sidecar; how long it took."""
     state = tmp_path / "var" / "state" / SIDECAR
     state.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv(sidecar_audit.AUDIT_DIR_ENV, str(state))
+    monkeypatch.setenv(STATE_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR)
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     spool_zone.spool_for(SIDECAR)

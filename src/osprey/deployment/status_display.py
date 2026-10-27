@@ -461,7 +461,7 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     Silently does nothing when web terminals are off or the roster is empty:
     there is no table to draw, and an empty one would suggest otherwise.
 
-    :param repo_root: The deployment repo, whose ``var/audit/<user>`` holds the
+    :param repo_root: The deployment repo, whose ``var/state/<user>`` holds the
         pre-flight refusal markers. ``None`` means "not known here", and the
         state cells are then exactly what they have always been.
     """

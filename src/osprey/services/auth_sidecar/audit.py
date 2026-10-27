@@ -17,9 +17,7 @@ which reaches :func:`osprey.agent_record.writer.write`) into the spool directory
 ``OSPREY_SPOOL_DIR`` names — the sidecar's own, which compose binds for it. The
 sidecar image is one uvicorn app under ``/app`` with no ``osprey.yml``, so that
 variable is the only way the writer finds its directory; nothing here resolves a
-project root. :data:`AUDIT_DIR_ENV` still names the directory compose binds for
-this service's state, which holds the login service's revoked-session file (see
-:mod:`~osprey.services.auth_sidecar.revocation`); no record is filed there.
+project root.
 
 **The record is the user's, the directory is the service's.** The sidecar is
 the ``actor`` (it decided, under its own container identity) and the roster user
@@ -64,9 +62,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from collections.abc import Mapping
-from pathlib import Path
 
 from osprey.audit import writer
 from osprey.audit.envelope import (
@@ -82,7 +77,6 @@ from .methods import METHOD_OIDC, METHOD_PASSWORD
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "AUDIT_DIR_ENV",
     "LOGIN_REASONS",
     "REASON_AMBIGUOUS_IDENTITY",
     "REASON_AMBIGUOUS_ROLE_CLAIM",
@@ -109,7 +103,6 @@ __all__ = [
     "SIDECAR_POSTURE",
     "SIGN_IN_SUBJECT",
     "SURFACE",
-    "audit_directory",
     "record_login_refusal",
     "record_login_success",
     "write_envelope",
@@ -121,17 +114,6 @@ SURFACE = "auth_sidecar"
 Fixed rather than derived: the sidecar decides exactly one kind of thing, and a
 record that named the route instead would split one question ("who tried to log
 in, and what happened") across as many surfaces as the login flow has legs.
-"""
-
-AUDIT_DIR_ENV = "OSPREY_AUTH_AUDIT_DIR"
-"""Names the directory this service files its records in.
-
-Auth-specific rather than the generic ``OSPREY_AUDIT_DIR``: that one is the
-variable the project image's entrypoint iterates to fix up group ownership, and
-the sidecar image has no entrypoint and no root phase to read it. Rendered by
-``deployment/web_terminals/render.py`` from the same derivation that names the
-bind's host side, so the path this module writes to and the path the host
-provisions cannot diverge.
 """
 
 SIDECAR_POSTURE = "sandbox"
@@ -400,34 +382,6 @@ enforced at write time — :func:`record_login_refusal` takes the caller's word,
 because a record that names an unlisted category is still better than a lost
 one — but pinned by a test, which is the layer that can fail loudly without
 costing a decision."""
-
-
-def audit_directory(env: Mapping[str, str] | None = None) -> Path | None:
-    """The state directory :data:`AUDIT_DIR_ENV` names, or ``None``.
-
-    Read from *env*, or from :data:`os.environ` when *env* is ``None``, per
-    call. ``None`` means the variable is missing or blank, or names a relative
-    path.
-
-    **A relative value is refused like a blank one.** Resolved against the
-    process's working directory it would name ``/app/<something>`` inside the
-    image — a path the host binds nothing at — and the records would accumulate
-    in the container's writable layer and vanish with it, while this function
-    kept returning a path that says they were durably stored.
-    """
-    source = os.environ if env is None else env
-    raw = source.get(AUDIT_DIR_ENV)
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    directory = Path(raw.strip())
-    if not directory.is_absolute():
-        logger.warning(
-            "%s is not an absolute path; this service stores nothing under it until it names "
-            "the directory compose binds for it",
-            AUDIT_DIR_ENV,
-        )
-        return None
-    return directory
 
 
 def record_login_success(

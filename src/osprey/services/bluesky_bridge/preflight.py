@@ -362,7 +362,7 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
 
 
 #: The audit surface every pre-flight verdict is filed on, under the
-#: queueserver's own identity (``var/audit/<queueserver>/preflight.jsonl``).
+#: queueserver's own identity.
 SURFACE_PREFLIGHT = "preflight"
 
 

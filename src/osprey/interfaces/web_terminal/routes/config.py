@@ -285,7 +285,7 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
     keys its body aimed at, PUT names the protected keys its replacement
     document would have changed. One refusal path, so the two cannot drift into
     telling an operator different stories about the same rule, and one query
-    across ``var/audit/*/http_config.jsonl`` still finds every refusal either
+    of the record's ``http_config`` surface still finds every refusal either
     produced, per identity.
 
     The machine-readable parts stay ``setup_patch``'s to the letter -- the same

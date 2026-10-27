@@ -1762,18 +1762,18 @@ def test_web_stack_up_narrows_a_pre_existing_control_target_user_dir_to_2770(mon
 def test_web_stack_up_creates_no_control_target_dir_for_the_audit_only_sidecar(
     monkeypatch, tmp_path
 ):
-    """The sidecar records audit but owns no control context.
+    """The sidecar has spool and state directories but owns no control context.
 
-    It is an audit identity, not a roster user: it runs no terminal, writes no
+    It is a fixed service identity, not a roster user: it runs no terminal, writes no
     control-context record, and the overlay binds it no record directory. A dir
     provisioned for it would be one nothing ever writes -- and the giveaway that
-    this loop was driven by the audit identities instead of the roster.
+    this loop was driven by the spool identities instead of the roster.
     """
     _up_with_roster(monkeypatch, tmp_path, roster=("alice",))
 
     tree = tmp_path / _CONTROL_TREE_RELPATH
     sidecar = provision.AUTH_SIDECAR_AUDIT_IDENTITY
-    assert (tmp_path / "var" / "audit" / sidecar).is_dir()
+    assert (tmp_path / "var" / "spool" / sidecar).is_dir()
     assert not (tree / sidecar).exists()
 
 

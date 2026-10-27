@@ -377,7 +377,7 @@ class TestFlagshipExemplar:
             assert service["image"].endswith(f"{EXEMPLAR_DIRNAME}-readonly:local}}")
             assert env["OSPREY_PROJECT_DIR"] == root
             assert env["CONFIG_FILE"] == f"{root}/build/config.yml"
-            assert env["OSPREY_AUDIT_DIR"] == f"{root}/var/audit/{key}"
+            assert env["OSPREY_SPOOL_DIR"] == f"{root}/var/spool/{key}"
             workspace = [
                 str(volume).split(":")[1]
                 for volume in service.get("volumes", [])

@@ -18,10 +18,10 @@ Two anchors, two groups of tests:
    :attr:`osprey.deployment.reset.ResetPlan.record_dirs` names the same spool
    root; and the hook's own ``audit_spool_dir()`` (``get_repo_root() /
    SPOOL_DIR_RELPATH / <identity>``) must name the writer's directory exactly.
-   ``ResetPlan.audit_dir`` does not import
-   :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — it is spelled as
-   ``STATE_DIR_NAME / "audit"`` — so this is the test that would catch the two
-   spellings drifting apart; it is included in the equality on purpose.
+   ``ResetPlan.audit_dir`` is the pre-upgrade audit tree the purge still
+   deletes, which must be
+   :data:`~osprey_connectors.workspace.PRE_UPGRADE_AUDIT_RELPATH` under the
+   same repo root; it is included in the equality on purpose.
 
 2. **``hook_config.json`` anchors on the RENDER zone**, one level below the
    repo root: the path the MCP audit middleware reads it from
@@ -142,7 +142,7 @@ class TestAuditDirResolverEquality:
         spool_root = repo_root / workspace.SPOOL_DIR_RELPATH
         assert from_writer == spool_root / "tester"
         assert from_reset_plan_spool == spool_root
-        assert plan.audit_dir == repo_root / workspace.AUDIT_DIR_RELPATH
+        assert plan.audit_dir == repo_root / workspace.PRE_UPGRADE_AUDIT_RELPATH
         assert from_hook == from_writer
 
     def test_the_audit_dirs_are_anchored_on_the_repo_root_not_the_render_zone(
@@ -165,7 +165,7 @@ class TestAuditDirResolverEquality:
         assert _default_spool_dir(monkeypatch).parent != wrong_spool
         plan = _reset_plan(repo_root)
         assert plan.record_dirs[1] != wrong_spool
-        assert plan.audit_dir != build_dir / workspace.AUDIT_DIR_RELPATH
+        assert plan.audit_dir != build_dir / workspace.PRE_UPGRADE_AUDIT_RELPATH
         osprey_hook_log = import_hook("osprey_hook_log")
         assert Path(osprey_hook_log.get_repo_root()) != build_dir
 

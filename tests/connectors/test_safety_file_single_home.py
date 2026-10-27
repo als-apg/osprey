@@ -78,12 +78,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/deployment/container_lifecycle.py", "_generate_bluesky_curve_certs"): (
         "moves files a library minted in a scratch directory"
     ),
-    ("src/osprey/deployment/telemetry_credentials.py", "_withdraw"): (
-        "sets a key file aside under a dated name"
-    ),
-    ("src/osprey/deployment/telemetry_gateway.py", "quarantine_hostile_ledgers"): (
-        "moves a non-regular ledger aside as evidence"
-    ),
     ("src/osprey/deployment/web_terminals/env_production.py", "migrate_users_env"): (
         "renames an existing secrets file"
     ),

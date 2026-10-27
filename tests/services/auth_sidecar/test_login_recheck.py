@@ -52,6 +52,7 @@ from osprey.services.auth_sidecar.identity_headers import (
     SUBJECT_HEADER,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV
 from osprey.services.auth_sidecar.roster_env import env_var_suffix
 from osprey.services.auth_sidecar.routes import recheck
 from osprey.services.auth_sidecar.routes import verify as verify_module
@@ -132,12 +133,12 @@ OIDC_ENV = {
 def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_zone: SpoolZone) -> SpoolZone:
     """The sidecar's own spool directory, as compose gives it, and the record it feeds.
 
-    Also binds the service's state directory (``OSPREY_AUTH_AUDIT_DIR``) and pins
+    Also binds the service's state directory (``OSPREY_STATE_DIR``) and pins
     the identity ladder to the sidecar's container identity.
     """
     state = tmp_path / "var" / "state" / SIDECAR_IDENTITY
     state.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
+    monkeypatch.setenv(STATE_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     spool_zone.spool_for(SIDECAR_IDENTITY)

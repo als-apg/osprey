@@ -35,17 +35,9 @@ write that fails keeps the revocation in memory, where it is enforced for the
 life of the process, and warns once for that process; later logouts keep trying
 to write, so a disk that frees up starts persisting again.
 
-**The one-time carry-over.** A deployment whose file still sits in the audit
-directory, where it was kept before the state zone existed, has it copied into
-the state directory when the store is built and finds no file there. The old
-file is never touched or removed; once the state file exists it is the only one
-read. A copy that fails is warned about once and the old file is read in its
-place, so a logout recorded before the move is refused after it either way.
-
 **The directory is never created.** One created inside the container would sit
 in its writable layer and vanish on the next recreate — the trap
-:func:`~osprey.services.auth_sidecar.audit.audit_directory` refuses a relative
-value over. A missing directory is a broken bind, and it degrades like any other
+:func:`state_directory` refuses a relative value over. A missing directory is a broken bind, and it degrades like any other
 failed write.
 
 Password rotation does **not** rely on this store. Invalidation there rests on
@@ -121,9 +113,9 @@ def state_directory(env: Mapping[str, str] | None = None) -> Path | None:
 
     Read from *env*, or from :data:`os.environ` when *env* is ``None``. ``None``
     means the variable is missing or blank, or names a relative path, which is
-    refused for :func:`~osprey.services.auth_sidecar.audit.audit_directory`'s
-    reason: resolved against the working directory it names a path the host
-    binds nothing at, so the file would vanish with the container.
+    refused like a blank one: resolved against the working directory it names a
+    path the host binds nothing at, so the file would vanish with the container
+    while this function kept returning a path that says it was durably stored.
     """
     source = os.environ if env is None else env
     raw = source.get(STATE_DIR_ENV)
@@ -164,7 +156,6 @@ class RevocationStore:
         self,
         directory: Path | None = None,
         clock: Callable[[], float] = time.time,
-        legacy_directory: Path | None = None,
     ) -> None:
         """Create a store, loading the file in *directory* when one is named.
 
@@ -175,35 +166,10 @@ class RevocationStore:
                 keeps the store in memory only.
             clock: Returns the current time as absolute epoch seconds. Injectable
                 so tests can advance time without sleeping.
-            legacy_directory: Where an older deployment kept the file; copied
-                into *directory* once, when *directory* holds no file yet (see
-                the module's carry-over note).
         """
         self._clock = clock
         self._path = None if directory is None else directory / REVOCATION_FILE_NAME
-        self._revoked: dict[str, float] = self._load(self._carry_over(legacy_directory))
-
-    def _carry_over(self, legacy_directory: Path | None) -> Path | None:
-        """The file to load: the store's own, after copying a legacy one into it.
-
-        The legacy file is read, never written or removed. A copy that fails
-        leaves the legacy file as the one loaded, so its revocations still hold.
-        """
-        if self._path is None or legacy_directory is None:
-            return self._path
-        legacy = legacy_directory / REVOCATION_FILE_NAME
-        try:
-            if self._path.exists() or not legacy.is_file():
-                return self._path
-            data = legacy.read_bytes()
-        except OSError:
-            return self._path
-        try:
-            atomic_replace(self._path, data, mode=REVOCATION_FILE_MODE, sync="best_effort")
-        except OSError as exc:
-            _warn(f"cannot be carried over from {legacy_directory} ({exc.strerror or exc})")
-            return legacy
-        return self._path
+        self._revoked: dict[str, float] = self._load()
 
     @property
     def path(self) -> Path | None:
@@ -272,12 +238,12 @@ class RevocationStore:
         """How many entries are held, including any not yet swept."""
         return len(self._revoked)
 
-    def _load(self, path: Path | None) -> dict[str, float]:
-        """The unexpired, well-formed entries of *path*; ``{}`` when there are none."""
-        if path is None:
+    def _load(self) -> dict[str, float]:
+        """The unexpired, well-formed entries of the store's file; ``{}`` when there are none."""
+        if self._path is None:
             return {}
         try:
-            text = path.read_text(encoding="utf-8")
+            text = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return {}
         except (OSError, ValueError) as exc:

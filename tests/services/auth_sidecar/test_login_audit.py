@@ -55,7 +55,7 @@ from osprey.agent_record.contract import (
 from osprey.audit import writer
 from osprey.audit.envelope import POSTURE_SOURCE_APP, AuditEnvelope
 from osprey.deployment.web_terminals.roster import USERNAME_CHARSET_RE
-from osprey.services.auth_sidecar import audit
+from osprey.services.auth_sidecar import audit, revocation
 from osprey.services.auth_sidecar.app import (
     STATE_COOKIE_NAME,
     create_app,
@@ -63,6 +63,7 @@ from osprey.services.auth_sidecar.app import (
     get_audit_throttle,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.revocation import STATE_DIR_ENV, state_directory
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
     FOLDED_DETAIL_KEY,
@@ -144,13 +145,13 @@ _ZONES: dict[Path, _Zone] = {}
 def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_zone: Any) -> Iterator[Path]:
     """The sidecar's own spool directory, as compose gives it; not yet created.
 
-    Also binds the service's state directory (``OSPREY_AUTH_AUDIT_DIR``) and
+    Also binds the service's state directory (``OSPREY_STATE_DIR``) and
     pins the identity ladder to what the sidecar's container env supplies, so a
     developer's local account can never become the actor in an assertion.
     """
     state = tmp_path / "var" / "state" / SIDECAR_IDENTITY
     state.mkdir(parents=True)
-    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(state))
+    monkeypatch.setenv(STATE_DIR_ENV, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, SIDECAR_IDENTITY)
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     spool = spool_zone.spool_for(SIDECAR_IDENTITY)
@@ -338,7 +339,10 @@ class TestWhereARecordLands:
 
         monkeypatch.delenv(SPOOL_DIR_ENV, raising=False)
         monkeypatch.setattr("osprey_connectors.workspace.resolve_project_root", _no_root)
-        with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
+        with (
+            caplog.at_level(logging.INFO, logger=audit.logger.name),
+            _password_client() as client,
+        ):
             assert _login(client).status_code == 303
         logged = _unfiled(caplog)
         assert len(logged) == 1
@@ -348,9 +352,9 @@ class TestWhereARecordLands:
     def test_the_state_directory_is_not_needed_to_record(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An unset ``OSPREY_AUTH_AUDIT_DIR`` costs the revocation file its
+        """An unset ``OSPREY_STATE_DIR`` costs the revocation file its
         home, never the record its entry."""
-        monkeypatch.delenv(audit.AUDIT_DIR_ENV, raising=False)
+        monkeypatch.delenv(STATE_DIR_ENV, raising=False)
         with _password_client() as client:
             assert _login(client).status_code == 303
         assert len(_records(zone)) == 1
@@ -860,7 +864,10 @@ class TestTheDegradeLadderIsMonotone:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         monkeypatch.setenv(SPOOL_DIR_ENV, str(_blocked(tmp_path)))
-        with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
+        with (
+            caplog.at_level(logging.INFO, logger=audit.logger.name),
+            _password_client() as client,
+        ):
             assert _login(client).status_code == 303
         unfiled = _unfiled(caplog)
         assert len(unfiled) == 1
@@ -879,7 +886,10 @@ class TestTheDegradeLadderIsMonotone:
         """The category is the half a human cannot reconstruct from the route's
         own log line, which says only that the login was refused."""
         monkeypatch.setenv(SPOOL_DIR_ENV, str(_blocked(tmp_path)))
-        with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
+        with (
+            caplog.at_level(logging.INFO, logger=audit.logger.name),
+            _password_client() as client,
+        ):
             assert _login(client, password="wrong").status_code == 401
         unfiled = _unfiled(caplog)
         assert len(unfiled) == 1
@@ -893,7 +903,10 @@ class TestTheDegradeLadderIsMonotone:
     ) -> None:
         """The quietest failure: nothing raises and nothing is stored."""
         monkeypatch.setenv(RECORD_OFF_ENV, RECORD_OFF_VALUE)
-        with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
+        with (
+            caplog.at_level(logging.INFO, logger=audit.logger.name),
+            _password_client() as client,
+        ):
             assert _login(client).status_code == 303
         assert _unfiled(caplog)
 
@@ -905,7 +918,10 @@ class TestTheDegradeLadderIsMonotone:
             raise OSError("the spool is gone")
 
         monkeypatch.setattr(record_writer, "_append", _explode)
-        with caplog.at_level(logging.INFO, logger=audit.logger.name), _password_client() as client:
+        with (
+            caplog.at_level(logging.INFO, logger=audit.logger.name),
+            _password_client() as client,
+        ):
             assert _login(client).status_code == 303
         assert _unfiled(caplog)
 
@@ -919,9 +935,9 @@ class TestThePathTheVariableNames:
         """Resolved against the process's working directory it would name a path
         inside the image that the host binds nothing at; it is refused like a
         blank one, and the record does not depend on it."""
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, "relative/audit")
+        monkeypatch.setenv(STATE_DIR_ENV, "relative/audit")
         monkeypatch.chdir(tmp_path)
-        assert audit.audit_directory() is None
+        assert state_directory() is None
         with _password_client() as client:
             assert _login(client).status_code == 303
         assert len(_records(zone)) == 1
@@ -930,31 +946,29 @@ class TestThePathTheVariableNames:
     def test_a_dot_relative_directory_is_refused_too(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, "./audit")
+        monkeypatch.setenv(STATE_DIR_ENV, "./audit")
         monkeypatch.chdir(tmp_path)
-        assert audit.audit_directory() is None
+        assert state_directory() is None
 
-    def test_audit_directory_reads_the_mapping_it_is_given(
+    def test_state_directory_reads_the_mapping_it_is_given(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An explicit mapping is the whole source: the process environment is
         read only when no mapping is given."""
-        monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(tmp_path / "process"))
+        monkeypatch.setenv(STATE_DIR_ENV, str(tmp_path / "process"))
         given = tmp_path / "given"
-        assert audit.audit_directory({audit.AUDIT_DIR_ENV: f"  {given}  "}) == given
-        assert audit.audit_directory({}) is None
-        assert audit.audit_directory({audit.AUDIT_DIR_ENV: "   "}) is None
-        assert audit.audit_directory() == tmp_path / "process"
+        assert state_directory({STATE_DIR_ENV: f"  {given}  "}) == given
+        assert state_directory({}) is None
+        assert state_directory({STATE_DIR_ENV: "   "}) is None
+        assert state_directory() == tmp_path / "process"
 
-    def test_audit_directory_refuses_a_relative_value(
+    def test_state_directory_refuses_a_relative_value(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.WARNING, logger=audit.logger.name):
-            assert audit.audit_directory({audit.AUDIT_DIR_ENV: "relative/audit"}) is None
+        with caplog.at_level(logging.WARNING, logger=revocation.logger.name):
+            assert state_directory({STATE_DIR_ENV: "relative/audit"}) is None
         assert [
-            record.getMessage()
-            for record in caplog.records
-            if audit.AUDIT_DIR_ENV in record.getMessage()
+            record.getMessage() for record in caplog.records if STATE_DIR_ENV in record.getMessage()
         ]
 
     def test_the_writer_marker_cannot_move_this_record(

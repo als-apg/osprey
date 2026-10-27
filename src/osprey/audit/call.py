@@ -90,7 +90,7 @@ def harness_session_id() -> str | None:
     """The conversation id this process runs under, or ``None``.
 
     ``OSPREY_TELEMETRY_SESSION_ID`` first (the id Osprey forces, which is the
-    one the telemetry store is tagged with), then ``CLAUDE_CODE_SESSION_ID``
+    one the agent record is tagged with), then ``CLAUDE_CODE_SESSION_ID``
     (the one the harness stamps on its MCP children).
     """
     return (
