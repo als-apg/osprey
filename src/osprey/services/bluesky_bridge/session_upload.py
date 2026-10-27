@@ -65,6 +65,7 @@ from osprey_connectors.posture_store import bind_owner, current_owner
 from .plan_fields import declared_channels
 from .plan_validation import hash_plan_body
 from .preflight import available_devices_phrase, probe_before_motion, warn_if_write_refused
+from .queue_backend import REASON_SESSION_PLAN_NOT_IN_NAMESPACE, REASON_SESSION_PLAN_UNVALIDATED
 from .session_dir import resolve_session_plan_dir
 from .validation_record import ValidationRecordStore, validation_records
 
@@ -80,11 +81,9 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.session_upload")
 # imports it, it only has to be a stable, recognizable string.
 SESSION_PLAN_MODULE = "osprey_session_plan"
 
-# Refusal codes. Every one of these means "this session plan is not admissible
-# right now"; the route layer puts the code on the wire and the detail explains
-# the fix.
-REASON_UNVALIDATED = "session_plan_unvalidated"
-REASON_NOT_IN_NAMESPACE = "session_plan_not_in_namespace"
+# Failure codes of an upload. The two "not admissible right now" codes are
+# declared with every other refusal the routes put on the wire
+# (`queue_backend.REFUSAL_REASONS`).
 REASON_UPLOAD_FAILED = "session_plan_upload_failed"
 REASON_ENVIRONMENT_BUSY = "environment_busy"
 
@@ -127,10 +126,11 @@ class SessionPlanNotReadyError(SessionPlanError):
     """A session plan may not be enqueued or started as things currently stand.
 
     Raised by :meth:`SessionPlanUploader.check_ready` with one of
-    :data:`REASON_UNVALIDATED` or :data:`REASON_NOT_IN_NAMESPACE`.
+    :data:`~.queue_backend.REASON_SESSION_PLAN_UNVALIDATED` or
+    :data:`~.queue_backend.REASON_SESSION_PLAN_NOT_IN_NAMESPACE`.
     """
 
-    reason = REASON_UNVALIDATED
+    reason = REASON_SESSION_PLAN_UNVALIDATED
 
 
 class SessionPlanUploadError(SessionPlanError):
@@ -644,7 +644,7 @@ class SessionPlanUploader:
                     f"has no session plan file for it, so it cannot vouch for what would "
                     f"run. Re-author it (POST /plans/session) and validate it.",
                     plan=name,
-                    reason=REASON_NOT_IN_NAMESPACE,
+                    reason=REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
                 )
             return
 
@@ -663,7 +663,7 @@ class SessionPlanUploader:
                 f"in the worker namespace — the environment was rebuilt, or its upload did "
                 f"not land. {_REVALIDATE_HINT}",
                 plan=name,
-                reason=REASON_NOT_IN_NAMESPACE,
+                reason=REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
             )
 
     # --------------------------------------------------------------- plumbing

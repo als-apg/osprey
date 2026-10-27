@@ -142,8 +142,8 @@ from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
     REASON_EXECUTABLE,
+    REASON_SESSION_PLAN_UNVALIDATED,
 )
-from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
 from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -2170,7 +2170,7 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
 
     status, body = _enqueue(revision, token=stack.token)
     assert status == 409, f"an unvalidated session plan must be refused: {status} {body}"
-    assert _code_of(body) == REASON_UNVALIDATED, (
+    assert _code_of(body) == REASON_SESSION_PLAN_UNVALIDATED, (
         f"wrong refusal code for a stale validation record: {body}"
     )
 
