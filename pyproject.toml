@@ -837,7 +837,7 @@ ignore-variadic-names = true
 # Allow assert False, useless attribute access, assert blind exception. Test
 # fixtures carry fake credentials by design; gitleaks scans every path for real ones.
 "tests/*" = ["B011", "B017", "B018", "S105", "S106", "S107"]
-"packages/*/tests/**" = ["S105", "S106", "S107"]
+"packages/*/tests/**" = ["S105", "S106", "S107", "T20"]  # T20: tests print, as below
 "tests/e2e/conftest.py" = ["F811"]  # Allow pytest hook redefinition
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation

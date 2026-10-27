@@ -474,6 +474,35 @@ LANES: tuple[Lane, ...] = (
         ("packages/osprey-connectors/**", "pyproject.toml", "uv.lock"),
     ),
     Lane(
+        "connectors-compat-plan",
+        "reads the release tags",
+        ("scripts/ci/connectors_compat_matrix.py", "pyproject.toml"),
+    ),
+    Lane(
+        "connectors-compat",
+        "installs released frameworks",
+        (
+            "packages/osprey-connectors/**",
+            "scripts/ci/connectors_compat_lane.py",
+            "scripts/ci/connectors_compat_matrix.py",
+        ),
+    ),
+    Lane(
+        "framework-at-connectors-floor",
+        "installs the published connectors floor",
+        (
+            "src/osprey/**",
+            "packages/pyaml-cs-osprey/**",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/compat/**",
+            "tests/connectors/**",
+            "tests/registry/**",
+            "scripts/ci/connectors_compat_lane.py",
+            "scripts/ci/connectors_compat_matrix.py",
+            "pyproject.toml",
+            "uv.lock",
+        ),
+    ),
+    Lane(
         "static-checks",
         "builds a project",
         ("tests/integration/test_preset_static.py", "tests/integration/test_preset_build.py"),
