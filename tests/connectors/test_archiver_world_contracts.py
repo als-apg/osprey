@@ -221,11 +221,9 @@ def _within(windows, moment: float) -> bool:
 def mongo():
     """A MongoDB started the way the deployment's compose template starts it.
 
-    The compressor flag is the template's, verbatim. ``ttlMonitorEnabled=false``
-    is this module's own: see the module docstring for why the sweeper has to be
-    off by default and on only where a test asks for it. The one-second sleep is
-    what makes that sweep quick when it is enabled — the shipped default is 60s,
-    which is a timer, not a contract.
+    The compressor flag is the template's, verbatim. The sweeper is off at
+    startup through the recipe's default; see the module docstring for why it
+    has to be off here and on only where a test asks for it.
     """
     if not is_docker_available():
         pytest.skip("Docker not available — needed to seed and read a real store.")
@@ -234,10 +232,6 @@ def mongo():
     command = [
         "--wiredTigerCollectionBlockCompressor",
         COMPRESSION,
-        "--setParameter",
-        "ttlMonitorEnabled=false",
-        "--setParameter",
-        "ttlMonitorSleepSecs=1",
     ]
     with started_mongo(
         "mongodb-world-contracts",
