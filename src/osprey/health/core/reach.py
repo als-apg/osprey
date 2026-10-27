@@ -8,8 +8,8 @@ This is the run-time half of the Reach Contract
 (:mod:`osprey.deployment.reach`). The build refuses a consumer switched on
 with nothing to resolve; this category takes the consumers that passed and
 asks the only question left: from *here*, does anything answer? "Here" is
-what makes the row worth having. The ``ariel``, ``graphdb`` and
-``telemetry_store`` categories probe a service where its config block says it is;
+what makes the row worth having. The ``ariel`` and ``graphdb``
+categories probe a service where its config block says it is;
 this one resolves the endpoint through the consumer's own resolver — the
 bridge URL the bluesky MCP server builds, the DSN the panel server derives,
 the OTLP endpoint the exporter posts to, env overrides included — in the
