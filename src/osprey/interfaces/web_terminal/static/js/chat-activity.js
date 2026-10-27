@@ -156,6 +156,7 @@ export const TOOL_PHRASES = Object.freeze({
   bash: 'running a shell command',
   glob: 'looking for files',
   grep: 'searching files',
+  skill: 'loading a skill',
   task: 'delegating to a helper agent',
   todowrite: 'updating its plan',
   taskcreate: 'updating its plan',
@@ -215,11 +216,17 @@ export function toolPhrase(event) {
  * The activity-line label for a `tool_use` event. A mapped tool reads as a
  * sentence ("Writing control channels…"); anything unmapped keeps its raw name
  * ("Using Queue Reorder…"), so a tool added elsewhere in the codebase is never
- * invisible here — only terse until it earns a phrase.
+ * invisible here — only terse until it earns a phrase. A skill is named once
+ * its input says which one ("Using skill diagnose…").
  * @param {ChatEvent} event
  * @returns {string}
  */
 export function activityLabel(event) {
+  const input = /** @type {{ skill?: unknown } | undefined} */ (event.input);
+  const skill = typeof input?.skill === 'string' ? input.skill.trim() : '';
+  if (skill && normaliseToolName(event.tool_name_raw ?? event.tool_name ?? '') === 'skill') {
+    return `Using skill ${skill}…`;
+  }
   const phrase = toolPhrase(event);
   if (phrase !== null) return `${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}…`;
   return `Using ${event.tool_name ?? event.tool_name_raw ?? 'tool'}…`;

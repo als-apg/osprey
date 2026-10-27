@@ -899,6 +899,37 @@ class TestOperatorSession:
         assert [f["type"] for f in frames] == ["turn_start", "text", "result"]
         assert frames[1] == {"type": "text", "content": "hello", "parent_tool_use_id": None}
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("prompt", "rows"),
+        [
+            pytest.param("/diagnose SR03", [("diagnose", "SR03")], id="a-skill"),
+            pytest.param("/check SR03", [], id="a-command-file"),
+            pytest.param("diagnose SR03", [], id="plain-words"),
+        ],
+    )
+    async def test_a_skill_the_operator_runs_opens_its_turn_as_a_skill_row(
+        self, tmp_path, prompt, rows
+    ):
+        """The CLI loads a typed skill with no tool call, so the turn draws its row itself."""
+        (tmp_path / ".claude" / "skills" / "diagnose").mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / "diagnose" / "SKILL.md").write_text("Body\n")
+        (tmp_path / ".claude" / "commands").mkdir()
+        (tmp_path / ".claude" / "commands" / "check.md").write_text("Check\n")
+        session = OperatorSession(cwd=str(tmp_path))
+        client = _ScriptedClient([assistant_message([TextBlock("on it")]), result_message()])
+
+        with sdk_seam(client):
+            await session.start()
+            frames = [unnumbered(f) for f in await collect_turn(session, prompt)]
+            await session.stop()
+
+        calls = [f for f in frames if f["type"] == "tool_use"]
+        assert [(c["input"]["skill"], c["input"].get("args")) for c in calls] == rows
+        if rows:
+            assert [f["type"] for f in frames][:3] == ["turn_start", "tool_use", "tool_result"]
+            assert frames[2]["tool_use_id"] == calls[0]["tool_use_id"]
+
 
 # ---------------------------------------------------------------------------
 # OperatorSession start identity: resume a transcript, or open one

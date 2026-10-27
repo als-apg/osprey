@@ -663,6 +663,35 @@ describe('a prompt refused by the other view', () => {
   });
 });
 
+describe('following a sent turn', () => {
+  test('the reply to a prompt sent into a full log stays on screen', async () => {
+    await mountChat({ pointer: 'K1' });
+    // happy-dom lays nothing out: give the log a 300px window over 100px rows.
+    const log = /** @type {HTMLElement} */ (one('.op-messages'));
+    const height = () => log.children.length * 100;
+    let top = 0;
+    Object.defineProperties(log, {
+      clientHeight: { get: () => 300 },
+      scrollHeight: { get: height },
+      scrollTop: {
+        get: () => top,
+        set: (value) => {
+          top = Math.max(0, Math.min(value, height() - 300));
+        },
+      },
+    });
+    // An earlier exchange already fills the window.
+    for (let i = 0; i < 5; i += 1) log.append(document.createElement('div'));
+
+    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
+    textarea.value = 'Now give me a full correlation plot';
+    /** @type {HTMLButtonElement} */ (one('.op-send-btn')).click();
+    transport.sendPrompt.mock.calls[0][2].onEvent({ type: 'text', content: 'Here it is.' });
+
+    expect(log.scrollHeight - log.scrollTop - log.clientHeight).toBe(0);
+  });
+});
+
 describe('started commands', () => {
   const MAGNET = { label: 'magnet_scan.py', command: 'python magnet_scan.py -s 3' };
 

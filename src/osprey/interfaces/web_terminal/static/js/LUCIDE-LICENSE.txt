@@ -1,5 +1,5 @@
-Three icons in chat-icons.js, `brain`, `wrench` and `tasks` (Lucide's
-`list-checks`), are path data copied from
+Four icons in chat-icons.js, `brain`, `wrench`, `tasks` (Lucide's
+`list-checks`) and `skill` (Lucide's `book-open`), are path data copied from
 Lucide (lucide-static 0.545.0, https://lucide.dev), which is licensed under
 the ISC License. Portions of Lucide derive from Feather, which is licensed
 under the MIT License. The upstream copyright notices:

@@ -23,6 +23,7 @@ import {
   oneLine,
   summarizeInput,
   toolCategory,
+  toolLabel,
 } from './chat-tool-vocab.js';
 
 /** @typedef {import('./chat-dom.js').WireEvent} WireEvent */
@@ -170,7 +171,7 @@ export function createToolChip(event, openFor = NO_HOLD) {
     className: 'op-tool',
     kind: foldKey(raw),
     glyph: chatIcon(CATEGORY_ICON[toolCategory(raw)]),
-    label: String(event.tool_name || event.tool_name_raw || 'tool'),
+    label: toolLabel(event),
     detail: summarizeInput(event.input),
   });
   const result = resultSection('Waiting for the result…');

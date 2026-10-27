@@ -19,7 +19,11 @@ import {
   inputDetail,
   inputView,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-format.js';
-import { summarizeInput } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-vocab.js';
+import {
+  runPhrase,
+  summarizeInput,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/chat-tool-vocab.js';
+import { activityLabel } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-activity.js';
 import { createApprovalCard } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-approval.js';
 import {
   createAgentChip,
@@ -370,5 +374,46 @@ describe('a tool row', () => {
     );
     agent.finish({ is_error: false, preview: 'Async agent launched successfully.\nagentId: 7' });
     expect(agent.el.dataset.state).toBe('background');
+  });
+});
+
+describe('a skill', () => {
+  /** @param {Record<string, unknown>} input */
+  const skill = (input) => ({
+    type: 'tool_use',
+    tool_name: 'Skill',
+    tool_name_raw: 'Skill',
+    tool_use_id: 's1',
+    input,
+  });
+  /** @param {ReturnType<typeof createToolChip>} chip */
+  const shown = (chip) => ({
+    label: qs(chip.el, '.op-row-label').textContent,
+    detail: qs(chip.el, '.op-row-detail').textContent,
+    kind: chip.el.dataset.kind,
+    glyph: chip.el.querySelector('.op-row-glyph path')?.getAttribute('d'),
+  });
+
+  test.each([
+    ['the agent chose it', { skill: 'diagnose', args: 'SR03 orbit' }, 'Used skill'],
+    ['the operator ran it', { skill: 'diagnose', args: 'SR03 orbit', by: 'operator' }, 'Ran skill'],
+  ])('reads as its own row, named by the skill, when %s', (_case, input, label) => {
+    expect(shown(createToolChip(skill(input)))).toEqual({
+      label,
+      detail: 'diagnose',
+      kind: 'skill',
+      glyph: 'M12 7v14',
+    });
+  });
+
+  test('the status line names the skill once the call says which one', () => {
+    expect(activityLabel({ type: 'tool_start', tool_name: 'Skill', tool_name_raw: 'Skill' })).toBe(
+      'Loading a skill…'
+    );
+    expect(activityLabel(skill({ skill: 'diagnose' }))).toBe('Using skill diagnose…');
+  });
+
+  test('a run of skills is counted as skills', () => {
+    expect(runPhrase('skill', ['skill', 'skill'])).toBe('Used 2 skills');
   });
 });

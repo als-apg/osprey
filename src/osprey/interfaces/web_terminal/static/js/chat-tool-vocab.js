@@ -44,6 +44,7 @@ export const HIDDEN_TOOL_KEYS = new Set([
 
 /** Keys read first for a one-line input summary, in order of preference. */
 const SUMMARY_KEYS = [
+  'skill',
   'file_path',
   'notebook_path',
   'path',
@@ -107,7 +108,7 @@ export function toolKey(name) {
 }
 
 /**
- * @typedef {'read' | 'search' | 'edit' | 'bash' | 'mcp-control' | 'web' | 'other'} ToolCategory
+ * @typedef {'read' | 'search' | 'edit' | 'bash' | 'mcp-control' | 'web' | 'skill' | 'other'} ToolCategory
  */
 
 /** @type {Readonly<Record<ToolCategory, ChatIconName>>} */
@@ -118,6 +119,7 @@ export const CATEGORY_ICON = Object.freeze({
   bash: 'bash',
   'mcp-control': 'control',
   web: 'web',
+  skill: 'skill',
   other: 'wrench',
 });
 
@@ -132,6 +134,8 @@ export function toolCategory(rawName) {
   const raw = rawName ?? '';
   if (raw.startsWith('mcp__')) return 'mcp-control';
   switch (toolKey(raw)) {
+    case 'skill':
+      return 'skill';
     case 'webfetch':
     case 'websearch':
       return 'web';
@@ -205,6 +209,7 @@ const RUN_PHRASE = Object.freeze({
   bash: ['Ran', 'command'],
   web: ['Fetched', 'page'],
   'mcp-control': ['Made', 'control call'],
+  skill: ['Used', 'skill'],
   other: ANY_RUN_PHRASE,
 });
 
@@ -242,4 +247,22 @@ export function runPhrase(key, toolKeys) {
   const one = toolKeys.length > 0 && toolKeys.every((k) => k === toolKeys[0]);
   const [verb, noun] = (one && TOOL_RUN_PHRASE[toolKeys[0]]) || RUN_PHRASE[key] || ANY_RUN_PHRASE;
   return `${verb} ${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The label of one call's row. A skill's row says how it came to be used: the
+ * agent chose it ("Used skill"), or the operator ran it by its slash command
+ * ("Ran skill"); its name is the row's detail. Any other tool keeps its name.
+ * @param {{ tool_name?: string, tool_name_raw?: string, input?: unknown }} event
+ * @returns {string}
+ */
+export function toolLabel(event) {
+  const raw = event.tool_name_raw ?? event.tool_name;
+  if (toolCategory(raw) === 'skill') {
+    const input = /** @type {{ by?: unknown } | null} */ (
+      event.input && typeof event.input === 'object' ? event.input : null
+    );
+    return input?.by === 'operator' ? 'Ran skill' : 'Used skill';
+  }
+  return String(event.tool_name || event.tool_name_raw || 'tool');
 }

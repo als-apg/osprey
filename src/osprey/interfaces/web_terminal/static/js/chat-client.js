@@ -430,7 +430,11 @@ export async function fetchHistory(key) {
   return Array.isArray(data?.turns) ? data.turns : [];
 }
 
-/** @typedef {{ name: string, description: string, argument_hint: string, kind: string }} SlashCommand */
+/**
+ * One slash command the chat agent accepts. `kind` is `skill`, `command` or
+ * `builtin`; `agent_invocable` says whether the agent may also run it on its own.
+ * @typedef {{ name: string, description: string, argument_hint: string, kind: string, agent_invocable?: boolean }} SlashCommand
+ */
 
 /**
  * Read the slash commands the chat agent accepts in this project.

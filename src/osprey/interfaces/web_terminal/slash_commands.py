@@ -29,12 +29,16 @@ class SlashCommand:
         argument_hint: The frontmatter ``argument-hint``, or ``""``.
         kind: ``"skill"`` for a project skill, ``"command"`` for a command file,
             ``"builtin"`` for one of the CLI's own commands (:data:`BUILTIN_COMMANDS`).
+        agent_invocable: Whether the agent may also run it on its own: true for a
+            skill unless its frontmatter sets ``disable-model-invocation: true``,
+            false for a command file and a built-in, which only the operator runs.
     """
 
     name: str
     description: str
     argument_hint: str
     kind: Literal["skill", "command", "builtin"]
+    agent_invocable: bool = False
 
 
 #: The CLI's own commands the chat offers beside the project's. The chat sends
@@ -120,6 +124,7 @@ def _skills(skills_dir: Path) -> list[SlashCommand]:
                 description=_description(fm, body),
                 argument_hint=_argument_hint(fm),
                 kind="skill",
+                agent_invocable=fm.get("disable-model-invocation") is not True,
             )
         )
     return found
@@ -158,7 +163,8 @@ def list_project_slash_commands(project_dir: Path) -> list[SlashCommand]:
     - A skill is a direct child directory of ``.claude/skills/`` holding a
       regular file ``SKILL.md``. It is named by its frontmatter ``name`` when
       that is a non-empty string, else by its directory name. A skill whose
-      frontmatter sets ``user-invocable: false`` is not listed.
+      frontmatter sets ``user-invocable: false`` is not listed, and one that
+      sets ``disable-model-invocation: true`` is the operator's alone.
     - A command is a ``*.md`` regular file anywhere under ``.claude/commands/``
       whose relative path has no part starting with ``.``. It is named by that
       relative path without ``.md``, its parts joined with ``:``.
@@ -201,3 +207,60 @@ def list_chat_slash_commands(project_dir: Path) -> list[SlashCommand]:
     taken = {c.name for c in project}
     builtins = [c for c in BUILTIN_COMMANDS if c.name not in taken]
     return sorted(project + builtins, key=lambda c: c.name)
+
+
+#: A prompt that is one slash command: ``/name``, then any arguments.
+_SLASH_PROMPT_RE = re.compile(r"^/(?P<name>[^\s/]+)(?:\s+(?P<args>.*))?$", re.DOTALL)
+
+
+def operator_skill(prompt: str, project_dir: Path) -> tuple[str, str] | None:
+    """The project skill an operator's prompt runs by its slash command, and its arguments.
+
+    The CLI expands such a prompt into the skill without a tool call, so nothing
+    in the agent's stream says a skill ran; the chat draws it from the prompt.
+
+    Returns:
+        ``(name, args)`` when *prompt* is ``/<skill>`` (``args`` is ``""`` when
+        none follow), ``None`` for any other prompt, a command file or a built-in.
+    """
+    match = _SLASH_PROMPT_RE.match(prompt.strip())
+    if match is None:
+        return None
+    name = match["name"]
+    if not any(
+        c.kind == "skill" and c.name == name for c in list_project_slash_commands(project_dir)
+    ):
+        return None
+    return name, (match["args"] or "").strip()
+
+
+def operator_skill_frames(name: str, args: str, call_id: str) -> list[dict[str, Any]]:
+    """The chat frames for a skill the operator ran: one finished ``Skill`` call.
+
+    They are the frames a skill the agent chose would carry, with ``by:
+    "operator"`` in the input, so the chat draws both as one kind of row. The
+    live stream (``operator_session``) and a transcript's replay
+    (``routes/session``) both build them here.
+    """
+    tool_input: dict[str, Any] = {"skill": name, "by": "operator"}
+    if args:
+        tool_input["args"] = args
+    return [
+        {
+            "type": "tool_use",
+            "tool_name": "Skill",
+            "tool_name_raw": "Skill",
+            "tool_use_id": call_id,
+            "input": tool_input,
+            "parent_tool_use_id": None,
+        },
+        {
+            "type": "tool_result",
+            "tool_use_id": call_id,
+            "is_error": False,
+            "preview": f"Launching skill: {name}",
+            "truncated": False,
+            "refusal": None,
+            "parent_tool_use_id": None,
+        },
+    ]

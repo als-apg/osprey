@@ -5,7 +5,7 @@
  * innerHTML). Size and colour come from CSS (`.op-icon`, `currentColor`), so one
  * icon serves the composer, the action rows, the cards and the turn footer.
  *
- * `brain`, `wrench` and `tasks` (Lucide's `list-checks`) are Lucide icons
+ * `brain`, `wrench`, `tasks` (Lucide's `list-checks`) and `skill` (Lucide's `book-open`) are Lucide icons
  * (lucide-static 0.545.0, ISC licence); the licence text and copyright notice
  * ship beside this file in LUCIDE-LICENSE.txt. The other paths are OSPREY's
  * own, drawn to the same grid.
@@ -58,6 +58,10 @@ const PATHS = Object.freeze({
   question: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
   read: ['M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z', 'M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z'],
   search: ['M11 3a8 8 0 1 0 0 16a8 8 0 1 0 0-16z', 'm21 21-4.35-4.35'],
+  skill: [
+    'M12 7v14',
+    'M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z',
+  ],
   stop: ['M7 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z'],
   tasks: ['M13 5h8', 'M13 12h8', 'M13 19h8', 'm3 17 2 2 4-4', 'm3 7 2 2 4-4'],
   up: ['M12 19V5', 'M5 12l7-7 7 7'],

@@ -474,3 +474,80 @@ def test_replayed_reasoning_says_how_long_it_took(
     (agent_turn,) = [t for t in resp.json()["turns"] if t["role"] == "assistant"]
     (thought,) = [e for e in agent_turn["events"] if e["type"] == "thinking"]
     assert thought.get("duration_ms") == duration
+
+
+class TestReplayedSlashCommands:
+    """A slash command the operator ran replays as they typed it; a skill also as its row."""
+
+    @staticmethod
+    def _echo(name: str, args: str = "") -> dict:
+        """The echo CLI 2.1.300 writes for a skill or a command file: string content, no isMeta."""
+        entry = _entry("user", "")
+        entry["message"]["content"] = (
+            f"<command-message>{name}</command-message>\n<command-name>/{name}</command-name>"
+            + (f"\n<command-args>{args}</command-args>" if args else "")
+        )
+        return entry
+
+    @staticmethod
+    def _loaded(text: str) -> dict:
+        """The meta entry holding the instructions the CLI injected for the command."""
+        return {**_entry("user", text), "isMeta": True}
+
+    def _replay(self, client, transcripts, entries: list[dict]) -> list[dict]:
+        _, transcript_dir = transcripts
+        _write(transcript_dir, SESSION_KEY, entries)
+        resp = client.get(f"/api/session-chat?session_id={SESSION_KEY}&events=1")
+        assert resp.status_code == 200
+        return resp.json()["turns"]
+
+    def test_a_skill_replays_as_typed_then_as_the_skill_row(self, replay_client, transcripts):
+        turns = self._replay(
+            replay_client,
+            transcripts,
+            [
+                self._echo("diagnose", "SR03 orbit"),
+                self._loaded("Base directory for this skill: /x/diagnose\n\n# Diagnose"),
+                _entry("assistant", "Looking at SR03."),
+            ],
+        )
+        assert [(t["role"], t["content"]) for t in turns] == [
+            ("user", "/diagnose SR03 orbit"),
+            ("assistant", "Looking at SR03."),
+        ]
+        call, result, *_ = turns[1]["events"]
+        assert (call["type"], call["tool_name_raw"], call["input"]) == (
+            "tool_use",
+            "Skill",
+            {"skill": "diagnose", "by": "operator", "args": "SR03 orbit"},
+        )
+        assert (result["type"], result["tool_use_id"], result["preview"]) == (
+            "tool_result",
+            call["tool_use_id"],
+            "Launching skill: diagnose",
+        )
+        assert "Base directory" not in json.dumps(turns)
+
+    def test_a_command_file_replays_as_typed_with_no_skill_row(self, replay_client, transcripts):
+        turns = self._replay(
+            replay_client,
+            transcripts,
+            [
+                self._echo("check", "SR:DCCT"),
+                self._loaded("Check the PV the operator names."),
+                _entry("assistant", "Checking."),
+            ],
+        )
+        assert [(t["role"], t["content"]) for t in turns] == [
+            ("user", "/check SR:DCCT"),
+            ("assistant", "Checking."),
+        ]
+        assert [e["type"] for e in turns[1]["events"]] == ["text", "result"]
+
+    def test_a_builtins_echo_stays_bookkeeping(self, replay_client, transcripts):
+        turns = self._replay(
+            replay_client,
+            transcripts,
+            [_entry("user", "<command-name>/compact</command-name>"), _entry("user", "go on")],
+        )
+        assert [t["content"] for t in turns if t["role"] == "user"] == ["go on"]

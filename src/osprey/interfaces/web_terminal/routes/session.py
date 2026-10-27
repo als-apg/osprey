@@ -313,12 +313,12 @@ def _operator_text(blocks: list[Any]) -> str:
     costs neither, and the marker alone never makes a bubble.
     """
     from osprey.mcp_server.workspace.transcript_reader import (
-        COMMAND_NAME_PREFIX,
+        COMMAND_ECHO_PREFIXES,
         INTERRUPT_MARKER,
         LOCAL_COMMAND_PREFIXES,
     )
 
-    markers = (INTERRUPT_MARKER, COMMAND_NAME_PREFIX, *LOCAL_COMMAND_PREFIXES)
+    markers = (INTERRUPT_MARKER, *COMMAND_ECHO_PREFIXES, *LOCAL_COMMAND_PREFIXES)
     return "\n".join(
         block["text"]
         for block in blocks
@@ -327,6 +327,48 @@ def _operator_text(blocks: list[Any]) -> str:
         and isinstance(block.get("text"), str)
         and not block["text"].lstrip().startswith(markers)
     ).strip()
+
+
+#: A slash command's echo, as the CLI writes it for a skill or a command file.
+_COMMAND_NAME_RE = re.compile(r"<command-name>/?([^<\s]+)</command-name>")
+_COMMAND_ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
+
+#: How the CLI opens the instructions it injects when a skill is loaded.
+_SKILL_BODY_MARK = "Base directory for this skill"
+
+
+def _operator_command(blocks: list[Any]) -> tuple[str, str] | None:
+    """The command and arguments an operator ran, from the CLI's echo of it.
+
+    The CLI echoes a skill or a command file the operator ran as a user entry
+    opening with ``<command-message>``, naming the command in ``<command-name>``
+    and its arguments in ``<command-args>``. A built-in's echo opens with
+    ``<command-name>`` and is not read here: it stays bookkeeping.
+
+    Returns:
+        ``(name, args)``, or ``None`` for an entry that is no such echo.
+    """
+    from osprey.mcp_server.workspace.transcript_reader import COMMAND_MESSAGE_PREFIX
+
+    for block in blocks:
+        text = block.get("text") if isinstance(block, dict) else None
+        if not isinstance(text, str) or not text.lstrip().startswith(COMMAND_MESSAGE_PREFIX):
+            continue
+        name = _COMMAND_NAME_RE.search(text)
+        if name is None:
+            return None
+        args = _COMMAND_ARGS_RE.search(text)
+        return name.group(1), (args.group(1).strip() if args else "")
+    return None
+
+
+def _entry_text(blocks: list[Any]) -> str:
+    """The text of an entry's first text block, or ``""``."""
+    for block in blocks:
+        text = block.get("text") if isinstance(block, dict) else None
+        if isinstance(text, str):
+            return text
+    return ""
 
 
 #: The tools that start a subagent; the chat draws each call as that agent's chip.
@@ -465,6 +507,11 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
     A subagent's work follows the call that started it, read from its own
     transcript (see :func:`_subagent_events`), so its chip replays with the
     activity it showed live. Those frames stay out of ``content``.
+
+    A skill or a command file the operator ran by its slash command replays as
+    the operator's turn, ``/name args`` as typed rather than the CLI's echo of
+    it. A skill then opens the agent's turn with the row the live stream drew
+    for it (:func:`~osprey.interfaces.web_terminal.slash_commands.operator_skill_frames`).
     """
     turns: list[dict[str, Any]] = []
     agent: dict[str, Any] | None = None
@@ -487,6 +534,10 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
         turns.append(agent)
         agent = None
 
+    #: The skill an operator's slash command named, until the CLI's entry that
+    #: loads it shows it was a skill (a command file loads no such entry).
+    ran: tuple[str, str] | None = None
+    skills_run = 0
     lines = path.read_text().splitlines()
     approved = _approved_call_ids(lines)
     subagents = _subagent_transcripts(path)
@@ -496,16 +547,48 @@ def _chat_timeline(path: Path) -> list[dict[str, Any]]:
         except ValueError:
             continue
         kind = entry.get("type")
-        if kind not in ("user", "assistant") or entry.get("isSidechain") or entry.get("isMeta"):
+        if kind not in ("user", "assistant") or entry.get("isSidechain"):
             continue
         blocks = entry.get("message", {}).get("content", [])
         if isinstance(blocks, str):
             blocks = [{"type": "text", "text": blocks}]
+        if entry.get("isMeta"):
+            # The instructions a skill injects are not shown; the skill's row is.
+            if ran is not None and _entry_text(blocks).startswith(_SKILL_BODY_MARK):
+                from osprey.interfaces.web_terminal.slash_commands import operator_skill_frames
+
+                skills_run += 1
+                if agent is None:
+                    agent = {
+                        "role": "assistant",
+                        "content": "",
+                        "events": [],
+                        "timestamp": entry.get("timestamp", ""),
+                    }
+                agent["events"].extend(operator_skill_frames(*ran, f"operator-skill-{skills_run}"))
+            ran = None
+            continue
+        ran = None
         stamp = _ts(entry.get("timestamp", ""))
         since, previous = previous, stamp if stamp is not None else previous
 
         text = ""
         if kind == "user":
+            command = _operator_command(blocks)
+            if command is not None:
+                # What the operator typed, as the live chat showed it.
+                name, args = command
+                close_agent()
+                turns.append(
+                    {
+                        "role": "user",
+                        "content": f"/{name} {args}".rstrip(),
+                        "timestamp": entry.get("timestamp", ""),
+                    }
+                )
+                started = stamp
+                ran = command
+                continue
             text = _operator_text(blocks)
             # A background agent's report is injected as a user message; it
             # continues the agent's turn rather than starting an operator one.

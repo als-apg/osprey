@@ -636,9 +636,11 @@ export function initChat(containerId = 'operator-container') {
     textarea.value = '';
     slash.close();
     autoResize();
-    scrollToBottom();
     setStreaming(true);
     renderer.beginTurn();
+    // After beginTurn: its status line lands at the foot of the log, and a log
+    // left above it is no longer pinned, so the reply would not be followed.
+    scrollToBottom();
 
     pauseFeed();
     const sent = sendTransforms.reduce((text, transform) => transform(text), prompt);

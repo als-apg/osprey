@@ -2148,6 +2148,30 @@ html[data-ui-mode="simple"] #operator-container {
   color: var(--text-secondary);
 }
 
+/* The kind of a suggestion, at the row's right edge: a quiet pill, the skill one
+   with the skill glyph the chat's skill rows carry. */
+.op-slash-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.op-slash-kind .op-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.op-slash-kind[data-kind="skill"] {
+  color: var(--text-secondary);
+}
+
 /* ---- Motion preference ---- */
 
 @media (prefers-reduced-motion: reduce) {

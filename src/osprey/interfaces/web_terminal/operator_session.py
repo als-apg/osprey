@@ -51,6 +51,7 @@ from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup, ProcessRow
 from osprey.interfaces.web_terminal.session_key import is_posture_key
+from osprey.interfaces.web_terminal.slash_commands import operator_skill, operator_skill_frames
 from osprey.interfaces.web_terminal.tool_preview import (
     tool_result_preview,
     tool_result_refusal,
@@ -1337,7 +1338,12 @@ class OperatorSession:
     # ---- Turn lifecycle ---- #
 
     async def _open_turn(self, prompt: str | None) -> None:
-        """Route the responses from here on to the turn's consumer, and announce the turn."""
+        """Route the responses from here on to the turn's consumer, and announce the turn.
+
+        A prompt that runs a project skill by its slash command is followed by that
+        skill's row: the CLI loads such a skill without a tool call, so the stream
+        itself never says one ran.
+        """
         self._turn_open = True
         self._turn_closed.clear()
         self._background.clear()
@@ -1345,6 +1351,10 @@ class OperatorSession:
         self._task_calls.clear()
         self._idle_wait = False
         await self._emit({"type": "turn_start", "prompt": prompt})
+        skill = operator_skill(prompt, Path(self._cwd)) if prompt else None
+        if skill is not None:
+            for frame in operator_skill_frames(*skill, f"operator-skill-{uuid.uuid4().hex[:12]}"):
+                await self._emit(frame)
 
     def _close_turn(self) -> None:
         """The open turn is over: stop routing to its consumer and free its guard if orphaned."""
