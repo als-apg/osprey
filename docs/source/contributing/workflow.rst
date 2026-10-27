@@ -44,8 +44,8 @@ Making Changes
 
 **2. Make changes** -- follow the code standards below, add tests, update docs.
 
-**3. Test locally** with the check command, ``scripts/check.py``, the one
-declaration of the merge gate:
+**3. Test locally** with the check command, ``scripts/check.py``, which runs
+the merge gate from the checks every owner declares:
 
 .. code-block:: bash
 
