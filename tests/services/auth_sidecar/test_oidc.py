@@ -44,6 +44,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
     token_admissible,
 )
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
+from tests.services.auth_sidecar._helpers import osprey_log, set_cookie_header
 
 SESSION_SECRET = "session-secret-value"
 STATE_SECRET = "state-secret-value"
@@ -194,18 +195,6 @@ def refusals(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return recorded
 
 
-def _osprey_log(caplog: pytest.LogCaptureFixture) -> str:
-    """Only this service's log records.
-
-    The test client's own HTTP logger echoes full request URLs, so asserting
-    against the whole capture would test httpx rather than what this module
-    writes.
-    """
-    return "\n".join(
-        record.getMessage() for record in caplog.records if record.name.startswith("osprey.")
-    )
-
-
 def _state_cookie(data: dict[str, Any]) -> str:
     """Forge a Starlette session cookie the way ``SessionMiddleware`` signs one.
 
@@ -243,14 +232,6 @@ def _session_from(response: httpx.Response) -> SessionState:
     """Decode the auth session cookie the response set."""
     codec = SessionCodec(SESSION_SECRET, max_age=SESSION_LIFETIME)
     return codec.decode(response.cookies[SESSION_COOKIE_NAME])
-
-
-def _set_cookie_header(response: httpx.Response, name: str) -> str:
-    """The raw ``Set-Cookie`` header for ``name``; attributes are asserted on it."""
-    for header in response.headers.get_list("set-cookie"):
-        if header.startswith(f"{name}="):
-            return header
-    raise AssertionError(f"no Set-Cookie for {name!r} in {response.headers.get_list('set-cookie')}")
 
 
 # --- the routes exist and belong to this mode --------------------------------
@@ -397,7 +378,7 @@ def test_login_refuses_a_card_whose_access_rule_admits_nobody(
 
     assert response.status_code == 403
     assert response.json()["detail"] == "this card's access rule admits nobody"
-    assert "admits nobody" in _osprey_log(caplog)
+    assert "admits nobody" in osprey_log(caplog)
     assert [record["reason"] for record in refusals] == [REASON_UNMAPPED_USER]
 
 
@@ -583,7 +564,7 @@ def test_callback_logs_the_accepted_subject(caplog: pytest.LogCaptureFixture) ->
         )
 
     assert response.status_code == 303
-    log = _osprey_log(caplog)
+    log = osprey_log(caplog)
     assert "succeeded" in log
     assert ALICE_SUBJECT in log
 
@@ -610,7 +591,7 @@ def test_callback_cookie_carries_the_pinned_attributes() -> None:
             CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
         )
 
-    header = _set_cookie_header(response, SESSION_COOKIE_NAME).lower()
+    header = set_cookie_header(response, SESSION_COOKIE_NAME).lower()
     assert "httponly" in header
     assert "samesite=lax" in header
     assert "secure" in header
@@ -655,7 +636,7 @@ def test_callback_without_tls_issues_no_secure_cookie() -> None:
             CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
         )
 
-    assert "secure" not in _set_cookie_header(response, SESSION_COOKIE_NAME).lower()
+    assert "secure" not in set_cookie_header(response, SESSION_COOKIE_NAME).lower()
 
 
 def test_callback_honours_the_configured_claim() -> None:
@@ -992,7 +973,7 @@ def test_failures_never_echo_credentials_or_tokens(
     leaked = ("client-secret-value", "secret-auth-code", CAROL_SUBJECT, ALICE_SUBJECT)
     for value in leaked:
         assert value not in response.text
-        assert value not in _osprey_log(caplog)
+        assert value not in osprey_log(caplog)
 
 
 # --- the login-only token gate -----------------------------------------------
@@ -1491,7 +1472,7 @@ def test_a_refused_rule_login_leaks_no_identity(
 
     assert response.status_code == 403
     assert refusals and all(record["user"] == "bob" for record in refusals)
-    written = _osprey_log(caplog) + repr(refusals)
+    written = osprey_log(caplog) + repr(refusals)
     address = str(userinfo["email"])
     for value in (address, address.rpartition("@")[2], "corp.example.org", DANA_DOMAIN):
         assert value not in written

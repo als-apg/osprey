@@ -32,18 +32,16 @@ from __future__ import annotations
 
 import json
 import logging
-from base64 import b64encode
 from typing import Any
 
 import httpx
-import itsdangerous
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from itsdangerous import URLSafeSerializer
 
 from osprey.services.auth_sidecar import audit
-from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, AuthSettings, create_app
+from osprey.services.auth_sidecar.app import AuthSettings, create_app
 from osprey.services.auth_sidecar.exceptions import InvalidSessionError
 from osprey.services.auth_sidecar.identity_headers import (
     ROLE_HEADER,
@@ -52,7 +50,6 @@ from osprey.services.auth_sidecar.identity_headers import (
     is_header_safe,
 )
 from osprey.services.auth_sidecar.passwords import generation_tag, hash_password
-from osprey.services.auth_sidecar.routes.oidc import CALLBACK_PATH, PENDING_FLOW_SESSION_KEY
 from osprey.services.auth_sidecar.routes.verify import _authorized
 from osprey.services.auth_sidecar.sessions import (
     PAYLOAD_VERSION,
@@ -62,17 +59,20 @@ from osprey.services.auth_sidecar.sessions import (
     SessionState,
     UnlockedUser,
 )
+from tests.services.auth_sidecar._oidc import (
+    ALICE_SUBJECT,
+    EXTERNAL_ORIGIN,
+    STATE_SECRET,
+    FakeOIDCClient,
+    callback,
+)
 
 SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
 SESSION_LIFETIME = 3600
-EXTERNAL_ORIGIN = "https://terminals.example.org"
 SESSION_ID = "test-session-id"
-FLOW_STATE = "handshake-state-value"
 
 ALICE_PASSWORD = "alice-password"
 ALICE_HASH = hash_password(ALICE_PASSWORD)
-ALICE_SUBJECT = "idp|alice"
 
 #: A subject a latin-1 HTTP header cannot carry unchanged across the boundary.
 #: The OIDC ``sub`` is ASCII by specification, so this can only arrive from a
@@ -179,51 +179,11 @@ def _issued_cookie(response: httpx.Response) -> str:
     return response.headers["set-cookie"].split(";", 1)[0].split("=", 1)[1]
 
 
-class FakeOIDCClient:
-    """Stands in for Authlib's Starlette client at the route boundary.
-
-    Deliberately local rather than shared with ``test_oidc.py``: these tests
-    assert that the callback refuses *before* it reaches the token exchange, and
-    a stand-in that records whether it was called at all is what proves it.
-    """
-
-    def __init__(self, *, userinfo: dict[str, Any] | None = None) -> None:
-        # An `id_token` alongside the claims: the callback refuses a token
-        # response without one, because that is the only case in which Authlib
-        # actually parsed and validated what it put in `userinfo`.
-        self.token = {
-            "id_token": "header.payload.signature",
-            "userinfo": userinfo or {"sub": ALICE_SUBJECT},
-        }
-        self.exchanged = False
-
-    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
-        return {
-            "url": f"https://idp.example.org/authorize?state={FLOW_STATE}",
-            "state": FLOW_STATE,
-            "nonce": "nonce-value",
-        }
-
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
-        return None
-
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
-        self.exchanged = True
-        return self.token
-
-
 def _oidc_app(env: dict[str, str] | None = None, client: FakeOIDCClient | None = None) -> FastAPI:
     """An app in OIDC mode with Authlib replaced."""
     app = create_app(env if env is not None else OIDC_ENV)
     app.state.oidc_client = client if client is not None else FakeOIDCClient()
     return app
-
-
-def _pending(user: str) -> str:
-    """A forged state cookie carrying one in-flight handshake for ``user``."""
-    signer = itsdangerous.TimestampSigner(STATE_SECRET)
-    data = {PENDING_FLOW_SESSION_KEY: {"state": FLOW_STATE, "user": user, "next": f"/u/{user}/"}}
-    return signer.sign(b64encode(json.dumps(data).encode("utf-8"))).decode("utf-8")
 
 
 @pytest.fixture
@@ -709,18 +669,9 @@ class TestPasswordLogin:
 class TestNonAsciiSubjectFailsClosed:
     """The debt the verify docstring used to defer, paid at the login."""
 
-    def _callback(self, app: FastAPI, user: str) -> httpx.Response:
-        with TestClient(app, base_url=EXTERNAL_ORIGIN) as client:
-            client.cookies.set(STATE_COOKIE_NAME, _pending(user))
-            return client.get(
-                CALLBACK_PATH,
-                params={"code": "auth-code", "state": FLOW_STATE},
-                follow_redirects=False,
-            )
-
     def test_the_login_is_refused_not_the_header_dropped(self, recorded: list[Any]) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": NON_ASCII_SUBJECT}
-        response = self._callback(_oidc_app(env), "alice")
+        response = callback(_oidc_app(env), "alice")
         assert response.status_code == 403
         assert SESSION_COOKIE_NAME not in response.cookies
         # The refusal is the audited one, not a login that quietly went missing:
@@ -732,12 +683,12 @@ class TestNonAsciiSubjectFailsClosed:
         IdP is contacted at all — the login could only have ended in a refusal."""
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": NON_ASCII_SUBJECT}
         fake = FakeOIDCClient()
-        self._callback(_oidc_app(env, fake), "alice")
+        callback(_oidc_app(env, fake), "alice")
         assert not fake.exchanged
 
     def test_the_refusal_has_its_own_audited_category(self, recorded: list[Any]) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": NON_ASCII_SUBJECT}
-        self._callback(_oidc_app(env), "alice")
+        callback(_oidc_app(env), "alice")
         assert len(recorded) == 1
         record = recorded[0].to_dict()
         assert record["reason"] == audit.REASON_NON_ASCII_SUBJECT
@@ -751,7 +702,7 @@ class TestNonAsciiSubjectFailsClosed:
         configuration the operator can read from their own config, and a
         ledger line is not where it belongs."""
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": NON_ASCII_SUBJECT}
-        self._callback(_oidc_app(env), "alice")
+        callback(_oidc_app(env), "alice")
         assert NON_ASCII_SUBJECT not in json.dumps(recorded[0].to_dict(), ensure_ascii=False)
 
     def test_the_log_line_names_the_category_and_not_the_value(
@@ -759,7 +710,7 @@ class TestNonAsciiSubjectFailsClosed:
     ) -> None:
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": NON_ASCII_SUBJECT}
         with caplog.at_level(logging.WARNING, logger="osprey"):
-            self._callback(_oidc_app(env), "alice")
+            callback(_oidc_app(env), "alice")
         logged = "\n".join(
             record.getMessage() for record in caplog.records if record.name.startswith("osprey.")
         )
@@ -770,7 +721,7 @@ class TestNonAsciiSubjectFailsClosed:
         """The control: the ordinary mapping still completes the login, and the
         one record it files is the success — no refusal is audited alongside a
         login that happened."""
-        response = self._callback(_oidc_app(), "alice")
+        response = callback(_oidc_app(), "alice")
         assert response.status_code == 303
         assert SESSION_COOKIE_NAME in response.cookies
         assert [record.to_dict()["decision"] for record in recorded] == ["allowed"]
@@ -784,4 +735,4 @@ class TestNonAsciiSubjectFailsClosed:
 
         monkeypatch.setattr(audit, "write_envelope", boom)
         env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": NON_ASCII_SUBJECT}
-        assert self._callback(_oidc_app(env), "alice").status_code == 403
+        assert callback(_oidc_app(env), "alice").status_code == 403

@@ -22,24 +22,19 @@ from __future__ import annotations
 
 import json
 import logging
-from base64 import b64encode
-from collections.abc import Iterator
 from typing import Any
 
 import httpx
-import itsdangerous
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, AuthSettings, create_app
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
     ENV_ROLE_CLAIM,
     ENV_ROLE_MAP,
-    PENDING_FLOW_SESSION_KEY,
     REASON_AMBIGUOUS_ROLE_CLAIM,
     REASON_IDENTITY_MISMATCH,
     REASON_MISSING_ROLE_CLAIM,
@@ -52,21 +47,22 @@ from osprey.services.auth_sidecar.routes.oidc import (
 )
 from osprey.services.auth_sidecar.routes.recheck import REASON_ROLE_MISMATCH, RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
+from tests.services.auth_sidecar._oidc import (
+    ALICE_SUBJECT,
+    EXTERNAL_ORIGIN,
+    FLOW_STATE,
+    STATE_SECRET,
+    FakeOIDCClient,
+    callback,
+    pending_state,
+)
 from tests.services.auth_sidecar.mock_idp import MockIdP
 
 SESSION_SECRET = "session-secret-value"
-STATE_SECRET = "state-secret-value"
-EXTERNAL_ORIGIN = "https://terminals.example.org"
 SESSION_LIFETIME = 3600
 
-ALICE_SUBJECT = "idp|alice"
 CAROL_SUBJECT = "idp|carol"
-FLOW_STATE = "handshake-state-value"
 
-#: Stands in for the compact JWT a token response carries. Never parsed here —
-#: Authlib does that, and the route only asks whether one was present at all.
-ID_TOKEN = "header.payload.signature"
-IDP_AUTHORIZE_URL = "https://idp.example.org/authorize?state=" + FLOW_STATE
 
 GROUP_CLAIM = "groups"
 OPERATOR_GROUP = "als-operators"
@@ -94,40 +90,6 @@ OIDC_ENV = {
 }
 
 
-class FakeOIDCClient:
-    """Stands in for Authlib at ``app.state.oidc_client``.
-
-    Returns the claims the test wants the callback to see and records the
-    keyword arguments the route hands ``authorize_access_token`` — which is
-    where ``claims_options`` is asserted on.
-    """
-
-    def __init__(self, userinfo: dict[str, Any] | None = None, *, id_token: bool = True) -> None:
-        # `id_token` is what Authlib parsed `userinfo` FROM: the real client
-        # writes that key only when the token response carried one, so a
-        # stand-in that always supplies claims without it models a token the
-        # route is entitled to trust and this one is not. `id_token=False` is
-        # the OAuth2-provider shape.
-        self.token: dict[str, Any] = {
-            "userinfo": userinfo if userinfo is not None else {"sub": ALICE_SUBJECT}
-        }
-        if id_token:
-            self.token["id_token"] = ID_TOKEN
-        self.exchanged = False
-        self.token_kwargs: dict[str, Any] = {}
-
-    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
-        return {"url": IDP_AUTHORIZE_URL, "state": FLOW_STATE, "nonce": "nonce-value"}
-
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
-        return None
-
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
-        self.exchanged = True
-        self.token_kwargs = kwargs
-        return self.token
-
-
 def _claims(**extra: Any) -> dict[str, Any]:
     """An ID token's claims for alice, plus whatever the test adds."""
     return {"sub": ALICE_SUBJECT, **extra}
@@ -150,24 +112,6 @@ def _app(
     if binding is not None:
         app.state.role_binding = binding
     return app
-
-
-def _pending(user: str) -> str:
-    """A forged state cookie carrying one in-flight handshake for ``user``."""
-    signer = itsdangerous.TimestampSigner(STATE_SECRET)
-    data = {PENDING_FLOW_SESSION_KEY: {"state": FLOW_STATE, "user": user, "next": f"/u/{user}/"}}
-    return signer.sign(b64encode(json.dumps(data).encode("utf-8"))).decode("utf-8")
-
-
-def _callback(app: FastAPI, user: str = "alice") -> httpx.Response:
-    """Walk the callback leg for ``user`` with a handshake already in flight."""
-    with TestClient(app, base_url=EXTERNAL_ORIGIN) as client:
-        client.cookies.set(STATE_COOKIE_NAME, _pending(user))
-        return client.get(
-            CALLBACK_PATH,
-            params={"code": "auth-code", "state": FLOW_STATE},
-            follow_redirects=False,
-        )
 
 
 def _session_from(response: httpx.Response) -> SessionState:
@@ -206,20 +150,20 @@ class TestClaimValueShapes:
 
     def test_a_string_claim_resolves_a_role(self) -> None:
         """A facility mapping a single app role sends a bare string."""
-        response = _callback(_app(userinfo=_claims(groups=OPERATOR_GROUP)))
+        response = callback(_app(userinfo=_claims(groups=OPERATOR_GROUP)))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
     def test_a_list_claim_resolves_a_role(self) -> None:
         """Entra sends an array of GUIDs, Keycloak an array of names."""
-        response = _callback(_app(userinfo=_claims(groups=["unrelated", OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=["unrelated", OPERATOR_GROUP])))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
     def test_values_outside_the_map_are_ignored_not_refused(self) -> None:
         """A real directory membership is mostly groups this deployment has
         never heard of; only the intersection decides."""
-        response = _callback(
+        response = callback(
             _app(userinfo=_claims(groups=["everyone", "building-6", EXPERT_GROUP, "vpn-users"]))
         )
         assert response.status_code == 303
@@ -229,21 +173,21 @@ class TestClaimValueShapes:
         """The rule is one distinct *role*, not one matching value: a user in
         both the operators group and the on-call operators group holds exactly
         the privilege both of them name."""
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP, SECOND_OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP, SECOND_OPERATOR_GROUP])))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
     def test_a_list_keeps_its_string_entries_when_the_provider_mixes_types(self) -> None:
         """A stray non-string entry does not blind the intersection to the
         strings beside it — and cannot itself match a key."""
-        response = _callback(_app(userinfo=_claims(groups=[7, None, OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=[7, None, OPERATOR_GROUP])))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
     def test_matching_is_exact_not_case_folded(self) -> None:
         """Group identifiers are opaque; folding case would map a value the
         operator never wrote."""
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP.upper()])))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP.upper()])))
         assert response.status_code == 403
 
 
@@ -252,7 +196,7 @@ class TestAmbiguityFailsClosed:
     refusal, never a pick."""
 
     def _response(self) -> httpx.Response:
-        return _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP, EXPERT_GROUP])))
+        return callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP, EXPERT_GROUP])))
 
     def test_two_roles_refuse_the_login(self) -> None:
         response = self._response()
@@ -263,7 +207,7 @@ class TestAmbiguityFailsClosed:
         """First-match-wins would make the granted privilege depend on YAML key
         order — the accidental-escalation case this contract exists to close.
         Both orderings refuse, and neither unlocks anything."""
-        reversed_order = _callback(_app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP])))
+        reversed_order = callback(_app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP])))
         assert self._response().status_code == 403
         assert reversed_order.status_code == 403
         assert SESSION_COOKIE_NAME not in reversed_order.cookies
@@ -307,7 +251,7 @@ class TestSeveralRolesOnARoleBoundCard:
             ),
         )
         app.state.roster_roles = RosterRoles({"alice": card_role})
-        return _callback(app)
+        return callback(app)
 
     def test_the_card_role_is_admitted_when_it_is_one_of_them(self) -> None:
         response = self._response("expert", [OPERATOR_GROUP, EXPERT_GROUP])
@@ -361,7 +305,7 @@ class TestEmptyIntersection:
     """A membership this deployment maps nothing to."""
 
     def _response(self) -> httpx.Response:
-        return _callback(_app(userinfo=_claims(groups=["building-6", "vpn-users"])))
+        return callback(_app(userinfo=_claims(groups=["building-6", "vpn-users"])))
 
     def test_the_login_is_refused(self) -> None:
         response = self._response()
@@ -375,7 +319,7 @@ class TestEmptyIntersection:
     def test_an_empty_map_refuses_every_login(self, recorded: list[Any]) -> None:
         """A ``claims:`` stanza whose map lost its entries authorizes nobody —
         it does not fall back to the roleless login."""
-        response = _callback(
+        response = callback(
             _app(
                 userinfo=_claims(groups=[OPERATOR_GROUP]),
                 binding=RoleBinding(claim=GROUP_CLAIM, claim_map={}),
@@ -427,7 +371,7 @@ class TestMissingClaim:
         ``unmapped_role_claim`` — and a status-only assertion would call that a
         pass.
         """
-        response = _callback(_app(userinfo=_claims(**claims)))
+        response = callback(_app(userinfo=_claims(**claims)))
         assert response.status_code == 403, why
         assert SESSION_COOKIE_NAME not in response.cookies
         assert [record.to_dict()["reason"] for record in recorded] == [REASON_MISSING_ROLE_CLAIM], (
@@ -435,13 +379,13 @@ class TestMissingClaim:
         )
 
     def test_the_refusal_has_its_own_category(self, recorded: list[Any]) -> None:
-        _callback(_app(userinfo=_claims()))
+        callback(_app(userinfo=_claims()))
         assert [record.to_dict()["reason"] for record in recorded] == [REASON_MISSING_ROLE_CLAIM]
 
     def test_the_record_names_the_claim_the_deployment_expected(self, recorded: list[Any]) -> None:
         """A claim *name* is config, and it is the one thing that makes this
         refusal actionable at the IdP."""
-        _callback(_app(userinfo=_claims()))
+        callback(_app(userinfo=_claims()))
         assert recorded[0].to_dict()["detail"] == GROUP_CLAIM
 
     def test_the_diagnostic_names_the_claims_that_did_arrive(
@@ -450,7 +394,7 @@ class TestMissingClaim:
         """The overage case is only diagnosable from the claim names: seeing
         ``_claim_names`` where ``groups`` should be is the whole signal."""
         with caplog.at_level(logging.WARNING, logger="osprey"):
-            _callback(_app(userinfo=_claims(_claim_names={"groups": "src1"})))
+            callback(_app(userinfo=_claims(_claim_names={"groups": "src1"})))
         logged = _log(caplog)
         assert "_claim_names" in logged
         assert GROUP_CLAIM in logged
@@ -459,7 +403,7 @@ class TestMissingClaim:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         with caplog.at_level(logging.DEBUG, logger="osprey"):
-            _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP], email="alice@example.org")))
+            callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP], email="alice@example.org")))
         logged = _log(caplog)
         assert "email" in logged
         assert "alice@example.org" not in logged
@@ -469,7 +413,7 @@ class TestMissingClaim:
     ) -> None:
         """Half a stanza cannot resolve anything, so it denies rather than
         degrading to the roleless login the deployment did not ask for."""
-        response = _callback(
+        response = callback(
             _app(
                 userinfo=_claims(groups=[OPERATOR_GROUP]),
                 binding=RoleBinding(claim="", claim_map=CLAIM_MAP),
@@ -485,7 +429,7 @@ class TestMissingClaim:
         record has to separate them: this one names the env variable that was
         never set, which points the operator at their own render rather than at
         their IdP."""
-        _callback(
+        callback(
             _app(
                 userinfo=_claims(groups=[OPERATOR_GROUP]),
                 binding=RoleBinding(claim="", claim_map=CLAIM_MAP),
@@ -498,7 +442,7 @@ class TestNoBindingIsInert:
     """A deployment with no ``claims:`` stanza logs in exactly as before."""
 
     def test_the_login_succeeds_with_no_role(self) -> None:
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP]), binding=None))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP]), binding=None))
         assert response.status_code == 303
         assert _role_of(response) == ""
 
@@ -506,24 +450,15 @@ class TestNoBindingIsInert:
         """The login itself is recorded — every login is — but as the success it
         is: a membership that would be ambiguous under a binding refuses nothing
         when no role is bound."""
-        _callback(_app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP]), binding=None))
+        callback(_app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP]), binding=None))
         assert [record.to_dict()["decision"] for record in recorded] == ["allowed"]
 
     def test_a_membership_that_would_be_ambiguous_is_not_even_read(self) -> None:
         """Nothing about the token's groups matters when no role is bound."""
-        response = _callback(
+        response = callback(
             _app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP]), binding=None)
         )
         assert response.status_code == 303
-
-
-@pytest.fixture(scope="module")
-def idp() -> Iterator[MockIdP]:
-    """One stub provider on a real port, shared by the whole-handshake tests."""
-    provider = MockIdP()
-    with run_app_server(provider.app) as base_url:
-        provider.issuer = base_url
-        yield provider
 
 
 # --- the trust model ---------------------------------------------------------
@@ -538,7 +473,7 @@ class TestTheGroupClaimIsNotAValidationOption:
 
     def test_the_callback_does_not_ask_authlib_to_validate_the_group_claim(self) -> None:
         client = FakeOIDCClient(_claims(groups=[OPERATOR_GROUP]))
-        _callback(_app(client=client))
+        callback(_app(client=client))
         options = client.token_kwargs["claims_options"]
         assert GROUP_CLAIM not in options
         assert set(options) == {"iss", "aud"}
@@ -616,7 +551,7 @@ class TestTheClaimsMustComeFromAnIdToken:
             {"sub": ALICE_SUBJECT, GROUP_CLAIM: [OPERATOR_GROUP]}, id_token=False
         )
         client.token["access_token"] = "opaque"
-        return _callback(_app(client=client))
+        return callback(_app(client=client))
 
     def test_unvalidated_claims_do_not_log_anyone_in(self) -> None:
         response = self._forged()
@@ -636,7 +571,7 @@ class TestTheClaimsMustComeFromAnIdToken:
     def test_the_control_still_logs_in(self) -> None:
         """The same claims, arriving inside a parsed ID token, resolve the role
         they always did: the guard rejects the token SHAPE, not the claims."""
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
@@ -676,7 +611,7 @@ class TestOnlyTheValidatedClaimsAreRead:
         """
         client = self._client(userinfo={}, **{"sub": ALICE_SUBJECT, GROUP_CLAIM: [OPERATOR_GROUP]})
 
-        response = _callback(_app(client=client))
+        response = callback(_app(client=client))
 
         assert response.status_code == 403
         assert SESSION_COOKIE_NAME not in response.cookies
@@ -689,7 +624,7 @@ class TestOnlyTheValidatedClaimsAreRead:
         role."""
         client = self._client(userinfo=_claims(), **{GROUP_CLAIM: [OPERATOR_GROUP]})
 
-        response = _callback(_app(client=client))
+        response = callback(_app(client=client))
 
         assert response.status_code == 403
         assert SESSION_COOKIE_NAME not in response.cookies
@@ -701,7 +636,7 @@ class TestOnlyTheValidatedClaimsAreRead:
         read from it would be a privilege the person granted themselves."""
         app = _app(client=FakeOIDCClient(_claims()))
         with TestClient(app, base_url=EXTERNAL_ORIGIN) as client:
-            client.cookies.set(STATE_COOKIE_NAME, _pending("alice"))
+            client.cookies.set(STATE_COOKIE_NAME, pending_state("alice"))
             response = client.get(
                 CALLBACK_PATH,
                 params={
@@ -720,7 +655,7 @@ class TestOnlyTheValidatedClaimsAreRead:
     def test_the_control_admits_the_same_claims_from_the_id_token(self) -> None:
         """The same two values, this time inside the validated token: admitted,
         so what the three tests above pin is the SOURCE and not the values."""
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
@@ -732,7 +667,7 @@ class TestAnUncarryableRoleFailsClosed:
     """A role the identity header cannot carry refuses the login, not 500s."""
 
     def _response(self, role: str) -> httpx.Response:
-        return _callback(
+        return callback(
             _app(
                 userinfo=_claims(groups=[OPERATOR_GROUP]),
                 binding=RoleBinding(claim=GROUP_CLAIM, claim_map={OPERATOR_GROUP: role}),
@@ -775,7 +710,7 @@ class TestAnUncarryableRoleFailsClosed:
         """A map where one mapped value carries CR/LF and a second group is also
         mapped — so the intersection holds two roles and the ambiguity branch,
         which names the roles it found, would be the one to build the record."""
-        return _callback(
+        return callback(
             _app(
                 userinfo=_claims(groups=[OPERATOR_GROUP, EXPERT_GROUP]),
                 binding=RoleBinding(
@@ -823,17 +758,17 @@ class TestTheOtherDenialCategories:
     """The identity half of the callback is audited on the same terms."""
 
     def test_a_user_with_no_mapped_identity(self, recorded: list[Any]) -> None:
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])), "bob")
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])), "bob")
         assert response.status_code == 403
         assert [record.to_dict()["reason"] for record in recorded] == [REASON_UNMAPPED_USER]
 
     def test_a_token_asserting_no_identity(self, recorded: list[Any]) -> None:
-        response = _callback(_app(userinfo={"groups": [OPERATOR_GROUP]}))
+        response = callback(_app(userinfo={"groups": [OPERATOR_GROUP]}))
         assert response.status_code == 403
         assert [record.to_dict()["reason"] for record in recorded] == [REASON_NO_ASSERTED_IDENTITY]
 
     def test_an_identity_mapped_to_a_different_user(self, recorded: list[Any]) -> None:
-        response = _callback(_app(userinfo={"sub": CAROL_SUBJECT, "groups": [OPERATOR_GROUP]}))
+        response = callback(_app(userinfo={"sub": CAROL_SUBJECT, "groups": [OPERATOR_GROUP]}))
         assert response.status_code == 403
         assert [record.to_dict()["reason"] for record in recorded] == [REASON_IDENTITY_MISMATCH]
 
@@ -842,7 +777,7 @@ class TestTheOtherDenialCategories:
     ) -> None:
         """The subject that was refused is somebody else's account identifier;
         the record names the user whose card was clicked and stops there."""
-        _callback(_app(userinfo={"sub": CAROL_SUBJECT, "groups": [OPERATOR_GROUP]}))
+        callback(_app(userinfo={"sub": CAROL_SUBJECT, "groups": [OPERATOR_GROUP]}))
         record = recorded[0].to_dict()
         assert record["subject"] == "alice"
         assert CAROL_SUBJECT not in json.dumps(record)
@@ -850,14 +785,14 @@ class TestTheOtherDenialCategories:
     def test_identity_is_settled_before_the_role_is(self, recorded: list[Any]) -> None:
         """A refused identity is refused as one, whatever its groups say — the
         role question is only asked about a login that got past 'who'."""
-        _callback(_app(userinfo={"sub": CAROL_SUBJECT, "groups": [EXPERT_GROUP, OPERATOR_GROUP]}))
+        callback(_app(userinfo={"sub": CAROL_SUBJECT, "groups": [EXPERT_GROUP, OPERATOR_GROUP]}))
         assert [record.to_dict()["reason"] for record in recorded] == [REASON_IDENTITY_MISMATCH]
 
     def test_a_successful_login_records_no_refusal(self, recorded: list[Any]) -> None:
         """The denial seam is reached only from the branches that deny: a login
         that resolved its role cleanly files one record, and it is the success.
         """
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP])))
         assert response.status_code == 303
         assert len(recorded) == 1
         record = recorded[0].to_dict()
@@ -871,7 +806,7 @@ class TestTheOtherDenialCategories:
             raise OSError("the ledger is unwritable")
 
         monkeypatch.setattr(audit, "write_envelope", boom)
-        response = _callback(_app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP])))
+        response = callback(_app(userinfo=_claims(groups=[EXPERT_GROUP, OPERATOR_GROUP])))
         assert response.status_code == 403
 
     def test_every_refused_login_leaves_the_session_locked(self) -> None:
@@ -880,7 +815,7 @@ class TestTheOtherDenialCategories:
             _claims(groups=["building-6"]),
             _claims(groups=[EXPERT_GROUP, OPERATOR_GROUP]),
         ):
-            response = _callback(_app(userinfo=claims))
+            response = callback(_app(userinfo=claims))
             assert SESSION_COOKIE_NAME not in response.cookies
 
 
@@ -948,12 +883,12 @@ class TestRoleBindingFromEnv:
         the callback must pick them up with nothing installed on ``app.state``."""
         monkeypatch.setenv(ENV_ROLE_CLAIM, GROUP_CLAIM)
         monkeypatch.setenv(ENV_ROLE_MAP, json.dumps({OPERATOR_GROUP: "operator"}))
-        response = _callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP]), binding=None))
+        response = callback(_app(userinfo=_claims(groups=[OPERATOR_GROUP]), binding=None))
         assert response.status_code == 303
         assert _role_of(response) == "operator"
 
     def test_the_environment_binding_also_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(ENV_ROLE_CLAIM, GROUP_CLAIM)
         monkeypatch.setenv(ENV_ROLE_MAP, json.dumps({OPERATOR_GROUP: "operator"}))
-        response = _callback(_app(userinfo=_claims(groups=["building-6"]), binding=None))
+        response = callback(_app(userinfo=_claims(groups=["building-6"]), binding=None))
         assert response.status_code == 403
