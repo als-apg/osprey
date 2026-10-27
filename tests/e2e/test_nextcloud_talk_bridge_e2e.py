@@ -134,6 +134,7 @@ from osprey.bridges.nextcloud_talk.client import (
 )
 from osprey.bridges.nextcloud_talk.events import FILE_PARAM_TYPE
 from osprey.bridges.nextcloud_talk.ops import ACK_TEXT, EMPTY_ANSWER_TEXT, ERROR_TEXT
+from tests.e2e._deploy_support import format_failure
 
 # ---------------------------------------------------------------------------
 # Container runtime selection — ``docker`` by default, ``podman`` opt-in via
@@ -806,17 +807,11 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ]
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     build = _osprey(["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     if not (repo / "build" / "config.yml").is_file():
         pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
     return repo

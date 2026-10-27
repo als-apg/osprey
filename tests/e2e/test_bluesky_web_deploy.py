@@ -86,6 +86,7 @@ import pytest
 
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import env_value, format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
@@ -152,28 +153,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
-def _minted_token(repo: Path) -> str:
-    from osprey_connectors.dotenv import parse_dotenv_file
-
-    env_path = repo / ".env"
-    assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
-    env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_LAUNCH_TOKEN")
-    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the deployment repo's .env"
-    return token
-
-
 def _minted_sidecar_secret(repo: Path) -> str:
     """The sidecar's operator secret, read from the same .env `osprey up` wrote.
 
@@ -199,21 +178,6 @@ _sidecar_secret: str | None = None
 
 def _auth_headers() -> dict[str, str]:
     return {"X-Osprey-Terminal-Secret": _sidecar_secret} if _sidecar_secret else {}
-
-
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
 
 
 def _request(
@@ -447,23 +411,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
-    init = _run([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
+    init = run_command([str(osprey_bin), "init", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     _setpoint, _readback, model = _facility_select.bounded_corrector(repo)
     correctors = _orm_stack.select_correctors(repo, count=1, model=model)
     bpms = _orm_stack.select_bpms(repo, count=2, model=model)
@@ -482,24 +440,21 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
-        up = _run(
+        up = run_command(
             [str(osprey_bin), "up", "-d", "--dev"],
             cwd=repo,
             timeout=DEPLOY_UP_TIMEOUT_SEC,
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
+            pytest.fail(format_failure("osprey up -d --dev", up))
         # `osprey up` minted the sidecar's operator secret into the repo .env;
         # arm the sidecar helpers with it before anything talks to the gate
         # (the /health waits below are on the gate's exempt path).
         global _sidecar_secret
         _sidecar_secret = _minted_sidecar_secret(repo)
 
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+        wait_for_health(f"{BLUESKY_WEB_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace an
         # enqueue validates against exists only once the RE worker environment
         # is open, and the bridge opens that off the readiness path. See
@@ -519,7 +474,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             plan_args=plan_args,
         )
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
@@ -588,7 +543,7 @@ def test_plan_via_sidecar_queue_completes(deployed_stack: DeployedStack) -> None
     enqueue is that write and the plan runs from it; a Start is sent only
     where the manager reports the queue stopped.
     """
-    token = _minted_token(deployed_stack.repo)
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
 
     def _assert_no_token(label: str, payload: Any) -> None:
         assert token not in json.dumps(payload), f"launch token leaked into the sidecar {label}"
@@ -677,7 +632,7 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     add, on the preset's armed queue; the Start, on a stopped one), and the
     sidecar's only job is to hold that credential on the browser's behalf.
     """
-    token = _minted_token(deployed_stack.repo)
+    token = env_value(deployed_stack.repo, "BLUESKY_LAUNCH_TOKEN")
 
     # Clear the shared draft first — the sidecar test stages these same args,
     # and a same-content PATCH is a no-op that keeps the consumed revision

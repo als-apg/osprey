@@ -63,6 +63,7 @@ import pytest
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
+from tests.e2e._deploy_support import format_failure
 from tests.e2e._volumes import remove_project_volumes
 
 pytestmark = [
@@ -185,10 +186,7 @@ def deployed_grid_scan_stack(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
+            pytest.fail(format_failure("osprey up -d --dev", up))
         _orm_stack.wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         # HTTP readiness is not enqueue readiness -- the worker namespace the
         # enqueue validates against exists only once the RE worker environment

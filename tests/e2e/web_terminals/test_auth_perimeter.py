@@ -88,7 +88,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -101,6 +100,15 @@ import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.render_naming import render_project
+from tests.e2e._deploy_support import (
+    RUNTIME,
+    container_id,
+    find_osprey_console_script,
+    format_failure,
+    image_exists,
+    runtime_cli,
+    runtime_logs,
+)
 from tests.e2e._render_stub import stub_render_image
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -111,13 +119,6 @@ from tests.e2e.profile_edits import set_pairs
 # marker this file would be swept into that lane's glob over tests/e2e/ and the
 # expensive sidecar build would run twice per PR.
 pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
-
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # The repo DIRECTORY name, which is the deployment name: the rendered
 # config.yml's project_name, the compose project, and the com.osprey.project
@@ -187,27 +188,6 @@ def _web_container(user: str) -> str:
     return f"{PROJECT}-web-{user}"
 
 
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _run_osprey(
     osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
 ) -> subprocess.CompletedProcess:
@@ -227,17 +207,8 @@ def _run_osprey(
     )
 
 
-def _container_id(name: str) -> str | None:
-    result = _runtime_cli("inspect", "--type", "container", "-f", "{{.Id}}", name, timeout=15)
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
-def _image_exists(tag: str) -> bool:
-    return _runtime_cli("inspect", "--type", "image", tag, timeout=15).returncode == 0
-
-
 def _image_label(tag: str, key: str) -> str | None:
-    result = _runtime_cli(
+    result = runtime_cli(
         "inspect",
         "--type",
         "image",
@@ -247,11 +218,6 @@ def _image_label(tag: str, key: str) -> str | None:
         timeout=15,
     )
     return result.stdout.strip() if result.returncode == 0 else None
-
-
-def _logs(name: str) -> str:
-    result = _runtime_cli("logs", "--tail", "80", name, timeout=20)
-    return f"--- {name} stdout ---\n{result.stdout}\n--- {name} stderr ---\n{result.stderr}"
 
 
 def _stub_dockerfile() -> str:
@@ -383,7 +349,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, _fmt("osprey init (auth perimeter)", init)
+    assert init.returncode == 0, format_failure("osprey init (auth perimeter)", init)
 
     build = _run_osprey(
         osprey_bin,
@@ -391,7 +357,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt("osprey build (auth perimeter)", build)
+    assert build.returncode == 0, format_failure("osprey build (auth perimeter)", build)
     stub_render_image(repo, RENDER_PROJECT, _stub_dockerfile())
 
     # The repo root's .env is this deployment's whole secret store: the auth
@@ -412,13 +378,13 @@ def _teardown() -> None:
     attempt's per-user volumes would start from that attempt's state.
     """
     for user in USERS:
-        _runtime_cli("rm", "-f", _web_container(user))
-    _runtime_cli("rm", "-f", AUTH_C)
-    _runtime_cli("rm", "-f", NGINX_C)
-    _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=60)
+        runtime_cli("rm", "-f", _web_container(user))
+    runtime_cli("rm", "-f", AUTH_C)
+    runtime_cli("rm", "-f", NGINX_C)
+    runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=60)
     remove_project_volumes(PROJECT_NAME, runtime=RUNTIME)
     for tag in (AUTH_IMAGE_TAG, RENDER_IMAGE_TAG):
-        _runtime_cli("rmi", "-f", tag, timeout=60)
+        runtime_cli("rmi", "-f", tag, timeout=60)
 
 
 def _browser() -> tuple[urllib.request.OpenerDirector, http.cookiejar.CookieJar]:
@@ -481,7 +447,7 @@ def _wait_for_health(timeout: float) -> dict[str, Any]:
             last = str(exc)
         time.sleep(2.0)
     raise AssertionError(
-        f"auth sidecar /health not ready after {timeout:.0f}s (last: {last})\n{_logs(AUTH_C)}"
+        f"auth sidecar /health not ready after {timeout:.0f}s (last: {last})\n{runtime_logs(AUTH_C)}"
     )
 
 
@@ -495,11 +461,11 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
     """One ``osprey up --dev`` for the whole module — the expensive part runs once."""
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
+    if runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
     tmp_path = tmp_path_factory.mktemp("auth-perimeter")
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     repo = _make_repo(tmp_path, osprey_bin)
 
     _teardown()  # clear anything a previous crashed run stranded under these names
@@ -507,7 +473,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
         # Run from inside the repo: every lifecycle verb walks up to the nearest
         # profile.yml, so standing in the deployment is what selects it.
         up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt("osprey up --dev (auth perimeter)", up)
+        assert up.returncode == 0, format_failure("osprey up --dev (auth perimeter)", up)
         health = _wait_for_health(READY_TIMEOUT_SEC)
         yield {"repo": repo, "health": health, "up": up}
     finally:
@@ -529,7 +495,7 @@ def test_up_builds_the_real_sidecar_image() -> None:
     checkout identity — it verifies ``com.osprey.project`` on the tag itself
     before removing it, and an unlabeled image survives a factory reset.
     """
-    assert _image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'osprey up'"
+    assert image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'osprey up'"
     assert _image_label(AUTH_IMAGE_TAG, "com.osprey.project") == PROJECT_NAME
 
 
@@ -541,9 +507,9 @@ def test_the_sidecar_runs_and_reports_itself_configured(deployment: dict[str, An
     ``true`` here therefore proves two separate things landed: the image can run
     the app at all, and the ``.env.auth`` the SAME deploy provisioned reached it.
     """
-    assert _container_id(AUTH_C) is not None, f"{AUTH_C} was not created"
+    assert container_id(AUTH_C) is not None, f"{AUTH_C} was not created"
     assert deployment["health"].get("configured") is True, (
-        f"sidecar came up unconfigured: {deployment['health']}\n{_logs(AUTH_C)}"
+        f"sidecar came up unconfigured: {deployment['health']}\n{runtime_logs(AUTH_C)}"
     )
 
 
@@ -584,8 +550,8 @@ def test_a_real_login_reaches_that_users_own_upstream() -> None:
         },
         opener=client,
     )
-    assert status == 200, f"login was not accepted (got {status})\n{_logs(AUTH_C)}"
-    assert [c.name for c in jar], f"login issued no session cookie\n{_logs(AUTH_C)}"
+    assert status == 200, f"login was not accepted (got {status})\n{runtime_logs(AUTH_C)}"
+    assert [c.name for c in jar], f"login issued no session cookie\n{runtime_logs(AUTH_C)}"
 
     status, _, page = _request(
         "/u/alice/",
@@ -594,7 +560,7 @@ def test_a_real_login_reaches_that_users_own_upstream() -> None:
     )
     assert status == 200, (
         f"authorized request did not reach the upstream (got {status})\n"
-        f"{_logs(NGINX_C)}\n{_logs(_web_container('alice'))}"
+        f"{runtime_logs(NGINX_C)}\n{runtime_logs(_web_container('alice'))}"
     )
     assert f"{UPSTREAM_MARKER} for alice" in page, (
         f"authorized request reached the wrong upstream:\n{page[:400]}"

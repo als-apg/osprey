@@ -126,7 +126,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -144,6 +143,15 @@ from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.mcp_server.sandbox_env import PERIMETER_DENY_PORTS_ENV, PERIMETER_MARKER_ENV
 from osprey.services.python_executor.execution.net_guard import NET_GUARD_REFUSAL_PREFIX
 from osprey_connectors.dotenv import parse_dotenv_file
+from tests.e2e._deploy_support import (
+    RUNTIME,
+    container_id,
+    find_osprey_console_script,
+    format_failure,
+    image_exists,
+    runtime_cli,
+    runtime_logs,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -155,13 +163,6 @@ from tests.e2e.profile_edits import set_pairs
 # postures live in ONE module: a second file would need its own ignore entry and
 # its own job, and would pay for the framework build a second time.
 pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
-
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 #: The tier both lanes' rosters run: a bundled one, so ``osprey init`` writes
 #: its file and ``osprey build`` renders it.
@@ -361,31 +362,6 @@ print(
 """
 
 
-def _runtime_cli(
-    *args: str, timeout: int = 30, input_text: str | None = None
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [RUNTIME, *args], capture_output=True, text=True, timeout=timeout, input=input_text
-    )
-
-
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _run_osprey(
     osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
 ) -> subprocess.CompletedProcess:
@@ -405,20 +381,6 @@ def _run_osprey(
     )
 
 
-def _container_id(name: str) -> str | None:
-    result = _runtime_cli("inspect", "--type", "container", "-f", "{{.Id}}", name, timeout=15)
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
-def _image_exists(tag: str) -> bool:
-    return _runtime_cli("inspect", "--type", "image", tag, timeout=15).returncode == 0
-
-
-def _logs(name: str) -> str:
-    result = _runtime_cli("logs", "--tail", "80", name, timeout=20)
-    return f"--- {name} stdout ---\n{result.stdout}\n--- {name} stderr ---\n{result.stderr}"
-
-
 def _container_env(name: str) -> dict[str, str]:
     """The environment a process started in *name* inherits.
 
@@ -426,8 +388,8 @@ def _container_env(name: str) -> dict[str, str]:
     the claim under test is that the stamp reached the process, and a compose
     line proves only that it was written down.
     """
-    result = _runtime_cli("exec", name, "env", timeout=30)
-    assert result.returncode == 0, _fmt(f"{RUNTIME} exec {name} env", result)
+    result = runtime_cli("exec", name, "env", timeout=30)
+    assert result.returncode == 0, format_failure(f"{RUNTIME} exec {name} env", result)
     env: dict[str, str] = {}
     for line in result.stdout.splitlines():
         key, _, value = line.partition("=")
@@ -500,7 +462,7 @@ def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path) -> Path:
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, _fmt(f"osprey init ({lane.posture} multiuser)", init)
+    assert init.returncode == 0, format_failure(f"osprey init ({lane.posture} multiuser)", init)
 
     build = _run_osprey(
         osprey_bin,
@@ -508,7 +470,7 @@ def _make_repo(lane: Lane, tmp_path: Path, osprey_bin: Path) -> Path:
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt(f"osprey build ({lane.posture} multiuser)", build)
+    assert build.returncode == 0, format_failure(f"osprey build ({lane.posture} multiuser)", build)
 
     # The repo root's .env is this deployment's secret store: `osprey up` refuses
     # to start without it, the provider-secret gate reads the key, and
@@ -549,12 +511,12 @@ def _teardown(lane: Lane, *, remove_image: bool = True) -> None:
     an earlier run's image for the layer cache.
     """
     for user in lane.usernames:
-        _runtime_cli("rm", "-f", lane.container(user))
-    _runtime_cli("rm", "-f", lane.nginx_container)
-    _runtime_cli("compose", "-p", lane.project_name, "down", timeout=60)
+        runtime_cli("rm", "-f", lane.container(user))
+    runtime_cli("rm", "-f", lane.nginx_container)
+    runtime_cli("compose", "-p", lane.project_name, "down", timeout=60)
     remove_project_volumes(lane.project_name, runtime=RUNTIME)
     if remove_image:
-        _runtime_cli("rmi", "-f", lane.render_image, timeout=60)
+        runtime_cli("rmi", "-f", lane.render_image, timeout=60)
 
 
 def _browser() -> tuple[urllib.request.OpenerDirector, http.cookiejar.CookieJar]:
@@ -655,7 +617,7 @@ def _wait_for_gate(lane: Lane, user: str, expected: int, timeout: float) -> None
         time.sleep(3.0)
     raise AssertionError(
         f"{user}'s terminal gate did not answer {expected} within {timeout:.0f}s "
-        f"(last: {last})\n{_logs(lane.nginx_container)}\n{_logs(lane.container(user))}"
+        f"(last: {last})\n{runtime_logs(lane.nginx_container)}\n{runtime_logs(lane.container(user))}"
     )
 
 
@@ -666,10 +628,10 @@ def _deploy(lane: Lane, tmp_path: Path) -> Iterator[dict[str, Any]]:
     differ in how they are started, waited for, or cleaned up — only in the
     :class:`Lane` they are handed and in the readiness each posture owes.
     """
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
+    if runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
     repo = _make_repo(lane, tmp_path, osprey_bin)
 
@@ -679,7 +641,7 @@ def _deploy(lane: Lane, tmp_path: Path) -> Iterator[dict[str, Any]]:
         # Run from inside the repo: every lifecycle verb walks up to the nearest
         # profile.yml, so standing in the deployment is what selects it.
         up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt(f"osprey up --dev ({lane.posture} multiuser)", up)
+        assert up.returncode == 0, format_failure(f"osprey up --dev ({lane.posture} multiuser)", up)
         for user in lane.usernames:
             # Under `open` every location is injected into and answers 200;
             # under `token` nothing is injected anywhere.
@@ -729,8 +691,8 @@ def test_up_builds_the_real_render_image() -> None:
     exists — rather than a stub, so a green auth assertion cannot be a green stub.
     """
     image = TOKEN_LANE.render_image
-    assert _image_exists(image), f"{image} was not built by 'osprey up'"
-    assert _container_id(TOKEN_LANE.container("alice")) is not None, (
+    assert image_exists(image), f"{image} was not built by 'osprey up'"
+    assert container_id(TOKEN_LANE.container("alice")) is not None, (
         f"{TOKEN_LANE.container('alice')} was not created"
     )
 
@@ -748,7 +710,7 @@ def test_uncredentialed_mutation_is_refused_by_the_app() -> None:
     status, _, body = _patch_config(TOKEN_LANE, "alice")
     assert status == 401, (
         f"uncredentialed mutation was not refused by the app (got {status})\n"
-        f"{body[:300]}\n{_logs(TOKEN_LANE.container('alice'))}"
+        f"{body[:300]}\n{runtime_logs(TOKEN_LANE.container('alice'))}"
     )
 
 
@@ -772,13 +734,13 @@ def test_token_login_unlocks_the_mutation(token_deployment: dict[str, Any]) -> N
     # clean URL. What matters is the cookie, not where the redirect lands.
     _request(TOKEN_LANE, f"/u/alice/?token={token}", headers=_navigation(), opener=client)
     assert [c.name for c in jar], (
-        f"token exchange issued no session cookie\n{_logs(TOKEN_LANE.container('alice'))}"
+        f"token exchange issued no session cookie\n{runtime_logs(TOKEN_LANE.container('alice'))}"
     )
 
     status, _, body = _patch_config(TOKEN_LANE, "alice", opener=client)
     assert status == 200, (
         f"cookie-authenticated mutation was not accepted (got {status})\n"
-        f"{body[:300]}\n{_logs(TOKEN_LANE.container('alice'))}"
+        f"{body[:300]}\n{runtime_logs(TOKEN_LANE.container('alice'))}"
     )
 
 
@@ -802,13 +764,13 @@ def test_open_navigation_reaches_a_credentialed_terminal() -> None:
     status, _, body = _request(OPEN_LANE, "/u/alice/", headers=_navigation())
     assert status == 200, (
         f"navigating to alice's terminal was not served (got {status})\n"
-        f"{body[:300]}\n{_logs(OPEN_LANE.container('alice'))}"
+        f"{body[:300]}\n{runtime_logs(OPEN_LANE.container('alice'))}"
     )
 
     status, _, body = _patch_config(OPEN_LANE, "alice")
     assert status == 200, (
         f"the injected secret did not authenticate a mutating request (got {status})\n"
-        f"{body[:300]}\n{_logs(OPEN_LANE.container('alice'))}"
+        f"{body[:300]}\n{runtime_logs(OPEN_LANE.container('alice'))}"
     )
 
 
@@ -856,7 +818,7 @@ def test_open_refuses_executed_code_the_deployments_own_web_port() -> None:
     what answers for a shell or a browser tool.
     """
     probe = _GUARD_PROBE.replace("__NGINX_PORT__", str(OPEN_LANE.nginx_port))
-    result = _runtime_cli(
+    result = runtime_cli(
         "exec",
         "-i",
         OPEN_LANE.container("alice"),
@@ -865,7 +827,7 @@ def test_open_refuses_executed_code_the_deployments_own_web_port() -> None:
         timeout=GUARD_PROBE_TIMEOUT_SEC,
         input_text=probe,
     )
-    assert result.returncode == 0, _fmt("in-container perimeter guard probe", result)
+    assert result.returncode == 0, format_failure("in-container perimeter guard probe", result)
 
     verdicts = [line for line in result.stdout.splitlines() if line.startswith("OSPREY_PROBE ")]
     assert verdicts, f"probe emitted no verdict line:\n{result.stdout}\n{result.stderr}"

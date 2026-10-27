@@ -76,6 +76,7 @@ from typing import Any
 
 import pytest
 
+from tests.e2e._deploy_support import format_failure
 from tests.e2e.profile_edits import set_pairs
 
 pytestmark = [
@@ -306,10 +307,7 @@ def _build_project(output_dir: Path) -> Path:
             env={**os.environ, "CLAUDECODE": ""},
         )
         if result.returncode != 0:
-            raise AssertionError(
-                f"{label} failed (rc={result.returncode}):\n"
-                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-            )
+            raise AssertionError(format_failure(label, result))
     return repo
 
 

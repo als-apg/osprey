@@ -174,7 +174,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -201,6 +200,15 @@ from osprey.services.auth_sidecar.revocation import REVOCATION_FILE_NAME
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME
 from osprey_connectors.config import ConfigBuilder
 from osprey_connectors.workspace import TIERS_DIRNAME
+from tests.e2e._deploy_support import (
+    RUNTIME,
+    container_id,
+    find_osprey_console_script,
+    format_failure,
+    image_exists,
+    runtime_cli,
+    runtime_logs,
+)
 from tests.e2e._render_stub import stub_render_image
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -221,13 +229,6 @@ from tests.e2e.profile_edits import set_pairs
 _WEB_SLOT = default_port("web")
 
 pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
-
-_SUPPORTED_RUNTIMES = ("docker", "podman")
-RUNTIME = os.environ.get("OSPREY_E2E_RUNTIME", "docker")
-if RUNTIME not in _SUPPORTED_RUNTIMES:
-    raise RuntimeError(
-        f"OSPREY_E2E_RUNTIME={RUNTIME!r} is not supported; expected one of {_SUPPORTED_RUNTIMES}"
-    )
 
 # The repo DIRECTORY name, which is the deployment name: the compose project and
 # the com.osprey.project label on every image this deploy builds.
@@ -408,27 +409,6 @@ def _web_container(user: str) -> str:
     return f"{PROJECT}-web-{user}"
 
 
-def _runtime_cli(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run([RUNTIME, *args], capture_output=True, text=True, timeout=timeout)
-
-
-def _fmt(label: str, result: subprocess.CompletedProcess) -> str:
-    return (
-        f"{label} failed (rc={result.returncode}):\n"
-        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-    )
-
-
-def _find_osprey_console_script() -> Path:
-    candidate = Path(sys.executable).parent / "osprey"
-    if candidate.exists():
-        return candidate
-    found = shutil.which("osprey")
-    if found:
-        return Path(found)
-    raise RuntimeError("Could not locate the 'osprey' console script.")
-
-
 def _run_osprey(
     osprey_bin: Path, args: list[str], cwd: Path, timeout: int = VERB_TIMEOUT_SEC
 ) -> subprocess.CompletedProcess:
@@ -449,25 +429,11 @@ def _run_osprey(
     )
 
 
-def _container_id(name: str) -> str | None:
-    result = _runtime_cli("inspect", "--type", "container", "-f", "{{.Id}}", name, timeout=15)
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
 def _container_image(name: str) -> str | None:
-    result = _runtime_cli(
+    result = runtime_cli(
         "inspect", "--type", "container", "-f", "{{.Config.Image}}", name, timeout=15
     )
     return result.stdout.strip() if result.returncode == 0 else None
-
-
-def _image_exists(tag: str) -> bool:
-    return _runtime_cli("inspect", "--type", "image", tag, timeout=15).returncode == 0
-
-
-def _logs(name: str) -> str:
-    result = _runtime_cli("logs", "--tail", "80", name, timeout=20)
-    return f"--- {name} stdout ---\n{result.stdout}\n--- {name} stderr ---\n{result.stderr}"
 
 
 def _exec(container: str, *argv: str, timeout: int = 30) -> subprocess.CompletedProcess:
@@ -476,7 +442,7 @@ def _exec(container: str, *argv: str, timeout: int = 30) -> subprocess.Completed
     Names a ``<project>-web-<user>`` container built by this deployment, never a
     pattern — see CONTAINER-OPS SAFETY in the module docstring.
     """
-    return _runtime_cli("exec", container, *argv, timeout=timeout)
+    return runtime_cli("exec", container, *argv, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -852,7 +818,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = 
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert init.returncode == 0, _fmt("osprey init (full-chain auth)", init)
+    assert init.returncode == 0, format_failure("osprey init (full-chain auth)", init)
 
     _author_tiers(repo, edits)
 
@@ -862,7 +828,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path, edits: dict[str, Any] | None = 
         tmp_path,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt("osprey build (full-chain auth)", build)
+    assert build.returncode == 0, format_failure("osprey build (full-chain auth)", build)
     stub_render_image(repo, PROBE_PROJECT, _probe_dockerfile(), {"probe.py": _PROBE_SOURCE})
 
     # The one knob, read back off the render before anything binds. Every host
@@ -916,15 +882,15 @@ def _teardown() -> None:
     attempt's per-user volumes would start from that attempt's state.
     """
     for user in USERS:
-        _runtime_cli("rm", "-f", _web_container(user))
-    _runtime_cli("rm", "-f", AUTH_C)
-    _runtime_cli("rm", "-f", NGINX_C)
+        runtime_cli("rm", "-f", _web_container(user))
+    runtime_cli("rm", "-f", AUTH_C)
+    runtime_cli("rm", "-f", NGINX_C)
     for name in (STORE_C, GATEWAY_C, HISTORY_C):
-        _runtime_cli("rm", "-f", name)
-    _runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=90)
+        runtime_cli("rm", "-f", name)
+    runtime_cli("compose", "-p", PROJECT_NAME, "down", timeout=90)
     remove_project_volumes(PROJECT_NAME, runtime=RUNTIME)
     for tag in (AUTH_IMAGE_TAG, TERMINAL_IMAGE_TAG, PROBE_IMAGE_TAG, PROJECT_IMAGE_TAG):
-        _runtime_cli("rmi", "-f", tag, timeout=60)
+        runtime_cli("rmi", "-f", tag, timeout=60)
 
 
 # ---------------------------------------------------------------------------
@@ -1039,11 +1005,11 @@ def _session_for(user: str) -> urllib.request.OpenerDirector:
     """
     client, jar, status, page = _login(user)
     assert status == LOGIN_ACCEPTED, (
-        f"login for {user!r} was not accepted (got {status})\n{page[:300]}\n{_logs(AUTH_C)}"
+        f"login for {user!r} was not accepted (got {status})\n{page[:300]}\n{runtime_logs(AUTH_C)}"
     )
     assert SESSION_COOKIE_NAME in {cookie.name for cookie in jar}, (
         f"login for {user!r} issued no session cookie "
-        f"(jar: {sorted(cookie.name for cookie in jar)})\n{_logs(AUTH_C)}"
+        f"(jar: {sorted(cookie.name for cookie in jar)})\n{runtime_logs(AUTH_C)}"
     )
     return client
 
@@ -1063,7 +1029,7 @@ def _probe_report(
     status, _, body = _request(f"/u/{user}/", headers=headers or _navigation(), opener=opener)
     assert status == 200, (
         f"request for {user!r} did not reach the probe upstream (got {status})\n"
-        f"{body[:400]}\n{_logs(NGINX_C)}\n{_logs(_web_container(user))}"
+        f"{body[:400]}\n{runtime_logs(NGINX_C)}\n{runtime_logs(_web_container(user))}"
     )
     try:
         report = json.loads(body)
@@ -1114,7 +1080,7 @@ def _wait_for_health(timeout: float) -> dict[str, Any]:
             last = str(exc)
         time.sleep(2.0)
     raise AssertionError(
-        f"auth sidecar /health not ready after {timeout:.0f}s (last: {last})\n{_logs(AUTH_C)}"
+        f"auth sidecar /health not ready after {timeout:.0f}s (last: {last})\n{runtime_logs(AUTH_C)}"
     )
 
 
@@ -1140,7 +1106,7 @@ def _wait_for_gate(user: str, timeout: float) -> None:
         time.sleep(2.0)
     raise AssertionError(
         f"{user}'s perimeter not ready after {timeout:.0f}s (last: {last})\n"
-        f"{_logs(NGINX_C)}\n{_logs(AUTH_C)}"
+        f"{runtime_logs(NGINX_C)}\n{runtime_logs(AUTH_C)}"
     )
 
 
@@ -1166,7 +1132,7 @@ def _wait_for_upstream(user: str, opener: urllib.request.OpenerDirector, timeout
         time.sleep(3.0)
     raise AssertionError(
         f"{user}'s upstream never answered after {timeout:.0f}s (last: {last})\n"
-        f"{_logs(NGINX_C)}\n{_logs(_web_container(user))}"
+        f"{runtime_logs(NGINX_C)}\n{runtime_logs(_web_container(user))}"
     )
 
 
@@ -1263,11 +1229,11 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
     """
     if shutil.which(RUNTIME) is None:
         pytest.skip(f"{RUNTIME} not available")
-    if _runtime_cli("ps", timeout=10).returncode != 0:
+    if runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
 
     tmp_path = tmp_path_factory.mktemp("full-chain-auth")
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     repo = _make_repo(tmp_path, osprey_bin)
 
     _teardown()  # clear anything a previous crashed run stranded under these names
@@ -1275,7 +1241,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
         # Run from inside the repo: every lifecycle verb walks up to the nearest
         # profile.yml, so standing in the deployment is what selects it.
         up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-        assert up.returncode == 0, _fmt("osprey up --dev (full-chain auth)", up)
+        assert up.returncode == 0, format_failure("osprey up --dev (full-chain auth)", up)
 
         health = _wait_for_health(AUTH_READY_TIMEOUT_SEC)
         _wait_for_gate(REAL_USER, AUTH_READY_TIMEOUT_SEC)
@@ -1308,12 +1274,12 @@ def test_up_builds_the_real_sidecar_and_both_render_images(deployment: dict[str,
     posture with no credentials is ``configured: false`` plus a refusal on
     every other path.
     """
-    assert _image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'osprey up'"
-    assert _image_exists(TERMINAL_IMAGE_TAG), f"{TERMINAL_IMAGE_TAG} was not built by 'osprey up'"
-    assert _image_exists(PROBE_IMAGE_TAG), f"{PROBE_IMAGE_TAG} was not built by 'osprey up'"
-    assert _container_id(AUTH_C) is not None, f"{AUTH_C} was not created"
+    assert image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'osprey up'"
+    assert image_exists(TERMINAL_IMAGE_TAG), f"{TERMINAL_IMAGE_TAG} was not built by 'osprey up'"
+    assert image_exists(PROBE_IMAGE_TAG), f"{PROBE_IMAGE_TAG} was not built by 'osprey up'"
+    assert container_id(AUTH_C) is not None, f"{AUTH_C} was not created"
     assert deployment["health"].get("configured") is True, (
-        f"sidecar came up unconfigured: {deployment['health']}\n{_logs(AUTH_C)}"
+        f"sidecar came up unconfigured: {deployment['health']}\n{runtime_logs(AUTH_C)}"
     )
 
 
@@ -1364,7 +1330,7 @@ def test_a_password_login_reaches_that_users_own_terminal(deployment: dict[str, 
     )
     assert status == 200, (
         f"authorized mutation did not reach {REAL_USER}'s terminal (got {status})\n"
-        f"{body[:400]}\n{_logs(NGINX_C)}\n{_logs(_web_container(REAL_USER))}"
+        f"{body[:400]}\n{runtime_logs(NGINX_C)}\n{runtime_logs(_web_container(REAL_USER))}"
     )
 
 
@@ -1399,7 +1365,7 @@ def test_a_sign_in_without_a_card_reaches_that_users_own_terminal() -> None:
     )
     assert status == 200, (
         f"sign-in for {REAL_USER!r} did not list its cards (got {status})\n"
-        f"{page[:300]}\n{_logs(AUTH_C)}"
+        f"{page[:300]}\n{runtime_logs(AUTH_C)}"
     )
     own, shared = f'href="/u/{REAL_USER}/"', f'href="/u/{SHARED_CARD}/"'
     assert own in page and shared in page, page[:1500]
@@ -1582,7 +1548,7 @@ def test_a_login_whose_role_cannot_be_carried_is_refused() -> None:
     _client, _jar, status, page = _login(UNSAFE_ROLE_USER)
     assert status == 403, (
         f"a login carrying an uncarriable role was not refused with 403 (got {status})\n"
-        f"{page[:300]}\n{_logs(AUTH_C)}"
+        f"{page[:300]}\n{runtime_logs(AUTH_C)}"
     )
 
 
@@ -1632,7 +1598,7 @@ def test_the_login_events_land_in_the_sidecars_own_ledger(deployment: dict[str, 
     """
     records = _ledger_records(deployment["repo"], SIDECAR_IDENTITY)
     assert records, (
-        f"the sidecar wrote no records under var/audit/{SIDECAR_IDENTITY}/\n{_logs(AUTH_C)}"
+        f"the sidecar wrote no records under var/audit/{SIDECAR_IDENTITY}/\n{runtime_logs(AUTH_C)}"
     )
     successes = [
         r for r in records if r.get("subject") == REAL_USER and r.get("decision") == "allowed"
@@ -1699,7 +1665,7 @@ def test_the_protected_key_refusal_lands_in_that_users_own_ledger(
     )
     assert status == 403, (
         f"a protected-key write was not refused (got {status})\n"
-        f"{body[:400]}\n{_logs(_web_container(REAL_USER))}"
+        f"{body[:400]}\n{runtime_logs(_web_container(REAL_USER))}"
     )
 
     # The container writes through its own append; give the bind a moment to
@@ -1725,7 +1691,7 @@ def test_the_protected_key_refusal_lands_in_that_users_own_ledger(
         f"no {SURFACE_HTTP_CONFIG}/{_REFUSAL_REASON} refusal naming {_REFUSAL_SUBJECT!r} under "
         f"var/audit/{REAL_USER}/ ({_subdir_listing(deployment['repo'], REAL_USER)}; "
         f"records read: {seen})\n"
-        f"{_logs(_web_container(REAL_USER))}"
+        f"{runtime_logs(_web_container(REAL_USER))}"
     )
     for record in refusals:
         assert record.get("actor") == REAL_USER, (
@@ -1758,7 +1724,9 @@ def test_one_users_records_never_appear_in_anothers_ledger(deployment: dict[str,
     """
     container = _web_container(REAL_USER)
     listing = _exec(container, "ls", "-1", CONTAINER_AUDIT_DIR)
-    assert listing.returncode == 0, _fmt(f"ls {CONTAINER_AUDIT_DIR} in {container}", listing)
+    assert listing.returncode == 0, format_failure(
+        f"ls {CONTAINER_AUDIT_DIR} in {container}", listing
+    )
     entries = {name.strip() for name in listing.stdout.splitlines() if name.strip()}
     assert REAL_USER in entries, (
         f"{REAL_USER}'s own audit subdirectory is missing from her container's view of "
@@ -1830,10 +1798,12 @@ def test_no_record_carries_a_value_only_an_identifier(deployment: dict[str, Any]
         "+",
         timeout=60,
     )
-    assert swept.returncode == 0, _fmt(f"sweeping {CONTAINER_AUDIT_DIR} in {container}", swept)
+    assert swept.returncode == 0, format_failure(
+        f"sweeping {CONTAINER_AUDIT_DIR} in {container}", swept
+    )
     assert swept.stdout.strip(), (
         f"the in-container sweep of {CONTAINER_AUDIT_DIR} read no ledger lines, so its half "
-        f"of this assertion would pass vacuously\n{_logs(container)}"
+        f"of this assertion would pass vacuously\n{runtime_logs(container)}"
     )
 
     haystack = json.dumps(records) + "\n" + swept.stdout
@@ -1872,27 +1842,27 @@ def test_a_logged_out_cookie_stays_refused_after_the_login_service_is_recreated(
         f"login for {NO_ROLE_USER!r} was not accepted (got {status})\n{page[:300]}"
     )
     copied = next((c.value for c in jar if c.name == SESSION_COOKIE_NAME), None)
-    assert copied, f"login for {NO_ROLE_USER!r} issued no session cookie\n{_logs(AUTH_C)}"
+    assert copied, f"login for {NO_ROLE_USER!r} issued no session cookie\n{runtime_logs(AUTH_C)}"
 
     status, _, body = _request(
         f"/auth/logout?user={urllib.parse.quote(NO_ROLE_USER)}", opener=client
     )
-    assert status == 303, f"logout answered {status}\n{body[:300]}\n{_logs(AUTH_C)}"
+    assert status == 303, f"logout answered {status}\n{body[:300]}\n{runtime_logs(AUTH_C)}"
     assert _replay(NO_ROLE_USER, copied) == 401, "the logged-out cookie was not refused"
 
-    before = _container_id(AUTH_C)
+    before = container_id(AUTH_C)
     monkeypatch.setenv("CONTAINER_RUNTIME", RUNTIME)
     config = ConfigBuilder(str(repo / "build" / "config.yml")).raw_config
     force_recreate_auth_sidecar(config, repo_root=repo)
-    after = _container_id(AUTH_C)
+    after = container_id(AUTH_C)
     assert before and after and before != after, (
-        f"the sidecar was not recreated (id {before!r} -> {after!r})\n{_logs(AUTH_C)}"
+        f"the sidecar was not recreated (id {before!r} -> {after!r})\n{runtime_logs(AUTH_C)}"
     )
 
     _wait_for_health(AUTH_READY_TIMEOUT_SEC)
     _wait_for_gate(NO_ROLE_USER, AUTH_READY_TIMEOUT_SEC)
     assert _replay(NO_ROLE_USER, copied) == 401, (
-        f"the recreated sidecar accepted a cookie logged out before it\n{_logs(AUTH_C)}"
+        f"the recreated sidecar accepted a cookie logged out before it\n{runtime_logs(AUTH_C)}"
     )
     assert (repo / AUDIT_RELPATH / SIDECAR_IDENTITY / REVOCATION_FILE_NAME).exists(), (
         f"no revoked-session file under var/audit/{SIDECAR_IDENTITY}/ "
@@ -2014,7 +1984,7 @@ PLAY_REQUESTS_PER_RUN = 1
 def _store_sql(query: str) -> str:
     """Run *query* as the store's admin account, inside the store container."""
     result = _exec(STORE_C, "clickhouse-client", "--format", "TSV", "-q", query, timeout=120)
-    assert result.returncode == 0, _fmt(f"store query {query[:80]!r}", result)
+    assert result.returncode == 0, format_failure(f"store query {query[:80]!r}", result)
     return result.stdout
 
 
@@ -2335,7 +2305,7 @@ def test_reader_origin_and_the_store_log_no_password(reader_origin: dict[str, An
 
     leaked = {}
     for name in (NGINX_C, STORE_C, GATEWAY_C):
-        log = _logs(name)
+        log = runtime_logs(name)
         if "password=" in log or key in log:
             leaked[name] = "container log"
     _store_sql("SYSTEM FLUSH LOGS")
@@ -2359,7 +2329,7 @@ def test_reader_origin_and_the_store_log_no_password(reader_origin: dict[str, An
         key,
         "/var/log/clickhouse-server",
     )
-    assert files.returncode in (0, 1), _fmt("grep the store's log files", files)
+    assert files.returncode in (0, 1), format_failure("grep the store's log files", files)
     if files.stdout.strip():
         leaked[STORE_C + " files"] = files.stdout.strip()
     assert not leaked, leaked
@@ -2500,7 +2470,7 @@ def _history_sign_in(
     )
     location = {name.lower(): value for name, value in headers.items()}.get("location")
     assert status == LOGIN_ACCEPTED and location == target, (
-        f"sign-in for {user!r} answered {status} -> {location!r}\n{page[:300]}\n{_logs(AUTH_C)}"
+        f"sign-in for {user!r} answered {status} -> {location!r}\n{page[:300]}\n{runtime_logs(AUTH_C)}"
     )
     return client
 
@@ -2552,7 +2522,7 @@ def test_history_is_404_under_auth_method_none_by_render(tmp_path: Path) -> None
     no ``history`` service, and the readers' server has no ``/history/``
     location, so the request falls to its catch-all ``return 404``.
     """
-    repo = _make_repo(tmp_path, _find_osprey_console_script(), edits=_auth_none_edits())
+    repo = _make_repo(tmp_path, find_osprey_console_script(), edits=_auth_none_edits())
 
     services = _rendered_services(repo)
     assert "telemetry_store" in services, sorted(services)
@@ -2572,7 +2542,7 @@ def test_history_service_runs_the_project_image_the_render_names(
     match = re.fullmatch(r"\$\{OSPREY_WORKER_IMAGE:-(.+)\}", image)
     tag = match.group(1) if match else image
     assert tag == PROJECT_IMAGE_TAG, image
-    assert _container_image(HISTORY_C) == tag, _logs(HISTORY_C)
+    assert _container_image(HISTORY_C) == tag, runtime_logs(HISTORY_C)
     # The location the auth-none case finds absent is present here.
     assert "location /history/" in _reader_server_block(repo)
 
@@ -2611,13 +2581,13 @@ def test_history_a_forged_header_call_from_a_web_container_is_refused_and_record
         "    print(error.code)\n"
     )
     result = _exec(_web_container(HEADER_USER), "python3", "-c", script)
-    assert result.returncode == 0, _fmt("forged history call", result)
-    assert result.stdout.strip() == "401", _fmt("forged history call", result)
+    assert result.returncode == 0, format_failure("forged history call", result)
+    assert result.stdout.strip() == "401", format_failure("forged history call", result)
 
     seen = _settled(refusals, lambda records: len(records) > before)
     assert len(seen) > before, (
         f"no web_auth refusal under {HISTORY_IDENTITY!r} "
-        f"({_subdir_listing(repo, HISTORY_IDENTITY)})\n{_logs(HISTORY_C)}"
+        f"({_subdir_listing(repo, HISTORY_IDENTITY)})\n{runtime_logs(HISTORY_C)}"
     )
     assert all(record.get("actor") == HISTORY_IDENTITY for record in seen[before:]), seen[before:]
 
@@ -2838,16 +2808,16 @@ def history_withdrawal(deployment: dict[str, Any], history_page: dict[str, Any])
     config[users_key] = [u for u in config[users_key] if u["name"] != ALL_USER]
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
-    osprey_bin = _find_osprey_console_script()
+    osprey_bin = find_osprey_console_script()
     build = _run_osprey(
         osprey_bin,
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         repo,
         timeout=RENDER_TIMEOUT_SEC,
     )
-    assert build.returncode == 0, _fmt("osprey build (history withdrawal)", build)
+    assert build.returncode == 0, format_failure("osprey build (history withdrawal)", build)
     up = _run_osprey(osprey_bin, ["up", "--dev"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
-    assert up.returncode == 0, _fmt("osprey up --dev (history withdrawal)", up)
+    assert up.returncode == 0, format_failure("osprey up --dev (history withdrawal)", up)
     _wait_for_health(AUTH_READY_TIMEOUT_SEC)
     return {"carol": carol, "removed_view": removed_view}
 

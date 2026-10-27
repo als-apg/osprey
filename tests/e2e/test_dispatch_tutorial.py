@@ -47,6 +47,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.e2e._deploy_support import format_failure
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
@@ -195,20 +196,14 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
         cwd=base,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init ({e2e_provider()}) failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure(f"osprey init ({e2e_provider()})", init))
 
     build = _run_osprey(
         ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
         cwd=base,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     if not (repo / "build" / "config.yml").is_file():
         pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
     return repo

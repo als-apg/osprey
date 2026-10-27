@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from tests.e2e._deploy_support import format_failure
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import forced_model
@@ -588,10 +589,7 @@ def build_project_subprocess(
             env={**os.environ, "CLAUDECODE": ""},
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"{label} failed (rc={result.returncode}):\n"
-                f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-            )
+            raise RuntimeError(format_failure(label, result))
 
     run_step("osprey init", cmd)
     if pre_build is not None:
@@ -811,10 +809,7 @@ def restart_bridge(
         timeout=RESTART_TIMEOUT_SEC,
     )
     if restart.returncode != 0:
-        raise AssertionError(
-            f"compose restart {BRIDGE_SERVICE} failed (rc={restart.returncode}):\n"
-            f"--- stdout ---\n{restart.stdout}\n--- stderr ---\n{restart.stderr}"
-        )
+        raise AssertionError(format_failure(f"compose restart {BRIDGE_SERVICE}", restart))
 
     started_after = _container_started_at(container)
     if started_after == started_before:

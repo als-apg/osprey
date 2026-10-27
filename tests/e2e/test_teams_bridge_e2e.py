@@ -161,6 +161,7 @@ from osprey.bridges.teams.receiver import (
     ServiceBusQueueReceiver,
     make_receiver,
 )
+from tests.e2e._deploy_support import format_failure
 from tests.e2e.fixtures.teams_fakes import (
     ACCESS_TOKEN,
     APP_ID,
@@ -514,17 +515,11 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
         ]
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
     build = _osprey(["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
     if not (repo / "build" / "config.yml").is_file():
         pytest.fail(f"build succeeded but build/config.yml missing under {repo}")
     return repo

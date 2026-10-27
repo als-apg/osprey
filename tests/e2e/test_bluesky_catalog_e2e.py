@@ -50,7 +50,6 @@ import json
 import os
 import shutil
 import subprocess
-import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -78,6 +77,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_BROWSE_ONLY_CONNECTOR,
 )
 from tests.e2e import _orm_stack
+from tests.e2e._deploy_support import format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -204,21 +204,6 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 '''
 
 
-def _wait_for_health(url: str, timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    last_err = "(no response yet)"
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=3.0) as resp:  # localhost
-                if resp.status == 200:
-                    return
-                last_err = f"HTTP {resp.status}"
-        except (urllib.error.URLError, ConnectionError, OSError) as exc:
-            last_err = str(exc)
-        time.sleep(1.0)
-    raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
-
-
 def _get(path: str) -> tuple[int, Any]:
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")
     try:
@@ -293,17 +278,6 @@ def _assert_preview_shape(payload: Any, *, plan: str) -> None:
         assert payload["truncated"] is False and payload["move_cap"] is None
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        cmd,
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-
-
 @pytest.fixture(scope="module")
 def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Init + build + ``osprey up --dev`` a bluesky-bridge repo with one
@@ -332,7 +306,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
 
     # Two steps, because the surface has two: `init` writes the repo's source
     # zone from the preset plus these edits, `build` renders build/ from it.
-    init = _run(
+    init = run_command(
         [
             str(osprey_bin),
             "init",
@@ -359,21 +333,15 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
         timeout=BUILD_TIMEOUT_SEC,
     )
     if init.returncode != 0:
-        pytest.fail(
-            f"osprey init failed (rc={init.returncode}):\n"
-            f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
-        )
+        pytest.fail(format_failure("osprey init", init))
 
-    build = _run(
+    build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
     )
     if build.returncode != 0:
-        pytest.fail(
-            f"osprey build failed (rc={build.returncode}):\n"
-            f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
-        )
+        pytest.fail(format_failure("osprey build", build))
 
     # The repo root's .env is the deployment's whole secret store and the file
     # every compose invocation is pointed at, so `up` refuses to start without
@@ -398,16 +366,15 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
         )
 
     try:
-        up = _run([str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
+        up = run_command(
+            [str(osprey_bin), "up", "-d", "--dev"], cwd=repo, timeout=DEPLOY_UP_TIMEOUT_SEC
+        )
         if up.returncode != 0:
-            pytest.fail(
-                f"osprey up -d --dev failed (rc={up.returncode}):\n"
-                f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
-            )
-        _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
+            pytest.fail(format_failure("osprey up -d --dev", up))
+        wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
         yield repo
     finally:
-        down = _run([str(osprey_bin), "down"], cwd=repo, timeout=300)
+        down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
             print(  # surface teardown issues in CI logs
                 f"osprey down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
