@@ -10054,7 +10054,9 @@ def test_every_publishing_job_runs_only_upstream__mutation_unguards_the_nextclou
 
 def test_every_publishing_job_runs_only_upstream__mutation_unguards_the_pypi_publish() -> None:
     workflows = _all_workflows()
-    workflows["release.yml"]["jobs"]["publish-to-pypi"]["if"] = "startsWith(github.ref_name, 'v')"
+    workflows["release.yml"]["jobs"]["publish-to-pypi"]["if"] = (
+        "startsWith(github.ref, 'refs/tags/v')"
+    )
     assert _unguarded_publishers(workflows) == [
         "release.yml:publish-to-pypi/Publish workspace members to PyPI",
         "release.yml:publish-to-pypi/Publish framework to PyPI",
@@ -10452,6 +10454,204 @@ def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Pat
     assert run() == 0
     (dist / "osprey_connectors-2026.10.0-py3-none-any.whl").write_text("")
     assert run() != 0
+
+
+# ---------------------------------------------------------------------------
+# Both release workflows: least privilege, tag guards, tags on main
+# ---------------------------------------------------------------------------
+#
+# The jobs that install from PyPI and run what they installed must hold no
+# write scope, so nothing at workflow level writes: only the PyPI upload mints
+# an OIDC token and only the GitHub release writes contents. Every framework
+# job is guarded on a tag ref, not a ref name a branch could carry. And both
+# gates refuse a tag main cannot reach, which the lane gate alone lets through
+# whenever the off-main commit's tree had a green run.
+
+#: ``{job: write scopes}`` each release workflow may grant, and nothing else.
+RELEASE_WRITE_SCOPES = {
+    "publish-to-pypi": {"id-token"},
+    "create-github-release": {"contents"},
+}
+FRAMEWORK_TAG_GUARD = f"{_REPOSITORY_GUARD} && startsWith(github.ref, 'refs/tags/v')"
+ON_MAIN_STEP = "Require the tagged commit on main"
+PYPI_PRERELEASE_STEP = "Refuse a stable framework that resolved a pre-release osprey-connectors"
+
+
+def _both_releases() -> list[tuple[str, dict[str, Any], str]]:
+    """``(file name, workflow, gate job)`` for each release workflow."""
+    return [
+        (RELEASE_YML.name, _load_release(), RELEASE_GATE_JOB),
+        (CONNECTORS_RELEASE_YML.name, _load_connectors_release(), CONNECTORS_GATE_JOB),
+    ]
+
+
+def _write_scopes(release: dict[str, Any]) -> dict[str, set[str]]:
+    return {
+        name: scopes
+        for name, job in release["jobs"].items()
+        if (scopes := {s for s, v in (job.get("permissions") or {}).items() if v == "write"})
+    }
+
+
+def _assert_least_privilege(name: str, release: dict[str, Any]) -> None:
+    assert release.get("permissions") == {"contents": "read"}, (
+        f"{name} grants {release.get('permissions')} at workflow level"
+    )
+    assert _write_scopes(release) == RELEASE_WRITE_SCOPES, (
+        f"{name} write scopes: {_write_scopes(release)}"
+    )
+
+
+@pytest.mark.parametrize("index", [0, 1], ids=["release.yml", "release-connectors.yml"])
+def test_each_release_workflow_writes_only_where_it_must(index: int) -> None:
+    name, release, _ = _both_releases()[index]
+    _assert_least_privilege(name, release)
+
+
+def test_release_least_privilege__mutation_workflow_level_write() -> None:
+    """The shape release.yml had: both scopes for every job."""
+    release = _load_release()
+    release["permissions"] = {"contents": "write", "id-token": "write"}
+    with pytest.raises(AssertionError, match="at workflow level"):
+        _assert_least_privilege("release.yml", release)
+
+
+def test_release_least_privilege__mutation_a_job_escalates() -> None:
+    release = _load_release()
+    release["jobs"]["verify-pypi-resolvable"]["permissions"] = {"id-token": "write"}
+    with pytest.raises(AssertionError, match="write scopes"):
+        _assert_least_privilege("release.yml", release)
+
+
+def test_the_reusable_install_docs_check_needs_no_write_scope() -> None:
+    """A called workflow gets at most its caller's scopes; it must not need more."""
+    called = yaml.safe_load((WORKFLOWS_DIR / "validate-install-docs.yml").read_text())
+    for job in called["jobs"].values():
+        assert not _write_scopes({"jobs": {"_": job}}), job
+
+
+def test_every_framework_release_job_runs_only_on_a_version_tag(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """`github.ref_name` is also a branch's name; `refs/tags/v` is a tag only."""
+    release = release if release is not None else _load_release()
+    for name, job in release["jobs"].items():
+        assert job.get("if") == FRAMEWORK_TAG_GUARD, (
+            f"{name} is not guarded on the repository and the tag ref"
+        )
+
+
+def test_every_framework_release_job__mutation_ref_name_guard() -> None:
+    mutated = _load_release()
+    mutated["jobs"]["build"]["if"] = f"{_REPOSITORY_GUARD} && startsWith(github.ref_name, 'v')"
+    with pytest.raises(AssertionError, match="build is not guarded"):
+        test_every_framework_release_job_runs_only_on_a_version_tag(mutated)
+
+
+def _on_main_step(release: dict[str, Any], job: str) -> dict[str, Any]:
+    steps = release["jobs"][job]["steps"]
+    found = [s for s in steps if s.get("name") == ON_MAIN_STEP]
+    assert len(found) == 1, f"{job} has no {ON_MAIN_STEP!r} step"
+    assert steps.index(found[0]) < steps.index(_gate_step(release, job)), (
+        f"{job} checks main only after the lane gate"
+    )
+    return found[0]
+
+
+def test_both_release_gates_require_the_tag_on_main() -> None:
+    """One check, two copies held equal, ahead of the lane gate it covers for."""
+    steps = [_on_main_step(release, job) for _, release, job in _both_releases()]
+    assert steps[0]["run"] == steps[1]["run"], "the two on-main checks differ"
+    assert steps[0]["env"] == steps[1]["env"]
+
+
+def test_both_release_gates_require_the_tag_on_main__mutation_drops_one() -> None:
+    release = _load_connectors_release()
+    steps = release["jobs"][CONNECTORS_GATE_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != ON_MAIN_STEP]
+    with pytest.raises(AssertionError, match="has no"):
+        _on_main_step(release, CONNECTORS_GATE_JOB)
+
+
+def _git_in(cwd: Path, *args: str) -> str:
+    done = subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout.strip()
+
+
+def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) -> None:
+    """Run against a scratch origin: a commit on main passes, one on a side branch does not."""
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    _git_in(origin, "init", "-q", "-b", "main")
+    _git_in(origin, "commit", "-q", "--allow-empty", "-m", "a")
+    _git_in(origin, "commit", "-q", "--allow-empty", "-m", "b")
+    on_main = _git_in(origin, "rev-parse", "HEAD")
+    _git_in(origin, "checkout", "-q", "-b", "side", "HEAD~1")
+    _git_in(origin, "commit", "-q", "--allow-empty", "-m", "c")
+    off_main = _git_in(origin, "rev-parse", "HEAD")
+    clone = tmp_path / "clone"
+    _git_in(tmp_path, "clone", "-q", "--no-checkout", str(origin), str(clone))
+    _git_in(clone, "fetch", "-q", "origin", off_main)
+
+    script = _on_main_step(_load_release(), RELEASE_GATE_JOB)["run"]
+
+    def run(sha: str) -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "TAG_SHA": sha, "TAG_NAME": "v2026.10.0"}
+        return subprocess.run(
+            ["bash", "-c", script], cwd=clone, env=env, capture_output=True, text=True
+        )
+
+    assert run(on_main).returncode == 0
+    refused = run(off_main)
+    assert refused.returncode == 1
+    assert "v2026.10.0" in refused.stdout and "is not on main" in refused.stdout
+
+
+def _run_prerelease_check(tmp_path: Path, tag: str, connectors: str) -> int:
+    """The step, with ``uv tool dir`` and the tool's python stubbed to report *connectors*."""
+    step = next(
+        s
+        for s in _load_release()["jobs"]["verify-pypi-resolvable"]["steps"]
+        if s.get("name") == PYPI_PRERELEASE_STEP
+    )
+    tools = tmp_path / "tools"
+    (tools / "osprey-framework" / "bin").mkdir(parents=True)
+    python = tools / "osprey-framework" / "bin" / "python"
+    python.write_text(f"#!/bin/sh\necho {connectors}\n")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv = bin_dir / "uv"
+    uv.write_text(f'#!/bin/sh\n[ "$1 $2" = "tool dir" ] && echo {tools}\n')
+    for path in (python, uv):
+        path.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "TAG_NAME": tag}
+    return subprocess.run(
+        ["bash", "-c", step["run"]], env=env, capture_output=True, text=True
+    ).returncode
+
+
+@pytest.mark.parametrize(
+    ("tag", "connectors", "ok"),
+    [
+        ("v2026.10.0", "2026.9.0b3", False),  # the pre-cut-over floor's resolution
+        ("v2026.10.0", "2026.10.1rc1", False),
+        ("v2026.10.0", "2026.10.1a2", False),
+        ("v2026.10.0", "2026.10.1.dev4", False),
+        ("v2026.10.0", "2026.10.0", True),
+        ("v2026.10.0", "2026.10.0.post1", True),
+        ("v2026.10.0b1", "2026.9.0b3", True),  # a beta framework may take a beta
+    ],
+)
+def test_a_stable_framework_refuses_a_pre_release_connectors(
+    tmp_path: Path, tag: str, connectors: str, ok: bool
+) -> None:
+    assert (_run_prerelease_check(tmp_path, tag, connectors) == 0) is ok
 
 
 # ---------------------------------------------------------------------------
