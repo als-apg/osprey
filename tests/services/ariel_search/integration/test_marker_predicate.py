@@ -20,6 +20,7 @@ from osprey.services.ariel_search.database.repository import (
     MAX_ENHANCEMENT_ATTEMPTS,
     ARIELRepository,
 )
+from tests.services.ariel_search.integration._support import enhancement_status, insert_picture
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -61,36 +62,13 @@ def _seed(
         )
 
 
-def _picture(uri: str, attachment_id: str, entry_id: str, *, copy_status: str) -> None:
-    viewable = copy_status == "copied"
-    with psycopg.connect(uri, autocommit=True) as conn:
-        conn.execute(
-            """
-            INSERT INTO attachment_files (
-                attachment_id, entry_id, filename, mime_type, source_url,
-                copy_status, rendition_sha256
-            ) VALUES (%s, %s, 'f.png', 'image/png', 'https://h.example/f.png', %s, %s)
-            """,
-            (attachment_id, entry_id, copy_status, "ab" * 32 if viewable else None),
-        )
-
-
-def _status(uri: str, entry_id: str) -> dict[str, Any]:
-    with psycopg.connect(uri) as conn:
-        row = conn.execute(
-            "SELECT enhancement_status FROM enhanced_entries WHERE entry_id = %s", (entry_id,)
-        ).fetchone()
-    assert row is not None
-    return row[0]
-
-
 class TestModelSwitch:
     async def test_three_failures_then_a_model_switch_restart_the_count(
         self, repo: ARIELRepository, scratch_database: str
     ) -> None:
         """Giving up under model A is forgotten under model B: pending, attempts from 1."""
         _seed(scratch_database, "e-1")
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         attempts = [
             await repo.mark_enhancement_failed("e-1", CAPTION, "timeout", marker="vis-a")
@@ -98,7 +76,7 @@ class TestModelSwitch:
         ]
 
         assert attempts == [1, 2, 3]
-        stored = _status(scratch_database, "e-1")[CAPTION]
+        stored = enhancement_status(scratch_database, "e-1")[CAPTION]
         assert stored["gave_up"] is True
         assert stored["marker"] == "vis-a"
         assert await repo.get_incomplete_entries(CAPTION, marker="vis-a") == []
@@ -116,7 +94,7 @@ class TestModelSwitch:
         }
         assert await repo.mark_enhancement_failed("e-1", CAPTION, "t", marker="vis-b") == 1
         assert await repo.mark_enhancement_failed("e-1", CAPTION, "t", marker="vis-b") == 2
-        stored = _status(scratch_database, "e-1")[CAPTION]
+        stored = enhancement_status(scratch_database, "e-1")[CAPTION]
         assert stored["gave_up"] is False
         assert stored["marker"] == "vis-b"
         assert [e["entry_id"] for e in await repo.get_incomplete_entries(CAPTION, marker="vis-b")]
@@ -126,11 +104,11 @@ class TestModelSwitch:
     ) -> None:
         """The complete object stores the marker; a new marker brings the entry back."""
         _seed(scratch_database, "e-1")
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         await repo.mark_enhancement_complete("e-1", CAPTION, marker="vis-a")
 
-        stored = _status(scratch_database, "e-1")[CAPTION]
+        stored = enhancement_status(scratch_database, "e-1")[CAPTION]
         assert stored["status"] == "complete"
         assert stored["marker"] == "vis-a"
         assert "completed_at" in stored
@@ -163,7 +141,7 @@ class TestImageTodo:
                 """
             )
         _seed(scratch_database, "c-1")
-        _picture(scratch_database, "ca-1", "c-1", copy_status="copied")
+        insert_picture(scratch_database, "ca-1", "c-1", copy_status="copied")
 
         walked = await repo.get_incomplete_entries(CAPTION, marker="vis-a", limit=1000)
 
@@ -177,9 +155,9 @@ class TestImageTodo:
     ) -> None:
         """A caption under the current model is done; a NULL caption column is not done."""
         _seed(scratch_database, "done", captions={"d-1": {"vis-a": {"caption": "x"}}})
-        _picture(scratch_database, "d-1", "done", copy_status="copied")
+        insert_picture(scratch_database, "d-1", "done", copy_status="copied")
         _seed(scratch_database, "null")
-        _picture(scratch_database, "n-1", "null", copy_status="copied")
+        insert_picture(scratch_database, "n-1", "null", copy_status="copied")
 
         walked = await repo.get_incomplete_entries(CAPTION, marker="vis-a")
         switched = await repo.get_incomplete_entries(CAPTION, marker="vis-b")

@@ -123,3 +123,32 @@ class FakeQMDClient:
             )
         ]
         return hits[: kwargs.get("limit", len(hits))]
+
+
+def insert_picture(uri: str, attachment_id: str, entry_id: str, *, copy_status: str) -> None:
+    """One PNG attachment row; a copied one carries a rendition, so it is viewable."""
+    import psycopg
+
+    viewable = copy_status == "copied"
+    with psycopg.connect(uri, autocommit=True) as conn:
+        conn.execute(
+            """
+            INSERT INTO attachment_files (
+                attachment_id, entry_id, filename, mime_type, source_url,
+                copy_status, rendition_sha256
+            ) VALUES (%s, %s, 'f.png', 'image/png', 'https://h.example/f.png', %s, %s)
+            """,
+            (attachment_id, entry_id, copy_status, "ab" * 32 if viewable else None),
+        )
+
+
+def enhancement_status(uri: str, entry_id: str) -> dict[str, Any]:
+    """The entry's ``enhancement_status`` as stored."""
+    import psycopg
+
+    with psycopg.connect(uri) as conn:
+        row = conn.execute(
+            "SELECT enhancement_status FROM enhanced_entries WHERE entry_id = %s", (entry_id,)
+        ).fetchone()
+    assert row is not None
+    return row[0]

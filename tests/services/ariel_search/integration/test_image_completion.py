@@ -22,6 +22,7 @@ from osprey.services.ariel_search.database.repository import (
     CopyRendition,
     image_completion_sql,
 )
+from tests.services.ariel_search.integration._support import enhancement_status, insert_picture
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -76,20 +77,6 @@ def _seed_bulk(uri: str, prefix: str, count: int) -> None:
         )
 
 
-def _picture(uri: str, attachment_id: str, entry_id: str, *, copy_status: str) -> None:
-    viewable = copy_status == "copied"
-    with psycopg.connect(uri, autocommit=True) as conn:
-        conn.execute(
-            """
-            INSERT INTO attachment_files (
-                attachment_id, entry_id, filename, mime_type, source_url,
-                copy_status, rendition_sha256
-            ) VALUES (%s, %s, 'f.png', 'image/png', 'https://h.example/f.png', %s, %s)
-            """,
-            (attachment_id, entry_id, copy_status, "ab" * 32 if viewable else None),
-        )
-
-
 def _set_captions(uri: str, entry_id: str, captions: dict[str, Any] | None) -> None:
     with psycopg.connect(uri, autocommit=True) as conn:
         conn.execute(
@@ -98,17 +85,8 @@ def _set_captions(uri: str, entry_id: str, captions: dict[str, Any] | None) -> N
         )
 
 
-def _status(uri: str, entry_id: str) -> dict[str, Any]:
-    with psycopg.connect(uri) as conn:
-        row = conn.execute(
-            "SELECT enhancement_status FROM enhanced_entries WHERE entry_id = %s", (entry_id,)
-        ).fetchone()
-    assert row is not None
-    return row[0]
-
-
 def _is_complete(uri: str, entry_id: str, module: str, marker: str) -> bool:
-    entry = _status(uri, entry_id).get(module) or {}
+    entry = enhancement_status(uri, entry_id).get(module) or {}
     return entry.get("status") == "complete" and entry.get("marker") == marker
 
 
@@ -146,7 +124,7 @@ class TestPerEntryMark:
         self, repo: ARIELRepository, scratch_database: str
     ) -> None:
         _seed(scratch_database, "e-1", captions={"a-1": {MODEL_A: {"text": "x"}}})
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         assert await repo.mark_image_module_complete("e-1", CAPTION, MODEL_A) is True
         assert _is_complete(scratch_database, "e-1", CAPTION, MODEL_A)
@@ -155,18 +133,18 @@ class TestPerEntryMark:
         self, repo: ARIELRepository, scratch_database: str
     ) -> None:
         _seed(scratch_database, "e-1", captions=None)
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         assert await repo.mark_image_module_complete("e-1", CAPTION, MODEL_A) is False
         assert await repo.mark_image_module_complete_batch(CAPTION, MODEL_A) == []
-        assert CAPTION not in _status(scratch_database, "e-1")
+        assert CAPTION not in enhancement_status(scratch_database, "e-1")
 
     async def test_pending_copy_keeps_the_module_owed(
         self, repo: ARIELRepository, scratch_database: str
     ) -> None:
         _seed(scratch_database, "e-1", captions={"a-1": {MODEL_A: {"text": "x"}}})
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
-        _picture(scratch_database, "a-2", "e-1", copy_status="pending")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-2", "e-1", copy_status="pending")
 
         assert await repo.mark_image_module_complete("e-1", CAPTION, MODEL_A) is False
 
@@ -175,8 +153,8 @@ class TestPerEntryMark:
     ) -> None:
         """The module read a-1 only; a-2's copy lands before the mark: still owed."""
         _seed(scratch_database, "e-1", captions={"a-1": {MODEL_A: {"text": "x"}}})
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
-        _picture(scratch_database, "a-2", "e-1", copy_status="pending")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-2", "e-1", copy_status="pending")
 
         to_do = [row["attachment_id"] for row in await repo.get_copy_rows("e-1")]
         assert "a-2" in to_do
@@ -187,14 +165,14 @@ class TestPerEntryMark:
         assert written == "copied"
 
         assert await repo.mark_image_module_complete("e-1", CAPTION, MODEL_A) is False
-        assert CAPTION not in _status(scratch_database, "e-1")
+        assert CAPTION not in enhancement_status(scratch_database, "e-1")
 
     async def test_native_writer_committing_while_the_mark_waits(
         self, repo: ARIELRepository, scratch_database: str
     ) -> None:
         """The mark blocks on the entry lock; the writer's new picture is seen after it."""
         _seed(scratch_database, "e-1", captions={"a-1": {MODEL_A: {"text": "x"}}})
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         async with await psycopg.AsyncConnection.connect(scratch_database) as writer:
             async with writer.transaction():
@@ -206,7 +184,7 @@ class TestPerEntryMark:
                 await _wait_for_lock_waiter(scratch_database)
                 assert not mark.done()
         assert await mark is False
-        assert CAPTION not in _status(scratch_database, "e-1")
+        assert CAPTION not in enhancement_status(scratch_database, "e-1")
 
     async def test_gone_entry_marks_nothing(self, repo: ARIELRepository) -> None:
         assert await repo.mark_image_module_complete("missing", CAPTION, MODEL_A) is False
@@ -217,7 +195,7 @@ class TestPerEntryMark:
         with psycopg.connect(scratch_database, autocommit=True) as conn:
             conn.execute("CREATE TABLE img_probe (attachment_id TEXT PRIMARY KEY)")
         _seed(scratch_database, "e-1")
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         assert await repo.mark_image_module_complete("e-1", EMBEDDING, "img_probe") is False
         with psycopg.connect(scratch_database, autocommit=True) as conn:
@@ -262,7 +240,7 @@ class TestBatchMark:
     ) -> None:
         _seed_bulk(scratch_database, "z-", 10_000)
         _seed(scratch_database, "pic-1")
-        _picture(scratch_database, "a-1", "pic-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "pic-1", copy_status="copied")
 
         marked: list[str] = []
         batches = 0
@@ -279,15 +257,15 @@ class TestBatchMark:
         assert len(marked) == 10_000
         assert "pic-1" not in marked
         assert batches == 11
-        assert CAPTION not in _status(scratch_database, "pic-1")
+        assert CAPTION not in enhancement_status(scratch_database, "pic-1")
 
     async def test_captioned_picture_then_source_skip_completes_in_one_catchup(
         self, repo: ARIELRepository, scratch_database: str
     ) -> None:
         """(a) A captioned while B is pending; B's copy ends in a source skip."""
         _seed(scratch_database, "e-1", captions={"a-1": {MODEL_A: {"text": "x"}}})
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
-        _picture(scratch_database, "b-1", "e-1", copy_status="pending")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "b-1", "e-1", copy_status="pending")
 
         assert await repo.mark_image_module_complete_batch(CAPTION, MODEL_A) == []
         written = await repo.apply_copy_outcome(
@@ -308,7 +286,7 @@ class TestBatchMark:
             status={CAPTION: {"status": "complete", "completed_at": "t", "marker": MODEL_B}},
             captions={"a-1": {MODEL_A: {"text": "x"}, MODEL_B: {"text": "y"}}},
         )
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
 
         assert await repo.mark_image_module_complete_batch(CAPTION, MODEL_A) == ["e-1"]
         assert _is_complete(scratch_database, "e-1", CAPTION, MODEL_A)
@@ -322,8 +300,8 @@ class TestBatchMark:
             "e-1",
             captions={"a-1": {MODEL_A: {"text": "x"}}, "a-2": {MODEL_A: {"text": "y"}}},
         )
-        _picture(scratch_database, "a-1", "e-1", copy_status="copied")
-        _picture(scratch_database, "a-2", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-1", "e-1", copy_status="copied")
+        insert_picture(scratch_database, "a-2", "e-1", copy_status="copied")
         assert await repo.get_incomplete_entries(CAPTION, marker=MODEL_A) == []
 
         assert await repo.mark_image_module_complete_batch(CAPTION, MODEL_A) == ["e-1"]
