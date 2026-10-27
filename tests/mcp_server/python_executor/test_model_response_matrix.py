@@ -36,6 +36,7 @@ from osprey.mcp_server.python_executor.tools import (  # noqa: E402
 )
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.response import RESULT_TAG, solve_and_print  # noqa: E402
+from tests._simulator_view import view_channel  # noqa: E402
 from tests.mcp_server.conftest import assert_raises_error  # noqa: E402
 
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"
@@ -136,18 +137,13 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         }
     )
     channels = [
-        {
-            "address": record["address"],
-            "role": "setpoint" if record["direction"] == "write" else "readback",
-            "pair": record["address"] if record["direction"] == "write" else None,
-            "value_type": "float",
-            "unit": None,
-            "description": None,
-            "writable": record["direction"] == "write",
-            "value_range": None,
-            "owner": LINE,
-            "on": {"device": f"{LINE}/{record['element']}"},
-        }
+        view_channel(
+            record["address"],
+            LINE,
+            role="setpoint" if record["direction"] == "write" else "readback",
+            writable=record["direction"] == "write",
+            on={"device": f"{LINE}/{record['element']}"},
+        )
         for record in wiring
     ]
     files = {
