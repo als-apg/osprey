@@ -113,15 +113,16 @@ def text_files(
     with ``__pycache__`` pruned, and admits a file whose suffix is in
     ``suffixes`` or whose name, any leading dot stripped, is in ``names`` (the
     same kind of file ships both as ``gitignore`` and ``.dockerignore``). A
-    file root is admitted as named: ``rglob`` on a file yields nothing, which
-    would silently drop it. A root that does not exist contributes nothing.
+    file root is admitted as named, without consulting ``suffixes``, ``names``
+    or ``skip``: ``rglob`` on a file yields nothing, which would silently drop
+    it. A root that does not exist contributes nothing.
 
     Args:
         repo_root: The repository root, or a stand-in tree laid out like it.
         roots: Paths relative to ``repo_root``.
         suffixes: The admitted extensions.
         names: The admitted extensionless file names.
-        skip: Leaves out a walked file it returns true for.
+        skip: Leaves out a walked file it returns true for; never a file root.
 
     Returns:
         The admitted files, root by root in ``rglob`` order.
