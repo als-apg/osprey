@@ -330,12 +330,6 @@ def _source_reads_the_tests_tree(source: str, here: tuple[str, ...]) -> bool:
     return _scan_block(tree.body, module_env, here, roots)
 
 
-def _reads_the_tests_tree(path: Path) -> bool:
-    return _source_reads_the_tests_tree(
-        path.read_text(encoding="utf-8"), path.relative_to(REPO_ROOT).parts
-    )
-
-
 _PREAMBLE = (
     "from pathlib import Path\nROOT = Path(__file__).resolve().parents[1]\n"
     'ROOTS = ("src", "tests")\n'
