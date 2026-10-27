@@ -45,6 +45,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { stubEventSource } from './_event-source-fake.mjs';
+
 const SESSION = 'aaaaaaaa-1111-2222-3333-444444444444';
 const CHIP = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-chip.js';
 const POPOVER = '../../../src/osprey/interfaces/web_terminal/static/js/control-target-popover.js';
@@ -197,16 +199,6 @@ function mountFixture() {
     <div id="outside"></div>`;
 }
 
-/** happy-dom has no EventSource; the chip's stream opens against this one. */
-class FakeEventSource {
-  /** @param {string} url */
-  constructor(url) {
-    this.url = url;
-    this.readyState = 1;
-  }
-  close() {}
-}
-
 /** Drain the microtask/timer queue the async handlers chain through. */
 async function flush() {
   for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
@@ -285,7 +277,7 @@ beforeEach(async () => {
   vi.resetModules();
   served = viewOf();
   stubFetch();
-  vi.stubGlobal('EventSource', FakeEventSource);
+  stubEventSource();
   mountFixture();
   // The don't-ask-again waivers persist in localStorage; no test inherits
   // another's.
