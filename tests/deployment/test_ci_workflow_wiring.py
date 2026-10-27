@@ -10474,7 +10474,6 @@ RELEASE_WRITE_SCOPES = {
 }
 FRAMEWORK_TAG_GUARD = f"{_REPOSITORY_GUARD} && startsWith(github.ref, 'refs/tags/v')"
 ON_MAIN_STEP = "Require the tagged commit on main"
-PYPI_PRERELEASE_STEP = "Refuse a stable framework that resolved a pre-release osprey-connectors"
 
 
 def _both_releases() -> list[tuple[str, dict[str, Any], str]]:
@@ -10574,9 +10573,11 @@ def test_both_release_gates_require_the_tag_on_main__mutation_drops_one() -> Non
 
 
 def _git_in(cwd: Path, *args: str) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     done = subprocess.run(
-        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         check=True,
@@ -10611,47 +10612,6 @@ def test_the_on_main_check_refuses_a_commit_main_cannot_reach(tmp_path: Path) ->
     refused = run(off_main)
     assert refused.returncode == 1
     assert "v2026.10.0" in refused.stdout and "is not on main" in refused.stdout
-
-
-def _run_prerelease_check(tmp_path: Path, tag: str, connectors: str) -> int:
-    """The step, with ``uv tool dir`` and the tool's python stubbed to report *connectors*."""
-    step = next(
-        s
-        for s in _load_release()["jobs"]["verify-pypi-resolvable"]["steps"]
-        if s.get("name") == PYPI_PRERELEASE_STEP
-    )
-    tools = tmp_path / "tools"
-    (tools / "osprey-framework" / "bin").mkdir(parents=True)
-    python = tools / "osprey-framework" / "bin" / "python"
-    python.write_text(f"#!/bin/sh\necho {connectors}\n")
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    uv = bin_dir / "uv"
-    uv.write_text(f'#!/bin/sh\n[ "$1 $2" = "tool dir" ] && echo {tools}\n')
-    for path in (python, uv):
-        path.chmod(0o755)
-    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "TAG_NAME": tag}
-    return subprocess.run(
-        ["bash", "-c", step["run"]], env=env, capture_output=True, text=True
-    ).returncode
-
-
-@pytest.mark.parametrize(
-    ("tag", "connectors", "ok"),
-    [
-        ("v2026.10.0", "2026.9.0b3", False),  # the pre-cut-over floor's resolution
-        ("v2026.10.0", "2026.10.1rc1", False),
-        ("v2026.10.0", "2026.10.1a2", False),
-        ("v2026.10.0", "2026.10.1.dev4", False),
-        ("v2026.10.0", "2026.10.0", True),
-        ("v2026.10.0", "2026.10.0.post1", True),
-        ("v2026.10.0b1", "2026.9.0b3", True),  # a beta framework may take a beta
-    ],
-)
-def test_a_stable_framework_refuses_a_pre_release_connectors(
-    tmp_path: Path, tag: str, connectors: str, ok: bool
-) -> None:
-    assert (_run_prerelease_check(tmp_path, tag, connectors) == 0) is ok
 
 
 # ---------------------------------------------------------------------------

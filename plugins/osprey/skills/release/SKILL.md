@@ -527,9 +527,7 @@ triggers on `v*.*.*` and:
    proving the framework's `osprey-connectors>=` floor is already published.
 3. Verifies the built version matches the tag. A checkout without full history
    builds `0.0.postN+g…` instead of the tagged version; this gate catches that.
-4. Validates the install docs and that the dependencies resolve from PyPI. A
-   stable tag fails here if `osprey-connectors` resolved to a pre-release: the
-   floor must name a stable connectors release before a stable framework ships.
+4. Validates the install docs and that the dependencies resolve from PyPI.
 5. Publishes to PyPI via trusted publishing (OIDC; no token needed).
 6. Creates a GitHub Release using the CHANGELOG section as the body.
 
@@ -701,8 +699,8 @@ uv build                                  # the framework
 uv build --package pyaml-cs-osprey        # every lockstep member, as release.yml builds them
 ls dist/                                  # every file must carry YYYY.M.P exactly
 uvx twine check dist/*
-uvx twine upload dist/pyaml_cs_osprey-*   # members first
-uvx twine upload dist/osprey_framework-*  # the framework last
+uvx twine upload $(ls dist/* | grep -v osprey_framework-)   # every member first
+uvx twine upload dist/osprey_framework-*                     # the framework last
 python3 scripts/ci/release_notes.py CHANGELOG.md YYYY.M.P > /tmp/notes.md
 gh release create vYYYY.M.P --title "Release vYYYY.M.P" --notes-file /tmp/notes.md
 ```

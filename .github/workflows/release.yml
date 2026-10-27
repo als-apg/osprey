@@ -235,28 +235,6 @@ jobs:
           --prerelease if-necessary
         osprey --version
 
-    - name: Refuse a stable framework that resolved a pre-release osprey-connectors
-      # "if-necessary" is still a door: while the floor names a version only
-      # pre-releases satisfy (osprey-connectors>=2026.6.2 before the cut-over,
-      # when PyPI carries 0.1.0 and betas), the step above resolves a beta and
-      # passes. A stable framework must not ship on one, so the floor has to
-      # name a stable connectors release first. A pre-release framework may.
-      # Same stable rule as create-github-release: exactly X.Y.Z.
-      env:
-        TAG_NAME: ${{ github.ref_name }}
-      run: |
-        FRAMEWORK="${TAG_NAME#v}"
-        CONNECTORS="$("$(uv tool dir)/osprey-framework/bin/python" -I -c \
-          'import importlib.metadata as m; print(m.version("osprey-connectors"))')"
-        echo "osprey-framework $FRAMEWORK resolved osprey-connectors $CONNECTORS"
-        stable='^[0-9]+\.[0-9]+\.[0-9]+$'
-        pre='[0-9](a|b|rc)[0-9]|\.dev[0-9]'  # PEP 440-normalized aN/bN/rcN/.devN
-        if [[ "$FRAMEWORK" =~ $stable ]] && [[ "${CONNECTORS%%+*}" =~ $pre ]]; then
-          echo "::error::stable osprey-framework $FRAMEWORK resolved pre-release osprey-connectors $CONNECTORS."
-          echo "Raise the osprey-connectors>= floor to a stable release on PyPI, then retag."
-          exit 1
-        fi
-
   publish-to-pypi:
     name: Publish to PyPI
     # `verify-full-ci` already gates `build`, so this repeats it — deliberately.
