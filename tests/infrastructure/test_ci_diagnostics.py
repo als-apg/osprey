@@ -715,10 +715,32 @@ def test_a_capture_whose_first_call_times_out_is_marked_incomplete(tmp_path, mon
     assert len(calls) == 1 and calls[0].startswith("ps -aq --filter "), calls
 
 
+#: A ``logs`` call that marks the moment it began, then outlives the nested
+#: run's 1 s pytest-timeout alarm.
+_MARKED_SLOW_LOGS = ': > "$FAKE_SLOW_CALL"; exec sleep 3'
+
+# The listings answer at once under the shipped snapshot deadline; the first
+# per-container call marks itself and outlives the test's alarm; the run's
+# clock then reads past the snapshot deadline. So only a snapshot that leaves
+# the alarm and keeps one total deadline lets the failure be reported, with
+# failure.txt written before the slow call began.
 _TIMED_CONFTEST = """\
+import os
+import time
+import types
+from pathlib import Path
+
 from osprey_connectors_tests._harness import ci_diagnostics
 
-ci_diagnostics.SNAPSHOT_DEADLINE = 2.0
+
+def _clock():
+    now = time.monotonic()
+    if Path(os.environ["FAKE_SLOW_CALL"]).exists():
+        return now + ci_diagnostics.SNAPSHOT_DEADLINE
+    return now
+
+
+ci_diagnostics.time = types.SimpleNamespace(monotonic=_clock, time=time.time)
 
 
 def pytest_configure(config):
@@ -731,12 +753,14 @@ def test_fails():
 """
 
 
-def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(slow_engine, tmp_path):
+def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(tmp_path, monkeypatch):
     """A capture that outlasts the per-test timeout runs outside it.
 
-    The 1 s alarm would otherwise fire inside the 2 s capture, and its
+    The 1 s alarm would otherwise fire inside the 3 s ``logs`` call, and its
     ``pytest.fail`` would escape the hook and take the xdist worker down.
     """
+    engine = _install_engine(tmp_path, monkeypatch, "slow-engine", _MARKED_SLOW_LOGS)
+    marker = tmp_path / "slow-call-began"
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "conftest.py").write_text(_TIMED_CONFTEST)
@@ -748,7 +772,8 @@ def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(slow_engine, tm
         PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
         PYTHONPATH=str(_HARNESS_ROOT),
         OSPREY_CI_DIAG_DIR=str(diag),
-        OSPREY_E2E_RUNTIME=slow_engine.name,
+        OSPREY_E2E_RUNTIME=engine.name,
+        FAKE_SLOW_CALL=str(marker),
     )
     done = run_nested_pytest(
         [
@@ -781,8 +806,13 @@ def test_a_capture_past_an_armed_timeout_leaves_the_worker_alive(slow_engine, tm
     assert "1 failed" in done.stdout, output
     for crash in ("INTERNALERROR", "node down", "Not properly terminated", "Timeout"):
         assert crash not in output, output
-    state = diag / CONTAINER_SNAPSHOT_SUBDIR / "gw0--test_timed.py" / "state.txt"
-    assert "capture incomplete" in state.read_text(), output
+    snapshot = diag / CONTAINER_SNAPSHOT_SUBDIR / "gw0--test_timed.py"
+    assert marker.exists(), output
+    assert (snapshot / "failure.txt").stat().st_mtime_ns <= marker.stat().st_mtime_ns
+    state = (snapshot / "state.txt").read_text().splitlines()
+    assert state[-1] == (
+        "capture incomplete: snapshot deadline reached before slow-engine inspect c1"
+    ), output
 
 
 # ===================================================================
