@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.models.providers import _local_server
 from osprey.models.providers.health import HealthResult
 from osprey.models.providers.ollama import OllamaProviderAdapter, OllamaUnreachableError
@@ -51,7 +52,6 @@ from osprey.services.ariel_search.enhancement.vision_errors import (
     error_signature,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
-from tests._live import free_port
 from tests.services.ariel_search._image_doubles import FakeCursor, FakeGate
 
 MODEL = "qwen3-vl:4b"

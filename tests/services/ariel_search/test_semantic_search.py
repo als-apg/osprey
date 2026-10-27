@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.services.ariel_search.config import (
     ARIELConfig,
     DatabaseConfig,
@@ -28,7 +29,6 @@ from osprey.services.ariel_search.search.semantic import (
     semantic_provider,
     semantic_search,
 )
-from tests._live import free_port
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 # --------------------------------------------------------------------------

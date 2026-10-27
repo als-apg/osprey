@@ -30,8 +30,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
+from osprey.interfaces._serving import free_port
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-from tests._live import free_port
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,

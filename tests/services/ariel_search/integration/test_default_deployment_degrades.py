@@ -42,6 +42,7 @@ import psycopg
 import pytest
 
 import osprey
+from osprey.interfaces._serving import free_port
 from osprey.models.providers import _local_server
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.config import ARIELConfig
@@ -50,7 +51,6 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.search import image_lane
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.ariel_search.search.qmd import PICTURE_UNAVAILABLE_MESSAGE
-from tests._live import free_port
 from tests.mcp_server.conftest import get_tool_fn
 from tests.services.ariel_search.integration._support import FakeQMDClient
 from tests.services.ariel_search.llama_stub import FIXTURES

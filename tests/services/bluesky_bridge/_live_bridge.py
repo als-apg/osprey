@@ -9,8 +9,9 @@ from contextlib import contextmanager
 
 import uvicorn
 
+from osprey.interfaces._serving import free_port
 from osprey.services.bluesky_bridge.app import app
-from tests._live import free_port, wait_until
+from tests._live import wait_until
 
 
 def _accepts_connections(port: int) -> bool:

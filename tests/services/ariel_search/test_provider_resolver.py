@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.models.provider_registry import ProviderRegistry
 from osprey.models.providers import _local_server
 from osprey.services.ariel_search.enhancement.provider_resolver import (
@@ -25,7 +26,7 @@ from osprey.services.ariel_search.enhancement.provider_resolver import (
     resolve_reachable_base_url,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
-from tests._live import free_port, wait_until
+from tests._live import wait_until
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 KEY = "ariel.enhancement_modules.text_embedding.provider"

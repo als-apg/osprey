@@ -21,6 +21,7 @@ from typing import Any
 import psycopg
 import pytest
 
+from osprey.interfaces._serving import free_port
 from osprey.models.providers.health import HealthResult
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.attachments import attachment_id_for
@@ -32,7 +33,6 @@ from osprey.services.ariel_search.enhancement.image_caption import module as cap
 from osprey.services.ariel_search.enhancement.image_embedding.module import ImageEmbeddingModule
 from osprey.services.ariel_search.enhancement.vision_errors import EmptyReplyError
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
-from tests._live import free_port
 from tests.services.ariel_search.fake_adapters import HttpStubAdapter
 from tests.services.ariel_search.integration._support import migrated_repository
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL

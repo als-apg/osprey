@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 import requests
 
+from osprey.interfaces._serving import free_port
 from osprey.models.providers import _local_server
 from osprey.services.ariel_search.attachments import attachment_id_for
 from osprey.services.ariel_search.config import ARIELConfig
@@ -40,7 +41,6 @@ from osprey.services.ariel_search.enhancement.image_embedding.module import (
     ImageEmbeddingModule,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError
-from tests._live import free_port
 from tests.services.ariel_search._image_doubles import FakeCursor, FakeGate
 from tests.services.ariel_search.llama_stub import MODEL
 

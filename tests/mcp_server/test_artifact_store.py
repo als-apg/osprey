@@ -13,7 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
-from tests._live import free_port, wait_until
+from osprey.interfaces._serving import free_port
+from tests._live import wait_until
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
