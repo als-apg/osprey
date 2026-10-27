@@ -341,53 +341,28 @@ class TestDraftConceptValidation:
     """draft_concept rejects documents that fail authoring validation."""
 
     @pytest.mark.asyncio
-    async def test_empty_type_rejected(self, fixture_bundle: Path):
+    @pytest.mark.parametrize("field", ["doc_type", "title", "description"])
+    async def test_empty_required_field_rejected(self, fixture_bundle: Path, field):
+        """An empty type, title or description is refused and nothing is written."""
         from osprey.mcp_server.facility_knowledge.server import draft_concept
 
+        fields = {"doc_type": "note", "title": "Has Title", "description": "Has description."}
+        fields[field] = ""
         with assert_raises_error(error_type="validation_error"):
-            await get_tool_fn(draft_concept)(
-                concept_id="bad_doc",
-                doc_type="",
-                title="Has Title",
-                description="Has description.",
-                body="Body.\n",
-            )
-
-        assert not (fixture_bundle / "bad_doc.md").exists()
-
-    @pytest.mark.asyncio
-    async def test_empty_title_rejected(self, fixture_bundle: Path):
-        from osprey.mcp_server.facility_knowledge.server import draft_concept
-
-        with assert_raises_error(error_type="validation_error"):
-            await get_tool_fn(draft_concept)(
-                concept_id="bad_doc",
-                doc_type="note",
-                title="",
-                description="Has description.",
-                body="Body.\n",
-            )
-
-        assert not (fixture_bundle / "bad_doc.md").exists()
-
-    @pytest.mark.asyncio
-    async def test_empty_description_rejected(self, fixture_bundle: Path):
-        from osprey.mcp_server.facility_knowledge.server import draft_concept
-
-        with assert_raises_error(error_type="validation_error"):
-            await get_tool_fn(draft_concept)(
-                concept_id="bad_doc",
-                doc_type="note",
-                title="Has Title",
-                description="",
-                body="Body.\n",
-            )
+            await get_tool_fn(draft_concept)(concept_id="bad_doc", body="Body.\n", **fields)
 
         assert not (fixture_bundle / "bad_doc.md").exists()
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("fixture_bundle")
-    async def test_invalid_extra_frontmatter_json_rejected(self):
+    @pytest.mark.parametrize(
+        "extra_frontmatter",
+        [
+            pytest.param("not valid json {", id="invalid-json"),
+            pytest.param('["not", "an", "object"]', id="array"),
+        ],
+    )
+    async def test_extra_frontmatter_that_is_not_a_json_object_rejected(self, extra_frontmatter):
         from osprey.mcp_server.facility_knowledge.server import draft_concept
 
         with assert_raises_error(error_type="validation_error"):
@@ -397,22 +372,7 @@ class TestDraftConceptValidation:
                 title="Title",
                 description="Description.",
                 body="Body.\n",
-                extra_frontmatter="not valid json {",
-            )
-
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("fixture_bundle")
-    async def test_extra_frontmatter_array_rejected(self):
-        from osprey.mcp_server.facility_knowledge.server import draft_concept
-
-        with assert_raises_error(error_type="validation_error"):
-            await get_tool_fn(draft_concept)(
-                concept_id="bad_doc",
-                doc_type="note",
-                title="Title",
-                description="Description.",
-                body="Body.\n",
-                extra_frontmatter='["not", "an", "object"]',
+                extra_frontmatter=extra_frontmatter,
             )
 
 
