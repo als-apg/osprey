@@ -21,22 +21,14 @@ import pytest
 from osprey.cli.build_profile import BuildProfile, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import DEFAULT_SPEAKS_HTTP, http_errors
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
-
-
 def _http_errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
     """Return only the failures that mention an ``http`` key."""
-    return [e for e in _errors(profile, profile_dir) if ".http" in e]
+    return [e for e in validation_errors(profile, profile_dir) if ".http" in e]
 
 
 def _profile(**raw: Any) -> BuildProfile:

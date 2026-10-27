@@ -11,25 +11,20 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli import output
 from osprey.cli.summary_card import print_call_to_action
-from tests.cli._reporters import installed
+from tests.cli._reporters import ConsoleReporter, installed
 
-from .test_summary_card import Recorded, RecordingReporter, recording_console
+from .test_summary_card import Recorded, recording_console
 
 
 @pytest.fixture
 def recorder():
     console, buffer = recording_console()
-    with installed(RecordingReporter(console)):
+    with installed(ConsoleReporter(console)):
         yield Recorded(buffer)
 
 
-@pytest.fixture(autouse=True)
-def _empty_ledger():
-    output.clear_ledger()
-    yield
-    output.clear_ledger()
+pytestmark = pytest.mark.usefixtures("empty_ledger")
 
 
 @pytest.fixture

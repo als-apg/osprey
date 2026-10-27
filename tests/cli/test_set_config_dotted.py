@@ -38,11 +38,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
-
-
-def _flat(text: str) -> str:
-    """Collapse whitespace so assertions survive terminal line wrapping."""
-    return " ".join(text.split())
+from tests.cli._text import flat
 
 
 def _set_args(pairs: tuple[str, ...]) -> list[str]:
@@ -322,7 +318,7 @@ def test_connector_with_a_literal_type_set_is_refused() -> None:
             set_pairs=("connector=epics", "config.control_system.type=doocs"),
         )
 
-    message = _flat(str(excinfo.value))
+    message = flat(str(excinfo.value))
     assert "Conflicting connector overrides" in message
     assert "connector='epics'" in message
     assert f"config.{CONNECTOR_CONFIG_KEY}='doocs'" in message

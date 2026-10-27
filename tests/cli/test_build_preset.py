@@ -983,8 +983,8 @@ class TestDeployServicesKnob:
         "  port: 10080\n"
     )
 
-    def _build(self, runner: CliRunner, tmp_path: Path, extra: str) -> Path:
-        result = self._attempt(runner, tmp_path, extra)
+    def _build(self, tmp_path: Path, extra: str) -> Path:
+        result = self._attempt(tmp_path, extra)
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")
 
@@ -1007,13 +1007,11 @@ class TestDeployServicesKnob:
     @pytest.fixture(scope="class")
     def attached(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
         """The ``deploy_services: false`` build, made once for the tests that read it."""
-        return self._build(
-            CliRunner(), tmp_path_factory.mktemp("attached"), extra="deploy_services: false\n"
-        )
+        return self._build(tmp_path_factory.mktemp("attached"), extra="deploy_services: false\n")
 
-    def test_default_true_scaffolds_services(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_default_true_scaffolds_services(self, tmp_path: Path) -> None:
         """Baseline: the same profile without the knob deploys its own stack."""
-        project = self._build(runner, tmp_path, extra="")
+        project = self._build(tmp_path, extra="")
         cfg = _config_yaml(project)
         assert "postgresql" in cfg["deployed_services"]
         assert "bluesky" in cfg["deployed_services"]
@@ -1054,13 +1052,12 @@ class TestDeployServicesKnob:
         assert admin["web"]["config_panel"]["enabled"] is True
 
     def test_an_attached_base_that_lifts_a_refused_flag_still_refuses_the_tier(
-        self, runner: CliRunner, tmp_path: Path, caplog: pytest.LogCaptureFixture
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The control: the judgment still happens on an attached build, on the
         deployment's own base — a base that enables the Config panel hands it
         to the headless dispatch tier, which is refused by name."""
         result = self._attempt(
-            runner,
             tmp_path,
             extra="deploy_services: false\nconfig:\n  web.config_panel.enabled: true\n",
         )

@@ -48,6 +48,7 @@ from tests._builds import copy_build
 from tests._preset_data import bundle_data_root
 from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest
+from tests.cli._template_projects import graph_permission_entries
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -801,17 +802,6 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _graph_permission_entries() -> list[str]:
-    """The four rendered permission strings, derived from the registry.
-
-    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
-    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
-    qualification happens here rather than being spelled out a second time where
-    it could drift from what the render actually emits.
-    """
-    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
-
-
 def _graph_entries(values) -> list[str]:
     return sorted(entry for entry in values if str(entry).startswith("mcp__graph__"))
 
@@ -829,7 +819,7 @@ def test_graph_server_reaches_the_main_agent_surface(built_control_assistant_pro
     project = built_control_assistant_project
 
     permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-    assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+    assert _graph_entries(permissions["allow"]) == graph_permission_entries()
     for gate in ("ask", "deny"):
         assert _graph_entries(permissions.get(gate) or []) == [], (
             f"graph tools are read-only; nothing belongs in permissions.{gate}"

@@ -32,6 +32,7 @@ from osprey.cli.build_profile_schema import BlueskyConfig
 from osprey.cli.profile_cmd import validate as profile_validate
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._text import flat
 
 #: A port an author pinned by hand, one block above the layout's own. What these
 #: tests pin is that an AUTHORED number survives parsing and merging, so the
@@ -43,11 +44,6 @@ AUTHORED_TILED_PORT = AUTHORED_PORT + 1
 
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
-def _flat(text: str) -> str:
-    """Collapse whitespace so assertions survive terminal line wrapping."""
-    return " ".join(text.split())
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
@@ -306,7 +302,7 @@ def test_profile_validate_exits_non_zero(tmp_path: Path) -> None:
     result = CliRunner().invoke(profile_validate, [str(profile)])
 
     assert result.exit_code != 0
-    assert "'demo_runner'" in _flat(result.output)
+    assert "'demo_runner'" in flat(result.output)
 
 
 # ── inheritance sees the merged block ────────────────────────────────────────

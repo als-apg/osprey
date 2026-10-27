@@ -48,21 +48,11 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._preset_data import create_project_as_built
 from tests._vocabulary import hardcoded_vocabulary_hits
 from tests.cli._lifecycle_build import invoke_build
+from tests.cli._template_projects import graph_permission_entries
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _graph_permission_entries() -> list[str]:
-    """The four rendered permission strings, derived from the registry.
-
-    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
-    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
-    qualification happens here rather than being restated where it could drift
-    from what the render emits.
-    """
-    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
 
 
 def _graph_tool_hits(root: Path) -> list[str]:
@@ -85,7 +75,7 @@ def _assert_graph_session_surface(project: Path) -> None:
     """
     permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
     allow = sorted(e for e in permissions["allow"] if str(e).startswith("mcp__graph__"))
-    assert allow == _graph_permission_entries()
+    assert allow == graph_permission_entries()
     for gate in ("ask", "deny"):
         assert not [e for e in permissions.get(gate) or [] if str(e).startswith("mcp__graph__")], (
             f"graph tools are read-only; nothing belongs in permissions.{gate}"
@@ -148,7 +138,7 @@ def test_the_graph_tools_land_on_the_subagent_only(built_store_project):
         .split("---")[1]
     )
     tools = [entry.strip() for entry in str(frontmatter["tools"]).split(",") if entry.strip()]
-    assert sorted(t for t in tools if t.startswith("mcp__graph__")) == _graph_permission_entries()
+    assert sorted(t for t in tools if t.startswith("mcp__graph__")) == graph_permission_entries()
     assert (project / ".claude" / "agents" / "channel-finder.md").exists(), (
         "fixture precondition: the channel-finder agent is rendered and carries no graph tool"
     )

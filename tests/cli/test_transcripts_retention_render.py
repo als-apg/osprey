@@ -19,12 +19,12 @@ import yaml
 from osprey.cli.templates.claude_code import config_derived_context
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.errors import BuildProfileError
-from tests.cli.test_terminal_theme_render import _create_project
+from tests._preset_data import create_project_as_built
 
 
 def _regen_with_retention(tmp_path, days):
     manager = TemplateManager()
-    project_dir = _create_project(
+    project_dir = create_project_as_built(
         manager,
         project_name="retention-test",
         output_dir=tmp_path,

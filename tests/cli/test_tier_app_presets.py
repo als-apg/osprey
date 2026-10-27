@@ -90,6 +90,7 @@ from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
+from tests.cli._template_projects import graph_permission_entries
 
 TIER_NAMES = ("readonly", "readwrite", "admin")
 
@@ -732,17 +733,6 @@ def _render_dir(stack: Path, name: str) -> Path:
     """The render of tier or app *name* in a built *stack*."""
     host = rendered_config(stack)
     return stack / "build" / f"{host['project_name']}-{name}"
-
-
-def _graph_permission_entries() -> list[str]:
-    """The four rendered permission strings, derived from the registry.
-
-    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
-    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
-    qualification happens here rather than being restated where it could drift
-    from what the render emits.
-    """
-    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)
 
 
 def _graph_entries(values) -> list[str]:
@@ -1417,7 +1407,7 @@ class TestControlAssistantTiersAndApps:
         }
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions["allow"]) == graph_permission_entries()
         assert _graph_entries(permissions.get("ask") or []) == []
 
         graph_server = json.loads((project / ".mcp.json").read_text())["mcpServers"]["graph"]
@@ -1586,7 +1576,7 @@ class TestControlAssistantTiersAndApps:
         assert graphdb.get("port_host") == default_port("graphdb_bolt"), graphdb
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
-        assert _graph_entries(permissions["allow"]) == _graph_permission_entries()
+        assert _graph_entries(permissions["allow"]) == graph_permission_entries()
 
         agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
         assert "facility-knowledge-graph" in agents

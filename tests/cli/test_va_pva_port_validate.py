@@ -19,21 +19,13 @@ import pytest
 
 from osprey.cli.build_profile import BuildProfile, _parse_profile
 from osprey_connectors.errors import BuildProfileError
+from tests.cli._profiles import validation_errors
 
 #: The refusal a ``config:`` spelling of the rendered key earns.
 CONFIG_REFUSAL = (
     "config: sets services.virtual_accelerator.pva_port, which the build writes from "
     "virtual_accelerator.pva_port and would overwrite. Set virtual_accelerator.pva_port instead."
 )
-
-
-def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
-    """Validate ``profile`` and return the individual accumulated failures."""
-    with pytest.raises(BuildProfileError) as exc:
-        profile.validate(profile_dir)
-    header, _, body = str(exc.value).partition(":\n  - ")
-    assert header == "Build profile validation failed"
-    return body.split("\n  - ")
 
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
@@ -67,7 +59,7 @@ def test_a_profile_without_pva_port_validates(tmp_path: Path) -> None:
 
 def test_pva_port_out_of_range_is_refused(tmp_path: Path) -> None:
     """The pvAccess port must be a usable TCP port."""
-    assert _errors(_va_profile({"pva_port": 70000}), tmp_path) == [
+    assert validation_errors(_va_profile({"pva_port": 70000}), tmp_path) == [
         "virtual_accelerator.pva_port must be in 1..65535 (got 70000)"
     ]
 
@@ -75,14 +67,14 @@ def test_pva_port_out_of_range_is_refused(tmp_path: Path) -> None:
 @pytest.mark.parametrize("value", ["5085", True])
 def test_pva_port_that_is_not_a_number_is_refused(tmp_path: Path, value: Any) -> None:
     """A string or a boolean names no port, and is refused as such."""
-    assert _errors(_va_profile({"pva_port": value}), tmp_path) == [
+    assert validation_errors(_va_profile({"pva_port": value}), tmp_path) == [
         f"virtual_accelerator.pva_port must be a port number (got {value!r})"
     ]
 
 
 def test_pva_port_on_the_channel_access_port_is_refused(tmp_path: Path) -> None:
     """Both servers bind TCP in one container, so they cannot share a number."""
-    assert _errors(_va_profile({"pva_port": 5064}), tmp_path) == [
+    assert validation_errors(_va_profile({"pva_port": 5064}), tmp_path) == [
         "virtual_accelerator.pva_port must differ from virtual_accelerator.port (both 5064)"
     ]
 
@@ -90,7 +82,7 @@ def test_pva_port_on_the_channel_access_port_is_refused(tmp_path: Path) -> None:
 def test_pva_port_on_the_standin_port_is_refused_once(tmp_path: Path) -> None:
     """A pvAccess/stand-in collision is one fault, reported by one rule."""
     profile = _va_profile({"pva_port": 5074, "live_standin": 5074})
-    assert _errors(profile, tmp_path) == [
+    assert validation_errors(profile, tmp_path) == [
         "virtual_accelerator.pva_port must differ from virtual_accelerator.live_standin (both 5074)"
     ]
 
@@ -98,7 +90,7 @@ def test_pva_port_on_the_standin_port_is_refused_once(tmp_path: Path) -> None:
 def test_pva_port_on_another_blocks_port_is_refused(tmp_path: Path) -> None:
     """A port another block spends is taken, whichever block asks second."""
     profile = _va_profile({"pva_port": 15075}, bluesky={"port": 15075})
-    assert _errors(profile, tmp_path) == [
+    assert validation_errors(profile, tmp_path) == [
         "virtual_accelerator.pva_port (15075) collides with bluesky.port (15075)"
     ]
 
@@ -116,4 +108,4 @@ def test_pva_port_in_config_is_refused_by_name(
     tmp_path: Path, config: dict[str, Any], va: dict[str, Any]
 ) -> None:
     """The rendered key is the build's to write, so ``config:`` may not spell it."""
-    assert _errors(_va_profile(va, config=config), tmp_path) == [CONFIG_REFUSAL]
+    assert validation_errors(_va_profile(va, config=config), tmp_path) == [CONFIG_REFUSAL]

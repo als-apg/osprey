@@ -1,8 +1,10 @@
 """Template renders that stop at a different step than ``create_project_as_built``.
 
 :func:`tests._preset_data.create_project_as_built` takes a render through every
-step a build takes after it. These two are for tests that need a render stopped
-short of that, or with a step in between, and so cannot use it.
+step a build takes after it. The two renders here are for tests that need one
+stopped short of that, or with a step in between, and so cannot use it.
+:func:`graph_permission_entries` is what any of them should grant the graph
+server.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from osprey.cli.templates.manager import TemplateManager
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._preset_data import bundle_data_root
 
 
@@ -62,3 +65,14 @@ def create_project_with_facility_views(manager: TemplateManager, **kwargs) -> Pa
     write_facility_views(project, bundle)
     manager.regenerate_claude_code(project)
     return project
+
+
+def graph_permission_entries() -> list[str]:
+    """The four rendered permission strings, derived from the registry.
+
+    ``ServerDefinition.permissions_allow`` holds BARE tool names — the settings
+    template splices the ``mcp__<server>__`` prefix onto the whole list — so the
+    qualification happens here rather than being restated where it could drift
+    from what the render emits.
+    """
+    return sorted(f"mcp__graph__{tool}" for tool in FRAMEWORK_SERVERS["graph"].permissions_allow)

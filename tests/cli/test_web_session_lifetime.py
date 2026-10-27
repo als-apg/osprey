@@ -37,6 +37,7 @@ from osprey.cli.web_cmd import (
     web,
 )
 from tests.cli._lifecycle_build import stub_build
+from tests.cli._text import flat
 
 TWELVE_HOURS = 12 * 60 * 60
 
@@ -531,16 +532,6 @@ def _clear(runner: CliRunner, repo: Path, args: list[str] | None = None):
     return runner.invoke(web, ["sessions", "clear", *(args or [])], catch_exceptions=False)
 
 
-def _flat(text: str) -> str:
-    """Collapse the renderer's wrapping so an assertion reads the sentence.
-
-    ``output.fail``/``output.warn`` wrap to the console width, which is not the
-    same everywhere the suite runs; a phrase split across two lines is still
-    the phrase the operator reads.
-    """
-    return " ".join(text.split())
-
-
 class TestSessionsClearRefusesALiveServer:
     """A running server would undo the delete, so the verb declines to pretend."""
 
@@ -560,7 +551,7 @@ class TestSessionsClearRefusesALiveServer:
             result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code != 0
-        assert "osprey web stop" in _flat(result.output)
+        assert "osprey web stop" in flat(result.output)
         assert store.is_file(), "a refused clear must leave the store untouched"
 
     def test_force_clears_anyway_and_says_what_force_does_not_do(self, runner, lifecycle_repo):
@@ -577,10 +568,10 @@ class TestSessionsClearRefusesALiveServer:
 
         assert result.exit_code == 0, result.output
         assert not store.exists()
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
         # The caveat is the whole point of allowing --force at all: the running
         # server keeps serving the sessions it already holds.
-        caveat = _flat(result.output)
+        caveat = flat(result.output)
         assert "keeps its live sessions and warm terminals in memory" in caveat
         assert "only stops them surviving the NEXT restart" in caveat
 
@@ -601,7 +592,7 @@ class TestSessionsClearRefusesALiveServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code != 0
-        assert "osprey web stop" in _flat(result.output)
+        assert "osprey web stop" in flat(result.output)
         assert store.is_file(), "a refused clear must leave the store untouched"
 
     def test_force_clears_past_a_pid_file_with_the_same_caveat(self, runner, lifecycle_repo):
@@ -614,8 +605,8 @@ class TestSessionsClearRefusesALiveServer:
 
         assert result.exit_code == 0, result.output
         assert not store.exists()
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
-        caveat = _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
+        caveat = flat(result.output)
         assert "keeps its live sessions and warm terminals in memory" in caveat
         assert "only stops them surviving the NEXT restart" in caveat
 
@@ -631,7 +622,7 @@ class TestSessionsClearWithNoServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
         assert not store.exists()
 
     def test_every_port_keyed_store_goes_not_only_this_one(self, runner, lifecycle_repo):
@@ -645,7 +636,7 @@ class TestSessionsClearWithNoServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 6 persisted session(s)." in _flat(result.output)
+        assert "Dropped 6 persisted session(s)." in flat(result.output)
         assert not mine.exists() and not other.exists() and not bare.exists()
 
     def test_an_unreadable_store_counts_nothing_but_is_still_deleted(self, runner, lifecycle_repo):
@@ -658,7 +649,7 @@ class TestSessionsClearWithNoServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 0 persisted session(s)." in _flat(result.output)
+        assert "Dropped 0 persisted session(s)." in flat(result.output)
         assert not store.exists()
 
     def test_a_deployment_that_never_persisted_anything_is_not_an_error(
@@ -671,7 +662,7 @@ class TestSessionsClearWithNoServer:
         result = _clear(runner, lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 0 persisted session(s)." in _flat(result.output)
+        assert "Dropped 0 persisted session(s)." in flat(result.output)
 
     def test_the_group_position_of_repo_reaches_the_subcommand(
         self, runner, lifecycle_repo, tmp_path
@@ -691,5 +682,5 @@ class TestSessionsClearWithNoServer:
         )
 
         assert result.exit_code == 0, result.output
-        assert "Dropped 2 persisted session(s)." in _flat(result.output)
+        assert "Dropped 2 persisted session(s)." in flat(result.output)
         assert not store.exists()
