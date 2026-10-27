@@ -43,10 +43,8 @@ import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-import osprey.interfaces.design_system as design_system_pkg
 from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
@@ -55,6 +53,7 @@ from tests.interfaces.conftest import (
     launch_graph_channel_finder,
     use_process_web_credentials,
 )
+from tests.interfaces.design_system._dispatch_dashboard import create_dispatch_dashboard_app
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -77,7 +76,6 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # Constants
 # ---------------------------------------------------------------------------
 
-DESIGN_SYSTEM_STATIC_DIR = Path(design_system_pkg.__file__).parent / "static"
 BASELINES_DIR = Path(__file__).parent / "baselines"
 VIEWPORT = {"width": 1280, "height": 800}
 THEMES = ("dark", "light")
@@ -134,31 +132,7 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
 
 
 # ---------------------------------------------------------------------------
-# The dispatch dashboard has no standalone FastAPI app of its own in
-# production (it's rendered HTML mounted into the event-dispatcher server) —
-# stand one up the same way test_behavioral.py's follower stand-in does: a
-# minimal real app that mounts the real design-system static dir and serves
-# the real ``render_dashboard_html()`` output.
-# ---------------------------------------------------------------------------
-
-
-def _create_dispatch_dashboard_app() -> FastAPI:
-    from osprey.dispatch.dashboard import render_dashboard_html
-
-    app = FastAPI()
-    app.mount(
-        "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-    )
-
-    @app.get("/", response_class=HTMLResponse)
-    async def root() -> str:
-        return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
-
-    return app
-
-
-# ---------------------------------------------------------------------------
-# The multi-user grouped landing page has no standalone FastAPI app either:
+# The multi-user grouped landing page has no standalone FastAPI app of its own:
 # in production it's a static file (nginx/landing.html) produced by
 # render_web_terminals() and served by nginx, with no app route behind it.
 # Stand one up the same way the dispatch dashboard does — a minimal real app
@@ -305,7 +279,7 @@ def _lattice_dashboard_server(tmp_path: Path):
 
 
 def _dispatch_dashboard_server(_tmp_path: Path):
-    return _run_app_server(_create_dispatch_dashboard_app())
+    return _run_app_server(create_dispatch_dashboard_app())
 
 
 def _multi_user_landing_server(_tmp_path: Path):
