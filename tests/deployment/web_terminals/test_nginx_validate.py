@@ -55,6 +55,7 @@ from osprey.deployment.web_terminals.render import (
 from osprey.port_layout import default_port
 from tests._container_support import docker_cli_unavailable_reason_once
 from tests._renders import tier_render
+from tests.deployment.web_terminals._nginx import nginx_directives
 
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
@@ -152,15 +153,6 @@ def _generate_self_signed_cert(certs_dir: Path) -> tuple[Path, Path]:
     return cert_path, key_path
 
 
-def _directives(conf: str) -> str:
-    """`conf` with its comment lines dropped.
-
-    The template's prose names `auth_request`, `/verify` and `$request_uri` at
-    length, so counting or absence assertions have to ignore it.
-    """
-    return "\n".join(line for line in conf.splitlines() if not line.lstrip().startswith("#"))
-
-
 def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     """Every construct the enabled renders exist to hand nginx is really there.
 
@@ -168,7 +160,7 @@ def _assert_auth_surface_present(nginx_conf: str, users: list[str]) -> None:
     produce a fragment `nginx -t` accepts, and these tests would report a green
     that validated nothing about authentication.
     """
-    directives = _directives(nginx_conf)
+    directives = nginx_directives(nginx_conf)
     assert directives.count("auth_request ") == len(users)
     for user in users:
         assert f"auth_request /_osprey_auth/{user};" in directives
@@ -648,7 +640,7 @@ def test_open_render_passes_nginx_t() -> None:
     # Arrange — guard against a vacuous green twice over: a render that had
     # stopped injecting would pass `nginx -t` with nothing to validate, and one
     # that had grown a login wall would not be this posture at all.
-    directives = _directives(nginx_conf)
+    directives = nginx_directives(nginx_conf)
     assert "include /etc/nginx/osprey/secret-alice.conf;" in directives
     assert "include /etc/nginx/osprey/secret-kiosk.conf;" in directives
     assert f'{TERMINAL_SECRET_HEADER} "";' not in directives
@@ -852,7 +844,7 @@ def test_access_log_never_carries_the_query_string() -> None:
     # only when the current level defines none, and every access_log on ONE
     # level is written — so an http-level directive here would ADD the sanitized
     # line beside the base image's `combined`-format one rather than replace it.
-    fragment = _directives(nginx_conf)
+    fragment = nginx_directives(nginx_conf)
     server_start = fragment.index("server {")
     assert "access_log" not in fragment[:server_start], fragment[:server_start]
     assert "access_log /dev/stdout osprey_sanitized;" in fragment[server_start:]
