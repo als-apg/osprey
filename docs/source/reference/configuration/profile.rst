@@ -392,7 +392,7 @@ Three rules follow from the catalog being the one home for these facts:
 The posture floor
 =================
 
-Six config keys have no safe unstated answer, so ``osprey build`` refuses a
+Five config keys have no safe unstated answer, so ``osprey build`` refuses a
 deployment that leaves one of them silent rather than letting a reader's
 fallback decide. The refusal names the dotted key and ``profile.yml``. The gate
 reads the *rendered* config, so a key a preset's ``config:`` block spelled, an
@@ -416,8 +416,6 @@ injector wrote, or a tier inherited counts as stated.
    * - ``approval.default_policy``
      - the ``approval`` hook is in the profile's ``hooks:`` list; this key is
        what it does with a tool nothing named
-   * - ``claude_code.telemetry.enabled``
-     - always
    * - ``hooks.debug``
      - always
 

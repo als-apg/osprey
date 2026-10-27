@@ -14,11 +14,9 @@ diagnostic suite (``health:``), the browser UI's documentation and feedback
 settings (``web:``), the artifact gallery's own
 categories (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
-full tool-call record (``audit.tool_call:``), the links from an answer to a
+links from an answer to a
 logbook entry (``ariel.entry_url_template``), how much of each logbook entry
-the agent reads (``ariel.entry_text``), the signals the agent exports
-(``claude_code.telemetry.signals``), the collector token the agent sends
-(``claude_code.telemetry.auth.token_env``), whether the agent shows its
+the agent reads (``ariel.entry_text``), whether the agent shows its
 thinking (``claude_code.thinking.display``), the Phoebus display bridge
 (``phoebus:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
@@ -928,35 +926,6 @@ The list takes exact names only. It cannot add a credential osprey itself
 holds (the web-terminal, panel and dispatch tokens, a bridge launch token):
 naming one is an error, and the run does not start.
 
-.. _config-audit-tool-call:
-
-``audit.tool_call:`` — the full record of every tool call
----------------------------------------------------------
-
-``audit.tool_call.enabled`` (default ``false``) turns on the full record: every
-osprey tool call, reads included, is written whole to
-``var/audit/<identity>/tool_call.jsonl`` --- arguments, result, control
-target, approval answer. Where the telemetry store is deployed, its gateway
-reads the file into ``telemetry.audit_ledger`` with every other ledger file.
-The control-assistant preset turns it on; delete the lines to opt out.
-
-.. code-block:: yaml
-
-   config:
-     audit.tool_call.enabled: true
-     audit.tool_call.max_inline_bytes: 262144
-
-``audit.tool_call.max_inline_bytes`` (default ``262144``) bounds each payload,
-arguments and result on their own. A larger payload is saved as a JSON artifact
-and the record keeps ``{"size", "sha256", "artifact_id"}`` in its place. A value
-that is not a positive integer falls back to the default with a warning.
-
-Both keys are read once per MCP server process, so a change lands after
-``osprey build`` and a restart. Unlike the rest of the audit trail, this file
-and those artifacts hold values: treat them with the access you give the
-control system's own data. The fields are listed in
-:ref:`audit-trail-tool-call`.
-
 .. _config-ariel-entry-url:
 
 ``ariel.entry_url_template`` — links from an answer to the logbook entry
@@ -1011,55 +980,6 @@ the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
 keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.
-
-.. _config-telemetry-signals:
-
-``claude_code.telemetry.signals`` — which signals the agent exports
--------------------------------------------------------------------
-
-``claude_code.telemetry.signals`` lists the OpenTelemetry signals the agent
-exports while ``claude_code.telemetry.enabled`` is ``true``: any of
-``metrics``, ``logs`` and ``traces``. Unset, it exports all three.
-
-.. code-block:: yaml
-
-   config:
-     claude_code.telemetry.signals: [metrics, logs]
-
-A signal left out is exported as ``none``, so an exporter variable in the
-shell or the project's ``.env`` cannot turn it back on. An empty list or any
-other name stops ``osprey build`` with a message naming the key; to export
-nothing, set ``claude_code.telemetry.enabled: false``. Built-in tool output
-(``claude_code.telemetry.log_tool_content``) is recorded as trace span events,
-so a list without ``traces`` leaves it out of the store; the tool-call record
-(``audit.tool_call.enabled``) is unaffected. Every launch reads the key: the
-web terminals, the dispatch worker, ``osprey chat`` and SDK agent runs. The
-rest of the block is covered in
-:doc:`/how-to/health-and-monitoring/monitor-agent`.
-
-.. _config-telemetry-auth:
-
-``claude_code.telemetry.auth.token_env`` — the collector's token
-----------------------------------------------------------------
-
-``claude_code.telemetry.auth.token_env`` names the environment variable that
-holds the bearer token of an OTLP collector this deployment does not run. The
-agent sends it as ``Authorization: Bearer <value>``. The key holds the
-variable's name; the token goes in the project's ``.env``.
-
-.. code-block:: yaml
-
-   config:
-     claude_code.telemetry.backend: generic
-     claude_code.telemetry.endpoint: https://otel-collector.example.org:4318
-     claude_code.telemetry.auth.token_env: OTLP_COLLECTOR_TOKEN
-
-Every web terminal that exports telemetry receives the variable from the deploy
-``.env`` through its own compose environment, never ``.env.users``, and
-``osprey up`` refuses the deploy when it is unset. The ``gateway`` backend
-refuses the key: every sender authenticates to the deployment's telemetry
-gateway with its own login. See
-:doc:`/how-to/health-and-monitoring/monitor-agent`.
 
 .. _config-thinking-display:
 
