@@ -38,9 +38,12 @@ from .repo_resolver import find_repo_root, repo_option
     "purge_audit",
     is_flag=True,
     help=(
-        "Also destroy the audit log and the agent record: var/audit/, var/agent_record/, "
-        "var/spool/ and the record's ClickHouse volume (<project>_agent_record_clickhouse_data). "
-        "All four are kept by default; var/state/ and var/archive/ are kept either way."
+        "Also destroy the agent record and the pre-upgrade audit files: var/audit/, "
+        "var/agent_record/, "
+        "var/spool/, the record's ClickHouse volume (<project>_agent_record_clickhouse_data) "
+        "and the record's exports in the archive (var/archive/<day>/agent_record/), marking "
+        "each purged day in its manifest. All are kept by default; var/state/ and the rest of "
+        "var/archive/ are kept either way."
     ),
 )
 def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool) -> None:
@@ -55,14 +58,17 @@ def reset(repo: Path | None, dry_run: bool, assume_yes: bool, purge_audit: bool)
     What survives, the plan lists before you confirm:
 
     \b
-      var/audit/         the safety audit log — what the agent was asked to
-                         do and what it did.
+      var/audit/         the audit files written before the agent record.
       var/agent_record/  the agent record, with var/spool/ feeding it and,
                          on the ClickHouse backend, the record's data volume.
-                         --purge-audit destroys these and var/audit/ too.
-      var/state/         each identity's locks, leases and markers.
-      var/archive/       the record's archive, with the artifact and Bluesky
-                         copies in it. Kept even under --purge-audit.
+      var/archive/       the archive: the record's daily exports, with the
+                         artifact and Bluesky copies beside them.
+                         --purge-audit destroys var/audit/, the record, the
+                         spool and the record's exports in var/archive/,
+                         and marks each purged day in its manifest.
+      var/state/         each identity's locks, leases and markers. Kept
+                         even under --purge-audit, as is the rest of
+                         var/archive/.
       .env               everything in it that a deploy did not mint, which
                          is your provider keys.
 

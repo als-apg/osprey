@@ -335,7 +335,8 @@ def test_state_zone_is_created_empty(exemplar_repo: Path) -> None:
     A marker file would be git-ignored along with the directory, and would be
     the one thing ``osprey reset``'s wipe had to work around.
     """
-    for relative in ("var/agent_data", "var/audit"):
+    assert not (exemplar_repo / "var" / "audit").exists()
+    for relative in ("var/agent_data",):
         state_dir = exemplar_repo / relative
         assert state_dir.is_dir()
         assert list(state_dir.iterdir()) == []

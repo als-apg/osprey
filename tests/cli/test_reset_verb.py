@@ -283,10 +283,12 @@ def test_the_purge_audit_help_names_exactly_what_it_removes() -> None:
     assert result.exit_code == 0, result.output
     flowed = " ".join(result.output.split())
     assert (
-        "--purge-audit Also destroy the audit log and the agent record: var/audit/, "
-        "var/agent_record/, var/spool/ and the record's ClickHouse volume "
-        f"(<project>_{AGENT_RECORD_CLICKHOUSE_VOLUME}). All four are kept by default; "
-        "var/state/ and var/archive/ are kept either way."
+        "--purge-audit Also destroy the agent record and the pre-upgrade audit files: var/audit/, "
+        "var/agent_record/, var/spool/, the record's ClickHouse volume "
+        f"(<project>_{AGENT_RECORD_CLICKHOUSE_VOLUME}) and the record's exports in the "
+        "archive (var/archive/<day>/agent_record/), marking each purged day in its "
+        "manifest. All are kept by default; var/state/ and the rest of var/archive/ are "
+        "kept either way."
     ) in flowed
 
 

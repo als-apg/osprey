@@ -11,17 +11,21 @@ is deleted.
 (Images are scoped differently, and the boundary below says how.)
 
 **What survives is kept deliberately, and the printed plan says so out loud.**
-``var/audit/`` — the safety audit log, the record of what the agent was asked to
-do and what it did — survives a reset, because the reason to keep an audit trail
-is strongest exactly when someone is wiping the thing it describes. The agent
+``var/audit/`` — the audit files a deployment wrote before the agent record —
+survives a reset, because the reason to keep an audit trail is strongest exactly
+when someone is wiping the thing it describes. The agent
 record survives on the same principle, on either backend: ``var/agent_record/``
 and the spool feeding it, ``var/spool/``, and the record store's data volume
 (:data:`~osprey.deployment.compose_generator.AGENT_RECORD_CLICKHOUSE_VOLUME`)
-when the record lives in ClickHouse. ``--purge-audit`` destroys all of them
-under the same typed gate, and nothing more: ``var/state/`` (each identity's
-locks, leases and markers) and ``var/archive/`` (the record's append-only
-archive, with the artifact and Bluesky copies in it) survive every reset,
-plain or purging. And ``.env`` keeps
+when the record lives in ClickHouse, and ``var/archive/`` (the archive, where
+the record exports each closed day beside the artifact and Bluesky copies).
+``--purge-audit`` destroys ``var/audit/``, the record on either backend, the
+spool and the record's exports in the archive (``var/archive/<day>/agent_record/``),
+under the same typed gate, and appends an ``agent_record_purged`` line to each
+of those days' manifests so the archive's own account says the day is no longer
+held. Nothing more: ``var/state/`` (each identity's locks, leases and markers)
+and the rest of ``var/archive/`` — the artifact and Bluesky copies and the
+manifests themselves — survive every reset, plain or purging. And ``.env`` keeps
 every value that was not minted by a deploy: the provider keys an operator
 supplied are theirs, not this deployment's, and a reset that silently took them
 would make a re-deploy impossible for reasons the operator could not see. The
@@ -164,6 +168,7 @@ from osprey_connectors.dotenv import parse_dotenv_text
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import (
     ARCHIVE_DIR_RELPATH,
+    PRE_UPGRADE_AUDIT_RELPATH,
     RECORD_DIR_RELPATH,
     SPOOL_DIR_RELPATH,
     STATE_DIR_NAME,
@@ -569,11 +574,20 @@ class ResetPlan:
     env_blocks: list[EnvBlock] = field(default_factory=list)
     env_kept_keys: tuple[str, ...] = ()
     purge_audit: bool = False
+    #: Archive days whose record export ``--purge-audit`` removes, oldest first:
+    #: each has a ``<day>/agent_record/`` directory or an export mark in the
+    #: archive's manifests. Empty on a plain reset.
+    archive_record_days: tuple[str, ...] = ()
+
+    @property
+    def archive_dir(self) -> Path:
+        """The archive root — kept by every reset but for the record's exports."""
+        return self.repo_root / ARCHIVE_DIR_RELPATH
 
     @property
     def audit_dir(self) -> Path:
-        """The safety audit log — kept unless ``--purge-audit`` was passed."""
-        return self.repo_root / STATE_DIR_NAME / "audit"
+        """The pre-upgrade audit files — kept unless ``--purge-audit`` was passed."""
+        return self.repo_root / PRE_UPGRADE_AUDIT_RELPATH
 
     @property
     def record_dirs(self) -> tuple[Path, Path]:
@@ -583,7 +597,14 @@ class ResetPlan:
     @property
     def removes_anything(self) -> bool:
         """Whether this plan would change anything at all."""
-        return bool(self.containers or self.volumes or self.images or self.paths or self.env_blocks)
+        return bool(
+            self.containers
+            or self.volumes
+            or self.images
+            or self.paths
+            or self.archive_record_days
+            or self.env_blocks
+        )
 
     def confirmation_summary(self) -> str:
         """What the prompt says is about to be destroyed, counted from the plan.
@@ -603,6 +624,8 @@ class ResetPlan:
             if count:
                 parts.append(f"{count} {noun}{'' if count == 1 else 's'}")
         parts.extend(_relative_to(path, self.repo_root) for path in self.paths)
+        if days := len(self.archive_record_days):
+            parts.append(f"the record's archive of {days} day{'' if days == 1 else 's'}")
         for count, noun in self._env_counts():
             parts.append(f"{count} {noun}{'' if count == 1 else 's'} in {COMPOSE_ENV_FILENAME}")
         return ", ".join(parts) if parts else "nothing"
@@ -646,6 +669,18 @@ class ResetPlan:
         lines.append("  files")
         for path in self.paths:
             lines.append(f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}")
+        if self.archive_record_days:
+            first, last = self.archive_record_days[0], self.archive_record_days[-1]
+            span = first if first == last else f"{first} to {last}"
+            count = len(self.archive_record_days)
+            lines.append(
+                f"    {ARCHIVE_DIR_RELPATH}/*/agent_record/  the agent record's archive of "
+                f"{count} day{'' if count == 1 else 's'} ({span}) — not recoverable"
+            )
+            lines.append(
+                "      Each of those days' MANIFEST.jsonl gets an agent_record_purged line; "
+                "the rest of the archive is kept."
+            )
         for block in self.env_blocks:
             keys = ", ".join(block.keys)
             lines.append(f"    {COMPOSE_ENV_FILENAME}  minted block '{block.banner}' — {keys}")
@@ -680,13 +715,13 @@ class ResetPlan:
         kept = []
         if self.purge_audit:
             kept.append(
-                "    (--purge-audit was passed, so the audit log and the agent record are in "
-                "the removal list above)"
+                "    (--purge-audit was passed, so the audit log, the agent record and its "
+                "archive are in the removal list above)"
             )
         else:
             kept.append(
-                f"    {STATE_DIR_NAME}/audit/  the safety audit log — what the agent was "
-                "asked to do and what it did."
+                f"    {PRE_UPGRADE_AUDIT_RELPATH}/  the audit files written before the "
+                "agent record."
             )
             record, spool = self.record_dirs
             if record.exists():
@@ -717,18 +752,6 @@ class ResetPlan:
                     "reset leaves it exactly as it is."
                 )
                 kept.append(f"      {refresh}")
-        # Read from the directory, not from a config: a file whose account left
-        # the config long ago is still a secret sitting at the repo root.
-        from osprey.deployment.telemetry_credentials import existing_credential_files
-
-        telemetry_files = existing_credential_files(self.repo_root)
-        for filename, holds in telemetry_files:
-            kept.append(f"    {filename}  {holds}.")
-        if telemetry_files:
-            kept.append(
-                "      Each is written once and never rewritten. Delete one and the next "
-                "`osprey up` creates it again with a new secret."
-            )
         from osprey.agent_record.credentials import (
             existing_credential_files as existing_record_files,
         )
@@ -743,18 +766,29 @@ class ResetPlan:
                 "and the next `osprey up` creates it again with a new secret."
             )
         # Kept by every reset, --purge-audit included: what a session leases
-        # and locks is live state, not this deployment's data to discard, and
-        # the archive is append-only by contract.
+        # and locks is live state, not this deployment's data to discard. The
+        # archive is kept whole by a plain reset; a purge takes only the
+        # record's exports out of it and leaves its manifests to say so.
         if (self.repo_root / STATE_DIR_RELPATH).is_dir():
             kept.append(
                 f"    {STATE_DIR_RELPATH}/  each identity's locks, leases and markers, "
                 "--purge-audit or not."
             )
-        if (self.repo_root / ARCHIVE_DIR_RELPATH).is_dir():
-            kept.append(
-                f"    {ARCHIVE_DIR_RELPATH}/  the agent record's append-only archive, with the "
-                "artifact and Bluesky copies in it, --purge-audit or not."
-            )
+        if self.archive_dir.is_dir():
+            if self.purge_audit:
+                kept.append(
+                    f"    {ARCHIVE_DIR_RELPATH}/  the artifact and Bluesky copies and every "
+                    "manifest — all of the archive but the record's exports."
+                )
+            else:
+                kept.append(
+                    f"    {ARCHIVE_DIR_RELPATH}/  the archive: the agent record's daily "
+                    "exports, with the artifact and Bluesky copies beside them."
+                )
+                kept.append(
+                    "      `osprey reset --purge-audit` removes the record's exports "
+                    "(<day>/agent_record/) and keeps the rest."
+                )
         kept.append(
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
@@ -802,7 +836,7 @@ class ResetPlan:
                 "`osprey users passwd` are lost"
             )
         if path == self.audit_dir:
-            return "  the safety audit log — not recoverable"
+            return "  the pre-upgrade audit files — not recoverable"
         record, spool = self.record_dirs
         if path == record:
             return "  the agent record — not recoverable"
@@ -969,9 +1003,9 @@ def running_host_record_refusal(repo_root: Path) -> HostRecordRunningError | Non
     for state_dir in state_dirs:
         for lease in host.live_leases(state_dir / host.LEASE_DIR_NAME):
             holders.append(RecordHolder(lease.pid, _command_of(lease.pid)))
-        running = host._running_process(state_dir)
+        running = host.running_record_pid(state_dir)
         if running is not None and process_pid is None:
-            process_pid = running[0]
+            process_pid = running
     if not holders and process_pid is None:
         return None
     return HostRecordRunningError(holders, process_pid)
@@ -1326,8 +1360,9 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         repo_root: The deployment repo.
         probe: The runtime seam. Its listings are label-filtered reads.
         purge_audit: Extend the wipe to ``var/audit``, the agent record
-            (``var/agent_record``, ``var/spool``) and the record store's data
-            volume (same typed gate).
+            (``var/agent_record``, ``var/spool``), the record store's data
+            volume and the record's exports in the archive
+            (``var/archive/<day>/agent_record``), under the same typed gate.
 
     Returns:
         The plan, ready to render and to execute.
@@ -1337,6 +1372,8 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
             agent record, or its process still runs.
         ForeignCheckoutError: When a container carrying this project's name
             carries a different checkout's identity.
+        OSError: When ``--purge-audit`` is planned and an archive manifest
+            exists but cannot be read.
     """
     # Resolved once, here, so every path this plan holds is comparable to every
     # other. `resolve_agent_data_target` resolves its answer in order to judge
@@ -1392,7 +1429,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     if purge_audit:
         paths.extend(
             [
-                repo_root / STATE_DIR_NAME / "audit",
+                repo_root / PRE_UPGRADE_AUDIT_RELPATH,
                 repo_root / RECORD_DIR_RELPATH,
                 repo_root / SPOOL_DIR_RELPATH,
             ]
@@ -1422,7 +1459,34 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         env_blocks=env_blocks,
         env_kept_keys=env_kept,
         purge_audit=purge_audit,
+        archive_record_days=(
+            record_archive_days(repo_root / ARCHIVE_DIR_RELPATH) if purge_audit else ()
+        ),
     )
+
+
+def record_archive_days(archive_root: Path) -> tuple[str, ...]:
+    """The archive days holding the record's export, or marked as exported, oldest first.
+
+    A day counts when its directory holds ``agent_record/`` or when the folded
+    manifests still mark it exported — an empty day is marked with no file, and
+    a purge must clear that mark too. Read-only; an absent archive holds none.
+
+    Raises:
+        OSError: If a manifest exists but cannot be read.
+    """
+    from osprey.agent_record.archive import EXPORT_SUBDIR
+    from osprey.services.archive.manifest import day_dirs, load_state
+
+    if not archive_root.is_dir():
+        return ()
+    days = {
+        day.name
+        for day in day_dirs(archive_root)
+        if (day / EXPORT_SUBDIR).is_dir() or (day / EXPORT_SUBDIR).is_symlink()
+    }
+    days |= load_state(archive_root).agent_record_days
+    return tuple(sorted(days))
 
 
 # ---------------------------------------------------------------------------
@@ -1455,7 +1519,9 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
        document (and ``var/audit``, ``var/agent_record`` and ``var/spool`` under
        ``--purge-audit``), each removed and —
        for the state directories — left behind empty, so the repo has the shape
-       a fresh ``osprey init`` gives it.
+       a fresh ``osprey init`` gives it. Under ``--purge-audit`` the record's
+       export of each planned archive day goes next, under the archive lock,
+       and that day's manifest gets an ``agent_record_purged`` line.
     4. ``.env`` last. It is the one file here that is edited rather than deleted,
        and doing it last means a failure anywhere above leaves the deployment's
        secrets exactly as they were.
@@ -1487,10 +1553,44 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     }
     for path in plan.paths:
         _wipe_directory(path, recreate=path not in derived)
+    if plan.archive_record_days:
+        _purge_record_archive(plan.archive_dir, plan.archive_record_days)
 
     if plan.env_blocks:
         planned_keys = {key for block in plan.env_blocks for key in block.keys}
         _strip_env_file(plan.repo_root / COMPOSE_ENV_FILENAME, planned_keys)
+
+
+def _purge_record_archive(archive_root: Path, days: Sequence[str]) -> None:
+    """Remove the record's export of each of *days* and mark the day purged.
+
+    Written through the archive service's tree, so the one archive lock is held
+    for the whole purge and the mark is appended with the archive's own mode
+    and owner. The export goes first and the mark follows it: the mark records
+    what was done. Everything else in a day's directory is left as it was.
+
+    Raises:
+        osprey.services.archive.run.ArchiveDestinationError: If the archive
+            root cannot be written.
+        OSError: If an export cannot be removed or a manifest appended to.
+    """
+    from datetime import UTC, datetime
+
+    from osprey.agent_record.archive import EXPORT_SUBDIR
+    from osprey.services.archive.manifest import AGENT_RECORD_PURGED
+    from osprey.services.archive.run import ArchiveTree
+
+    tree = ArchiveTree(archive_root, datetime.now(UTC))
+    try:
+        for day in days:
+            export = archive_root / day / EXPORT_SUBDIR
+            if export.is_symlink() or export.is_file():
+                export.unlink()
+            elif export.is_dir():
+                shutil.rmtree(export)
+            tree.append({"kind": AGENT_RECORD_PURGED, "day": day}, day=day)
+    finally:
+        tree.close()
 
 
 def _wipe_directory(path: Path, *, recreate: bool) -> None:
@@ -1565,7 +1665,9 @@ def reset_deployment(
         dry_run: Print the plan and stop. Nothing is confirmed and nothing runs.
         assume_yes: Skip the typed confirmation — the scripted path.
         purge_audit: Destroy ``var/audit`` and the agent record (its
-            directories and its store's data volume) too, under the same gate.
+            directories, its store's data volume and its exports in
+            ``var/archive``) too, under the same gate, marking each purged
+            archive day in its manifest. The rest of ``var/archive`` is kept.
         emit: Where the plan is written. The CLI passes its own printer.
             Required rather than defaulted, so no caller can fall through to a
             raw write that lands inside a mounted live region.

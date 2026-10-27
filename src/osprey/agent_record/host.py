@@ -91,6 +91,7 @@ __all__ = [
     "host_state_dir",
     "live_leases",
     "marker_is_live",
+    "running_record_pid",
     "stop_host_process",
     "stop_unheld_record",
     "write_stack_marker",
@@ -433,6 +434,16 @@ def _running_process(state_dir: Path) -> tuple[int, str] | None:
     if identity is not None and _alive(*identity):
         return identity
     return None
+
+
+def running_record_pid(state_dir: Path) -> int | None:
+    """The pid of the live host-local record process of *state_dir*, else ``None``.
+
+    Read-only: the process file is read and the pid's start time checked, so a
+    stale file left by a process that is gone, or by a reused pid, names nothing.
+    """
+    running = _running_process(state_dir)
+    return None if running is None else running[0]
 
 
 def _wait_gone(pid: int, start: str, wait_s: float) -> bool:

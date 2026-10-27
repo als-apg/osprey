@@ -7,9 +7,11 @@ record is ``var/agent_record/``; on the ClickHouse backend it is also the store'
 data volume. ``var/spool/`` goes with it on both, so the verb does the same to
 the record whichever backend keeps it.
 
-Two things survive every reset, ``--purge-audit`` included: ``var/state/`` (the
-locks, leases and markers of each identity) and ``var/archive/`` (the record's
-append-only archive, with the artifact and Bluesky copies in it). And every
+``var/archive/`` is kept whole by a plain reset. ``--purge-audit`` removes the
+record's export of each day from it (``<day>/agent_record/``), appends an
+``agent_record_purged`` line to that day's manifest, and keeps everything else
+there — an artifact copy filed under the same day included. ``var/state/`` (the
+locks, leases and markers of each identity) survives every reset. And every
 reset, plain or purging, dry or real, refuses while a host session holds the
 host-local record, naming the sessions that hold it.
 
@@ -207,6 +209,125 @@ def test_state_and_archive_survive_every_reset(
 
     for relpath in SURVIVORS:
         assert (repo / relpath).is_file(), relpath
+
+
+# ---------------------------------------------------------------------------
+# The record's exports in the archive
+# ---------------------------------------------------------------------------
+
+#: The arrival day the fixture's record exported, with an artifact copy filed
+#: under the same day directory, and an empty day marked with no file.
+EXPORT_DAY = "2026-10-20"
+EMPTY_DAY = "2026-10-21"
+EXPORT = f"var/archive/{EXPORT_DAY}/agent_record/entries.parquet"
+SAME_DAY_ARTIFACT = f"var/archive/{EXPORT_DAY}/artifacts/plot-2.png"
+
+
+def _with_exports(repo: Path) -> Path:
+    """Give *repo*'s archive two exported days, as the record's daily export leaves them."""
+    archive = repo / "var" / "archive"
+    for relpath, text in ((EXPORT, "PAR1"), (SAME_DAY_ARTIFACT, "png")):
+        path = repo / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    for day, rows in ((EXPORT_DAY, 3), (EMPTY_DAY, 0)):
+        manifest = archive / day / "MANIFEST.jsonl"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        with manifest.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"kind": "agent_record_day", "day": day, "rows": rows}) + "\n")
+    return repo
+
+
+def _manifest_kinds(repo: Path, day: str) -> list[str]:
+    manifest = repo / "var" / "archive" / day / "MANIFEST.jsonl"
+    return [json.loads(line)["kind"] for line in manifest.read_text().splitlines() if line]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_plain_reset_keeps_the_records_exports(tmp_path: Path, backend: str) -> None:
+    from osprey.services.archive.manifest import load_state
+
+    repo = _with_exports(_repo(tmp_path, backend))
+    fake = _runtime(backend)
+
+    plan = plan_reset(repo, probe=make_probe(fake))
+    removed, kept = _sections(plan.render())
+
+    assert plan.archive_record_days == ()
+    assert "var/archive" not in removed
+    assert "var/archive/" in kept
+    assert "--purge-audit` removes the record's exports" in kept
+
+    run_reset(repo, fake)
+
+    assert (repo / EXPORT).is_file()
+    assert (repo / SAME_DAY_ARTIFACT).is_file()
+    assert _manifest_kinds(repo, EXPORT_DAY) == ["agent_record_day"]
+    assert load_state(repo / "var" / "archive").agent_record_days == {EXPORT_DAY, EMPTY_DAY}
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_purge_audit_removes_the_records_exports_and_marks_each_day(
+    tmp_path: Path, backend: str
+) -> None:
+    from osprey.services.archive.manifest import load_state
+
+    repo = _with_exports(_repo(tmp_path, backend))
+    fake = _runtime(backend)
+
+    plan = plan_reset(repo, probe=make_probe(fake), purge_audit=True)
+    removed, kept = _sections(plan.render())
+
+    # The empty day has no file but is marked exported, so it is purged too.
+    assert plan.archive_record_days == (EXPORT_DAY, EMPTY_DAY)
+    assert "var/archive/*/agent_record/" in removed
+    assert f"2 days ({EXPORT_DAY} to {EMPTY_DAY})" in removed
+    assert "the artifact and Bluesky copies and every manifest" in kept
+    assert "the record's archive of 2 days" in plan.confirmation_summary()
+    # The archive root itself is never on the directory removal list.
+    assert not any((repo / "var" / "archive") in (p, *p.parents) for p in plan.paths)
+
+    run_reset(repo, fake, purge_audit=True)
+
+    assert not (repo / EXPORT).exists()
+    assert not (repo / EXPORT).parent.exists()
+    assert (repo / SAME_DAY_ARTIFACT).is_file()
+    for relpath in SURVIVORS:
+        assert (repo / relpath).is_file(), relpath
+    assert _manifest_kinds(repo, EXPORT_DAY) == ["agent_record_day", "agent_record_purged"]
+    assert _manifest_kinds(repo, EMPTY_DAY) == ["agent_record_day", "agent_record_purged"]
+    assert load_state(repo / "var" / "archive").agent_record_days == set()
+    assert not (repo / "var" / "audit" / "2026-10-24.jsonl").exists()
+    assert not (repo / "var" / "agent_record" / "record.duckdb").exists()
+    assert not any((repo / "var" / "spool").iterdir())
+    if backend == "clickhouse":
+        assert RECORD_VOLUME in fake.removed_names()
+
+
+def test_purge_audit_with_no_exports_marks_nothing(tmp_path: Path) -> None:
+    """An archive the record never exported into gains no manifest at all."""
+    repo = _repo(tmp_path, "embedded")
+
+    plan = plan_reset(repo, probe=make_probe(_runtime("embedded")), purge_audit=True)
+    removed, _kept = _sections(plan.render())
+
+    assert plan.archive_record_days == ()
+    assert "agent_record/  the agent record's archive" not in removed
+
+    run_reset(repo, _runtime("embedded"), purge_audit=True)
+
+    assert not list((repo / "var" / "archive").rglob("MANIFEST.jsonl"))
+    for relpath in SURVIVORS:
+        assert (repo / relpath).is_file(), relpath
+
+
+def test_a_dry_run_purge_touches_no_export(tmp_path: Path) -> None:
+    repo = _with_exports(_repo(tmp_path, "embedded"))
+    before = _snapshot(repo)
+
+    run_reset(repo, _runtime("embedded"), purge_audit=True, dry_run=True)
+
+    assert _snapshot(repo) == before
 
 
 # ---------------------------------------------------------------------------

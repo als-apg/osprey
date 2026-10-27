@@ -384,6 +384,6 @@ def test_both_verbs_refuse_while_a_host_session_holds_the_record(
 
     assert from_reset.exit_code == 1
     assert f"pid {os.getpid()}" in from_reset.stderr
-    assert isinstance(from_init.exception, reset_mod.HostRecordRunningError)
-    assert f"pid {os.getpid()}" in str(from_init.exception)
+    assert from_init.exit_code == 1
+    assert f"pid {os.getpid()}" in from_init.output
     assert no_destruction == []
