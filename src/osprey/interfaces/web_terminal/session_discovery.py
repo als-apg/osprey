@@ -1,8 +1,8 @@
 """Session discovery for Claude Code JSONL conversation files.
 
-Scans ``<config-dir>/projects/<encoded-path>/`` for JSONL session files,
-extracting metadata (first message, modification time, readable-record count)
-for the session picker UI.
+Scans ``<config-dir>/projects/<encoded-path>/`` for JSONL session files. The
+session picker reads the agent record, not these files; what remains here is
+the set of transcript ids on disk and the single-file metadata parse.
 """
 
 from __future__ import annotations
@@ -67,32 +67,6 @@ class SessionDiscovery:
         how the root and the encoded name are resolved.
         """
         return claude_project_dir(self._project_dir)
-
-    def list_sessions(self) -> list[SessionInfo]:
-        """Return sessions sorted newest-first.
-
-        Skips zero-byte files, files that cannot be opened or stat'ed, and
-        files with no readable record — a line that parses as a JSON object.
-        """
-        sessions_dir = self._resolve_sessions_dir()
-        if not sessions_dir.is_dir():
-            return []
-
-        results: list[SessionInfo] = []
-        for path in sessions_dir.glob("*.jsonl"):
-            try:
-                info = self._parse_session_file(path)
-                if info is not None:
-                    results.append(info)
-            except Exception:
-                logger.debug(
-                    "Skipping session file that could not be opened or stat'ed: %s",
-                    path.name,
-                    exc_info=True,
-                )
-
-        results.sort(key=lambda s: s.last_modified, reverse=True)
-        return results
 
     def snapshot_session_ids(self) -> set[str]:
         """Return the current set of JSONL filenames (stems)."""

@@ -1123,13 +1123,6 @@ TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 #: and its reader.
 LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
 
-#: Names the maintenance writer for records made by the root maintenance
-#: heredoc. Assigned ONLY as a per-command env prefix on that invocation, and
-#: must stay absent everywhere else — an inherited value would misroute every
-#: app-side record. Reserved here so the spec path already refuses it before
-#: the writer that assigns it exists.
-AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
-
 #: The stamped owner of the work a process is doing — the rung
 #: :func:`~osprey_connectors.posture_store.current_owner` reads from the
 #: environment, and therefore the name whose narrowing an owned write is judged
@@ -1190,7 +1183,6 @@ CONTROL_CONTEXT_DIR_ENV = CONTROL_CONTEXT_DIR_ENV_VAR
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
-    AUDIT_WRITER_ENV,
     POSTURE_SOURCE_ENV,
     POSTURE_SESSION_ENV,
     TERMINAL_SESSION_ENV,
