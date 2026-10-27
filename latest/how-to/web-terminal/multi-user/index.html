@@ -842,7 +842,9 @@ allocated ports and a seeded workspace; existing users are
 untouched.</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><strong>Rename or drop a user</strong></p></td>
-<td><p class="sd-card-text">Edit the roster entry, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. A container whose
+<td><p class="sd-card-text">Edit the roster entry, and the user’s entry in
+<code class="docutils literal notranslate"><span class="pre">services.telemetry_store.readers</span></code> if it has one, then
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. A container whose
 user is no longer on the roster is stopped and removed, so it
 cannot keep serving that index’s ports; its volumes are
 retained until <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">prune</span></code>.</p></td>
@@ -890,13 +892,23 @@ osprey<span class="w"> </span>build
 osprey<span class="w"> </span>up
 </pre></div>
 </div>
-<p>That is the entire setup: the preset ships the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block
-above, so no extra flags or configuration are needed. Alongside the web tier,
+<p>That is the entire setup for the preset’s roster: the preset ships the
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block above, so no extra flags or configuration are
+needed. Alongside the web tier,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL and telemetry containers — so the control-room terminals open onto a
 working machine, the logbook app onto a live logbook and the knowledge
 app onto a seeded facility graph, not an empty shell.</p>
+<p><strong>Trim the roster</strong> to the users you want, in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> before
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>:</p>
+<ul class="simple">
+<li><p>Delete the <code class="docutils literal notranslate"><span class="pre">users</span></code> entries you do not want.</p></li>
+<li><p>Delete <code class="docutils literal notranslate"><span class="pre">tiers/&lt;name&gt;.yml</span></code> for every tier nobody uses.</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">readonly</span></code> is gone, point <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> at a tier that is left.</p></li>
+<li><p>Drop removed users from <code class="docutils literal notranslate"><span class="pre">services.telemetry_store.readers</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> still mints a query key for them.</p></li>
+</ul>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Every terminal’s agent needs your provider credentials at run time. Add them
@@ -964,9 +976,9 @@ volumes keep their names, so every user’s workspace carries over.</p>
 <p>The web stack runs with host networking. On Linux,
 <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code> is reachable as-is. That address is the
 preset’s <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code>, and <code class="docutils literal notranslate"><span class="pre">http://localhost:10000</span></code> redirects to it.
-On <strong>macOS</strong>, a container’s “host” is Docker Desktop’s Linux VM — enable
-<em>host networking</em> in Docker Desktop (Settings → Resources → Network) so the
-stack’s ports reach your browser. Host networking is one of the limits
+On <strong>macOS</strong>, a container’s “host” is the Linux VM. With Docker Desktop,
+enable <em>host networking</em> (Settings → Resources → Network) so the stack’s
+ports reach your browser; Colima needs no setting. Host networking is one of the limits
 listed in <a class="reference internal" href="../../deploy-a-facility.html#perimeter-limits"><span class="std std-ref">What the perimeter needs</span></a>.</p>
 <p>If another OSPREY deployment already occupies these ports on this host, give
 this one its own block rather than moving services one by one — for example

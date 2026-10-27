@@ -754,7 +754,7 @@ bluesky MCP server. A tier can hold the simulator lane’s token and none
 for the live one. Where it is granted, the agent’s
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
 is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
-<code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code> and the start stays with you, from the BLUESKY
+<code class="docutils literal notranslate"><span class="pre">launch_token_invalid</span></code> and the start stays with you, from the BLUESKY
 queue panel’s own <strong>Start</strong> button.</p>
 <p class="sd-card-text">What you approve when you approve a start is <strong>the queue you were shown</strong>.
 The prompt lists it and records which queue it listed, for that session and
@@ -800,10 +800,14 @@ machines.</p>
 been queued once. Re-read the draft; edit it to mint a fresh revision
 for a repeat.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code></dt><dd><p class="sd-card-text">The operation was armed and the caller held no valid token. Nothing was
+<dt><code class="docutils literal notranslate"><span class="pre">launch_token_invalid</span></code></dt><dd><p class="sd-card-text">The operation was armed and the caller held no valid token. Nothing was
 started. An agent meets this where the deployment did not grant it a
-token, where the token it holds does not match the bridge’s, or where
-no launch token is configured at all — hand the start to the operator.</p>
+token, or where the token it holds does not match the bridge’s — hand
+the start to the operator.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code></dt><dd><p class="sd-card-text">The operation was armed and this deployment has no launch token
+configured at all, so nobody can arm it through that route. Nothing was
+started.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">browse_only_connector</span></code></dt><dd><p class="sd-card-text">This deployment cannot execute plans at all — it is a deployment
 serving the simulator in process. Composing still works; the refusal

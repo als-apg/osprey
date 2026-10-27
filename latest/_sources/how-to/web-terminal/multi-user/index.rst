@@ -265,7 +265,9 @@ The config block
                 allocated ports and a seeded workspace; existing users are
                 untouched.
             * - **Rename or drop a user**
-              - Edit the roster entry, then ``osprey up``. A container whose
+              - Edit the roster entry, and the user's entry in
+                ``services.telemetry_store.readers`` if it has one, then
+                ``osprey up``. A container whose
                 user is no longer on the roster is stopped and removed, so it
                 cannot keep serving that index's ports; its volumes are
                 retained until ``osprey users prune``.
@@ -306,13 +308,23 @@ then build and bring the stack up from inside it:
    osprey build
    osprey up
 
-That is the entire setup: the preset ships the ``modules.web_terminals`` block
-above, so no extra flags or configuration are needed. Alongside the web tier,
+That is the entire setup for the preset's roster: the preset ships the
+``modules.web_terminals`` block above, so no extra flags or configuration are
+needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL and telemetry containers — so the control-room terminals open onto a
 working machine, the logbook app onto a live logbook and the knowledge
 app onto a seeded facility graph, not an empty shell.
+
+**Trim the roster** to the users you want, in ``profile.yml`` before
+``osprey build``:
+
+- Delete the ``users`` entries you do not want.
+- Delete ``tiers/<name>.yml`` for every tier nobody uses.
+- If ``readonly`` is gone, point ``default_tier`` at a tier that is left.
+- Drop removed users from ``services.telemetry_store.readers``, or
+  ``osprey up`` still mints a query key for them.
 
 .. note::
 
@@ -382,9 +394,9 @@ Stop the stack again with ``osprey down``; check on it with
    The web stack runs with host networking. On Linux,
    ``http://127.0.0.1:10000`` is reachable as-is. That address is the
    preset's ``deploy.fqdn``, and ``http://localhost:10000`` redirects to it.
-   On **macOS**, a container's "host" is Docker Desktop's Linux VM — enable
-   *host networking* in Docker Desktop (Settings → Resources → Network) so the
-   stack's ports reach your browser. Host networking is one of the limits
+   On **macOS**, a container's "host" is the Linux VM. With Docker Desktop,
+   enable *host networking* (Settings → Resources → Network) so the stack's
+   ports reach your browser; Colima needs no setting. Host networking is one of the limits
    listed in :ref:`perimeter-limits`.
 
    If another OSPREY deployment already occupies these ports on this host, give

@@ -545,8 +545,9 @@ decides what stands between a card and the terminal behind it.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">token</span></code></p></td>
-<td><p><strong>The default.</strong> No login page; each terminal is opened once from that
-user’s own login URL.</p></td>
+<td><p><strong>The framework default.</strong> No login page; each terminal is opened once
+from that user’s own login URL. A login URL works only with this
+method.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
 <td><p><strong>Open.</strong> A card opens its terminal. Only for a room where everyone who
@@ -621,7 +622,9 @@ credential of its own; the postures differ only in who supplies it.</p>
 deployment also carries <code class="docutils literal notranslate"><span class="pre">default_tier</span></code> and the rest of the roster from the
 multi-user page (see the worked example in
 <a class="reference internal" href="index.html#multi-user-registry-images"><span class="std std-ref">Pull the terminal images from a registry</span></a>), and <code class="docutils literal notranslate"><span class="pre">tier:</span> <span class="pre">readwrite</span></code> / <code class="docutils literal notranslate"><span class="pre">readonly</span></code>
-name files under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>.</p>
+name files under <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset sets
+<code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">password</span></code> with <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code>, which suits
+<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> only; set <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">token</span></code> to use login URLs.</p>
 <section id="choose-a-method">
 <h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
 <p><strong>Token</strong> needs no stanza. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints an operator secret for every

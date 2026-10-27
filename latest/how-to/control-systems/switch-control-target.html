@@ -1227,8 +1227,7 @@ stand-in — so its past and its present describe one machine, the way a real
 machine’s do. That is also why the live machine is gated while both are running:
 see <a class="reference internal" href="#go-live">Go live</a>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> reaches both machines: a scenario changes
 the world, not one lane.</p>
-<p>On a laptop the second container is a real cost — the simulator image is
-amd64-only, so on Apple Silicon a second one doubles what QEMU has to emulate,
+<p>On a laptop the second container is a real cost — a second simulator runs
 for the life of the deployment. Delete the line when the rehearsal is over.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
