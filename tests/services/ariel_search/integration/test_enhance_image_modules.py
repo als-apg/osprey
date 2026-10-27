@@ -16,7 +16,6 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -33,8 +32,8 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.enhancement.image_caption import module as caption_mod
 from osprey.services.ariel_search.enhancement.image_embedding.module import ImageEmbeddingModule
 from osprey.services.ariel_search.enhancement.vision_errors import EmptyReplyError
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
+from tests.services.ariel_search.fake_adapters import HttpStubAdapter
 from tests.services.ariel_search.integration._support import migrated_repository
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
@@ -55,21 +54,6 @@ REPLY = "Klystron arc trace on the scope.\nVisible text: KLY-3"
 
 
 # --- helpers -----------------------------------------------------------------------
-
-
-class _Adapter(FacilityAdapter):
-    """An http source whose pictures live on ``h.example``."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    def attachment_origins(self) -> frozenset:
-        return ORIGINS
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():
-            yield entry
 
 
 def _config_dict(uri: str, *, embed_url: str | None = None, caption: bool = False) -> dict:
@@ -126,7 +110,7 @@ async def _seed(repo, cfg: dict, entry_id: str, copied: list[str], pending: tupl
         "metadata": {},
         "enhancement_status": {},
     }
-    await ingest_one(entry, _Adapter(config), repo, [], config, None)
+    await ingest_one(entry, HttpStubAdapter(config), repo, [], config, None)
     for name in copied:
         written = await repo.apply_copy_outcome(
             entry_id,

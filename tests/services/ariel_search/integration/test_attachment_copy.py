@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from osprey.services.ariel_search.attachments import copy as copy_mod
 from osprey.services.ariel_search.attachments.copy import record_and_compose, record_rows
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from tests.services.ariel_search.fake_adapters import HttpStubAdapter, StubAdapter
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -53,19 +52,7 @@ def _no_fetch(monkeypatch):
     monkeypatch.setattr(copy_mod, "fetch_attachment_bytes", _refuse)
 
 
-class _HttpAdapter(FacilityAdapter):
-    """An http source: no file base."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():  # never yields
-            yield entry
-
-
-class _FileAdapter(_HttpAdapter):
+class _FileAdapter(StubAdapter):
     """A file source: relative attachment paths resolve under a base."""
 
     def attachment_file_base(self) -> Path | None:
@@ -84,8 +71,8 @@ def _config(mode: str = "images", *, model_id: str | None = None) -> ARIELConfig
     return ARIELConfig.from_dict(data)
 
 
-def _http(config: ARIELConfig) -> _HttpAdapter:
-    return _HttpAdapter(config)
+def _http(config: ARIELConfig) -> StubAdapter:
+    return StubAdapter(config)
 
 
 async def _seed_entry(
@@ -707,7 +694,7 @@ SERVING = "https://h.example/files/"
 REFUSING = "https://down.example/files/"
 
 
-class _RetryAdapter(_HttpAdapter):
+class _RetryAdapter(StubAdapter):
     """An http source whose attachments live on the two retry-test hosts; no new entries."""
 
     def attachment_origins(self) -> frozenset:
@@ -974,17 +961,10 @@ def _ingest_entry(entry_id: str, attachments: list, *, minutes: int) -> dict:
     }
 
 
-class _OriginHttpAdapter(_HttpAdapter):
-    """An http source whose attachments live on ``h.example``."""
-
-    def attachment_origins(self):
-        return ORIGINS
-
-
 async def _backfill(repository, cfg: ARIELConfig, **kwargs):
     from osprey.services.ariel_search.cli_operations import backfill_store
 
-    return await backfill_store(repository, _OriginHttpAdapter(cfg), cfg, **kwargs)
+    return await backfill_store(repository, HttpStubAdapter(cfg), cfg, **kwargs)
 
 
 @pytest.mark.timeout(60)
@@ -1017,7 +997,7 @@ class TestBackfill:
 
         fake_prepare(monkeypatch)
         cfg = _config("images")
-        adapter = _OriginHttpAdapter(cfg)
+        adapter = HttpStubAdapter(cfg)
         a, b, c = _png_item("a.png"), _png_item("b.png"), _png_item("c.png")
         await _seed_at(scratch_repo, "bf-older", [a, b], minutes=0)
         await _seed_at(scratch_repo, "bf-newer", [_png_item("n.png")], minutes=10)
@@ -1061,7 +1041,7 @@ class TestBackfill:
         fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
-        adapter = _OriginHttpAdapter(cfg)
+        adapter = HttpStubAdapter(cfg)
         a, b, c = _png_item("a.png"), _png_item("b.png"), _png_item("c.png")
         await _seed_at(scratch_repo, "bf-pre", [a, b], minutes=0)
         await _compose(scratch_repo, "bf-pre", cfg, adapter)  # rows {a, b} pending
@@ -1113,7 +1093,7 @@ class TestBackfill:
         fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
         cfg = _config("images")
-        adapter = _OriginHttpAdapter(cfg)
+        adapter = HttpStubAdapter(cfg)
         lists = [
             [_png_item("a.png"), _png_item("b.png")],
             [_png_item("a.png"), _png_item("c.png")],

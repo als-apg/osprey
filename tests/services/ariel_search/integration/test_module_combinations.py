@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -48,11 +47,11 @@ from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.enhancement.image_caption import module as caption_mod
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.qmd import QMDSearchResult
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+from tests.services.ariel_search.fake_adapters import HttpStubAdapter
 from tests.services.ariel_search.integration._support import fake_prepare_as_own_rendition
 from tests.services.ariel_search.llama_stub import FIXTURES
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
@@ -80,21 +79,6 @@ ATTACHMENT_KEYS = {"attachments", "attachment_count", "matched_attachment_ids"}
 
 
 # --- fakes -------------------------------------------------------------------------
-
-
-class _Adapter(FacilityAdapter):
-    """An http source whose pictures live on ``h.example``."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    def attachment_origins(self) -> frozenset:
-        return ORIGINS
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():
-            yield entry
 
 
 class _FakeQMDClient:
@@ -346,7 +330,7 @@ async def test_every_module_combination_runs(
     async with await create_connection_pool(config.database) as pool:
         await run_migrations(pool, config)
         repository = ARIELRepository(pool, config)
-        adapter = _Adapter(config)
+        adapter = HttpStubAdapter(config)
         await ingest_one(
             _entry(), adapter, repository, [], config, copy_mod.CopyRun(adapter, ORIGINS)
         )

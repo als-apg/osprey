@@ -12,7 +12,6 @@ import asyncio
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -27,12 +26,12 @@ from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts, attachment_text_md5
 from osprey.services.ariel_search.exceptions import DatabaseQueryError
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import (
     SCHEMA_BEHIND_WARNING,
     EntryIngestOutcome,
     ingest_one,
 )
+from tests.services.ariel_search.fake_adapters import StubAdapter
 from tests.services.ariel_search.integration._support import fake_prepare
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -50,18 +49,6 @@ MODEL = "vision-x"
 @pytest.fixture(autouse=True)
 def _seed_prefix(seeded_prefixes):
     seeded_prefixes.add(PREFIX)
-
-
-class _HttpAdapter(FacilityAdapter):
-    """An http source whose entries the tests hand to ``ingest_one`` directly."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():  # never yields
-            yield entry
 
 
 class _Enhancer:
@@ -132,7 +119,7 @@ async def _ingest(
     enhancers: list | None = None,
     copy_run: copy_mod.CopyRun | None = None,
 ) -> EntryIngestOutcome:
-    adapter = _HttpAdapter(cfg)
+    adapter = StubAdapter(cfg)
     run = copy_run if copy_run is not None else copy_mod.CopyRun(adapter, ORIGINS)
     return await ingest_one(entry, adapter, repository, enhancers or [], cfg, run)
 
@@ -194,7 +181,7 @@ async def _insert_native(repository, entry_id: str, attachment_id: str, data: by
 
 async def _backfill_pair(repository, entry_ids: list[str], cfg: ARIELConfig) -> None:
     """The backfill shape: a FOR UPDATE page transaction recording rows, then copies."""
-    adapter = _HttpAdapter(cfg)
+    adapter = StubAdapter(cfg)
     async with repository.pool.connection() as conn, conn.transaction():
         result = await conn.execute(
             """
@@ -322,7 +309,7 @@ class TestIngestOneStore:
             return FetchOutcome(data=PNG_MAGIC)
 
         attachment_fetch.respond(_slow)
-        run = copy_mod.CopyRun(_HttpAdapter(cfg), ORIGINS, entry_deadline_s=0.3)
+        run = copy_mod.CopyRun(StubAdapter(cfg), ORIGINS, entry_deadline_s=0.3)
         enhancer = _Enhancer("ok_module")
 
         outcome = await _ingest(
@@ -507,7 +494,7 @@ class TestIngestOneSchemaBehind:
         monkeypatch.setattr(repository, "upsert_entry", _spy)
         monkeypatch.setattr(repository, "upsert_entry_returning", _no_returning)
         enhancer = _Enhancer("ok_module")
-        run = copy_mod.CopyRun(_HttpAdapter(cfg), ORIGINS)
+        run = copy_mod.CopyRun(StubAdapter(cfg), ORIGINS)
         ids = [f"{PREFIX}behind-1", f"{PREFIX}behind-2"]
 
         with caplog.at_level(logging.WARNING, logger="ariel"):
@@ -521,7 +508,7 @@ class TestIngestOneSchemaBehind:
                 )
                 for entry_id in ids
             ]
-            next_run = copy_mod.CopyRun(_HttpAdapter(cfg), ORIGINS)
+            next_run = copy_mod.CopyRun(StubAdapter(cfg), ORIGINS)
             await _ingest(repository, _entry(f"{PREFIX}behind-3", []), cfg, copy_run=next_run)
 
         assert outcomes == [EntryIngestOutcome(1, 0, True)] * 2

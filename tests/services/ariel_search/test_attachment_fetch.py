@@ -30,7 +30,7 @@ from osprey.services.ariel_search.attachments.fetch import (
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
 from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
-from osprey.services.ariel_search.ingestion.base import FacilityAdapter
+from tests.services.ariel_search.fake_adapters import StubAdapter
 
 # These tests exercise the real fetcher, so the conftest fake stays out of the way.
 pytestmark = pytest.mark.real_fetch
@@ -45,19 +45,7 @@ def _config(source_url: str | None, *, allowed_origins: list[str] | None = None)
     return ARIELConfig.from_dict(data)
 
 
-class _StubAdapter(FacilityAdapter):
-    """A registered-style adapter OSPREY knows nothing about."""
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in ():  # never yields
-            yield entry
-
-
-class _StubWithSourceUrl(_StubAdapter):
+class _StubWithSourceUrl(StubAdapter):
     def __init__(self, config: ARIELConfig, source_url: str) -> None:
         super().__init__(config)
         self.source_url = source_url
@@ -112,13 +100,13 @@ def test_origin_stub_adapter_with_http_source_url_gets_its_own_origin():
 
 
 def test_origin_stub_adapter_without_source_url_uses_configured_ingestion_source_url():
-    adapter = _StubAdapter(_config("http://elog.site.example/feed"))
+    adapter = StubAdapter(_config("http://elog.site.example/feed"))
     assert not hasattr(adapter, "source_url")
     assert adapter.attachment_origins() == frozenset({("http", "elog.site.example", 80)})
 
 
 def test_origin_stub_adapter_with_no_source_at_all_has_no_origin():
-    adapter = _StubAdapter(_config(None))
+    adapter = StubAdapter(_config(None))
     assert adapter.attachment_origins() == frozenset()
     assert is_file_source(adapter) is False
 
@@ -222,7 +210,7 @@ def test_redact_never_leaks_secret_on_odd_input():
 
 
 async def test_proxy_connector_log_redacts_the_proxy_credentials(caplog):
-    adapter = _StubAdapter(_config(None))
+    adapter = StubAdapter(_config(None))
     adapter.proxy_url = "socks5://user:secret@proxy.example:1080"
 
     with caplog.at_level("INFO"):
@@ -239,7 +227,7 @@ async def test_proxy_connector_log_redacts_the_proxy_credentials(caplog):
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 100
 
 
-class _CountingAdapter(_StubAdapter):
+class _CountingAdapter(StubAdapter):
     """Stub adapter that counts the connectors it builds."""
 
     def __init__(self, config: ARIELConfig) -> None:
@@ -676,7 +664,7 @@ def test_fetch_default_deadline_is_sixty_seconds():
 # -- file sources --------------------------------------------------------------
 
 
-class _StubFileSource(_StubAdapter):
+class _StubFileSource(StubAdapter):
     """A registered adapter with a file base and no ``source_url`` attribute."""
 
     def __init__(self, config: ARIELConfig, base: Path) -> None:
@@ -750,7 +738,7 @@ async def test_fetch_file_source_refuses_dot_dot_absolute_and_empty_parts(tmp_pa
 
 
 async def test_fetch_file_source_without_a_base_is_refused():
-    out = await fetch_mod._fetch_file_source("x.png", 1000, _StubAdapter(_config(None)), "GET")
+    out = await fetch_mod._fetch_file_source("x.png", 1000, StubAdapter(_config(None)), "GET")
     assert out == FetchOutcome(code="source_refused")
 
 

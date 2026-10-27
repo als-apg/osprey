@@ -14,7 +14,6 @@ import asyncio
 import json
 import time
 from collections import Counter
-from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -29,6 +28,7 @@ from osprey.services.ariel_search.attachments.fetch import FetchOutcome
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
+from tests.services.ariel_search.fake_adapters import HttpStubAdapter
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA as RENDITION_SHA
 from tests.services.ariel_search.integration._support import fake_prepare, migrate
 
@@ -58,26 +58,7 @@ def _scale_copy_runs(monkeypatch: pytest.MonkeyPatch, deadline_s: float = DEADLI
     monkeypatch.setattr(copy_mod, "CopyRun", _ScaledCopyRun)
 
 
-class _HttpAdapter(FacilityAdapter):
-    """An http source whose pictures live on ``h.example``; it yields ``entries``."""
-
-    def __init__(self, config: ARIELConfig, entries: list[dict] | None = None) -> None:
-        super().__init__(config)
-        self.entries = entries or []
-
-    @property
-    def source_system_name(self) -> str:
-        return "Stub"
-
-    def attachment_origins(self) -> frozenset:
-        return ORIGINS
-
-    async def fetch_entries(self, *_args, **_kwargs) -> AsyncIterator:  # type: ignore[override]
-        for entry in list(self.entries):
-            yield dict(entry)
-
-
-class _WriteAdapter(_HttpAdapter):
+class _WriteAdapter(HttpStubAdapter):
     """A writable facility logbook: ``create_entry`` returns the entry it then yields."""
 
     @property
@@ -130,7 +111,7 @@ def _id(entry_id: str, url: str) -> str:
 
 
 async def _ingest(repo, entry: dict, cfg: ARIELConfig, *, deadline_s: float | None = None):
-    adapter = _HttpAdapter(cfg)
+    adapter = HttpStubAdapter(cfg)
     run = copy_mod.CopyRun(adapter, ORIGINS)
     if deadline_s is not None:
         run.entry_deadline_s = deadline_s
@@ -138,7 +119,7 @@ async def _ingest(repo, entry: dict, cfg: ARIELConfig, *, deadline_s: float | No
 
 
 async def _backfill(repo, cfg: ARIELConfig, **kwargs):
-    return await ops.backfill_store(repo, _HttpAdapter(cfg), cfg, **kwargs)
+    return await ops.backfill_store(repo, HttpStubAdapter(cfg), cfg, **kwargs)
 
 
 async def _state(repo, entry_id: str) -> dict[str, dict]:
@@ -177,7 +158,7 @@ async def _status(repo, entry_id: str) -> dict:
 async def _seed_recorded(repo, entry_id: str, names: list[str], *, minutes: int = 0) -> list[str]:
     """Store an entry with one declared PNG per name and record its rows, fetching nothing."""
     entry = _entry(entry_id, [_png(n) for n in names], minutes=minutes)
-    await ingest_one(entry, _HttpAdapter(_config()), repo, [], _config(), None)
+    await ingest_one(entry, HttpStubAdapter(_config()), repo, [], _config(), None)
     return [_id(entry_id, _url(n)) for n in names]
 
 
@@ -397,7 +378,7 @@ class TestDeadlines:
         attachment_fetch.respond(_hanging(sent=False))
         cfg = _config()
         entries = [_entry(f"hang-{i}", [_png(f"h{i}.png")], minutes=i) for i in range(3)]
-        scheduler = _scheduler(scratch_repo, monkeypatch, cfg, _HttpAdapter(cfg, entries))
+        scheduler = _scheduler(scratch_repo, monkeypatch, cfg, HttpStubAdapter(cfg, entries))
 
         started = time.monotonic()
         result = await scheduler.poll_once()
@@ -419,7 +400,7 @@ class TestDeadlines:
         attachment_fetch.respond(_sleepy(1.0))
         cfg = _config()
         scheduler = _scheduler(
-            scratch_repo, monkeypatch, cfg, _HttpAdapter(cfg), lock_factory=_waiting_copy_lock
+            scratch_repo, monkeypatch, cfg, HttpStubAdapter(cfg), lock_factory=_waiting_copy_lock
         )
 
         for poll in range(1, 5):
@@ -608,7 +589,7 @@ class TestBackfillRuns:
         for i in range(3):
             await _seed_recorded(scratch_repo, f"race-{i}", [f"{i}-a.png", f"{i}-b.png"], minutes=i)
         cfg = _config()
-        scheduler = _scheduler(scratch_repo, monkeypatch, cfg, _HttpAdapter(cfg))
+        scheduler = _scheduler(scratch_repo, monkeypatch, cfg, HttpStubAdapter(cfg))
 
         backfilled, _polled = await asyncio.gather(
             _backfill(scratch_repo, cfg, wait=True), scheduler.poll_once()
