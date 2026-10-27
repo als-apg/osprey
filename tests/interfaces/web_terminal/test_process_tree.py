@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -315,7 +316,7 @@ def _failing_reads(exc: BaseException):
     return process_iter
 
 
-def test_no_process_table_is_unknown_to_readers_and_alive_to_liveness(monkeypatch):
+def test_no_process_table_is_unknown_to_every_reader(monkeypatch):
     monkeypatch.setattr(process_table.psutil, "process_iter", _failing_reads(psutil.AccessDenied()))
     groups = [ProcessGroup(4242, ((4242, 0.0),), "scan.py", "python scan.py")]
 
@@ -324,7 +325,91 @@ def test_no_process_table_is_unknown_to_readers_and_alive_to_liveness(monkeypatc
     assert not caught.value.retryable
     with pytest.raises(process_table.ProcessTableUnreadable):
         process_tree.server_group_members(os.getpid())
-    assert process_tree.still_running(groups) == groups
+    with pytest.raises(process_table.ProcessTableUnreadable):
+        process_tree.still_running(groups)
+
+
+def test_end_groups_signals_nothing_when_the_table_cannot_be_read(monkeypatch):
+    monkeypatch.setattr(process_table.psutil, "process_iter", _failing_reads(psutil.AccessDenied()))
+    group = ProcessGroup(4242, ((4242, 0.0),), "scan.py", "python scan.py")
+    signalled: list[int] = []
+    monkeypatch.setattr(process_tree.os, "killpg", lambda pgid, sig: signalled.append(pgid))
+
+    ending = process_tree.end_groups([group])
+
+    assert signalled == []
+    assert ending == process_tree.Ending(unknown=(group,))
+
+
+def _reads_fail_after_the_first(patch) -> None:
+    """Let the first process-table read reach the table and make every later one fail."""
+    real = process_table.snapshot
+    reads: list[None] = []
+
+    def first_read_only():
+        reads.append(None)
+        if len(reads) > 1:
+            raise process_table.ProcessTableUnreadable(PermissionError("process table"))
+        return real()
+
+    patch.setattr(process_table, "snapshot", first_read_only)
+
+
+def test_end_groups_reports_unknown_not_survivors_when_the_table_fails_after_sigterm(
+    monkeypatch,
+):
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(60)",
+        ],
+        stdout=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        assert proc.stdout is not None
+        assert proc.stdout.readline() == b"ready\n"
+        row = process_table.snapshot_within(5.0)[proc.pid]
+        group = ProcessGroup(row.pgid, ((row.pid, row.started),), "python", row.command)
+        signalled: list[tuple[int, int]] = []
+        real_killpg = os.killpg
+
+        def killpg(pgid: int, sig: int) -> None:
+            signalled.append((pgid, sig))
+            real_killpg(pgid, sig)
+
+        # Scoped, not test-wide: ``os`` is the one module object, so a patch
+        # left in place would also reach the ``proc.kill()`` below.
+        with monkeypatch.context() as patch:
+            patch.setattr(process_tree, "END_TERM_WAIT_S", 0.3)
+            _reads_fail_after_the_first(patch)
+            patch.setattr(process_tree.os, "killpg", killpg)
+            ending = process_tree.end_groups([group])
+
+        assert signalled == [(row.pgid, signal.SIGTERM)]
+        assert ending.unknown == (group,)
+        assert ending.survivors == ()
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        proc.kill()
+        proc.wait()
+
+
+def test_end_processes_signals_nothing_when_the_table_cannot_be_read(monkeypatch):
+    monkeypatch.setattr(process_table.psutil, "process_iter", _failing_reads(psutil.AccessDenied()))
+    row = process_tree.ProcessRow(4242, 1, 4242, 0.0, "python scan.py", "sleeping")
+    signalled: list[int] = []
+    monkeypatch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
+
+    ending = process_tree.end_processes([row])
+
+    assert signalled == []
+    assert ending == process_tree.Ending(unknown=(row,))
 
 
 def test_started_groups_raises_when_the_table_cannot_be_read(monkeypatch):
@@ -452,10 +537,10 @@ def test_end_processes_skips_a_reused_pid(monkeypatch):
         # ``proc.wait()`` sitting out the child's whole sleep.
         with monkeypatch.context() as patch:
             patch.setattr(process_tree.os, "kill", lambda pid, sig: signalled.append(pid))
-            ended, survivors = process_tree.end_processes([reused])
+            ending = process_tree.end_processes([reused])
 
         assert signalled == []
-        assert ended == [] and survivors == []
+        assert ending.ended == () and ending.survivors == ()
     finally:
         proc.kill()
         proc.wait()

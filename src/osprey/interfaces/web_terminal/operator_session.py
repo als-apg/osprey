@@ -739,8 +739,10 @@ def _read_tree(pid: int) -> _AgentTree:
 
 def _end_tree(pid: int, tree: _AgentTree) -> TreeEnding:
     """End what *tree* found under the chat child *pid*, and log it in one line. Blocking."""
-    ended_groups, surviving_groups = process_tree.end_groups(tree.groups)
-    ended_members, surviving_members = process_tree.end_processes(tree.members)
+    groups = process_tree.end_groups(tree.groups)
+    members = process_tree.end_processes(tree.members)
+    ended_groups, surviving_groups = groups.ended, groups.survivors
+    ended_members, surviving_members = members.ended, members.survivors
     if ended_groups or ended_members:
         parts = [
             part
