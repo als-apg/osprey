@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from tests._by_path import load_module
+from tests._processes import pid_alive
 
 # scripts/ is not a package, so the gate is loaded by path. It is deliberately not
 # registered in sys.modules: nothing in it resolves its own module name, and an
@@ -41,22 +42,13 @@ _KILL_LIMIT_S = 5
 _REPORT_S = 20
 
 
-def _alive(pid: int) -> bool:
-    """Whether ``pid`` still names a process."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
-
 def _wait_gone(pid: int, within_s: float = 10.0) -> bool:
     deadline = time.monotonic() + within_s
     while time.monotonic() < deadline:
-        if not _alive(pid):
+        if not pid_alive(pid):
             return True
         time.sleep(0.02)
-    return not _alive(pid)
+    return not pid_alive(pid)
 
 
 def _wait_for_pid(pid_file: Path, within_s: float = 10.0) -> int:
@@ -119,7 +111,7 @@ def test_an_orphan_holding_the_output_open_cannot_block_the_read(tmp_path: Path)
         assert "child-done" in stdout
         assert elapsed < _PROMPT_S
         # The orphan really was still there, holding the inherited output open.
-        assert _alive(orphan)
+        assert pid_alive(orphan)
     finally:
         if pid_file.exists():
             _kill(_wait_for_pid(pid_file))
