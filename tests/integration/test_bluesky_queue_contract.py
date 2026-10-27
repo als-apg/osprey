@@ -58,10 +58,12 @@ from osprey.services.bluesky_bridge.plan_fields import (
     READABLE_ROLE,
 )
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
-from osprey.services.bluesky_bridge.queue_backend import QueueBackend
+from osprey.services.bluesky_bridge.queue_backend import (
+    REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
+    REASON_SESSION_PLAN_UNVALIDATED,
+    QueueBackend,
+)
 from osprey.services.bluesky_bridge.session_upload import (
-    REASON_NOT_IN_NAMESPACE,
-    REASON_UNVALIDATED,
     SESSION_PLAN_MODULE,
     set_session_uploader,
     upload_after_validation,
@@ -1616,7 +1618,7 @@ def test_enqueue_refuses_a_session_plan_missing_from_the_worker_namespace(
 
     assert refused.status_code == 409
     detail = refused.json()["detail"]
-    assert detail["code"] == REASON_NOT_IN_NAMESPACE
+    assert detail["code"] == REASON_SESSION_PLAN_NOT_IN_NAMESPACE
     # The error's native key rides along; "code" is the canonical duplicate the
     # whole queue surface branches on.
     assert detail["reason"] == detail["code"]
@@ -1643,7 +1645,7 @@ def test_starting_the_queue_refuses_an_unvalidated_session_plan(
 
     assert resp.status_code == 409
     detail = resp.json()["detail"]
-    assert detail["code"] == REASON_UNVALIDATED
+    assert detail["code"] == REASON_SESSION_PLAN_UNVALIDATED
     assert detail["plan"] == _SESSION_PLAN_NAME
     assert "queue_start" not in manager.method_names()
     assert manager.manager_state == "idle"
@@ -1674,7 +1676,7 @@ def test_enqueueing_an_edited_after_pass_session_plan_refuses_with_a_coded_body(
 
     assert refused.status_code == 409
     detail = refused.json()["detail"]
-    assert detail["code"] == REASON_UNVALIDATED
+    assert detail["code"] == REASON_SESSION_PLAN_UNVALIDATED
     assert detail["reason"] == detail["code"]
     assert detail["plan"] == _SESSION_PLAN_NAME
     assert "no passing validation record" in detail["detail"]

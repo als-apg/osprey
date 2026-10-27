@@ -26,9 +26,11 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
+from osprey.services.bluesky_bridge.queue_backend import (
+    REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
+    REASON_SESSION_PLAN_UNVALIDATED,
+)
 from osprey.services.bluesky_bridge.session_upload import (
-    REASON_NOT_IN_NAMESPACE,
-    REASON_UNVALIDATED,
     SESSION_PLAN_MODULE,
     SessionPlanEnvironmentBusyError,
     SessionPlanNotReadyError,
@@ -544,7 +546,7 @@ async def test_upload_refused_without_a_passing_record(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await uploader.upload_validated("sample_scan")
 
-    assert excinfo.value.reason == REASON_UNVALIDATED
+    assert excinfo.value.reason == REASON_SESSION_PLAN_UNVALIDATED
     assert backend.uploads == []
 
 
@@ -670,10 +672,10 @@ async def test_plan_edited_after_upload_is_refused(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await uploader.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_UNVALIDATED
+    assert excinfo.value.reason == REASON_SESSION_PLAN_UNVALIDATED
     assert "Re-validate" in excinfo.value.detail
     assert excinfo.value.to_dict() == {
-        "reason": REASON_UNVALIDATED,
+        "reason": REASON_SESSION_PLAN_UNVALIDATED,
         "detail": excinfo.value.detail,
         "plan": "sample_scan",
     }
@@ -725,7 +727,7 @@ async def test_bridge_restart_refuses_a_redis_durable_item(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await after.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_UNVALIDATED
+    assert excinfo.value.reason == REASON_SESSION_PLAN_UNVALIDATED
     assert "restarted" in excinfo.value.detail
 
 
@@ -755,7 +757,7 @@ async def test_restart_that_also_lost_the_file_refuses_the_namespace_leftover(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await after.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_NOT_IN_NAMESPACE
+    assert excinfo.value.reason == REASON_SESSION_PLAN_NOT_IN_NAMESPACE
 
 
 async def test_environment_cycle_refuses_until_the_plan_is_back(
@@ -773,7 +775,7 @@ async def test_environment_cycle_refuses_until_the_plan_is_back(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await uploader.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_NOT_IN_NAMESPACE
+    assert excinfo.value.reason == REASON_SESSION_PLAN_NOT_IN_NAMESPACE
 
 
 # ---------------------------------------------------------------------------
