@@ -14,11 +14,14 @@ No test here creates a git repository.
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests._tree_scan import tracked_files
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "changelog_fragments.py"
 _spec = importlib.util.spec_from_file_location("changelog_fragments", _MODULE_PATH)
@@ -940,6 +943,7 @@ class TestNeedsFragment:
             "packages/osprey-edu/pyproject.toml",
             "src/",
             "packages/deep/nested/file.py",
+            "plugins/osprey/skills/contribute/SKILL.md",
         ],
     )
     def test_a_path_under_a_gated_directory_needs_one(self, path):
@@ -1047,7 +1051,7 @@ class TestGateFailures:
         assert "changelog.d/<name>.<type>.md" in message
         for type_ in cf.TYPES:
             assert type_ in message
-        assert "the gate reads committed history — an unstaged fragment does not count" in message
+        assert "the gate reads committed history unless run with --worktree" in message
         assert ok_lines == ["✓ [Unreleased]: untouched"]
 
     def test_the_failure_lists_five_paths_and_counts_the_rest(self):
@@ -1802,17 +1806,28 @@ def git_table(
     base_text: str = CHANGELOG,
     ref: str = "origin/main",
     log: str = "",
+    untracked: str | None = None,
 ) -> dict[tuple[str, ...], subprocess.CompletedProcess[str]]:
-    """A table for one green ``check``: base resolves, merge base, diff, log, show."""
-    return {
+    """A table for one green ``check``: base resolves, merge base, diff, log, show.
+
+    With *untracked* the table answers ``check --worktree``: the diff runs
+    against the working tree and the untracked listing returns *untracked*.
+    """
+    diff_key: tuple[str, ...] = ("git", "diff", "--name-status", "-z", "--no-renames", MERGE_BASE)
+    table = {
         ("git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"): completed(
             f"{BASE_SHA}\n"
         ),
         ("git", "merge-base", BASE_SHA, "HEAD"): completed(f"{MERGE_BASE}\n"),
-        ("git", "diff", "--name-status", "-z", "--no-renames", MERGE_BASE, "HEAD"): completed(diff),
         ("git", "log", "--format=%B", f"{MERGE_BASE}..HEAD"): completed(log),
         ("git", "show", f"{MERGE_BASE}:CHANGELOG.md"): completed(base_text),
     }
+    if untracked is None:
+        table[(*diff_key, "HEAD")] = completed(diff)
+    else:
+        table[diff_key] = completed(diff)
+        table[("git", "ls-files", "-z", "--others", "--exclude-standard")] = completed(untracked)
+    return table
 
 
 def diff_z(*pairs: tuple[str, str]) -> str:
@@ -2247,6 +2262,87 @@ class TestMain:
         assert "- A bug. (#745)" in changelog.read_text(encoding="utf-8")
 
 
+class TestWorktree:
+    """``check --worktree`` judges the merge base against the working tree.
+
+    A real repository, because what is staged, unstaged or untracked is git's
+    answer and a lookup table would only restate the implementation.
+    """
+
+    @staticmethod
+    def git(repo: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        """A ``base`` commit holding the changelog and the fragment directory, on ``work``."""
+        repo = tmp_path / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
+        (repo / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
+        write(repo / "changelog.d", "README.md", "how to write one\n")
+        self.git(repo, "init", "--initial-branch", "base")
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "--no-gpg-sign", "-m", "base")
+        self.git(repo, "checkout", "-b", "work")
+        return repo
+
+    def check(self, repo: Path, *extra: str) -> int:
+        def run(argv: list[str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(argv, cwd=repo, capture_output=True, text=True)
+
+        argv = ["check", "--base", "base", *extra]
+        argv += ["--dir", str(repo / "changelog.d"), "--changelog", str(repo / "CHANGELOG.md")]
+        return cf.main(argv, run)
+
+    def stage_source_edit(self, repo: Path) -> None:
+        (repo / "src" / "x.py").write_text("x = 2\n", encoding="utf-8")
+        self.git(repo, "add", "src/x.py")
+
+    def test_a_staged_gated_edit_without_a_fragment_fails(self, repo):
+        self.stage_source_edit(repo)
+        assert self.check(repo, "--worktree") == 1
+
+    def test_a_staged_fragment_counts(self, repo):
+        self.stage_source_edit(repo)
+        write(repo / "changelog.d", "x.fixed.md", "x is two.\n")
+        self.git(repo, "add", "changelog.d/x.fixed.md")
+        assert self.check(repo, "--worktree") == 0
+
+    def test_an_untracked_fragment_counts(self, repo):
+        self.stage_source_edit(repo)
+        write(repo / "changelog.d", "x.fixed.md", "x is two.\n")
+        assert self.check(repo, "--worktree") == 0
+
+    def test_without_it_a_staged_fragment_does_not_count(self, repo):
+        self.stage_source_edit(repo)
+        self.git(repo, "commit", "--no-gpg-sign", "-m", "x is two")
+        write(repo / "changelog.d", "x.fixed.md", "x is two.\n")
+        self.git(repo, "add", "changelog.d/x.fixed.md")
+        assert self.check(repo) == 1
+        assert self.check(repo, "--worktree") == 0
+
+    def test_the_diff_reaches_the_working_tree_and_the_untracked_files(self, tmp_path):
+        directory, changelog = TestMain.fixture(tmp_path)
+        write(directory, "745.fixed.md", "the gate no longer eats the last line.\n")
+        git = FakeGit(
+            git_table(
+                diff=diff_z(("M", "src/osprey/cli/build.py")),
+                untracked="changelog.d/745.fixed.md\0",
+            )
+        )
+        argv = TestMain.check_argv(directory, changelog, "--worktree")
+        assert cf.main(argv, git) == 0
+        assert ["git", "diff", "--name-status", "-z", "--no-renames", MERGE_BASE] in git.calls
+        assert ["git", "ls-files", "-z", "--others", "--exclude-standard"] in git.calls
+
+
 CONNECTORS = "packages/osprey-connectors"
 
 
@@ -2400,6 +2496,19 @@ class TestTrees:
         assert cf.main(["apply"]) == 0
         assert "stage with: git add -A changelog.d/ CHANGELOG.md" in capsys.readouterr().out
 
+    def test_worktree_counts_an_untracked_connectors_fragment(self, tmp_path, monkeypatch, capsys):
+        """The untracked listing reaches every tree's path filter, as the diff does."""
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        diff = diff_z(("M", f"{CONNECTORS}/src/osprey_connectors/b.py"))
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 1
+        capsys.readouterr()
+        table = git_table(diff=diff, untracked=f"{CONNECTORS}/changelog.d/745.fixed.md\0")
+        table[("git", "show", f"{MERGE_BASE}:{CONNECTORS}/CHANGELOG.md")] = completed(CHANGELOG)
+        assert cf.main(["check", "--worktree"], FakeGit(table)) == 0
+        out = capsys.readouterr().out
+        assert "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s)" in out
+
 
 # ---------------------------------------------------------------------------
 # The live tree. Everything below reads the real repository and writes nothing.
@@ -2487,3 +2596,162 @@ class TestLiveTree:
         tokens = ["changelog_fragments.py apply", "fragment(s) on disk"]
         for token in tokens:
             assert _surface_has(text.replace(token, ""), tokens) is False
+
+
+class TestGateDocsNameEveryPrefix:
+    """`GATED_PREFIXES` is the one statement of which directories the gate covers.
+
+    A shipped document points at the check, whose verdict names the
+    directories. Only a canonical page may list them, and then it lists
+    every one: a paragraph that states the rule with a partial list sends a
+    contributor past the gate without a fragment, and a second full list is a
+    copy that drifts when the gate gains a directory. Each tree's fragment
+    directory carries its README, and that README is the tree's canonical page.
+    """
+
+    PROSE_SUFFIXES = (".md", ".rst", ".yml", ".yaml")
+    COMMENT_SUFFIXES = (".yml", ".yaml")
+    CANONICAL_PAGE = f"{cf.FRAGMENT_DIR}/README.md"
+    CANONICAL_PAGES = tuple(f"{tree.prefix}{cf.FRAGMENT_DIR}/README.md" for tree in cf.TREES)
+    FRAGMENT_DIRS = tuple(f"{tree.prefix}{cf.FRAGMENT_DIR}/" for tree in cf.TREES)
+
+    @staticmethod
+    def _tracked_prose() -> list[str]:
+        """Tracked documents that describe the tree as it is now.
+
+        Each tree's `CHANGELOG.md` and fragments describe what a past change
+        did, so they are left out; each canonical page states the rule and stays.
+        """
+        cls = TestGateDocsNameEveryPrefix
+        changelogs = {f"{tree.prefix}CHANGELOG.md" for tree in cf.TREES}
+        kept = []
+        for name in tracked_files():
+            if not name.endswith(cls.PROSE_SUFFIXES):
+                continue
+            if name in changelogs:
+                continue
+            if name.startswith(cls.FRAGMENT_DIRS) and name not in cls.CANONICAL_PAGES:
+                continue
+            kept.append(name)
+        return kept
+
+    @staticmethod
+    def _paragraphs(text: str, suffix: str) -> list[tuple[int, str]]:
+        """Split *text* on blank lines into `(first line number, paragraph)`.
+
+        In YAML only the comments are prose: a leading `#` and one space are
+        stripped, and a bare `#` or a line that is not a comment separates
+        paragraphs. In Markdown and
+        reStructuredText a fenced block is a command, not a statement of the
+        rule, so every line of it separates paragraphs.
+        """
+        comments = suffix in TestGateDocsNameEveryPrefix.COMMENT_SUFFIXES
+        paragraphs: list[tuple[int, str]] = []
+        current: list[str] = []
+        start = 0
+        fenced = False
+        for number, raw in enumerate(text.splitlines(), start=1):
+            line = raw.strip()
+            if comments:
+                line = line[1:].removeprefix(" ").strip() if line.startswith("#") else ""
+            elif line.startswith("```"):
+                fenced = not fenced
+                line = ""
+            elif fenced:
+                line = ""
+            if line:
+                if not current:
+                    start = number
+                current.append(line)
+            elif current:
+                paragraphs.append((start, "\n".join(current)))
+                current = []
+        if current:
+            paragraphs.append((start, "\n".join(current)))
+        return paragraphs
+
+    @staticmethod
+    def _names(prefix: str, paragraph: str) -> bool:
+        """Whether *paragraph* names *prefix* as a bare directory.
+
+        A longer path that merely starts there (`src/osprey/x.py`) names a
+        file, not the directory the gate covers.
+        """
+        return re.search(r"(?<![\w./-])" + re.escape(prefix) + r"(?!\w)", paragraph) is not None
+
+    @classmethod
+    def _restates_gate(cls, paragraph: str) -> bool:
+        if not re.search(r"changelog|fragment", paragraph, re.IGNORECASE):
+            return False
+        return any(cls._names(prefix, paragraph) for prefix in cf.GATED_PREFIXES)
+
+    @classmethod
+    def _incomplete(cls, paragraph: str) -> bool:
+        """A statement of the gate that leaves a gated directory out."""
+        return cls._restates_gate(paragraph) and not all(
+            cls._names(prefix, paragraph) for prefix in cf.GATED_PREFIXES
+        )
+
+    def _statements(self) -> list[tuple[str, str]]:
+        """Every tracked paragraph that states the gate, as `(path:line, paragraph)`."""
+        found = []
+        for name in self._tracked_prose():
+            path = cf.REPO_ROOT / name
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for line, paragraph in self._paragraphs(text, path.suffix):
+                if self._restates_gate(paragraph):
+                    found.append((f"{name}:{line}", paragraph))
+        return found
+
+    def test_every_shipped_statement_of_the_gate_names_every_prefix(self):
+        offenders = [
+            where for where, paragraph in self._statements() if self._incomplete(paragraph)
+        ]
+        assert offenders == [], (
+            f"these paragraphs state the changelog gate without naming every one of "
+            f"{', '.join(cf.GATED_PREFIXES)}; point at the check instead: {offenders}"
+        )
+
+    @classmethod
+    def _outside_canonical(cls, statements: list[tuple[str, str]]) -> list[str]:
+        """The `path:line` of each statement that is not on a canonical page."""
+        pages = tuple(f"{page}:" for page in cls.CANONICAL_PAGES)
+        return [where for where, _ in statements if not where.startswith(pages)]
+
+    def test_only_the_canonical_page_names_a_gated_directory(self):
+        offenders = self._outside_canonical(self._statements())
+        assert offenders == [], (
+            f"these paragraphs list the directories the changelog gate covers; point at "
+            f"the check or {self.CANONICAL_PAGE} instead: {offenders}"
+        )
+
+    def flagged(self, text: str, suffix: str = ".md") -> list[int]:
+        return [line for line, para in self._paragraphs(text, suffix) if self._incomplete(para)]
+
+    def test_scanner_flags_a_two_prefix_statement(self):
+        two = "A PR that touches `src/` or `packages/` needs a changelog fragment."
+        assert self.flagged(two) == [1]
+        wrapped = "Intro.\n\nA PR that touches `src/` or\n`packages/` needs a fragment."
+        assert self.flagged(wrapped) == [3]
+        comment = "steps:\n  - name: guard\n    # First.\n    #\n    # " + two + "\n"
+        assert self.flagged(comment, ".yml") == [5]
+
+        three = "A PR that touches `src/`, `packages/` or `plugins/` needs a changelog fragment."
+        assert self.flagged(three) == []
+        assert self.flagged("Source lives under `src/` and `packages/`.") == []
+        assert self.flagged("The changelog names `src/osprey/x.py` among its files.") == []
+        assert self.flagged("The fragment for `plugins/osprey/` work is internal.") == []
+        fenced = "Run it:\n\n```bash\n# src/ or packages/ needs a changelog fragment\n```\n"
+        assert self.flagged(fenced) == []
+        assert self.flagged("The changelog check.\n\nReport `src/` and `packages/` apart.") == []
+        keys = "- name: changelog guard\n  paths:\n    - src/\n    - packages/\n"
+        assert self.flagged(keys, ".yml") == []
+
+        listed = [
+            ("CONTRIBUTING.md:3", three),
+            (f"{self.CANONICAL_PAGE}:5", three),
+            (f"{CONNECTORS}/{self.CANONICAL_PAGE}:13", three),
+        ]
+        assert self._outside_canonical(listed) == ["CONTRIBUTING.md:3"]

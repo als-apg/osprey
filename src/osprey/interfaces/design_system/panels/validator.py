@@ -1,3 +1,4 @@
+# ruff: noqa: T201 -- the panel validator command reports on stdout and stderr
 """Fail-closed static validation for a **panel** directory.
 
 A *panel* is a directory bundling an HTML entry point plus a

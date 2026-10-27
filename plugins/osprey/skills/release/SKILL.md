@@ -443,8 +443,9 @@ means a PR slipped past the gate and needs `python scripts/plugin_version.py
 bump` on this branch.
 
 Now hand off to `/osprey:contribute` for the rest of the PR mechanics:
-`quick_check.sh` → commit (`release: notes for vYYYY.M.P`) →
-`ci_check.sh` → push → `premerge_check.sh main` → `gh pr create`.
+`scripts/check.py quick` → commit (`release: notes for vYYYY.M.P`) →
+`scripts/check.py full` → push → `scripts/check.py quick --changed origin/main` →
+`gh pr create`.
 
 The PR title should be `release: vYYYY.M.P — <theme>`. The PR body should
 include the CHANGELOG entries verbatim so reviewers see exactly what's being

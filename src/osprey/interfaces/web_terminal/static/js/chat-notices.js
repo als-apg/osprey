@@ -98,7 +98,10 @@ const HANDOFF_STARTED_UNREAD = {
 // retry the overlay would have given it.
 
 /** Overlay copy for a hand-off that failed with no reason this view knows. */
-export const HANDOFF_FALLBACK = { message: 'The switch failed.', action: /** @type {'retry'} */ ('retry') };
+export const HANDOFF_FALLBACK = {
+  message: 'The switch failed.',
+  action: /** @type {'retry'} */ ('retry'),
+};
 
 /**
  * Extract an HTTP status from a transport error: the `status` the transport

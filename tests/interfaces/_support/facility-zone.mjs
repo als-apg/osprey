@@ -38,7 +38,7 @@ function wallClock(zone) {
  */
 export const FACILITY_ZONE = /** @type {string} */ (
   ['Asia/Tokyo', 'Europe/Berlin', 'America/New_York'].find(
-    (zone) => wallClock(zone) !== wallClock(VIEWER_ZONE),
+    (zone) => wallClock(zone) !== wallClock(VIEWER_ZONE)
   )
 );
 

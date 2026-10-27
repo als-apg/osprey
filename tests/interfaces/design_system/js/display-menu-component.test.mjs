@@ -114,9 +114,9 @@ describe('<osprey-display-menu>', () => {
 
     test('the View row offers exactly expert and simple', () => {
       const el = mount();
-      const options = Array.from(
-        el.querySelectorAll('.display-menu-view .display-seg-option')
-      ).map((o) => (o instanceof HTMLElement ? o.dataset.mode : null));
+      const options = Array.from(el.querySelectorAll('.display-menu-view .display-seg-option')).map(
+        (o) => (o instanceof HTMLElement ? o.dataset.mode : null)
+      );
       expect(options).toEqual(['expert', 'simple']);
     });
 
@@ -305,9 +305,9 @@ describe('<osprey-display-menu>', () => {
       const active = qs(el, '.display-family-pill[data-family="high-contrast"]');
       expect(active.classList.contains('active')).toBe(true);
       expect(active.getAttribute('aria-pressed')).toBe('true');
-      expect(
-        qs(el, '.display-family-pill[data-family="main"]').getAttribute('aria-pressed')
-      ).toBe('false');
+      expect(qs(el, '.display-family-pill[data-family="main"]').getAttribute('aria-pressed')).toBe(
+        'false'
+      );
     });
   });
 
@@ -388,7 +388,7 @@ describe('<osprey-display-menu>', () => {
       expect(el.querySelector('.display-menu-actions')).toBeNull();
     });
 
-    test('appears with settings-drawer, carrying osprey-drawer\'s data-drawer contract', () => {
+    test("appears with settings-drawer, carrying osprey-drawer's data-drawer contract", () => {
       const el = mount('settings-drawer');
       const button = qs(el, '.display-menu-settings', HTMLButtonElement);
 
@@ -437,13 +437,16 @@ describe('<osprey-display-menu>', () => {
       return /** @type {HTMLElement} */ (el);
     }
 
-    test('moves the tag\'s children into the action row, last in the card, in order', () => {
+    test("moves the tag's children into the action row, last in the card, in order", () => {
       const el = mountWithActions();
       const card = qs(el, '.display-menu-card');
       const actions = qs(el, '.display-menu-actions');
 
       expect(card.lastElementChild).toBe(actions);
-      expect(Array.from(actions.children).map((c) => c.id)).toEqual(['page-settings', 'page-logout']);
+      expect(Array.from(actions.children).map((c) => c.id)).toEqual([
+        'page-settings',
+        'page-logout',
+      ]);
       // Nothing leaks outside the card: the trigger and the card are the only
       // direct children left.
       expect(Array.from(el.children).map((c) => c.className)).toEqual([
@@ -470,7 +473,7 @@ describe('<osprey-display-menu>', () => {
       expect(settings.hasAttribute('data-drawer')).toBe(false);
     });
 
-    test('a projected child\'s click leaves the card open (the page decides)', () => {
+    test("a projected child's click leaves the card open (the page decides)", () => {
       // The hub's Log out must NOT be closed away: its aria-busy state has to
       // stay visible while the logout POST is in flight. The hub closes on its
       // own Settings click by calling closeMenu() itself.

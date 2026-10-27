@@ -75,7 +75,9 @@ function collector() {
 
 describe('sendPrompt: request shape', () => {
   test('POSTs prompt + chat_id as JSON to /api/chat?stream=true with the abort signal', async () => {
-    const fetchMock = vi.fn(async () => streamResponse([frame({ type: 'result', is_error: false })]));
+    const fetchMock = vi.fn(async () =>
+      streamResponse([frame({ type: 'result', is_error: false })])
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const cb = collector();
@@ -138,7 +140,10 @@ describe('sendPrompt: frame parsing and dispatch', () => {
       frame({ type: 'thinking' }) +
       frame({ type: 'text', content: 'a' }) +
       frame({ type: 'result' });
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([combined])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([combined]))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -151,7 +156,12 @@ describe('sendPrompt: frame parsing and dispatch', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        streamResponse([': heartbeat\n\n', frame({ type: 'text', content: 'x' }), ': heartbeat\n\n', frame({ type: 'result' })])
+        streamResponse([
+          ': heartbeat\n\n',
+          frame({ type: 'text', content: 'x' }),
+          ': heartbeat\n\n',
+          frame({ type: 'result' }),
+        ])
       )
     );
 
@@ -164,7 +174,10 @@ describe('sendPrompt: frame parsing and dispatch', () => {
 
   test('joins multi-line data fields before parsing', async () => {
     const raw = 'data: {"type":"text",\ndata: "content":"multi"}\n\n' + frame({ type: 'result' });
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([raw])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([raw]))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -181,7 +194,10 @@ describe('sendPrompt: terminal conditions', () => {
       frame({ type: 'result', is_error: false }),
       frame({ type: 'text', content: 'after-terminal' }),
     ]);
-    vi.stubGlobal('fetch', vi.fn(async () => response));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response)
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -211,7 +227,11 @@ describe('sendPrompt: terminal conditions', () => {
 
     // The server error is delivered by type, then the turn stops.
     expect(cb.events.map((e) => e.type)).toEqual(['error']);
-    expect(onError).toHaveBeenCalledWith({ type: 'error', error_type: 'TimeoutError', message: 'boom' });
+    expect(onError).toHaveBeenCalledWith({
+      type: 'error',
+      error_type: 'TimeoutError',
+      message: 'boom',
+    });
     // Transport onError is NOT fired for a server error event.
     expect(cb.onError).not.toHaveBeenCalled();
   });
@@ -240,7 +260,9 @@ describe('sendPrompt: transport failures', () => {
   test('a non-2xx status reports onError and closes', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => streamResponse([], { ok: false, status: 503, statusText: 'Service Unavailable' }))
+      vi.fn(async () =>
+        streamResponse([], { ok: false, status: 503, statusText: 'Service Unavailable' })
+      )
     );
 
     const cb = collector();
@@ -316,7 +338,12 @@ describe('sendPrompt: transport failures', () => {
   });
 
   test('a rejected fetch reports onError and closes', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('network down');
+      })
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -327,7 +354,10 @@ describe('sendPrompt: transport failures', () => {
   });
 
   test('a malformed frame reports onError', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse(['data: {not json}\n\n'])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse(['data: {not json}\n\n']))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -338,7 +368,10 @@ describe('sendPrompt: transport failures', () => {
   });
 
   test('onClose fires exactly once even on a terminal-then-end stream', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => streamResponse([frame({ type: 'result' })])));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => streamResponse([frame({ type: 'result' })]))
+    );
 
     const cb = collector();
     chat.sendPrompt('c', 'p', cb.handlers);
@@ -394,7 +427,10 @@ describe('interrupt', () => {
   });
 
   test('throws on a non-2xx status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, statusText: 'Not Found' })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 404, statusText: 'Not Found' }))
+    );
     await expect(chat.interrupt('c')).rejects.toThrow('HTTP 404: Not Found');
   });
 });
@@ -508,18 +544,19 @@ describe('requestHandoff: abort', () => {
     // long Expert turn: only the signal ends it.
     vi.stubGlobal(
       'fetch',
-      vi.fn((/** @type {string} */ _url, /** @type {any} */ init) =>
-        new Promise((_resolve, reject) => {
-          /** @type {AbortSignal} */
-          const signal = init.signal;
-          const fail = () => {
-            const err = new Error('aborted');
-            err.name = 'AbortError';
-            reject(err);
-          };
-          if (signal.aborted) fail();
-          else signal.addEventListener('abort', fail);
-        })
+      vi.fn(
+        (/** @type {string} */ _url, /** @type {any} */ init) =>
+          new Promise((_resolve, reject) => {
+            /** @type {AbortSignal} */
+            const signal = init.signal;
+            const fail = () => {
+              const err = new Error('aborted');
+              err.name = 'AbortError';
+              reject(err);
+            };
+            if (signal.aborted) fail();
+            else signal.addEventListener('abort', fail);
+          })
       )
     );
     const controller = new AbortController();
@@ -538,7 +575,9 @@ describe('requestHandoff: rejection slugs', () => {
   ])('%i carries status and the detail.error slug', async (status, statusText, slug) => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse({ detail: { error: slug } }, { ok: false, status, statusText }))
+      vi.fn(async () =>
+        jsonResponse({ detail: { error: slug } }, { ok: false, status, statusText })
+      )
     );
 
     const err = await chat.requestHandoff('k').catch((e) => e);
@@ -631,7 +670,10 @@ describe('fetchHistory', () => {
   });
 
   test('a body without turns yields an empty list', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ count: 0 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ count: 0 }))
+    );
     await expect(chat.fetchHistory('k')).resolves.toEqual([]);
   });
 
@@ -639,11 +681,14 @@ describe('fetchHistory', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        jsonResponse({ detail: { error: 'session_unknown' } }, {
-          ok: false,
-          status: 404,
-          statusText: 'Not Found',
-        })
+        jsonResponse(
+          { detail: { error: 'session_unknown' } },
+          {
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+          }
+        )
       )
     );
 
@@ -667,7 +712,10 @@ describe('fetchCommands', () => {
   });
 
   test('a body without an array yields an empty list', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ commands: null })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ commands: null }))
+    );
     await expect(chat.fetchCommands()).resolves.toEqual([]);
   });
 

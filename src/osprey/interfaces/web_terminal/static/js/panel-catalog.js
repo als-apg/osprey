@@ -62,8 +62,7 @@ function panelLabels() {
     }
   }
   console.warn(
-    `[panel-catalog] no readable ${PANEL_LABELS_ATTR} on this page; ` +
-      'panels are labelled by id'
+    `[panel-catalog] no readable ${PANEL_LABELS_ATTR} on this page; ` + 'panels are labelled by id'
   );
   return {};
 }
@@ -87,7 +86,7 @@ export const PANELS = [
     id: 'artifacts',
     label: labelOf('artifacts'),
     configEndpoint: '/api/artifact-server',
-    healthEndpoint: null,    // embedded same-origin — skip health polling
+    healthEndpoint: null, // embedded same-origin — skip health polling
   },
   {
     id: 'ariel',

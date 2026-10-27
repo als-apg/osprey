@@ -46,7 +46,8 @@ let clipboard;
 const flush = () => vi.advanceTimersByTimeAsync(0);
 
 /** The copy controls in the log, in order. */
-const copyControls = () => /** @type {HTMLButtonElement[]} */ ([...messages.querySelectorAll('.op-reply-copy')]);
+const copyControls = () =>
+  /** @type {HTMLButtonElement[]} */ ([...messages.querySelectorAll('.op-reply-copy')]);
 
 /** Draw one agent turn from its live frames. */
 /** @param {Array<{ type: string, [key: string]: any }>} frames */
@@ -117,7 +118,13 @@ describe('copy: a reply is copied as its markdown source', () => {
       'text on either side of a tool call is copied as two paragraphs',
       [
         { type: 'text', content: 'First.' },
-        { type: 'tool_use', tool_use_id: 't1', tool_name: 'Read', tool_name_raw: 'Read', input: {} },
+        {
+          type: 'tool_use',
+          tool_use_id: 't1',
+          tool_name: 'Read',
+          tool_name_raw: 'Read',
+          input: {},
+        },
         { type: 'tool_result', tool_use_id: 't1', is_error: false, preview: 'file body' },
         { type: 'text', content: 'Second.' },
         { type: 'result', is_error: false },
@@ -151,7 +158,13 @@ describe('copy: a reply is copied as its markdown source', () => {
         content: 'Part one.\n\nPart two.',
         events: [
           { type: 'text', content: 'Part one.' },
-          { type: 'tool_use', tool_use_id: 't1', tool_name: 'Bash', tool_name_raw: 'Bash', input: { command: 'ls' } },
+          {
+            type: 'tool_use',
+            tool_use_id: 't1',
+            tool_name: 'Bash',
+            tool_name_raw: 'Bash',
+            input: { command: 'ls' },
+          },
           { type: 'tool_result', tool_use_id: 't1', is_error: false, preview: 'listing' },
           { type: 'text', content: 'Part two.' },
           { type: 'result', is_error: false },
@@ -193,8 +206,14 @@ describe('copy: the control', () => {
   });
 
   test('gives each reply its own control, once', () => {
-    drawTurn([{ type: 'text', content: 'one' }, { type: 'result', is_error: false }]);
-    drawTurn([{ type: 'text', content: 'two' }, { type: 'result', is_error: false }]);
+    drawTurn([
+      { type: 'text', content: 'one' },
+      { type: 'result', is_error: false },
+    ]);
+    drawTurn([
+      { type: 'text', content: 'two' },
+      { type: 'result', is_error: false },
+    ]);
     expect(copyControls()).toHaveLength(2);
   });
 
@@ -208,7 +227,10 @@ describe('copy: the control', () => {
   });
 
   test('is a labelled button whose name says Copied briefly after a copy, then Copy again', async () => {
-    drawTurn([{ type: 'text', content: 'copy me' }, { type: 'result', is_error: false }]);
+    drawTurn([
+      { type: 'text', content: 'copy me' },
+      { type: 'result', is_error: false },
+    ]);
 
     const copy = copyControls()[0];
     // The visible label is the accessible name: no aria-label hides the state change.
@@ -228,7 +250,10 @@ describe('copy: the control', () => {
 
   test('a clipboard failure leaves the control as it was, without an error', async () => {
     clipboard.writeText.mockRejectedValueOnce(new Error('clipboard denied'));
-    drawTurn([{ type: 'text', content: 'no clipboard' }, { type: 'result', is_error: false }]);
+    drawTurn([
+      { type: 'text', content: 'no clipboard' },
+      { type: 'result', is_error: false },
+    ]);
 
     const copy = copyControls()[0];
     copy.click();
@@ -247,11 +272,11 @@ describe('exportFilename', () => {
 
     stampFacilityZone('Asia/Tokyo');
     expect(exportModule.exportFilename('0123456789abcdef', when)).toBe(
-      'osprey-conversation-2026-10-23-01234567.md',
+      'osprey-conversation-2026-10-23-01234567.md'
     );
     stampFacilityZone('UTC');
     expect(exportModule.exportFilename('0123456789abcdef', when)).toBe(
-      'osprey-conversation-2026-10-22-01234567.md',
+      'osprey-conversation-2026-10-22-01234567.md'
     );
   });
 });
@@ -265,7 +290,7 @@ describe('conversationMarkdown', () => {
         { role: 'user', content: 'Status of the RF?', timestamp: '2026-10-22T14:02:11Z' },
         { role: 'assistant', content: 'RF is nominal.', timestamp: '2026-10-22T14:02:19Z' },
       ],
-      { key: KEY, exportedAt },
+      { key: KEY, exportedAt }
     );
 
     expect(markdown).toBe(
@@ -275,7 +300,7 @@ describe('conversationMarkdown', () => {
         'Exported: 2026-10-22T15:00:00.000Z',
         '## Operator\n\n_2026-10-22T14:02:11Z_\n\nStatus of the RF?',
         '## Agent\n\n_2026-10-22T14:02:19Z_\n\nRF is nominal.',
-      ].join('\n\n') + '\n',
+      ].join('\n\n') + '\n'
     );
   });
 
@@ -287,17 +312,47 @@ describe('conversationMarkdown', () => {
           content: 'Checking. Done.',
           events: [
             { type: 'text', content: 'Checking.' },
-            { type: 'tool_use', tool_use_id: 't1', tool_name: 'Bash', tool_name_raw: 'Bash', input: { command: 'SECRET-INPUT' } },
-            { type: 'tool_result', tool_use_id: 't1', is_error: false, preview: 'SECRET-OUTPUT', decision: 'allowed' },
-            { type: 'tool_use', tool_use_id: 't2', tool_name: 'Write', tool_name_raw: 'Write', input: {} },
-            { type: 'tool_result', tool_use_id: 't2', is_error: true, preview: 'boom', decision: 'denied' },
-            { type: 'tool_use', tool_use_id: 't3', tool_name: 'channel_read', tool_name_raw: 'mcp__osprey__channel_read', input: {} },
+            {
+              type: 'tool_use',
+              tool_use_id: 't1',
+              tool_name: 'Bash',
+              tool_name_raw: 'Bash',
+              input: { command: 'SECRET-INPUT' },
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 't1',
+              is_error: false,
+              preview: 'SECRET-OUTPUT',
+              decision: 'allowed',
+            },
+            {
+              type: 'tool_use',
+              tool_use_id: 't2',
+              tool_name: 'Write',
+              tool_name_raw: 'Write',
+              input: {},
+            },
+            {
+              type: 'tool_result',
+              tool_use_id: 't2',
+              is_error: true,
+              preview: 'boom',
+              decision: 'denied',
+            },
+            {
+              type: 'tool_use',
+              tool_use_id: 't3',
+              tool_name: 'channel_read',
+              tool_name_raw: 'mcp__osprey__channel_read',
+              input: {},
+            },
             { type: 'text', content: 'Done.' },
             { type: 'result', is_error: false },
           ],
         },
       ],
-      { key: KEY, exportedAt },
+      { key: KEY, exportedAt }
     );
 
     expect(markdown).toContain(
@@ -308,7 +363,7 @@ describe('conversationMarkdown', () => {
         '- Tool call: `Write` · decision: denied · outcome: error',
         '- Tool call: `mcp__osprey__channel_read` · outcome: no result',
         'Done.',
-      ].join('\n\n'),
+      ].join('\n\n')
     );
     expect(markdown).not.toContain('SECRET-INPUT');
     expect(markdown).not.toContain('SECRET-OUTPUT');
@@ -321,14 +376,17 @@ describe('conversationMarkdown', () => {
         `Session: \`${KEY}\``,
         'Exported: 2026-10-22T15:00:00.000Z',
         '_No messages in this conversation yet._',
-      ].join('\n\n') + '\n',
+      ].join('\n\n') + '\n'
     );
   });
 
   test('a turn with no text and no tool calls is left out', () => {
     const markdown = exportModule.conversationMarkdown(
-      [{ role: 'user', content: '   ' }, { role: 'assistant', content: '', events: [] }],
-      { key: KEY, exportedAt },
+      [
+        { role: 'user', content: '   ' },
+        { role: 'assistant', content: '', events: [] },
+      ],
+      { key: KEY, exportedAt }
     );
     expect(markdown).toContain('_No messages in this conversation yet._');
   });
@@ -365,11 +423,11 @@ describe('export button', () => {
       blobs.push(blob);
       return 'blob:osprey-test';
     });
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(/** @this {HTMLAnchorElement} */ function () {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+      /** @this {HTMLAnchorElement} */ function () {
         names.push(this.download);
-      });
+      }
+    );
 
     /** @type {HTMLButtonElement} */ (bar.querySelector('.op-export')).click();
     await flush();

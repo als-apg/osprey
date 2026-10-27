@@ -66,8 +66,18 @@ describe('session-views renderers', () => {
       tool_calls_by_agent: {
         main: [],
         'sub-1': [
-          { tool_name: 'Read', server_name: 'python', is_error: false, timestamp: '2026-01-01T00:00:00Z' },
-          { tool_name: 'Bash', server_name: 'controls', is_error: true, timestamp: '2026-01-01T00:00:01Z' },
+          {
+            tool_name: 'Read',
+            server_name: 'python',
+            is_error: false,
+            timestamp: '2026-01-01T00:00:00Z',
+          },
+          {
+            tool_name: 'Bash',
+            server_name: 'controls',
+            is_error: true,
+            timestamp: '2026-01-01T00:00:01Z',
+          },
         ],
       },
     };
@@ -125,13 +135,16 @@ describe('session-views renderers', () => {
         timeline: [{ kind: 'tool_call', tool: 'Read', arguments: { path: '/x' } }],
       });
       const apiFetch = vi.fn((path) =>
-        path.startsWith('/api/session-agent-timeline') ? timelineFetch(path) : Promise.resolve(FIXTURE)
+        path.startsWith('/api/session-agent-timeline')
+          ? timelineFetch(path)
+          : Promise.resolve(FIXTURE)
       );
       await Views.renderAgents(ctx({ apiFetch }));
 
       const el = byId('view-agents');
-      const subCard = [...el.querySelectorAll('.agent-card')]
-        .find((c) => /** @type {HTMLElement} */ (c).dataset.agent === 'sub-1');
+      const subCard = [...el.querySelectorAll('.agent-card')].find(
+        (c) => /** @type {HTMLElement} */ (c).dataset.agent === 'sub-1'
+      );
       if (subCard === undefined) throw new Error('sub-agent card not found');
       qs(subCard, '.agent-card-header').dispatchEvent(new Event('click'));
       await Promise.resolve();
@@ -151,8 +164,20 @@ describe('session-views renderers', () => {
   describe('renderToolLog', () => {
     const FIXTURE = {
       events: [
-        { tool_name: 'Read', server_name: 'python', agent_id: 'sub-1', is_error: false, timestamp: '2026-01-01T00:00:00Z' },
-        { tool_name: 'Bash', server_name: 'controls', agent_id: 'main', is_error: true, timestamp: '2026-01-01T00:00:01Z' },
+        {
+          tool_name: 'Read',
+          server_name: 'python',
+          agent_id: 'sub-1',
+          is_error: false,
+          timestamp: '2026-01-01T00:00:00Z',
+        },
+        {
+          tool_name: 'Bash',
+          server_name: 'controls',
+          agent_id: 'main',
+          is_error: true,
+          timestamp: '2026-01-01T00:00:01Z',
+        },
       ],
     };
 
@@ -191,7 +216,13 @@ describe('session-views renderers', () => {
     const FIXTURE = {
       totals: { entry_count: 2, total_bytes: 2048, categories: { plot: 1, table: 1 } },
       entries: [
-        { category: 'plot', artifact_type: 'plot', title: 'Orbit response', size_bytes: 1024, channels: ['SR:C01'] },
+        {
+          category: 'plot',
+          artifact_type: 'plot',
+          title: 'Orbit response',
+          size_bytes: 1024,
+          channels: ['SR:C01'],
+        },
         { category: 'table', artifact_type: 'table', name: 'Results', size_bytes: 1024 },
       ],
     };
@@ -242,9 +273,25 @@ describe('session-views renderers', () => {
 describe('session.js refresh-loop view dispatch', () => {
   /** Fixture bodies keyed by the endpoint path each view's apiFetch call hits. */
   const FIXTURES = {
-    '/api/session-agents': { total_events: 1, agents: [{ agent_id: null }], tool_calls_by_agent: { main: [] } },
-    '/api/session-log': { events: [{ tool_name: 'Read', server_name: 'python', agent_id: 'main', timestamp: '2026-01-01T00:00:00Z' }] },
-    '/api/session-summary': { totals: { entry_count: 0, total_bytes: 0, categories: {} }, entries: [] },
+    '/api/session-agents': {
+      total_events: 1,
+      agents: [{ agent_id: null }],
+      tool_calls_by_agent: { main: [] },
+    },
+    '/api/session-log': {
+      events: [
+        {
+          tool_name: 'Read',
+          server_name: 'python',
+          agent_id: 'main',
+          timestamp: '2026-01-01T00:00:00Z',
+        },
+      ],
+    },
+    '/api/session-summary': {
+      totals: { entry_count: 0, total_bytes: 0, categories: {} },
+      entries: [],
+    },
     '/api/session-chat': { turns: [{ role: 'user', content: 'hi' }] },
   };
 
@@ -391,7 +438,7 @@ describe('session.js apiFetch: per-user URL prefix', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete /** @type {any} */ (window).__OSPREY_PREFIX__;
+    delete (/** @type {any} */ (window).__OSPREY_PREFIX__);
   });
 
   async function flush() {

@@ -51,6 +51,8 @@ export async function deliver(hooks, body) {
     await hooks.answer(body);
     return 'answered';
   } catch (err) {
-    return /** @type {{ status?: number } | undefined} */ (err)?.status === 404 ? 'stale' : 'failed';
+    return /** @type {{ status?: number } | undefined} */ (err)?.status === 404
+      ? 'stale'
+      : 'failed';
   }
 }

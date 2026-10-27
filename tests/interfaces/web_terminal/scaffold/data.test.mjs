@@ -4,7 +4,7 @@
  * Pure-logic guard, happy-dom environment (configured globally), `fetch`/
  * `confirm` mocked via vi.stubGlobal — mirrors the pattern in
  * tests/interfaces/lattice_dashboard/net.test.mjs:
- *   npx vitest run tests/interfaces/web_terminal/scaffold-data.test.mjs
+ *   npx vitest run tests/interfaces/web_terminal/scaffold/data.test.mjs
  *
  * Covers the shared fetch-cache single-flight behavior, resetFetchCache
  * invalidation, loadArtifacts' filter/map/summary computation and its two
@@ -27,10 +27,10 @@ import {
   registerUntrackedFile,
   deleteUntrackedFile,
   createScaffoldDataActions,
-} from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
 /**
- * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js').ArtifactFilterState} ArtifactFilterState
+ * @typedef {import('../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js').ArtifactFilterState} ArtifactFilterState
  */
 
 /**
@@ -77,10 +77,16 @@ afterEach(() => {
 describe('fetchArtifactsShared / resetFetchCache', () => {
   test('two concurrent callers share a single underlying fetch (single-flight)', async () => {
     let fetchCalls = 0;
-    vi.stubGlobal('fetch', vi.fn(() => {
-      fetchCalls++;
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [{ name: 'a' }] }) });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        fetchCalls++;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ artifacts: [{ name: 'a' }] }),
+        });
+      })
+    );
 
     const [r1, r2] = await Promise.all([fetchArtifactsShared(), fetchArtifactsShared()]);
 
@@ -90,10 +96,13 @@ describe('fetchArtifactsShared / resetFetchCache', () => {
 
   test('a second call reuses the cached promise; resetFetchCache forces a fresh fetch', async () => {
     let fetchCalls = 0;
-    vi.stubGlobal('fetch', vi.fn(() => {
-      fetchCalls++;
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => {
+        fetchCalls++;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+      })
+    );
 
     await fetchArtifactsShared();
     await fetchArtifactsShared();
@@ -104,29 +113,32 @@ describe('fetchArtifactsShared / resetFetchCache', () => {
     await fetchArtifactsShared();
     expect(fetchCalls).toBe(2);
   });
-
 });
 
 describe('loadArtifacts', () => {
   test('filters to the domain, applies category overrides/remaps, and computes the summary', async () => {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url === '/api/scaffold') {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            artifacts: [
-              { name: 'agent-a', category: 'agents', status: 'framework' },
-              { name: 'agent-b', category: 'agents', status: 'user-owned' },
-              { name: 'hook-a', category: 'hooks', status: 'framework' },
-            ],
-          }),
-        });
-      }
-      if (url === '/api/scaffold/untracked') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
-      }
-      return Promise.reject(new Error(`unexpected fetch ${url}`));
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === '/api/scaffold') {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                artifacts: [
+                  { name: 'agent-a', category: 'agents', status: 'framework' },
+                  { name: 'agent-b', category: 'agents', status: 'user-owned' },
+                  { name: 'hook-a', category: 'hooks', status: 'framework' },
+                ],
+              }),
+          });
+        }
+        if (url === '/api/scaffold/untracked') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
+        }
+        return Promise.reject(new Error(`unexpected fetch ${url}`));
+      })
+    );
 
     const state = makeState({ categoryFilter: (a) => a.category === 'agents' });
     const result = await loadArtifacts(state);
@@ -139,19 +151,28 @@ describe('loadArtifacts', () => {
   });
 
   test('a per-output categoryOverride wins over a per-category categoryRemap', async () => {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url === '/api/scaffold') {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            artifacts: [
-              { name: 'claude-md-logbook', category: 'config', status: 'framework', output_path: 'CLAUDE.md' },
-            ],
-          }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === '/api/scaffold') {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                artifacts: [
+                  {
+                    name: 'claude-md-logbook',
+                    category: 'config',
+                    status: 'framework',
+                    output_path: 'CLAUDE.md',
+                  },
+                ],
+              }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
+      })
+    );
 
     const state = makeState({
       categoryOverrides: { 'CLAUDE.md': 'system instructions' },
@@ -164,23 +185,35 @@ describe('loadArtifacts', () => {
   });
 
   test('untracked files are filtered by categoryFilter on their raw category', async () => {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url === '/api/scaffold') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
-      }
-      if (url === '/api/scaffold/untracked') {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            untracked: [
-              { canonical_name: 'stray-hook', category: 'hooks', output_path: '.claude/hooks/stray.py' },
-              { canonical_name: 'stray-agent', category: 'agents', output_path: '.claude/agents/stray.md' },
-            ],
-          }),
-        });
-      }
-      return Promise.reject(new Error(`unexpected fetch ${url}`));
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === '/api/scaffold') {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+        }
+        if (url === '/api/scaffold/untracked') {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                untracked: [
+                  {
+                    canonical_name: 'stray-hook',
+                    category: 'hooks',
+                    output_path: '.claude/hooks/stray.py',
+                  },
+                  {
+                    canonical_name: 'stray-agent',
+                    category: 'agents',
+                    output_path: '.claude/agents/stray.md',
+                  },
+                ],
+              }),
+          });
+        }
+        return Promise.reject(new Error(`unexpected fetch ${url}`));
+      })
+    );
 
     const state = makeState({ categoryFilter: (a) => a.category === 'hooks' });
     const result = await loadArtifacts(state);
@@ -192,13 +225,16 @@ describe('loadArtifacts', () => {
 
   test('skipCache invalidates the shared cache before fetching', async () => {
     let scaffoldCalls = 0;
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url === '/api/scaffold') {
-        scaffoldCalls++;
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === '/api/scaffold') {
+          scaffoldCalls++;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ untracked: [] }) });
+      })
+    );
 
     await fetchArtifactsShared();
     expect(scaffoldCalls).toBe(1);
@@ -211,15 +247,21 @@ describe('loadArtifacts', () => {
   });
 
   test('a failed /api/scaffold/untracked fetch is swallowed: load still succeeds with an empty list', async () => {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url === '/api/scaffold') {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ artifacts: [{ name: 'a', category: 'agents', status: 'framework' }] }),
-        });
-      }
-      return Promise.reject(new TypeError('network down'));
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === '/api/scaffold') {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                artifacts: [{ name: 'a', category: 'agents', status: 'framework' }],
+              }),
+          });
+        }
+        return Promise.reject(new TypeError('network down'));
+      })
+    );
 
     const result = await loadArtifacts(makeState());
     expect(result.untrackedFiles).toEqual([]);
@@ -233,18 +275,23 @@ describe('registerUntrackedFile', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(registerUntrackedFile('my-hook')).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledWith('/api/scaffold/untracked/register', expect.objectContaining({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'my-hook' }),
-    }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/scaffold/untracked/register',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'my-hook' }),
+      })
+    );
   });
-
 });
 
 describe('deleteUntrackedFile', () => {
   test('deletes and resolves true when confirmed and the response is OK', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true)
+    );
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -254,7 +301,6 @@ describe('deleteUntrackedFile', () => {
       expect.objectContaining({ method: 'DELETE' })
     );
   });
-
 });
 
 describe('createScaffoldDataActions (callback-bound actions)', () => {
@@ -268,21 +314,31 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
    * @param {Record<string, {ok: boolean, status?: number, json?: () => Promise<unknown>}>} routes
    */
   function stubFetchRoutes(routes) {
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      const route = routes[url];
-      if (!route) return Promise.reject(new Error(`unexpected fetch ${url}`));
-      return Promise.resolve(route);
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const route = routes[url];
+        if (!route) return Promise.reject(new Error(`unexpected fetch ${url}`));
+        return Promise.resolve(route);
+      })
+    );
   }
 
   test('load() fires onLoadStart synchronously, then onLoaded with the fresh data on success', () => {
     stubFetchRoutes({
-      '/api/scaffold': { ok: true, json: () => Promise.resolve({ artifacts: [{ name: 'a', category: 'agents', status: 'framework' }] }) },
+      '/api/scaffold': {
+        ok: true,
+        json: () =>
+          Promise.resolve({ artifacts: [{ name: 'a', category: 'agents', status: 'framework' }] }),
+      },
       '/api/scaffold/untracked': { ok: true, json: () => Promise.resolve({ untracked: [] }) },
     });
 
     const callbacks = makeCallbacks();
-    const actions = createScaffoldDataActions(makeState({ categoryFilter: (a) => a.category === 'agents' }), callbacks);
+    const actions = createScaffoldDataActions(
+      makeState({ categoryFilter: (a) => a.category === 'agents' }),
+      callbacks
+    );
 
     const loadPromise = actions.load();
     // onLoadStart fires synchronously, before the fetch resolves.
@@ -291,7 +347,11 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
 
     return loadPromise.then(() => {
       expect(callbacks.onLoaded).toHaveBeenCalledTimes(1);
-      expect(callbacks.onLoaded.mock.calls[0][0].summary).toEqual({ total: 1, framework: 1, userOwned: 0 });
+      expect(callbacks.onLoaded.mock.calls[0][0].summary).toEqual({
+        total: 1,
+        framework: 1,
+        userOwned: 0,
+      });
       expect(callbacks.onLoadError).not.toHaveBeenCalled();
     });
   });
@@ -341,25 +401,36 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
   });
 
   test.each([
-    ['the server detail', { ok: false, status: 400, json: () => Promise.resolve({ detail: 'name already tracked' }) },
-      'Register failed: name already tracked'],
-    ['the status when the body has no detail',
+    [
+      'the server detail',
+      { ok: false, status: 400, json: () => Promise.resolve({ detail: 'name already tracked' }) },
+      'Register failed: name already tracked',
+    ],
+    [
+      'the status when the body has no detail',
       { ok: false, status: 500, json: () => Promise.reject(new Error('not json')) },
-      'Register failed (HTTP 500)'],
-  ])('registerUntracked() reports a failed register, naming the action once, with %s', async (_label, response, message) => {
-    stubFetchRoutes({ '/api/scaffold/untracked/register': response });
+      'Register failed (HTTP 500)',
+    ],
+  ])(
+    'registerUntracked() reports a failed register, naming the action once, with %s',
+    async (_label, response, message) => {
+      stubFetchRoutes({ '/api/scaffold/untracked/register': response });
 
-    const callbacks = makeCallbacks();
-    const actions = createScaffoldDataActions(makeState(), callbacks);
+      const callbacks = makeCallbacks();
+      const actions = createScaffoldDataActions(makeState(), callbacks);
 
-    await actions.registerUntracked('dup');
+      await actions.registerUntracked('dup');
 
-    expect(callbacks.onLoaded).not.toHaveBeenCalled();
-    expect(callbacks.onLoadError).toHaveBeenCalledWith(message);
-  });
+      expect(callbacks.onLoaded).not.toHaveBeenCalled();
+      expect(callbacks.onLoadError).toHaveBeenCalledWith(message);
+    }
+  );
 
   test('deleteUntracked() neither reloads nor fires a callback when the operator declines the confirmation', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false)
+    );
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
@@ -374,9 +445,15 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
   });
 
   test('deleteUntracked() deletes, reloads, and fires onLoaded when confirmed and the response is OK', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true)
+    );
     stubFetchRoutes({
-      [`/api/scaffold/untracked/${encodeURIComponent('my file')}`]: { ok: true, json: () => Promise.resolve({}) },
+      [`/api/scaffold/untracked/${encodeURIComponent('my file')}`]: {
+        ok: true,
+        json: () => Promise.resolve({}),
+      },
       '/api/scaffold': { ok: true, json: () => Promise.resolve({ artifacts: [] }) },
       '/api/scaffold/untracked': { ok: true, json: () => Promise.resolve({ untracked: [] }) },
     });
@@ -391,7 +468,10 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
   });
 
   test('deleteUntracked() fires onLoadError with a "Delete failed" prefix when the delete call fails', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true)
+    );
     stubFetchRoutes({
       '/api/scaffold/untracked/gone': {
         ok: false,

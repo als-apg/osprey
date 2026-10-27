@@ -9,7 +9,7 @@
 
 // History marker for the structure overview (B.3): a hash distinct from any
 // concept id so popstate can tell the overview apart from a concept view.
-export const STRUCTURE_MARKER = "__structure";
+export const STRUCTURE_MARKER = '__structure';
 
 /**
  * Create a DOM element with a flat string-valued attribute map and a list
@@ -26,8 +26,8 @@ export function el(tag, attrs, children) {
   const node = document.createElement(tag);
   if (attrs) {
     for (const k in attrs) {
-      if (k === "class") node.className = attrs[k];
-      else if (k === "text") node.textContent = attrs[k];
+      if (k === 'class') node.className = attrs[k];
+      else if (k === 'text') node.textContent = attrs[k];
       else node.setAttribute(k, attrs[k]);
     }
   }
@@ -48,7 +48,7 @@ export function el(tag, attrs, children) {
  */
 export function isFallback(id, title) {
   if (!id || !title) return false;
-  const last = String(id).split("/").pop();
+  const last = String(id).split('/').pop();
   return title === last;
 }
 
@@ -64,7 +64,7 @@ export function isFallback(id, title) {
  * @returns {PanelParams}
  */
 export function readPanelParams() {
-  const hash = (location.hash || "").replace(/^#/, "");
+  const hash = (location.hash || '').replace(/^#/, '');
   /** @type {PanelParams} */
   const params = { concept: null, structure: false, raw: hash };
   if (!hash) return params;

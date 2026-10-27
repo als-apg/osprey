@@ -79,17 +79,13 @@ function mountFixture() {
 
 /** Expand the log viewer (fires the lazy `_loadLogEntries`) and flush. */
 async function expandLog() {
-  const header = /** @type {HTMLElement} */ (
-    document.getElementById('hook-debug-log-toggle')
-  );
+  const header = /** @type {HTMLElement} */ (document.getElementById('hook-debug-log-toggle'));
   header.click();
   await flush();
 }
 
 function logBodyEl() {
-  return /** @type {HTMLElement} */ (
-    document.getElementById('hook-debug-log-body')
-  );
+  return /** @type {HTMLElement} */ (document.getElementById('hook-debug-log-body'));
 }
 
 beforeEach(() => {
@@ -134,15 +130,11 @@ describe('populated activity log', () => {
     expect(rows.length).toBe(ENTRIES.length);
 
     // Header columns are present.
-    const headers = Array.from(body.querySelectorAll('thead th')).map(
-      (th) => th.textContent
-    );
+    const headers = Array.from(body.querySelectorAll('thead th')).map((th) => th.textContent);
     expect(headers).toEqual(['Time', 'Hook', 'Tool', 'Status', 'Detail']);
 
     // The hook event name surfaces in a rendered row.
-    const hookCells = Array.from(rows).map(
-      (tr) => tr.querySelectorAll('td')[1]?.textContent
-    );
+    const hookCells = Array.from(rows).map((tr) => tr.querySelectorAll('td')[1]?.textContent);
     expect(hookCells).toContain('PreToolUse');
 
     // status -> class mapping.
@@ -166,7 +158,9 @@ describe('times on the facility clock', () => {
 
   test('the time column reads the stamped zone to the millisecond and the header names it', async () => {
     stampFacilityZone(FACILITY_ZONE);
-    stubFetch({ entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }] });
+    stubFetch({
+      entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }],
+    });
     initHookDebug();
     await expandLog();
 
@@ -184,7 +178,9 @@ describe('times on the facility clock', () => {
 
   test('a viewer on the facility clock sees a plain Time header', async () => {
     stampFacilityZone(VIEWER_ZONE);
-    stubFetch({ entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }] });
+    stubFetch({
+      entries: [{ ts: '2026-01-15T20:04:05.123Z', hook: 'PreToolUse', status: 'allowed' }],
+    });
     initHookDebug();
     await expandLog();
 
@@ -256,9 +252,7 @@ describe('debug toggle: the config PATCH', () => {
     stubFetch({ entries: [] });
     initHookDebug();
 
-    const toggle = /** @type {HTMLInputElement} */ (
-      document.getElementById('hook-debug-toggle')
-    );
+    const toggle = /** @type {HTMLInputElement} */ (document.getElementById('hook-debug-toggle'));
     toggle.checked = true;
     toggle.dispatchEvent(new Event('change'));
     await flush();

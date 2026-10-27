@@ -394,7 +394,10 @@ describe('popover close-on-scroll', () => {
     strip.appendChild(btn);
     document.body.appendChild(strip);
     toggleOverflowMenu(btn, [{ label: 'Clock', pick: () => {} }]);
-    return { strip, pop: /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover')) };
+    return {
+      strip,
+      pop: /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover')),
+    };
   }
 
   test('a scroll elsewhere on the page keeps it open', () => {

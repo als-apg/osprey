@@ -29,10 +29,13 @@ afterEach(() => {
  * @param {Record<string, any>} payload
  */
 function stubInfo(payload) {
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {any} */ url) => ({
-    ok: true,
-    json: async () => (String(url).includes('/api/info') ? payload : {}),
-  })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {any} */ url) => ({
+      ok: true,
+      json: async () => (String(url).includes('/api/info') ? payload : {}),
+    }))
+  );
 }
 
 /**
@@ -61,9 +64,7 @@ test('a graph /api/info payload lands its tools and graph store on the state', a
     graph_store: { uri: 'bolt://localhost:7687', ttl_filename: 'als.ttl' },
   });
 
-  expect(state.tools).toEqual([
-    'capabilities', 'example_queries', 'get_schema', 'read_cypher',
-  ]);
+  expect(state.tools).toEqual(['capabilities', 'example_queries', 'get_schema', 'read_cypher']);
   expect(state.graphStore).toEqual({
     uri: 'bolt://localhost:7687',
     ttl_filename: 'als.ttl',

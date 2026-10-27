@@ -11,12 +11,16 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from osprey.services.ariel_search.exceptions import SearchTimeoutError
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
     START_BOUND_DESCRIPTION,
     TimeBoundText,
 )
-from osprey.services.ariel_search.search._offload import run_search_call
+from osprey.services.ariel_search.search._offload import (
+    QUERY_EMBEDDING_TIMEOUT_S,
+    run_search_call,
+)
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
     ParameterDescriptor,
@@ -97,19 +101,27 @@ def _embed_query(
     api_key: str | None,
     embed_kwargs: dict[str, Any],
 ) -> list[list[float]]:
-    """Find the reachable server, then embed *text*; blocking, run on the search pool."""
+    """Find the reachable server, then embed *text*; blocking, run on the search pool.
+
+    The walk stops after half of :data:`QUERY_EMBEDDING_TIMEOUT_S` and the
+    embedding call is given all of it, so the provider frees its worker before
+    the step's own timeout fires.
+    """
     from osprey.services.ariel_search.enhancement.provider_resolver import (
         resolve_reachable_base_url,
     )
 
     base_url = configured_base_url
     if base_url is not None:
-        base_url = resolve_reachable_base_url(type(embedder), base_url)
+        base_url = resolve_reachable_base_url(
+            type(embedder), base_url, deadline_s=QUERY_EMBEDDING_TIMEOUT_S / 2
+        )
     return embedder.execute_embedding(
         texts=[text],
         model_id=model_name,
         base_url=base_url,
         api_key=api_key,
+        timeout=QUERY_EMBEDDING_TIMEOUT_S,
         **embed_kwargs,
     )
 
@@ -239,6 +251,12 @@ async def semantic_search(
         `entries` and the applied expansion groups as `expansion`. The shape is
         conditional so that the many direct callers of this function keep the
         return value they have always received; the service unwraps either form.
+
+    Raises:
+        SearchTimeoutError: When embedding the query outlasts its timeout or
+            every search-call worker is held (``operation`` is
+            ``"query embedding"``). Any other embedding failure is logged and
+            gives no matches.
     """
     if not query.strip():
         return module_result([], query_expansion)
@@ -283,9 +301,17 @@ async def semantic_search(
         if dimension is not None:
             embed_kwargs["dimensions"] = dimension
 
+    step_timeout_s = QUERY_EMBEDDING_TIMEOUT_S / 2 + QUERY_EMBEDDING_TIMEOUT_S + 1
     try:
         embeddings = await run_search_call(
-            _embed_query, embedder, embed_text, model_name, base_url, api_key, embed_kwargs
+            _embed_query,
+            embedder,
+            embed_text,
+            model_name,
+            base_url,
+            api_key,
+            embed_kwargs,
+            timeout_s=step_timeout_s,
         )
         if not embeddings or not embeddings[0]:
             logger.error("Failed to generate query embedding")
@@ -303,6 +329,12 @@ async def semantic_search(
                     f"{expected_dim}. This may cause incorrect similarity scores."
                 )
 
+    except TimeoutError as exc:
+        raise SearchTimeoutError(
+            message=str(exc) or f"query embedding exceeded {step_timeout_s}s",
+            timeout_seconds=step_timeout_s,
+            operation="query embedding",
+        ) from exc
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
         return module_result([], query_expansion)

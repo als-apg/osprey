@@ -38,9 +38,7 @@ import {
   setSelectedArtifact,
   setFocusedArtifact,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
-import {
-  createSidebarRenderer,
-} from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
+import { createSidebarRenderer } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import {
   initTypeRegistry,
   typeBadge,
@@ -148,16 +146,18 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
   /** @param {string} payload */
   function makeHostileArtifact(payload) {
-    return [{
-      id: 'r1',
-      title: payload,
-      filename: 'x.png',
-      artifact_type: payload,
-      category: payload,
-      pinned: false,
-      timestamp: '2026-07-04T10:00:00Z',
-      size_bytes: 10,
-    }];
+    return [
+      {
+        id: 'r1',
+        title: payload,
+        filename: 'x.png',
+        artifact_type: payload,
+        category: payload,
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 10,
+      },
+    ];
   }
 
   beforeEach(() => {
@@ -237,13 +237,25 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
   );
 
   test('a hostile registry label is escaped as text in the tree-section header innerHTML sink, typeIcon SVG survives', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
+      })
+    );
     await initTypeRegistry();
 
     setArtifacts([
-      { id: 'c1', title: 'Section Test', filename: 'c.png', artifact_type: 'evilcat', category: 'evilcat', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+      {
+        id: 'c1',
+        title: 'Section Test',
+        filename: 'c.png',
+        artifact_type: 'evilcat',
+        category: 'evilcat',
+        pinned: false,
+        timestamp: '2026-07-04T10:00:00Z',
+        size_bytes: 10,
+      },
     ]);
     const renderer = createSidebarRenderer(makeSidebarCallbacks());
     renderer.renderSidebar();
@@ -292,7 +304,9 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   test.each(Object.entries(HOSTILE))(
     'a hostile %s payload in title/category/artifact_type is inert in the header badge + title',
     (_name, payload) => {
-      setSelectedArtifact(makeArtifact({ title: payload, category: payload, artifact_type: payload }));
+      setSelectedArtifact(
+        makeArtifact({ title: payload, category: payload, artifact_type: payload })
+      );
       createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
       const previewContent = byId('preview-content');
@@ -311,7 +325,13 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     // artifact_type falls through to the plain download-link branch (no
     // mime_type, no recognized type) so renderPreview never fires a real
     // network fetch (unlike "json"/"markdown", which load their own content).
-    setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', description: HOSTILE.DQ_IMG }));
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        description: HOSTILE.DQ_IMG,
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
@@ -325,19 +345,33 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   });
 
   test('tool_source (currently-escaped field) renders as inert text — regression pin against future unescaping', () => {
-    setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', tool_source: HOSTILE.DQ_IMG }));
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        tool_source: HOSTILE.DQ_IMG,
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
-    const metaValues = Array.from(previewContent.querySelectorAll('.preview-meta-value')).map((el) => el.textContent);
+    const metaValues = Array.from(previewContent.querySelectorAll('.preview-meta-value')).map(
+      (el) => el.textContent
+    );
     expect(metaValues).toContain(HOSTILE.DQ_IMG);
   });
 
   test('filename (currently-escaped field) renders as inert text at both the download link and copy-path sinks — regression pin', () => {
-    setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', filename: HOSTILE.DQ_IMG }));
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        filename: HOSTILE.DQ_IMG,
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
@@ -354,7 +388,14 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   });
 
   test('a hostile id is percent-encoded at both the "open in new tab" href and the download-link href', () => {
-    setSelectedArtifact(makeArtifact({ id: HOSTILE_ID, artifact_type: 'totally_unrecognized_type', category: 'json', filename: 'x.bin' }));
+    setSelectedArtifact(
+      makeArtifact({
+        id: HOSTILE_ID,
+        artifact_type: 'totally_unrecognized_type',
+        category: 'json',
+        filename: 'x.bin',
+      })
+    );
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
     const previewContent = byId('preview-content');
@@ -388,9 +429,12 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
   afterEach(resetTypeRegistry);
 
   test('typeBadge escapes a hostile registry label to entity-safe text', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ categories: { evil: { label: HOSTILE.DQ_IMG } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () => Promise.resolve({ categories: { evil: { label: HOSTILE.DQ_IMG } } }),
+      })
+    );
     await initTypeRegistry();
 
     const result = typeBadge('evil');
@@ -496,7 +540,9 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
   beforeEach(() => {
     vi.stubGlobal('Plotly', {
-      newPlot: vi.fn((el) => { el.data = []; }),
+      newPlot: vi.fn((el) => {
+        el.data = [];
+      }),
       restyle: vi.fn(),
       relayout: vi.fn(),
       update: vi.fn(),
@@ -511,7 +557,10 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
   describe('renderTimeseriesTable', () => {
     test('a hostile column name renders as inert text in the <th> header cell', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) })
+      );
       const el = document.createElement('div');
 
       await renderTimeseriesTable(el, 'ts1', 0);
@@ -525,10 +574,14 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
   describe('renderTimeseriesView', () => {
     test('a hostile column name round-trips through the data-ch-name/title/aria-label attribute sinks with no breakout', async () => {
-      vi.stubGlobal('fetch', vi.fn((url) => {
-        if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          if (url.includes('format=chart'))
+            return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
+        })
+      );
       const container = document.createElement('div');
       document.body.appendChild(container);
 
@@ -551,10 +604,20 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
     });
 
     test('the info-bar channel badge escapes a hostile column name, no live element', async () => {
-      vi.stubGlobal('fetch', vi.fn((url) => {
-        if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData({ columns: [HOSTILE.SQ_IMG] })) });
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData({ columns: [HOSTILE.SQ_IMG] })) });
-      }));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          if (url.includes('format=chart'))
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve(makeChartData({ columns: [HOSTILE.SQ_IMG] })),
+            });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeTableData({ columns: [HOSTILE.SQ_IMG] })),
+          });
+        })
+      );
       const container = document.createElement('div');
       document.body.appendChild(container);
 
@@ -595,7 +658,9 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
   afterEach(() => {
     // Close the modal (if the test opened one) so logbook.js's module-level
     // `modal` singleton state doesn't leak into a later test.
-    const closeBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-modal-close'));
+    const closeBtn = /** @type {HTMLElement | null} */ (
+      document.querySelector('.logbook-modal-close')
+    );
     if (closeBtn) closeBtn.click();
     setArtifacts([]);
     vi.unstubAllGlobals();
@@ -617,17 +682,24 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
 
     // renderPreview() calls the real injectLogbookButtons() internally,
     // which appends the compose-modal trigger to the preview header.
-    const logbookBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-action-btn'));
+    const logbookBtn = /** @type {HTMLElement | null} */ (
+      document.querySelector('.logbook-action-btn')
+    );
     expect(logbookBtn).not.toBeNull();
     if (logbookBtn === null) throw new Error('unreachable: logbookBtn asserted non-null above');
     // Opening the modal fills its model selector from /api/logbook/models.
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ provider: 'anthropic', default: '', models: [] }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ provider: 'anthropic', default: '', models: [] }),
+      })
+    );
     logbookBtn.click(); // opens the compose modal, phase = steering
 
-    const chooseRadio = /** @type {HTMLInputElement | null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="choose"]'));
+    const chooseRadio = /** @type {HTMLInputElement | null} */ (
+      document.querySelector('input[name="logbook-artifact-scope"][value="choose"]')
+    );
     expect(chooseRadio).not.toBeNull();
     if (chooseRadio === null) throw new Error('unreachable: chooseRadio asserted non-null above');
 
@@ -640,7 +712,9 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
     expect(list).not.toBeNull();
     if (list === null) throw new Error('unreachable: list asserted non-null above');
 
-    const checkboxes = /** @type {NodeListOf<HTMLInputElement>} */ (list.querySelectorAll('input[type=checkbox]'));
+    const checkboxes = /** @type {NodeListOf<HTMLInputElement>} */ (
+      list.querySelectorAll('input[type=checkbox]')
+    );
     expect(checkboxes.length).toBe(1); // no extra <input> injected by the hostile id
     expect(checkboxes[0].value).toBe(HOSTILE_PICKER_ID); // raw round-trip via the .value property
 

@@ -64,7 +64,12 @@ function stubEventSource() {
 function fakeStrip() {
   /** @type {AgentActivityFrame[]} */
   const seen = [];
-  return { seen, handleActivity: (/** @type {AgentActivityFrame} */ f) => { seen.push(f); } };
+  return {
+    seen,
+    handleActivity: (/** @type {AgentActivityFrame} */ f) => {
+      seen.push(f);
+    },
+  };
 }
 
 /**
@@ -89,11 +94,16 @@ beforeEach(async () => {
     <section class="view active" id="view-agents"></section>
     <div class="toast" id="toast"></div>
   `;
-  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-    status: 200,
-    ok: true,
-    json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
-  })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      Promise.resolve({
+        status: 200,
+        ok: true,
+        json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
+      })
+    )
+  );
   vi.resetModules();
   Session = await import(ENTRY_PATH);
 });
@@ -133,7 +143,7 @@ describe('wireActivityStrip: frame routing', () => {
     expect(strip.seen).toEqual([f]);
   });
 
-  test('the shared stream\'s other frame types are ignored', () => {
+  test("the shared stream's other frame types are ignored", () => {
     const es = stubEventSource();
     const strip = fakeStrip();
     Session.wireActivityStrip(strip);
@@ -147,7 +157,7 @@ describe('wireActivityStrip: frame routing', () => {
 });
 
 describe('page boot: one strip on the shared mount', () => {
-  test('bootActivityStrip is idempotent, so the session page reuses the module\'s own instance', async () => {
+  test("bootActivityStrip is idempotent, so the session page reuses the module's own instance", async () => {
     // The mount exists before the import, so the module's self-boot claims it;
     // session.js then asks for the same instance instead of binding a second
     // strip to it (two strips would mean two history popovers per click).

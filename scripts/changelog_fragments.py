@@ -7,7 +7,7 @@ So no pull request writes that section any more. Each writes one small file
 under ``changelog.d/`` instead, and the release fold collects them.
 
 This module is both halves of that arrangement: ``check`` is the gate CI and
-``premerge_check.sh`` run, ``apply`` is the fold the release skill runs. It
+``scripts/check.py`` run, ``apply`` is the fold the release skill runs. It
 imports nothing outside the standard library and shells out to git only from
 ``main``, through an injectable runner.
 
@@ -109,7 +109,7 @@ above holds per tree, over the paths inside it:
 
 Usage
 -----
-    python scripts/changelog_fragments.py check [--base origin/main] [--root <tree>]
+    python scripts/changelog_fragments.py check [--base origin/main] [--root <tree>] [--worktree]
     python scripts/changelog_fragments.py apply [--root packages/osprey-connectors]
 
 Exit codes
@@ -831,9 +831,10 @@ def gate_failures(
 
     The rules:
 
-    1. A change under ``src/`` or ``packages/`` needs a fragment *added* by
-       this pull request. One already in the tree does not count — the gate
-       reads committed history, so neither does one that is merely written.
+    1. A change under a ``GATED_PREFIXES`` directory needs a fragment *added* by
+       this pull request. One already in the tree does not count. Under
+       ``--worktree`` a staged, unstaged or untracked fragment is added;
+       otherwise only a committed one is.
     2. ``## [Unreleased]`` must come out of the merge base unchanged. Three
        shapes are allowed through: the release rotation, which empties it; a
        pull request that changes ``CHANGELOG.md`` and nothing else without
@@ -894,7 +895,7 @@ def gate_failures(
                         *_listed(gated),
                         f"add {fragment_dir}/<name>.<type>.md — <name> is the issue number when "
                         f"there is one, a short slug otherwise; for <type>, {_VOCABULARY}",
-                        "the gate reads committed history — an unstaged fragment does not count",
+                        "the gate reads committed history unless run with --worktree",
                     ]
                 )
             )
@@ -1085,8 +1086,11 @@ def _fragment_label(tree: Tree) -> str:
     return f"{tree.prefix}{FRAGMENT_DIR}"
 
 
-def _check(targets: Sequence[Target], base: str, run: Runner) -> int:
+def _check(targets: Sequence[Target], base: str, run: Runner, worktree: bool = False) -> int:
     """Run the gate against the diff between *base*'s merge base and HEAD.
+
+    With *worktree* the diff runs to the working tree instead, and untracked
+    files count as added, so staged, unstaged and untracked changes are judged.
 
     Git answers the diff, the range's commit messages (for the
     ``Retires-fragment`` trailers), each tree's base changelog, and — through
@@ -1135,11 +1139,21 @@ def _check(targets: Sequence[Target], base: str, run: Runner) -> int:
         )
     point = merge_base.stdout.strip()
 
-    diff_argv = ["git", "diff", "--name-status", "-z", "--no-renames", point, "HEAD"]
+    diff_argv = ["git", "diff", "--name-status", "-z", "--no-renames", point]
+    if not worktree:
+        diff_argv.append("HEAD")
     diff = run(diff_argv)
     if diff.returncode != 0:
         return environment_error(f"{' '.join(diff_argv)} failed\n{diff.stderr.strip()}")
     pairs = parse_name_status(diff.stdout)
+    if worktree:
+        # Untracked files join the diff as added, so every tree's path filter
+        # below reads them exactly as it reads a committed addition.
+        others_argv = ["git", "ls-files", "-z", "--others", "--exclude-standard"]
+        others = run(others_argv)
+        if others.returncode != 0:
+            return environment_error(f"{' '.join(others_argv)} failed\n{others.stderr.strip()}")
+        pairs += [("A", path) for path in others.stdout.split("\0") if path]
 
     log_argv = ["git", "log", "--format=%B", f"{point}..HEAD"]
     log = run(log_argv)
@@ -1272,6 +1286,9 @@ def main(argv: list[str] | None = None, run: Runner | None = None) -> int:
     )
     check_parser.add_argument("--dir", help=f"fragment directory (default: {FRAGMENT_DIR}/)")
     check_parser.add_argument("--changelog", help="changelog to read (default: CHANGELOG.md)")
+    check_parser.add_argument(
+        "--worktree", action="store_true", help="judge the working tree, not HEAD"
+    )
 
     apply_parser = subcommands.add_parser("apply", help="fold the fragments in (release)")
     apply_parser.add_argument("--changelog", help="changelog to write (default: CHANGELOG.md)")
@@ -1303,7 +1320,7 @@ def main(argv: list[str] | None = None, run: Runner | None = None) -> int:
         ]
     else:
         targets = [(tree, directory, changelog)]
-    return _check(targets, args.base, run or _run)
+    return _check(targets, args.base, run or _run, args.worktree)
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ import {
   setFocusedArtifact,
   getPickedIds,
   clearPicked,
-} from "./state.js";
+} from './state.js';
 
 /**
  * @typedef {object} PickBarElements
@@ -79,8 +79,8 @@ function splitPicks(deps) {
  * @returns {string}
  */
 function confirmText(n, pinned) {
-  const what = `Delete ${n} artifact${n === 1 ? "" : "s"}?`;
-  const kept = pinned ? ` ${pinned} pinned ${pinned === 1 ? "stays" : "stay"}.` : "";
+  const what = `Delete ${n} artifact${n === 1 ? '' : 's'}?`;
+  const kept = pinned ? ` ${pinned} pinned ${pinned === 1 ? 'stays' : 'stay'}.` : '';
   return `${what}${kept} This cannot be undone.`;
 }
 
@@ -98,7 +98,7 @@ export function createPickBar(els, deps) {
     els.count.textContent = `${picked} selected`;
     const allPinned = picked > 0 && doomed.length === 0;
     els.deleteBtn.disabled = allPinned;
-    els.deleteBtn.title = allPinned ? "Pinned artifacts are kept" : "";
+    els.deleteBtn.title = allPinned ? 'Pinned artifacts are kept' : '';
   }
 
   function deletePicked() {
@@ -106,12 +106,15 @@ export function createPickBar(els, deps) {
     if (doomed.length === 0) return;
     if (!deps.confirm(confirmText(doomed.length, pinned))) return;
     deps
-      .fetch("/api/artifacts/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      .fetch('/api/artifacts/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: doomed }),
       })
-      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then((/** @type {{deleted: string[]}} */ data) => {
         for (const id of data.deleted || []) {
           deps.removeArtifact(id);
@@ -122,7 +125,7 @@ export function createPickBar(els, deps) {
         render();
         deps.onDeleted();
       })
-      .catch((err) => log("Delete failed:", err));
+      .catch((err) => log('Delete failed:', err));
   }
 
   /**
@@ -137,8 +140,8 @@ export function createPickBar(els, deps) {
     return true;
   }
 
-  els.deleteBtn.addEventListener("click", deletePicked);
-  els.clearBtn.addEventListener("click", clear);
+  els.deleteBtn.addEventListener('click', deletePicked);
+  els.clearBtn.addEventListener('click', clear);
 
   return { render, clear };
 }
@@ -151,10 +154,10 @@ export function createPickBar(els, deps) {
 export function mountPickBar({ onDeleted, onCleared }) {
   return createPickBar(
     {
-      bar: /** @type {HTMLElement} */ (document.getElementById("pick-bar")),
-      count: /** @type {HTMLElement} */ (document.getElementById("pick-count")),
-      deleteBtn: /** @type {HTMLButtonElement} */ (document.getElementById("pick-delete")),
-      clearBtn: /** @type {HTMLButtonElement} */ (document.getElementById("pick-clear")),
+      bar: /** @type {HTMLElement} */ (document.getElementById('pick-bar')),
+      count: /** @type {HTMLElement} */ (document.getElementById('pick-count')),
+      deleteBtn: /** @type {HTMLButtonElement} */ (document.getElementById('pick-delete')),
+      clearBtn: /** @type {HTMLButtonElement} */ (document.getElementById('pick-clear')),
     },
     {
       fetch: (url, init) => fetch(url, init),
@@ -169,6 +172,6 @@ export function mountPickBar({ onDeleted, onCleared }) {
       setFocusedArtifact,
       onDeleted,
       onCleared,
-    },
+    }
   );
 }

@@ -41,38 +41,43 @@ const { recent } = vi.hoisted(() => {
     /** @type {Promise<any[]> | null} */ pending: null,
     /** @type {number[]} */ limits: [],
   };
-  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-    if (url === '/api/bar-items') {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          version: 1,
-          rev: 0,
-          header: [],
-          status: [],
-          header_visible: true,
-          status_visible: true,
-        }),
-      };
-    }
-    const history = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
-    if (history) {
-      recent.limits.push(Number(history[1]));
-      if (recent.fail) throw new Error('offline');
-      const events = recent.pending ? await recent.pending : recent.events;
-      return { ok: true, status: 200, json: async () => ({ events: [...events] }) };
-    }
-    throw new Error(`unstubbed fetch: ${url}`);
-  }));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/bar-items') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            version: 1,
+            rev: 0,
+            header: [],
+            status: [],
+            header_visible: true,
+            status_visible: true,
+          }),
+        };
+      }
+      const history = /^\/api\/agent-activity\/recent\?limit=(\d+)$/.exec(url);
+      if (history) {
+        recent.limits.push(Number(history[1]));
+        if (recent.fail) throw new Error('offline');
+        const events = recent.pending ? await recent.pending : recent.events;
+        return { ok: true, status: 200, json: async () => ({ events: [...events] }) };
+      }
+      throw new Error(`unstubbed fetch: ${url}`);
+    })
+  );
   return { recent };
 });
 
 import {
-  createActivityStrip, ACTIVITY_CLEAR_MS,
+  createActivityStrip,
+  ACTIVITY_CLEAR_MS,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-strip.js';
 import {
-  formatActivity, formatRelativeTime,
+  formatActivity,
+  formatRelativeTime,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-format.js';
 import { HISTORY_LIMIT } from '../../../src/osprey/interfaces/web_terminal/static/js/activity-history.js';
 
@@ -115,9 +120,7 @@ function makeStrip() {
 
 /** The body-level popover, or null when it is closed. */
 function popover() {
-  return /** @type {HTMLElement | null} */ (
-    document.querySelector('.activity-history-popover')
-  );
+  return /** @type {HTMLElement | null} */ (document.querySelector('.activity-history-popover'));
 }
 
 /** Visible history rows, top to bottom. */
@@ -252,8 +255,16 @@ describe('suppression: active panel self-signals', () => {
   });
 
   test.each([
-    ['a channel frame, whatever is active', { kind: 'channel', detail: 'SR01:HCM1:SP' }, 'artifacts'],
-    ['an artifact frame with no panel active', { kind: 'artifact', detail: 'orbit-plot.png' }, null],
+    [
+      'a channel frame, whatever is active',
+      { kind: 'channel', detail: 'SR01:HCM1:SP' },
+      'artifacts',
+    ],
+    [
+      'an artifact frame with no panel active',
+      { kind: 'artifact', detail: 'orbit-plot.png' },
+      null,
+    ],
     ['a panel frame that names no panel', { kind: 'panel' }, 'lattice'],
   ])('%s is never suppressed', (_name, target, active) => {
     activePanel = active;
@@ -277,10 +288,9 @@ describe('agent strings are text nodes only', () => {
 describe('unknown target kinds', () => {
   test('an unrecognized kind renders the generic "agent activity" + tool fallback', () => {
     const strip = makeStrip();
-    strip.handleActivity(frame(
-      /** @type {any} */ ({ kind: 'hologram', detail: 'ignored' }),
-      'future_tool',
-    ));
+    strip.handleActivity(
+      frame(/** @type {any} */ ({ kind: 'hologram', detail: 'ignored' }), 'future_tool')
+    );
 
     expect(mount.textContent).toContain('agent activity');
     expect(mount.textContent).toContain('future_tool');
@@ -305,10 +315,14 @@ describe('config and ui kinds', () => {
   });
 
   test('a detail-less config or ui frame names the tool instead', () => {
-    expect(formatActivity(frame({ kind: 'config' }, 'patch_setup')))
-      .toEqual({ verb: 'agent changed config', subject: 'patch_setup' });
-    expect(formatActivity(frame({ kind: 'ui' }, 'manage_window')))
-      .toEqual({ verb: 'agent moved window', subject: 'manage_window' });
+    expect(formatActivity(frame({ kind: 'config' }, 'patch_setup'))).toEqual({
+      verb: 'agent changed config',
+      subject: 'patch_setup',
+    });
+    expect(formatActivity(frame({ kind: 'ui' }, 'manage_window'))).toEqual({
+      verb: 'agent moved window',
+      subject: 'manage_window',
+    });
   });
 });
 
@@ -352,7 +366,7 @@ describe('panel action verbs', () => {
   test('NotebookEdit with a detail reads "agent edited <notebook>"', () => {
     const strip = makeStrip();
     strip.handleActivity(
-      frame({ kind: 'panel', panel: 'jupyter', detail: 'getting-started.ipynb' }, 'NotebookEdit'),
+      frame({ kind: 'panel', panel: 'jupyter', detail: 'getting-started.ipynb' }, 'NotebookEdit')
     );
 
     expect(mount.textContent).toContain('agent edited');
@@ -416,7 +430,6 @@ describe('arrange coalescing', () => {
     expect(mount.textContent).not.toContain('tiles');
   });
 });
-
 
 // ---- History popover ----
 
@@ -497,9 +510,7 @@ describe('history popover: open, fetch, render', () => {
   });
 
   test('reopening refetches — the server buffer is the only source of history', async () => {
-    const { calls } = serveHistory([
-      pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
-    ]);
+    const { calls } = serveHistory([pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1)]);
     const strip = makeStrip();
 
     await strip.openHistory();
@@ -513,7 +524,9 @@ describe('history popover: open, fetch, render', () => {
   test('a fetch that resolves after close does not resurrect the popover', async () => {
     /** @type {(events: AgentActivityFrame[]) => void} */
     let resolve = () => {};
-    recent.pending = new Promise((r) => { resolve = r; });
+    recent.pending = new Promise((r) => {
+      resolve = r;
+    });
     const strip = makeStrip();
 
     const opening = strip.openHistory();
@@ -527,7 +540,8 @@ describe('history popover: open, fetch, render', () => {
 
   test('rows never exceed HISTORY_LIMIT, however much the server returns', async () => {
     const many = Array.from({ length: HISTORY_LIMIT + 10 }, (_, i) =>
-      pastFrame({ kind: 'channel', detail: `SR01:HCM${i}:SP` }, i));
+      pastFrame({ kind: 'channel', detail: `SR01:HCM${i}:SP` }, i)
+    );
     serveHistory(many);
     const strip = makeStrip();
     await strip.openHistory();
@@ -539,9 +553,7 @@ describe('history popover: open, fetch, render', () => {
 describe('history popover: agent strings are text nodes only', () => {
   test('markup in a history row lands as literal text, no element is created', async () => {
     const payload = '<img src=x onerror=alert(1)>';
-    serveHistory([
-      pastFrame({ kind: 'channel', detail: payload }, 2),
-    ]);
+    serveHistory([pastFrame({ kind: 'channel', detail: payload }, 2)]);
     const strip = makeStrip();
     await strip.openHistory();
 
@@ -552,9 +564,7 @@ describe('history popover: agent strings are text nodes only', () => {
 
 describe('history popover: live frames while open', () => {
   test('a frame arriving while open is prepended above the fetched rows', async () => {
-    serveHistory([
-      pastFrame({ kind: 'run', detail: 'orm-42' }, 60, 'run_plan'),
-    ]);
+    serveHistory([pastFrame({ kind: 'run', detail: 'orm-42' }, 60, 'run_plan')]);
     const strip = makeStrip();
     await strip.openHistory();
     expect(rowTexts().length).toBe(1);
@@ -585,7 +595,9 @@ describe('history popover: live frames while open', () => {
     const strip = makeStrip();
     await strip.openHistory();
 
-    strip.handleActivity(pastFrame({ kind: 'artifact', detail: 'orbit-plot.png' }, 0, 'focus_artifact'));
+    strip.handleActivity(
+      pastFrame({ kind: 'artifact', detail: 'orbit-plot.png' }, 0, 'focus_artifact')
+    );
 
     // Suppression governs the live line only — the strip stays silent...
     expect(mount.querySelectorAll('.activity-strip-entry').length).toBe(0);
@@ -679,9 +691,7 @@ describe('history popover: trigger and close affordances', () => {
   });
 
   test('a click outside closes; a click inside the popover does not', async () => {
-    serveHistory([
-      pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1),
-    ]);
+    serveHistory([pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 1)]);
     const strip = makeStrip();
     await strip.openHistory();
 
@@ -737,22 +747,31 @@ describe('empty-strip focusability', () => {
   const OPERATIONS = [
     ['showing a frame', async () => {}],
     // The state a reloaded page starts in: nothing live, history on the server.
-    ['the auto-clear timeout', async () => {
-      await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
-      expect(mount.textContent).toBe('');
-    }],
-    ['an explicit clear()', async (strip) => {
-      strip.clear();
-      await flush();
-    }],
-    ['an open/close over an emptied strip', async (strip) => {
-      await strip.openHistory();
-      await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
-      expect(mount.textContent).toBe('');
-      expect(mount.getAttribute('tabindex')).toBe('0');
-      strip.closeHistory();
-      await flush();
-    }],
+    [
+      'the auto-clear timeout',
+      async () => {
+        await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
+        expect(mount.textContent).toBe('');
+      },
+    ],
+    [
+      'an explicit clear()',
+      async (strip) => {
+        strip.clear();
+        await flush();
+      },
+    ],
+    [
+      'an open/close over an emptied strip',
+      async (strip) => {
+        await strip.openHistory();
+        await vi.advanceTimersByTimeAsync(ACTIVITY_CLEAR_MS);
+        expect(mount.textContent).toBe('');
+        expect(mount.getAttribute('tabindex')).toBe('0');
+        strip.closeHistory();
+        await flush();
+      },
+    ],
   ];
 
   test.each(OPERATIONS)('%s keeps the tab stop', async (_name, operate) => {

@@ -128,7 +128,7 @@ function stubFetch(routes) {
             source_system: 'TestLog',
             entry_fields: [],
           },
-          routes.publishInfoStatus ?? 200,
+          routes.publishInfoStatus ?? 200
         );
       }
       if (url.includes('/api/drafts/')) return json(routes.draft ?? {});
@@ -140,7 +140,7 @@ function stubFetch(routes) {
         return new Response(new Blob(['png-bytes'], { type: 'image/png' }));
       }
       return json({ detail: `unrouted ${url}` }, 404);
-    }),
+    })
   );
   return calls;
 }
@@ -178,9 +178,7 @@ function formWithoutPublishing() {
  */
 async function submit(formModule) {
   const form = theForm();
-  await formModule.handleCreateEntry(
-    /** @type {any} */ ({ preventDefault() {}, target: form }),
-  );
+  await formModule.handleCreateEntry(/** @type {any} */ ({ preventDefault() {}, target: form }));
 }
 
 /**
@@ -190,7 +188,7 @@ async function submit(formModule) {
  */
 function createCall(calls) {
   const call = calls.find(
-    (c) => c.url.endsWith('/api/entries') || c.url.endsWith('/api/entries/upload'),
+    (c) => c.url.endsWith('/api/entries') || c.url.endsWith('/api/entries/upload')
   );
   if (!call) throw new Error('no create request was made');
   return call;
@@ -471,7 +469,11 @@ describe('an entry-field error marks the named input', () => {
   test('invalid_entry_field marks the input and keeps the form populated', async () => {
     await submitRejected({
       status: 422,
-      body: { detail: 'Beam current must be at most 500', code: 'invalid_entry_field', field: 'beam_current' },
+      body: {
+        detail: 'Beam current must be at most 500',
+        code: 'invalid_entry_field',
+        field: 'beam_current',
+      },
     });
 
     const input = control('beam_current');
@@ -483,7 +485,9 @@ describe('an entry-field error marks the named input', () => {
     const subject = /** @type {HTMLInputElement} */ (document.getElementById('entry-subject'));
     expect(subject.value).toBe('Beam dump');
     expect(window.alert).not.toHaveBeenCalled();
-    const button = /** @type {HTMLButtonElement} */ (theForm().querySelector('button[type="submit"]'));
+    const button = /** @type {HTMLButtonElement} */ (
+      theForm().querySelector('button[type="submit"]')
+    );
     expect(button.disabled).toBe(false);
   });
 
@@ -491,14 +495,18 @@ describe('an entry-field error marks the named input', () => {
     await submitRejected(
       {
         status: 502,
-        body: { detail: 'Book choices unavailable', code: 'entry_field_options_unavailable', field: 'book' },
+        body: {
+          detail: 'Book choices unavailable',
+          code: 'entry_field_options_unavailable',
+          field: 'book',
+        },
       },
-      true,
+      true
     );
 
     expect(control('book').getAttribute('aria-invalid')).toBe('true');
     expect(document.querySelector('[data-entry-field-error="book"]')?.textContent).toBe(
-      'Book choices unavailable',
+      'Book choices unavailable'
     );
     expect(window.alert).not.toHaveBeenCalled();
   });

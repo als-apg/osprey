@@ -155,7 +155,11 @@ beforeEach(async () => {
   vi.stubGlobal('WebSocket', FakeWebSocket);
   writeText = vi.fn(() => Promise.resolve());
   readText = vi.fn(() => Promise.resolve('secret from another app'));
-  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText, readText }, userAgent: navigator.userAgent });
+  vi.stubGlobal('navigator', {
+    ...navigator,
+    clipboard: { writeText, readText },
+    userAgent: navigator.userAgent,
+  });
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -190,7 +194,11 @@ describe("the agent's own selection (OSC 52 through the clipboard addon)", () =>
   });
 
   test('on a page without the async clipboard API (plain http) the legacy copy command is used', async () => {
-    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined, userAgent: navigator.userAgent });
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: undefined,
+      userAgent: navigator.userAgent,
+    });
     const execCommand = vi.fn(() => true);
     document.execCommand = execCommand;
 
@@ -203,7 +211,11 @@ describe("the agent's own selection (OSC 52 through the clipboard addon)", () =>
   });
 
   test('a refused copy is reported in the console, never thrown at the addon', async () => {
-    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined, userAgent: navigator.userAgent });
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: undefined,
+      userAgent: navigator.userAgent,
+    });
     document.execCommand = vi.fn(() => false);
 
     await expect(clipboardProvider().writeText('c', 'text')).resolves.toBeUndefined();
@@ -220,14 +232,17 @@ describe("the terminal's own selection (modifier-drag)", () => {
 });
 
 describe('copying a selection', () => {
-  test.each([['C'], ['c']])('Ctrl+Shift+C (key reading %s) copies the selection and is swallowed, never reaching the agent', (key) => {
-    term().selection = 'SR:BPM:01:X  1.234 mm';
+  test.each([['C'], ['c']])(
+    'Ctrl+Shift+C (key reading %s) copies the selection and is swallowed, never reaching the agent',
+    (key) => {
+      term().selection = 'SR:BPM:01:X  1.234 mm';
 
-    const outcome = handler()(keyEvent({ key, ctrlKey: true, shiftKey: true }));
+      const outcome = handler()(keyEvent({ key, ctrlKey: true, shiftKey: true }));
 
-    expect(writeText).toHaveBeenCalledWith('SR:BPM:01:X  1.234 mm');
-    expect(outcome).toBe(false);
-  });
+      expect(writeText).toHaveBeenCalledWith('SR:BPM:01:X  1.234 mm');
+      expect(outcome).toBe(false);
+    }
+  );
 
   test('Ctrl+Shift+C with nothing selected is still swallowed (it is never an interrupt)', () => {
     const outcome = handler()(keyEvent({ key: 'C', ctrlKey: true, shiftKey: true }));

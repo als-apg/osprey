@@ -4,9 +4,10 @@
  * started commands still running (started-commands.js):
  *   npx vitest run tests/interfaces/web_terminal/started-commands.test.mjs
  *
- * The copy for none, one, two and three commands, what the title does when
- * the names cannot tell the commands apart, and that every way out of the
- * dialog other than its confirm button lands in `onCancel`, once.
+ * The copy for none, one, two and three commands, that a list which did not
+ * arrive or is not a list asks as an empty one, what the title does when the
+ * names cannot tell the commands apart, and that every way out of the dialog
+ * other than its confirm button lands in `onCancel`, once.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -89,6 +90,13 @@ describe('startedCommandsQuestion', () => {
     expect(q.body).toEqual([['They are still running.']]);
   });
 
+  test.each([undefined, {}, 'magnet_scan.py', 3])(
+    'a list that did not arrive or is not a list asks as an empty list (%o)',
+    (commands) => {
+      expect(startedCommandsQuestion(commands)).toEqual(startedCommandsQuestion([]));
+    }
+  );
+
   test('two commands of one name are counted, and told apart by their command lines', () => {
     const q = startedCommandsQuestion([SCAN_3, SCAN_4]);
 
@@ -143,6 +151,14 @@ describe('startedCommandsQuestion', () => {
 });
 
 describe('askAboutStartedCommands', () => {
+  test('a list that did not arrive still raises the question', () => {
+    askAboutStartedCommands(undefined, { onStop: vi.fn(), onCancel: vi.fn() });
+
+    expect(document.querySelector('.posture-modal-title')?.textContent).toBe(
+      'This also ends the commands the agent started.'
+    );
+  });
+
   test('Cancel has focus', () => {
     askAboutStartedCommands([MAGNET], { onStop: vi.fn(), onCancel: vi.fn() });
 

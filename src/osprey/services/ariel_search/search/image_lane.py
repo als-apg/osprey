@@ -37,7 +37,10 @@ from osprey.services.ariel_search.enhancement.provider_resolver import (
     resolve_reachable_base_url,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError, ModuleUnavailable
-from osprey.services.ariel_search.search._offload import run_search_call
+from osprey.services.ariel_search.search._offload import (
+    QUERY_EMBEDDING_TIMEOUT_S,
+    run_search_call,
+)
 from osprey.services.ariel_search.search.fusion import ImageHit
 
 if TYPE_CHECKING:
@@ -47,7 +50,6 @@ if TYPE_CHECKING:
 __all__ = [
     "IMAGE_LANE_COOLDOWN_S",
     "IMAGE_LANE_SQL_TIMEOUT_S",
-    "IMAGE_QUERY_TIMEOUT_S",
     "PICTURE_FACTOR",
     "STATEMENT_TIMEOUT_MS",
     "TRACKER_KEY",
@@ -62,9 +64,6 @@ TRACKER_KEY = "image_lane"
 
 #: The configuration block the lane reads.
 IMAGE_EMBEDDING_KEY = "ariel.enhancement_modules.image_embedding"
-
-#: Seconds the embedding call may take; the provider step as a whole gets one more.
-IMAGE_QUERY_TIMEOUT_S = 5.0
 
 #: Seconds a lane failure keeps the lane skipped.
 IMAGE_LANE_COOLDOWN_S = 30.0
@@ -214,13 +213,13 @@ def _embed_query(settings: ImageLaneSettings, query: str, generation: int) -> li
             url = resolve_reachable_base_url(
                 type(settings.provider),
                 url,
-                deadline_s=IMAGE_QUERY_TIMEOUT_S / 2,
+                deadline_s=QUERY_EMBEDDING_TIMEOUT_S / 2,
                 refresh=verdict is not None or stale,
             )
         with _lock:
             _last_url = url
         health = settings.provider.check_embedding_health(
-            settings.api_key, url, model_id=settings.model_id, timeout=IMAGE_QUERY_TIMEOUT_S / 2
+            settings.api_key, url, model_id=settings.model_id, timeout=QUERY_EMBEDDING_TIMEOUT_S / 2
         )
         if health.reachable is False:
             raise ModuleUnavailable(health.reason or "unreachable", health.message)
@@ -236,7 +235,7 @@ def _embed_query(settings: ImageLaneSettings, query: str, generation: int) -> li
         api_key=settings.api_key,
         base_url=url,
         dimensions=settings.dims,
-        timeout=IMAGE_QUERY_TIMEOUT_S,
+        timeout=QUERY_EMBEDDING_TIMEOUT_S,
     )
     return vector
 
@@ -307,13 +306,13 @@ async def search_images(
     if _breaker_until is not None and _now() < _breaker_until:
         return None
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + IMAGE_QUERY_TIMEOUT_S + 1
+    deadline = loop.time() + QUERY_EMBEDDING_TIMEOUT_S + 1
     settings: ImageLaneSettings | None = None
     generation = _generation
     try:
         settings = _settings_for(config)
         vector = await run_search_call(
-            _embed_query, settings, query, generation, timeout_s=IMAGE_QUERY_TIMEOUT_S + 1
+            _embed_query, settings, query, generation, timeout_s=QUERY_EMBEDDING_TIMEOUT_S + 1
         )
         sql_budget = min(
             deadline - loop.time(), IMAGE_LANE_SQL_TIMEOUT_S + STATEMENT_TIMEOUT_MS / 1000

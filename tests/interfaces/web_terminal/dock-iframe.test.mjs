@@ -44,7 +44,9 @@ getDockApi.mockImplementation(() => state.api);
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi,
   defaultServiceWidth: () => 600,
-  setServiceRedock: (/** @type {() => void} */ fn) => { redock.fn = fn; },
+  setServiceRedock: (/** @type {() => void} */ fn) => {
+    redock.fn = fn;
+  },
   onDragGesture: () => [],
 }));
 

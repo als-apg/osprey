@@ -673,7 +673,7 @@ async def test_a_reset_pipe_is_attributed_to_the_child():
     assert CHILD in str(caught.value) and "Connection reset by peer" in str(caught.value)
 
 
-# ------------------------------------------------------- drain / refuse (3.1)
+# ------------------------------------------- the drain and refuse tests of 3.1
 
 
 async def test_drain_returns_true_once_everything_completes(teardown):

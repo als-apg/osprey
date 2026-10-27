@@ -1,11 +1,18 @@
-"""What a test run did to ``<repo>/var/agent_data``, used by the conftest guards.
+"""What a test run did to the roots it must leave alone, used by the conftest guards.
 
-That directory is the mark left behind when something resolved the agent-data
-root to the checkout instead of to a tmp path, and the guard in ``_guards``
-fails a session that produced one.
+Two forms of root are guarded. ``<repo>/var/agent_data`` and its siblings are
+single directories: each is the mark left behind when something resolved a
+runtime root to the checkout instead of to a tmp path. The packaged templates
+are a tree: tests copy it while other tests run beside them, so a write into it
+surfaces as a copy error somewhere else. The guards in ``_guards`` and in
+``tests/conftest.py`` fail a session that changed either.
 
-Existence is the wrong question to ask of it. A developer who has actually run
-OSPREY in this checkout owns that directory, and what is inside it is that
+This module reads leak markers, never subjects. What it compares is what git
+does not track — new entries, removed entries, a moved mtime — so it reads the
+disk itself and never the tracked-file listing.
+
+Existence is the wrong question to ask of a marker directory. A developer who
+has actually run OSPREY in this checkout owns it, and what is inside it is that
 deployment's business — but the commonest way to own it is to have leaked it:
 a previous run created it, was interrupted before its own teardown could
 speak, and left behind exactly the state that reads as "a developer owns this".
@@ -14,17 +21,24 @@ on the machine where the leak is easiest to reproduce. So what is compared here
 is a *snapshot*: the directory's own entries, plus its modification time, taken
 before any test and compared after the last one.
 
-One case is out of reach by construction — a write *inside* an entry the
-snapshot already held. Finding that would mean walking a real deployment's run
-folders on every test, which is a cost the guard is not worth. What is caught is
-an entry appearing at the top level, which is the shape every leak observed so
-far has had.
+For the single-directory form, one case is out of reach by construction — a
+write *inside* an entry the snapshot already held. Finding that would mean
+walking a real deployment's run folders on every test, which is a cost the
+guard is not worth. What is caught is an entry appearing at the top level,
+which is the shape every leak observed so far has had. The tree form has no
+such gap: its root is bounded and shipped, so it snapshots every directory in
+it and reaches a write at any depth, including one made and deleted again in a
+directory that holds no Python module.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
+
+_SKIPPED = "__pycache__"
+_SOURCE_SUFFIX = ".py"
 
 
 @dataclass(frozen=True)
@@ -80,3 +94,68 @@ def what_this_run_did(baseline: DirectoryState, path: Path) -> str | None:
     if now.mtime_ns != baseline.mtime_ns:
         return f"added and removed entries in {path}"
     return None
+
+
+def tree_snapshot(root: Path) -> dict[str, DirectoryState]:
+    """Every directory under ``root``, keyed by its root-relative POSIX path.
+
+    The root itself is ``"."``. Byte-code caches are not walked, but each
+    directory's ``entries`` are its raw listing and so still name its
+    ``__pycache__``. A root that is not there has no directories: ``{}``.
+    """
+    states: dict[str, DirectoryState] = {}
+    for directory, dirnames, _ in os.walk(root):
+        dirnames[:] = [name for name in dirnames if name != _SKIPPED]
+        here = Path(directory)
+        states[here.relative_to(root).as_posix()] = snapshot(here)
+    return states
+
+
+def what_this_run_did_to_tree(baseline: dict[str, DirectoryState], root: Path) -> list[str]:
+    """How the tree at ``root`` changed since ``baseline``, as sorted clauses.
+
+    Each clause reads as the predicate of "the test run …", as the clause of
+    ``what_this_run_did`` does, and an unchanged tree gives an empty list.
+
+    Per directory, the names that appeared and the names that went are the
+    clauses that *name* the change; a directory that went is named by its
+    parent's ``removed`` clause. A moved mtime with no name delta is a write
+    that came and went. ``__pycache__`` is never a change, and neither is the
+    mtime of a directory that holds a Python module: any interpreter that
+    imports the module can create its ``__pycache__`` there, and a bytecode
+    prune can remove it again, at any point in the session and in either
+    order, so that mtime says nothing about what a test wrote. A transient
+    write into a directory that holds a Python module therefore goes unseen;
+    one that leaves an entry behind is still named.
+    """
+    now = tree_snapshot(root)
+    if not now:
+        return [f"removed {root}"] if baseline else []
+    if not baseline:
+        return [f"created {root}"]
+    clauses: list[str] = []
+    for key in sorted(baseline.keys() & now.keys()):
+        then, current = baseline[key], now[key]
+        directory = root / key
+        then_names = then.entries - {_SKIPPED}
+        now_names = current.entries - {_SKIPPED}
+        appeared = sorted(now_names - then_names)
+        gone = sorted(then_names - now_names)
+        if appeared:
+            clauses.append(f"added {', '.join(appeared)} to {directory}")
+        if gone:
+            clauses.append(f"removed {', '.join(gone)} from {directory}")
+        if (
+            not appeared
+            and not gone
+            and current.mtime_ns != then.mtime_ns
+            and current.entries ^ then.entries != {_SKIPPED}
+            and not _holds_python_source(then_names | now_names)
+        ):
+            clauses.append(f"added and removed entries in {directory}")
+    return clauses
+
+
+def _holds_python_source(names: frozenset[str]) -> bool:
+    """Whether a directory with these entries is one an import byte-compiles into."""
+    return any(name.endswith(_SOURCE_SUFFIX) for name in names)

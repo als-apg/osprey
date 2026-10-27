@@ -1078,7 +1078,7 @@ async def test_served_va_without_gateway_still_refused(pools, spawns):
     assert spawns == []
 
 
-# ------------------------------------------------------------ lifetime, continued
+# ----------------------------------------------------- the lifetime tests, continued
 
 
 async def test_leaving_an_async_with_block_stops_every_child_and_closes_the_pool():

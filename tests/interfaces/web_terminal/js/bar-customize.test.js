@@ -56,7 +56,10 @@ function tileReason(type) {
 
 /** A document filling the header to the per-host cap with separators. */
 function fullHeader() {
-  return doc(Array.from({ length: 20 }, () => 'separator'), []);
+  return doc(
+    Array.from({ length: 20 }, () => 'separator'),
+    []
+  );
 }
 
 beforeEach(() => {
@@ -169,7 +172,6 @@ describe('edit mode is the same in both ui modes', () => {
     expect(document.body.classList.contains('bar-editing')).toBe(true);
     expect(sheet()).not.toBe(null);
   });
-
 });
 
 describe('a tile names why it cannot be added', () => {
@@ -223,11 +225,14 @@ describe('a tile shows the item', () => {
 
   test('an adopted type previews as a copy of its live node, ids stripped', async () => {
     await start();
-    document.querySelector('[data-bar-host="header"]')?.insertAdjacentHTML(
-      'beforeend',
-      '<div class="bar-item" data-bar-item="docs"><a class="status-item" id="docs-link" hidden>Docs</a></div>'
-    );
-    const host = await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
+    document
+      .querySelector('[data-bar-host="header"]')
+      ?.insertAdjacentHTML(
+        'beforeend',
+        '<div class="bar-item" data-bar-item="docs"><a class="status-item" id="docs-link" hidden>Docs</a></div>'
+      );
+    const host =
+      await import('../../../../src/osprey/interfaces/web_terminal/static/js/bar-host.js');
     host.hydrate(document);
     customize.enterEditMode();
 
@@ -468,9 +473,9 @@ describe('every edit goes through saveLayout', () => {
     expect(check.checked).toBe(false);
 
     await customize.setBarVisible('status', true);
-    expect(
-      /** @type {any} */ (document.querySelector('.bar-sheet-status-visible')).checked
-    ).toBe(true);
+    expect(/** @type {any} */ (document.querySelector('.bar-sheet-status-visible')).checked).toBe(
+      true
+    );
   });
 
   test('the header has a toggle of its own, and it round-trips the same way', async () => {

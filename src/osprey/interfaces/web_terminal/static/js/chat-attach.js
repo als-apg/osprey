@@ -357,7 +357,7 @@ export function initChatAttachments(ctx) {
         });
       } else {
         void removeChatAttachment(chip.key, storedName(stored.path), { batch: chip.batch }).catch(
-          () => {},
+          () => {}
         );
       }
     } catch (err) {
@@ -394,8 +394,8 @@ export function initChatAttachments(ctx) {
       files.map((file) =>
         file.type.startsWith('image/')
           ? new File([file], pastedImageName(when, file.type), { type: file.type })
-          : file,
-      ),
+          : file
+      )
     );
   });
 
@@ -543,7 +543,7 @@ export function initChatAttachments(ctx) {
       e.preventDefault();
       e.stopPropagation();
     },
-    true,
+    true
   );
   inputArea.addEventListener(
     'click',
@@ -553,7 +553,7 @@ export function initChatAttachments(ctx) {
       e.preventDefault();
       e.stopPropagation();
     },
-    true,
+    true
   );
 
   // The prompt the controller sends carries the block. The bubble it has just

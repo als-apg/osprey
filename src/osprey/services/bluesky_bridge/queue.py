@@ -1483,7 +1483,7 @@ async def start_queue(
         await backend.ensure_environment_for_execute()
         async with _arming_lock:
             # The approved queue, if the caller named one, before anything
-            # else: `reload=True` because a ~0.5 s cached uid could match a
+            # else, with `reload=True` because a ~0.5 s cached uid could match a
             # queue that has already moved, which is the one direction of
             # staleness this check must not have.
             expected_uid = body.expected_plan_queue_uid if body is not None else None

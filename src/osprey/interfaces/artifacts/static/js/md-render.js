@@ -18,7 +18,7 @@
  * @module md-render
  */
 
-import { escapeHtml } from "/design-system/js/dom.js";
+import { escapeHtml } from '/design-system/js/dom.js';
 
 let _markedConfigured = false;
 
@@ -29,23 +29,25 @@ let _markedConfigured = false;
 export function configureMarked() {
   if (_markedConfigured) return;
   _markedConfigured = true;
-  if (typeof marked === "undefined") return;
+  if (typeof marked === 'undefined') return;
 
   const renderer = {
     /** @param {{text: string, lang?: string}} tok */
     code({ text, lang }) {
-      const src = text ?? "";
+      const src = text ?? '';
       let highlighted = escapeHtml(src);
-      if (typeof hljs !== "undefined" && src) {
+      if (typeof hljs !== 'undefined' && src) {
         try {
           if (lang && hljs.getLanguage(lang)) {
             highlighted = hljs.highlight(src, { language: lang }).value;
           } else {
             highlighted = hljs.highlightAuto(src).value;
           }
-        } catch { /* fallback to escaped */ }
+        } catch {
+          /* fallback to escaped */
+        }
       }
-      return `<pre><code class="hljs${lang ? ` language-${lang}` : ""}">${highlighted}</code></pre>`;
+      return `<pre><code class="hljs${lang ? ` language-${lang}` : ''}">${highlighted}</code></pre>`;
     },
   };
 
@@ -63,7 +65,7 @@ export function configureMarked() {
  * @returns {string}
  */
 export function renderMathInMarkdown(text) {
-  if (typeof katex === "undefined") return marked.parse(text);
+  if (typeof katex === 'undefined') return marked.parse(text);
 
   /** @type {{key: string, html: string}[]} */
   const placeholders = [];
@@ -88,15 +90,13 @@ export function renderMathInMarkdown(text) {
         strict: false,
       });
     } catch {
-      const cls = displayMode ? "katex-error-display" : "katex-error-inline";
+      const cls = displayMode ? 'katex-error-display' : 'katex-error-inline';
       return `<span class="${cls}">${escapeHtml(expr)}</span>`;
     }
   }
 
   // Pass 1: display math $$...$$ (must come before inline $...$)
-  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) =>
-    placeholder(renderKatex(expr, true))
-  );
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => placeholder(renderKatex(expr, true)));
 
   // Pass 2: inline math $...$ (not preceded/followed by digit to avoid $5)
   text = text.replace(/(?<!\$)(?<!\d)\$(?!\$)(.+?)(?<!\$)\$(?!\d)/g, (_, expr) =>

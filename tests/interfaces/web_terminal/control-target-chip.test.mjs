@@ -299,7 +299,7 @@ beforeEach(async () => {
   served = viewOf();
   stubFetch();
   mountFixture();
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   chipModule = await import(MODULE);
 });
 
@@ -520,9 +520,7 @@ describe('state matrix', () => {
   test("the deployment's configured display_name wins over the kind default", async () => {
     await boot(
       viewOf({
-        targets: [
-          rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true }),
-        ],
+        targets: [rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true })],
       })
     );
     expect(shortText()).toBe('Example storage ring');
@@ -631,9 +629,7 @@ describe('refetch hints', () => {
   });
 
   test('renders the ROUTE, never the frame text', async () => {
-    await boot(
-      viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] })
-    );
+    await boot(viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] }));
     expect(shortText()).toBe('Rehearsal');
     // The frame narrates a switch to the facility's own machine, and the route
     // — the only truth — still says stand-in. A chip that read the prose would
@@ -1010,7 +1006,7 @@ describe('read ordering', () => {
 
 describe('withPrefix', () => {
   test('every read goes through the per-user mount', async () => {
-    (/** @type {any} */ (window)).__OSPREY_PREFIX__ = '/u/alice';
+    Object.assign(window, { __OSPREY_PREFIX__: '/u/alice' });
     await boot();
     const gets = fetchCalls.filter((c) => c.method === 'GET');
     expect(gets.length).toBeGreaterThan(0);
@@ -1040,7 +1036,9 @@ describe('popover API', () => {
     await boot();
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const seen = /** @type {any[]} */ ([]);
-    chipModule.subscribe(() => { throw new Error('boom'); });
+    chipModule.subscribe(() => {
+      throw new Error('boom');
+    });
     chipModule.subscribe((s) => seen.push(s));
     await chipModule.refetch();
     expect(seen).toHaveLength(1);
@@ -1070,7 +1068,10 @@ describe('popover API', () => {
   test('a refused request carries the sentence from all three refusal body shapes', async () => {
     /** @param {number} status @param {() => Promise<any>} json */
     const refuse = (status, json) =>
-      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status, json })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, status, json }))
+      );
 
     refuse(409, async () => ({ detail: { error: 'x', message: 'dict detail' } }));
     await expect(chipModule.targetRequest('/api/terminal/posture')).rejects.toThrow('dict detail');

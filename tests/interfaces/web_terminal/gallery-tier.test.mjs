@@ -28,7 +28,7 @@
  *   reads as a broken panel rather than a gated one.
  *
  * The settings.json Preview is read-only whatever the posture; that is pinned
- * once, in scaffold-detail.test.mjs.
+ * once, in scaffold/detail.test.mjs.
  *
  * Module isolation: write-gate.js keeps module-private state (the resolved
  * posture), so every test re-imports it and its consumers through
@@ -129,7 +129,10 @@ const ARTIFACTS = [
 ];
 
 beforeEach(() => {
-  vi.stubGlobal('confirm', vi.fn(() => true));
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true)
+  );
   vi.stubGlobal('alert', vi.fn());
 });
 
@@ -291,7 +294,9 @@ describe('element absence', () => {
     // bar and no filter panel, so these refs stay null for its whole life.
     const modules = await loadModules();
     const gallery = makeGallery({
-      artifacts: [{ name: 'mcp-json', category: 'config', displayCategory: 'config', status: 'framework' }],
+      artifacts: [
+        { name: 'mcp-json', category: 'config', displayCategory: 'config', status: 'framework' },
+      ],
       summaryEl: null,
       clearFilterEl: null,
       filterToggleEl: null,
@@ -302,5 +307,4 @@ describe('element absence', () => {
     expect(() => modules.view.createScaffoldGalleryView(gallery).renderGallery()).not.toThrow();
     expect(gallery.categoriesEl.querySelectorAll('.prompts-card')).toHaveLength(1);
   });
-
 });

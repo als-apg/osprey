@@ -217,7 +217,7 @@ def test_a_failed_save_leaves_the_log_usable_in_this_process(tmp_path: Path) -> 
 
 
 # ---------------------------------------------------------------------------
-# DELETE /queue/items/{uid}
+# Tests of DELETE /queue/items/{uid}
 # ---------------------------------------------------------------------------
 
 
@@ -284,7 +284,7 @@ async def test_the_rollback_of_a_just_added_item_records_nothing() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DELETE /queue/items (clear)
+# Tests of DELETE /queue/items, the clear
 # ---------------------------------------------------------------------------
 
 

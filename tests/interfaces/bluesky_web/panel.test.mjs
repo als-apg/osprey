@@ -3,7 +3,7 @@
  * the shell that holds Plans | Queue | Results together.
  *
  * happy-dom environment (configured globally in vitest.config.js):
- *   npx vitest run tests/interfaces/bluesky_web/bluesky-panel.test.mjs
+ *   npx vitest run tests/interfaces/bluesky_web/panel.test.mjs
  *
  * Three layers are exercised:
  *  - The pure queue decisions (`reduceQueueFrame`, `queueControls`,
@@ -488,9 +488,9 @@ describe('stripControls', () => {
       clear: true,
       dormant: true,
     });
-    expect(stripControls(stateWith(summary({ manager_state: 'executing_queue' })), 'queue')).toEqual(
-      { start: true, halts: true, clear: true, dormant: false }
-    );
+    expect(
+      stripControls(stateWith(summary({ manager_state: 'executing_queue' })), 'queue')
+    ).toEqual({ start: true, halts: true, clear: true, dormant: false });
     expect(stripControls(createInitialQueueState(), 'queue')).toEqual({
       start: true,
       halts: true,
@@ -506,9 +506,9 @@ describe('stripControls', () => {
         halts: false,
         clear: false,
       });
-      expect(stripControls(stateWith(summary({ queue_autostart_enabled: true })), view)).toMatchObject(
-        { start: false, halts: false, clear: false }
-      );
+      expect(
+        stripControls(stateWith(summary({ queue_autostart_enabled: true })), view)
+      ).toMatchObject({ start: false, halts: false, clear: false });
     }
   });
 
@@ -611,9 +611,9 @@ describe('historyClearConfirmNote', () => {
 
 describe('historyChanged: the bridge-owned key', () => {
   test('a withdrawal moves queue_removals and no history key — still a re-fetch', () => {
-    expect(
-      historyChanged(summary({ queue_removals: 0 }), summary({ queue_removals: 1 }))
-    ).toBe(true);
+    expect(historyChanged(summary({ queue_removals: 0 }), summary({ queue_removals: 1 }))).toBe(
+      true
+    );
   });
 
   test('a run removed elsewhere moves runs_removed and nothing else — still a re-fetch', () => {
@@ -641,7 +641,13 @@ describe('clearControl', () => {
 
   test('the running plan is not the clear control’s business', () => {
     // Items are the WAITING plans; a running item alone leaves nothing to clear.
-    const running = { status: summary(), items: [], runningItem: item(), connected: true, frames: 1 };
+    const running = {
+      status: summary(),
+      items: [],
+      runningItem: item(),
+      connected: true,
+      frames: 1,
+    };
     expect(clearControl(running).disabled).toBe(true);
   });
 
@@ -908,40 +914,70 @@ describe('describeProgress', () => {
     // The common case for an agent-authored session plan: the estimator only
     // recognizes the shipped plan shapes, so `fraction` is null while the plan
     // is running perfectly well.
-    const view = describeProgress({ rows_seen: 7, expected_points: null, fraction: null, complete: false });
+    const view = describeProgress({
+      rows_seen: 7,
+      expected_points: null,
+      fraction: null,
+      complete: false,
+    });
     expect(view.mode).toBe('indeterminate');
     expect(view.percent).toBeNull();
     expect(view.label).toBe('7 points so far');
   });
 
   test('a known denominator renders a percentage', () => {
-    const view = describeProgress({ rows_seen: 5, expected_points: 20, fraction: 0.25, complete: false });
+    const view = describeProgress({
+      rows_seen: 5,
+      expected_points: 20,
+      fraction: 0.25,
+      complete: false,
+    });
     expect(view.mode).toBe('determinate');
     expect(view.percent).toBe(25);
     expect(view.label).toBe('5 of 20 points');
   });
 
   test('a genuine zero is determinate 0%, distinct from unknown', () => {
-    const view = describeProgress({ rows_seen: 0, expected_points: 20, fraction: 0, complete: false });
+    const view = describeProgress({
+      rows_seen: 0,
+      expected_points: 20,
+      fraction: 0,
+      complete: false,
+    });
     expect(view.mode).toBe('determinate');
     expect(view.percent).toBe(0);
   });
 
   test('fraction 1.0 with complete false reads as finishing, not as stuck', () => {
-    const view = describeProgress({ rows_seen: 20, expected_points: 20, fraction: 1, complete: false });
+    const view = describeProgress({
+      rows_seen: 20,
+      expected_points: 20,
+      fraction: 1,
+      complete: false,
+    });
     expect(view.percent).toBe(100);
     expect(view.label).toContain('finishing');
     expect(view.complete).toBe(false);
   });
 
   test('rows_seen counts events and may exceed the stored rows', () => {
-    const view = describeProgress({ rows_seen: 12000, expected_points: 12000, fraction: 1, complete: true });
+    const view = describeProgress({
+      rows_seen: 12000,
+      expected_points: 12000,
+      fraction: 1,
+      complete: true,
+    });
     expect(view.label).toContain('12000 of 12000');
     expect(view.label).toContain('finished');
   });
 
   test('a completed run with an unknown denominator still reports honestly', () => {
-    const view = describeProgress({ rows_seen: 3, expected_points: null, fraction: null, complete: true });
+    const view = describeProgress({
+      rows_seen: 3,
+      expected_points: null,
+      fraction: null,
+      complete: true,
+    });
     expect(view.mode).toBe('indeterminate');
     expect(view.label).toBe('3 points — finished');
   });
@@ -1000,7 +1036,9 @@ describe('classifyQueueRefusal', () => {
 
   test('a body-less or unparsable refusal still names its status', () => {
     expect(classifyQueueRefusal(500, null).message).toContain('500');
-    expect(classifyQueueRefusal(409, { detail: { code: 'x', detail: '  ' } }).message).toContain('409');
+    expect(classifyQueueRefusal(409, { detail: { code: 'x', detail: '  ' } }).message).toContain(
+      '409'
+    );
   });
 
   test('a coded refusal is a warning; an uncoded failure is an error', () => {
@@ -1056,7 +1094,9 @@ describe('historyRecords', () => {
   });
 
   test('records with no usable id are skipped, not rendered as blanks', () => {
-    expect(historyRecords([{ status: 'completed' }, { id: '', status: 'completed' }, null])).toEqual([]);
+    expect(
+      historyRecords([{ status: 'completed' }, { id: '', status: 'completed' }, null])
+    ).toEqual([]);
   });
 
   test('a non-list response yields an empty list rather than throwing', () => {
@@ -1097,7 +1137,13 @@ const at = (zone, opts, iso) =>
 /** @type {Intl.DateTimeFormatOptions} */
 const CLOCK = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
 /** @type {Intl.DateTimeFormatOptions} */
-const DATED = { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+const DATED = {
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+};
 
 describe('removalRecords', () => {
   beforeEach(() => stampFacilityZone(FACILITY_ZONE));
@@ -1171,7 +1217,9 @@ describe('removalRecords', () => {
   });
 
   test('an action this panel cannot describe is skipped, not guessed at', () => {
-    expect(removalRecords([removal({ action: 'reordered' }), removal({ action: null })])).toEqual([]);
+    expect(removalRecords([removal({ action: 'reordered' }), removal({ action: null })])).toEqual(
+      []
+    );
   });
 
   test('order is the bridge’s — newest first, untouched', () => {
@@ -2002,7 +2050,10 @@ describe('createResultsView', () => {
     vi.stubGlobal(
       'fetch',
       stubFetch({
-        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'grid_scan' } },
+        '/runs/r1': {
+          status: 200,
+          body: { id: 'r1', status: 'completed', plan_name: 'grid_scan' },
+        },
         '/runs/r1/data': { status: 200, body: BIG_DATA },
         '/runs/r1/figure': { status: 200, body: FIGURE },
         '/runs/r1/data?max_rows=4096': { status: 200, body: full },
@@ -2010,12 +2061,10 @@ describe('createResultsView', () => {
     );
     /** @type {Array<{filename: string, text: string}>} */
     const written = [];
-    const saveFile = vi.fn(
-      async (/** @type {string} */ filename, /** @type {string} */ text) => {
-        written.push({ filename, text });
-        return { saved: true, method: /** @type {const} */ ('picker') };
-      }
-    );
+    const saveFile = vi.fn(async (/** @type {string} */ filename, /** @type {string} */ text) => {
+      written.push({ filename, text });
+      return { saved: true, method: /** @type {const} */ ('picker') };
+    });
     const elements = mountElements();
     view = createResultsView({ api: (p) => p, elements, saveFile });
     view.follow('r1');
@@ -2046,7 +2095,10 @@ describe('createResultsView', () => {
         '/runs/r1/data?max_rows=2': { status: 200, body: DATA },
       })
     );
-    const saveFile = vi.fn(async () => ({ saved: true, method: /** @type {const} */ ('download') }));
+    const saveFile = vi.fn(async () => ({
+      saved: true,
+      method: /** @type {const} */ ('download'),
+    }));
     const elements = mountElements();
     view = createResultsView({ api: (p) => p, elements, saveFile });
     view.follow('r1');
@@ -2805,7 +2857,12 @@ describe('booting the shipped bundle', () => {
           ok: true,
           status: 200,
           json: async () => [
-            { at: '2026-09-19T21:05:00+00:00', action: 'remove', owner: 'anna', name: 'count_scan' },
+            {
+              at: '2026-09-19T21:05:00+00:00',
+              action: 'remove',
+              owner: 'anna',
+              name: 'count_scan',
+            },
           ],
         };
       }
@@ -2824,7 +2881,7 @@ describe('booting the shipped bundle', () => {
 
       const row = list.querySelector('.queue-row.removal');
       expect(row.querySelector('.queue-time').textContent).toBe(
-        at(FACILITY_ZONE, CLOCK, '2026-09-19T21:05:00Z'),
+        at(FACILITY_ZONE, CLOCK, '2026-09-19T21:05:00Z')
       );
       expect(row.querySelector('.queue-name').textContent).toBe('anna removed count_scan');
       // Not a run: nothing to select, nothing to open, no control on it.
@@ -2855,7 +2912,9 @@ describe('booting the shipped bundle', () => {
     clearBtn.click();
     expect(fetchMock.mock.calls.length).toBe(before); // armed only
     expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
-    expect(document.getElementById('history-clear-note')?.textContent).toContain('2 completed runs');
+    expect(document.getElementById('history-clear-note')?.textContent).toContain(
+      '2 completed runs'
+    );
 
     clearBtn.click();
     expect(clearBtn.textContent).toBe(CLEAR_LABEL);

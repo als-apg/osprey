@@ -24,7 +24,7 @@
  * @returns {string}
  */
 export function fmtName(name, category) {
-  const prefix = category ? `${category}.` : "";
+  const prefix = category ? `${category}.` : '';
   const s = prefix && name.startsWith(prefix) ? name.slice(prefix.length) : name;
-  return s.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  return s.replace(/_/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }

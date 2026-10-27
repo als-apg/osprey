@@ -52,20 +52,28 @@ describe('typeColor', () => {
   });
 
   test('a registered artifact_type returns its registry color', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ artifact_types: { plot_html: { label: 'Plot', color: '#ff0000' } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () =>
+          Promise.resolve({ artifact_types: { plot_html: { label: 'Plot', color: '#ff0000' } } }),
+      })
+    );
     await initTypeRegistry();
     expect(typeColor('plot_html')).toBe('#ff0000');
   });
 
   test('categories take precedence over artifact_types when both are present', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({
-        categories: { visualization: { label: 'Viz', color: '#00ff00' } },
-        artifact_types: { visualization: { label: 'Viz (type)', color: '#0000ff' } },
-      }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () =>
+          Promise.resolve({
+            categories: { visualization: { label: 'Viz', color: '#00ff00' } },
+            artifact_types: { visualization: { label: 'Viz (type)', color: '#0000ff' } },
+          }),
+      })
+    );
     await initTypeRegistry();
     expect(typeColor('visualization')).toBe('#00ff00');
     expect(typeBadge('visualization')).toBe('Viz');
@@ -78,17 +86,24 @@ describe('typeBadge', () => {
   });
 
   test('a registered type returns its registry label', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ artifact_types: { json: { label: 'JSON Data' } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () => Promise.resolve({ artifact_types: { json: { label: 'JSON Data' } } }),
+      })
+    );
     await initTypeRegistry();
     expect(typeBadge('json')).toBe('JSON Data');
   });
 
   test('Task 1.3 — a hostile registry label (agent-fed /api/type-registry) is escaped to inert text', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ artifact_types: { evil: { label: '<img src=x onerror=alert(1)>' } } }),
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        json: () =>
+          Promise.resolve({ artifact_types: { evil: { label: '<img src=x onerror=alert(1)>' } } }),
+      })
+    );
     await initTypeRegistry();
     const result = typeBadge('evil');
     expect(result).not.toContain('<img');
@@ -286,7 +301,13 @@ describe('gallery times on the facility clock', () => {
     new Intl.DateTimeFormat(undefined, { ...options, timeZone: zone }).format(new Date(ISO));
 
   /** @type {Intl.DateTimeFormatOptions} */
-  const FULL = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  const FULL = {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  };
 
   test('formatTime reads the stamped zone', () => {
     stampFacilityZone(FACILITY_ZONE);
@@ -300,7 +321,7 @@ describe('gallery times on the facility clock', () => {
     expect(formatFullTime(ISO)).toBe(intl(VIEWER_ZONE, FULL));
   });
 
-  test('Today and Yesterday are the facility calendar\'s days', () => {
+  test("Today and Yesterday are the facility calendar's days", () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     // Jan 16 01:00 in Kathmandu; still Jan 15 in UTC and the Americas.
     vi.setSystemTime(new Date('2026-01-15T19:15:00Z'));
@@ -325,15 +346,21 @@ describe('gallery times on the facility clock', () => {
 
 describe('openUrl', () => {
   test('markdown routes to the rendered-markdown API endpoint', () => {
-    expect(openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' })).toBe('/api/markdown/a1/rendered');
+    expect(openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' })).toBe(
+      '/api/markdown/a1/rendered'
+    );
   });
 
   test('notebook routes to the rendered-notebook API endpoint', () => {
-    expect(openUrl({ id: 'a2', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/a2/rendered');
+    expect(openUrl({ id: 'a2', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe(
+      '/api/notebooks/a2/rendered'
+    );
   });
 
   test('any other type falls back to the raw file URL', () => {
-    expect(openUrl({ id: 'a3', artifact_type: 'plot_png', filename: 'plot.png' })).toBe('/files/a3/plot.png');
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_png', filename: 'plot.png' })).toBe(
+      '/files/a3/plot.png'
+    );
   });
 
   test('markdown branch percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
@@ -344,7 +371,9 @@ describe('openUrl', () => {
   });
 
   test('markdown branch is byte-identical for a real 12-hex artifact id', () => {
-    expect(openUrl({ id: '0123456789ab', artifact_type: 'markdown', filename: 'x.md' })).toBe('/api/markdown/0123456789ab/rendered');
+    expect(openUrl({ id: '0123456789ab', artifact_type: 'markdown', filename: 'x.md' })).toBe(
+      '/api/markdown/0123456789ab/rendered'
+    );
   });
 
   test('notebook branch percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
@@ -355,24 +384,33 @@ describe('openUrl', () => {
   });
 
   test('notebook branch is byte-identical for a real 12-hex artifact id', () => {
-    expect(openUrl({ id: '0123456789ab', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/0123456789ab/rendered');
+    expect(openUrl({ id: '0123456789ab', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe(
+      '/api/notebooks/0123456789ab/rendered'
+    );
   });
 
   // A page opened in its own tab has no hub parent to follow: the link
   // carries the theme the operator is looking at, which theme-boot.js honors
   // ahead of storage and the OS preference on that page.
   test('a theme id is carried as ?theme= on every branch', () => {
-    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, 'retro-light'))
-      .toBe('/files/a3/p.html?theme=retro-light');
-    expect(openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' }, 'high-contrast-dark'))
-      .toBe('/api/markdown/a1/rendered?theme=high-contrast-dark');
-    expect(openUrl({ id: 'a2', artifact_type: 'notebook', filename: 'x.ipynb' }, 'light'))
-      .toBe('/api/notebooks/a2/rendered?theme=light');
+    expect(
+      openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, 'retro-light')
+    ).toBe('/files/a3/p.html?theme=retro-light');
+    expect(
+      openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' }, 'high-contrast-dark')
+    ).toBe('/api/markdown/a1/rendered?theme=high-contrast-dark');
+    expect(openUrl({ id: 'a2', artifact_type: 'notebook', filename: 'x.ipynb' }, 'light')).toBe(
+      '/api/notebooks/a2/rendered?theme=light'
+    );
   });
 
   test('a missing theme (theme-manager not initialised) leaves the URL bare', () => {
-    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, null)).toBe('/files/a3/p.html');
-    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, undefined)).toBe('/files/a3/p.html');
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, null)).toBe(
+      '/files/a3/p.html'
+    );
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_html', filename: 'p.html' }, undefined)).toBe(
+      '/files/a3/p.html'
+    );
   });
 
   test('the theme id is percent-encoded, so a hostile value cannot smuggle extra query parameters', () => {
@@ -396,7 +434,9 @@ describe('withTheme', () => {
 
 describe('isTimeseries', () => {
   test('true when metadata.data_type is "timeseries"', () => {
-    expect(isTimeseries({ metadata: { data_type: 'timeseries' }, artifact_type: 'json' })).toBe(true);
+    expect(isTimeseries({ metadata: { data_type: 'timeseries' }, artifact_type: 'json' })).toBe(
+      true
+    );
   });
 
   test('true when category is "archiver_data"', () => {
@@ -422,7 +462,9 @@ describe('hasTimeseriesData', () => {
   });
 
   test('true when the data_file lives under metadata', () => {
-    expect(hasTimeseriesData({ metadata: { data_type: 'timeseries', data_file: 'x.parquet' } })).toBe(true);
+    expect(
+      hasTimeseriesData({ metadata: { data_type: 'timeseries', data_file: 'x.parquet' } })
+    ).toBe(true);
   });
 
   test('false for a timeseries artifact with no data file (nothing to fetch/render)', () => {
@@ -447,18 +489,31 @@ describe('thumbnailHtml', () => {
   });
 
   test('the notebook iframe src percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
-    const html = thumbnailHtml({ id: 'a/../b?x="y"', artifact_type: 'notebook', filename: 'n.ipynb' });
+    const html = thumbnailHtml({
+      id: 'a/../b?x="y"',
+      artifact_type: 'notebook',
+      filename: 'n.ipynb',
+    });
     expect(html).toContain('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
     expect(html).not.toContain('/api/notebooks/a/../b');
   });
 
   test('the notebook iframe src is byte-identical for a real 12-hex artifact id', () => {
-    const html = thumbnailHtml({ id: '0123456789ab', artifact_type: 'notebook', filename: 'n.ipynb' });
+    const html = thumbnailHtml({
+      id: '0123456789ab',
+      artifact_type: 'notebook',
+      filename: 'n.ipynb',
+    });
     expect(html).toContain('/api/notebooks/0123456789ab/rendered');
   });
 
   test('a type with a non-empty summary renders the summary fields, escaped', () => {
-    const html = thumbnailHtml({ id: 'i3', artifact_type: 'json', filename: 'd.json', summary: { rows: 10 } });
+    const html = thumbnailHtml({
+      id: 'i3',
+      artifact_type: 'json',
+      filename: 'd.json',
+      summary: { rows: 10 },
+    });
     expect(html).toContain('thumb-summary');
     expect(html).toContain('rows: 10');
   });
@@ -471,12 +526,18 @@ describe('thumbnailHtml', () => {
 
 describe('isNewThisSession', () => {
   test('an artifact timestamped at/after session start is new', () => {
-    expect(isNewThisSession({ timestamp: '2026-07-03T12:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(true);
-    expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(true);
+    expect(isNewThisSession({ timestamp: '2026-07-03T12:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(
+      true
+    );
+    expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(
+      true
+    );
   });
 
   test('an artifact timestamped before session start is not new', () => {
-    expect(isNewThisSession({ timestamp: '2026-07-03T11:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(false);
+    expect(isNewThisSession({ timestamp: '2026-07-03T11:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(
+      false
+    );
   });
 
   test('an artifact with no timestamp is not new', () => {
@@ -484,7 +545,12 @@ describe('isNewThisSession', () => {
   });
 
   test('the shipped example is never new, even though it is written at gallery start', () => {
-    expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z', origin: 'demo' }, '2026-07-03T12:00:00Z')).toBe(false);
+    expect(
+      isNewThisSession(
+        { timestamp: '2026-07-03T13:00:00Z', origin: 'demo' },
+        '2026-07-03T12:00:00Z'
+      )
+    ).toBe(false);
   });
 });
 

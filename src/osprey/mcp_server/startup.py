@@ -32,7 +32,7 @@ def startup_timer(label: str):
         yield
     finally:
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        print(
+        print(  # noqa: T201 -- stderr carries the IOC's diagnostics
             f"[STARTUP-TIMING] {_server_label} | {label}: {elapsed_ms:.0f}ms",
             file=sys.stderr,
             flush=True,
@@ -206,7 +206,7 @@ def run_mcp_server(server_module: str) -> None:
         install_audit_middleware(server, _server_label)
 
     elapsed_total_ms = (time.perf_counter() - t_total) * 1000
-    print(
+    print(  # noqa: T201 -- stderr carries the IOC's diagnostics
         f"[STARTUP-TIMING] {_server_label} | total_startup: {elapsed_total_ms:.0f}ms",
         file=sys.stderr,
         flush=True,

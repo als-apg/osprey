@@ -925,7 +925,8 @@ function applyBarVisibility(layout, root) {
 function hasSelection(node) {
   if (node.tagName === 'TEXTAREA') return true;
   if (node.tagName !== 'INPUT') return false;
-  const type = (/** @type {HTMLInputElement} */ (node).type || 'text').toLowerCase();
+  const input = /** @type {HTMLInputElement} */ (node);
+  const type = (input.type || 'text').toLowerCase();
   return SELECTABLE_INPUT_TYPES.has(type);
 }
 

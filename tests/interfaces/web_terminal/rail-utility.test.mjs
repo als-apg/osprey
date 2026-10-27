@@ -36,10 +36,7 @@ import { qs } from '../_support/dom.mjs';
 
 // `import.meta.dirname` is a plain string, so it sidesteps happy-dom's
 // override of the global URL (which breaks fileURLToPath(new URL(...)) here).
-const STATIC_DIR = join(
-  import.meta.dirname,
-  '../../../src/osprey/interfaces/web_terminal/static'
-);
+const STATIC_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static');
 const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
 const terminalCss = readFileSync(join(STATIC_DIR, 'css/terminal.css'), 'utf8');
 
@@ -177,7 +174,10 @@ describe('utility cluster markup', () => {
     // The tour and the activity log are rows of the More menu; a cell for
     // either would put them back on the rail beside the menu that holds them.
     const cluster = qs(parseRailRegion(), '#panel-utility');
-    const labels = Array.from(cluster.querySelectorAll('.panel-utility-label'), (el) => el.textContent);
+    const labels = Array.from(
+      cluster.querySelectorAll('.panel-utility-label'),
+      (el) => el.textContent
+    );
 
     expect(labels).toEqual(['Docs', 'Feedback', 'More']);
   });

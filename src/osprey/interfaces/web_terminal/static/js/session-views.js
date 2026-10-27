@@ -63,7 +63,9 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
 
   const agents = data.agents || [];
   const toolsByAgent = data.tool_calls_by_agent || {};
-  const agentCount = agents.filter((/** @type {any} */ a) => a.agent_id && a.agent_id !== 'main').length;
+  const agentCount = agents.filter(
+    (/** @type {any} */ a) => a.agent_id && a.agent_id !== 'main'
+  ).length;
 
   let html = `<div class="summary-bar">
     <span>Events: <span class="val">${data.total_events}</span></span>
@@ -73,7 +75,7 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
   for (const agent of agents) {
     const aid = agent.agent_id || 'main';
     const isRoot = !agent.agent_id || agent.agent_id === 'main';
-    const name = isRoot ? 'ROOT SESSION' : (agent.agent_type || aid);
+    const name = isRoot ? 'ROOT SESSION' : agent.agent_type || aid;
     const srvCls = isRoot ? '' : serverClass(agent.server || agent.agent_type);
     const tools = toolsByAgent[aid] || [];
     const errCount = tools.filter((/** @type {any} */ t) => t.is_error).length;
@@ -132,7 +134,9 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
     });
   });
 
-  const toolRows = /** @type {NodeListOf<HTMLElement>} */ (el.querySelectorAll('.agent-tools .tool-row'));
+  const toolRows = /** @type {NodeListOf<HTMLElement>} */ (
+    el.querySelectorAll('.agent-tools .tool-row')
+  );
   toolRows.forEach((row) => {
     row.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -154,7 +158,9 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
 async function loadAgentTimeline(tlEl, agentId, apiFetch) {
   tlEl.dataset.loaded = '1';
   try {
-    const data = await apiFetch(`/api/session-agent-timeline?agent_id=${encodeURIComponent(agentId)}`); // apiFetch prefixes internally
+    const data = await apiFetch(
+      `/api/session-agent-timeline?agent_id=${encodeURIComponent(agentId)}`
+    ); // apiFetch prefixes internally
     if (!data || !data.timeline || !data.timeline.length) {
       tlEl.innerHTML = '<div class="tl-loading">NO INTERNAL STATE AVAILABLE</div>';
       return;
@@ -175,9 +181,8 @@ function renderTimeline(container, timeline) {
   for (const entry of timeline) {
     const kind = entry.kind || 'unknown';
     const errCls = entry.is_error ? ' tl-error' : '';
-    const kindLabel = kind === 'tool_call' ? entry.tool || 'tool call'
-                     : kind === 'tool_result' ? 'result'
-                     : kind;
+    const kindLabel =
+      kind === 'tool_call' ? entry.tool || 'tool call' : kind === 'tool_result' ? 'result' : kind;
 
     html += `<div class="tl-entry tl-${esc(kind)}${errCls}">`;
     html += `<div class="tl-kind">${esc(kindLabel)}</div>`;
@@ -199,7 +204,9 @@ function renderTimeline(container, timeline) {
   }
   container.innerHTML = html;
 
-  const collapsedTexts = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.tl-text.tl-collapsed'));
+  const collapsedTexts = /** @type {NodeListOf<HTMLElement>} */ (
+    container.querySelectorAll('.tl-text.tl-collapsed')
+  );
   collapsedTexts.forEach((el) => {
     el.addEventListener('click', () => el.classList.toggle('tl-collapsed'));
   });
@@ -233,7 +240,8 @@ export async function renderToolLog({ apiFetch, showToast, cache }) {
     return;
   }
   if (!data || !data.events.length) {
-    el.innerHTML = buildFilterBar() + emptyState('NO TOOL CALLS', 'No OSPREY tool calls in this session');
+    el.innerHTML =
+      buildFilterBar() + emptyState('NO TOOL CALLS', 'No OSPREY tool calls in this session');
     attachFilterListeners(el, ctx);
     cache.toollog = null;
     return;
@@ -309,16 +317,27 @@ function attachFilterListeners(el, ctx) {
   const agentSel = /** @type {HTMLSelectElement|null} */ (el.querySelector('#filter-agent'));
   const toolInput = /** @type {HTMLInputElement|null} */ (el.querySelector('#filter-tool'));
   const errCb = /** @type {HTMLInputElement|null} */ (el.querySelector('#filter-errors'));
-  if (agentSel) agentSel.addEventListener('change', () => { logFilters.agent = agentSel.value; renderToolLog(ctx); });
+  if (agentSel)
+    agentSel.addEventListener('change', () => {
+      logFilters.agent = agentSel.value;
+      renderToolLog(ctx);
+    });
   if (toolInput) {
     /** @type {ReturnType<typeof setTimeout>|undefined} */
     let debounce;
     toolInput.addEventListener('input', () => {
       clearTimeout(debounce);
-      debounce = setTimeout(() => { logFilters.tool = toolInput.value; renderToolLog(ctx); }, 300);
+      debounce = setTimeout(() => {
+        logFilters.tool = toolInput.value;
+        renderToolLog(ctx);
+      }, 300);
     });
   }
-  if (errCb) errCb.addEventListener('change', () => { logFilters.errorsOnly = errCb.checked; renderToolLog(ctx); });
+  if (errCb)
+    errCb.addEventListener('change', () => {
+      logFilters.errorsOnly = errCb.checked;
+      renderToolLog(ctx);
+    });
 }
 
 // ---- Artifacts View ----

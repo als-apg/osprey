@@ -216,16 +216,14 @@ export function pointer(type, target, { x = 0, y = 0, button = 0, pointerId = 1 
 
 /** The live shell for a type (the first one). @param {string} type */
 export function shell(type) {
-  return /** @type {any} */ (
-    document.querySelector(`[data-bar-host] [data-bar-item="${type}"]`)
-  );
+  return /** @type {any} */ (document.querySelector(`[data-bar-host] [data-bar-item="${type}"]`));
 }
 
 /** The item types a host currently renders, in order. @param {string} host */
 export function rendered(host) {
-  return Array.from(
-    document.querySelectorAll(`[data-bar-host="${host}"] [data-bar-item]`)
-  ).map((node) => /** @type {any} */ (node).dataset.barItem);
+  return Array.from(document.querySelectorAll(`[data-bar-host="${host}"] [data-bar-item]`)).map(
+    (node) => /** @type {any} */ (node).dataset.barItem
+  );
 }
 
 /** The sheet element, or null when edit mode has never been entered. */

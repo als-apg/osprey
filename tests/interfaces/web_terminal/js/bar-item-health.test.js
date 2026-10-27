@@ -278,9 +278,7 @@ describe('system-health item: the card', () => {
       chip().click();
       expect(pop().hidden).toBe(false);
       expect(pop().querySelector('.bar-health-pop-title')?.textContent).toContain('1 warning');
-      expect(pop().querySelector('.bar-health-pop-summary')?.textContent).toBe(
-        '3/4 checks passed'
-      );
+      expect(pop().querySelector('.bar-health-pop-summary')?.textContent).toBe('3/4 checks passed');
       expect(rows()).toEqual([
         { tone: 'ok', name: 'control system', count: '2/2', aside: '' },
         { tone: 'warn', name: 'llm', count: '1/2', aside: 'provider cborg: 401' },
@@ -298,7 +296,10 @@ describe('system-health item: the card', () => {
 
   test('"Open SYSTEM" opens the panel off the rail — reading it does not pin it', async () => {
     const manager = { openPanelOffRail: vi.fn(), showPanel: vi.fn() };
-    vi.doMock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => manager);
+    vi.doMock(
+      '../../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
+      () => manager
+    );
     try {
       seedDom('', shellMarkup());
       host.hydrate();
@@ -309,7 +310,9 @@ describe('system-health item: the card', () => {
       );
       open.click();
 
-      await vi.waitFor(() => expect(manager.openPanelOffRail).toHaveBeenCalledWith('system-health'));
+      await vi.waitFor(() =>
+        expect(manager.openPanelOffRail).toHaveBeenCalledWith('system-health')
+      );
       expect(manager.showPanel).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock('../../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
@@ -357,9 +360,7 @@ describe('system-health item: the card', () => {
     await settle();
 
     chip().click();
-    expect(rows()).toEqual([
-      { tone: 'err', name: 'a', count: '1/3', aside: 'sidecar down' },
-    ]);
+    expect(rows()).toEqual([{ tone: 'err', name: 'a', count: '1/3', aside: 'sidecar down' }]);
   });
 
   test('`detail: checks` lists every check by its title, with its value or message', async () => {

@@ -372,7 +372,7 @@ def _is_redirect(resp: httpx.Response) -> bool:
 #: backend reads one header name whether the request came through nginx or
 #: through this proxy. A test pins the two spellings together rather than this
 #: request-path module importing the deployment renderer.
-TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"
+TERMINAL_SECRET_HEADER = "X-Osprey-Terminal-Secret"  # noqa: S105 -- names a header, holds no secret
 
 
 def _backend_is_loopback(backend_url: str) -> bool:

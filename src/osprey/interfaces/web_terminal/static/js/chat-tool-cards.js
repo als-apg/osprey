@@ -151,7 +151,7 @@ function createToolChip(event, openFor) {
     icon,
     elem('span', 'op-tool-name', name),
     elem('span', 'op-tool-input', summarizeInput(event.input)),
-    status,
+    status
   );
 
   const detail = elem('div', 'op-tool-detail');
@@ -255,7 +255,7 @@ function createAgentChip(event, renderText, onSettled, openGroup) {
     elem('span', 'op-tool-name', name),
     elem('span', 'op-tool-input', oneLine(String(input.description || ''))),
     note,
-    status,
+    status
   );
 
   const trace = elem('div', 'op-agent-trace');
@@ -489,12 +489,17 @@ export function createToolGroup() {
       agents += 1;
       agentsRunning += 1;
       render();
-      const chip = createAgentChip(event, renderText, () => {
-        agentsRunning -= 1;
-        if (chip.el.dataset.state === 'error') failed += 1;
-        render();
-        apply();
-      }, holdOpen);
+      const chip = createAgentChip(
+        event,
+        renderText,
+        () => {
+          agentsRunning -= 1;
+          if (chip.el.dataset.state === 'error') failed += 1;
+          render();
+          apply();
+        },
+        holdOpen
+      );
       list.append(chip.el);
       return chip;
     },

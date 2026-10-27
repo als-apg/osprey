@@ -22,9 +22,9 @@
  * @module preview-content
  */
 
-import { fileUrl } from "./state.js";
-import { escapeHtml } from "./types.js";
-import { configureMarked, renderMathInMarkdown } from "./md-render.js";
+import { fileUrl } from './state.js';
+import { escapeHtml } from './types.js';
+import { configureMarked, renderMathInMarkdown } from './md-render.js';
 
 // ---- Markdown Rendering ---- //
 
@@ -47,19 +47,19 @@ export async function renderMarkdownView(container, artifact) {
 
     configureMarked();
 
-    const mdDiv = document.createElement("div");
-    mdDiv.className = "osprey-md-rendered";
-    if (typeof marked !== "undefined") {
+    const mdDiv = document.createElement('div');
+    mdDiv.className = 'osprey-md-rendered';
+    if (typeof marked !== 'undefined') {
       // Uses innerHTML with marked.parse() + katex.renderToString() output,
       // both of which produce sanitized HTML from trusted local artifact files.
       mdDiv.innerHTML = renderMathInMarkdown(text);
     } else {
       mdDiv.textContent = text;
     }
-    container.innerHTML = "";
+    container.innerHTML = '';
     container.appendChild(mdDiv);
   } catch (err) {
-    console.error("Markdown render failed:", err);
+    console.error('Markdown render failed:', err);
     container.innerHTML = '<span style="color:var(--text-muted)">Failed to load markdown</span>';
   }
 }
@@ -79,29 +79,46 @@ export async function renderMarkdownView(container, artifact) {
 export function renderJsonHtml(obj, depth) {
   if (depth > 6) return '<span class="json-truncated">[...]</span>';
   if (obj === null) return '<span class="json-null">null</span>';
-  if (typeof obj === "boolean") return `<span class="json-bool">${obj}</span>`;
-  if (typeof obj === "number") return `<span class="json-num">${obj}</span>`;
-  if (typeof obj === "string") {
-    if (obj.length > 200) return `<span class="json-str">"${escapeHtml(obj.substring(0, 200))}..."</span>`;
+  if (typeof obj === 'boolean') return `<span class="json-bool">${obj}</span>`;
+  if (typeof obj === 'number') return `<span class="json-num">${obj}</span>`;
+  if (typeof obj === 'string') {
+    if (obj.length > 200)
+      return `<span class="json-str">"${escapeHtml(obj.substring(0, 200))}..."</span>`;
     return `<span class="json-str">"${escapeHtml(obj)}"</span>`;
   }
   if (Array.isArray(obj)) {
     if (obj.length === 0) return '<span class="json-bracket">[]</span>';
     if (obj.length > 20) {
-      const items = obj.slice(0, 20).map((v) => `<div class="json-item">${renderJsonHtml(v, depth + 1)}</div>`).join("");
+      const items = obj
+        .slice(0, 20)
+        .map((v) => `<div class="json-item">${renderJsonHtml(v, depth + 1)}</div>`)
+        .join('');
       return `<span class="json-bracket">[</span><div class="json-indent">${items}<div class="json-item"><span class="json-truncated">... ${obj.length - 20} more</span></div></div><span class="json-bracket">]</span>`;
     }
-    const items = obj.map((v) => `<div class="json-item">${renderJsonHtml(v, depth + 1)}</div>`).join("");
+    const items = obj
+      .map((v) => `<div class="json-item">${renderJsonHtml(v, depth + 1)}</div>`)
+      .join('');
     return `<span class="json-bracket">[</span><div class="json-indent">${items}</div><span class="json-bracket">]</span>`;
   }
-  if (typeof obj === "object") {
+  if (typeof obj === 'object') {
     const keys = Object.keys(obj);
     if (keys.length === 0) return '<span class="json-bracket">{}</span>';
     if (keys.length > 50) {
-      const items = keys.slice(0, 50).map((k) => `<div class="json-item"><span class="json-key">"${escapeHtml(k)}"</span>: ${renderJsonHtml(obj[k], depth + 1)}</div>`).join("");
+      const items = keys
+        .slice(0, 50)
+        .map(
+          (k) =>
+            `<div class="json-item"><span class="json-key">"${escapeHtml(k)}"</span>: ${renderJsonHtml(obj[k], depth + 1)}</div>`
+        )
+        .join('');
       return `<span class="json-bracket">{</span><div class="json-indent">${items}<div class="json-item"><span class="json-truncated">... ${keys.length - 50} more</span></div></div><span class="json-bracket">}</span>`;
     }
-    const items = keys.map((k) => `<div class="json-item"><span class="json-key">"${escapeHtml(k)}"</span>: ${renderJsonHtml(obj[k], depth + 1)}</div>`).join("");
+    const items = keys
+      .map(
+        (k) =>
+          `<div class="json-item"><span class="json-key">"${escapeHtml(k)}"</span>: ${renderJsonHtml(obj[k], depth + 1)}</div>`
+      )
+      .join('');
     return `<span class="json-bracket">{</span><div class="json-indent">${items}</div><span class="json-bracket">}</span>`;
   }
   return escapeHtml(String(obj));
@@ -125,7 +142,7 @@ export async function renderJsonView(container, artifact) {
     const data = await resp.json();
     container.innerHTML = renderJsonHtml(data, 0);
   } catch (err) {
-    console.error("JSON render failed:", err);
+    console.error('JSON render failed:', err);
     container.innerHTML = '<span style="color:var(--text-muted)">Failed to load JSON</span>';
   }
 }

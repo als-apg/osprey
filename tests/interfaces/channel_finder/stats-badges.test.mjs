@@ -5,7 +5,7 @@
  * A statistics payload missing `total_channels` must NOT crash (the naive
  * `!== null`-only rewrite would let `undefined` reach `.toLocaleString()`), and
  * the missing value must be skipped rather than rendered as the string "undefined".
- *   npx vitest run tests/interfaces/channel_finder/stats-badges-guard.test.mjs
+ *   npx vitest run tests/interfaces/channel_finder/stats-badges.test.mjs
  */
 
 import { test, expect, vi, afterEach } from 'vitest';
@@ -21,7 +21,10 @@ afterEach(() => {
  * @param {Record<string, any>} payload
  */
 function stubStatistics(payload) {
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => payload })));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: true, json: async () => payload }))
+  );
 }
 
 test('a payload missing total_channels does not throw and skips the missing badge', async () => {
@@ -31,7 +34,7 @@ test('a payload missing total_channels does not throw and skips the missing badg
   // total_channels is absent (undefined) — the value that feeds .toLocaleString().
   stubStatistics({ total_systems: 5, total_families: 10 });
 
-  await refreshStatsBadges();  // must not throw
+  await refreshStatsBadges(); // must not throw
 
   expect(container.innerHTML).not.toContain('undefined');
   // The missing total_channels badge is skipped (its 'channels' label is absent)...

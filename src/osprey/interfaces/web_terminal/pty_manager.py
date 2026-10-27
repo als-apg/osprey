@@ -381,7 +381,7 @@ class PtySession:
         What ending this session would also end, beyond the agent and the
         helpers in its own group. Empty once the child has exited; ``None``
         when the process table could not be read while it was alive, so what
-        it started is unknown. Blocking (it runs ``ps``): call it off the loop.
+        it started is unknown. Blocking (it reads the process table): call it off the loop.
         """
         process = self._process
         if process is None or process.poll() is not None:

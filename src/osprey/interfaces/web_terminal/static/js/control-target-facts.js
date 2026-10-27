@@ -262,9 +262,7 @@ export function contextWritable(state) {
  */
 export function contextRefusalCode(state) {
   if (contextWritable(state)) return '';
-  return state?.owner?.self === false
-    ? REASON_CONTEXT_OWNED_ELSEWHERE
-    : REASON_STORE_UNAVAILABLE;
+  return state?.owner?.self === false ? REASON_CONTEXT_OWNED_ELSEWHERE : REASON_STORE_UNAVAILABLE;
 }
 
 /**
@@ -379,7 +377,10 @@ export function bannerNote(state) {
     return { text: contextHolderWords(state.owner).long, tone: 'warn' };
   }
   if (!contextWritable(state)) {
-    return { text: 'Changes cannot be recorded right now — the posture store is unavailable.', tone: 'error' };
+    return {
+      text: 'Changes cannot be recorded right now — the posture store is unavailable.',
+      tone: 'error',
+    };
   }
   // The run alone decides this line. Keying it on every row would hide the
   // banner from a readonly run with one unarmed row — that row is held by the

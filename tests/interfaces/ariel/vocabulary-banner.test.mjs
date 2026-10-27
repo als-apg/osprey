@@ -30,7 +30,10 @@ vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOr
 });
 
 import { searchApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
-import { initSearch, performSearch } from '../../../src/osprey/interfaces/ariel/static/js/search.js';
+import {
+  initSearch,
+  performSearch,
+} from '../../../src/osprey/interfaces/ariel/static/js/search.js';
 
 /** The search view as index.html lays it out: the form container plus its controls. */
 function mountFixture() {
@@ -101,15 +104,17 @@ afterEach(() => {
 
 describe('degraded-configuration banner (initSearch)', () => {
   test('configuration_invalid blocks the form: banner + disabled controls', () => {
-    initSearch(/** @type {any} */ ({
-      status: 'configuration_invalid',
-      config_errors: ['ariel.vocabulary.path: /x/vocabulary.yml — not found'],
-      remedy: 'disable ariel.vocabulary.enabled or repoint ariel.vocabulary.path, then restart',
-      categories: { direct: { modes: [] } },
-      default_mode: null,
-      shared_parameters: [],
-      vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
-    }));
+    initSearch(
+      /** @type {any} */ ({
+        status: 'configuration_invalid',
+        config_errors: ['ariel.vocabulary.path: /x/vocabulary.yml — not found'],
+        remedy: 'disable ariel.vocabulary.enabled or repoint ariel.vocabulary.path, then restart',
+        categories: { direct: { modes: [] } },
+        default_mode: null,
+        shared_parameters: [],
+        vocabulary: { enabled: false, concepts: 0, expand_by_default: false },
+      })
+    );
 
     const banner = document.getElementById('config-invalid-banner');
     expect(banner, 'blocking banner rendered').not.toBeNull();
@@ -130,15 +135,17 @@ describe('degraded-configuration banner (initSearch)', () => {
   });
 
   test('configuration_warning is non-blocking: banner rendered, controls live', () => {
-    initSearch(/** @type {any} */ ({
-      status: 'configuration_warning',
-      config_errors: ['search_modules.semantic.model: not set'],
-      remedy: 'fix the named key in config.yml and restart',
-      categories: { direct: { label: 'Direct', modes: [] } },
-      default_mode: 'keyword',
-      shared_parameters: [],
-      vocabulary: { enabled: true, concepts: 12, expand_by_default: true },
-    }));
+    initSearch(
+      /** @type {any} */ ({
+        status: 'configuration_warning',
+        config_errors: ['search_modules.semantic.model: not set'],
+        remedy: 'fix the named key in config.yml and restart',
+        categories: { direct: { label: 'Direct', modes: [] } },
+        default_mode: 'keyword',
+        shared_parameters: [],
+        vocabulary: { enabled: true, concepts: 12, expand_by_default: true },
+      })
+    );
 
     expect(document.getElementById('config-invalid-banner'), 'not the blocking banner').toBeNull();
     const banner = document.getElementById('config-warning-banner');
@@ -154,12 +161,14 @@ describe('degraded-configuration banner (initSearch)', () => {
   });
 
   test('a healthy payload renders no banner', () => {
-    initSearch(/** @type {any} */ ({
-      categories: { direct: { label: 'Direct', modes: [] } },
-      default_mode: 'keyword',
-      shared_parameters: [],
-      vocabulary: { enabled: true, concepts: 12, expand_by_default: true },
-    }));
+    initSearch(
+      /** @type {any} */ ({
+        categories: { direct: { label: 'Direct', modes: [] } },
+        default_mode: 'keyword',
+        shared_parameters: [],
+        vocabulary: { enabled: true, concepts: 12, expand_by_default: true },
+      })
+    );
 
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
     expect(searchBtn().disabled).toBe(false);
@@ -178,11 +187,15 @@ describe('degraded-configuration banner (initSearch)', () => {
 
   test('a missing #search-form (embedded/partial DOM) is a no-op, not a crash', () => {
     document.body.innerHTML = '<div id="search-results"></div>';
-    expect(() => initSearch(/** @type {any} */ ({
-      status: 'configuration_invalid',
-      config_errors: ['boom'],
-      remedy: null,
-    }))).not.toThrow();
+    expect(() =>
+      initSearch(
+        /** @type {any} */ ({
+          status: 'configuration_invalid',
+          config_errors: ['boom'],
+          remedy: null,
+        })
+      )
+    ).not.toThrow();
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
   });
 });

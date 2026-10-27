@@ -8,9 +8,9 @@ import-hook finder on ``sys.meta_path``. A test that installs the block must
 put all of that back, or the next test runs against a patched process.
 
 :func:`patch_restore` snapshots the namespaces a test names (modules and
-classes) together with ``sys.meta_path``, and on exit restores every attribute
-that changed, removes every attribute that was added, and drops every guard
-finder. It also restores the shared-library loaders the ``no_client`` mode
+classes), and on exit restores every attribute that changed, removes every
+attribute that was added, and drops only the guard finders from
+``sys.meta_path``, leaving every other finder where it is. It also restores the shared-library loaders the ``no_client`` mode
 replaces whatever the test names: ``ctypes._dlopen``, ``_ctypes.dlopen`` and,
 where ``cffi`` is importable, ``cffi.api.FFI.dlopen``. The
 :func:`restore_patches` fixture wraps it for pytest: call the yielded
@@ -26,8 +26,10 @@ from typing import Any
 
 import pytest
 
+from osprey.runtime import raw_put_block
+
 #: The attribute every finder and loader the block installs carries.
-GUARD_ATTR = "_osprey_readonly_guard"
+GUARD_ATTR = raw_put_block._GUARD_ATTR
 
 _MISSING = object()
 
@@ -73,20 +75,31 @@ def _loader_slots() -> list[tuple[Any, str, Any]]:
     return [(owner, attr, getattr(owner, attr)) for owner, attr in owners]
 
 
+def _is_guard_finder(finder: Any) -> bool:
+    return bool(getattr(finder, GUARD_ATTR, False))
+
+
+def guard_finders() -> list[Any]:
+    """The finders on ``sys.meta_path`` the block registered."""
+    return [f for f in sys.meta_path if _is_guard_finder(f)]
+
+
 def drop_guard_finders() -> None:
     """Remove every finder the block registered from ``sys.meta_path``."""
-    sys.meta_path[:] = [f for f in sys.meta_path if not getattr(f, GUARD_ATTR, False)]
+    sys.meta_path[:] = [f for f in sys.meta_path if not _is_guard_finder(f)]
 
 
 @contextmanager
 def patch_restore(*namespaces: Any) -> Iterator[_Snapshot]:
-    """Snapshot *namespaces*, ``sys.meta_path`` and the loaders; restore all on exit.
+    """Snapshot *namespaces* and the loaders; on exit restore them and drop only the guard finders.
+
+    Every other finder on ``sys.meta_path`` stays where it is, including one
+    another library inserted while the block was open.
 
     More namespaces can be added through the yielded snapshot's ``track``.
     """
     snapshot = _Snapshot()
     snapshot.track(*namespaces)
-    meta_path = list(sys.meta_path)
     loaders = _loader_slots()
     try:
         yield snapshot
@@ -94,7 +107,6 @@ def patch_restore(*namespaces: Any) -> Iterator[_Snapshot]:
         snapshot.restore()
         for owner, attr, value in loaders:
             setattr(owner, attr, value)
-        sys.meta_path[:] = meta_path
         drop_guard_finders()
 
 

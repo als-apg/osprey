@@ -9,13 +9,13 @@ group, where no group signal may be sent, so its descendants in that group are
 listed by :func:`server_group_members` and ended one by one with
 :func:`end_processes`.
 
-The tree is read from ``ps``: macOS has no ``/proc`` and psutil is not a
-dependency, while ``ps`` is present on every host the server runs on. Without
-``ps``, or when ``ps`` fails, nothing is found, so ``PtySession.terminate``
-reaches only the child's own group. One failed read is not a host without
-``ps``, and the tree can only be read while its root lives, so a reader that
-must not miss a tree reads through :func:`read_while_alive`, which retries
-while the root is alive, and says so when it still could not look.
+The tree is read in-process with psutil, so a read never forks and has no
+timeout: a busy host makes it slower, never unknown. When the table cannot be
+enumerated nothing is found, so ``PtySession.terminate`` reaches only the
+child's own group. One failed read is not a host without a process table, and
+the tree can only be read while its root lives, so a reader that must not miss
+a tree reads through :func:`read_while_alive`, which retries while the root is
+alive, and says so when it still could not look.
 
 A group is the one a snapshot saw only while at least one of its snapshotted
 members, with the same pid, the same start time and the same group, is still
@@ -36,18 +36,19 @@ import contextlib
 import os
 import re
 import signal
-import subprocess
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+import psutil
+
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("process_tree")
 
-# Every process with its parent, group, state, full start time and command line, no header.
-_PS_COMMAND = ["ps", "-A", "-o", "pid=,ppid=,pgid=,stat=,lstart=,command="]
+# What a read asks psutil for, per process; the group comes from ``os.getpgid``.
+_ATTRS = ["pid", "ppid", "status", "create_time", "cmdline", "name"]
 # Programs that are shells: the agent CLI starts every command through one of them.
 _SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh"})
 # The script the agent CLI's shell wrapper runs: setup pieces joined by ``&&``, then
@@ -77,45 +78,47 @@ _SHELL_SYNTAX = re.compile(r"[;|&<>()$`'\"\\]|^\S+=")
 
 @dataclass(frozen=True)
 class ProcessRow:
-    """One process as ``ps`` reported it."""
+    """One process as the process table reported it."""
 
     pid: int
     ppid: int
     pgid: int
     started: float  # epoch seconds
     command: str
-    state: str  # ``ps`` state; a leading ``Z`` is an exited process nobody has reaped
-
-    @property
-    def exited(self) -> bool:
-        return self.state.startswith("Z")
+    exited: bool  # a zombie: exited, and nobody has reaped it yet
 
 
 def snapshot() -> dict[int, ProcessRow] | None:
-    """Return every process on the host by pid, or None when ``ps`` cannot be read."""
+    """Return every process on the host by pid, or None when the table cannot be enumerated.
+
+    A row that cannot be read because its process is exiting, or whose group
+    or start can no longer be read, is absent. Only a failure to enumerate the
+    table itself makes the whole read unknown.
+    """
+    rows: dict[int, ProcessRow] = {}
     try:
-        result = subprocess.run(
-            _PS_COMMAND,
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=True,
-            env={**os.environ, "LC_ALL": "C"},
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
+        for process in psutil.process_iter():
+            try:
+                info = process.as_dict(_ATTRS, ad_value=None)
+            # SystemError covers a psutil defect on macOS, where reading the command
+            # line of an exiting process raises it from the C extension; the catch
+            # is dropped once psutil fixes it.
+            except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied, SystemError):
+                continue
+            pid, ppid, started = info["pid"], info["ppid"], info["create_time"]
+            if ppid is None or started is None:
+                continue
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                continue
+            cmdline = info["cmdline"]
+            command = " ".join(cmdline) if cmdline else info["name"] or ""
+            exited = info["status"] == psutil.STATUS_ZOMBIE
+            rows[pid] = ProcessRow(pid, ppid, pgid, started, command, exited)
+    except (psutil.Error, OSError, SystemError) as exc:
         logger.debug("Cannot read the process table: %s", exc)
         return None
-    rows: dict[int, ProcessRow] = {}
-    for line in result.stdout.splitlines():
-        parts = line.split(None, 9)
-        if len(parts) != 10:
-            continue
-        try:
-            pid, ppid, pgid = int(parts[0]), int(parts[1]), int(parts[2])
-            started = time.mktime(time.strptime(" ".join(parts[4:9]), "%a %b %d %H:%M:%S %Y"))
-        except (ValueError, OverflowError):
-            continue
-        rows[pid] = ProcessRow(pid, ppid, pgid, started, parts[9], parts[3])
     return rows
 
 
@@ -283,9 +286,8 @@ def tree_groups(root: int, rows: dict[int, ProcessRow] | None = None) -> list[Pr
     *root* is included. The server's own group and groups 0 and 1 are never
     returned. A group's members are every process in it, including one already
     reparented out of the tree, since a signal to the group reaches it.
-    Ordered by earliest member start, then by pgid: ``ps`` reports start times
-    in whole seconds, so groups started within one second tie on time, and the
-    pgid keeps their order the same from one look to the next.
+    Ordered by earliest member start, then by pgid: the pgid keeps groups whose
+    starts are equal in the same order from one look to the next.
 
     *rows* defaults to a fresh :func:`snapshot`, and nothing is found when
     that cannot be read. Either way the table must have been read while *root*
@@ -323,7 +325,7 @@ def started_groups(root: int, alive: Callable[[], bool]) -> list[ProcessGroup] |
     That is :func:`tree_groups` without *root*'s own group: the groups an
     agent runs its shell commands in. The table is read through
     :func:`read_while_alive`, with *alive* saying whether *root* still runs,
-    so a failed read is retried. Blocking (it runs ``ps``).
+    so a failed read is retried. Blocking (it reads the process table).
 
     Returns:
         The groups, empty when *root* has exited or started nothing; or

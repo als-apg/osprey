@@ -213,11 +213,11 @@ def _find_channel(dotted: str, attr: str, args: tuple, kwargs: dict) -> Any:
     """The channel a refused client call names, spelled the way its client does."""
     root = dotted.split(".")[0]
     if dotted == "epics.ca":
-        # put(chid, value, ...); sg_put(gid, chid, value, ...)
+        # put(chid, value, ...); sg_put(gid, chid, value, ...)  # noqa: ERA001 -- a C call signature
         chid = kwargs.get("chid", args[1] if attr == "sg_put" else args[0])
         return _chid_name("epics.ca", "name", chid)
     if dotted == "epicscorelibs.ca.cadef":
-        # ca_array_put[_callback](type, count, chid, value, ...)
+        # ca_array_put[_callback](type, count, chid, value, ...)  # noqa: ERA001 -- a C call signature
         return _chid_name(dotted, "ca_name", args[2])
     if dotted == "epics.PV":
         return args[0].pvname
@@ -517,7 +517,7 @@ def _patch_rows(
                     # ``__module__``, a module ``__getattr__`` that raises — must
                     # name the attribute and let the REST of the row be patched,
                     # so it is caught here rather than at the row level.
-                    print(f"⚠️  {label} ({dotted}.{attr}) defining-module step failed: {home_error}")
+                    print(f"⚠️  {label} ({dotted}.{attr}) defining-module step failed: {home_error}")  # noqa: T201 -- the warning goes to the guarded run's output
             # pvaPy spells one typed setter per scalar and array type
             # (putDouble, putScalarArray, ...). Enumerating them would go stale
             # against the binding; the prefix will not. Three writes sit outside
@@ -530,7 +530,7 @@ def _patch_rows(
         except Exception as guard_error:
             # A target that cannot be patched must not stop the ones after it,
             # and the operator needs to know which one.
-            print(f"⚠️  {label} ({dotted}) failed: {guard_error}")
+            print(f"⚠️  {label} ({dotted}) failed: {guard_error}")  # noqa: T201 -- the warning goes to the guarded run's output
 
     # The eager rows are resolved before the loader is gated, in table order,
     # because a client module may load a shared library while it executes:
@@ -540,7 +540,7 @@ def _patch_rows(
         try:
             obj = _resolve(dotted)
         except Exception as guard_error:
-            print(f"⚠️  {label} ({dotted}) failed: {guard_error}")
+            print(f"⚠️  {label} ({dotted}) failed: {guard_error}")  # noqa: T201 -- the warning goes to the guarded run's output
             continue
         if obj is None:
             continue
@@ -578,7 +578,7 @@ def _patch_rows(
             try:
                 _patch_module(module.__name__, module)
             except Exception as error:
-                print(f"⚠️  {label} ({module.__name__}) failed: {error}")
+                print(f"⚠️  {label} ({module.__name__}) failed: {error}")  # noqa: T201 -- the warning goes to the guarded run's output
 
         def __getattr__(self, name: str) -> Any:
             # Everything else a loader answers (get_code, is_package,

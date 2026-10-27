@@ -26,10 +26,13 @@ describe('applyPreset — one arrange request, no local orchestration', () => {
   beforeEach(() => {
     delete window.__OSPREY_PREFIX__;
     calls = [];
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
-      calls.push({ url, opts });
-      return { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url, /** @type {any} */ opts) => {
+        calls.push({ url, opts });
+        return { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
+      })
+    );
   });
 
   afterEach(() => {
@@ -57,9 +60,12 @@ describe('applyPreset — one arrange request, no local orchestration', () => {
   });
 
   test('a rejected request is swallowed — a failed layout click never throws', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      throw new Error('offline');
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline');
+      })
+    );
 
     expect(() => applyPreset('Machine setup')).not.toThrow();
     // Let the rejected promise settle: an unhandled rejection would fail the run.

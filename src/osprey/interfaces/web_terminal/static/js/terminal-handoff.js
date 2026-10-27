@@ -146,9 +146,7 @@ function renderElapsed() {
 
 /** The overlay's action button, or null when the overlay is not mounted. */
 function actionButton() {
-  return /** @type {HTMLButtonElement|null} */ (
-    document.querySelector('.terminal-handoff-action')
-  );
+  return /** @type {HTMLButtonElement|null} */ (document.querySelector('.terminal-handoff-action'));
 }
 
 /**
@@ -247,7 +245,7 @@ export function showHandoffRefused(code, onRetry) {
   setMessage(
     overlay,
     retryable ? HANDOFF_OUTGOING_RUNNING_MESSAGE : HANDOFF_HELD_ELSEWHERE_MESSAGE,
-    false,
+    false
   );
 
   const action = actionButton();
@@ -257,9 +255,9 @@ export function showHandoffRefused(code, onRetry) {
   action.disabled = false;
   action.onclick = retryable
     ? () => {
-      hideHandoffOverlay();
-      onRetry();
-    }
+        hideHandoffOverlay();
+        onRetry();
+      }
     : null;
 }
 

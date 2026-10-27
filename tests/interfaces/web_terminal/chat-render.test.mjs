@@ -140,7 +140,11 @@ describe('renderMarkdownInto', () => {
   });
 
   test('falls back to text when marked.parse throws', () => {
-    vi.stubGlobal('marked', { parse: () => { throw new Error('boom'); } });
+    vi.stubGlobal('marked', {
+      parse: () => {
+        throw new Error('boom');
+      },
+    });
     vi.stubGlobal('DOMPurify', identityPurify);
     vi.stubGlobal('hljs', undefined);
 
@@ -158,10 +162,7 @@ describe('renderMarkdownInto', () => {
     // distinguishable: `use()` pollutes only the global `parse`, while the
     // `Marked` instance renders fences faithfully.
     const renderFences = /** @param {string} t */ (t) =>
-      t.replace(
-        /```(?:\w*)\n([\s\S]*?)```/g,
-        (_m, code) => `<pre><code>${code}</code></pre>`
-      );
+      t.replace(/```(?:\w*)\n([\s\S]*?)```/g, (_m, code) => `<pre><code>${code}</code></pre>`);
     /** @type {any} */
     const marked = {
       // Fresh (unpolluted) singleton would render fences; `use()` breaks it.
@@ -185,9 +186,7 @@ describe('renderMarkdownInto', () => {
     // Simulate the scaffold hub configuring the shared singleton.
     marked.use({ renderer: {} });
     // Sanity: the polluted singleton now empties fenced blocks.
-    expect(marked.parse('```\nconsole.log(1)\n```')).toBe(
-      '<pre><code></code></pre>'
-    );
+    expect(marked.parse('```\nconsole.log(1)\n```')).toBe('<pre><code></code></pre>');
 
     const el = freshEl();
     renderMarkdownInto(el, '```\nconsole.log(1)\n```');
@@ -217,9 +216,7 @@ describe('tool vocabulary', () => {
   test('normaliseToolName strips underscored server names too', () => {
     // Framework servers whose names contain underscores, and any
     // facility-declared server named the same way.
-    expect(normaliseToolName('mcp__osprey_workspace__submit_response')).toBe(
-      'submit_response'
-    );
+    expect(normaliseToolName('mcp__osprey_workspace__submit_response')).toBe('submit_response');
     expect(normaliseToolName('mcp__osprey_facility_knowledge__list_concepts')).toBe(
       'list_concepts'
     );
@@ -238,9 +235,7 @@ describe('tool vocabulary', () => {
   });
 
   test('a frame carrying only the display name still maps', () => {
-    expect(activityLabel({ type: 'tool_use', tool_name: 'Execute File' })).toBe(
-      'Running Python…'
-    );
+    expect(activityLabel({ type: 'tool_use', tool_name: 'Execute File' })).toBe('Running Python…');
   });
 
   // The capitalise-and-ellipsis mechanism, over the spellings a frame carries:
@@ -383,13 +378,11 @@ describe('createChatRenderer', () => {
       expect(qs(container, '.op-loader-label').textContent).toBe('Thinking…');
     });
 
-    test('tool_use shows the tool\'s operator phrase', () => {
+    test("tool_use shows the tool's operator phrase", () => {
       const r = createChatRenderer(container);
       r.beginTurn();
       r.handleEvent({ type: 'tool_use', tool_name: 'Channel Read' });
-      expect(qs(container, '.op-loader-label').textContent).toBe(
-        'Reading control channels…'
-      );
+      expect(qs(container, '.op-loader-label').textContent).toBe('Reading control channels…');
     });
 
     test('text clears the activity line', () => {
@@ -493,7 +486,11 @@ describe('createChatRenderer', () => {
     /** Three turns in the shape `GET /api/session-chat` serves. */
     const turns = [
       { role: 'user', content: 'read the beam current', timestamp: '2026-09-05T10:00:00Z' },
-      { role: 'assistant', content: 'The beam current is 500 mA.', timestamp: '2026-09-05T10:00:02Z' },
+      {
+        role: 'assistant',
+        content: 'The beam current is 500 mA.',
+        timestamp: '2026-09-05T10:00:02Z',
+      },
       { role: 'user', content: 'and the orbit?', timestamp: '2026-09-05T10:00:09Z' },
     ];
 
@@ -574,7 +571,12 @@ describe('createChatRenderer', () => {
 
     test('a turn with no content is skipped and not counted', () => {
       const r = createChatRenderer(container);
-      expect(r.replay([{ role: 'user', content: '' }, { role: 'assistant', content: 'hi' }])).toBe(1);
+      expect(
+        r.replay([
+          { role: 'user', content: '' },
+          { role: 'assistant', content: 'hi' },
+        ])
+      ).toBe(1);
       expect(r.messageCount()).toBe(1);
       expect(container.querySelectorAll('.op-entry.operator').length).toBe(0);
     });
@@ -667,7 +669,7 @@ describe('createChatRenderer', () => {
     const ask = (
       /** @type {string} */ toolUseId,
       /** @type {string} */ requestId,
-      /** @type {Record<string, unknown>} */ extra = {},
+      /** @type {Record<string, unknown>} */ extra = {}
     ) => ({
       type: 'permission_request',
       request_id: requestId,
@@ -684,7 +686,7 @@ describe('createChatRenderer', () => {
     const resolved = (
       /** @type {string} */ requestId,
       /** @type {boolean} */ allow,
-      /** @type {boolean} */ forSession = false,
+      /** @type {boolean} */ forSession = false
     ) => ({
       type: 'permission_resolved',
       request_id: requestId,
@@ -705,7 +707,9 @@ describe('createChatRenderer', () => {
     const rows = () => /** @type {HTMLElement[]} */ ([...container.querySelectorAll('.op-tool')]);
     /** The button in the log with this label. */
     const buttonLabelled = (/** @type {string} */ label) =>
-      /** @type {HTMLElement} */ ([...container.querySelectorAll('button')].find((b) => b.textContent === label));
+      /** @type {HTMLElement} */ (
+        [...container.querySelectorAll('button')].find((b) => b.textContent === label)
+      );
     /** Let the answer's promise chain run. */
     const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -778,25 +782,30 @@ describe('createChatRenderer', () => {
         how: 'Enter on the waiting card allows the call',
         sessionOffer: false,
         act: () =>
-          qs(container, '.op-approval').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
+          qs(container, '.op-approval').dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+          ),
         answer: { allow: true },
         decision: 'allowed',
         label: 'Allowed by you',
       },
-    ])('$how on the row, and takes the card out of the log', async ({ sessionOffer, act, answer, decision, label }) => {
-      const answerPermission = vi.fn(async () => {});
-      const r = createChatRenderer(container, { answerPermission });
-      r.handleEvent(call('t1'));
-      r.handleEvent(ask('t1', 'req-1', { can_allow_session: sessionOffer }));
-      act();
-      await settle();
+    ])(
+      '$how on the row, and takes the card out of the log',
+      async ({ sessionOffer, act, answer, decision, label }) => {
+        const answerPermission = vi.fn(async () => {});
+        const r = createChatRenderer(container, { answerPermission });
+        r.handleEvent(call('t1'));
+        r.handleEvent(ask('t1', 'req-1', { can_allow_session: sessionOffer }));
+        act();
+        await settle();
 
-      expect(answerPermission).toHaveBeenCalledWith('req-1', answer);
-      expect(container.querySelector('.op-approval, .op-card-line')).toBeNull();
-      const badge = qs(container, '.op-tool-decision');
-      expect(badge.dataset.decision).toBe(decision);
-      expect(badge.textContent).toBe(label);
-    });
+        expect(answerPermission).toHaveBeenCalledWith('req-1', answer);
+        expect(container.querySelector('.op-approval, .op-card-line')).toBeNull();
+        const badge = qs(container, '.op-tool-decision');
+        expect(badge.dataset.decision).toBe(decision);
+        expect(badge.textContent).toBe(label);
+      }
+    );
 
     test('a waiting approval takes focus on its primary control where it sits under the row', () => {
       document.body.append(container);
@@ -859,7 +868,7 @@ describe('createChatRenderer', () => {
           tool_name: 'Plan',
           tool_name_raw: 'ExitPlanMode',
           input: { plan: '1. Read the file.' },
-        }),
+        })
       );
       r.handleEvent({ ...resolved('req-9', false), expired: true });
 
@@ -881,7 +890,10 @@ describe('createChatRenderer', () => {
               question: 'Which lattice?',
               header: 'Lattice',
               multiSelect: false,
-              options: [{ label: 'Top-off', description: '' }, { label: 'Hybrid', description: '' }],
+              options: [
+                { label: 'Top-off', description: '' },
+                { label: 'Hybrid', description: '' },
+              ],
             },
           ],
         },
@@ -902,7 +914,7 @@ describe('createChatRenderer', () => {
           tool_name: 'Plan',
           tool_name_raw: 'ExitPlanMode',
           input: { plan: '1. Read the file.' },
-        }),
+        })
       );
 
       const card = qs(container, '.op-approval');
@@ -974,30 +986,55 @@ describe('createChatRenderer', () => {
     });
 
     test.each([
-      { told: 'allowed', decision: 'allowed', label: 'Allowed by you', isError: false, state: 'done' },
-      { told: 'declined, which failed', decision: 'denied', label: 'Denied by you', isError: true, state: 'error' },
-      { told: 'never asked about', decision: undefined, label: null, isError: false, state: 'done' },
-    ])('a replayed call the operator $told shows that on its row, with no card', ({ decision, label, isError, state }) => {
-      const r = createChatRenderer(container, { answerPermission: vi.fn() });
-      r.replay([
-        {
-          role: 'assistant',
-          content: '',
-          events: [call('t1'), { ...result('t1', isError), decision }, { type: 'result', is_error: false }],
-        },
-      ]);
+      {
+        told: 'allowed',
+        decision: 'allowed',
+        label: 'Allowed by you',
+        isError: false,
+        state: 'done',
+      },
+      {
+        told: 'declined, which failed',
+        decision: 'denied',
+        label: 'Denied by you',
+        isError: true,
+        state: 'error',
+      },
+      {
+        told: 'never asked about',
+        decision: undefined,
+        label: null,
+        isError: false,
+        state: 'done',
+      },
+    ])(
+      'a replayed call the operator $told shows that on its row, with no card',
+      ({ decision, label, isError, state }) => {
+        const r = createChatRenderer(container, { answerPermission: vi.fn() });
+        r.replay([
+          {
+            role: 'assistant',
+            content: '',
+            events: [
+              call('t1'),
+              { ...result('t1', isError), decision },
+              { type: 'result', is_error: false },
+            ],
+          },
+        ]);
 
-      const badge = container.querySelector('.op-tool-decision');
-      if (decision === undefined) {
-        expect(badge).toBeNull();
-      } else {
-        expect(/** @type {HTMLElement} */ (badge).dataset.decision).toBe(decision);
-        expect(badge?.textContent).toBe(label);
-        expect(badge?.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+        const badge = container.querySelector('.op-tool-decision');
+        if (decision === undefined) {
+          expect(badge).toBeNull();
+        } else {
+          expect(/** @type {HTMLElement} */ (badge).dataset.decision).toBe(decision);
+          expect(badge?.textContent).toBe(label);
+          expect(badge?.nextElementSibling?.classList.contains('op-tool-status')).toBe(true);
+        }
+        expect(container.querySelector('.op-approval')).toBeNull();
+        expect(qs(container, '.op-tool').dataset.state).toBe(state);
       }
-      expect(container.querySelector('.op-approval')).toBeNull();
-      expect(qs(container, '.op-tool').dataset.state).toBe(state);
-    });
+    );
 
     test('a decision for a call with no row of its own draws nothing', () => {
       // A question or a plan has no row, and its answer shows no pill live either.

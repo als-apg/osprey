@@ -151,7 +151,7 @@ from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 router = APIRouter()
 
-_LAUNCH_TOKEN_HEADER = "X-Launch-Token"
+_LAUNCH_TOKEN_HEADER = "X-Launch-Token"  # noqa: S105 -- names a header, holds no secret
 
 #: Where the auth gate records who an admitted connection belongs to. Imported
 #: from the gate rather than retyped, and the contract is that constant's own

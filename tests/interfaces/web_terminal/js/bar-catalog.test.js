@@ -75,7 +75,6 @@ describe('placement', () => {
       expect('densities' in entry).toBe(false);
     }
   });
-
 });
 
 describe('foldable set', () => {
@@ -86,7 +85,6 @@ describe('foldable set', () => {
     // must not count as foldable here either.
     expect(typesWhere((entry) => Boolean(entry.overflowLabel({})))).toEqual(sorted(FOLDABLE));
   });
-
 });
 
 describe('available', () => {
@@ -115,7 +113,6 @@ describe('align', () => {
   test('exactly logo and identity share a baseline run', () => {
     expect(typesWhere((entry) => entry.align === 'baseline')).toEqual(sorted(['logo', 'identity']));
   });
-
 });
 
 describe('flex hints', () => {

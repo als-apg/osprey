@@ -192,7 +192,7 @@ def _room(entry: Mapping[str, Any]) -> str:
     return room if isinstance(room, str) else ""
 
 
-TOKEN_FIELD = "token"
+TOKEN_FIELD = "token"  # noqa: S105 -- names a form field, holds no secret
 """Field on a raw Talk chat message naming the room it belongs to.
 
 Talk stamps it on every message object in an OCS chat response, and

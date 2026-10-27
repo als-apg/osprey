@@ -121,21 +121,33 @@ function ctx() {
 export function railOptions() {
   return {
     onActivate: (/** @type {string} */ id) => {
-      if (id === TERMINAL_RAIL_ID) { openTerminalPanel(); return; }
+      if (id === TERMINAL_RAIL_ID) {
+        openTerminalPanel();
+        return;
+      }
       // A failed sidecar's entry has one verb: start it again.
-      if (isFailed(id)) { ctx().retryStart(id); return; }
+      if (isFailed(id)) {
+        ctx().retryStart(id);
+        return;
+      }
       // Clicking the entry whose tile is ALREADY surfaced retires that tile —
       // a toggle shortcut equivalent to the tile header's own "×". It stays a
       // LOCAL layout change: rail membership survives, so a second click
       // brings the tile back. Membership removal remains the separate "×"
       // corner.
       if (ctx().isMember(id)) {
-        if (ctx().getActiveTabId() === id) { ctx().retireTile(id); return; }
+        if (ctx().getActiveTabId() === id) {
+          ctx().retireTile(id);
+          return;
+        }
         ctx().activateTab(id, { userInitiated: true });
       } else ctx().showPanel(id);
     },
     onClose: (/** @type {string} */ id) => {
-      if (id === TERMINAL_RAIL_ID) { closeTerminalTile(); return; }
+      if (id === TERMINAL_RAIL_ID) {
+        closeTerminalTile();
+        return;
+      }
       void removeFromRail(id);
     },
     // Right-click — or the menu key / Shift+F10, which the rail forwards
@@ -180,7 +192,9 @@ export function railOptions() {
  */
 export async function removeFromRail(id) {
   const label = ctx().labelOf(id);
-  const index = entryIds(ctx().getRailEl()).filter((e) => e !== TERMINAL_RAIL_ID).indexOf(id);
+  const index = entryIds(ctx().getRailEl())
+    .filter((e) => e !== TERMINAL_RAIL_ID)
+    .indexOf(id);
   // Fallback mode has no tiles, only the one surface the active panel fills.
   const hadTile = hasDockedTile(id) || ctx().getActiveTabId() === id;
   if (!(await setPanelVisibility(id, false))) {
@@ -335,12 +349,29 @@ export function buildServiceMenuItems(id) {
     // Off the rail it is focused without the report a member's focus sends.
     { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
     { label: 'Open in a new tile', glyph: '⊞', run: () => openPanelBeside(id) },
-    { label: 'Open in a new window', glyph: '↗', disabled: ctx().getPanelStandaloneUrl(id) === null, run: () => ctx().popoutPanel(id) },
+    {
+      label: 'Open in a new window',
+      glyph: '↗',
+      disabled: ctx().getPanelStandaloneUrl(id) === null,
+      run: () => ctx().popoutPanel(id),
+    },
     { divider: true },
     // The one server-side membership change in the menu — same verb as the "×".
     member
-      ? { label: 'Remove from rail', glyph: '×', danger: true, run: () => { void removeFromRail(id); } }
-      : { label: 'Pin to rail', run: () => { void setPanelVisibility(id, true); } },
+      ? {
+          label: 'Remove from rail',
+          glyph: '×',
+          danger: true,
+          run: () => {
+            void removeFromRail(id);
+          },
+        }
+      : {
+          label: 'Pin to rail',
+          run: () => {
+            void setPanelVisibility(id, true);
+          },
+        },
   ];
 }
 
@@ -356,7 +387,9 @@ export function buildServiceMenuItems(id) {
 export function buildBarRestoreItems() {
   return BAR_HOSTS.filter((host) => !barVisible(host)).map((host) => ({
     label: host === 'header' ? 'Show header' : 'Show status bar',
-    run: () => { void setBarVisible(host, true); },
+    run: () => {
+      void setBarVisible(host, true);
+    },
   }));
 }
 
@@ -382,8 +415,19 @@ export function buildTerminalMenuItems() {
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
     // palette's "Restart terminal" runs the identical pair.
-    { label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } },
-    { label: 'New session', run: () => { startNewSession(); } },
+    {
+      label: 'Restart terminal',
+      run: async () => {
+        await restartTerminal();
+        startTerminal();
+      },
+    },
+    {
+      label: 'New session',
+      run: () => {
+        startNewSession();
+      },
+    },
     { divider: true },
     ...layout,
   ];

@@ -487,18 +487,20 @@ async def render_isolated(data: bytes, *, task_id: str | None = None) -> RenderO
             client.arm_idle()
 
 
-async def probe_render_worker() -> bool:
+async def probe_render_worker() -> str | None:
     """Spawn a worker exactly as :func:`render_isolated` does and close it again.
 
     The cached worker is left untouched. This is the probe behind
     ``attachments.render`` in ``osprey ariel status``.
 
     Returns:
-        ``True`` when the worker answered ``ready``, else ``False``.
+        ``None`` when the worker answered ``ready``, else the reason it is
+        unavailable (the :class:`RenderUnavailable` message, e.g. "render
+        worker exited before its ready line (exit code 1)").
     """
     try:
         worker = await _spawn()
-    except RenderUnavailable:
-        return False
+    except RenderUnavailable as exc:
+        return str(exc)
     await worker.close(kill=False)
-    return True
+    return None

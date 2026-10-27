@@ -29,7 +29,9 @@ function postToIframe(iframe, message) {
   if (!iframe?.contentWindow) return;
   try {
     iframe.contentWindow.postMessage(message, window.location.origin);
-  } catch { /* cross-origin */ }
+  } catch {
+    /* cross-origin */
+  }
 }
 
 /**

@@ -1,15 +1,18 @@
 """Tests for LiteLLM adapter module."""
 
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from osprey.models.providers.base import BaseProvider
 from osprey.models.providers.litellm_adapter import (
     _clean_json_response,
     _execute_ollama_structured_output,
     _handle_structured_output,
     _parse_structured_reply,
+    _requires_api_key,
     _supports_native_structured_output,
     check_litellm_health,
     execute_litellm_completion,
@@ -932,6 +935,36 @@ class TestExecuteLitellmCompletionThinking:
         assert result == ""
 
 
+class _Plain:
+    """A registered class that does not subclass BaseProvider."""
+
+    name = "plain"
+
+
+class TestAClassThatIsNotABaseProviderInTheHealthCheck:
+    """A plain registered class is keyless and needs no endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _a_registered_plain_class(self, monkeypatch):
+        from osprey.models.provider_registry import _ProviderEntry, get_provider_registry
+
+        registry = get_provider_registry()
+        monkeypatch.setitem(registry._entries, "plain", _ProviderEntry(__name__, "_Plain"))
+        monkeypatch.setitem(registry._providers, "plain", _Plain)
+
+    def test_it_needs_no_api_key(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert _requires_api_key("plain") is False
+
+    def test_no_key_and_no_base_url_reach_the_model_check(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert check_litellm_health(
+                provider="plain", api_key=None, base_url=None, model_id=None
+            ) == (False, "Model ID required for health check")
+
+
 class TestCheckLitellmHealth:
     """Guard rails and litellm-exception mapping in check_litellm_health."""
 
@@ -1003,7 +1036,7 @@ class TestCheckLitellmHealth:
         gets the exemption, including a facility's own."""
         from osprey.models.providers.litellm_adapter import _requires_api_key
 
-        class _Keyless:
+        class _Keyless(BaseProvider):
             requires_api_key = False
 
         class _Registry:
@@ -1016,6 +1049,63 @@ class TestCheckLitellmHealth:
             assert _requires_api_key("house-llm") is False
             # An unknown name keeps the old assumption: it needs a key.
             assert _requires_api_key("who-knows") is True
+
+    @patch("litellm.completion")
+    def test_a_registered_adapter_that_leaves_its_key_flag_undeclared_is_not_refused(
+        self, mock_completion
+    ):
+        """An undeclared requires_api_key reads as not required, without converting it."""
+
+        class _NoKeyFlag(BaseProvider):
+            description = "Leaves requires_api_key undeclared"
+            requires_base_url = False
+
+        class _Registry:
+            def get_provider(self, name):
+                return _NoKeyFlag if name == "house-llm" else None
+
+        mock_completion.return_value = MagicMock()
+        with (
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_Registry(),
+            ),
+            warnings.catch_warnings(),
+        ):
+            warnings.simplefilter("error")
+            ok, msg = check_litellm_health(
+                provider="house-llm", api_key=None, base_url=None, model_id="m"
+            )
+        assert (ok, msg) == (True, "API accessible and authenticated")
+        assert mock_completion.call_args.kwargs["api_key"] == "EMPTY"
+
+    @patch("litellm.completion")
+    def test_a_registered_adapter_that_leaves_its_endpoint_flag_undeclared_is_not_refused(
+        self, mock_completion
+    ):
+        """An undeclared requires_base_url reads as not required, without converting it."""
+
+        class _NoEndpointFlag(BaseProvider):
+            description = "Leaves requires_base_url undeclared"
+            requires_api_key = True
+
+        class _Registry:
+            def get_provider(self, name):
+                return _NoEndpointFlag if name == "house-gateway" else None
+
+        mock_completion.return_value = MagicMock()
+        with (
+            patch(
+                "osprey.models.provider_registry.get_provider_registry",
+                return_value=_Registry(),
+            ),
+            warnings.catch_warnings(),
+        ):
+            warnings.simplefilter("error")
+            ok, msg = check_litellm_health(
+                provider="house-gateway", api_key="sk-real", base_url=None, model_id="m"
+            )
+        assert (ok, msg) == (True, "API accessible and authenticated")
 
     def test_a_key_requiring_adapter_still_fails_without_one(self):
         assert check_litellm_health(

@@ -5,7 +5,6 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
-import shutil
 import signal
 import struct
 import subprocess
@@ -29,10 +28,6 @@ from tests.interfaces.web_terminal._pty_child import (
     wait_for_pids,
     wait_for_report,
     wait_gone,
-)
-
-needs_ps = pytest.mark.skipif(
-    shutil.which("ps") is None, reason="needs ps to read the process tree"
 )
 
 
@@ -161,7 +156,6 @@ class TestPtySession:
         finally:
             session.terminate()
 
-    @needs_ps
     def test_terminate_ends_the_process_groups_the_child_started(self, tmp_path):
         pid_file = tmp_path / "pids"
         scripts = [
@@ -183,7 +177,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_ends_a_helper_that_outlives_the_hang_up(self, tmp_path):
         pid_file = tmp_path / "pids"
         source = detaching_child_script(pid_file, scripts=[], helper_ignores_hup=True)
@@ -198,7 +191,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_ends_a_started_process_that_ignores_sigterm(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGTERM, signal.SIGHUP))
@@ -215,7 +207,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_logs_what_it_ended(self, tmp_path, caplog):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py")
@@ -236,7 +227,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_ends_what_the_child_started_when_the_first_process_table_read_fails(
         self, tmp_path, monkeypatch
     ):
@@ -264,7 +254,6 @@ class TestPtySession:
             session.terminate()
             kill_quietly(pids)
 
-    @needs_ps
     def test_terminate_warns_when_the_process_table_never_reads(
         self, tmp_path, monkeypatch, caplog
     ):
@@ -308,7 +297,6 @@ class TestPtySession:
         session.terminate()
         assert calls == []
 
-    @needs_ps
     def test_started_commands_lists_only_groups_of_their_own(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py")
@@ -402,7 +390,6 @@ class TestPtyChildWaits:
                 proc.kill()
                 proc.wait()
 
-    @needs_ps
     async def test_wait_gone_fails_naming_the_pid_still_running(self):
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
         try:
@@ -481,7 +468,6 @@ class TestPtyRegistry:
         finally:
             registry.cleanup_all()
 
-    @needs_ps
     def test_eviction_ends_the_evicted_terminals_started_processes(self, tmp_path):
         pid_file = tmp_path / "pids"
         script = detaching_child_script(
@@ -499,7 +485,6 @@ class TestPtyRegistry:
             registry.cleanup_all()
             kill_quietly(pids)
 
-    @needs_ps
     def test_cleanup_all_ends_every_terminals_started_processes(self, tmp_path):
         registry = PtyRegistry()
         pids: list[int] = []

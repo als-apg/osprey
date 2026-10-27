@@ -90,8 +90,19 @@ function buildPaletteDeps() {
   if (!simple) {
     // restartTerminal tears down the PTY but does NOT reconnect — pair with
     // startTerminal or the terminal is left stranded.
-    actions.push({ label: 'Restart terminal', run: async () => { await restartTerminal(); startTerminal(); } });
-    actions.push({ label: 'New session', run: () => { startNewSession(); } });
+    actions.push({
+      label: 'Restart terminal',
+      run: async () => {
+        await restartTerminal();
+        startTerminal();
+      },
+    });
+    actions.push({
+      label: 'New session',
+      run: () => {
+        startNewSession();
+      },
+    });
   }
 
   // Always offer the mode the operator is NOT in. The pick is frame-params'
@@ -122,10 +133,25 @@ function buildPaletteDeps() {
   // dead, and misleading about what this deployment permits. Read live, per
   // open, the same way the logout row below reads its server-gated button.
   if (configTabPresent()) {
-    actions.push({ label: 'Open Settings', run: () => { openDrawerTab('tab-config'); } });
+    actions.push({
+      label: 'Open Settings',
+      run: () => {
+        openDrawerTab('tab-config');
+      },
+    });
   }
-  actions.push({ label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } });
-  actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
+  actions.push({
+    label: 'Open Memory gallery',
+    run: () => {
+      openDrawerTab('tab-memory');
+    },
+  });
+  actions.push({
+    label: 'Open Prompt gallery',
+    run: () => {
+      openDrawerTab('tab-behavior');
+    },
+  });
   // On-demand tour entry — works regardless of the web.tour invite policy.
   actions.push({ label: 'Take the tour', run: () => startTour() });
   // The activity shown is the agent's, not the terminal's, so the row stays in
@@ -141,7 +167,12 @@ function buildPaletteDeps() {
   // removed, and this row is the way out that survives that.
   const landingUrl = document.documentElement.dataset.landingUrl;
   if (landingUrl) {
-    actions.push({ label: 'Log out', run: () => { void logout(landingUrl); } });
+    actions.push({
+      label: 'Log out',
+      run: () => {
+        void logout(landingUrl);
+      },
+    });
   }
 
   /** @type {import('./palette-registry.js').PaletteDeps} */
@@ -194,29 +225,37 @@ export function initCommandPalette() {
 
   // Capture phase: xterm swallows bubbled keydowns, so the hotkey must be read
   // before the event reaches the terminal.
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'k' && e.key !== 'K') return;
-    // Keyboard arbitration with the feedback modal: while it is open, Cmd/Ctrl+K
-    // is its territory (e.g. a text field inside it), not the palette's. Bail
-    // without preventDefault/stopPropagation so nothing here is consumed.
-    if (isFeedbackModalOpen()) return;
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'k' && e.key !== 'K') return;
+      // Keyboard arbitration with the feedback modal: while it is open, Cmd/Ctrl+K
+      // is its territory (e.g. a text field inside it), not the palette's. Bail
+      // without preventDefault/stopPropagation so nothing here is consumed.
+      if (isFeedbackModalOpen()) return;
 
-    let match;
-    if (isMac) {
-      // macOS: Cmd+K from anywhere in the top document.
-      match = e.metaKey;
-    } else {
-      // Non-macOS: Ctrl+K, but only OUTSIDE the terminal — inside, Ctrl+K stays
-      // readline kill-line. The header button is the in-terminal fallback.
-      const active = document.activeElement;
-      const inTerminal = !!(termContainer && active instanceof Node && termContainer.contains(active));
-      match = e.ctrlKey && !inTerminal;
-    }
-    if (!match) return;
+      let match;
+      if (isMac) {
+        // macOS: Cmd+K from anywhere in the top document.
+        match = e.metaKey;
+      } else {
+        // Non-macOS: Ctrl+K, but only OUTSIDE the terminal — inside, Ctrl+K stays
+        // readline kill-line. The header button is the in-terminal fallback.
+        const active = document.activeElement;
+        const inTerminal = !!(
+          termContainer &&
+          active instanceof Node &&
+          termContainer.contains(active)
+        );
+        match = e.ctrlKey && !inTerminal;
+      }
+      if (!match) return;
 
-    e.preventDefault();
-    e.stopPropagation();
-    if (isOpen()) closePalette();
-    else openPalette(buildPaletteDeps());
-  }, true);
+      e.preventDefault();
+      e.stopPropagation();
+      if (isOpen()) closePalette();
+      else openPalette(buildPaletteDeps());
+    },
+    true
+  );
 }

@@ -71,6 +71,7 @@ from osprey_connectors.workspace import (
 
 from .build_environment import (
     _create_project_venv,
+    _plan_project_venv,
     _resolve_osprey_spec,
     report_provider_credentials,
 )
@@ -155,6 +156,7 @@ __all__ = [
     "_locate_pkg_services",
     "_persist_artifact_server",
     "_persist_mcp_servers",
+    "_plan_project_venv",
     "_profile_known_root_entries",
     "_register_convention_artifacts",
     "_resolve_context_roster",
@@ -2458,7 +2460,7 @@ def _render_project(
         # Reachability: with defer_unresolved_telemetry_creds=True, a sender's
         # gateway login or a collector token absent at build time does not
         # raise here — a build never carries the secret, so
-        # _gateway_auth_header and _bearer_header (claude_code_telemetry.py)
+        # the gateway and bearer header builders in claude_code_telemetry.py
         # omit the auth header instead. Only a malformed credential still
         # raises ObservabilityCredentialError into this ValueError catch.
         #
@@ -3500,12 +3502,16 @@ def _build_repo(
         # beside it, is copied into the staged tree — the record and the
         # environment it describes must ship together.
         if not skip_deps:
+            # Judged before the phase opens: a plan that refuses the build
+            # leaves the existing venv exactly as it was.
+            plan = _plan_project_venv(build_profile)
             # Reported on its own, not folded into the render below: it is the
             # longest thing a first build does by a wide margin, and a build
             # that looks stuck for two minutes is the moment an operator most
             # needs to be told what it is waiting on.
             with reporter.phase("Preparing the project environment"):
-                project_deps = _create_project_venv(zones.build_dir, build_profile)
+                _create_project_venv(zones.build_dir, plan)
+                project_deps = plan.extra_deps
                 recorded = zones.build_dir / "pyproject.toml"
                 if recorded.is_file():
                     shutil.copy2(recorded, zones.stage / "pyproject.toml")

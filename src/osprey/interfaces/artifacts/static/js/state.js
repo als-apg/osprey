@@ -37,72 +37,108 @@ let selectedArtifact = null;
 /** @type {any|null} */
 let focusedArtifact = null;
 /** @type {Set<string>} */
-let picked = new Set();         // ids picked for a bulk action; only rows the sidebar shows
+let picked = new Set(); // ids picked for a bulk action; only rows the sidebar shows
 /** @type {string|null} */
-let pickAnchor = null;          // the row a Shift-click run starts from
+let pickAnchor = null; // the row a Shift-click run starts from
 /** @type {string|null} */
 let currentSessionId = null;
 let showAllSessions = false;
 /** @type {string|null} */
-let nextCursor = null;          // the cursor the next page needs; null when none is left
-let total = 0;                  // how many entries the current filters admit
-let lastSearch = "";            // the search the current page sequence was fetched with
+let nextCursor = null; // the cursor the next page needs; null when none is left
+let total = 0; // how many entries the current filters admit
+let lastSearch = ''; // the search the current page sequence was fetched with
 /** @type {Set<string>} */
-let heldUncounted = new Set();  // entries held on their own that the held total may not count yet
+let heldUncounted = new Set(); // entries held on their own that the held total may not count yet
 /** @type {object|null} */
-let loadingMore = null;         // the next-page call in flight; only the call that set it clears it
-let fetchGeneration = 0;        // bumped by every first-page fetch; a stale page is dropped
-let settledGeneration = 0;      // the first-page fetch whose outcome the held list reflects; behind fetchGeneration while one is in flight
+let loadingMore = null; // the next-page call in flight; only the call that set it clears it
+let fetchGeneration = 0; // bumped by every first-page fetch; a stale page is dropped
+let settledGeneration = 0; // the first-page fetch whose outcome the held list reflects; behind fetchGeneration while one is in flight
 
 // ---- Accessors ---- //
 
 /** @returns {any[]} */
-export function getArtifacts() { return artifacts; }
+export function getArtifacts() {
+  return artifacts;
+}
 /** @param {any[]} list */
-export function setArtifacts(list) { artifacts = list; }
+export function setArtifacts(list) {
+  artifacts = list;
+}
 
 /** @returns {any|null} */
-export function getSelectedArtifact() { return selectedArtifact; }
+export function getSelectedArtifact() {
+  return selectedArtifact;
+}
 /** @param {any|null} a */
-export function setSelectedArtifact(a) { selectedArtifact = a; }
+export function setSelectedArtifact(a) {
+  selectedArtifact = a;
+}
 
 /** @returns {any|null} */
-export function getFocusedArtifact() { return focusedArtifact; }
+export function getFocusedArtifact() {
+  return focusedArtifact;
+}
 /** @param {any|null} a */
-export function setFocusedArtifact(a) { focusedArtifact = a; }
+export function setFocusedArtifact(a) {
+  focusedArtifact = a;
+}
 
 /** @returns {Set<string>} a copy of the picked ids, so a caller cannot change the picks */
-export function getPickedIds() { return new Set(picked); }
+export function getPickedIds() {
+  return new Set(picked);
+}
 /** @param {Iterable<string>} ids */
-export function setPicked(ids) { picked = new Set(ids); }
+export function setPicked(ids) {
+  picked = new Set(ids);
+}
 /** @param {string} id */
 export function togglePicked(id) {
   if (!picked.delete(id)) picked.add(id);
 }
 /** @returns {void} */
-export function clearPicked() { picked = new Set(); }
+export function clearPicked() {
+  picked = new Set();
+}
 
 /** @returns {string|null} */
-export function getPickAnchor() { return pickAnchor; }
+export function getPickAnchor() {
+  return pickAnchor;
+}
 /** @param {string|null} id */
-export function setPickAnchor(id) { pickAnchor = id; }
+export function setPickAnchor(id) {
+  pickAnchor = id;
+}
 
 /** @returns {string|null} */
-export function getCurrentSessionId() { return currentSessionId; }
+export function getCurrentSessionId() {
+  return currentSessionId;
+}
 /** @param {string|null} id */
-export function setCurrentSessionId(id) { currentSessionId = id; }
+export function setCurrentSessionId(id) {
+  currentSessionId = id;
+}
 
 /** @returns {boolean} */
-export function getShowAllSessions() { return showAllSessions; }
+export function getShowAllSessions() {
+  return showAllSessions;
+}
 /** @param {boolean} v */
-export function setShowAllSessions(v) { showAllSessions = v; }
+export function setShowAllSessions(v) {
+  showAllSessions = v;
+}
 
 /** @returns {number} how many entries the current filters admit, fetched or not */
-export function getArtifactTotal() { return total; }
+export function getArtifactTotal() {
+  return total;
+}
 /** @returns {string} the search the held list was fetched with */
-export function getListSearch() { return lastSearch; }
+export function getListSearch() {
+  return lastSearch;
+}
 /** @returns {boolean} whether the server holds a page not yet fetched */
-export function hasMoreArtifacts() { return nextCursor !== null; }
+export function hasMoreArtifacts() {
+  return nextCursor !== null;
+}
 
 /**
  * Whether an artifact belongs in the list the current session scope fetches.
@@ -127,23 +163,23 @@ export function fileUrl(a) {
 
 /** @param {string} msg */
 export function showErrorBanner(msg) {
-  let banner = document.getElementById("error-banner");
+  let banner = document.getElementById('error-banner');
   if (!banner) {
-    banner = document.createElement("div");
-    banner.id = "error-banner";
+    banner = document.createElement('div');
+    banner.id = 'error-banner';
     banner.style.cssText =
-      "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;" +
-      "background:var(--color-error);color:#fff;font-size:14px;text-align:center;"; // hygiene-allow-color: fixed white-on-error banner text, theme-invariant by design
+      'position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;' +
+      'background:var(--color-error);color:#fff;font-size:14px;text-align:center;'; // hygiene-allow-color: fixed white-on-error banner text, theme-invariant by design
     document.body.prepend(banner);
   }
   banner.textContent = msg;
-  banner.style.display = "block";
+  banner.style.display = 'block';
 }
 
 /** @returns {void} */
 export function hideErrorBanner() {
-  const banner = document.getElementById("error-banner");
-  if (banner) banner.style.display = "none";
+  const banner = document.getElementById('error-banner');
+  if (banner) banner.style.display = 'none';
 }
 
 // ---- API ---- //
@@ -177,12 +213,12 @@ function messageOf(e) {
  */
 function listingUrl(search, cursor = null) {
   const params = [];
-  if (search) params.push("search=" + encodeURIComponent(search));
+  if (search) params.push('search=' + encodeURIComponent(search));
   if (currentSessionId && !showAllSessions) {
-    params.push("session_id=" + encodeURIComponent(currentSessionId));
+    params.push('session_id=' + encodeURIComponent(currentSessionId));
   }
-  if (cursor) params.push("cursor=" + encodeURIComponent(cursor));
-  return "/api/artifacts" + (params.length ? "?" + params.join("&") : "");
+  if (cursor) params.push('cursor=' + encodeURIComponent(cursor));
+  return '/api/artifacts' + (params.length ? '?' + params.join('&') : '');
 }
 
 /**
@@ -195,13 +231,13 @@ function listingUrl(search, cursor = null) {
  * @returns {Promise<void>}
  */
 export async function fetchArtifacts(callbacks = {}) {
-  const search = callbacks.search || "";
+  const search = callbacks.search || '';
   const generation = ++fetchGeneration;
   try {
     const resp = await fetch(listingUrl(search));
     if (!resp.ok) {
       const errText = await resp.text();
-      showErrorBanner("API error (" + resp.status + "): " + errText);
+      showErrorBanner('API error (' + resp.status + '): ' + errText);
       callbacks.onHealthChange?.(false);
       return;
     }
@@ -220,8 +256,8 @@ export async function fetchArtifacts(callbacks = {}) {
     callbacks.onHealthChange?.(true);
     callbacks.onArtifactsUpdated?.();
   } catch (err) {
-    console.error("Failed to fetch artifacts:", err);
-    showErrorBanner("Failed to fetch artifacts: " + messageOf(err));
+    console.error('Failed to fetch artifacts:', err);
+    showErrorBanner('Failed to fetch artifacts: ' + messageOf(err));
     callbacks.onHealthChange?.(false);
   } finally {
     if (generation === fetchGeneration) settledGeneration = generation;
@@ -246,7 +282,7 @@ export async function fetchMoreArtifacts(callbacks = {}) {
     const resp = await fetch(listingUrl(lastSearch, nextCursor));
     if (!resp.ok) {
       const errText = await resp.text();
-      showErrorBanner("API error (" + resp.status + "): " + errText);
+      showErrorBanner('API error (' + resp.status + '): ' + errText);
       callbacks.onHealthChange?.(false);
       return;
     }
@@ -265,8 +301,8 @@ export async function fetchMoreArtifacts(callbacks = {}) {
     callbacks.onHealthChange?.(true);
     callbacks.onArtifactsUpdated?.();
   } catch (err) {
-    console.error("Failed to fetch more artifacts:", err);
-    showErrorBanner("Failed to fetch artifacts: " + messageOf(err));
+    console.error('Failed to fetch more artifacts:', err);
+    showErrorBanner('Failed to fetch artifacts: ' + messageOf(err));
     callbacks.onHealthChange?.(false);
   } finally {
     // A page chained from the callbacks owns the guard now; only this call's own token is cleared.
@@ -321,13 +357,13 @@ export function removeArtifact(id) {
  */
 export async function fetchFocus() {
   try {
-    const resp = await fetch("/api/focus");
+    const resp = await fetch('/api/focus');
     const data = await resp.json();
     if (data.artifact) {
       focusedArtifact = data.artifact;
     }
   } catch (err) {
-    console.error("Failed to fetch focus:", err);
+    console.error('Failed to fetch focus:', err);
   }
 }
 
@@ -341,7 +377,7 @@ export async function fetchFocus() {
  * @param {string} [searchQuery] - already-trimmed, lowercased search text (the caller reads it from the DOM)
  * @returns {any[]}
  */
-export function getFilteredArtifacts(searchQuery = "") {
+export function getFilteredArtifacts(searchQuery = '') {
   let filtered = [...artifacts];
 
   if (searchQuery) {
@@ -357,7 +393,7 @@ export function getFilteredArtifacts(searchQuery = "") {
   filtered.sort((a, b) => {
     if (a.pinned && !b.pinned) return -1;
     if (!a.pinned && b.pinned) return 1;
-    return (b.timestamp || "").localeCompare(a.timestamp || "");
+    return (b.timestamp || '').localeCompare(a.timestamp || '');
   });
 
   return filtered;
@@ -376,5 +412,5 @@ export function getFilteredArtifacts(searchQuery = "") {
  * @returns {any[]}
  */
 export function getRecentArtifacts() {
-  return [...artifacts].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+  return [...artifacts].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 }

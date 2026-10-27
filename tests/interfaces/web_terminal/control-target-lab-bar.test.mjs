@@ -34,10 +34,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-const JS_DIR = join(
-  import.meta.dirname,
-  '../../../src/osprey/interfaces/web_terminal/static/js'
-);
+const JS_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static/js');
 const ENTRY = 'control-target-lab-bar.js';
 const MODULE = `../../../src/osprey/interfaces/web_terminal/static/js/${ENTRY}`;
 
@@ -56,9 +53,7 @@ let barModule;
  * read prose as an edge would report a closure the browser never fetches.
  */
 function relativeImports(/** @type {string} */ source) {
-  const code = source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   const found = new Set();
   const pattern = /\bfrom\s+'(\.[^']+)'|(?:^|\n)\s*import\s+'(\.[^']+)'/g;
   for (const match of code.matchAll(pattern)) {
@@ -208,7 +203,7 @@ beforeEach(async () => {
   stubFetch();
   vi.stubGlobal('EventSource', FakeEventSource);
   mountLabFixture();
-  delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
+  Reflect.deleteProperty(window, '__OSPREY_PREFIX__');
   // Importing the module is how the page runs it: there is no app shell on a
   // Lab page to call init, so the module boots itself on import.
   barModule = await import(MODULE);

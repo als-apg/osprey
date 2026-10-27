@@ -101,7 +101,9 @@ describe('artifactViewportHtml: embedded pages carry the gallery theme', () => {
   test('the notebook rendered endpoint carries it too', () => {
     themeState.current = 'high-contrast-dark';
     const container = document.createElement('div');
-    container.innerHTML = artifactViewportHtml(makeArtifact({ id: 'nb1', artifact_type: 'notebook' }));
+    container.innerHTML = artifactViewportHtml(
+      makeArtifact({ id: 'nb1', artifact_type: 'notebook' })
+    );
 
     expect(qs(container, 'iframe').getAttribute('src')).toBe(
       '/api/notebooks/nb1/rendered?theme=high-contrast-dark'

@@ -3660,8 +3660,8 @@ def _ensure_agent_data_structure(config):
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
     # and so could never create it — plus the shared-group mode the multi-user
-    # case needs (see :func:`ensure_shared_corpus_dir`). Provisioned here rather
-    # than only on the web-terminal path, because a single-user deployment
+    # case needs, which ensure_shared_corpus_dir sets. It is provisioned here
+    # rather than only on the web-terminal path, because a single-user deployment
     # mounts the same directory into the sidecar and must not be left to the
     # container runtime either.
     bundle_dir = resolve_facility_bundle_dir(config, project_root)
@@ -3797,7 +3797,7 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
 #: The one service whose compose environment lists the roster's per-user
 #: operator secrets: the bluesky_web sidecar, which each per-user web terminal
 #: proxies its BLUESKY tab into with the secret ITS container holds.
-_ROSTER_SECRET_SERVICE = "bluesky_web"
+_ROSTER_SECRET_SERVICE = "bluesky_web"  # noqa: S105 -- names a compose service, holds no secret
 
 
 def _bluesky_panel_secret_env_vars(config, source_dir, layer_root=None):

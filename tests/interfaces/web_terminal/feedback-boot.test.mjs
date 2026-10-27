@@ -30,10 +30,7 @@ import { qs } from '../_support/dom.mjs';
 
 // `import.meta.dirname` is a plain string, so it sidesteps happy-dom's
 // override of the global URL (which breaks fileURLToPath(new URL(...)) here).
-const STATIC_DIR = join(
-  import.meta.dirname,
-  '../../../src/osprey/interfaces/web_terminal/static'
-);
+const STATIC_DIR = join(import.meta.dirname, '../../../src/osprey/interfaces/web_terminal/static');
 const indexHtml = readFileSync(join(STATIC_DIR, 'index.html'), 'utf8');
 
 const DOCS_URL = 'https://docs.example.org/osprey';
@@ -118,9 +115,7 @@ function statusBarMarkup() {
   expect(openTag?.[0], 'status-bar tag is not plain markup').not.toMatch(/\{[%{]/);
   const docs = barBodyMarkup('docs');
   return (
-    `${openTag?.[0]}` +
-    `<div class="bar-item" data-bar-item="docs">${docs}</div>` +
-    `</footer>`
+    `${openTag?.[0]}` + `<div class="bar-item" data-bar-item="docs">${docs}</div>` + `</footer>`
   );
 }
 
@@ -263,7 +258,8 @@ async function boot(over = {}) {
   // The boot is synchronous by contract; every test that cares about the
   // deployment's configuration waits for it here instead. `ready` covers both
   // reads, so a test that deliberately hangs one waits on its own signal.
-  if (over.settle !== false && over.hangHealth !== true && over.panelsGate === undefined) await ready;
+  if (over.settle !== false && over.hangHealth !== true && over.panelsGate === undefined)
+    await ready;
   return { modal, ready, reads, fetch: posts, clipboard, windowOpen, navigate };
 }
 
@@ -286,7 +282,11 @@ function typeReport(value) {
 
 /** Select a delivery channel — `local`, `email` or a tracker's radio value. @param {string} channel */
 function pickChannel(channel) {
-  const radio = qs(document, `input[name="feedback-channel"][value="${channel}"]`, HTMLInputElement);
+  const radio = qs(
+    document,
+    `input[name="feedback-channel"][value="${channel}"]`,
+    HTMLInputElement
+  );
   radio.checked = true;
   radio.dispatchEvent(new Event('change', { bubbles: true }));
 }
@@ -391,7 +391,7 @@ describe('documentation affordances', () => {
 });
 
 describe('terminal seam', () => {
-  test('app.js passes terminal.js\'s live xterm accessor to the feedback boot', () => {
+  test("app.js passes terminal.js's live xterm accessor to the feedback boot", () => {
     const appJs = readFileSync(join(STATIC_DIR, 'js/app.js'), 'utf8');
 
     // The wiring itself is unreachable from a test (it runs on a
@@ -410,9 +410,7 @@ describe('notice styling', () => {
       ['warning', '--color-warning'],
       ['error', '--color-error'],
     ]) {
-      const rule = new RegExp(
-        `\\.feedback-notice\\[data-kind="${kind}"\\][^}]*var\\(${token}\\)`
-      );
+      const rule = new RegExp(`\\.feedback-notice\\[data-kind="${kind}"\\][^}]*var\\(${token}\\)`);
       expect(css, `no ${kind} colour for .feedback-notice`).toMatch(rule);
     }
   });
@@ -561,7 +559,6 @@ describe('rail button', () => {
     expect(booted.modal.formState().sessionId).toBe(SESSION);
     expect(qs(document, '.feedback-context-check', HTMLInputElement).disabled).toBe(false);
   });
-
 });
 
 describe('local send', () => {
@@ -937,9 +934,7 @@ describe('outbound channels', () => {
     tickContext();
 
     qs(document, '.feedback-open-channel').click();
-    await vi.waitFor(() =>
-      expect(document.querySelector('.feedback-manual-copy')).not.toBeNull()
-    );
+    await vi.waitFor(() => expect(document.querySelector('.feedback-manual-copy')).not.toBeNull());
 
     const area = qs(document, '.feedback-manual-copy', HTMLTextAreaElement);
     expect(area.value).toBe('PAYLOAD');
@@ -956,9 +951,7 @@ describe('outbound channels', () => {
     pickChannel(GH);
     tickContext();
     qs(document, '.feedback-open-channel').click();
-    await vi.waitFor(() =>
-      expect(document.querySelector('.feedback-manual-copy')).not.toBeNull()
-    );
+    await vi.waitFor(() => expect(document.querySelector('.feedback-manual-copy')).not.toBeNull());
 
     pickChannel('local');
     qs(document, '.feedback-send').click();

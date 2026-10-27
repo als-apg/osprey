@@ -5,8 +5,8 @@
  *
  * Pure-logic + DOM guard, happy-dom environment (configured globally),
  * `fetch`/`confirm`/`prompt`/`alert` mocked via vi.stubGlobal -- mirrors the
- * pattern in scaffold-data.test.mjs and scaffold-view.test.mjs:
- *   npx vitest run tests/interfaces/web_terminal/scaffold-detail.test.mjs
+ * pattern in scaffold/data.test.mjs and scaffold/view.test.mjs:
+ *   npx vitest run tests/interfaces/web_terminal/scaffold/detail.test.mjs
  *
  * A fake `gallery` host object stands in for the ArtifactGallery instance,
  * the same "pass `this`" shape the real class uses. Where a test needs
@@ -28,15 +28,15 @@
 
 import { test, expect, vi, describe, beforeEach, afterEach } from 'vitest';
 
-import { qs } from '../_support/dom.mjs';
+import { qs } from '../../_support/dom.mjs';
 
-import { createScaffoldGalleryDetail } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
-import { createScaffoldGalleryDetailContent } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js';
-import { createScaffoldGalleryEditForm } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
-import { resetFetchCache } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
+import { createScaffoldGalleryDetail } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
+import { createScaffoldGalleryDetailContent } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js';
+import { createScaffoldGalleryEditForm } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
+import { resetFetchCache } from '../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
 /**
- * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js').ScaffoldGalleryDetailHost} ScaffoldGalleryDetailHost
+ * @typedef {import('../../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js').ScaffoldGalleryDetailHost} ScaffoldGalleryDetailHost
  */
 
 /**
@@ -87,8 +87,14 @@ beforeEach(() => {
   // The detail renderers read through the module-level fetch cache, so a
   // response one test seeded would answer the next one's first render.
   resetFetchCache();
-  vi.stubGlobal('confirm', vi.fn(() => true));
-  vi.stubGlobal('prompt', vi.fn(() => null));
+  vi.stubGlobal(
+    'confirm',
+    vi.fn(() => true)
+  );
+  vi.stubGlobal(
+    'prompt',
+    vi.fn(() => null)
+  );
   vi.stubGlobal('alert', vi.fn());
 });
 
@@ -108,15 +114,23 @@ describe('renderDetailModes -- tab availability by ownership', () => {
    */
   function modeLabels(gallery, detail) {
     detail.renderDetailModes();
-    return [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].map((b) => b.textContent);
+    return [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].map(
+      (b) => b.textContent
+    );
   }
 
   test.each([
     ['a framework artifact: no Diff', { status: 'framework' }, ['Preview', 'Edit']],
-    ['a user-owned, non-custom artifact: Diff against the framework default',
-      { status: 'user-owned', custom: false }, ['Preview', 'Diff', 'Edit']],
-    ['a user-owned, custom artifact has no framework default: no Diff',
-      { status: 'user-owned', custom: true }, ['Preview', 'Edit']],
+    [
+      'a user-owned, non-custom artifact: Diff against the framework default',
+      { status: 'user-owned', custom: false },
+      ['Preview', 'Diff', 'Edit'],
+    ],
+    [
+      'a user-owned, custom artifact has no framework default: no Diff',
+      { status: 'user-owned', custom: true },
+      ['Preview', 'Edit'],
+    ],
   ])('%s', (_label, flags, expected) => {
     const gallery = makeGallery({ selectedArtifact: { name: 'a', ...flags } });
     const detail = createScaffoldGalleryDetail(gallery);
@@ -156,8 +170,9 @@ describe('mode-switch state machine', () => {
     const detail = createScaffoldGalleryDetail(gallery);
     detail.renderDetailModes();
 
-    const editBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
-      .find((b) => b.textContent === 'Edit');
+    const editBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].find(
+      (b) => b.textContent === 'Edit'
+    );
     if (editBtn === undefined) throw new Error('Edit mode button not found');
     editBtn.dispatchEvent(new Event('click'));
 
@@ -176,8 +191,9 @@ describe('mode-switch state machine', () => {
     const detail = createScaffoldGalleryDetail(gallery);
     detail.renderDetailModes();
 
-    const previewBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
-      .find((b) => b.textContent === 'Preview');
+    const previewBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].find(
+      (b) => b.textContent === 'Preview'
+    );
     if (previewBtn === undefined) throw new Error('Preview mode button not found');
     previewBtn.dispatchEvent(new Event('click'));
 
@@ -187,10 +203,19 @@ describe('mode-switch state machine', () => {
   });
 
   test('switching modes with unsaved edits prompts confirm; confirming clears editDirty and switches', () => {
-    vi.stubGlobal('confirm', vi.fn(() => true));
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ has_diff: false }),
-    })));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true)
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ has_diff: false }),
+        })
+      )
+    );
 
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'user-owned', custom: false },
@@ -201,8 +226,9 @@ describe('mode-switch state machine', () => {
     gallery.renderDetailModes = detail.renderDetailModes;
     detail.renderDetailModes();
 
-    const diffBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
-      .find((b) => b.textContent === 'Diff');
+    const diffBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].find(
+      (b) => b.textContent === 'Diff'
+    );
     if (diffBtn === undefined) throw new Error('Diff mode button not found');
     diffBtn.dispatchEvent(new Event('click'));
 
@@ -212,7 +238,10 @@ describe('mode-switch state machine', () => {
   });
 
   test('switching modes with unsaved edits and cancelling confirm leaves mode and dirty flag unchanged', () => {
-    vi.stubGlobal('confirm', vi.fn(() => false));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false)
+    );
 
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'user-owned', custom: false },
@@ -222,8 +251,9 @@ describe('mode-switch state machine', () => {
     const detail = createScaffoldGalleryDetail(gallery);
     detail.renderDetailModes();
 
-    const diffBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
-      .find((b) => b.textContent === 'Diff');
+    const diffBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].find(
+      (b) => b.textContent === 'Diff'
+    );
     if (diffBtn === undefined) throw new Error('Diff mode button not found');
     diffBtn.dispatchEvent(new Event('click'));
 
@@ -239,9 +269,15 @@ describe('mode-switch state machine', () => {
 
 describe('openDetail', () => {
   test('resets detail state, swaps view visibility, and fires onDetailOpen', () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ content: 'hello', language: 'text' }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ content: 'hello', language: 'text' }),
+        })
+      )
+    );
 
     const onDetailOpen = vi.fn();
     const gallery = makeGallery({ detailMode: 'edit', editDirty: true, onDetailOpen });
@@ -275,11 +311,20 @@ describe('openDetail', () => {
 
 describe('showCreateDialog', () => {
   test('POSTs the category and the sanitised name', async () => {
-    vi.stubGlobal('prompt', vi.fn(() => 'My New Agent!'));
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'My New Agent!')
+    );
     const load = vi.fn(() => Promise.resolve());
-    const fetchMock = vi.fn(/** @type {(url: string, init: RequestInit) => Promise<any>} */ (
-      () => Promise.resolve({ ok: true, json: () => Promise.resolve({ canonical_name: 'my-new-agent' }) })
-    ));
+    const fetchMock = vi.fn(
+      /** @type {(url: string, init: RequestInit) => Promise<any>} */ (
+        () =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ canonical_name: 'my-new-agent' }),
+          })
+      )
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const gallery = makeGallery({ load });
@@ -291,7 +336,10 @@ describe('showCreateDialog', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/scaffold/create');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(/** @type {string} */ (init.body))).toEqual({ category: 'agents', name: 'my-new-agent' });
+    expect(JSON.parse(/** @type {string} */ (init.body))).toEqual({
+      category: 'agents',
+      name: 'my-new-agent',
+    });
   });
 
   test('opens the new artifact straight in Edit, fetching its content once', async () => {
@@ -300,19 +348,28 @@ describe('showCreateDialog', () => {
     // response landed last decided what the pane showed. renderEdit here is
     // the REAL edit-form renderer, wired the way ArtifactGallery wires it — a
     // stub issues no fetch, so it could not tell one render from two.
-    vi.stubGlobal('prompt', vi.fn(() => 'my new agent'));
+    vi.stubGlobal(
+      'prompt',
+      vi.fn(() => 'my new agent')
+    );
 
     /** @type {string[]} */
     const calls = [];
-    vi.stubGlobal('fetch', vi.fn((/** @type {string} */ url, /** @type {RequestInit} */ init) => {
-      calls.push(`${(init && init.method) || 'GET'} ${url}`);
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({
-          canonical_name: 'my-new-agent', content: 'seeded body', language: 'text',
-        }),
-      });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((/** @type {string} */ url, /** @type {RequestInit} */ init) => {
+        calls.push(`${(init && init.method) || 'GET'} ${url}`);
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              canonical_name: 'my-new-agent',
+              content: 'seeded body',
+              language: 'text',
+            }),
+        });
+      })
+    );
 
     const gallery = makeGallery();
     gallery.load = () => {
@@ -339,9 +396,15 @@ describe('showCreateDialog', () => {
 
 describe('renderDetailContent -- mode dispatch', () => {
   test('preview mode fetches and renders artifact content', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ content: 'plain body', language: 'text' }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ content: 'plain body', language: 'text' }),
+        })
+      )
+    );
 
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'framework' },
@@ -355,7 +418,10 @@ describe('renderDetailContent -- mode dispatch', () => {
   });
 
   test('a fetch failure renders an escaped error message instead of throwing', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('<script>boom</script>'))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new Error('<script>boom</script>')))
+    );
 
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'framework' },
@@ -384,11 +450,19 @@ describe('renderDetailContent -- superseded renders', () => {
     // resolves last, the ordering that used to decide the winner.
     /** @type {(body: any) => void} */
     let releasePreview = () => {};
-    const previewBody = new Promise((resolve) => { releasePreview = resolve; });
+    const previewBody = new Promise((resolve) => {
+      releasePreview = resolve;
+    });
 
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => previewBody,
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => previewBody,
+        })
+      )
+    );
 
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'framework' },
@@ -414,11 +488,19 @@ describe('renderDetailContent -- superseded renders', () => {
   test('a superseded render failing does not replace the render that worked', async () => {
     /** @type {(reason: any) => void} */
     let failPreview = () => {};
-    const previewBody = new Promise((_resolve, reject) => { failPreview = reject; });
+    const previewBody = new Promise((_resolve, reject) => {
+      failPreview = reject;
+    });
 
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => previewBody,
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => previewBody,
+        })
+      )
+    );
 
     const gallery = makeGallery({
       selectedArtifact: { name: 'a', status: 'framework' },
@@ -456,10 +538,21 @@ describe('renderDiff', () => {
       '+new line here',
     ].join('\n');
 
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ has_diff: true, additions: 1, deletions: 1, unified_diff: unifiedDiff }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              has_diff: true,
+              additions: 1,
+              deletions: 1,
+              unified_diff: unifiedDiff,
+            }),
+        })
+      )
+    );
 
     const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
     const content = createScaffoldGalleryDetailContent(gallery);
@@ -488,9 +581,15 @@ describe('renderDiff', () => {
   });
 
   test('renders the empty state when the artifact has no diff from its framework default', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ has_diff: false }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ has_diff: false }),
+        })
+      )
+    );
 
     const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
     const content = createScaffoldGalleryDetailContent(gallery);
@@ -507,32 +606,51 @@ describe('renderDiff', () => {
 
 describe('renderPreview', () => {
   test('markdown content renders a front-matter table plus the body', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({
-        content: '---\nname: my-agent\n---\nSome instructions.',
-        language: 'markdown',
-      }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              content: '---\nname: my-agent\n---\nSome instructions.',
+              language: 'markdown',
+            }),
+        })
+      )
+    );
 
     const gallery = makeGallery({ selectedArtifact: { name: 'my-agent', status: 'framework' } });
     const content = createScaffoldGalleryDetailContent(gallery);
 
     await content.renderPreview();
 
-    expect(qs(gallery.detailContentEl, '.prompts-frontmatter .prompts-fm-value').textContent).toBe('my-agent');
-    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe('Some instructions.');
+    expect(qs(gallery.detailContentEl, '.prompts-frontmatter .prompts-fm-value').textContent).toBe(
+      'my-agent'
+    );
+    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe(
+      'Some instructions.'
+    );
   });
 
   test('settings-json renders the structured view with nothing to type into', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ content: '{"model":"anthropic/claude"}', language: 'json' }),
-    })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ content: '{"model":"anthropic/claude"}', language: 'json' }),
+        })
+      )
+    );
 
     // `status: 'user-owned'` and no `read_only` flag: the most permissive
     // artifact shape the panel can be handed. settings.json is written from
     // the profile's `config:` keys, so even here Preview stays read-only.
-    const gallery = makeGallery({ selectedArtifact: { name: 'settings-json', status: 'user-owned' } });
+    const gallery = makeGallery({
+      selectedArtifact: { name: 'settings-json', status: 'user-owned' },
+    });
     const content = createScaffoldGalleryDetailContent(gallery);
 
     await content.renderPreview();
@@ -553,30 +671,48 @@ describe('renderPreview', () => {
     ['a Python hook docstring', 'python', `"""\n---\nname: my_hook\n---\n${HOSTILE_BODY}\n"""\n`],
   ];
 
-  test.each(SANITISING_PATHS)('%s renders only what the sanitiser returns', async (_label, language, content) => {
-    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
-    vi.stubGlobal('DOMPurify', { sanitize: () => '<em>safe</em>' });
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ content, language }),
-    })));
+  test.each(SANITISING_PATHS)(
+    '%s renders only what the sanitiser returns',
+    async (_label, language, content) => {
+      vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+      vi.stubGlobal('DOMPurify', { sanitize: () => '<em>safe</em>' });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ content, language }),
+          })
+        )
+      );
 
-    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
-    await createScaffoldGalleryDetailContent(gallery).renderPreview();
+      const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+      await createScaffoldGalleryDetailContent(gallery).renderPreview();
 
-    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').innerHTML).toBe('<em>safe</em>');
-    expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
-  });
+      expect(qs(gallery.detailContentEl, '.osprey-md-rendered').innerHTML).toBe('<em>safe</em>');
+      expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
+    }
+  );
 
-  test.each(SANITISING_PATHS)('%s degrades to text when no sanitiser is loaded', async (_label, language, content) => {
-    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
-      ok: true, json: () => Promise.resolve({ content, language }),
-    })));
+  test.each(SANITISING_PATHS)(
+    '%s degrades to text when no sanitiser is loaded',
+    async (_label, language, content) => {
+      vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ content, language }),
+          })
+        )
+      );
 
-    const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
-    await createScaffoldGalleryDetailContent(gallery).renderPreview();
+      const gallery = makeGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+      await createScaffoldGalleryDetailContent(gallery).renderPreview();
 
-    expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe(HOSTILE_BODY);
-    expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
-  });
+      expect(qs(gallery.detailContentEl, '.osprey-md-rendered').textContent).toBe(HOSTILE_BODY);
+      expect(gallery.detailContentEl.querySelector('img, script')).toBeNull();
+    }
+  );
 });

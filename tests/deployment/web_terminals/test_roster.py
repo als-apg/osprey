@@ -267,7 +267,7 @@ def test_normalize_users_does_not_mutate_input_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# freeze_user_indices()
+# Tests of freeze_user_indices()
 # ---------------------------------------------------------------------------
 
 
@@ -445,7 +445,7 @@ def test_freeze_user_indices_does_not_mutate_input_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# resolve_cards()
+# Tests of resolve_cards()
 # ---------------------------------------------------------------------------
 
 _REGISTRY = {"url": "registry.example.org/osprey"}

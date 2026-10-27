@@ -24,7 +24,7 @@
  * shown and a caption saying so, and that is all.
  */
 
-import { el } from "./helpers.js";
+import { el } from './helpers.js';
 
 /** @typedef {{id: string, title?: string, snippet?: string, score?: number|null}} SearchResultItem */
 
@@ -49,7 +49,7 @@ export function initSearchResults(handles) {
  */
 export function clearSearchResults() {
   containerEl.hidden = true;
-  containerEl.innerHTML = "";
+  containerEl.innerHTML = '';
 }
 
 /**
@@ -59,8 +59,8 @@ export function clearSearchResults() {
  */
 export function renderSearchMessage(message) {
   containerEl.hidden = false;
-  containerEl.innerHTML = "";
-  containerEl.appendChild(el("p", { class: "muted", text: message }));
+  containerEl.innerHTML = '';
+  containerEl.appendChild(el('p', { class: 'muted', text: message }));
 }
 
 /**
@@ -72,7 +72,7 @@ export function renderSearchMessage(message) {
  * @returns {boolean}
  */
 export function isRanked(results) {
-  return results.some((r) => typeof r.score === "number");
+  return results.some((r) => typeof r.score === 'number');
 }
 
 /**
@@ -87,51 +87,49 @@ export function isRanked(results) {
  */
 export function renderSearchResults(results) {
   containerEl.hidden = false;
-  containerEl.innerHTML = "";
+  containerEl.innerHTML = '';
 
   if (results.length === 0) {
-    containerEl.appendChild(el("p", { class: "muted", text: "No matches." }));
+    containerEl.appendChild(el('p', { class: 'muted', text: 'No matches.' }));
     return;
   }
 
   const ranked = isRanked(results);
   if (ranked) {
-    containerEl.appendChild(
-      el("p", { class: "muted result-mode", text: "Ranked by relevance" })
-    );
+    containerEl.appendChild(el('p', { class: 'muted result-mode', text: 'Ranked by relevance' }));
   }
 
-  const list = el(ranked ? "ol" : "ul", {
-    class: ranked ? "result-list result-list-ranked" : "result-list",
+  const list = el(ranked ? 'ol' : 'ul', {
+    class: ranked ? 'result-list result-list-ranked' : 'result-list',
   });
 
   results.forEach(function (r, index) {
-    const item = el("li", { class: "result-item" });
+    const item = el('li', { class: 'result-item' });
     if (ranked) {
       // aria-hidden: the <ol> already gives assistive tech the position, so an
       // exposed rank would be announced twice ("item 1 of 3", then "1"). The
       // span is a visual repeat of that position, nothing more.
       item.appendChild(
-        el("span", {
-          class: "result-rank",
+        el('span', {
+          class: 'result-rank',
           text: String(index + 1),
-          "aria-hidden": "true",
+          'aria-hidden': 'true',
         })
       );
     }
-    const link = el("a", {
-      class: "result-link",
-      href: "#",
+    const link = el('a', {
+      class: 'result-link',
+      href: '#',
       text: r.title || r.id,
     });
     link.dataset.conceptId = r.id;
-    link.addEventListener("click", function (ev) {
+    link.addEventListener('click', function (ev) {
       ev.preventDefault();
       onSelect(r.id);
     });
     item.appendChild(link);
     if (r.snippet) {
-      item.appendChild(el("p", { class: "result-snippet", text: String(r.snippet) }));
+      item.appendChild(el('p', { class: 'result-snippet', text: String(r.snippet) }));
     }
     list.appendChild(item);
   });

@@ -332,7 +332,12 @@ const spawned = [];
 /** @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/feedback-modal.js').FeedbackTracker} FeedbackTracker */
 
 /** The deployment's GitHub tracker, as boot hands it to the dialog. @type {FeedbackTracker} */
-const GH = { id: 'github:als-apg/osprey', kind: 'github', label: 'GitHub', target: 'als-apg/osprey' };
+const GH = {
+  id: 'github:als-apg/osprey',
+  kind: 'github',
+  label: 'GitHub',
+  target: 'als-apg/osprey',
+};
 
 /** A self-hosted GitLab tracker with a facility-authored caption. @type {FeedbackTracker} */
 const GL = {

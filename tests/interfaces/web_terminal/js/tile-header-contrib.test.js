@@ -214,9 +214,7 @@ describe('sanitization', () => {
     );
 
     expect(host.querySelector('img')).toBeNull();
-    expect(host.querySelector('.contrib-text')?.textContent).toBe(
-      '<img src=x onerror=alert(1)>'
-    );
+    expect(host.querySelector('.contrib-text')?.textContent).toBe('<img src=x onerror=alert(1)>');
   });
 
   test('clips oversized text and caps item count', () => {

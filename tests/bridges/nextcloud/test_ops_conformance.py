@@ -373,7 +373,7 @@ def test_room_type_unresolved_propagates():
 
 
 # ==========================================================================
-# resolve_reply_context: wired
+# Tests of resolve_reply_context, wired
 # ==========================================================================
 
 
