@@ -41,7 +41,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-import osprey_connectors
 from osprey_connectors import posture_store
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -58,7 +57,7 @@ from tests.facility.served_tree import in_process_config, served_tree
 REPO_ROOT = Path(__file__).resolve().parents[3]
 # The connectors under test, wherever they are installed: the workspace member
 # here, the floor release in the framework-at-connectors-floor lane.
-CONNECTORS_ROOT = Path(osprey_connectors.__file__).resolve().parents[1]
+CONNECTORS_ROOT = Path(posture_store.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
         # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
