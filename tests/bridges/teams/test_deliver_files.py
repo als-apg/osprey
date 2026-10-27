@@ -50,7 +50,7 @@ from osprey.bridges.teams.ops import (
     TeamsOps,
     skipped_files_note,
 )
-from tests.bridges.teams.test_posting import (
+from tests.bridges.teams._posting import (
     ACTIVITY_ID,
     APP_ID,
     CHANNEL_CONVERSATION_ID,
@@ -58,10 +58,10 @@ from tests.bridges.teams.test_posting import (
     TENANT,
     make_config,
 )
-from tests.bridges.teams.test_posting import (
+from tests.bridges.teams._posting import (
     RecordingConnector as _PostingConnector,
 )
-from tests.bridges.teams.test_posting import make_entry as _posting_entry
+from tests.bridges.teams._posting import make_entry as _posting_entry
 
 RUN_ID = "run-7"
 

@@ -25,7 +25,7 @@ from osprey.bridges.teams.roster import (
     share_audience,
 )
 from tests.bridges.conftest import FakeClock, StubDispatcher
-from tests.bridges.teams.test_posting import RecordingConnector
+from tests.bridges.teams._posting import RecordingConnector
 
 APP_ID = "11111111-2222-3333-4444-555555555555"
 BOT = f"28:{APP_ID}"

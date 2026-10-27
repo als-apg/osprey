@@ -67,7 +67,7 @@ from osprey.bridges.teams.graph import GraphFiles
 from osprey.bridges.teams.ops import ack_text
 from osprey.bridges.teams.receiver import QueueReceiver, make_receiver
 from tests.bridges.conftest import recording_client
-from tests.bridges.teams.test_posting import (
+from tests.bridges.teams._posting import (
     APP_ID,
     TENANT,
     VERSION,

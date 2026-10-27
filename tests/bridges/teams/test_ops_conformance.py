@@ -56,7 +56,7 @@ from osprey.bridges.teams.ops import (
     _static_room_conformance,
     quote_prefix,
 )
-from tests.bridges.teams.test_posting import (
+from tests.bridges.teams._posting import (
     ACTIVITY_ID,
     CHANNEL_CONVERSATION_ID,
     QUESTION,
