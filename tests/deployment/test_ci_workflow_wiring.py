@@ -7339,7 +7339,7 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
 # comment promises of every module it names.
 CHAIN_BOOT_MODULE = f"{VA_LIVE_SUITE_DIR}/test_chain_boot.py"
 _COLLECTED_FLOOR_RE = re.compile(r"^MIN_COLLECTED_TESTS = (\d+)$", re.MULTILINE)
-_CHAIN_BOOT_FLOOR_GUARD = "len(collected) >= MIN_COLLECTED_TESTS"
+_CHAIN_BOOT_FLOOR_GUARD = "assert_module_collected(request, __file__, MIN_COLLECTED_TESTS)"
 
 
 def test_chain_boot_suite_runs_in_the_va_live_run_step(

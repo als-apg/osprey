@@ -25,4 +25,4 @@ def assert_module_collected(request: pytest.FixtureRequest, module: str, minimum
         item for item in request.session.items if item.nodeid.split("::")[0].endswith(name)
     ]
 
-    assert len(collected) >= minimum
+    assert len(collected) >= minimum, f"{name} collected {len(collected)} tests, floor is {minimum}"
