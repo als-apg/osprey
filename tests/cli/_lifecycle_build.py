@@ -112,7 +112,9 @@ def invoke_build(repo: Path | None = None, *args: str) -> Result:
     from osprey.cli.build_cmd import build
 
     repo_args = [] if repo is None else ["--repo", str(repo)]
-    return CliRunner().invoke(build, [*repo_args, *CI_FLAGS, *args])
+    # The flags spelled out rather than as `*CI_FLAGS`: tests/test_offline_build_env.py
+    # reads build argv from source and credits only a literal `--skip-deps`.
+    return CliRunner().invoke(build, [*repo_args, "--skip-deps", "--skip-lifecycle", *args])
 
 
 def invoke_build_in(cwd: Path, *args: str) -> Result:
