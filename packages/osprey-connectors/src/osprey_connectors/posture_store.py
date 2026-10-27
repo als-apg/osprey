@@ -162,7 +162,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import (
@@ -172,6 +172,9 @@ from osprey_connectors.types import (
     type_writes_enabled,
 )
 from osprey_connectors.workspace import resolve_shared_data_root
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_context import ControlContext
 
 logger = logging.getLogger("osprey_connectors.posture_store")
 
@@ -185,6 +188,7 @@ __all__ = [
     "LAUNCH_POSTURE_ALL_TARGETS",
     "LAUNCH_POSTURE_ENV_VAR",
     "NO_OWNER",
+    "OwnerContext",
     "POSTURE_SANDBOX",
     "POSTURE_WRITES",
     "RESERVED_OWNER_KWARG",
@@ -202,6 +206,7 @@ __all__ = [
     "launch_narrowed_target",
     "launch_permits",
     "launch_posture_stamp",
+    "owner_context",
     "parse_launch_posture",
     "parse_posture_value",
     "record_verdict_detail",
@@ -771,6 +776,22 @@ class _TreeRead(NamedTuple):
     unavailable: str | None
 
 
+class _TreeRecordRead(NamedTuple):
+    """One full read of one owner's record: the :class:`_TreeRead` fields and the record.
+
+    Attributes:
+        narrowed: As :attr:`_TreeRead.narrowed`.
+        unavailable: As :attr:`_TreeRead.unavailable`.
+        record: The parsed record as it is on disk, or ``None`` when there is
+            none — an absent record, or any read that set *unavailable*. Never
+            set beside *unavailable*: a record that was half-read is not one.
+    """
+
+    narrowed: dict[str, str]
+    unavailable: str | None
+    record: ControlContext | None = None
+
+
 def _tree_unprovisioned(tree: Path, why: str) -> str:
     """The remedy for a tree that was never built: *why* names how it shows."""
     return (
@@ -902,6 +923,18 @@ def _read_no_follow(path: Path) -> str:
 
 
 def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
+    """*owner*'s narrowings out of the read-only *tree*, with the reason when there are none.
+
+    The two-field spelling of :func:`_read_tree_full`, for the verdict readers
+    that need the narrowing and not the record it came from. One read backs
+    both, so the narrowing a verdict reports and the record :func:`owner_context`
+    hands back cannot come from two different files.
+    """
+    full = _read_tree_full(tree, owner)
+    return _TreeRead(full.narrowed, full.unavailable)
+
+
+def _read_tree_full(tree: Path, owner: str) -> _TreeRecordRead:
     """*owner*'s record out of the read-only *tree*, with the reason when there is none.
 
     The reader a container uses when it holds the whole tree and no chip of its
@@ -947,27 +980,29 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
             ceiling alone and reads no record.
 
     Returns:
-        A :class:`_TreeRead`. Never raises: this is read on a write path.
+        A :class:`_TreeRecordRead`. Never raises: this is read on a write path.
     """
     if not tree.is_dir():
-        return _TreeRead({}, _tree_unprovisioned(tree, "does not exist"))
+        return _TreeRecordRead({}, _tree_unprovisioned(tree, "does not exist"))
     if not os.access(tree, os.R_OK | os.X_OK):
-        return _TreeRead({}, _tree_unreadable(tree))
+        return _TreeRecordRead({}, _tree_unreadable(tree))
 
     marker = tree / CONTROL_TREE_MARKER_NAME
     try:
         marker_mode = os.lstat(marker).st_mode
     except FileNotFoundError:
-        return _TreeRead({}, _tree_unprovisioned(tree, f"carries no {CONTROL_TREE_MARKER_NAME}"))
+        return _TreeRecordRead(
+            {}, _tree_unprovisioned(tree, f"carries no {CONTROL_TREE_MARKER_NAME}")
+        )
     except OSError:
-        return _TreeRead({}, _tree_unreadable(tree))
+        return _TreeRecordRead({}, _tree_unreadable(tree))
     if stat.S_ISLNK(marker_mode):
         # A link here would let any account in the tree's group declare an
         # unbuilt tree provisioned, which is the fail-open this marker exists
         # to close.
-        return _TreeRead({}, _tree_planted_link(marker, "tree marker"))
+        return _TreeRecordRead({}, _tree_planted_link(marker, "tree marker"))
     if not stat.S_ISREG(marker_mode):
-        return _TreeRead(
+        return _TreeRecordRead(
             {},
             _tree_unprovisioned(tree, f"carries a {CONTROL_TREE_MARKER_NAME} that is not a file"),
         )
@@ -977,7 +1012,7 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
     # arrived on a queue item, and a name nobody can look up is a lookup that
     # did not happen rather than a lookup that found nothing.
     if not isinstance(owner, str) or owner.strip() in {"", ".", ".."} or _TREE_UNSAFE & set(owner):
-        return _TreeRead(
+        return _TreeRecordRead(
             {},
             f"the owner {owner!r} is not a name the control-context tree can hold, "
             "so no narrowing can be read for it — the owner a plan carries must be "
@@ -995,43 +1030,45 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
     except FileNotFoundError:
         # The one absence that is an answer: nobody narrowed anything for this
         # owner, and a missing ``<owner>/`` directory says exactly that.
-        return _TreeRead({}, None)
+        return _TreeRecordRead({}, None)
     except OSError:
         logger.debug("Could not stat the control-context directory %s", owner_dir, exc_info=True)
-        return _TreeRead({}, _tree_unreadable(tree))
+        return _TreeRecordRead({}, _tree_unreadable(tree))
     if stat.S_ISLNK(owner_mode):
         # ``O_NOFOLLOW`` on the record below guards its last component only, so
         # the directory above it is checked here: a link at this level redirects
         # the read just as effectively.
-        return _TreeRead({}, _tree_planted_link(owner_dir, "directory"))
+        return _TreeRecordRead({}, _tree_planted_link(owner_dir, "directory"))
 
     record_file = owner_dir / control_context.RECORD_FILENAME
     try:
         record = control_context.parse_record(_read_no_follow(record_file))
     except FileNotFoundError:
         # No record for this owner: the same answer as no directory.
-        return _TreeRead({}, None)
+        return _TreeRecordRead({}, None)
     except Exception as exc:  # every failure here REFUSES
         # Blanket on purpose, and the opposite of the one this reader avoids:
         # an unexpected failure on a present record leaves a narrowing that may
         # exist unread, so it answers unavailable rather than permitted.
         logger.debug("Could not read the control-context record at %s", record_file, exc_info=True)
         if getattr(exc, "errno", None) == errno.ELOOP:
-            return _TreeRead({}, _tree_planted_link(record_file, "record"))
+            return _TreeRecordRead({}, _tree_planted_link(record_file, "record"))
         if getattr(exc, "errno", None) == errno.EFBIG:
             # Asked by name for the same reason the planted link is: the size
             # bound refuses a file whose mode and group are beyond reproach, so
             # the generic remedy points at two things an operator then finds
             # correct.
-            return _TreeRead({}, _tree_record_oversized(record_file))
+            return _TreeRecordRead({}, _tree_record_oversized(record_file))
         detail = getattr(exc, "strerror", None) or type(exc).__name__
-        return _TreeRead({}, _tree_record_unreadable(record_file, f"could not be read ({detail})"))
+        return _TreeRecordRead(
+            {}, _tree_record_unreadable(record_file, f"could not be read ({detail})")
+        )
     if record is None:
-        return _TreeRead(
+        return _TreeRecordRead(
             {},
             _tree_record_unreadable(record_file, "is not a record this version can read"),
         )
-    return _TreeRead(dict(record.posture), None)
+    return _TreeRecordRead(dict(record.posture), None, record)
 
 
 # -- the launch-time pin ----------------------------------------------------
@@ -1295,6 +1332,96 @@ def record_verdict_detail(
     if _permits(narrowed, target):
         return StoreVerdictDetail(StoreVerdict.PERMITTED, None)
     return StoreVerdictDetail(StoreVerdict.NARROWING, None)
+
+
+class OwnerContext(NamedTuple):
+    """One owner's control context and the record verdict, from one read.
+
+    Attributes:
+        record: The owner's record after
+            :func:`~osprey_connectors.control_context.claimed` against the
+            caller's baseline, or ``None`` when there is none — an owner who has
+            narrowed and switched nothing, or a read that refused. A caller
+            compares its own target against ``record.target`` and refuses a
+            mismatch; ``None`` means the owner follows the baseline.
+        detail: The record verdict for the caller's target, decided from the
+            same bytes the record was parsed from.
+    """
+
+    record: ControlContext | None
+    detail: StoreVerdictDetail
+
+
+def _tree_unbound() -> str:
+    """The remedy for a process that asks for an owner's record and holds no tree."""
+    return (
+        f"{CONTROL_CONTEXT_TREE_ENV_VAR} is not set, so no owner's control-context "
+        "record can be read here — bind the read-only control-context tree into "
+        "this service"
+    )
+
+
+def owner_context(owner: str, target: str | None, *, baseline: str) -> OwnerContext:
+    """*owner*'s record out of the read-only tree and its verdict for *target*.
+
+    For a service that admits work on somebody else's behalf and has to ask
+    both which target that person's record names and whether it narrows the
+    service's own: two reads could answer those from two different files, so
+    both come out of one no-follow read through :func:`_read_tree_full`, the
+    same read :func:`record_verdict_detail` decides from.
+
+    It fails CLOSED everywhere :func:`record_verdict_detail` has a way out,
+    because the caller is a service writing for a person it is not:
+
+    * no tree bound answers ``control_context_unavailable`` — never the host
+      record, which is this process's own and not *owner*'s;
+    * an owner that is not a name — :data:`NO_OWNER` included — answers
+      ``control_context_unavailable``: a service acting for nobody has nobody
+      whose record it could read.
+
+    Args:
+        owner: Whose record to read — one path segment, minted by the door that
+            admitted the request.
+        target: The control target the caller writes, or ``None`` for the most
+            restrictive narrowing.
+        baseline: The deployment's baseline target. An unswitched record
+            (generation 0) follows it; a switched one is returned as it is.
+
+    Returns:
+        An :class:`OwnerContext`. Never raises.
+    """
+    if not isinstance(owner, str):
+        reason = _owner_is_not_a_name(owner)
+        logger.warning("Owner context cannot be looked up: %s; refusing", reason)
+        return OwnerContext(
+            None, StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
+        )
+
+    tree = _control_context_tree()
+    if tree is None:
+        reason = _tree_bind_unusable() if _tree_is_bound() else _tree_unbound()
+        logger.warning("Owner context unreadable for %r: %s", owner, reason)
+        return OwnerContext(
+            None, StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, reason)
+        )
+
+    read = _read_tree_full(tree, owner)
+    if read.unavailable is not None:
+        logger.warning("Owner context unreadable for %r: %s", owner, read.unavailable)
+        return OwnerContext(
+            None,
+            StoreVerdictDetail(StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE, read.unavailable),
+        )
+
+    record = read.record
+    if record is not None:
+        # Imported here for the reason the tree reader gives: the two modules
+        # must not import each other at load time.
+        from osprey_connectors.control_context import claimed
+
+        record = claimed(record, baseline)
+    verdict = StoreVerdict.PERMITTED if _permits(read.narrowed, target) else StoreVerdict.NARROWING
+    return OwnerContext(record, StoreVerdictDetail(verdict, None))
 
 
 def store_verdict_detail(
