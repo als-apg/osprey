@@ -147,6 +147,8 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
       **Requirements:** Ollama (or another embedding provider) running with the configured model, embedding table populated via the ``text_embedding`` :ref:`enhancement module <Enhancement Pipeline>`, and the pgvector extension installed in PostgreSQL.
 
+      A configuration that enables semantic search on a database with no embedding table for its model is refused on every search, and the refusal names the command that creates the table; the MCP server, the web interface and ``osprey ariel status`` report it at start.
+
    .. tab-item:: hybrid (qmd sidecar)
 
       **Module:** ``search/qmd.py``
