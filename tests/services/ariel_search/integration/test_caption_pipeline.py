@@ -39,7 +39,7 @@ from osprey.services.ariel_search.enhancement.qmd_export.writer import mirror_pa
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search.keyword import keyword_search
-from tests.services.ariel_search.integration._support import fake_prepare
+from tests.services.ariel_search.integration._support import fake_prepare, migrated_repository
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -196,17 +196,9 @@ def _isolated(monkeypatch):
 @pytest.fixture
 async def repo(scratch_database):
     """An ``ARIELRepository`` on a fresh scratch database at today's schema."""
-    from osprey.services.ariel_search.database import ARIELRepository
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
     cfg = ARIELConfig.from_dict(_config_dict(scratch_database))
-    pool = await create_connection_pool(cfg.database)
-    try:
-        await run_migrations(pool, cfg)
-        yield ARIELRepository(pool, cfg)
-    finally:
-        await pool.close()
+    async with migrated_repository(cfg) as repository:
+        yield repository
 
 
 def _vision(monkeypatch, fake: _FakeVision) -> _FakeVision:

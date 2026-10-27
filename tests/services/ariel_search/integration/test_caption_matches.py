@@ -12,7 +12,6 @@ test runs on a fresh scratch database.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -43,18 +42,9 @@ OTHER_MODEL = "vis-b"
 
 
 @pytest.fixture
-async def repo(scratch_database: str) -> AsyncIterator[ARIELRepository]:
+def repo(scratch_repo: ARIELRepository) -> ARIELRepository:
     """A repository over a freshly migrated scratch database."""
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    config = ARIELConfig.from_dict({"database": {"uri": scratch_database}})
-    pool = await create_connection_pool(config.database)
-    try:
-        await run_migrations(pool, config)
-        yield ARIELRepository(pool, config)
-    finally:
-        await pool.close()
+    return scratch_repo
 
 
 def _seed(

@@ -11,13 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
 from typing import Any
 
 import psycopg
 import pytest
 
-from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import (
     IMAGE_MARK_BATCH_SIZE,
     ARIELRepository,
@@ -37,18 +35,9 @@ RENDITION = CopyRendition(data=b"png", mime_type="image/png", width=1, height=1,
 
 
 @pytest.fixture
-async def repo(scratch_database: str) -> AsyncIterator[ARIELRepository]:
+def repo(scratch_repo: ARIELRepository) -> ARIELRepository:
     """A repository over a freshly migrated scratch database."""
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    config = ARIELConfig.from_dict({"database": {"uri": scratch_database}})
-    pool = await create_connection_pool(config.database)
-    try:
-        await run_migrations(pool, config)
-        yield ARIELRepository(pool, config)
-    finally:
-        await pool.close()
+    return scratch_repo
 
 
 def _seed(

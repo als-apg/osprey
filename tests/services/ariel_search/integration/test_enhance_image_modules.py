@@ -35,6 +35,7 @@ from osprey.services.ariel_search.enhancement.image_embedding.module import Imag
 from osprey.services.ariel_search.enhancement.vision_errors import EmptyReplyError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
+from tests.services.ariel_search.integration._support import migrated_repository
 from tests.services.ariel_search.llama_stub import MODEL as LLAMA_MODEL
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -192,17 +193,9 @@ def stub(llama_stub):
 @pytest.fixture
 async def repo(scratch_database, stub):
     """An ``ARIELRepository`` on a fresh scratch database, the image table migrated."""
-    from osprey.services.ariel_search.database import ARIELRepository
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
     cfg = ARIELConfig.from_dict(_config_dict(scratch_database, embed_url=stub.url, caption=True))
-    pool = await create_connection_pool(cfg.database)
-    try:
-        await run_migrations(pool, cfg)
-        yield ARIELRepository(pool, cfg)
-    finally:
-        await pool.close()
+    async with migrated_repository(cfg) as repository:
+        yield repository
 
 
 # --- the drain of image_embedding ----------------------------------------------------

@@ -17,8 +17,11 @@ import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.attachments.fetch import FetchOutcome
-from osprey.services.ariel_search.config import ARIELConfig
-from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA, fake_prepare
+from tests.services.ariel_search.integration._support import (
+    FAKE_RENDITION_SHA,
+    fake_prepare,
+    migrate,
+)
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -56,19 +59,6 @@ def _config_dict(uri: str, source: Path) -> dict[str, Any]:
     }
 
 
-async def _migrate(config_dict: dict[str, Any]) -> None:
-    """Bring the scratch database to today's schema, as ``osprey ariel migrate`` does."""
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    config = ARIELConfig.from_dict(json.loads(json.dumps(config_dict)))
-    pool = await create_connection_pool(config.database)
-    try:
-        await run_migrations(pool, config)
-    finally:
-        await pool.close()
-
-
 def _copy_rows(uri: str) -> list[dict[str, Any]]:
     with psycopg.connect(uri) as conn:
         rows = conn.execute(
@@ -96,7 +86,7 @@ class TestRunIngestCopies:
     ):
         fake_prepare(monkeypatch)
         attachment_fetch.respond(FetchOutcome(data=PNG_MAGIC))
-        await _migrate(_config_dict(scratch_database, als_source))
+        await migrate(_config_dict(scratch_database, als_source))
 
         out = await ops.run_ingest(
             _config_dict(scratch_database, als_source),

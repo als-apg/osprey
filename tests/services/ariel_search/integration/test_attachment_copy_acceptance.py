@@ -30,7 +30,7 @@ from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from tests.services.ariel_search.integration._support import FAKE_RENDITION_SHA as RENDITION_SHA
-from tests.services.ariel_search.integration._support import fake_prepare
+from tests.services.ariel_search.integration._support import fake_prepare, migrate
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
 # run has a single testcontainers session and the shared database is serialized.
@@ -227,34 +227,6 @@ def _sleepy(seconds: float):
     return _fetch
 
 
-@pytest.fixture
-async def scratch_repo(scratch_database):
-    """An ``ARIELRepository`` on a fresh scratch database at today's schema."""
-    from osprey.services.ariel_search.database import ARIELRepository
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    cfg = ARIELConfig.from_dict({"database": {"uri": scratch_database}})
-    pool = await create_connection_pool(cfg.database)
-    try:
-        await run_migrations(pool, cfg)
-        yield ARIELRepository(pool, cfg)
-    finally:
-        await pool.close()
-
-
-async def _migrate(config_dict: dict) -> None:
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    config = ARIELConfig.from_dict(json.loads(json.dumps(config_dict)))
-    pool = await create_connection_pool(config.database)
-    try:
-        await run_migrations(pool, config)
-    finally:
-        await pool.close()
-
-
 def _sync_rows(uri: str, entry_id: str) -> list[tuple]:
     with psycopg.connect(uri) as conn:
         return conn.execute(
@@ -299,7 +271,7 @@ class TestReIngest:
             "database": {"uri": scratch_database},
             "ingestion": {"adapter": "als_logbook", "source_url": str(source)},
         }
-        await _migrate(config_dict)
+        await migrate(config_dict)
 
         async def _run():
             return await ops.run_ingest(
@@ -387,7 +359,7 @@ class TestReIngest:
             "database": {"uri": scratch_database},
             "ingestion": {"adapter": "generic_json", "source_url": str(source)},
         }
-        await _migrate(config_dict)
+        await migrate(config_dict)
 
         async def _run():
             return await ops.run_ingest(

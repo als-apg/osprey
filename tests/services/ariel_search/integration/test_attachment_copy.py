@@ -938,22 +938,6 @@ class TestPollCopyRetryStep:
 BACKFILL_BASE = datetime(2026, 9, 1, tzinfo=UTC)
 
 
-@pytest.fixture
-async def scratch_repo(scratch_database):
-    """An ``ARIELRepository`` on a fresh scratch database at today's schema."""
-    from osprey.services.ariel_search.database import ARIELRepository
-    from osprey.services.ariel_search.database.connection import create_connection_pool
-    from osprey.services.ariel_search.database.migrations import run_migrations
-
-    cfg = ARIELConfig.from_dict({"database": {"uri": scratch_database}})
-    pool = await create_connection_pool(cfg.database)
-    try:
-        await run_migrations(pool, cfg)
-        yield ARIELRepository(pool, cfg)
-    finally:
-        await pool.close()
-
-
 async def _seed_at(repository, entry_id: str, attachments: list, *, minutes: int) -> None:
     async with repository.pool.connection() as conn:
         await conn.execute(
