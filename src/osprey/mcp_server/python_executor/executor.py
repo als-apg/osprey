@@ -361,18 +361,18 @@ def resolve_protected_roots(
       that the next run reads its own permissions out of lives here.
     * The **profile source set** (:data:`PROFILE_SOURCE_ENTRIES`) — what the
       build reads to produce that render.
-    * The **audit ledger** (``var/audit``), the record of what was refused. Of
-      the two directories in ``STATE_ZONE_DIRS`` this is the one the agent does
-      not own: ``var/agent_data`` is its workspace and comes back as a
-      *permitted* root below, while the ledger is written only by the parent
-      process (``osprey.audit.writer``, called from the MCP tool layer) and
-      never by the child. A run that could rewrite it could
-      erase the evidence of its own refusal.
-    * The **agent-record roots** (``var/spool``, ``var/agent_record`` and
-      ``var/state``): the spool the record is ingested from, the embedded
-      record itself, and the per-container state that holds the sidecar's
-      revocations. Like the ledger, each is written by OSPREY processes and
-      never by executed code, which could otherwise forge or erase entries.
+    * The **pre-upgrade audit tree**
+      (:data:`~osprey_connectors.workspace.PRE_UPGRADE_AUDIT_RELPATH`), the
+      ledger a deployment kept before the agent record. Nothing writes it any
+      more, and it stays protected: a run that could rewrite it could erase or
+      forge the evidence of what an earlier agent was refused.
+    * The **agent-record roots** (``var/spool``, ``var/agent_record``,
+      ``var/state`` and ``var/archive``): the spool the record is ingested
+      from, the embedded record itself, the per-container state that holds the
+      sidecar's revocations, and the archive — the lasting half of the audit
+      trail, holding the same facts as the record. Each is written by OSPREY
+      processes and never by executed code, which could
+      otherwise forge or erase entries.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to
@@ -392,8 +392,9 @@ def resolve_protected_roots(
         gets these as literals and never re-derives them.
     """
     from osprey_connectors.workspace import (
-        AUDIT_DIR_RELPATH,
+        ARCHIVE_DIR_RELPATH,
         BUILD_DIR_NAME,
+        PRE_UPGRADE_AUDIT_RELPATH,
         RECORD_DIR_RELPATH,
         SPOOL_DIR_RELPATH,
         STATE_DIR_RELPATH,
@@ -404,10 +405,11 @@ def resolve_protected_roots(
 
     candidates = [
         root / BUILD_DIR_NAME,
-        root / AUDIT_DIR_RELPATH,
+        root / PRE_UPGRADE_AUDIT_RELPATH,
         root / SPOOL_DIR_RELPATH,
         root / RECORD_DIR_RELPATH,
         root / STATE_DIR_RELPATH,
+        root / ARCHIVE_DIR_RELPATH,
     ]
     candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
     return tuple(dict.fromkeys(path.resolve() for path in candidates))

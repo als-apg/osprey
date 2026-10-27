@@ -1,11 +1,12 @@
 """Executed python code cannot write under the agent-record roots.
 
 ``var/spool`` (what the record is ingested from), ``var/agent_record`` (the
-embedded record) and ``var/state`` (per-container state, the sidecar's
-revocations among it) are written by OSPREY processes only. Executed code that
-could write there could forge or erase record entries, so each is a protected
-root, refused by both layers: the static path policy before the run, and the
-runtime filesystem guard inside the child.
+embedded record), ``var/state`` (per-container state, the sidecar's
+revocations among it) and ``var/archive`` (the lasting half of the audit
+trail, holding the same facts as the record) are written by OSPREY processes
+only. Executed code that could write there could forge or erase record
+entries, so each is a protected root, refused by both layers: the static path
+policy before the run, and the runtime filesystem guard inside the child.
 """
 
 from __future__ import annotations
@@ -24,18 +25,30 @@ from osprey.mcp_server.python_executor.executor import (
 from osprey.services.python_executor.execution.path_policy import path_policy_issues
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey_connectors.workspace import (
+    ARCHIVE_DIR_RELPATH,
+    BUILD_DIR_NAME,
     RECORD_DIR_RELPATH,
     SPOOL_DIR_RELPATH,
     STATE_DIR_RELPATH,
 )
 
-RECORD_ROOTS = (SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, STATE_DIR_RELPATH)
+RECORD_ROOTS = (SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, STATE_DIR_RELPATH, ARCHIVE_DIR_RELPATH)
+
+# The deployment repo root inside the container; the same resolver anchors on it.
+CONTAINER_PROJECT_ROOT = Path("/app/demo")
 
 
 def test_relpaths_are_under_the_state_zone():
     assert SPOOL_DIR_RELPATH == "var/spool"
     assert RECORD_DIR_RELPATH == "var/agent_record"
     assert STATE_DIR_RELPATH == "var/state"
+    assert ARCHIVE_DIR_RELPATH == "var/archive"
+
+
+def test_existing_roots_stay_protected(repo: Path):
+    protected = resolve_protected_roots(repo)
+    for relpath in (BUILD_DIR_NAME, SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, STATE_DIR_RELPATH):
+        assert (repo / relpath).resolve() in protected
 
 
 @pytest.fixture
@@ -68,6 +81,25 @@ def test_static_policy_refuses_a_write(repo: Path, relpath: str):
         f"open({str(target)!r}, 'a').write('x')",
         protected_roots=resolve_protected_roots(repo),
         permitted_roots=resolve_permitted_roots(repo, {}),
+    )
+    assert len(issues) == 1
+    assert relpath in issues[0]
+
+
+@pytest.mark.parametrize("relpath", RECORD_ROOTS)
+def test_container_root_is_protected(relpath: str):
+    root = CONTAINER_PROJECT_ROOT.resolve()
+    assert (root / relpath).resolve() in resolve_protected_roots(root)
+
+
+@pytest.mark.parametrize("relpath", RECORD_ROOTS)
+def test_static_policy_refuses_a_container_write(relpath: str):
+    root = CONTAINER_PROJECT_ROOT.resolve()
+    target = root / relpath / "alice" / "forged.jsonl"
+    issues = path_policy_issues(
+        f"open({str(target)!r}, 'a').write('x')",
+        protected_roots=resolve_protected_roots(root),
+        permitted_roots=resolve_permitted_roots(root, {}),
     )
     assert len(issues) == 1
     assert relpath in issues[0]
