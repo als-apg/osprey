@@ -12,6 +12,7 @@ Usage in tools:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -59,6 +60,7 @@ class ARIELContext:
         self._config_path: Path = Path.cwd() / "config.yml"
         self._ariel_config: Any = None  # ARIELConfig
         self._service: ARIELSearchService | None = None
+        self._service_lock = asyncio.Lock()
         self._initialized = False
 
     def initialize(self) -> None:
@@ -160,11 +162,12 @@ class ARIELContext:
         )
 
     @staticmethod
-    def _refuse(error: ConfigurationError) -> ConfigurationError:
-        """Log a startup refusal and hand the exception back to be raised.
+    def _refuse(error: ConfigurationError, *, refused: str = "start") -> ConfigurationError:
+        """Log a refusal and hand the exception back to be raised.
 
         Args:
             error: The ``ConfigurationError`` (or subclass) about to be raised.
+            refused: What the server refuses to do, completing "refusing to …".
 
         Returns:
             The same exception, so the caller can ``raise`` it.
@@ -172,7 +175,9 @@ class ARIELContext:
         remedy = getattr(error, "remedy", "fix the named key in config.yml and restart")
         # Every validate() message already leads with its own dotted key, so the
         # key is not repeated here.
-        logger.error("ARIEL MCP server refusing to start: %s. Remedy: %s", error.message, remedy)
+        logger.error(
+            "ARIEL MCP server refusing to %s: %s. Remedy: %s", refused, error.message, remedy
+        )
         return error
 
     @property
@@ -195,19 +200,48 @@ class ARIELContext:
         """Get or create the cached ARIEL search service.
 
         The service (and its DB pool) is created lazily on first call
-        and reused for all subsequent calls.
+        and reused for all subsequent calls. Concurrent first calls build
+        one service.
+
+        Raises:
+            ToolError: A ``service_unavailable`` refusal carrying the message of
+                the ``ConfigurationError`` the probe raised: semantic search is
+                enabled for a model whose embedding table the database lacks.
+                Nothing is cached, so the next call probes again.
+            DatabaseQueryError: The database could not be asked for the table.
         """
         if self._service is not None:
             return self._service
 
+        from osprey.mcp_server.errors import make_error
+        from osprey.services.ariel_search.exceptions import ConfigurationError
         from osprey.services.ariel_search.service import create_ariel_service
 
-        # Call directly — NOT as context manager. shutdown() closes it.
-        # This server registers sql_query, the read-only pool's one consumer,
-        # so its build is the one that opens that pool.
-        self._service = await create_ariel_service(self.config, serves_sql_tool=True)
-        logger.info("ARIELContext: created ARIEL service")
-        return self._service
+        async with self._service_lock:
+            if self._service is not None:
+                return self._service
+
+            # Call directly — NOT as context manager. shutdown() closes it.
+            # This server registers sql_query, the read-only pool's one
+            # consumer, so its build is the one that opens that pool.
+            service = await create_ariel_service(self.config, serves_sql_tool=True)
+            try:
+                await service.verify_search_model_table()
+            except BaseException as error:
+                # Only a service whose probe passed is kept, so no pool or
+                # search-call thread outlives a failed open.
+                try:
+                    await service.aclose()
+                except Exception:
+                    logger.debug("Error closing unopened ARIEL service (ignored)", exc_info=True)
+                if isinstance(error, ConfigurationError):
+                    ARIELContext._refuse(error, refused="open the ARIEL service")
+                    remedy = getattr(error, "remedy", None)
+                    make_error("service_unavailable", error.message, [remedy] if remedy else [])
+                raise
+            self._service = service
+            logger.info("ARIELContext: created ARIEL service")
+            return self._service
 
     async def shutdown(self) -> None:
         """Close the service. Called on server shutdown.
