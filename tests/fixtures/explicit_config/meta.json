@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "8b0d1a153e1b60dccf35be7445a03e4ac7a0e2d9",
-  "baseline_sha": "8b0d1a153e1b60dccf35be7445a03e4ac7a0e2d9",
+  "baseline_commit": "a138d45649ccdc1eba71da05f3b1703ccce0e478",
+  "baseline_sha": "a138d45649ccdc1eba71da05f3b1703ccce0e478",
   "cells": [
     "hello-world/unset",
     "control-assistant/in_context",
@@ -11,7 +11,7 @@
   ],
   "completeness": {
     "control-assistant/graph": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 24,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -31,7 +31,7 @@
       ]
     },
     "control-assistant/hierarchical": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 24,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -51,7 +51,7 @@
       ]
     },
     "control-assistant/in_context": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 24,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -71,7 +71,7 @@
       ]
     },
     "control-assistant/middle_layer": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 24,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -91,14 +91,14 @@
       ]
     },
     "hello-world/unset": {
-      "build_configs_checked": 4,
+      "build_configs_checked": 2,
       "documents": [
         "root.yml"
       ],
       "renders": []
     }
   },
-  "external_source": false,
+  "external_source": true,
   "masked_keys": {
     "replaced": {
       "api.providers": "sorted list of provider names, in place of the catalog mapping"
