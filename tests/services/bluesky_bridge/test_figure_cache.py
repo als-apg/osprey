@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from osprey.services.bluesky_bridge import document_plane, figure_cache, live_rows
 from osprey.services.bluesky_bridge.document_plane import RunDocumentRouter
 from osprey.services.bluesky_bridge.queue_backend import PLAN_META_KEY, RUN_ID_META_KEY
@@ -367,7 +369,9 @@ def test_a_start_document_leaves_other_run_ids_cached() -> None:
     assert figure_cache.get(_key(run_id="run-2")) == "untouched"
 
 
-def test_the_rows_are_already_the_new_runs_when_the_generation_is_bumped() -> None:
+def test_the_rows_are_already_the_new_runs_when_the_generation_is_bumped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ordering: eviction runs after the recorder write, not before it.
 
     A figure computation that snapshots the post-bump generation must be reading
@@ -396,12 +400,8 @@ def test_the_rows_are_already_the_new_runs_when_the_generation_is_bumped() -> No
                 observed.append(live_rows.get("run-1")["total_seen"])
 
     before = figure_cache.snapshot_generation("run-1")
-    original = document_plane.LiveRowRecorder
-    document_plane.LiveRowRecorder = _WatchingRecorder  # type: ignore[misc]
-    try:
-        router("start", _start_doc("uid-2"))
-    finally:
-        document_plane.LiveRowRecorder = original  # type: ignore[misc]
+    monkeypatch.setattr(document_plane, "LiveRowRecorder", _WatchingRecorder)
+    router("start", _start_doc("uid-2"))
 
     # Buffer already reset while the generation was still the old one, so the
     # bump strictly follows the row reset.
@@ -409,7 +409,7 @@ def test_the_rows_are_already_the_new_runs_when_the_generation_is_bumped() -> No
     assert figure_cache.snapshot_generation("run-1") == before + 1
 
 
-def test_the_eviction_hook_never_holds_both_locks() -> None:
+def test_the_eviction_hook_never_holds_both_locks(monkeypatch: pytest.MonkeyPatch) -> None:
     """`live_rows`' lock is free while the cache's is held, and vice versa.
 
     The two locks are never nested in either order, so there is no ordering for
@@ -426,13 +426,9 @@ def test_the_eviction_hook_never_holds_both_locks() -> None:
                 live_rows._lock.release()
         original_evict(run_id)
 
-    figure_cache.evict = watching_evict  # type: ignore[assignment]
-    document_plane.figure_cache.evict = watching_evict  # type: ignore[assignment]
-    try:
-        RunDocumentRouter()("start", _start_doc("uid-1"))
-    finally:
-        figure_cache.evict = original_evict  # type: ignore[assignment]
-        document_plane.figure_cache.evict = original_evict  # type: ignore[assignment]
+    monkeypatch.setattr(figure_cache, "evict", watching_evict)
+    monkeypatch.setattr(document_plane.figure_cache, "evict", watching_evict)
+    RunDocumentRouter()("start", _start_doc("uid-1"))
 
     assert held == [True], "live_rows' lock was still held when the cache's was taken"
 
