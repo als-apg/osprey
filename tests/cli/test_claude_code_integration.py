@@ -6,7 +6,6 @@ Tests that ``osprey build`` generates Claude Code integration files
 
 import json
 import os
-from pathlib import Path
 
 import pytest
 import yaml
@@ -25,30 +24,7 @@ from osprey_connectors.workspace import (
     resolve_shared_data_root,
 )
 from tests._preset_data import bundle_data_root
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the manifest stamp a real build writes next.
-
-    A build stamps ``.osprey-manifest.json`` immediately after the render, and
-    the Claude Code regen reads the preset back out of it to learn which
-    artifacts the project selected. A fixture that renders without stamping is
-    not a project any build produces: it regenerates with an empty artifact
-    selection, and the write-gate lint rightly refuses the result.
-    """
-    project = manager.create_project(**kwargs)
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    manager.generate_manifest(
-        project,
-        kwargs["project_name"],
-        bundle.replace("_", "-"),
-        {},
-        # The selection the render was made with, exactly as a build stamps it:
-        # a site that hands `create_project` its own `artifacts=` must get that
-        # selection back on the regen, not the bundle's full list.
-        artifacts=manager._effective_artifacts(bundle, kwargs.get("artifacts")),
-    )
-    return project
+from tests.cli._template_projects import create_project_with_manifest
 
 
 def _init_and_build(runner: CliRunner, repo_dir):
@@ -70,7 +46,7 @@ class TestAgentModelLine:
     def test_every_rendered_agent_runs_the_main_model(self, tmp_path):
         """With no pin, every agent runs the provider's default model."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="agent-model-test",
             output_dir=tmp_path,
@@ -87,7 +63,7 @@ class TestAgentModelLine:
     def test_no_provider_renders_no_model_line(self, tmp_path):
         """With no provider there is no main model, so no agent names one."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="agent-no-model-test",
             output_dir=tmp_path,
@@ -110,7 +86,7 @@ class TestClaudeCodeIntegrationDefault:
     def test_default_init_creates_all_claude_code_files(self, tmp_path):
         """Default init creates all Claude Code files."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="test-project",
             output_dir=tmp_path,
@@ -133,7 +109,7 @@ class TestClaudeCodeIntegrationDefault:
     def test_claude_code_always_generated(self, tmp_path):
         """Claude Code files are always generated (single mode)."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="always-claude-project",
             output_dir=tmp_path,
@@ -153,7 +129,7 @@ class TestClaudeCodeFileContents:
     @pytest.fixture()
     def project_dir(self, tmp_path):
         manager = TemplateManager()
-        return _create_project(
+        return create_project_with_manifest(
             manager,
             project_name="content-test",
             output_dir=tmp_path,
@@ -388,7 +364,7 @@ class TestClaudeCodeAcrossTemplates:
     def test_works_for_all_templates(self, tmp_path, data_bundle):
         """Claude Code files are generated for all data bundles."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=f"test-{data_bundle}",
             output_dir=tmp_path,
@@ -414,7 +390,7 @@ class TestClaudeCodeGitignore:
         ``var/agent_data``, so ignoring the zone root covers it.
         """
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="gitignore-test",
             output_dir=tmp_path,
@@ -495,7 +471,7 @@ class TestChannelFinderAgent:
     def test_control_assistant_generates_agent_file(self, tmp_path):
         """control_assistant template produces .claude/agents/channel-finder.md."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="agent-test",
             output_dir=tmp_path,
@@ -512,7 +488,7 @@ class TestChannelFinderAgent:
     def test_agent_has_correct_frontmatter(self, tmp_path):
         """Agent file has YAML frontmatter with name, description, maxTurns, mcpServers."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="frontmatter-test",
             output_dir=tmp_path,
@@ -535,7 +511,7 @@ class TestChannelFinderAgent:
     def test_agent_contains_pipeline_specific_tools(self, tmp_path):
         """Hierarchical mode includes cf_hier_* tools, not cf_ml_* or cf_ic_*."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="pipeline-test",
             output_dir=tmp_path,
@@ -553,7 +529,7 @@ class TestChannelFinderAgent:
     def test_middle_layer_pipeline_tools(self, tmp_path):
         """Middle layer mode includes ml tools, not hier or ic tools."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ml-pipeline-test",
             output_dir=tmp_path,
@@ -571,7 +547,7 @@ class TestChannelFinderAgent:
     def test_in_context_pipeline_tools(self, tmp_path):
         """In-context mode includes ic tools, not hier or ml tools."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ic-pipeline-test",
             output_dir=tmp_path,
@@ -590,7 +566,7 @@ class TestChannelFinderAgent:
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Channel-finder agent prompt includes submit_response instructions."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="cr-submit-test",
             output_dir=tmp_path,
@@ -607,7 +583,7 @@ class TestChannelFinderAgent:
         from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="cf-allow-test",
             output_dir=tmp_path,
@@ -626,7 +602,7 @@ class TestChannelFinderAgent:
     def test_channel_finder_in_mcp_json(self, tmp_path):
         """channel-finder MCP server IS in .mcp.json (project-level, not inline)."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="mcp-isolation-test",
             output_dir=tmp_path,
@@ -641,7 +617,7 @@ class TestChannelFinderAgent:
     def test_channel_finding_rule_not_generated(self, tmp_path):
         """Old channel_finding.md rule file is NOT generated."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="no-rule-test",
             output_dir=tmp_path,
@@ -733,7 +709,7 @@ class TestGraphParadigmRender:
 
     @staticmethod
     def _render(tmp_path, name):
-        return _create_project(
+        return create_project_with_manifest(
             TemplateManager(),
             project_name=name,
             output_dir=tmp_path,
@@ -772,7 +748,7 @@ class TestLogbookSearchAgent:
     def test_agent_file_generated(self, tmp_path):
         """All templates produce .claude/agents/logbook-search.md (unconditional)."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="logbook-test",
             output_dir=tmp_path,
@@ -788,7 +764,7 @@ class TestLogbookSearchAgent:
     def test_agent_has_correct_frontmatter(self, tmp_path):
         """Agent file has YAML frontmatter with name, description, disallowedTools."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="logbook-fm-test",
             output_dir=tmp_path,
@@ -806,7 +782,7 @@ class TestLogbookSearchAgent:
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Agent prompt includes submit_response instructions."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="logbook-submit-test",
             output_dir=tmp_path,
@@ -821,7 +797,7 @@ class TestLogbookSearchAgent:
     def test_task_allowed_in_settings(self, tmp_path):
         """Task(logbook-search) is in settings.json allow list."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="logbook-perm-test",
             output_dir=tmp_path,
@@ -838,7 +814,7 @@ class TestLogbookSearchAgent:
     def test_claude_md_has_delegation_instructions(self, tmp_path):
         """CLAUDE.md has logbook-search delegation instructions."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="logbook-claude-test",
             output_dir=tmp_path,
@@ -857,7 +833,7 @@ class TestLogbookDeepResearchAgent:
     def test_agent_file_generated(self, tmp_path):
         """All templates produce .claude/agents/logbook-deep-research.md."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="deep-research-test",
             output_dir=tmp_path,
@@ -873,7 +849,7 @@ class TestLogbookDeepResearchAgent:
     def test_agent_has_correct_frontmatter(self, tmp_path):
         """Agent file has correct YAML frontmatter."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="deep-research-fm-test",
             output_dir=tmp_path,
@@ -892,7 +868,7 @@ class TestLogbookDeepResearchAgent:
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Agent prompt includes submit_response instructions."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="deep-research-submit-test",
             output_dir=tmp_path,
@@ -907,7 +883,7 @@ class TestLogbookDeepResearchAgent:
     def test_task_allowed_in_settings(self, tmp_path):
         """Task(logbook-deep-research) is in settings.json allow list."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="deep-research-perm-test",
             output_dir=tmp_path,
@@ -921,7 +897,7 @@ class TestLogbookDeepResearchAgent:
     def test_claude_md_has_delegation_instructions(self, tmp_path):
         """CLAUDE.md mentions both agents with usage guidance."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="deep-research-claude-test",
             output_dir=tmp_path,
@@ -942,7 +918,7 @@ class TestNeverFabricateDataRule:
     def test_safety_md_has_fabrication_rule(self, tmp_path):
         """safety.md contains the data fabrication rule and cross-references error-handling.md."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="fabrication-safety-test",
             output_dir=tmp_path,
@@ -959,7 +935,7 @@ class TestNeverFabricateDataRule:
     def test_claude_md_references_data_integrity(self, tmp_path):
         """CLAUDE.md identity asserts data integrity."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="fabrication-claude-test",
             output_dir=tmp_path,
@@ -978,7 +954,7 @@ class TestChannelFinderAwareness:
     def test_claude_md_mentions_agent_upfront(self, tmp_path):
         """control_assistant CLAUDE.md has agent awareness in opening section."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="awareness-test",
             output_dir=tmp_path,
@@ -995,7 +971,7 @@ class TestChannelFinderAwareness:
     def test_claude_md_warns_no_direct_tools(self, tmp_path):
         """CLAUDE.md tells the main session it does NOT have channel-finder tools."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="no-direct-tools-test",
             output_dir=tmp_path,
@@ -1014,7 +990,7 @@ class TestUserOwnedSkipBehavior:
     def test_user_owned_skips_safety_on_regen(self, tmp_path):
         """Regen skips user-owned safety.md, preserving custom content."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="test-skip-safety",
             output_dir=tmp_path,
@@ -1043,7 +1019,7 @@ class TestUserOwnedSkipBehavior:
     def test_user_owned_skips_claude_md_on_regen(self, tmp_path):
         """Regen skips user-owned CLAUDE.md."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="test-skip-md",
             output_dir=tmp_path,
@@ -1070,7 +1046,7 @@ class TestUserOwnedSkipBehavior:
     def test_user_owned_skips_mcp_json_on_regen(self, tmp_path):
         """Regen skips user-owned .mcp.json."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="test-skip-mcp",
             output_dir=tmp_path,
@@ -1097,7 +1073,7 @@ class TestUserOwnedSkipBehavior:
     def test_no_user_owned_behaves_as_before(self, tmp_path):
         """A project without a prompts section renders unaffected."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="test-no-owned",
             output_dir=tmp_path,
@@ -1113,7 +1089,7 @@ class TestUserOwnedSkipBehavior:
     def test_claude_project_md_not_generated(self, tmp_path):
         """CLAUDE-project.md is NOT generated (retired)."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="no-project-md-test",
             output_dir=tmp_path,
@@ -1127,7 +1103,7 @@ class TestUserOwnedSkipBehavior:
     def test_no_overrides_directory_created(self, tmp_path):
         """Init does not create an overrides/ directory."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="no-overrides-dir",
             output_dir=tmp_path,
@@ -1152,7 +1128,7 @@ class TestProviderEnvBlock:
     def test_settings_json_has_no_env_block(self, tmp_path, provider):
         """settings.json must not have an 'env' block (runtime-injected now)."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=f"no-env-{provider}",
             output_dir=tmp_path,
@@ -1171,7 +1147,7 @@ class TestProviderEnvBlock:
     def test_settings_json_has_no_model_key(self, tmp_path, provider):
         """settings.json must not have a 'model' key (runtime-injected now)."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=f"no-model-{provider}",
             output_dir=tmp_path,
@@ -1191,7 +1167,7 @@ class TestProviderEnvBlock:
         import yaml
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="als-apg-config-test",
             output_dir=tmp_path,
@@ -1211,7 +1187,7 @@ class TestProtocolAwareSafetyRules:
     def test_epics_renders_epics_content(self, tmp_path):
         """EPICS config produces EPICS-specific safety rules."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="safety-epics",
             output_dir=tmp_path,
@@ -1247,7 +1223,7 @@ class TestProtocolAwareSafetyRules:
     def test_tango_renders_tango_content(self, tmp_path):
         """Tango config produces Tango-specific safety rules."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="safety-tango",
             output_dir=tmp_path,
@@ -1280,7 +1256,7 @@ class TestProtocolAwareSafetyRules:
     def test_doocs_renders_doocs_content(self, tmp_path):
         """DOOCS config produces DOOCS-specific safety rules."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="safety-doocs",
             output_dir=tmp_path,
@@ -1314,7 +1290,7 @@ class TestProtocolAwareSafetyRules:
     def test_the_simulator_in_process_renders_generic_content(self, tmp_path):
         """The simulator in process speaks no wire, so it gets the generic rules."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="safety-in-process",
             output_dir=tmp_path,
@@ -1348,7 +1324,7 @@ class TestProtocolAwareSafetyRules:
         from osprey.cli.templates import claude_code
 
         for protocol in ["epics", "doocs", "tango", "virtual_accelerator", "live_standin"]:
-            project_dir = _create_project(
+            project_dir = create_project_with_manifest(
                 manager,
                 project_name=f"safety-{protocol}",
                 output_dir=tmp_path / protocol,
@@ -1380,7 +1356,7 @@ class TestControlSystemTransportContext:
     def test_control_system_transport_from_config(self, tmp_path):
         """control_system_transport is derived from the configured type."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-cs-type",
             output_dir=tmp_path,
@@ -1403,7 +1379,7 @@ class TestControlSystemTransportContext:
     def test_control_system_transport_defaults_to_the_simulator_in_process(self, tmp_path):
         """With no control_system section the wire is the simulator's, in process."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-cs-default",
             output_dir=tmp_path,
@@ -1430,7 +1406,7 @@ class TestGeneralizedRulesContent:
     def test_safety_md_no_epics_patterns(self, tmp_path):
         """safety.md does not reference EPICS-specific write patterns."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="gen-safety",
             output_dir=tmp_path,
@@ -1454,7 +1430,7 @@ class TestGeneralizedRulesContent:
         as a control-system outage.
         """
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="gen-errors",
             output_dir=tmp_path,
@@ -1476,7 +1452,7 @@ class TestGeneralizedRulesContent:
     def test_error_handling_md_states_the_partial_answer_rule(self, tmp_path):
         """The rendered rule tells the agent what a ``missing`` map asks of it."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="gen-partial",
             output_dir=tmp_path,
@@ -1509,7 +1485,7 @@ class TestFacilityPermissions:
     def _settings(self, tmp_path, permissions_config):
         """Create project, inject permissions config, regen, return parsed settings."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="perms-test",
             output_dir=tmp_path,
@@ -1569,7 +1545,7 @@ class TestFacilityPermissions:
     def test_default_deny_unchanged_without_config(self, tmp_path):
         """Without permissions config, deny list matches the 6 framework defaults."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="perms-default",
             output_dir=tmp_path,
@@ -1596,7 +1572,7 @@ class TestDataVisualizationRuleGating:
     def test_rule_absent_when_data_visualizer_enabled(self, tmp_path):
         """Default config enables data-visualizer; the rule must not render."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="viz-rule-gated-on",
             output_dir=tmp_path,
@@ -1623,7 +1599,7 @@ class TestDataVisualizationRuleGating:
     def test_rule_present_when_data_visualizer_disabled(self, tmp_path):
         """When data-visualizer is disabled, the rule renders with matplotlib + Plotly guidance."""
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="viz-rule-gated-off",
             output_dir=tmp_path,
@@ -1667,7 +1643,7 @@ class TestDataVisualizerInteractiveDefault:
 
     def test_agent_prompt_documents_interactive_default(self, tmp_path):
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="viz-default-interactive",
             output_dir=tmp_path,
@@ -1716,7 +1692,7 @@ class TestRenderContextDoesNotFork:
 
         monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
 
-        _create_project(
+        create_project_with_manifest(
             TemplateManager(),
             project_name="ctx-parity",
             output_dir=tmp_path,
@@ -1776,7 +1752,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
         from osprey.registry import mcp as registry_mcp
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="ctx-probe-build",
             output_dir=tmp_path,
@@ -1812,7 +1788,7 @@ class TestConfigDerivedKeysPrecedeServerResolution:
 
         monkeypatch.setattr(claude_code, "create_claude_code_integration", _capture)
 
-        _create_project(
+        create_project_with_manifest(
             TemplateManager(),
             project_name="ctx-probe-create",
             output_dir=tmp_path,
@@ -1881,7 +1857,7 @@ class TestGraphdbConfiguredContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="graphdb-malformed",
             output_dir=tmp_path,
@@ -1904,7 +1880,7 @@ class TestGraphdbConfiguredContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="graphdb-build-path",
             output_dir=tmp_path,
@@ -1957,7 +1933,7 @@ class TestGraphdbConfiguredContextKey:
 
         # First render lays the project down; the store is then stated the way a
         # profile states it, and the second render is the one under test.
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=name,
             output_dir=tmp_path,
@@ -1970,7 +1946,7 @@ class TestGraphdbConfiguredContextKey:
                 project_dir / "config.yml", {"services.graphdb.path": "./services/graphdb"}
             )
         captured.clear()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name=name,
             output_dir=tmp_path,
@@ -2021,7 +1997,7 @@ class TestPhoebusBridgeDefaultContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="phoebus-bridge-port",
             output_dir=tmp_path,
@@ -2082,7 +2058,7 @@ class TestPhoebusAgentAccessContextKey:
         from osprey.cli.templates import claude_code
 
         manager = TemplateManager()
-        project_dir = _create_project(
+        project_dir = create_project_with_manifest(
             manager,
             project_name="phoebus-agent-access",
             output_dir=tmp_path,

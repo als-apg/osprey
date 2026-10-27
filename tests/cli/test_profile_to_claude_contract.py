@@ -46,6 +46,7 @@ from osprey.registry.mcp import (
 )
 from tests._builds import copy_build
 from tests._preset_data import bundle_data_root
+from tests.cli._template_projects import create_project_with_manifest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,30 +54,6 @@ from tests._preset_data import bundle_data_root
 
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
-
-
-def _create_project(manager: TemplateManager, **kwargs) -> Path:
-    """``create_project`` plus the manifest stamp a real build writes next.
-
-    A build stamps ``.osprey-manifest.json`` immediately after the render, and
-    the Claude Code regen reads the preset back out of it to learn which
-    artifacts the project selected. A fixture that renders without stamping is
-    not a project any build produces: it regenerates with an empty artifact
-    selection, and the write-gate lint rightly refuses the result.
-    """
-    project = manager.create_project(**kwargs)
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
-    manager.generate_manifest(
-        project,
-        kwargs["project_name"],
-        bundle.replace("_", "-"),
-        {},
-        # The selection the render was made with, exactly as a build stamps it:
-        # a site that hands `create_project` its own `artifacts=` must get that
-        # selection back on the regen, not the bundle's full list.
-        artifacts=manager._effective_artifacts(bundle, kwargs.get("artifacts")),
-    )
-    return project
 
 
 def _parse_frontmatter(md_path: Path) -> dict:
@@ -122,7 +99,7 @@ def _build_control_assistant(tmp_path_factory) -> Path:
     """Build a control-assistant project via TemplateManager (no venv, no lifecycle)."""
     out_dir = tmp_path_factory.mktemp("ca_build")
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="ca-contract",
         output_dir=out_dir,
@@ -136,7 +113,7 @@ def _build_control_assistant(tmp_path_factory) -> Path:
 def _build_hello_world(tmp_path_factory) -> Path:
     out_dir = tmp_path_factory.mktemp("hw_build")
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="hw-contract",
         output_dir=out_dir,
@@ -511,7 +488,7 @@ def test_narrowed_skill_selection_renders_only_the_selected_skills(tmp_path):
     because that is the case a same-or-wider selection cannot distinguish.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="narrowed-skills",
         output_dir=tmp_path,
@@ -542,7 +519,7 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
     with its frontmatter intact, and the auto-discovery path picks it up.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="overlay-test",
         output_dir=tmp_path,
@@ -600,7 +577,7 @@ def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
       the drive renders it into ask.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="extends-contract",
         output_dir=tmp_path,
@@ -688,7 +665,7 @@ def test_hook_config_write_tools_dedupe(tmp_path):
     entries are appended, in config order, after the server-derived ones.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="write-tools-dedupe",
         output_dir=tmp_path,
@@ -740,7 +717,7 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
     truncated or absent one.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="no-servers",
         output_dir=tmp_path,
@@ -789,7 +766,7 @@ def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
     hook compares the short name.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="lane-addressed-tools",
         output_dir=tmp_path,
@@ -951,7 +928,7 @@ def test_crown_jewel_invariant_passes_on_preset(built_control_assistant_project)
 def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
     """Inject a tool entry not in permissions.allow → validator must complain."""
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="missing-tool-test",
         output_dir=tmp_path,
@@ -985,7 +962,7 @@ def test_crown_jewel_invariant_catches_missing_tool(tmp_path):
 def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
     """Wildcards in agent tools: must be rejected — list MCP tools explicitly."""
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="wildcard-test",
         output_dir=tmp_path,
@@ -1603,7 +1580,7 @@ def _render_profile_project(tmp_path_factory, profile_path: Path, label: str) ->
     # from, not a key on the resolved profile.
     bundle = preset_data_bundle(EXEMPLAR_PRESET)
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name=f"{label}-floor",
         output_dir=tmp_path_factory.mktemp("floor_build"),
@@ -1715,7 +1692,7 @@ def test_hook_helper_files_ship_with_their_hooks_but_are_never_wired(tmp_path):
     wired-but-not-copied is an ImportError inside the hooks that import it.
     """
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="hook-helpers",
         output_dir=tmp_path,
@@ -1818,7 +1795,7 @@ def _project_with_hooks(
     from osprey.utils.config_writer import config_update_fields
 
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name=name,
         output_dir=tmp_path,
@@ -2023,7 +2000,7 @@ def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
     textbooks.mkdir(parents=True)
 
     manager = TemplateManager()
-    project = _create_project(
+    project = create_project_with_manifest(
         manager,
         project_name="hw-textbooks",
         output_dir=out_dir,
