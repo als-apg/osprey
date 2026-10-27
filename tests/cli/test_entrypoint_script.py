@@ -421,16 +421,9 @@ class TestBehaviour:
 class TestStateZoneHandBack:
     """Root writes into ``var/`` on the way through, and must not keep it.
 
-    Both maintenance steps write there: the scaffold restore appends its
-    reserved-path refusals to the audit ledger — ``var/audit/<identity>/
-    maintenance.jsonl``, where the per-command ``OSPREY_AUDIT_WRITER`` marker
-    routes everything this phase records — and on a fresh deployment root is the
-    FIRST writer, so the file is created root-owned 0644. The server then runs
-    as ``osprey`` and records under the surface that decided; the marker is what
-    keeps the two out of one file, since the app user could not append to a
-    root-owned one and the refusal recorder never raises, so every refusal after
-    that would be dropped in silence. An audit log only root can write is worse
-    than no audit log, because it looks like one.
+    Both maintenance steps write there, and on a fresh deployment root is the
+    FIRST writer, so anything it creates is root-owned. The server then runs as
+    ``osprey`` and must be able to write the same tree, so root hands it back.
     """
 
     def _cmd(self, tmp_path: Path) -> list[str]:

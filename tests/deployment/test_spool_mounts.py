@@ -2,17 +2,19 @@
 
 Every container that runs an OSPREY component appends its agent-record events
 under ``var/spool/<identity>/`` and keeps its own state under
-``var/state/<identity>/``, beside the audit directory it already binds. Each
-section here pins one property of that:
+``var/state/<identity>/``. Each section here pins one property of that:
 
 * every container is mounted at, and told in ``OSPREY_SPOOL_DIR`` /
   ``OSPREY_STATE_DIR``, the same container path, derived from its identity;
 * each container binds only its own directories, never the zone roots;
+* the identity a container is told and the directories it binds are one
+  derivation, provisioned from the same rule the templates render;
 * the build path and the web deploy path provision those directories
   group-shared before any container starts;
 * the entrypoint joins both directories' groups and leaves them out of the
   ownership hand-back;
-* a roster user may not take a bridge's identity or ``operator``;
+* a roster user may not take a service's identity, a bridge's or
+  ``operator``, and must be one path segment in every auth posture;
 * the preflight-refused marker moved to the state directory on both its
   writing and its reading side.
 """
@@ -21,7 +23,6 @@ from __future__ import annotations
 
 import ast
 import copy
-import datetime as dt
 import inspect
 import os
 import re
@@ -37,12 +38,14 @@ import yaml
 import osprey
 from osprey.agent_record.identities import BRIDGE_IDENTITIES, OPERATOR_IDENTITY
 from osprey.deployment.compose_generator import (
+    FIXED_SERVICE_AUDIT_IDENTITIES,
     _ensure_agent_data_structure,
     _inject_project_metadata,
     dispatch_worker_audit_identities,
     ensure_spool_dir,
     ensure_state_dir,
     lane_queueserver_audit_identities,
+    service_audit_identities,
     spool_identity_dir,
     state_identity_dir,
 )
@@ -51,7 +54,11 @@ from osprey.deployment.web_terminals.render import (
     AUTH_SIDECAR_AUDIT_IDENTITY,
     render_web_terminals,
 )
-from osprey_connectors.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
+from osprey_connectors.workspace import (
+    PRE_UPGRADE_AUDIT_RELPATH,
+    SPOOL_DIR_RELPATH,
+    STATE_DIR_RELPATH,
+)
 
 from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 
@@ -148,7 +155,7 @@ def test_every_web_terminal_binds_its_own_spool_and_state():
     for service in terminals.values():
         env = _env(service)
         identity = env["OSPREY_AUDIT_IDENTITY"]
-        container_root = env["OSPREY_AUDIT_DIR"].removesuffix(f"/var/audit/{identity}")
+        container_root = env["OSPREY_SPOOL_DIR"].removesuffix(f"/{SPOOL_DIR_RELPATH}/{identity}")
         _assert_owns_its_zones(service, identity, container_root)
 
 
@@ -225,13 +232,13 @@ def _record_port(config: dict) -> int:
 
 
 def _record_logins(service: dict) -> list[str]:
-    """The agent-record credential files among *service*'s ``env_file`` entries."""
-    from osprey.agent_record.credentials import is_credential_file
+    """The agent-record login files among *service*'s ``env_file`` entries."""
+    from osprey.agent_record.credentials import LOGIN_FILE_PREFIX
 
     entries = service.get("env_file") or []
     if isinstance(entries, str):
         entries = [entries]
-    return [entry for entry in entries if is_credential_file(entry)]
+    return [entry for entry in entries if entry.startswith(LOGIN_FILE_PREFIX)]
 
 
 def _worker_config(*, worker_count: int = 1, **settings) -> dict:
@@ -278,27 +285,15 @@ def test_a_worker_on_the_host_network_dials_the_loopback_publish():
     assert _env(service)["OSPREY_AGENT_RECORD_URL"] == f"http://127.0.0.1:{_record_port(config)}"
 
 
-def test_a_worker_with_no_env_chain_and_no_gateway_still_carries_its_login():
+def test_a_worker_with_no_env_chain_still_carries_its_login():
     from osprey.agent_record.credentials import login_file
 
     config = _worker_config()
     rendered = _inject_project_metadata(config)
     assert not rendered.get("osprey_env_chain")
-    assert "telemetry_gateway" not in rendered["deployed_services"]
     (service,) = _render("dispatch_worker", config).values()
 
     assert service["env_file"] == [login_file("dispatch-worker-1")]
-
-
-def test_beside_the_gateway_the_worker_carries_only_its_record_login():
-    from osprey.agent_record.credentials import login_file
-
-    config = _base_config(["dispatch_worker", "telemetry_gateway"])
-    config["services"]["dispatch_worker"] = {"worker_count": 1}
-    (service,) = _render("dispatch_worker", config).values()
-
-    assert not [f for f in service["env_file"] if f.startswith(".env.telemetry-sender.")]
-    assert service["env_file"][-1] == login_file("dispatch-worker-1")
 
 
 def test_every_web_terminal_carries_its_own_login_and_the_loopback_url():
@@ -496,7 +491,7 @@ def test_the_identity_seam_refuses_a_path(helper, tmp_path):
 
 
 def test_the_web_deploy_path_provisions_both_zones_for_every_web_identity():
-    """The loop that provisions the audit directory provisions the other two."""
+    """One loop over the web identities provisions both zones."""
     source = textwrap.dedent(inspect.getsource(provision.deploy_up_web_terminals))
     tree = ast.parse(source)
     loops = [
@@ -512,7 +507,7 @@ def test_the_web_deploy_path_provisions_both_zones_for_every_web_identity():
         for node in ast.walk(loops[0])
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    assert {"ensure_audit_dir", "ensure_spool_dir", "ensure_state_dir"} <= called
+    assert {"ensure_spool_dir", "ensure_state_dir"} <= called
 
 
 def test_the_web_identities_provisioned_are_the_ones_mounted():
@@ -638,23 +633,11 @@ def test_the_marker_is_written_into_the_state_dir(tmp_path, monkeypatch):
     from osprey.cli import web_cmd
 
     monkeypatch.setenv("OSPREY_STATE_DIR", str(tmp_path))
-    monkeypatch.delenv("OSPREY_AUDIT_DIR", raising=False)
 
     web_cmd._write_preflight_marker("- the machine is unreachable")
 
     marker = tmp_path / web_cmd.PREFLIGHT_REFUSED_MARKER
     assert marker.read_text().splitlines()[1] == "- the machine is unreachable"
-
-
-def test_an_audit_dir_alone_records_no_marker(tmp_path, monkeypatch):
-    from osprey.cli import web_cmd
-
-    monkeypatch.delenv("OSPREY_STATE_DIR", raising=False)
-    monkeypatch.setenv("OSPREY_AUDIT_DIR", str(tmp_path))
-
-    web_cmd._write_preflight_marker("- refused")
-
-    assert not (tmp_path / web_cmd.PREFLIGHT_REFUSED_MARKER).exists()
 
 
 def test_the_preflight_refused_status_still_shows(tmp_path, monkeypatch):
@@ -670,14 +653,237 @@ def test_the_preflight_refused_status_still_shows(tmp_path, monkeypatch):
     assert reason == "the machine is unreachable"
 
 
-def test_a_marker_left_in_the_audit_dir_is_not_read(tmp_path, monkeypatch):
-    from osprey.cli import web_cmd
-    from osprey.deployment import status_display
+# ---------------------------------------------------------------------------
+# The entrypoint's other named directories
+# ---------------------------------------------------------------------------
 
-    audit = tmp_path / "var" / "audit" / "alice"
-    audit.mkdir(parents=True)
-    stamp = dt.datetime.now(dt.UTC).isoformat()
-    (audit / web_cmd.PREFLIGHT_REFUSED_MARKER).write_text(f"{stamp}\n- old\n")
-    monkeypatch.setattr(status_display, "_container_started_at", lambda *_: None)
+#: The bundle the reference config mounts when a test needs the bundle half.
+BUNDLE_PATH = "data/facility/knowledge"
 
-    assert status_display._preflight_refusal_reason(tmp_path, "alice", {}, None) is None
+#: The ARIEL qmd mirror the reference config mounts when a test needs that half.
+MIRROR_PATH = "var/ariel_mirror"
+
+
+def _corpus_web_services(*, bundle: bool = False, mirror: bool = False) -> dict:
+    """The rendered web overlay, with the bundle and/or mirror the default tier is entitled to."""
+    config = _web_config(auth=False)
+    if bundle:
+        config["facility_knowledge"] = {"bundle_path": BUNDLE_PATH}
+    if mirror:
+        config["ariel"] = {
+            "enhancement_modules": {
+                "qmd_export": {"enabled": True, "settings": {"mirror_path": MIRROR_PATH}}
+            }
+        }
+    entitled = {"assistant"}
+    rendered = render_web_terminals(
+        config,
+        facility_bundle_renders=entitled if bundle else None,
+        ariel_mirror_renders=entitled if mirror else None,
+    )["docker-compose.web.yml"]
+    return yaml.safe_load(rendered)["services"]
+
+
+def test_the_bundle_dir_is_named_when_a_bundle_is_mounted():
+    """The entrypoint's root phase iterates exactly the directories the render
+    names, so ``OSPREY_FACILITY_BUNDLE_DIR`` has to be the bundle's actual mount
+    target — not a second derivation of it that could name a path nothing is
+    mounted at."""
+    service = _corpus_web_services(bundle=True)["web-alice"]
+    bundle_targets = [
+        mount.split(":")[1] for mount in service["volumes"] if BUNDLE_PATH in mount.split(":")[0]
+    ]
+    assert _env(service)["OSPREY_FACILITY_BUNDLE_DIR"] == bundle_targets[0]
+
+
+def test_no_bundle_dir_without_a_bundle_mount():
+    """A service with no bundle bound names no bundle directory, and the
+    entrypoint's step skips what is unset."""
+    assert "OSPREY_FACILITY_BUNDLE_DIR" not in _env(_corpus_web_services()["web-alice"])
+
+
+def test_the_mirror_dir_is_named_when_a_mirror_is_mounted():
+    """The exporter writing the ARIEL mirror runs as the dropped user, which
+    `group_add:` alone never reaches. Named by the mount's actual target."""
+    service = _corpus_web_services(mirror=True)["web-alice"]
+    mirror_targets = [
+        mount.split(":")[1] for mount in service["volumes"] if MIRROR_PATH in mount.split(":")[0]
+    ]
+    assert len(mirror_targets) == 1, service["volumes"]
+    assert _env(service)["OSPREY_ARIEL_MIRROR_DIR"] == mirror_targets[0]
+
+
+def test_no_mirror_dir_without_a_mirror_mount():
+    """A deployment running no qmd export binds no mirror and names none."""
+    assert "OSPREY_ARIEL_MIRROR_DIR" not in _env(_corpus_web_services()["web-alice"])
+
+
+def test_a_worker_names_no_bundle_dir():
+    """It mounts no facility bundle, so the entrypoint's group step finds
+    nothing else to iterate — no special case needed there."""
+    services = _render("dispatch_worker", _base_config(["dispatch_worker"]))
+
+    assert "OSPREY_FACILITY_BUNDLE_DIR" not in _env(services["dispatch-worker-1"])
+
+
+# ---------------------------------------------------------------------------
+# Identities: the rendered service key is the provisioned identity
+# ---------------------------------------------------------------------------
+
+
+def _counted_worker_config(worker_count) -> dict:
+    config = _base_config(["dispatch_worker"])
+    config["services"]["dispatch_worker"] = {"worker_count": worker_count}
+    return config
+
+
+def test_the_sidecar_identity_is_the_fixed_name():
+    """One service, not one per user: the users its login and denial events name
+    are their SUBJECTS, never their writers."""
+    services = _web_services(auth=True)
+
+    assert _env(services["auth"])["OSPREY_AUDIT_IDENTITY"] == AUTH_SIDECAR_AUDIT_IDENTITY
+    assert AUTH_SIDECAR_AUDIT_IDENTITY == "sidecar"
+
+
+def test_every_user_is_told_its_own_identity():
+    for key, service in _web_services().items():
+        if key.startswith("web-"):
+            assert _env(service)["OSPREY_AUDIT_IDENTITY"] == key.removeprefix("web-")
+
+
+def test_a_workers_identity_is_its_compose_service_key():
+    """A record traces back to the container that wrote it with no lookup table."""
+    for key, service in _render("dispatch_worker", _counted_worker_config(2)).items():
+        assert _env(service)["OSPREY_AUDIT_IDENTITY"] == key
+
+
+def test_provisioned_worker_identities_are_exactly_the_rendered_service_keys():
+    """The template names the service key while Python provisions the directory;
+    a disagreement is a bind mount whose host side nobody created, which a
+    rootful daemon then creates root-owned."""
+    config = _counted_worker_config(4)
+
+    assert dispatch_worker_audit_identities(config) == list(_render("dispatch_worker", config))
+
+
+def test_no_worker_identities_when_the_worker_is_not_deployed():
+    assert dispatch_worker_audit_identities({"services": {"dispatch_worker": {}}}) == []
+    assert dispatch_worker_audit_identities({}) == []
+
+
+@pytest.mark.parametrize("worker_count", [None, "", "two", 0])
+def test_an_unusable_worker_count_falls_back_to_one(worker_count):
+    """The template's own ``| default(1)`` for the same unset/unusable value."""
+    config = {
+        "services": {"dispatch_worker": {"worker_count": worker_count}},
+        "deployed_services": ["dispatch_worker"],
+    }
+
+    assert dispatch_worker_audit_identities(config) == ["dispatch-worker-1"]
+
+
+def test_provisioned_service_identities_are_exactly_the_rendered_service_keys():
+    for service, identity in FIXED_SERVICE_AUDIT_IDENTITIES.items():
+        assert service_audit_identities({"deployed_services": [service]}) == [identity]
+        rendered = _render(service, _base_config([service]))
+        assert list(rendered) == [identity]
+        assert _env(rendered[identity])["OSPREY_AUDIT_IDENTITY"] == identity
+
+
+def test_no_service_identities_when_the_service_is_not_deployed():
+    assert service_audit_identities({"deployed_services": ["mongodb"]}) == []
+    assert service_audit_identities({}) == []
+
+
+def test_the_queueserver_identity_is_its_compose_key():
+    config = _base_config(["bluesky", "bluesky_va", "bluesky_live"])
+    config["services"]["bluesky_va"] = {"target": "va"}
+    config["services"]["bluesky_live"] = {"target": "live"}
+    queueservers = {
+        key: service
+        for key, service in _render("bluesky", config).items()
+        if key.endswith("queueserver")
+    }
+
+    assert queueservers
+    for key, service in queueservers.items():
+        assert _env(service)["OSPREY_AUDIT_IDENTITY"] == key
+    assert lane_queueserver_audit_identities(config) == list(queueservers)
+
+
+# ---------------------------------------------------------------------------
+# A roster name is never a service's identity, and is one path segment
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "sidecar",
+        "dispatch-worker-1",
+        "dispatch-worker-12",
+        *sorted(FIXED_SERVICE_AUDIT_IDENTITIES.values()),
+    ],
+)
+@pytest.mark.parametrize("auth", [False, True])
+def test_a_roster_name_that_is_a_service_identity_is_refused(name, auth):
+    """The one place "your own subdirectory" must not be honoured literally: a
+    user named for a service would get a read-write bind onto the spool and
+    state of the component that records them. Unconditional on the auth
+    method, because the name is a directory in every posture."""
+    config = _web_config(auth=auth)
+    config["modules"]["web_terminals"]["users"] = ["alice", name]
+
+    with pytest.raises(ValueError, match="service's own identity") as exc_info:
+        render_web_terminals(config)
+    assert repr(name) in str(exc_info.value)
+    assert PRE_UPGRADE_AUDIT_RELPATH not in str(exc_info.value)
+
+
+def test_an_ordinary_hyphenated_name_is_still_fine():
+    """The gate is narrow: only the service identities themselves."""
+    config = _web_config(auth=False)
+    config["modules"]["web_terminals"]["users"] = ["dispatch-worker", "sidecar-ops", "alice"]
+
+    render_web_terminals(config)
+
+
+@pytest.mark.parametrize("name", ["../../etc", "..", ".", "a/b", "Alice", "j.doe"])
+def test_a_name_that_is_not_one_path_segment_is_refused_with_auth_off(name):
+    """``auth.method: none`` is the default posture, and the render emits
+    ``./var/spool/<name>:<container>/var/spool/<name>`` verbatim from the roster,
+    so ``../../etc`` would be a read-write bind outside the repo. The
+    provisioning seam declines to create such a source, but the container
+    runtime would create it anyway; the refusal has to be the renderer's."""
+    config = _web_config(auth=False)
+    config["modules"]["web_terminals"]["users"] = ["alice", name]
+
+    with pytest.raises(ValueError, match="spool and state subdirectories") as exc_info:
+        render_web_terminals(config)
+    assert repr(name) in str(exc_info.value)
+
+
+def test_no_render_emits_a_zone_bind_that_leaves_its_zone():
+    """The property the gate exists for, asserted on the artifact itself."""
+    for auth in (False, True):
+        for service in _web_services(auth=auth).values():
+            for _variable, relpath in ZONES:
+                for mount in _zone_mounts(service, relpath):
+                    source = mount.split(":", 1)[0]
+                    assert ".." not in Path(source).parts, mount
+                    assert Path(source).resolve().is_relative_to(Path(relpath).resolve())
+
+
+def test_the_render_and_the_provisioning_seam_agree_about_every_roster_name():
+    """One charset, asked at both ends: the seam refusing an identity the
+    renderer emitted anyway would leave compose to create the source."""
+    for name in ("../../etc", "..", "a/b", "Alice"):
+        config = _web_config(auth=False)
+        config["modules"]["web_terminals"]["users"] = [name]
+
+        for helper in (spool_identity_dir, state_identity_dir):
+            with pytest.raises(ValueError):
+                helper("/repo", name)
+        with pytest.raises(ValueError):
+            render_web_terminals(config)

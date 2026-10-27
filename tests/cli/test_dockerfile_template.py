@@ -32,6 +32,7 @@ from click.testing import CliRunner
 from osprey.cli.main import cli
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+from osprey_connectors.workspace import PRE_UPGRADE_AUDIT_RELPATH
 from tests.deployment._cache_mounts import assert_build_caches_mounted
 from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
@@ -1021,9 +1022,9 @@ class TestPrivilegeSplit:
         for relpath in (
             "var/agent_data/api_calls",
             "var/agent_data/config-backups",
-            "var/audit",
         ):
             assert f"/app/hello-docker/{relpath}" in mkdir[0], relpath
+        assert f"/app/hello-docker/{PRE_UPGRADE_AUDIT_RELPATH}" not in mkdir[0]
 
     def test_chown_is_narrowed_to_the_mutable_state(self, hello_project):
         """The blanket `chown -R` of the whole project is gone.
