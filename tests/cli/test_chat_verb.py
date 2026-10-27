@@ -22,7 +22,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.chat_cmd import chat
 from tests.cli._lifecycle_build import stub_build
@@ -52,11 +51,6 @@ class Launch:
     argv: list[str]
     cwd: Path
     env: dict[str, str] = field(default_factory=dict)
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 @pytest.fixture(autouse=True)

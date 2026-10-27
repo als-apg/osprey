@@ -72,11 +72,6 @@ SITE_GATEWAY = (
 )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 @pytest.fixture(autouse=True)
 def _no_harvested_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep a developer's exported API keys out of the repos these tests make."""

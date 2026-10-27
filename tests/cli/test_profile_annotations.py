@@ -339,11 +339,6 @@ def test_edited_annotation_keeps_everything_the_key_already_resolved(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _web_panels_edit(*added: str) -> str:
     """The ``--set web_panels=`` pair naming control-assistant's panels plus *added*.
 

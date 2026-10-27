@@ -61,11 +61,6 @@ dispatch:
 """
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _write_config(project_path: Path, *, deployed: list[str] | None = None) -> None:
     """Write a minimal config.yml with a pre-existing deployed service."""
     yaml_rt = YAML()

@@ -28,11 +28,6 @@ from osprey.cli.set_cmd import set as set_command
 from osprey.deployment import staleness
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _profile_text(repo: Path) -> str:
     return (repo / "profile.yml").read_text(encoding="utf-8")
 

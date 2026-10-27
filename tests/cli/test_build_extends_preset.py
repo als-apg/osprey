@@ -24,11 +24,6 @@ from osprey.cli.build_profile import (
 )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def test_preset_exists_returns_path_for_bundled_preset() -> None:
     """`_preset_exists` returns the file path for a known preset."""
     path = _preset_exists("hello-world")

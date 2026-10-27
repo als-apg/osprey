@@ -53,11 +53,6 @@ _EMPTY_PLAN = _ProjectVenvPlan(
 )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _build(runner: CliRunner, cwd: Path, *args: str, flags: list[str] | None = None):
     """Run ``osprey build`` from *cwd*, as an operator standing there would."""
     previous = Path.cwd()

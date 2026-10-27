@@ -24,7 +24,6 @@ import io
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 from rich.console import Console
 
 from osprey.cli import output, phase_reporter, summary_card
@@ -88,11 +87,6 @@ class Recorded:
     @property
     def lines(self) -> list[str]:
         return self._buffer.getvalue().splitlines()
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 @pytest.fixture(autouse=True)

@@ -59,11 +59,6 @@ WEB_TERMINALS_LOCAL: dict[str, Any] = {
 LOCAL_TIERS: tuple[str, ...] = ("readwrite",)
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _profile(deploy: dict[str, Any] | None, config: dict[str, Any] | None) -> dict[str, Any]:
     raw: dict[str, Any] = {
         "name": "Demo",

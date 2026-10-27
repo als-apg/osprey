@@ -65,11 +65,6 @@ WEB_TERMINALS: dict[str, Any] = {
 }
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _config(**extra: Any) -> dict[str, Any]:
     return {"modules.web_terminals": dict(WEB_TERMINALS), **extra}
 

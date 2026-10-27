@@ -42,11 +42,6 @@ from tests.cli._scoped_subprocess import patch_subprocess
 WEB_PORT = default_port("web")
 
 
-@pytest.fixture
-def runner():
-    return CliRunner()
-
-
 @pytest.fixture(autouse=True)
 def _isolate_operator_secret(monkeypatch):
     """Keep the operator secret a launch mints from leaking between tests.

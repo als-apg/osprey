@@ -35,11 +35,6 @@ CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 RESOLVER_LOGGER = "osprey.cli.templates.claude_code"
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _pin_hierarchical(repo: Path) -> None:
     """Point the exemplar at its hierarchical channel database.
 

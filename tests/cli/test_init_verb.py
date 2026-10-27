@@ -69,11 +69,6 @@ EXEMPLAR_NAME = "Als Exemplar"
 AUTHORED_FILES = (".gitignore", "README.md", "ci-extra.yml")
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 @pytest.fixture(autouse=True)
 def _container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
     """Answer ``init``'s runtime preflight without consulting the host.

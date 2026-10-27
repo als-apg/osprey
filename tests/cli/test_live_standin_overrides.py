@@ -367,11 +367,6 @@ def _build(runner: CliRunner, repo: Path):
         os.chdir(previous)
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 @pytest.mark.slow
 class TestTheRenderedDeploymentDialsTheStandIn:
     """What ``osprey build`` writes into ``build/config.yml``, both ways."""

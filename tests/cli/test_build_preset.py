@@ -40,11 +40,6 @@ from tests._preset_data import copy_bundle_data
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _facility_data(root: Path, bundle: str = "hello_world") -> Path:
     """Lay down the facility data tree beside a fixture profile.
 

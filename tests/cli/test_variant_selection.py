@@ -264,11 +264,6 @@ config:
 """
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _build(runner: CliRunner, repo: Path):
     """Run ``osprey build`` from *repo*, as an operator standing there would."""
     previous = Path.cwd()

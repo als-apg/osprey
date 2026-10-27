@@ -19,7 +19,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import (
@@ -49,11 +48,6 @@ def titles(reporter: RecordingReporter) -> list[str]:
 def closed(reporter: RecordingReporter) -> list[str]:
     """The phase-closing lines (✓/✗/⚠), stripped of their indent, in order."""
     return [line.strip() for line in reporter.lines if line.lstrip()[:1] in {"✓", "✗", "⚠"}]
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 @pytest.fixture(autouse=True)

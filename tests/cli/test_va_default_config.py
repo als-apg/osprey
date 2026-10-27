@@ -59,11 +59,6 @@ from tests.facility.served_tree import in_process_config
 SCAFFOLDED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _build(runner: CliRunner, repo: Path) -> None:
     """Render *repo*'s build/ zone, failing the test if it does not."""
     result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])

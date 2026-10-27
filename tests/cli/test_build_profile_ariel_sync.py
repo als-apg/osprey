@@ -30,7 +30,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -46,11 +45,6 @@ _PRESET = "control-assistant"
 #: The profile's selection of the framework's own bundled service template —
 #: the spelling the build advisory tells an operator to add.
 _ARIEL_SYNC_SERVICE: dict[str, Any] = {"template": "osprey.ariel_sync"}
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 def _build(

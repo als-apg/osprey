@@ -45,11 +45,6 @@ EXEMPLAR_LAYER_FILES = tuple(
 )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
     """Materialize a deployment repo at *target*. ``--no-git``: nothing here reads history."""
     return runner.invoke(init, [str(target), "--preset", preset, "--no-git", *extra])

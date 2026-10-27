@@ -187,11 +187,6 @@ def test_declared_env_constant_equals_the_web_auth_spelling():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 @pytest.fixture(autouse=True)
 def _restore_process_state():
     """Undo what an in-process launch does to the interpreter's globals.

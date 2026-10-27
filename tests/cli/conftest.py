@@ -14,6 +14,7 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.text import Text
@@ -62,6 +63,12 @@ def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.delenv("CLICOLOR_FORCE", raising=False)
+
+
+@pytest.fixture
+def runner() -> CliRunner:
+    """A Click runner for driving a command in-process."""
+    return CliRunner()
 
 
 @pytest.fixture

@@ -32,11 +32,6 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import TIERS_DIRNAME
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
     """Materialize a deployment repo at *target*.
 

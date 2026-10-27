@@ -14,15 +14,9 @@ from unittest.mock import AsyncMock, patch
 
 import click
 import pytest
-from click.testing import CliRunner
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
-
-
-@pytest.fixture
-def runner():
-    return CliRunner()
 
 
 def _hierarchical_index(tmp_path: Path) -> Path:

@@ -154,11 +154,6 @@ def test_hello_world_only_comments_are_all_present() -> None:
     )
 
 
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
 def test_rendered_entry_spawns_the_seeded_server(runner: CliRunner, tmp_path: Path) -> None:
     """The rendered ``example_server`` entry is not just present -- it launches.
 
