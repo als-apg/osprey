@@ -323,8 +323,7 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "Re-read it with queue_list and tell the human what the queue holds NOW — "
         "naming what changed if you can see it — then start again, which puts a "
         "fresh prompt in front of them.",
-        "Never retry the start unchanged and never quote the uid this refusal "
-        "reports: both would arm a queue no human has looked at.",
+        "Never quote the uid this refusal reports: it would arm a queue no human has looked at.",
     ],
     # Raised by queue_start, but caused by an earlier interruption — which is
     # why the remediation is a HUMAN choice rather than anything to retry.
@@ -336,8 +335,7 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "back at the front of the queue — the queue server puts it there so a human "
         "can decide what to do with it. Starting now would re-run it.",
         "Removing that queued copy is the ONLY thing that unblocks the queue: the "
-        "bridge re-reads the queue on every start and will refuse every one of them "
-        "while the copy is there, so retrying the start unchanged is never the answer.",
+        "bridge re-reads the queue on every start and refuses while the copy is there.",
         "Name the plan and its exit status from this error, then remove the copy with "
         "queue_remove(uid=<details.item_uid>) — the removal is approval-gated, so the "
         "human decides at that prompt. Only if they want the plan to run again, "
