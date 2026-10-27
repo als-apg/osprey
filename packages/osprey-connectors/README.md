@@ -55,8 +55,11 @@ takes from every module only names its `__all__` lists. `lint-imports`
 (import-linter, configured in the repository's root `pyproject.toml`) holds the
 first, and ruff's `PLC2701` and `tests/connectors/test_public_api.py` the
 second. import-linter also holds this package to never importing `osprey`, and
-holds its layers: the connector host above the factory, the factory above the
-archivers, and the archivers above the control-system connectors.
+holds every top-level module of it in layers: the connector host above the
+factory, the factory above the archivers, the archivers above the
+control-system connectors, those above the simulation core, and the posture
+store, config loading and the standard-library leaves (`posture_env`, `types`,
+`identity`, ...) below them all.
 
 ## Import map
 
