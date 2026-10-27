@@ -22,7 +22,11 @@ from osprey.interfaces.common_middleware import (
     STORAGE_SCOPE_ATTRIBUTE,
 )
 from osprey.interfaces.web_terminal.routes.proxy import _stamp_facility_timezone
-from tests.interfaces.web_terminal.test_proxy_storage_scope import _DOCUMENT, _relay, _root_tag
+from tests.interfaces.web_terminal._proxy_fakes import (
+    PANEL_DOCUMENT,
+    relay_panel_response,
+    root_tag,
+)
 
 _RESOLVER = "osprey.interfaces.web_terminal.routes.proxy.get_facility_timezone"
 
@@ -40,7 +44,7 @@ _FACILITY_TIME_JS = (
 
 class TestStampFacilityTimezone:
     def test_the_zone_is_stamped_on_the_root_tag(self):
-        out = _stamp_facility_timezone(_DOCUMENT, "text/html", "Asia/Tokyo")
+        out = _stamp_facility_timezone(PANEL_DOCUMENT, "text/html", "Asia/Tokyo")
         assert (
             '<html data-facility-timezone="Asia/Tokyo" lang="en" data-browse-orient="row">' in out
         )
@@ -64,7 +68,7 @@ class TestStampFacilityTimezone:
         assert _stamp_facility_timezone(fragment, "text/html", "Asia/Tokyo") == fragment
 
     def test_the_value_is_escaped_for_the_attribute(self):
-        out = _stamp_facility_timezone(_DOCUMENT, "text/html", 'a"><script>x</script>')
+        out = _stamp_facility_timezone(PANEL_DOCUMENT, "text/html", 'a"><script>x</script>')
         assert "<script>x" not in out
         assert len(re.findall(r"<html\b", out)) == 1
 
@@ -72,31 +76,31 @@ class TestStampFacilityTimezone:
 class TestRelayedPanelDocument:
     def test_a_panel_page_carries_the_hubs_zone_once(self, tmp_path):
         with patch(_RESOLVER, return_value=ZoneInfo("Asia/Tokyo")):
-            text, _ = _relay(
-                tmp_path, None, "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8"
+            text, _ = relay_panel_response(
+                tmp_path, None, "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
             )
-        assert 'data-facility-timezone="Asia/Tokyo"' in _root_tag(text)
+        assert 'data-facility-timezone="Asia/Tokyo"' in root_tag(text)
         assert text.count("data-facility-timezone") == 1
 
     def test_on_a_mount_the_root_tag_carries_scope_and_zone(self, tmp_path):
         with patch(_RESOLVER, return_value=ZoneInfo("Asia/Tokyo")):
-            text, _ = _relay(
-                tmp_path, "alice", "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8"
+            text, _ = relay_panel_response(
+                tmp_path, "alice", "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
             )
-        tag = _root_tag(text)
+        tag = root_tag(text)
         assert f'{STORAGE_SCOPE_ATTRIBUTE}="alice"' in tag
         assert 'data-facility-timezone="Asia/Tokyo"' in tag
 
     def test_an_unconfigured_hub_stamps_utc(self, tmp_path):
         with patch(_RESOLVER, return_value=ZoneInfo("UTC")):
-            text, _ = _relay(
-                tmp_path, None, "/panel/my-dash/", _DOCUMENT, "text/html; charset=utf-8"
+            text, _ = relay_panel_response(
+                tmp_path, None, "/panel/my-dash/", PANEL_DOCUMENT, "text/html; charset=utf-8"
             )
-        assert 'data-facility-timezone="UTC"' in _root_tag(text)
+        assert 'data-facility-timezone="UTC"' in root_tag(text)
 
     def test_a_script_is_not_stamped(self, tmp_path):
         with patch(_RESOLVER, return_value=ZoneInfo("Asia/Tokyo")):
-            text, _ = _relay(
+            text, _ = relay_panel_response(
                 tmp_path,
                 None,
                 "/panel/my-dash/app.js",

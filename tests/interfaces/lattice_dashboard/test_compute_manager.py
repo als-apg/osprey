@@ -358,13 +358,13 @@ class TestRealChildren:
 
 def test_app_shutdown_reaps_every_worker(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    from tests.interfaces.lattice_dashboard.test_app import _write_render
+    from tests.interfaces.lattice_dashboard._render import write_render
 
     from osprey.interfaces.lattice_dashboard.app import create_app
 
     sleeper, pids = _script_argv(tmp_path / "work", _SLEEPER)
     monkeypatch.setattr(compute_mod, "worker_argv", sleeper)
-    render = _write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
+    render = write_render(tmp_path / "render", served=["SR"], models={"SR": {"solve": "periodic"}})
     app = create_app(workspace_root=tmp_path / "ws", render_root=render)
 
     with TestClient(app):
