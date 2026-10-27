@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -34,6 +33,7 @@ from osprey.dispatch import server
 from osprey.dispatch.sources.cron import CronSource
 from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.utils.owner_header import OWNER_HEADER
+from tests._live import wait_until
 from tests.conftest import dispatcher_route_registry
 
 
@@ -1039,13 +1039,12 @@ def test_webhook_fire_records_no_owner(app):
         )
         assert resp.status_code == 202
         registry = server.mcp._dispatcher_registry
-        deadline = time.monotonic() + 5
-        history: list = []
-        while not history:
-            assert time.monotonic() < deadline, "no history entry within 5 s"
-            history = client.portal.call(registry.get_history, "deploy")
-            if not history:
-                time.sleep(0.02)
+        history = wait_until(
+            lambda: client.portal.call(registry.get_history, "deploy"),
+            timeout=5,
+            interval=0.02,
+            what="a history entry",
+        )
 
     (entry,) = history
     assert "owner" not in entry

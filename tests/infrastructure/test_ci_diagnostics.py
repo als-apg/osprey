@@ -37,6 +37,7 @@ from osprey_connectors_tests._harness.ci_diagnostics import (
     worker_index,
 )
 from osprey_connectors_tests._paths import TESTS_ROOT as _HARNESS_ROOT
+from tests._live import wait_until
 from tests._nested_pytest import run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -191,10 +192,10 @@ def test_sampler_writes_dumps_on_its_interval(tmp_path):
     recorder = DiagnosticsRecorder(tmp_path, worker="gw0", stack_timeout=0.01)
     recorder.start()
     try:
-        deadline = time.monotonic() + 5.0
         stacks = tmp_path / "stacks-gw0.txt"
-        while time.monotonic() < deadline and "Thread" not in stacks.read_text():
-            time.sleep(0.02)
+        wait_until(
+            lambda: "Thread" in stacks.read_text(), timeout=5.0, interval=0.02, what="a dump"
+        )
     finally:
         recorder.stop()
 

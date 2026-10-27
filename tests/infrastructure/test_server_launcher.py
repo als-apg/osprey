@@ -41,18 +41,12 @@ from osprey.registry.web import (
     framework_web_port_default,
     resolve_web_server_address,
 )
-
-
-def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from tests._live import free_port
 
 
 def _make_launcher(host: str = "127.0.0.1", port: int | None = None) -> ServerLauncher:
     """Build a ServerLauncher wired to a fixed (host, port), auto-launch on."""
-    settled = _free_port() if port is None else port
+    settled = free_port() if port is None else port
     return ServerLauncher(
         name="Test Server",
         config_reader=lambda: (host, settled),
@@ -391,7 +385,7 @@ class TestEnsureRunningShortCircuits:
     def _launcher(self, auto_launch: bool) -> ServerLauncher:
         return ServerLauncher(
             name="Guarded",
-            config_reader=MagicMock(return_value=("127.0.0.1", _free_port())),
+            config_reader=MagicMock(return_value=("127.0.0.1", free_port())),
             auto_launch_checker=lambda: auto_launch,
             app_factory=lambda: object(),
         )
@@ -421,7 +415,7 @@ class TestIsRunning:
     def test_free_port_is_not_running(self):
         launcher = ServerLauncher(
             name="Probe",
-            config_reader=lambda: ("127.0.0.1", _free_port()),
+            config_reader=lambda: ("127.0.0.1", free_port()),
             auto_launch_checker=lambda: True,
             app_factory=lambda: object(),
         )
@@ -474,7 +468,7 @@ class TestHeldPortAdoption:
 
     def test_ungated_listener_answering_200_is_refused(self):
         """An open remote serving anyone is not ours, however healthy it looks."""
-        host, port = "127.0.0.1", _free_port()
+        host, port = "127.0.0.1", free_port()
         launcher = _make_launcher(host, port)
 
         mock_launch, mock_warn, _ = self._run(launcher, _probes(200))
@@ -1134,7 +1128,7 @@ class TestPortIsBindableAgainstARealKernel:
             assert _make_launcher()._port_is_bindable("127.0.0.1", port) is False
 
     def test_a_released_ipv4_port_is_bindable(self):
-        assert _make_launcher()._port_is_bindable("127.0.0.1", _free_port()) is True
+        assert _make_launcher()._port_is_bindable("127.0.0.1", free_port()) is True
 
     def test_an_ipv6_listener_holds_its_own_address(self):
         _require_ipv6_loopback()
