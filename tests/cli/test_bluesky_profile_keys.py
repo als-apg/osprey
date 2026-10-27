@@ -42,15 +42,7 @@ AUTHORED_PORT = default_port("bluesky") + 1000
 AUTHORED_TILED_PORT = AUTHORED_PORT + 1
 
 
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _flat(text: str) -> str:
@@ -61,15 +53,6 @@ def _flat(text: str) -> str:
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
-
-
-@pytest.fixture
-def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A preset directory the test owns, replacing the bundled one."""
-    presets = tmp_path / "presets"
-    presets.mkdir()
-    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
-    return presets
 
 
 # ── the known set is derived, not hand-maintained ────────────────────────────

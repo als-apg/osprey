@@ -34,6 +34,8 @@ from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import TIERS_DIRNAME
 
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
+
 # ── mcp_servers: ─────────────────────────────────────────────────────────────
 
 
@@ -384,17 +386,6 @@ def test_empty_default_panel_is_the_same_as_an_unset_one() -> None:
     assert (
         _parse_profile({"name": "x", "data": "data", "default_panel": None}).default_panel is None
     )
-
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile.
-
-    ``data:`` is required of a repo profile and must resolve to a real
-    directory, so without this each profile below would report one extra
-    failure about a key none of these tests is about.
-    """
-    (tmp_path / "data").mkdir(exist_ok=True)
 
 
 def _write_render_repo(root: Path, delta_body: str) -> Path:

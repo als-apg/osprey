@@ -22,11 +22,7 @@ from osprey.cli.build_profile import BuildProfile, ServiceDef, _parse_profile
 from osprey.cli.build_profile_schema import DEFAULT_SPEAKS_HTTP, http_errors
 from osprey_connectors.errors import BuildProfileError
 
-
-@pytest.fixture(autouse=True)
-def _facility_data_tree(tmp_path: Path) -> None:
-    """The tree every profile's ``data:`` key names, beside the profile."""
-    (tmp_path / "data").mkdir(exist_ok=True)
+pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
 
 def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:

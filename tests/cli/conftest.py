@@ -129,6 +129,50 @@ def empty_ledger() -> Iterator[None]:
 
 
 @pytest.fixture
+def facility_data_tree(tmp_path: Path) -> None:
+    """The tree every profile's ``data:`` key names, beside the profile.
+
+    ``data:`` is required of every repo profile and must resolve to a real
+    directory, so without this each profile a test writes into ``tmp_path``
+    would report one extra failure about a key none of these tests is about.
+    """
+    (tmp_path / "data").mkdir(exist_ok=True)
+
+
+@pytest.fixture
+def container_runtime_is_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer the container-runtime preflight without consulting the host.
+
+    ``init --reset``/``--up`` and the lifecycle verbs are refused up front when
+    no container runtime answers, which is the right behaviour and the wrong
+    dependency for a unit test: left unstubbed these tests pass on a
+    developer's machine with Docker Desktop open and fail on a CI runner that
+    has no daemon, which is a property of the runner rather than of the verb.
+
+    Patched on ``runtime_helper`` itself because that is where the preflight
+    reads it from, at call time. The other callers of this function bind it at
+    import into their own modules, so this reaches exactly the one check these
+    tests need to get past and none of theirs. A test about the preflight
+    patches it back down in its body, where it wins over this.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.runtime_helper.verify_runtime_is_running",
+        lambda config=None: (True, ""),
+    )
+
+
+@pytest.fixture
+def fake_presets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A preset directory the test owns, replacing the bundled one."""
+    from osprey.cli import build_profile_presets
+
+    presets = tmp_path / "presets"
+    presets.mkdir()
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets)
+    return presets
+
+
+@pytest.fixture
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect ``Path.home()`` and ``$HOME`` to a tmp directory.
 
