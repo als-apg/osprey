@@ -289,3 +289,19 @@ def test_an_authored_computed_slot_is_never_overwritten() -> None:
         RuntimeError, match=r"wiring w1 already carries computed slots \['default'\]"
     ):
         wiring_module._fill_record(record, {"role": "setpoint"}, None, 0.0)
+
+
+@pytest.mark.parametrize(
+    ("slot", "value"), [("role", "monitor"), ("plane", "x"), ("refresh", "pass")]
+)
+def test_an_authored_description_slot_is_refused(tmp_path: Path, slot: str, value: str) -> None:
+    files = _files()
+    files["models.yaml"][0]["wiring"][2] = {
+        "address": "U:RB",
+        "element": "B",
+        "engine": ENGINE,
+        slot: value,
+    }
+    result = _run(tmp_path, files)
+    assert [(e.kind, e.record_id) for e in result.errors] == [("source-invalid", "SR/U:RB")]
+    assert f"`{slot}` is computed by the build" in _lines(result)[0]
