@@ -383,13 +383,7 @@ def ca_read(port: int, addresses: Sequence[str], *, timeout: float = 10.0) -> di
         "sys.stdout.flush()\n"
         "os._exit(0)\n"
     )
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
+    environment = e2e_conftest.ca_client_environment(port)
     run = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,

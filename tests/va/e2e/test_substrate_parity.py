@@ -404,13 +404,7 @@ def _family_z(count: int) -> float:
 
 def _ca_call(port: int, request: dict, *, timeout: float = 600.0) -> dict:
     """Run one worker operation against the container published on ``port``."""
-    environment = {
-        **os.environ,
-        "EPICS_CA_NAME_SERVERS": f"localhost:{port}",
-        "EPICS_CA_AUTO_ADDR_LIST": "NO",
-    }
-    for stale in ("EPICS_CA_ADDR_LIST", "EPICS_CA_SERVER_PORT", "EPICS_CAS_SERVER_PORT"):
-        environment.pop(stale, None)
+    environment = e2e_conftest.ca_client_environment(port)
     result = subprocess.run(
         [sys.executable, __file__, "--worker", json.dumps(request)],
         capture_output=True,
