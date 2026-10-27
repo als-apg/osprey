@@ -11,7 +11,8 @@
  * Every `addPanel` options object is kept on `_added`, in call order.
  *
  * `addTerminal` seeds the native terminal card in its own group, which is how
- * the page boots before any service tile is placed.
+ * the page boots before any service tile is placed. `FakeResizeObserver` is
+ * the adapter's live-follow observer, inert: geometry is browser-suite turf.
  */
 
 import { vi } from 'vitest';
@@ -88,4 +89,11 @@ export function addTerminal(api) {
   api.panels.push(terminal);
   api.activePanel = terminal;
   return terminal;
+}
+
+/** The adapter's live-follow observer; geometry itself is browser-suite turf. */
+export class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
 }

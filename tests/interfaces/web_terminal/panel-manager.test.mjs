@@ -41,6 +41,7 @@ import { stderr } from 'node:process';
 // panel-catalog.js reads the built-in panel labels off <html> at module
 // load, so the roster has to be stamped before freshImport() reaches it —
 // otherwise every panel here is labelled by its id.
+import { FakeResizeObserver } from './_dock-fake.mjs';
 import { stampPanelLabels } from './panel-labels-fixture.mjs';
 import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
@@ -136,13 +137,6 @@ const { setFacts, starterPrompts, capabilitySentence, chipRow } = vi.hoisted(() 
   capabilitySentence: vi.fn(() => ''),
   chipRow: vi.fn(() => document.createElement('div')),
 }));
-
-/** The adapter's live-follow observer; geometry itself is browser-suite turf. */
-class FakeResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
 
 /** Minimal ok-JSON fetch Response stand-in. @param {any} body */
 function jsonOk(body) {
