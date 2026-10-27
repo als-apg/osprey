@@ -4,7 +4,7 @@ Four checks live here. The git-visibility one asserts the three packaged files
 are not swallowed by any ignore rule, or the seed would silently fail to reach
 a deployment repository. The drift guard asserts that the preset's live
 ``mcp_servers:`` block still teaches what the emitter's commented appendix
-teaches: hello-world is the one preset whose block is active, so its readers
+teaches: hello-world is the only preset whose block is active, so its readers
 never see that appendix, and its comments are the only copy of that lesson they
 get. The launch tests -- named to contain "spawns" -- materialize and build a
 fresh hello-world repo, then actually spawn the rendered ``example_server``
@@ -47,7 +47,7 @@ PACKAGED_FILES = ("__init__.py", "server.py", "__main__.py")
 # The only comment lines the hello-world block may carry that the appendix does
 # not: two facts that are true of the seeded example and of nothing else. Both
 # are pinned in both directions below -- an appendix line may not impersonate
-# one, and dropping one from the preset fails here rather than quietly costing
+# one, and dropping either from the preset fails here rather than quietly costing
 # a reader the warning.
 _HELLO_WORLD_ONLY_COMMENTS: tuple[str, ...] = (
     "# Delete this block and mcp_servers/example_server/ together: one without",

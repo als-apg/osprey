@@ -4,8 +4,8 @@ description: >
   Use when a maintainer wants to know where OSPREY tells its users something that is no
   longer true — before cutting a release, after a long stretch of merges without one, or when
   the generated project, a shipped skill, a runtime message, or a pinned version is suspected
-  of having fallen behind the code — or when two shipped presets that are supposed to agree
-  (hello-world and control-assistant) may have drifted apart. Triggers: "run housekeeping",
+  of having fallen behind the code — or when the shipped presets, which are supposed to agree
+  (hello-world and control-assistant), may have drifted apart. Triggers: "run housekeeping",
   "check for drift", "what has rotted", "is anything stale", "housekeeping report", "sweep the
   repo", "preset parity", "do the presets still agree", "what maintainer
   chores are outstanding", "pre-release drift check". Prefer it over ad-hoc grepping whenever

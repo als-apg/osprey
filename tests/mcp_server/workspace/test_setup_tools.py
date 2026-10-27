@@ -660,7 +660,7 @@ def test_a_key_name_is_read_for_secrets_by_its_words(key, expected):
         ({"password": None}, {"password": None}),
         # A sensitive key inside a plain sequence still masks.
         ({"servers": [{"api_key": "sk-s"}]}, {"servers": [{"api_key": "***"}]}),
-        # The ARIEL keyword block two shipped presets carry, reported as it is.
+        # The ARIEL keyword block the shipped presets carry, reported as it is.
         (
             {"keyword": {"enabled": True, "settings": {"patterns_enabled": True}}},
             {"keyword": {"enabled": True, "settings": {"patterns_enabled": True}}},

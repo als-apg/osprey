@@ -831,6 +831,11 @@ def test_note_on_a_literal_default_goes_red():
         "Unset in all four presets.",
         "Present in both root presets.",
         "the one preset whose tree ships it",
+        "Present in both the presets.",
+        "Set in both of the presets.",
+        "Unset in two of the presets.",
+        "Stated in both the shipped presets.",
+        "Two presets per deployment state it.",
     ],
 )
 def test_a_note_counting_presets_goes_red(note):
@@ -841,7 +846,7 @@ def test_a_note_counting_presets_goes_red(note):
 
     guard = make_guard(count_the_presets)
     guard.check_preset_counts()
-    assert "preset-count" in modes(guard)
+    assert modes(guard) == ["preset-count"]
     assert "cli.theme" in details(guard)
 
 
@@ -882,7 +887,7 @@ def test_a_page_counting_presets_goes_red(tmp_path, rel):
 
     guard = make_guard(root=tmp_path)
     guard.check_preset_counts()
-    assert "preset-count" in modes(guard)
+    assert modes(guard) == ["preset-count"]
     assert f"{rel}:" in details(guard)
 
 
@@ -897,19 +902,67 @@ def test_a_count_wrapped_across_lines_goes_red(tmp_path):
 
     guard = make_guard(root=tmp_path)
     guard.check_preset_counts()
-    assert "preset-count" in modes(guard)
+    assert modes(guard) == ["preset-count"]
     assert f"{rel}:{line} " in details(guard)
 
 
-def test_a_missing_preset_page_goes_red(tmp_path):
+@pytest.mark.parametrize("missing", guard_module.PRESET_PROSE_FILES)
+def test_a_missing_preset_page_goes_red(tmp_path, missing):
     """The guard names the pages it reads; a moved page must move the guard too."""
-    present, missing = guard_module.PRESET_PROSE_FILES
-    _copy_preset_pages(tmp_path, (present,))
+    present = tuple(rel for rel in guard_module.PRESET_PROSE_FILES if rel != missing)
+    _copy_preset_pages(tmp_path, present)
 
     guard = make_guard(root=tmp_path)
     guard.check_preset_counts()
-    assert "preset-count" in modes(guard)
+    assert modes(guard) == ["preset-count"]
     assert missing in details(guard)
+
+
+def test_a_count_inside_a_declared_exception_stays_green(tmp_path, monkeypatch):
+    """A declared phrase excuses the count inside it and nothing beside it."""
+    rel = "scripts/config_key_parity.md"
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(
+        page.read_text(encoding="utf-8") + "\nThe lane (two presets) runs nightly.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        guard_module.PRESET_COUNT_EXCEPTIONS, rel, {"The lane (two presets)": "a planted name"}
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert guard.result.ok, details(guard)
+
+
+def test_an_exception_excuses_nothing_outside_its_own_file(tmp_path):
+    """A declared phrase copied into another listed page is a count there."""
+    declared = ".github/workflows/ci.yml"
+    phrase = next(iter(guard_module.PRESET_COUNT_EXCEPTIONS[declared]))
+    rel = "scripts/config_key_parity.md"
+    assert phrase not in guard_module.PRESET_COUNT_EXCEPTIONS.get(rel, {})
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(page.read_text(encoding="utf-8") + f"\n{phrase}\n", encoding="utf-8")
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:" in details(guard)
+
+
+def test_an_exception_its_file_does_not_hold_goes_red(monkeypatch):
+    """An exception leaves with the text it excused."""
+    rel = "scripts/config_key_parity.md"
+    phrase = "A lane no file names (two presets)"
+    monkeypatch.setitem(guard_module.PRESET_COUNT_EXCEPTIONS, rel, {phrase: "a planted name"})
+
+    guard = make_guard()
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert phrase in details(guard)
+    assert rel in details(guard)
 
 
 def test_dangling_covered_by_chain_goes_red():
@@ -1033,7 +1086,7 @@ def test_a_self_test_key_a_preset_also_spells_goes_red():
     rendering its branch, and the self-test would go on passing — silence in the
     one place the manifest built a tripwire. The mutation walks one path up from
     the real ``ariel_server_on`` key to its parent block, which the framework
-    template and two presets all render, so it is the realistic way this rots:
+    template and every preset render, so it is the realistic way this rots:
     an edit that keeps the key plausible while dropping what made it decisive.
     """
 

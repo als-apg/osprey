@@ -90,9 +90,8 @@ _BACKTICK_TOKEN_RE = re.compile(r"`([a-z][a-z0-9_]*)`")
 def _type_block(preset: str, key: str) -> tuple[set[str], str] | None:
     """The names *key*'s block in *preset* mentions, and the block's text.
 
-    Returns ``None`` when the preset does not set *key* at all — the two
-    standalone presets set neither, and a preset that stays silent makes no
-    claim to check.
+    Returns ``None`` when the preset does not set *key* at all: a preset that
+    stays silent makes no claim to check.
     """
     lines = (PRESET_DIR / f"{preset}.yml").read_text().splitlines()
     for index, line in enumerate(lines):

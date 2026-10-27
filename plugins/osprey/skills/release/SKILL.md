@@ -282,7 +282,7 @@ gh run list --workflow ci.yml --commit <sha> --limit 1
 gh run view <run-id> --json jobs --jq '.jobs[] | [.conclusion, .name] | @tsv'
 ```
 
-By their `ci.yml` job ids, the eight are `agentic-per-preset` (one job per
+By their `ci.yml` job ids, the eight are `agentic-per-preset` (a job for every
 preset), `e2e-tests`, `dispatch-deploy-e2e`, `dispatch-overlay-e2e`,
 `scan-agentic-e2e`, `nextcloud-talk-bridge-e2e`, `gchat-bridge-e2e` and
 `target-switch-agentic-e2e`.
