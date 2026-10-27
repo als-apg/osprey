@@ -20,7 +20,7 @@ role that the hub does there. Keeping this out of ``tests/interfaces/ariel/``
 or ``tests/interfaces/web_terminal/`` also leaves the latter namespace clear
 for B.3's parity suite, as directed.
 
-Follows the harness pattern from ``test_load_smokes.py``'s ``_launch_ariel``:
+Launches through ``test_load_smokes.py``'s ``_launch_ariel``:
 a real uvicorn ariel server on a free port, monkeypatched into an empty
 ``tmp_path`` (no ``config.yml`` — the Settings drawer's config fetch 404s,
 which never touches the focusable-element set this suite's a11y assertions
@@ -36,17 +36,14 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
 
 from tests.interfaces._browser import assert_page_loads_clean
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces.test_load_smokes import _launch_ariel
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from playwright.sync_api import Page
 
 try:
@@ -75,22 +72,6 @@ CLOSE_BTN_SELECTOR = ".drawer-close-btn"
 # the raw editor and the confirm dialog start hidden (`display: none`) until
 # interacted with, which excludes their descendants via `offsetParent`.
 LAST_FOCUSABLE_SELECTOR = '.settings-mode-btn[data-mode="raw"]'
-
-
-# ---------------------------------------------------------------------------
-# Live server launcher
-# ---------------------------------------------------------------------------
-
-
-@contextmanager
-def _launch_ariel(tmp_path, monkeypatch) -> Iterator[str]:
-    """Real ariel server over an empty ``tmp_path`` (mirrors test_load_smokes.py)."""
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.ariel.app import create_app
-
-    app = create_app()
-    with _run_app_server(app) as base_url:
-        yield base_url
 
 
 def _open_settings_drawer(page: Page) -> None:
