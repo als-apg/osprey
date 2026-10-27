@@ -42,11 +42,12 @@ services:
       - {{ env_file }}
 {%- endfor %}
     environment:
-      # The spool every source appends to, and the embedded store's directory.
-      # The image's entrypoint joins both directories' groups and leaves their
-      # ownership alone.
+      # The spool every source appends to, the embedded store's directory and
+      # the archive the record exports its closed days into. The image's
+      # entrypoint joins each directory's group and leaves its ownership alone.
       OSPREY_AGENT_RECORD_SPOOL_ROOT: {{ rec.spool_dir }}
       OSPREY_AGENT_RECORD_DIR: {{ rec.record_dir }}
+      OSPREY_AGENT_RECORD_ARCHIVE_DIR: {{ rec.archive_dir }}
       # One transcript root per source below this directory, each named as
       # the record names it.
       OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR: {{ rec.transcripts_dir }}
@@ -61,12 +62,14 @@ services:
     # the read API there; nothing else may.
     ports:
       - "127.0.0.1:{{ rec.port }}:{{ rec.container_port }}"
-    # The spool and the record directory are the two writable mounts. Every
-    # transcripts volume is mounted whole and read-only; no claude-config
-    # volume and no workspace is.
+    # The spool, the record directory and the archive are the three writable
+    # mounts; the archive service is the only other container that mounts the
+    # archive. Every transcripts volume is mounted whole and read-only; no
+    # claude-config volume and no workspace is.
     volumes:
       - {{ rec.spool_source }}:{{ rec.spool_dir }}
       - {{ rec.record_source }}:{{ rec.record_dir }}
+      - {{ rec.archive_source }}:{{ rec.archive_dir }}
 {%- for root in rec.volume_roots %}
       - {{ root.volume }}:{{ rec.transcripts_dir }}/{{ root.root }}:ro
 {%- endfor %}

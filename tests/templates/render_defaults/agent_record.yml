@@ -30,11 +30,12 @@ services:
     env_file:
       - .env.agent-record.service
     environment:
-      # The spool every source appends to, and the embedded store's directory.
-      # The image's entrypoint joins both directories' groups and leaves their
-      # ownership alone.
+      # The spool every source appends to, the embedded store's directory and
+      # the archive the record exports its closed days into. The image's
+      # entrypoint joins each directory's group and leaves its ownership alone.
       OSPREY_AGENT_RECORD_SPOOL_ROOT: /app/golden-project/var/spool
       OSPREY_AGENT_RECORD_DIR: /app/golden-project/var/agent_record
+      OSPREY_AGENT_RECORD_ARCHIVE_DIR: /app/golden-project/var/archive
       # One transcript root per source below this directory, each named as
       # the record names it.
       OSPREY_AGENT_RECORD_TRANSCRIPTS_DIR: /data/transcripts
@@ -43,12 +44,14 @@ services:
     # the read API there; nothing else may.
     ports:
       - "127.0.0.1:10053:8000"
-    # The spool and the record directory are the two writable mounts. Every
-    # transcripts volume is mounted whole and read-only; no claude-config
-    # volume and no workspace is.
+    # The spool, the record directory and the archive are the three writable
+    # mounts; the archive service is the only other container that mounts the
+    # archive. Every transcripts volume is mounted whole and read-only; no
+    # claude-config volume and no workspace is.
     volumes:
       - ./var/spool:/app/golden-project/var/spool
       - ./var/agent_record:/app/golden-project/var/agent_record
+      - ./var/archive:/app/golden-project/var/archive
     networks:
       - osprey-network
     healthcheck:

@@ -21,7 +21,7 @@ re-declared here; a dispatch volume is its owner's alone in this slice.
 
 **The ClickHouse backend adds a store no one else can read.** With
 ``agent_record.backend: clickhouse`` the template adds ``agent_record_clickhouse``
-with the old store's hardening, no host port, its own data volume and the admin
+with a memory limit and a health check, no host port, its own data volume and the admin
 file as its only env file; agent-record dials it over the bridge and never gets
 the admin file. The embedded backend renders no store at all.
 """
@@ -40,6 +40,7 @@ import yaml
 from osprey.agent_record import credentials as creds
 from osprey.agent_record.identities import transcript_roots
 from osprey.agent_record.service import (
+    ARCHIVE_DIR_ENV,
     CLICKHOUSE_URL_ENV,
     DEFAULT_TRANSCRIPTS_DIR,
     RECORD_DIR_ENV,
@@ -63,7 +64,7 @@ from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 TEMPLATE = "services/agent_record/docker-compose.yml.j2"
 SERVICE_KEY = "agent-record"
-STORE_SERVICES = {"telemetry_store", "agent_record_clickhouse"}
+STORE_SERVICES = {"agent_record_clickhouse"}
 
 
 def _config(
@@ -205,19 +206,24 @@ def test_the_digest_label_is_the_credential_owners(tmp_path: Path) -> None:
     assert service["labels"] == {creds.DIGEST_LABEL: f"${{{variable}:-}}"}
 
 
-def test_the_spool_and_record_dir_are_the_writable_binds_named_in_the_env(
-    tmp_path: Path,
+@pytest.mark.parametrize("backend", ["embedded", "clickhouse"])
+def test_the_spool_record_dir_and_archive_are_the_writable_binds_named_in_the_env(
+    tmp_path: Path, backend: str
 ) -> None:
-    service = _service(_config(tmp_path))
+    """The archive is bound at the project-relative path the host uses, so
+    the record resolves the same tree in the container as on the host."""
+    service = _service(_config(tmp_path, agent_record={"backend": backend}))
     env = service["environment"]
 
     assert env[SPOOL_ROOT_ENV] == "/app/dls/var/spool"
     assert env[RECORD_DIR_ENV] == "/app/dls/var/agent_record"
+    assert env[ARCHIVE_DIR_ENV] == "/app/dls/var/archive"
     assert env[TRANSCRIPTS_DIR_ENV] == DEFAULT_TRANSCRIPTS_DIR
     writable = [m for m in _string_mounts(service) if not m.endswith(":ro")]
     assert writable == [
         f"./var/spool:{env[SPOOL_ROOT_ENV]}",
         f"./var/agent_record:{env[RECORD_DIR_ENV]}",
+        f"./var/archive:{env[ARCHIVE_DIR_ENV]}",
     ]
 
 
@@ -516,7 +522,6 @@ def test_the_clickhouse_backend_renders_agent_record_and_its_store(tmp_path: Pat
     doc = _render(_clickhouse_config(tmp_path))
 
     assert list(doc["services"]) == [SERVICE_KEY, creds.CLICKHOUSE_SERVICE]
-    assert "telemetry_store" not in doc["services"]
     store = doc["services"][creds.CLICKHOUSE_SERVICE]
     assert store["container_name"] == "dls-agent-record-clickhouse"
     assert store["image"] == "clickhouse/clickhouse-server:26.8.18.2"
@@ -532,7 +537,7 @@ def test_the_store_publishes_no_host_port(tmp_path: Path) -> None:
     assert "network_mode" not in store
 
 
-def test_the_store_carries_the_old_stores_hardening(tmp_path: Path) -> None:
+def test_the_store_carries_its_hardening(tmp_path: Path) -> None:
     store = _store(_clickhouse_config(tmp_path))
 
     assert store["mem_limit"] == "2g"
@@ -568,7 +573,6 @@ def test_the_store_has_its_own_data_volume(tmp_path: Path) -> None:
 
     assert AGENT_RECORD_CLICKHOUSE_VOLUME == "agent_record_clickhouse_data"
     assert set(doc["volumes"]) == {AGENT_RECORD_CLICKHOUSE_VOLUME}
-    assert "telemetry_store_data" not in str(doc)
 
 
 def test_the_store_volume_is_declared_beside_the_terminal_volumes(tmp_path: Path) -> None:
