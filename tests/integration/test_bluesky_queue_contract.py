@@ -835,6 +835,8 @@ def test_all_three_arming_routes_refuse_with_one_code(
         assert resp.status_code == expected_status, f"{route}: {resp.text}"
         detail = resp.json()["detail"]
         assert detail["code"] == expected_code, route
+        assert resp.status_code == qb.REFUSAL_REASONS[expected_code].status, route
+        assert detail["retryable"] is qb.REFUSAL_REASONS[expected_code].retryable, route
         assert isinstance(detail["detail"], str) and detail["detail"], route
 
     # None of the three arming actions reached the manager.
@@ -927,7 +929,9 @@ def test_an_aborted_run_reads_as_stopped_and_cannot_silently_re_run(
     refused = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
     assert refused.status_code == 409, refused.text
     detail = refused.json()["detail"]
-    assert detail["code"] == "interrupted_item_in_queue"
+    assert detail["code"] == qb.REASON_INTERRUPTED_ITEM_IN_QUEUE
+    assert refused.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert detail["exit_status"] == "aborted"
     # The load-bearing half: nothing was started.
     assert manager.manager_state == "idle"
@@ -1787,7 +1791,9 @@ def test_a_start_naming_a_queue_that_has_moved_is_refused_with_the_current_uid(
 
     assert refused.status_code == 409
     detail = refused.json()["detail"]
-    assert detail["code"] == "queue_changed_since_approval"
+    assert detail["code"] == qb.REASON_QUEUE_CHANGED_SINCE_APPROVAL
+    assert refused.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert detail["plan_queue_uid"] == current_uid
     assert detail["expected_plan_queue_uid"] == approved_uid
     # The refusal armed nothing and drained nothing: the queue is exactly the

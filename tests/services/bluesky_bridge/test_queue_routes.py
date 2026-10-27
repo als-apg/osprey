@@ -1595,9 +1595,10 @@ def test_start_refuses_while_a_plan_is_already_running(
 
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
-    assert resp.status_code == 409
     detail = resp.json()["detail"]
-    assert detail["code"] == "manager_not_idle"
+    assert detail["code"] == qb.REASON_MANAGER_NOT_IDLE
+    assert resp.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert detail["plan"] == "grid_scan"
     assert detail["item_uid"] == "running-uid"
     # The load-bearing half: the manager was never asked to start.

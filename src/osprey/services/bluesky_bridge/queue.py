@@ -116,17 +116,21 @@ from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
 from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
+    REASON_INTERRUPTED_ITEM_IN_QUEUE,
+    REASON_MANAGER_NOT_IDLE,
+    REASON_QUEUE_CHANGED_SINCE_APPROVAL,
+    REASON_UNKNOWN_DEVICE,
     REFUSAL_REASONS,
     ExecutionUnavailableError,
     QueueBackend,
     QueueBackendError,
     QueueRequestRejectedError,
-    ReasonRecord,
     is_queue_active,
     run_id_of,
     split_owner,
 )
 from .queue_removals import ACTION_ABORT, ACTION_CLEAR, ACTION_REMOVE, removal_log
+from .refusals import refusal
 from .security import verify_launch_token
 from .session_upload import (
     SessionPlanNotReadyError,
@@ -221,11 +225,6 @@ async def shutdown() -> None:
     _stop_poller()
 
 
-# The answer for a reason with no row in `REFUSAL_REASONS`: a server error
-# nobody is told to retry.
-_UNDECLARED = ReasonRecord(500, False)
-
-
 def _http_error(exc: QueueBackendError, *, extra: Mapping[str, Any] | None = None) -> HTTPException:
     """Map one typed backend failure to the HTTP refusal the wire contract promises.
 
@@ -237,16 +236,10 @@ def _http_error(exc: QueueBackendError, *, extra: Mapping[str, Any] | None = Non
     *extra* carries caller-side facts the backend exception cannot, merged into
     the body beside ``code`` and ``detail``.
     """
-    record = REFUSAL_REASONS.get(exc.reason, _UNDECLARED)
-    detail: dict[str, Any] = {
-        "code": exc.reason,
-        "detail": str(exc),
-        "retryable": record.retryable,
-        **(extra or {}),
-    }
+    facts: dict[str, Any] = dict(extra or {})
     if isinstance(exc, ExecutionUnavailableError):
-        detail["capability"] = exc.capability.to_dict()
-    return HTTPException(status_code=record.status, detail=detail)
+        facts["capability"] = exc.capability.to_dict()
+    return refusal(exc.reason, str(exc), **facts)
 
 
 def _token_is_valid(header: str) -> bool:
@@ -272,14 +265,11 @@ def _require_arming_token(header: str, action: str, extra: Mapping[str, Any] | N
     try:
         verify_launch_token(header)
     except HTTPException as exc:
-        refusal = cast(Mapping[str, Any], exc.detail)
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                **refusal,
-                "detail": f"{action} requires the launch token: {refusal['detail']}",
-                **(extra or {}),
-            },
+        refused = cast(Mapping[str, Any], exc.detail)
+        raise refusal(
+            refused["code"],
+            f"{action} requires the launch token: {refused['detail']}",
+            **(extra or {}),
         ) from exc
 
 
@@ -354,23 +344,18 @@ def _refuse_interrupted_item(item: dict[str, Any]) -> NoReturn:
     exit_status = result.get("exit_status") if isinstance(result, dict) else None
     uid = item.get("item_uid")
     name = item.get("name")
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "interrupted_item_in_queue",
-            "detail": (
-                f"the queue still holds {name!r}, a plan that already ran and ended "
-                f"{exit_status!r}; the queue server puts an interrupted plan back at the "
-                "front of the queue, so starting now would re-run it. Every start is "
-                "refused while that copy is queued, so removing it with "
-                f"DELETE /queue/items/{uid} is the only way on. To run the plan again, "
-                "remove it first and then re-stage it through the draft and enqueue it "
-                "afresh, to run it deliberately."
-            ),
-            "item_uid": uid,
-            "plan": name,
-            "exit_status": exit_status,
-        },
+    raise refusal(
+        REASON_INTERRUPTED_ITEM_IN_QUEUE,
+        f"the queue still holds {name!r}, a plan that already ran and ended "
+        f"{exit_status!r}; the queue server puts an interrupted plan back at the "
+        "front of the queue, so starting now would re-run it. Every start is "
+        "refused while that copy is queued, so removing it with "
+        f"DELETE /queue/items/{uid} is the only way on. To run the plan again, "
+        "remove it first and then re-stage it through the draft and enqueue it "
+        "afresh, to run it deliberately.",
+        item_uid=uid,
+        plan=name,
+        exit_status=exit_status,
     )
 
 
@@ -402,19 +387,14 @@ def _refuse_manager_not_idle(running_item: dict[str, Any]) -> NoReturn:
     """
     uid = running_item.get("item_uid")
     name = running_item.get("name")
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "manager_not_idle",
-            "detail": (
-                f"the queue is already running {name!r}, so there is nothing for a start "
-                "to do — the queue moves on to the next item by itself when this one "
-                "finishes. Poll GET /queue to follow it, or POST /queue/abort to halt "
-                "the plan in motion."
-            ),
-            "item_uid": uid,
-            "plan": name,
-        },
+    raise refusal(
+        REASON_MANAGER_NOT_IDLE,
+        f"the queue is already running {name!r}, so there is nothing for a start "
+        "to do — the queue moves on to the next item by itself when this one "
+        "finishes. Poll GET /queue to follow it, or POST /queue/abort to halt "
+        "the plan in motion.",
+        item_uid=uid,
+        plan=name,
     )
 
 
@@ -441,20 +421,15 @@ def _refuse_queue_changed(expected_uid: str, current_uid: Any) -> NoReturn:
     quoting that uid. 409, not 503: nothing is broken and an unchanged retry
     would be refused identically; a human has to look again.
     """
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "queue_changed_since_approval",
-            "detail": (
-                "the queue has changed since it was approved: the start named queue "
-                f"{expected_uid!r}, but the manager now holds {current_uid!r}. An item "
-                "has been added, removed or re-ordered in between, so the approved list "
-                "is not the list this start would run. Re-read GET /queue, check what it "
-                "now holds, and start again with the plan_queue_uid it reports."
-            ),
-            "plan_queue_uid": current_uid,
-            "expected_plan_queue_uid": expected_uid,
-        },
+    raise refusal(
+        REASON_QUEUE_CHANGED_SINCE_APPROVAL,
+        "the queue has changed since it was approved: the start named queue "
+        f"{expected_uid!r}, but the manager now holds {current_uid!r}. An item "
+        "has been added, removed or re-ordered in between, so the approved list "
+        "is not the list this start would run. Re-read GET /queue, check what it "
+        "now holds, and start again with the plan_queue_uid it reports.",
+        plan_queue_uid=current_uid,
+        expected_plan_queue_uid=expected_uid,
     )
 
 
@@ -469,7 +444,8 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
     with the same value repeated under the queue surface's canonical ``code``
     key so clients branch on one name everywhere.
     """
-    return HTTPException(status_code=409, detail={**exc.to_dict(), "code": exc.reason})
+    facts = {key: value for key, value in exc.to_dict().items() if key != "detail"}
+    return refusal(exc.reason, exc.detail, **facts)
 
 
 # ---------------------------------------------------------------------------
@@ -635,21 +611,18 @@ def _refuse_unknown_devices(
     first = sorted(unknown_movable or unknown_readable)[0]
     label = "session plan" if session_tier else "plan"
     cap = device_page_size()
-    detail: dict[str, Any] = {
-        "code": "unknown_device",
-        "detail": (
-            f"{label} {plan_name!r} referenced device {first!r}, which this worker "
-            f"did not build; available devices: {_available_devices_phrase(available, cap)}"
-        ),
-        "plan": plan_name,
-        "devices": sorted(unknown),
-    }
+    facts: dict[str, Any] = {"plan": plan_name, "devices": sorted(unknown)}
     if len(available) <= cap:
-        detail["available_devices"] = sorted(available)
+        facts["available_devices"] = sorted(available)
     else:
-        detail["available_count"] = len(available)
-        detail["available_devices_url"] = "/devices"
-    raise HTTPException(status_code=400, detail=detail)
+        facts["available_count"] = len(available)
+        facts["available_devices_url"] = "/devices"
+    raise refusal(
+        REASON_UNKNOWN_DEVICE,
+        f"{label} {plan_name!r} referenced device {first!r}, which this worker "
+        f"did not build; available devices: {_available_devices_phrase(available, cap)}",
+        **facts,
+    )
 
 
 async def _built_device_names(
@@ -846,7 +819,7 @@ def _unavailable_summary(reason: str, detail: str) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "available": False,
         "reason": reason,
-        "retryable": REFUSAL_REASONS.get(reason, _UNDECLARED).retryable,
+        "retryable": REFUSAL_REASONS[reason].retryable,
         "detail": detail,
     }
     for key in _SUMMARY_KEYS:
@@ -1194,10 +1167,7 @@ async def add_queue_item(
 
     checked = await draft.check_launchable(body.draft_revision)
     if isinstance(checked, draft.LaunchRejected):
-        raise HTTPException(
-            status_code=409,
-            detail={"code": checked.code, "detail": checked.detail, "revision": checked.revision},
-        )
+        raise refusal(checked.code, checked.detail, revision=checked.revision)
 
     run_id = uuid.uuid4().hex
     item = {
