@@ -35,7 +35,9 @@ import signal
 import subprocess
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Generic, TypeVar
 
 from osprey.cli.phase_reporter import current_reporter, is_verbose
 from osprey.deployment.errors import CapturedProcessError, CapturedProcessTimeout
@@ -436,6 +438,64 @@ def _wait_bounded(
         raise
 
 
+_T = TypeVar("_T")
+
+
+def _pid_name(pid: object) -> str:
+    return f"pid {pid}"
+
+
+def _group_name(pgid: object) -> str:
+    return f"group {pgid}"
+
+
+@dataclass(frozen=True)
+class StopOutcome(Generic[_T]):
+    """What a stop proved about the things it ended.
+
+    ``ended`` holds what the stop signalled; ``survivors`` what a read of the
+    process table still found running after SIGKILL; ``unknown`` what could not
+    be re-identified because the process table could not be read. Unknown is
+    never folded into survivors, and a thing in ``unknown`` was never signalled
+    after the read that failed.
+
+    An instance is always true: it defines neither ``__bool__`` nor
+    ``__len__``, so a truth test can never read an outcome as gone. Ask
+    :attr:`gone`, :attr:`survivors` or :attr:`unknown`.
+    """
+
+    ended: tuple[_T, ...] = ()
+    survivors: tuple[_T, ...] = ()
+    unknown: tuple[_T, ...] = ()
+
+    @property
+    def gone(self) -> bool:
+        """Whether everything the stop ended is proven gone."""
+        return not self.survivors and not self.unknown
+
+    def describe(
+        self,
+        *,
+        survivor: Callable[[_T], str] = _pid_name,
+        unknown: Callable[[_T], str] = _group_name,
+    ) -> str:
+        """The outcome in the words every log line uses, one renderer per set."""
+        if self.gone:
+            return "gone"
+        clauses = []
+        if self.survivors:
+            clauses.append(
+                "still running after SIGKILL: " + ", ".join(survivor(x) for x in self.survivors)
+            )
+        if self.unknown:
+            clauses.append(
+                "process table unreadable: "
+                + ", ".join(unknown(x) for x in self.unknown)
+                + " may still be running"
+            )
+        return "; ".join(clauses)
+
+
 def _stop(process: subprocess.Popen, *, own_group: bool) -> None:
     """Stop ``process`` — and its process group, if it leads one: SIGTERM, then SIGKILL.
 
@@ -655,6 +715,7 @@ __all__ = [
     "SPOOL_DIR",
     "SPOOL_RETENTION",
     "CapturedProcess",
+    "StopOutcome",
     "captured_failure_detail",
     "diagnose_captured_failure",
     "group_is_gone",
