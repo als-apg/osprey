@@ -205,6 +205,9 @@ _connector_writes: bool | None = None
 #: The one event loop every pool call of this process runs on, and its guard.
 _pool_loop: asyncio.AbstractEventLoop | None = None
 _pool_loop_guard = threading.Lock()
+#: The thread that runs ``_pool_loop`` and the pid of the process that started it.
+_pool_loop_thread: threading.Thread | None = None
+_pool_loop_pid: int | None = None
 #: The in-flight marker this cell holds, or ``None``. Removed by
 #: ``post_run_cell``, which is why the claim below re-checks the file rather
 #: than trusting this name across cells.
@@ -281,17 +284,65 @@ def _pool_mode() -> bool:
 
 
 def _pool_event_loop() -> asyncio.AbstractEventLoop:
-    """The daemon loop every pool call of this process runs on, started once."""
-    global _pool_loop
+    """The daemon loop every pool call of this process runs on.
+
+    Started once per process; stopped and closed by :func:`_stop_pool_loop`,
+    called by the runtime's exit hook or by a caller that ends this process's
+    runtime. A process forked after the
+    loop started inherits the loop but not its thread, so it is refused here.
+
+    Raises:
+        RuntimeError: In a process forked from the one that started the loop.
+    """
+    global _pool_loop, _pool_loop_thread, _pool_loop_pid
 
     with _pool_loop_guard:
+        if _pool_loop is not None and os.getpid() != _pool_loop_pid:
+            raise RuntimeError(
+                "The runtime's connector loop was started in the parent of this forked "
+                "process and cannot be used here; start the child with 'spawn' or "
+                "'forkserver'."
+            )
         if _pool_loop is None:
             loop = asyncio.new_event_loop()
-            threading.Thread(
+            thread = threading.Thread(
                 target=loop.run_forever, name="osprey-runtime-connector-loop", daemon=True
-            ).start()
-            _pool_loop = loop
+            )
+            thread.start()
+            _pool_loop, _pool_loop_thread, _pool_loop_pid = loop, thread, os.getpid()
         return _pool_loop
+
+
+def _stop_pool_loop() -> None:
+    """Stop the pool's loop, wait for its thread and close the loop once the thread has ended.
+
+    Idempotent; a no-op in a forked child, which holds no thread of the loop.
+    A thread that does not stop keeps its loop open, since a running loop
+    cannot be closed; the next call to :func:`_pool_event_loop` starts afresh.
+
+    Raises:
+        RuntimeError: If called from the loop's own thread, which cannot wait
+            for itself to end.
+    """
+    global _pool_loop, _pool_loop_thread, _pool_loop_pid
+
+    with _pool_loop_guard:
+        loop, thread, pid = _pool_loop, _pool_loop_thread, _pool_loop_pid
+        if loop is None:
+            return
+        if os.getpid() == pid and threading.current_thread() is thread:
+            raise RuntimeError("The runtime's connector loop cannot be stopped from its own thread")
+        _pool_loop = _pool_loop_thread = _pool_loop_pid = None
+    if os.getpid() != pid or thread is None:
+        return
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(timeout=2.0)
+    if thread.is_alive():
+        logger.warning(
+            "the runtime's connector loop thread did not stop within 2 s; its loop is left open"
+        )
+        return
+    loop.close()
 
 
 async def _pooled_connector_locked(target: str | None) -> Any:
@@ -944,9 +995,14 @@ def _run_on_pool_loop(coro) -> Any:
 
     Raises:
         RuntimeError: If called from the pool's own loop, which would wait on
-            itself; the coroutine is closed unrun.
+            itself, or from a forked child of the process that started it; the
+            coroutine is closed unrun.
     """
-    loop = _pool_event_loop()
+    try:
+        loop = _pool_event_loop()
+    except RuntimeError:
+        coro.close()
+        raise
     try:
         running = asyncio.get_running_loop()
     except RuntimeError:
@@ -1328,11 +1384,20 @@ async def _close_pool() -> None:
 
 # Register cleanup on module exit
 def _cleanup_on_exit() -> None:
-    """Synchronous cleanup for atexit handler."""
+    """Close this process's runtime at interpreter exit.
+
+    The pool is closed on its loop first, then the loop is stopped, joined and
+    closed; a loop can outlive its pool, so the loop stop is unconditional. A
+    process forked after the loop started holds neither the pool's children
+    nor the loop's thread, so it leaves both to the parent.
+    """
+    if _pool_loop_pid is not None and os.getpid() != _pool_loop_pid:
+        return
     if _runtime_connector is not None or _connector_pool is not None:
         # Best effort cleanup
         with contextlib.suppress(Exception):
             asyncio.run(cleanup_runtime())
+    _stop_pool_loop()
 
 
 atexit.register(_cleanup_on_exit)
