@@ -106,6 +106,7 @@ from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
     image_exists,
+    image_label,
     runtime_cli,
     runtime_logs,
 )
@@ -205,19 +206,6 @@ def _run_osprey(
         timeout=timeout,
         env={**os.environ, "CLAUDECODE": "", "CONTAINER_RUNTIME": RUNTIME},
     )
-
-
-def _image_label(tag: str, key: str) -> str | None:
-    result = runtime_cli(
-        "inspect",
-        "--type",
-        "image",
-        "-f",
-        f'{{{{ index .Config.Labels "{key}" }}}}',
-        tag,
-        timeout=15,
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _stub_dockerfile() -> str:
@@ -496,7 +484,7 @@ def test_up_builds_the_real_sidecar_image() -> None:
     before removing it, and an unlabeled image survives a factory reset.
     """
     assert image_exists(AUTH_IMAGE_TAG), f"{AUTH_IMAGE_TAG} was not built by 'osprey up'"
-    assert _image_label(AUTH_IMAGE_TAG, "com.osprey.project") == PROJECT_NAME
+    assert image_label(AUTH_IMAGE_TAG, "com.osprey.project") == PROJECT_NAME
 
 
 def test_the_sidecar_runs_and_reports_itself_configured(deployment: dict[str, Any]) -> None:

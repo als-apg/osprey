@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
@@ -261,3 +262,12 @@ def await_bridge(bridge: Any, what: str, probe: Callable[[], Any], timeout: floa
                 f"  dedup: {json.dumps(bridge.dedup, indent=2, default=str)[:2000]}"
             )
         time.sleep(0.5)
+
+
+def drain_thread_alive() -> bool:
+    """Whether a bridge engine's single drain thread is still running.
+
+    It is a daemon named ``bridge-drain``, so it never shows up as a stuck process — it
+    shows up as a store being written by a bridge the test thinks has stopped.
+    """
+    return any(t.name == "bridge-drain" and t.is_alive() for t in threading.enumerate())

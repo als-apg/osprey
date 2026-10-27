@@ -95,6 +95,7 @@ from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
     image_exists,
+    image_label,
     runtime_cli,
     volume_exists,
 )
@@ -1187,19 +1188,6 @@ def _make_hetero_repo(tmp_path: Path) -> Path:
     )
 
 
-def _image_label(tag: str, key: str) -> str | None:
-    result = runtime_cli(
-        "inspect",
-        "--type",
-        "image",
-        "-f",
-        f'{{{{ index .Config.Labels "{key}" }}}}',
-        tag,
-        timeout=15,
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
-
-
 def _container_image(name: str) -> str | None:
     result = runtime_cli(
         "inspect", "--type", "container", "-f", "{{.Config.Image}}", name, timeout=15
@@ -1314,8 +1302,8 @@ def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
         # --------------------------------------------------------------
         assert image_exists(HETERO_DEFAULT_TAG), f"{HETERO_DEFAULT_TAG} was not built"
         assert image_exists(HETERO_ALT_TAG), f"{HETERO_ALT_TAG} was not built"
-        assert _image_label(HETERO_DEFAULT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
-        assert _image_label(HETERO_ALT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
+        assert image_label(HETERO_DEFAULT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
+        assert image_label(HETERO_ALT_TAG, "com.osprey.project") == HETERO_PROJECT_NAME
 
         # alice & bob share the DEFAULT render's image; carol runs the alt one.
         assert _container_image(alice_c) == HETERO_DEFAULT_TAG

@@ -91,6 +91,20 @@ def image_exists(tag: str) -> bool:
     return runtime_cli("inspect", "--type", "image", tag, timeout=15).returncode == 0
 
 
+def image_label(tag: str, key: str) -> str | None:
+    """The value of label ``key`` on image ``tag``, or ``None`` when there is no such image."""
+    result = runtime_cli(
+        "inspect",
+        "--type",
+        "image",
+        "-f",
+        f'{{{{ index .Config.Labels "{key}" }}}}',
+        tag,
+        timeout=15,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def volume_exists(name: str) -> bool:
     return runtime_cli("volume", "inspect", name, timeout=15).returncode == 0
 

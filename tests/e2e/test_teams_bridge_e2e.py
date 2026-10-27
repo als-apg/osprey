@@ -159,6 +159,7 @@ from osprey.bridges.teams.receiver import (
 from tests.e2e._dispatch_harness import (
     await_bridge,
     build_repo,
+    drain_thread_alive,
     running_dispatch_stack,
 )
 from tests.e2e.fixtures.teams_fakes import (
@@ -560,15 +561,6 @@ class RunningBridge:
         return data if isinstance(data, dict) else {}
 
 
-def _drain_thread_alive() -> bool:
-    """Whether the engine's single drain thread is still running.
-
-    It is a daemon named ``bridge-drain``, so it never shows up as a stuck process — it
-    shows up as a store being written by a bridge the test thinks has stopped.
-    """
-    return any(t.name == "bridge-drain" and t.is_alive() for t in threading.enumerate())
-
-
 @contextlib.contextmanager
 def _running_bridge(
     state_dir: Path,
@@ -620,7 +612,7 @@ def _running_bridge(
         wiring.stop.set()
         thread.join(BRIDGE_JOIN_TIMEOUT_SEC)
         deadline = time.monotonic() + BRIDGE_JOIN_TIMEOUT_SEC
-        while _drain_thread_alive() and time.monotonic() < deadline:
+        while drain_thread_alive() and time.monotonic() < deadline:
             time.sleep(0.5)
         # Only when the body itself succeeded — otherwise this would mask the real
         # failure with a secondary one.
@@ -628,7 +620,7 @@ def _running_bridge(
             raise AssertionError(f"bridge thread crashed: {failure[0]!r}") from failure[0]
         if completed and thread.is_alive():
             raise AssertionError("the bridge thread did not stop on its stop event")
-        if completed and _drain_thread_alive():
+        if completed and drain_thread_alive():
             raise AssertionError(
                 "the drain thread outlived its stop event and is still holding the dedup store"
             )
