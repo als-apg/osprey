@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 import yaml
 
 from osprey import bluesky_tool_names as bsky
@@ -306,8 +307,11 @@ def test_mixed_render_never_allows_a_pure_write_tool(tmp_path):
         assert f"mcp__bluesky__{tool}" not in allow
 
 
-def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp_path):
-    """Spelling the writes-off posture out per connector changes no byte.
+@pytest.mark.parametrize(
+    "writes", [pytest.param(False, id="writes_off"), pytest.param(True, id="writes_on")]
+)
+def test_agreeing_per_connector_keys_render_byte_identically(tmp_path, writes):
+    """Spelling the deployment-wide posture out per connector changes no byte, either way.
 
     Rendered twice into the SAME project so the comparison is of the posture
     keying alone — project name, paths and interpreter are held fixed. The
@@ -318,42 +322,19 @@ def test_agreeing_per_connector_keys_render_byte_identically_with_writes_off(tmp
     manager = TemplateManager()
     project_dir = create_project_as_built(
         manager,
-        project_name="killswitch-identity-off",
+        project_name="killswitch-identity",
         output_dir=tmp_path,
         data_bundle="control_assistant",
         context={"channel_finder_mode": "hierarchical"},
     )
-    _rerender(manager, project_dir, False, control_system_type=_LIVE_CONNECTOR)
+    _rerender(manager, project_dir, writes, control_system_type=_LIVE_CONNECTOR)
     from_global_key_only = _settings_text(project_dir)
 
     _rerender(
         manager,
         project_dir,
-        False,
-        {_LIVE_CONNECTOR: False, _VA_CONNECTOR: False},
-        control_system_type=_LIVE_CONNECTOR,
-    )
-    assert _settings_text(project_dir) == from_global_key_only
-
-
-def test_agreeing_per_connector_keys_render_byte_identically_with_writes_on(tmp_path):
-    """The same identity in the armed direction."""
-    manager = TemplateManager()
-    project_dir = create_project_as_built(
-        manager,
-        project_name="killswitch-identity-on",
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
-        context={"channel_finder_mode": "hierarchical"},
-    )
-    _rerender(manager, project_dir, True, control_system_type=_LIVE_CONNECTOR)
-    from_global_key_only = _settings_text(project_dir)
-
-    _rerender(
-        manager,
-        project_dir,
-        True,
-        {_LIVE_CONNECTOR: True, _VA_CONNECTOR: True},
+        writes,
+        {_LIVE_CONNECTOR: writes, _VA_CONNECTOR: writes},
         control_system_type=_LIVE_CONNECTOR,
     )
     assert _settings_text(project_dir) == from_global_key_only
