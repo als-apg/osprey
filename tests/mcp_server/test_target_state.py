@@ -728,7 +728,7 @@ class TestServerStartClaimsTheRecord:
         from osprey_connectors_tests._harness import write_payload
 
         write_payload(
-            control_context.record_path_under(control_context_root),
+            control_context._record_path_under(control_context_root),
             {
                 "schema": 1,
                 "owner": "whoever",
@@ -786,14 +786,14 @@ class TestServerStartClaimsTheRecord:
         assert (claimed.target, claimed.generation, claimed.posture) == ("live", 0, {})
         assert claimed.owner is not None
         assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
-        assert control_context.record_path_under(control_context_root).exists()
+        assert control_context._record_path_under(control_context_root).exists()
 
     def test_server_start_writes_a_baseline_record_over_an_unreadable_one(
         self, control_context_root
     ):
         from osprey_connectors_tests._harness import write_payload
 
-        write_payload(control_context.record_path_under(control_context_root), ["not", "a record"])
+        write_payload(control_context._record_path_under(control_context_root), ["not", "a record"])
 
         claimed = server_context.claim_control_context(baseline="live")
 
@@ -852,7 +852,7 @@ class TestServerStartLaunchTarget:
         from osprey_connectors_tests._harness import write_payload
 
         write_payload(
-            control_context.record_path_under(control_context_root),
+            control_context._record_path_under(control_context_root),
             {"schema": 1, "target": "", "generation": 7},
         )
 

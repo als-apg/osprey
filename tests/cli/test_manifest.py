@@ -6,7 +6,7 @@ manifest's checksum set — a difference there is real drift, not user state.
 
 Runtime state is not in the checksum set because it is not in the render at
 all: it lives in the repo's state zone (``var/agent_data``, the value of
-:data:`osprey_connectors.config.RUNTIME_STATE_DIR`), a sibling of ``build/`` that a
+:data:`osprey_connectors.config._RUNTIME_STATE_DIR`), a sibling of ``build/`` that a
 rebuild never walks. :func:`calculate_file_checksums` additionally filters the
 name ``_agent_data`` — the older in-project spelling — which is what the
 fixture below plants and the exclusion tests exercise; it is a name filter in
@@ -23,7 +23,7 @@ import yaml
 
 from osprey.cli.templates.manifest import calculate_file_checksums
 from osprey_connectors.config import (
-    RUNTIME_STATE_DIR,
+    _RUNTIME_STATE_DIR,
     RUNTIME_WRITE_PATH_KEYS,
     ConfigBuilder,
     find_runtime_write_paths_under_data,
@@ -145,7 +145,7 @@ class TestRuntimeWritePathValidation:
         assert "simulation.state_dir" in caplog.text
         # The advisory names the durable state zone to point at — pinned through
         # the constant it renders, so the message and the default cannot drift.
-        assert RUNTIME_STATE_DIR in caplog.text
+        assert _RUNTIME_STATE_DIR in caplog.text
 
     def test_config_load_is_quiet_when_clean(self, tmp_path, caplog):
         project = tmp_path / "proj"

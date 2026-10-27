@@ -19,7 +19,7 @@ import json
 import pytest
 
 from osprey.agent_runner.primitives import ToolTrace
-from osprey_connectors.control_context import record_path_under
+from osprey_connectors.control_context import _record_path_under
 from tests.e2e.scripted_model import ScriptedCall
 from tests.e2e.sdk_helpers import HookObservedResult, agent_data_dir, run_sdk_query_with_hooks
 
@@ -269,12 +269,12 @@ def _record_target(repo) -> str | None:
     """The control target *repo*'s control-context record names, or ``None``.
 
     The record is what the hooks resolve the target from, and the controls MCP
-    server writes it at startup. The path comes from ``record_path_under`` so
+    server writes it at startup. The path comes from ``_record_path_under`` so
     this reads the file the hooks read. Without a record the hooks deny on the
     most restrictive posture over all targets, which also refuses the write —
     reading it is what tells the two apart.
     """
-    record = record_path_under(agent_data_dir(repo))
+    record = _record_path_under(agent_data_dir(repo))
     if not record.exists():
         return None
     return json.loads(record.read_text(encoding="utf-8")).get("target")

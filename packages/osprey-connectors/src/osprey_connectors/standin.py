@@ -141,7 +141,7 @@ ARCHIVER_RECORDER_SERVICE = "archiver_recorder"
 #: ``{path: ./services/archiver_recorder}``) exactly when the recorder is
 #: deployed, and projected into an attached render from its host's — so a
 #: non-empty block is the host saying it records, whichever render is reading.
-ARCHIVER_RECORDER_BLOCK_KEY = "services.archiver_recorder"
+_ARCHIVER_RECORDER_BLOCK_KEY = "services.archiver_recorder"
 
 #: The only host name that is loopback without being an address. Compared
 #: case-insensitively; every other spelling has to parse as an IP address, so a
@@ -149,13 +149,11 @@ ARCHIVER_RECORDER_BLOCK_KEY = "services.archiver_recorder"
 LOOPBACK_HOSTNAME = "localhost"
 
 __all__ = [
-    "ARCHIVER_RECORDER_BLOCK_KEY",
     "ARCHIVER_RECORDER_SERVICE",
     "DEPLOYED_SERVICES_KEY",
     "LIVE_STANDIN_PORT_KEY",
     "LOOPBACK_HOSTNAME",
     "archive_belongs_to_standin",
-    "archive_recorder_configured",
     "live_standin_active",
     "live_standin_port",
 ]
@@ -215,7 +213,7 @@ def archive_belongs_to_standin(config: Mapping[str, Any]) -> bool:
     built a stand-in (:func:`live_standin_port` names a port) *and* runs the
     recorder that writes the store — ``archiver_recorder`` in
     ``deployed_services``, or the recorder's own
-    :data:`ARCHIVER_RECORDER_BLOCK_KEY` block in the render.
+    :data:`_ARCHIVER_RECORDER_BLOCK_KEY` block in the render.
 
     Either spelling, because a render states the fact one of two ways and both
     are the host's. A deploying render lists the service, and the build's
@@ -241,10 +239,10 @@ def archive_belongs_to_standin(config: Mapping[str, Any]) -> bool:
     """
     if live_standin_port(config) is None:
         return False
-    return archive_recorder_configured(config)
+    return _archive_recorder_configured(config)
 
 
-def archive_recorder_configured(config: Mapping[str, Any]) -> bool:
+def _archive_recorder_configured(config: Mapping[str, Any]) -> bool:
     """Whether *config* says the deployment runs the archive recorder.
 
     The listing on a deploying render, the projected block on an attached one.
@@ -261,7 +259,7 @@ def archive_recorder_configured(config: Mapping[str, Any]) -> bool:
     """
     if ARCHIVER_RECORDER_SERVICE in _deployed_services(config):
         return True
-    block = _nested_value(config, ARCHIVER_RECORDER_BLOCK_KEY)
+    block = _nested_value(config, _ARCHIVER_RECORDER_BLOCK_KEY)
     return isinstance(block, Mapping) and bool(block)
 
 

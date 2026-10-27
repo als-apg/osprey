@@ -93,11 +93,8 @@ logger = get_logger("archive")
 
 __all__ = [
     "DATE_FIELD",
-    "DEFAULT_CHUNK_SIZE",
-    "DEFAULT_WORKERS",
     "EXPIRE_FIELD",
     "MANIFEST_ID",
-    "SEED_SCHEMA_VERSION",
     "ArchiveComposite",
     "FingerprintComparison",
     "SeedKnobs",
@@ -106,16 +103,12 @@ __all__ = [
     "build",
     "compare_fingerprint",
     "oldest_sample",
-    "prepare_collection",
     "scenario_events",
     "seed_base",
     "seed_fingerprint",
-    "seed_grid",
-    "synthesize_documents",
     "tier_expiry",
     "waveform_collection",
     "waveform_document",
-    "write_manifest",
 ]
 
 #: ``_id`` of the seed-manifest document. A fixed id makes writing it an upsert
@@ -125,7 +118,7 @@ MANIFEST_ID = "osprey:seed_manifest"
 #: Bumped when the meaning of a stored document changes in a way that makes an
 #: existing store wrong rather than merely differently configured. It is part of
 #: the fingerprint, so a bump reseeds every deployment on upgrade.
-SEED_SCHEMA_VERSION = 2
+_SEED_SCHEMA_VERSION = 2
 
 #: Field naming the instant a document's sample was taken. The connector queries
 #: and sorts on it; the manifest document deliberately has none, which is what
@@ -139,12 +132,12 @@ EXPIRE_FIELD = "expireAt"
 #: channel set stays in the tens of megabytes: the whole point of chunking is
 #: that a month of history for three thousand channels does not fit in memory
 #: at once.
-DEFAULT_CHUNK_SIZE = 2000
+_DEFAULT_CHUNK_SIZE = 2000
 
 #: Concurrent insert workers. The synthesis runs on the calling thread and the
 #: inserts overlap it, which is the parallelism that matters here — the round
 #: trip to the store, not the arithmetic.
-DEFAULT_WORKERS = 4
+_DEFAULT_WORKERS = 4
 
 
 class SeedState(Enum):
@@ -663,7 +656,7 @@ def build(
 # ---------------------------------------------------------------------------
 
 
-def seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
+def _seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
     """The timestamps to seed and the instant each one expires.
 
     The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on
@@ -753,7 +746,7 @@ def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
 # ---------------------------------------------------------------------------
 
 
-def synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
+def _synthesize_documents(archive: ArchiveComposite, epoch_s: np.ndarray) -> list[dict[str, Any]]:
     """One document per timestamp, carrying every archived scalar channel's value at it.
 
     This is the single definition of "what the archive holds at time T", and it
@@ -824,7 +817,7 @@ def seed_fingerprint(
     names = sorted(set(channel_addresses))
     digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
     return {
-        "schema_version": SEED_SCHEMA_VERSION,
+        "schema_version": _SEED_SCHEMA_VERSION,
         "retention_days": knobs.retention_days,
         "hot_span_hours": knobs.hot_span_hours,
         "hot_cadence_sec": knobs.hot_cadence_sec,
@@ -836,7 +829,7 @@ def seed_fingerprint(
     }
 
 
-def write_manifest(
+def _write_manifest(
     collection: Collection,
     fingerprint: Mapping[str, Any],
     *,
@@ -954,7 +947,7 @@ def waveform_document(
     }
 
 
-def prepare_collection(collection: Collection, *, waveforms: Collection | None = None) -> None:
+def _prepare_collection(collection: Collection, *, waveforms: Collection | None = None) -> None:
     """Create the two indexes the store cannot work without.
 
     ``{date: 1}`` is not an optimization: every archiver read sorts on ``date``,
@@ -986,8 +979,8 @@ def seed_base(
     *,
     t0: datetime,
     compression: str = "zstd",
-    workers: int = DEFAULT_WORKERS,
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    workers: int = _DEFAULT_WORKERS,
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
     progress: Callable[[SeedReport], None] | None = None,
     waveforms: Collection | None = None,
 ) -> SeedReport:
@@ -1039,7 +1032,7 @@ def seed_base(
     if workers < 1:
         raise ValueError(f"workers must be >= 1 (got {workers})")
 
-    times, expiry = seed_grid(knobs, t0)
+    times, expiry = _seed_grid(knobs, t0)
     addresses = archive.addresses
     started = time.monotonic()
 
@@ -1051,12 +1044,12 @@ def seed_base(
     traced = archive.waveform_addresses
     if traced and waveforms is None:
         waveforms = collection.database[waveform_collection(collection.name)]
-    prepare_collection(collection, waveforms=waveforms if traced else None)
+    _prepare_collection(collection, waveforms=waveforms if traced else None)
 
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="archiver-seed") as pool:
         pending: set[Future[None]] = set()
         for chunk_times, chunk_expiry in _chunks(times, expiry, chunk_size):
-            documents = synthesize_documents(archive, chunk_times)
+            documents = _synthesize_documents(archive, chunk_times)
             for document, expire_at in zip(documents, _as_utc_datetimes(chunk_expiry), strict=True):
                 document[EXPIRE_FIELD] = expire_at
 
@@ -1076,7 +1069,7 @@ def seed_base(
             future.result()
 
     report.elapsed_s = time.monotonic() - started
-    write_manifest(
+    _write_manifest(
         collection,
         seed_fingerprint(knobs, addresses, compression=compression),
         seeded_at=t0,
@@ -1092,7 +1085,7 @@ def _waveform_documents(
     """The trace documents of every waveform channel at these instants.
 
     Valued at the epoch seconds a reader derives from the stored dates, as the
-    snapshot documents are (:func:`synthesize_documents`).
+    snapshot documents are (:func:`_synthesize_documents`).
     """
     stamps = _as_utc_datetimes(epoch_s)
     if not stamps:

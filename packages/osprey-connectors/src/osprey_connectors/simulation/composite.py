@@ -45,7 +45,7 @@ without it.
 
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
-at :data:`STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
+at :data:`_STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
 never raises: its setpoints read those inputs, its float outputs NaN, any other
 output its last good value or its type's zero, and
 :meth:`Composite.output_severity` names each of its channels. A refused write
@@ -63,7 +63,7 @@ scenarios.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
 ...}`` to ``var/simulator/<model>.log`` under the repo root of the loaded
-config, one ``os.write`` per record of under :data:`LOG_RECORD_MAX_BYTES`
+config, one ``os.write`` per record of under :data:`_LOG_RECORD_MAX_BYTES`
 bytes. Without a loaded config the records go to the process logger only.
 """
 
@@ -110,13 +110,10 @@ from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for
 __all__ = [
     "ENGINE_GROUP",
     "INSTANCES",
-    "LOG_RECORD_MAX_BYTES",
-    "STATUS_MAX_BYTES",
     "STATUS_OK",
     "UDF",
     "Composite",
     "WriteRefusedError",
-    "cap_status",
     "log_dir",
 ]
 
@@ -132,10 +129,10 @@ INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
 STATUS_OK = "ok"
 
 #: The longest status text, in UTF-8 bytes.
-STATUS_MAX_BYTES = 1023
+_STATUS_MAX_BYTES = 1023
 
 #: Every model log record, newline included, is shorter than this many bytes.
-LOG_RECORD_MAX_BYTES = 4096
+_LOG_RECORD_MAX_BYTES = 4096
 
 #: The condition :meth:`Composite.output_severity` names for a failed child's channel.
 UDF = "udf"
@@ -149,7 +146,7 @@ _LOG_MODE = 0o664
 _MS_PER_S = 1000.0
 
 
-def cap_status(text: str, max_bytes: int = STATUS_MAX_BYTES) -> str:
+def _cap_status(text: str, max_bytes: int = _STATUS_MAX_BYTES) -> str:
     """``text`` cut to at most ``max_bytes`` UTF-8 bytes, ending in ``…`` when cut.
 
     Args:
@@ -415,7 +412,7 @@ class Composite(LUMEModel):
         if not text:
             text = str(exc) or type(exc).__name__
         child.model = None
-        child.status = cap_status(text)
+        child.status = _cap_status(text)
         self._log(child.name, {"event": "failed", "error": text})
 
     # -- the active scenarios ------------------------------------------------
@@ -1153,9 +1150,9 @@ class Composite(LUMEModel):
         while (
             isinstance(error, str)
             and error
-            and len(line.encode("utf-8")) >= (LOG_RECORD_MAX_BYTES - 1)
+            and len(line.encode("utf-8")) >= (_LOG_RECORD_MAX_BYTES - 1)
         ):
-            excess = len(line.encode("utf-8")) - (LOG_RECORD_MAX_BYTES - 2)
-            error = cap_status(error, max(len(error.encode("utf-8")) - excess, 0))
+            excess = len(line.encode("utf-8")) - (_LOG_RECORD_MAX_BYTES - 2)
+            error = _cap_status(error, max(len(error.encode("utf-8")) - excess, 0))
             line = json.dumps({**entry, "error": error}, sort_keys=True, ensure_ascii=False)
         return line

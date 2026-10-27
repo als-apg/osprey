@@ -98,7 +98,7 @@ def rewrite_record(root, posture_field, *, target: str = "live"):
         posture=dict(posture_field),
         last_switch=None,
     )
-    return control_context.write_record(record, path=control_context.record_path_under(root))
+    return control_context.write_record(record, path=control_context._record_path_under(root))
 
 
 def in_session(monkeypatch, key: str = SESSION_KEY) -> None:
@@ -291,7 +291,7 @@ class TestDegradation:
         assert posture.posture() == posture.POSTURE_WRITES
 
     def test_a_corrupt_record(self, agent_root):
-        path = control_context.record_path_under(agent_root)
+        path = control_context._record_path_under(agent_root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json at all")
         posture_store.invalidate_cache()

@@ -57,7 +57,6 @@ from dataclasses import dataclass
 from typing import Any
 
 __all__ = [
-    "ARCHIVER_SETTINGS_LEAF",
     "CLI_ARCHIVER_TYPES",
     "CLI_CONTROL_SYSTEM_TYPES",
     "CONTROL_TARGETS",
@@ -68,7 +67,6 @@ __all__ = [
     "EPICS_ARCHIVER",
     "INVENTED_HISTORY_TYPES",
     "IN_PROCESS",
-    "LIMITS_BLOCK_LEAVES",
     "LIMITS_CHECKING_LEAF",
     "LIMITS_LEAVES",
     "LIMITS_MODES",
@@ -79,7 +77,6 @@ __all__ = [
     "MOCK_ARCHIVER",
     "MONGODB_ARCHIVER",
     "MYA_ARCHIVER",
-    "ONE_REAL_MACHINE",
     "RETIRED_CONTROL_SYSTEM_TYPES",
     "SERVED",
     "SERVING_KEY",
@@ -245,7 +242,7 @@ CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 #: which is also what keeps a session's posture, limits and archive about one
 #: machine each. Said here so a deployer meets it in the error and in the how-to
 #: rather than in the silence of a configured block nothing ever offers.
-ONE_REAL_MACHINE = (
+_ONE_REAL_MACHINE = (
     "A deployment names one real machine — exactly one connector block that is "
     "neither simulated nor the stand-in — and 'live' is that machine. A complex "
     "with two real machines runs one deployment per machine."
@@ -427,11 +424,11 @@ def retired_type_message(value: str) -> str:
 #: The one block under ``archiver:`` a connector's settings are read from,
 #: whichever route selected the connector. It has no dot in it, so a profile's
 #: ``archiver.settings.<leaf>`` renders to exactly the block the factory reads.
-ARCHIVER_SETTINGS_LEAF = "settings"
+_ARCHIVER_SETTINGS_LEAF = "settings"
 
 #: Keys of the ``archiver:`` section that are not a connector's settings block:
 #: the selector, the settings block itself, and archiver_read's point budget.
-_ARCHIVER_SECTION_LEAVES = ("type", ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
+_ARCHIVER_SECTION_LEAVES = ("type", _ARCHIVER_SETTINGS_LEAF, "auto_bin_points")
 
 
 def _own_name_block(connector_type: str) -> str | None:
@@ -450,10 +447,10 @@ def _archiver_settings_homes(section: Any) -> list[tuple[str, Any]]:
     if not isinstance(section, dict):
         return []
     homes: list[tuple[str, Any]] = []
-    if ARCHIVER_SETTINGS_LEAF in section:
-        homes.append((ARCHIVER_SETTINGS_LEAF, section[ARCHIVER_SETTINGS_LEAF]))
+    if _ARCHIVER_SETTINGS_LEAF in section:
+        homes.append((_ARCHIVER_SETTINGS_LEAF, section[_ARCHIVER_SETTINGS_LEAF]))
     own = _own_name_block(resolve_archiver_type(section))
-    if own is not None and own != ARCHIVER_SETTINGS_LEAF and own in section:
+    if own is not None and own != _ARCHIVER_SETTINGS_LEAF and own in section:
         homes.append((own, section[own]))
     return homes
 
@@ -480,7 +477,7 @@ def archiver_settings_key(section: Any) -> str:
     the line an operator actually wrote.
     """
     homes = _archiver_settings_homes(section)
-    home = homes[0][0] if len(homes) == 1 else ARCHIVER_SETTINGS_LEAF
+    home = homes[0][0] if len(homes) == 1 else _ARCHIVER_SETTINGS_LEAF
     return f"archiver.{home}"
 
 
@@ -558,7 +555,7 @@ def resolve_target(section: Any, target: Any) -> str:
       does not recognize, which reaches the factory's "Unknown … type" error
       exactly as :func:`resolve_control_system_type` already lets it. A second
       non-simulated block beside it is not a second target: no name reaches it
-      (:data:`ONE_REAL_MACHINE`), so it is warned about rather than skipped in
+      (:data:`_ONE_REAL_MACHINE`), so it is warned about rather than skipped in
       silence.
     - When the section's own type is simulated or is a stand-in (or absent,
       which resolves to the simulator in process), the deployment has not named
@@ -598,7 +595,7 @@ def resolve_target(section: Any, target: Any) -> str:
     raise ValueError(
         f"Unknown control target {target!r}. Valid targets are "
         f"{TARGET_LIVE!r}, {TARGET_VA!r} and {TARGET_STANDIN!r}, spelled "
-        f"exactly. {ONE_REAL_MACHINE} A control target is always stated, never "
+        f"exactly. {_ONE_REAL_MACHINE} A control target is always stated, never "
         "defaulted — there is no target a caller gets by saying nothing, "
         "because the one it would get could be the real machine."
     )
@@ -1005,7 +1002,7 @@ LIMITS_MODES = (LIMITS_MODE_EXCLUSIVE, LIMITS_MODE_OPTIONAL)
 #: defines :data:`LIMITS_LEAVES` alone. A block carrying any other leaf is
 #: refused by :func:`incomplete_limits_blocks`, so a misspelt or retired leaf
 #: cannot sit in a config looking like a posture nobody reads.
-LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
+_LIMITS_BLOCK_LEAVES = (*LIMITS_LEAVES, "database_path")
 
 
 @dataclass(frozen=True)
@@ -1419,7 +1416,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
       which gets one line naming the block and quoting what was found there
       instead of a line per leaf: there are no leaves to name.
     - The deployment-wide block carrying a leaf outside
-      :data:`LIMITS_BLOCK_LEAVES`, or a per-type block one outside
+      :data:`_LIMITS_BLOCK_LEAVES`, or a per-type block one outside
       :data:`LIMITS_LEAVES`. No reader consults such a leaf, so the posture
       its author meant by it is not the one the deployment runs.
 
@@ -1472,7 +1469,7 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"{posture.key(leaf)} is missing; a per-type limits block must state "
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
-        defined = LIMITS_LEAVES if whole else LIMITS_BLOCK_LEAVES
+        defined = LIMITS_LEAVES if whole else _LIMITS_BLOCK_LEAVES
         for leaf in sorted(str(key) for key in block if key not in defined):
             errors.append(
                 f"{posture.key(leaf)} is not a limits leaf; a limits block states "
@@ -1675,7 +1672,7 @@ def _report_second_real_block(section: Any, baseline: str, never_live: tuple[str
         ", ".join(repr(name) for name in others),
         baseline,
         "them" if len(others) > 1 else "it",
-        ONE_REAL_MACHINE,
+        _ONE_REAL_MACHINE,
     )
 
 
@@ -1689,7 +1686,7 @@ def _live_type(section: Any) -> str:
     the stand-in, or make ``live`` ambiguous on exactly the deployments that run
     the stand-in beside the block naming their facility's own machine.
 
-    Either way the answer is one machine — :data:`ONE_REAL_MACHINE` — and both
+    Either way the answer is one machine — :data:`_ONE_REAL_MACHINE` — and both
     ways of missing it are said out loud: a baseline that cannot derive one
     raises, and a baseline that *is* one, beside a second real block no target
     can reach, is warned about.
@@ -1709,7 +1706,7 @@ def _live_type(section: Any) -> str:
         f"Target {TARGET_LIVE!r} has no control system on this deployment: "
         f"'control_system.type' resolves to {baseline!r}, which is simulated, "
         f"and the live blocks under 'control_system.connector' are: {found}. "
-        f"{ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
+        f"{_ONE_REAL_MACHINE} Configure exactly one such block (an {EPICS!r} or "
         f"{DOOCS!r} block, say). It is not inferred, so that no session reaches "
         "a real machine this config never described."
     )

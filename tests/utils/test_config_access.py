@@ -23,7 +23,6 @@ from osprey_connectors.config import (
     get_agent_dir,
     get_config_builder,
     get_config_value,
-    get_framework_service_config,
     get_full_configuration,
     load_config,
     load_project_config,
@@ -118,21 +117,6 @@ class TestGetFullConfiguration:
         cfg = _write_config(tmp_path, "project_root: /root\n")
         configurable = get_full_configuration(str(cfg))
         assert configurable["python_executor"] == {"execution_timeout_seconds": 600}
-
-
-class TestGetFrameworkServiceConfig:
-    def test_returns_named_service_config(self, tmp_path):
-        cfg = _write_config(
-            tmp_path,
-            "services:\n  channel_finder:\n    port: 9100\n",
-        )
-        get_config_builder(str(cfg), set_as_default=True)
-        assert get_framework_service_config("channel_finder") == {"port": 9100}
-
-    def test_unknown_service_returns_empty_dict(self, tmp_path):
-        cfg = _write_config(tmp_path, "services:\n  other: {}\n")
-        get_config_builder(str(cfg), set_as_default=True)
-        assert get_framework_service_config("missing") == {}
 
 
 class TestGetAgentDir:

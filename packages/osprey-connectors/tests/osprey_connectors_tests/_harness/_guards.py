@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from rich.logging import RichHandler
 
-from osprey_connectors.logger import QUIET_THIRD_PARTY_LOGGERS
+from osprey_connectors.logger import _QUIET_THIRD_PARTY_LOGGERS
 from osprey_connectors_tests._harness import (
     _env_scope_guard,
     _live_threads,
@@ -40,7 +40,7 @@ from osprey_connectors_tests._paths import REPO_ROOT as _REPO_ROOT
 _PRISTINE_LOGGING = {
     "root_level": logging.getLogger().level,
     "root_handlers": list(logging.getLogger().handlers),
-    "third_party": {name: logging.getLogger(name).level for name in QUIET_THIRD_PARTY_LOGGERS},
+    "third_party": {name: logging.getLogger(name).level for name in _QUIET_THIRD_PARTY_LOGGERS},
 }
 
 

@@ -42,17 +42,17 @@ from osprey_connectors.simulation.archive import (
     FingerprintComparison,
     SeedKnobs,
     SeedState,
+    _prepare_collection,
+    _seed_grid,
+    _synthesize_documents,
+    _write_manifest,
     build,
     compare_fingerprint,
     oldest_sample,
-    prepare_collection,
     seed_base,
     seed_fingerprint,
-    seed_grid,
-    synthesize_documents,
     waveform_collection,
     waveform_document,
-    write_manifest,
 )
 from osprey_connectors.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
@@ -254,7 +254,7 @@ class TestSeedGrid:
     """One grid, two densities, no timestamp written twice."""
 
     def test_the_window_reaches_back_the_full_retention(self):
-        times, _ = seed_grid(SeedKnobs(), T0)
+        times, _ = _seed_grid(SeedKnobs(), T0)
 
         start = datetime.fromtimestamp(float(times[0]), UTC)
         end = datetime.fromtimestamp(float(times[-1]), UTC)
@@ -264,7 +264,7 @@ class TestSeedGrid:
     def test_no_timestamp_appears_twice(self):
         """The schema is one document per timestamp; a duplicate would be a
         second, competing sample for the same instant."""
-        times, _ = seed_grid(SeedKnobs(), T0)
+        times, _ = _seed_grid(SeedKnobs(), T0)
 
         assert len(np.unique(times)) == len(times)
 
@@ -276,14 +276,14 @@ class TestSeedGrid:
         which is every deploy but a lucky one.
         """
         knobs = SeedKnobs()
-        times, _ = seed_grid(knobs, T0)
+        times, _ = _seed_grid(knobs, T0)
 
         assert np.all(np.mod(times, knobs.hot_cadence_sec) == 0)
         assert T0.second != 0, "the anchor must not accidentally be cadence-aligned"
 
     def test_the_tiers_have_the_declared_cadences(self):
         knobs = SeedKnobs()
-        times, _ = seed_grid(knobs, T0)
+        times, _ = _seed_grid(knobs, T0)
         gaps = set(np.diff(times).tolist())
 
         assert gaps == {float(knobs.hot_cadence_sec), float(knobs.tail_cadence_sec)}
@@ -292,7 +292,7 @@ class TestSeedGrid:
         """Measured from the sample's own time, so a seeded archive ages like a
         recorded one instead of surviving intact and then vanishing at once."""
         knobs = SeedKnobs()
-        times, expiry = seed_grid(knobs, T0)
+        times, expiry = _seed_grid(knobs, T0)
         dense = np.mod(times, knobs.tail_cadence_sec) != 0
 
         assert np.all(expiry[dense] - times[dense] == knobs.hot_span_s)
@@ -308,14 +308,14 @@ class TestSeedGrid:
         span that the coarse tier does not already own.
         """
         knobs = SeedKnobs()
-        times, expiry = seed_grid(knobs, T0)
+        times, expiry = _seed_grid(knobs, T0)
         dense = np.mod(times, knobs.tail_cadence_sec) != 0
 
         assert expiry[dense].min() <= _epoch(T0) + knobs.tail_cadence_sec
 
     def test_a_shallow_archive_still_produces_a_grid(self):
         """The CI lanes run with retention cut to hours, not a month."""
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
 
         assert len(times) > 0
         assert len(np.unique(times)) == len(times)
@@ -381,8 +381,8 @@ class TestSynthesizeDocuments:
     """What a document holds, and why it is that and not something plausible."""
 
     def test_a_document_carries_every_channel_at_its_own_timestamp(self, archive):
-        times, _ = seed_grid(SMALL, T0)
-        documents = synthesize_documents(archive, times[:5])
+        times, _ = _seed_grid(SMALL, T0)
+        documents = _synthesize_documents(archive, times[:5])
 
         assert len(documents) == 5
         for document, epoch in zip(documents, times[:5], strict=True):
@@ -392,8 +392,8 @@ class TestSynthesizeDocuments:
     def test_values_equal_the_archive_composite_at_the_same_instant(self, archive):
         """The point of the whole design: a stored document and a served read
         are one computation, not two that usually agree."""
-        times, _ = seed_grid(SMALL, T0)
-        documents = synthesize_documents(archive, times[:32])
+        times, _ = _seed_grid(SMALL, T0)
+        documents = _synthesize_documents(archive, times[:32])
 
         for pv in ADDRESSES:
             assert [document[pv] for document in documents] == archive.series(pv, times[:32])
@@ -405,7 +405,7 @@ class TestSynthesizeDocuments:
         higher-rate facility would do exactly that."""
         epoch = np.array([1_800_000_000.0 + 1e-9 * i for i in range(4)])
 
-        documents = synthesize_documents(archive, epoch)
+        documents = _synthesize_documents(archive, epoch)
 
         stored = epoch_seconds_array([document[DATE_FIELD] for document in documents])
         assert [document[PRESSURE] for document in documents] == archive.series(PRESSURE, stored)
@@ -413,30 +413,30 @@ class TestSynthesizeDocuments:
     def test_a_flag_channel_is_stored_as_its_option_index(self, archive):
         """The wire carries a flag as the index of its label, and the archive
         stores what the wire carries."""
-        times, _ = seed_grid(SMALL, T0)
-        documents = synthesize_documents(archive, times[:8])
+        times, _ = _seed_grid(SMALL, T0)
+        documents = _synthesize_documents(archive, times[:8])
 
         assert {document[VALID] for document in documents} == {1}
         assert all(type(document[VALID]) is int for document in documents)
 
     def test_a_flag_no_event_moves_does_not_move(self, archive):
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
 
-        documents = synthesize_documents(archive, times)
+        documents = _synthesize_documents(archive, times)
 
         assert len({document[VALID] for document in documents}) == 1
 
     def test_an_empty_window_produces_no_documents(self, archive):
-        assert synthesize_documents(archive, np.empty(0)) == []
+        assert _synthesize_documents(archive, np.empty(0)) == []
 
     def test_a_dotted_channel_is_seeded_under_its_field_name(self, tmp_path):
         """A field-name address is stored under ``field_name``; every other
         address is its own field name."""
         dotted = "SR:MOT:REC.RBV"
         view = write_texture_view(tmp_path, {**CHANNELS, dotted: {"nominal": 3.0}})
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
 
-        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+        documents = _synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
 
         for document in documents:
             assert set(document) == {DATE_FIELD, *ADDRESSES, field_name(dotted)}
@@ -450,9 +450,9 @@ class TestSynthesizeDocuments:
             tmp_path,
             {**CHANNELS, "date": {"nominal": 3.0}, "expireAt": {"nominal": 4.0}},
         )
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
 
-        documents = synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
+        documents = _synthesize_documents(build(view, [], anchor_s=T0.timestamp()), times[:4])
 
         for document in documents:
             assert set(document) == {DATE_FIELD, *ADDRESSES, "%64ate", "%65xpireAt"}
@@ -531,7 +531,7 @@ class TestFingerprintComparison:
         assert compare_fingerprint(collection, self._current()).state is SeedState.ABSENT
 
     def test_a_store_seeded_with_the_same_knobs_matches(self, collection):
-        write_manifest(collection, self._current(), seeded_at=T0)
+        _write_manifest(collection, self._current(), seeded_at=T0)
 
         comparison = compare_fingerprint(collection, self._current())
 
@@ -543,10 +543,10 @@ class TestFingerprintComparison:
         make every deploy rebuild the store, and the mistake would look like
         working code — a reseed is not an error, just hours of wasted CI."""
         later = T0 + timedelta(days=1)
-        write_manifest(collection, self._current(), seeded_at=T0)
+        _write_manifest(collection, self._current(), seeded_at=T0)
         first = collection.find_one({"_id": MANIFEST_ID})["fingerprint"]
 
-        write_manifest(collection, self._current(), seeded_at=later)
+        _write_manifest(collection, self._current(), seeded_at=later)
         comparison = compare_fingerprint(collection, self._current())
 
         assert collection.find_one({"_id": MANIFEST_ID})["fingerprint"] == first
@@ -555,7 +555,7 @@ class TestFingerprintComparison:
         assert comparison.seeded_at == later
 
     def test_a_changed_knob_reports_what_moved(self, collection):
-        write_manifest(collection, self._current(), seeded_at=T0)
+        _write_manifest(collection, self._current(), seeded_at=T0)
 
         comparison = compare_fingerprint(
             collection, seed_fingerprint(SeedKnobs(retention_days=7), ADDRESSES, compression="zstd")
@@ -582,7 +582,7 @@ class TestFingerprintComparison:
 
     def test_the_manifest_starts_with_an_empty_ledger(self, collection):
         """The scenario rewrite owns it; a fresh base has touched nothing."""
-        write_manifest(collection, self._current(), seeded_at=T0)
+        _write_manifest(collection, self._current(), seeded_at=T0)
 
         assert collection.find_one({"_id": MANIFEST_ID})["touched_windows"] == []
 
@@ -600,7 +600,7 @@ class TestSeedBase:
     """The whole run against MongoDB, read back through the real connector."""
 
     def test_it_writes_one_document_per_grid_timestamp(self, collection, archive):
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
 
         report = seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
@@ -655,9 +655,9 @@ class TestSeedBase:
         """The manifest is written last on purpose. A run that dies partway
         leaves no manifest, so the next deploy rebuilds instead of trusting a
         store that is missing most of its history."""
-        times, _ = seed_grid(SMALL, T0)
-        prepare_collection(collection)
-        collection.insert_many(synthesize_documents(archive, times[:10]))
+        times, _ = _seed_grid(SMALL, T0)
+        _prepare_collection(collection)
+        collection.insert_many(_synthesize_documents(archive, times[:10]))
 
         comparison = compare_fingerprint(
             collection, seed_fingerprint(SMALL, ADDRESSES, compression="zstd")
@@ -685,13 +685,13 @@ class TestSeedBase:
     def test_the_oldest_sample_is_the_start_of_the_window(self, collection, archive):
         """What honest metadata reports as the start of coverage — no more
         'archived since the year 2000'."""
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
         seed_base(collection, archive, SMALL, t0=T0, chunk_size=64)
 
         assert oldest_sample(collection) == datetime.fromtimestamp(float(times[0]), UTC)
 
     def test_an_empty_store_has_no_oldest_sample(self, collection):
-        prepare_collection(collection)
+        _prepare_collection(collection)
 
         assert oldest_sample(collection) is None
 
@@ -701,7 +701,7 @@ class TestSeedBase:
         throughput decision and must not be a correctness one."""
         seed_base(collection, archive, SMALL, t0=T0, chunk_size=32, workers=workers)
 
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
         assert collection.count_documents({DATE_FIELD: {"$exists": True}}) == len(times)
         document = collection.find_one({DATE_FIELD: {"$exists": True}}, sort=[(DATE_FIELD, 1)])
         assert document[PRESSURE] == archive.series(PRESSURE, [float(times[0])])[0]
@@ -762,7 +762,7 @@ class TestConnectorRoundtrip:
 
 def _tail_instants(knobs: SeedKnobs, t0: datetime) -> np.ndarray:
     """The coarse-cadence timestamps of the whole retention window."""
-    times, _ = seed_grid(knobs, t0)
+    times, _ = _seed_grid(knobs, t0)
     return times[np.mod(times, knobs.tail_cadence_sec) == 0]
 
 
@@ -861,9 +861,9 @@ class TestWaveformChannels:
             build(view, [], anchor_s=T0.timestamp())
 
     def test_scalar_documents_hold_no_waveform_values(self, pulse_archive):
-        times, _ = seed_grid(SMALL, T0)
+        times, _ = _seed_grid(SMALL, T0)
 
-        documents = synthesize_documents(pulse_archive, times[:8])
+        documents = _synthesize_documents(pulse_archive, times[:8])
 
         assert documents
         for document in documents:
@@ -910,7 +910,7 @@ class TestSeedBaseWaveforms:
     def test_the_scalar_store_holds_no_trace(self, pulse_archive):
         report, scalars, _, _ = self._seed(pulse_archive)
 
-        assert report.documents == len(seed_grid(SMALL, T0)[0])
+        assert report.documents == len(_seed_grid(SMALL, T0)[0])
         assert all(field_name(WAVE) not in document for document in scalars.documents)
 
     def test_the_traces_are_written_before_the_manifest(self, pulse_archive):
