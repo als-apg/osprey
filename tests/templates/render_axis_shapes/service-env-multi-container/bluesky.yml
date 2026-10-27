@@ -374,7 +374,6 @@ services:
       NO_PROXY: ${NO_PROXY}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
-      - ./var/audit/queueserver:/app/project/var/audit/queueserver
       - ./var/spool/queueserver:/app/project/var/spool/queueserver
       - ./var/state/queueserver:/app/project/var/state/queueserver
       # Plan/device permissions for the RE Manager. Without this file the

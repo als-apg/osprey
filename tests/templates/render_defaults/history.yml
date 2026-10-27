@@ -1,5 +1,5 @@
 # The history page: the across-users view of the agent record, served on the
-# readers' origin under /history/. nginx asks the auth sidecar who the browser
+# history page's origin under /history/. nginx asks the auth sidecar who the browser
 # is (`/verify-history`), then forwards the request here with the person and
 # the record viewer (all, own:<person> or reader:<name>) as X-Osprey-History-*
 # headers, and with this service's gate secret. The page reads the agent record
@@ -26,7 +26,6 @@ services:
     labels:
       # Recreates the container when its gate secret or its record login
       # changes: both files below are read once, at start.
-      osprey.telemetry.cred.digest: "${OSPREY_TELEMETRY_DIGEST_HISTORY:-}"
       osprey.agent-record.cred.digest: "${OSPREY_AGENT_RECORD_DIGEST_HISTORY:-}"
     restart: unless-stopped
     # Two files at the repo root and nothing else: the agent record's
@@ -34,7 +33,7 @@ services:
     # forwards. `osprey build` creates both before this file is rendered.
     env_file:
       - .env.agent-record.login.history
-      - .env.telemetry-history-gate
+      - .env.agent-record.history-gate
     environment:
       # The gate accepts the harvested OSPREY_TERMINAL_SECRET_HISTORY from the
       # gate file as an operator secret and names it `history`. There is no
@@ -43,7 +42,7 @@ services:
       # request nginx forwarded passes.
       OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
       OSPREY_TERMINAL_ROSTER_OWNERS: "HISTORY=history"
-      # The readers' origin, which browsers reach this page on.
+      # The history page's origin, which browsers reach this page on.
       OSPREY_TERMINAL_EXTERNAL_ORIGIN: ""
       # WHERE the page reads the agent record: its compose service on the
       # bridge network.
@@ -51,14 +50,11 @@ services:
       # How far back the session list's "older" control steps: the
       # retention.
       OSPREY_HISTORY_MAX_DAYS: "14"
-      # WHO this page's audit records are written as (the web gate records
-      # every refused request), and the one directory it writes them to; the
-      # image's entrypoint joins that directory's group before it drops
-      # privileges.
+      # WHO this page's records are written as (the web gate records every
+      # refused request).
       OSPREY_AUDIT_IDENTITY: history
-      OSPREY_AUDIT_DIR: /app/golden-project/var/audit/history
-      # Its own spool and state directories, bound below; the entrypoint
-      # joins their groups too.
+      # Its own spool and state directories, bound below; the image's
+      # entrypoint joins their groups before it drops privileges.
       OSPREY_SPOOL_DIR: /app/golden-project/var/spool/history
       OSPREY_STATE_DIR: /app/golden-project/var/state/history
       TZ: UTC
@@ -66,9 +62,8 @@ services:
     # network and reaches the page there; nothing else may.
     ports:
       - "127.0.0.1:10003:8000"
-    # This page's audit, spool and state subdirectories, and only its own.
+    # This page's spool and state subdirectories, and only its own.
     volumes:
-      - ./var/audit/history:/app/golden-project/var/audit/history
       - ./var/spool/history:/app/golden-project/var/spool/history
       - ./var/state/history:/app/golden-project/var/state/history
     # Always on the compose network: the page dials the agent record by its

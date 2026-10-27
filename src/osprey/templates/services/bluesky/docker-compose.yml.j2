@@ -843,12 +843,11 @@ services:
 {{- hostenv.passthrough(svc) }}
     volumes:
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
-{#- This container's own audit subdirectory, read-write: the pre-flight files
-    `preflight.jsonl` here. Mounted under /app/project because the writer
-    anchors on the project the mounted config names. The image runs as root
-    with no privilege drop, so the setgid directory needs no group step. #}
-      - {{ osprey_audit_mount_source }}/{{ qserver }}:{{ osprey_service_container_audit_dir }}/{{ qserver }}
-{#- Its own spool and state directories, for the audit bind's reasons. #}
+{#- This container's own spool and state directories, read-write: the
+    pre-flight records its events into the spool. Mounted under /app/project
+    because the writer anchors on the project the mounted config names. The
+    image runs as root with no privilege drop, so the setgid directories need
+    no group step. #}
       - {{ osprey_spool_mount_source }}/{{ qserver }}:{{ osprey_service_container_spool_dir }}/{{ qserver }}
       - {{ osprey_state_zone_mount_source }}/{{ qserver }}:{{ osprey_service_container_state_dir }}/{{ qserver }}
       # Plan/device permissions for the RE Manager. Without this file the

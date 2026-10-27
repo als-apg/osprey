@@ -139,8 +139,8 @@ services:
       # when the trigger names no ceiling of its own.
       DISPATCH_MAX_TURNS: "{{ services.dispatch_worker.max_turns | default(25) }}"
       OSPREY_PROJECT_DIR: {{ osprey_worker_project_dir }}
-      # WHO this worker's audit records are written as, and WHERE. The audit
-      # mount follows the MIDDLEWARE, not the interface app: this container
+      # WHO this worker's records are written as. The identity follows the
+      # MIDDLEWARE, not the interface app: this container
       # launches the framework MCP servers through a CLI subprocess, so every
       # tools/call it makes is recorded — and a worker that recorded as the
       # generic container user would file its records under a name that
@@ -153,9 +153,9 @@ services:
       # (compose_generator.dispatch_worker_audit_identities), which is why the
       # two are asserted against each other rather than kept in step by hand.
       #
-      # OSPREY_AUDIT_DIR is also the contract this file offers the image's
-      # entrypoint: its root phase is to join the group of each directory the
-      # render names here before dropping privileges.
+      # OSPREY_SPOOL_DIR and OSPREY_STATE_DIR below are also the contract this
+      # file offers the image's entrypoint: its root phase is to join the group
+      # of each directory the render names here before dropping privileges.
 {%- if dispatch_worker_corpus_mounts and (dispatch_worker_corpus_mounts.bundle or dispatch_worker_corpus_mounts.mirror) %}
       # This worker's tier is entitled to the facility bundle or the ARIEL
       # mirror, so it names those directories too (below).
@@ -164,7 +164,6 @@ services:
       # finds nothing else to do — no special case needed for it.
 {%- endif %}
       OSPREY_AUDIT_IDENTITY: dispatch-worker-{{ i }}
-      OSPREY_AUDIT_DIR: {{ osprey_worker_audit_dir }}/dispatch-worker-{{ i }}
       # WHERE this worker appends its agent-record events and keeps its own
       # state: its own directories in the two zones, bound below. Named for
       # the writer and for the entrypoint, which joins each one's group.
@@ -208,7 +207,7 @@ services:
       # known here; this worker runs the whole agent and can move between
       # targets at runtime, so whether it will write is not a render-time fact.
       #
-      # Like OSPREY_AUDIT_DIR above, this is also the contract offered to the
+      # Like OSPREY_SPOOL_DIR above, this is also the contract offered to the
       # image's entrypoint: its root phase joins the group of each directory
       # named here and probes it for READ (the tree is read-only, so a write
       # probe would report a loss nothing in this container was going to write).
@@ -308,7 +307,6 @@ services:
 {% endif %}
 {{- dial.ariel_store(postgres_deployed, on_host, osprey_host_dial_address, services, osprey_ports) }}
 {{- dial.qmd_sidecars(osprey_qmd, deployed_services | default([]), on_host) }}
-{{- dial.telemetry_gateway(deployed_services | default([]), on_host, osprey_host_dial_address, services, osprey_ports) }}
 {#- Last in the block, unlike the other service templates, where `TZ:` is the
     last line and the call sits under it: this one's `environment:` ends with
     the mode-dependent store addresses, and the axis is documented as the
@@ -351,27 +349,23 @@ services:
       - dispatch_workspace_{{ i }}:{{ osprey_container_agent_data_dir }}
       - dispatch_claude_projects_{{ i }}:{{ osprey_container_agent_data_dir }}/claude-config/projects
 {% endif %}
-      # This worker's audit subdirectory, and only its own. A bind rather than a
-      # named volume, unlike the workspace above: the records are the operator's
-      # to read, grep and purge on the host, which a named volume would bury in
-      # the runtime's storage. The isolation is the MOUNT — this container holds
-      # a bind to `var/audit/dispatch-worker-<i>` and nothing else under
-      # `var/audit`, so a worker cannot read a terminal user's records or
-      # another worker's. Provisioned host-side before the mount is created
-      # (compose_generator.ensure_audit_dir, from `_ensure_agent_data_structure`
-      # on the build path): left to the container runtime, a rootful daemon
-      # creates the source root-owned and the dropped `osprey` process inside
-      # can write nothing to it.
-      - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_worker_audit_dir }}/dispatch-worker-{{ i }}
-      # This worker's spool and state directories, and only its own, for the
-      # audit bind's reasons; agent-record binds the spool root whole and
-      # ingests what lands here.
+      # This worker's spool and state directories, and only its own. Binds
+      # rather than named volumes, unlike the workspace above: agent-record
+      # binds the spool root whole and ingests what lands here, and the host
+      # reads the state. The isolation is the MOUNT — this container holds a
+      # bind to its own subdirectory of each zone and nothing else under them,
+      # so a worker cannot read a terminal user's events or another worker's.
+      # Provisioned host-side before the mount is created
+      # (compose_generator.ensure_spool_dir and ensure_state_dir, from
+      # `_ensure_agent_data_structure` on the build path): left to the container
+      # runtime, a rootful daemon creates the source root-owned and the dropped
+      # `osprey` process inside can write nothing to it.
       - {{ osprey_spool_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_worker_spool_dir }}/dispatch-worker-{{ i }}
       - {{ osprey_state_zone_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_worker_state_dir }}/dispatch-worker-{{ i }}
 
       # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
-      # the audit bind above, for the opposite reason. Audit isolation is the
-      # mount: a worker may see only the records it wrote. The tree is a thing
+      # the spool bind above, for the opposite reason. Spool isolation is the
+      # mount: a worker may see only the events it wrote. The tree is a thing
       # this worker READS about other people: the owner of a dispatch job
       # arrives with the request, so a mount narrowed to one identity would
       # answer for nobody. Read-only keeps the asymmetry honest — every record
