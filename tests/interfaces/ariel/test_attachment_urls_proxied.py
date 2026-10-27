@@ -22,11 +22,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.web_terminal.routes.proxy import _rewrite_content
+from tests.interfaces.ariel._routes_app import routes_app
 
 from .test_attachment_routes import _viewable_row
 from .test_routes import _PNG_URL, _att_entry, _row
@@ -93,10 +93,7 @@ def test_standalone_page_requests_a_rendition_the_server_serves(tmp_path):
     service.repository.get_rendition = AsyncMock(
         return_value=_viewable_row(attachment_id=attachment_id, entry_id="e-att")
     )
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     served = TestClient(app).get(src)
     assert served.status_code == 200
     assert served.headers["content-type"] == "image/jpeg"

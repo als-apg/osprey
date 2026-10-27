@@ -13,11 +13,11 @@ import io
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.api.attachment_response import attachment_response
+from tests.interfaces.ariel._routes_app import routes_app
 
 CSP = "sandbox; default-src 'none'"
 ATT_ID = "att-0123456789ab"
@@ -68,10 +68,7 @@ def service():
 
 @pytest.fixture
 def client(service):
-    app = FastAPI()
-    app.include_router(routes.router)
-    app.state.ariel_service = service
-    app.state.config_panel_enabled = True
+    app = routes_app(service)
     return TestClient(app)
 
 

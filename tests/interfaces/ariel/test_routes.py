@@ -7,13 +7,13 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from tests.interfaces.ariel._routes_app import routes_app
 
 
 def _build_mock_registry():
@@ -148,17 +148,7 @@ def mock_ariel_service():
 @pytest.fixture
 def test_app(mock_ariel_service):
     """Create a test FastAPI app with mocked service."""
-    app = FastAPI()
-
-    # Add the router
-    app.include_router(routes.router)
-
-    # Mock the service in app state
-    app.state.ariel_service = mock_ariel_service
-    # The lifespan resolves this tier flag; a routes-only app states it.
-    app.state.config_panel_enabled = True
-
-    return app
+    return routes_app(mock_ariel_service)
 
 
 @pytest.fixture
