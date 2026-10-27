@@ -30,20 +30,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from tests._control_system import IN_PROCESS
-from tests.services.bluesky_bridge._queue_fakes import FakeManager
-
-
-def status_doc(**overrides: Any) -> dict[str, Any]:
-    """A manager status document: idle, environment open, nothing running."""
-    doc = {
-        "success": True,
-        "manager_state": "idle",
-        "worker_environment_exists": True,
-        "items_in_queue": 0,
-        "running_item_uid": None,
-    }
-    doc.update(overrides)
-    return doc
+from tests.services.bluesky_bridge._queue_fakes import FakeManager, status_doc
 
 
 @pytest.fixture
